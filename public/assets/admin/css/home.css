@@ -1,0 +1,111 @@
+.page{ padding:16px }
+.page-card{
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:16px; margin-bottom:12px
+}
+.page-title{ display:flex; align-items:center; gap:12px; margin-bottom:12px }
+.page-title .ico{ font-size:22px }
+.page-title h2{ margin:0; font-size:18px; line-height:1.2 }
+.page-title p{ margin:2px 0 0; color:var(--muted); font-size:12px }
+
+/* KPIs */
+.kpi-grid{
+  display:grid; gap:12px; grid-template-columns:repeat(4,1fr); margin-top:6px
+}
+@media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
+@media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
+
+.kpi-box{
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:14px;
+  position:relative
+}
+.kpi-box::before{
+  content:""; position:absolute; inset:0 0 auto 0; height:3px; border-radius:12px 12px 0 0; background:rgba(255,255,255,.06)
+}
+.kpi-blue::before{ background:#3b82f6 }
+.kpi-green::before{ background:#22c55e }
+.kpi-red::before{ background:#ef4444 }
+.kpi-yellow::before{ background:#f59e0b }
+
+.kpi-label{ color:var(--muted); font-size:12px }
+.kpi-value{ font-size:22px; font-weight:800; margin-top:6px }
+
+/* Charts */
+.charts-row{
+  display:grid; gap:12px; grid-template-columns:repeat(3,1fr); margin-bottom:12px
+}
+@media (max-width:1100px){ .charts-row{ grid-template-columns:1fr } }
+
+.chart-card{
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px
+}
+.widget-title{
+  display:flex; align-items:center; gap:8px; font-weight:800; margin-bottom:6px; padding-bottom:8px;
+  border-bottom:3px solid var(--brand-red);
+}
+
+/* Tabla */
+.table-card{
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px
+}
+.table-head{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px
+}
+.table-actions{ display:flex; align-items:center; gap:8px }
+.search{
+  display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--card-border); border-radius:10px;
+  background:var(--panel-bg); color:var(--muted)
+}
+.search input{
+  background:transparent; border:0; outline:0; color:var(--text)
+}
+.btn-export{
+  border:0; border-radius:10px; padding:8px 12px; cursor:pointer; color:#fff; font-weight:800;
+  background:linear-gradient(135deg, var(--brand-slate), #1b2633)
+}
+.table-wrap{ overflow:auto }
+.table{ width:100%; border-collapse:collapse }
+.table th,.table td{ padding:10px; border-bottom:1px solid var(--card-border); font-size:14px; white-space:nowrap }
+.table th{ font-weight:700; color:var(--muted); text-align:left }
+.table .empty{ text-align:center; color:var(--muted) }
+
+/* Filtros arriba de KPIs/Charts */
+.filters-bar{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 4px;
+}
+.filters-left, .filters-right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.lbl{ font-size:12px; color:var(--muted) }
+.select{
+  padding:8px 10px; border:1px solid var(--card-border); border-radius:10px;
+  background:var(--card-bg); color:var(--text)
+}
+.btn{ padding:8px 12px; border-radius:10px; border:1px solid var(--card-border); background:var(--panel-bg); color:var(--text); cursor:pointer }
+.btn-primary{ background:linear-gradient(135deg, var(--brand-red), #b7131a); color:#fff; border:0; box-shadow:var(--btn-shadow) }
+
+/* Key-hint estilo (por si lo usas aquí) */
+.kbd{ font-size:11px; color:var(--muted); border:1px solid var(--card-border); border-radius:6px; padding:2px 6px; }
+
+/* Mejoras tabla ingresos */
+#incomeTable th{ cursor:pointer }
+#incomeTable tfoot th{ font-weight:800 }
+
+
+/* ===== Modal drill-down ===== */
+.modal{ position:fixed; inset:0; display:none; z-index:60 }
+.modal.open{ display:block }
+.modal-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.5) }
+.modal-card{
+  position:relative; z-index:1; width:min(1100px, 96vw); max-height:90vh;
+  margin:5vh auto; background:var(--card-bg); border:1px solid var(--card-border);
+  border-radius:14px; display:flex; flex-direction:column;
+}
+.modal-head{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 14px; border-bottom:1px solid var(--card-border);
+}
+.modal-title{ font-weight:800; font-size:18px }
+.modal-sub{ color:var(--muted); font-size:12px }
+.modal-close{ border:1px solid var(--card-border); background:transparent; color:var(--text); padding:6px 10px; border-radius:8px; cursor:pointer }
+.modal-tools{ display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--card-border) }
+.modal-tools .spacer{ flex:1 }
+.modal-body{ padding:10px 14px; overflow:auto }
+#incomeModalTable th{ cursor:pointer }

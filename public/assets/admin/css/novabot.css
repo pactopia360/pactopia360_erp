@@ -1,0 +1,39 @@
+.nova-fab{
+    position:fixed; bottom:20px; right:20px; z-index:60;
+    border:0; border-radius:50%; width:52px; height:52px; cursor:pointer;
+    background:linear-gradient(135deg, #e31b23, #b7131a); color:#fff; font-size:22px; box-shadow:0 10px 20px rgba(227,27,35,.35)
+  }
+  body.theme-light .nova-fab{ box-shadow:0 10px 20px rgba(227,27,35,.25) }
+  
+  .nova-panel{
+    position:fixed; inset:auto 20px 90px auto; width:360px; max-width:calc(100vw - 40px); z-index:60;
+    background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; box-shadow:0 25px 70px rgba(0,0,0,.25);
+    transform:translateY(20px); opacity:0; pointer-events:none; transition:.2s ease; color:var(--text);
+  }
+  .nova-panel.open{ transform:translateY(0); opacity:1; pointer-events:auto }
+  
+  .nova-header{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--card-border) }
+  .nova-title{ font-weight:800 }
+  .nova-close{ background:transparent; border:0; color:var(--text); cursor:pointer; font-size:16px }
+  
+  .nova-body{ padding:10px 12px }
+  .nova-hint{ color:var(--muted); font-size:12px; margin:0 0 8px }
+  .nova-quick{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px }
+  .nova-btn{
+    padding:8px 10px; border-radius:10px; border:1px solid var(--card-border); background:var(--panel-bg);
+    color:var(--text); cursor:pointer; font-weight:700; font-size:12px;
+  }
+  .nova-input{ display:flex; gap:6px }
+  .nova-input input{
+    flex:1; border:1px solid var(--card-border); border-radius:10px; background:var(--card-bg); padding:10px; color:var(--text)
+  }
+  .nova-send{
+    border:0; border-radius:10px; padding:8px 12px; cursor:pointer; color:#fff;
+    background:linear-gradient(135deg,#e31b23,#b7131a); font-weight:800
+  }
+  .nova-log{ margin-top:10px; max-height:220px; overflow:auto; font-size:13px; color:var(--text) }
+  .nova-msg{ padding:6px 8px; border-radius:8px; margin-bottom:6px }
+  .nova-msg.user{ background:rgba(227,27,35,.12) }
+  .nova-msg.bot{ background:rgba(255,255,255,.06) }
+  body.theme-light .nova-msg.bot{ background:#f3f4f6 }
+  

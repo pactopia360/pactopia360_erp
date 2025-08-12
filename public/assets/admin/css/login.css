@@ -1,0 +1,232 @@
+:root{
+  /* Paleta del logo */
+  --brand-red:#e31b23;      /* rojo */
+  --brand-slate:#2d3b4c;    /* azul grisáceo */
+  --brand-charcoal:#131922; /* base muy oscura */
+  --brand-gray:#8e96a3;
+  --white:#ffffff;
+
+  /* === Variables de TEMA (por defecto: oscuro) === */
+  --body-bg: linear-gradient(135deg, var(--brand-charcoal), #0f1520, var(--brand-slate), #1d2835, var(--brand-red));
+  --shell-bg:#0e141c;
+  --brand-bg:
+    radial-gradient(600px 320px at -10% 0%, rgba(227,27,35,.14), transparent 60%),
+    radial-gradient(700px 360px at 120% 0%, rgba(45,59,76,.18), transparent 55%),
+    linear-gradient(135deg, #111824, #0d131c);
+  --panel-bg:#0b0f15;
+  --card-bg:#0f1620;
+  --card-border:rgba(255,255,255,.06);
+
+  --title-color:#ffffff;
+  --subtitle-color:#a9b2bf;
+  --label-color:#c7ced9;
+  --text-muted:#9aa3b0;
+
+  --input-bg:#0c131c;
+  --input-color:#e5e7eb;
+  --input-border:rgba(255,255,255,.12);
+  --input-placeholder:#8e96a3;
+
+  --focus-border:rgba(227,27,35,.80);
+  --focus-ring:rgba(227,27,35,.18);
+  --focus-inset:rgba(227,27,35,.35);
+
+  --link-muted-color:#c7ced9;
+
+  --btn-gradient:linear-gradient(135deg, var(--brand-red), #b7131a);
+  --btn-shadow:0 8px 20px rgba(227,27,35,.35);
+
+  --err-bg:rgba(227,27,35,.12);
+  --err-border:rgba(227,27,35,.35);
+  --err-color:#ffb4b9;
+
+  --toggle-fg:#e5e7eb;
+  --toggle-bg:#0f1620;
+  --toggle-border:rgba(255,255,255,.10);
+}
+
+/* === Overrides para TEMA CLARO (más intenso en rojos del logo) === */
+body.theme-light{
+  background:
+    radial-gradient(1200px 520px at 18% 15%, rgba(255,255,255,.35), transparent 60%),
+    radial-gradient(900px 520px at 85% 80%, rgba(227,27,35,.22), transparent 65%),
+    radial-gradient(1200px 800px at 50% 110%, rgba(255,90,90,.25), transparent 70%),
+    linear-gradient(160deg,
+      #ff2a2a 0%,
+      #e31b23 30%,
+      #cc171d 55%,
+      #ff4a4a 78%,
+      #ff8a66 100%
+    );
+  /* 👇 ahora el gradiente claro también es animado */
+  background-size: 240% 240%;
+  animation: gradientShiftLight 22s ease infinite;
+
+  --shell-bg:#ffffff;
+  --brand-bg:
+    radial-gradient(700px 340px at -10% 0%, rgba(227,27,35,.14), transparent 60%),
+    radial-gradient(700px 360px at 120% 0%, rgba(45,59,76,.10), transparent 55%),
+    linear-gradient(135deg, #ffffff, #f7f8fb);
+  --panel-bg:#f7f8fb;
+  --card-bg:#ffffff;
+  --card-border:#e5e7eb;
+
+  --title-color:#111827;
+  --subtitle-color:#4b5563;
+  --label-color:#374151;
+  --text-muted:#6b7280;
+
+  --input-bg:#ffffff;
+  --input-color:#111827;
+  --input-border:#d1d5db;
+  --input-placeholder:#9ca3af;
+
+  --focus-border:rgba(227,27,35,.95);
+  --focus-ring:rgba(227,27,35,.18);
+  --focus-inset:rgba(227,27,35,.40);
+
+  --link-muted-color:#374151;
+
+  /* Botón bien rojo en claro */
+  --btn-gradient:linear-gradient(135deg, #ff2a2a, #d0161c);
+  --btn-shadow:0 10px 20px rgba(227,27,35,.32);
+
+  --err-bg:#fde8e8;
+  --err-border:#fecaca;
+  --err-color:#991b1b;
+
+  --toggle-fg:#0f172a;
+  --toggle-bg:#ffffff;
+  --toggle-border:#e5e7eb;
+}
+
+/* ============ Base ============ */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+  color:var(--title-color);
+
+  /* Fondo en gradiente animado (oscuro) */
+  background: var(--body-bg);
+  background-size: 240% 240%;
+  animation: gradientShift 18s ease infinite;
+
+  display:grid; 
+  place-items:center;
+}
+
+/* Animación suave (oscuro) */
+@keyframes gradientShift{
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Animación suave (claro) */
+@keyframes gradientShiftLight{
+  0%   { background-position: 0% 50%; }
+  25%  { background-position: 50% 0%; }
+  50%  { background-position: 100% 50%; }
+  75%  { background-position: 50% 100%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Botón flotante para cambiar tema */
+.theme-switch{ position:fixed; top:16px; right:16px; z-index:50; }
+.theme-btn{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px; border-radius:10px; cursor:pointer;
+  border:1px solid var(--toggle-border);
+  background:var(--toggle-bg);
+  color:var(--toggle-fg);
+  font-weight:700; font-size:13px;
+  box-shadow:0 8px 16px rgba(0,0,0,.08);
+}
+.theme-btn:active{transform:translateY(1px)}
+
+.shell{
+  width:100%; max-width:980px; display:grid; grid-template-columns:1.15fr .85fr;
+  background:var(--shell-bg); border-radius:20px; overflow:hidden;
+  box-shadow:0 25px 70px rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.05) inset;
+}
+
+/* Panel izquierdo (branding) */
+.brand{
+  background: var(--brand-bg);
+  padding:42px 36px; display:flex; flex-direction:column; justify-content:space-between; min-height:540px;
+}
+.logo{display:flex; align-items:center; gap:12px; margin-top:2px}
+.logo-img{height:44px; width:auto; display:block}
+/* Cambia de logo según el tema */
+.logo-light{display:none}
+body.theme-light .logo-dark{display:none}
+body.theme-light .logo-light{display:block}
+
+body.theme-light .logo-img{filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));}
+.slogan{color:var(--subtitle-color); margin:22px 0 0 0; font-weight:700}
+.points{display:grid; gap:12px; margin-top:22px; color:var(--subtitle-color)}
+.point b{color:var(--title-color)}
+.foot-note{font-size:12px; color:var(--text-muted); margin-top:auto; opacity:.9}
+
+/* Panel derecho (form) */
+.panel{
+  padding:42px 34px; display:flex; align-items:center; justify-content:center; background:var(--panel-bg);
+}
+.card{
+  width:100%; max-width:380px; 
+  background:var(--card-bg); 
+  border:1px solid var(--card-border); 
+  border-radius:16px; 
+  padding:22px
+}
+.title{margin:0 0 6px 0; font-weight:800; color:var(--title-color); font-size:22px}
+.subtitle{margin:0 0 18px 0; color:var(--subtitle-color); font-size:13px}
+
+label{font-size:12px; color:var(--label-color)}
+.input{
+  width:100%; margin-top:6px; margin-bottom:14px; padding:12px 12px;
+  border:1px solid var(--input-border); border-radius:12px; outline:none; color:var(--input-color);
+  background:var(--input-bg); transition:border .15s, box-shadow .15s, background .15s;
+}
+.input::placeholder{color:var(--input-placeholder)}
+.input:focus{
+  border-color:var(--focus-border);
+  box-shadow:0 0 0 4px var(--focus-ring), 0 0 0 1px var(--focus-inset) inset;
+}
+
+.pwd-wrap{position:relative}
+.toggle{
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  border:0; background:transparent; cursor:pointer; color:var(--subtitle-color); padding:4px 6px; font-size:12px;
+}
+
+.row{
+  display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; margin-bottom:12px
+}
+.remember{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--label-color)}
+.link-muted{font-size:12px; color:var(--link-muted-color); text-decoration:none; opacity:.75; pointer-events:none}
+
+.btn{
+  width:100%; padding:12px 14px; border:0; border-radius:12px; color:#fff; font-weight:800; cursor:pointer;
+  background-image:var(--btn-gradient);
+  box-shadow:var(--btn-shadow);
+  transition:transform .06s ease, filter .2s ease;
+}
+.btn:hover{filter:saturate(1.1) brightness(1.03)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.6; cursor:not-allowed}
+
+.err{
+  background:var(--err-bg); color:var(--err-color); border:1px solid var(--err-border);
+  padding:10px 12px; border-radius:10px; font-size:12px; margin-bottom:12px;
+}
+.hint{font-size:12px; color:var(--text-muted); margin-top:10px}
+
+@media (max-width: 900px){
+  .shell{grid-template-columns:1fr}
+  .brand{display:none}
+  .panel{padding:28px}
+  .card{background:var(--card-bg)}
+}
