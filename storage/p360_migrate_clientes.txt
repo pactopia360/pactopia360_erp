@@ -1,0 +1,22 @@
+﻿
+   InvalidArgumentException 
+
+  Database connection [mysql_clientes] not configured.
+
+  at vendor\laravel\framework\src\Illuminate\Database\DatabaseManager.php:227
+    223Ôûò 
+    224Ôûò         $config = $this->dynamicConnectionConfigurations[$name] ?? Arr::get($connections, $name);
+    225Ôûò 
+    226Ôûò         if (is_null($config)) {
+  Ô×£ 227Ôûò             throw new InvalidArgumentException("Database connection [{$name}] not configured.");
+    228Ôûò         }
+    229Ôûò 
+    230Ôûò         return (new ConfigurationUrlParser)
+    231Ôûò             ->parseConfiguration($config);
+
+  1   vendor\laravel\framework\src\Illuminate\Database\DatabaseManager.php:191
+      Illuminate\Database\DatabaseManager::configuration("mysql_clientes")
+
+  2   vendor\laravel\framework\src\Illuminate\Database\DatabaseManager.php:104
+      Illuminate\Database\DatabaseManager::makeConnection("mysql_clientes")
+

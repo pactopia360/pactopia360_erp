@@ -1,0 +1,111 @@
+/* ===== P360 · Perfiles (scope .prf-page) ===== */
+.prf-page{ padding:16px; background:var(--bg); color:var(--text) }
+.prf-page .prf-title{ margin:0; font-size:20px; font-weight:800 }
+.prf-page .prf-header{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:8px }
+.prf-page .prf-counters{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px }
+.prf-page .prf-kpi{ background: color-mix(in oklab, var(--text) 6%, transparent); color:var(--text); padding:6px 10px; border-radius:9999px; font-weight:800; font-size:12px }
+.prf-page .prf-kpi.kpi-green{ background: color-mix(in oklab, var(--success) 20%, transparent) }
+.prf-page .prf-kpi.kpi-amber{ background: color-mix(in oklab, var(--warning) 22%, transparent) }
+
+.prf-page .prf-card{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px; box-shadow:0 6px 18px rgba(0,0,0,.12); max-width:1400px; margin-inline:auto }
+
+.prf-page .prf-filters{ background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:12px; box-shadow:0 6px 18px rgba(0,0,0,.08); max-width:1400px; margin-inline:auto }
+.prf-page .prf-filter-row{ display:grid; gap:8px; grid-template-columns: 1.4fr repeat(2, minmax(140px,.7fr)) auto; align-items:end }
+@media (max-width:1100px){ .prf-page .prf-filter-row{ grid-template-columns:1fr 1fr 1fr } }
+@media (max-width:640px){ .prf-page .prf-filter-row{ grid-template-columns:1fr } }
+.prf-page .prf-filter-row .lbl{ font-size:12px; color:var(--muted) }
+.prf-page .prf-filters input[type="search"], .prf-page .prf-filters select{
+  min-height:36px; padding:8px 10px; border:1px solid var(--card-border); border-radius:10px; background:var(--card-bg); color:var(--text); font-size:14px
+}
+.prf-page .prf-filters-actions .btn{ min-height:36px; padding:8px 12px; font-weight:800 }
+
+/* Botones (scoped) */
+.prf-page .btn{ border:1px solid var(--card-border); background:var(--card-bg); color:var(--text); border-radius:10px; padding:8px 12px; cursor:pointer; font-size:14px; font-weight:800 }
+.prf-page .btn:hover{ filter:brightness(1.06) }
+.prf-page .btn-primary{ background:linear-gradient(135deg,var(--brand-red),color-mix(in oklab,var(--brand-red) 70%, black 30%)); color:#fff; border:0 }
+.prf-page .btn-secondary{ background:var(--card-bg) }
+.prf-page .btn-ghost{ background:transparent; border-color:transparent; color:var(--accent) }
+.prf-page .btn-danger{ background:linear-gradient(135deg,#ef4444,color-mix(in oklab,#ef4444 65%, black 35%)); color:#fff; border:0 }
+.prf-page .btn-small{ padding:6px 10px; font-size:12px; border-radius:8px }
+
+/* Tabla */
+.prf-page .prf-table-wrap{ overflow:auto }
+.prf-page .prf-table{ width:100%; border-collapse:separate; border-spacing:0 }
+.prf-page .prf-table th, .prf-page .prf-table td{ padding:10px; border-bottom:1px solid var(--card-border); white-space:nowrap; color:var(--text) }
+.prf-page .prf-table thead th{ position:sticky; top:0; background:var(--card-bg); z-index:1; font-weight:800; color:var(--muted); text-align:left }
+.prf-page .prf-table tbody tr:nth-child(odd){ background: color-mix(in oklab, var(--text) 3%, transparent) }
+html.theme-dark .prf-page .prf-table tbody tr:nth-child(odd){ background: color-mix(in oklab, #000 12%, transparent) }
+.prf-page .prf-table tbody tr:hover{ background: color-mix(in oklab, var(--accent) 9%, transparent) }
+.prf-page .prf-sort{ color:var(--text); text-decoration:none; font-weight:800 }
+.prf-page .prf-sort:hover{ text-decoration:underline }
+.prf-page .prf-col-select{ width:36px }
+.prf-page .prf-actions{ min-width:180px }
+.prf-page .prf-name-wrap{ display:flex; flex-direction:column }
+.prf-page .prf-name-text{ font-weight:800; cursor:pointer }
+.prf-page .prf-key{ cursor:pointer }
+.prf-page .prf-muted{ color:var(--muted) }
+
+/* Chips */
+.prf-page .chip-toggle{
+  border:1px solid var(--card-border); background:var(--card-bg); color:var(--text);
+  padding:4px 10px; border-radius:9999px; font-size:12px; font-weight:800; cursor:pointer;
+}
+.prf-page .chip-toggle.on{ background: color-mix(in oklab, var(--success) 22%, transparent); color:#064e3b; border-color:transparent }
+.prf-page .chip-toggle.off{ background: color-mix(in oklab, var(--danger) 22%, transparent); color:#7f1d1d; border-color:transparent }
+
+/* Pie */
+.prf-page .prf-table-foot{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:8px }
+.prf-page .prf-total{ font-size:12px; color:var(--muted) }
+
+/* Bulk toolbar */
+.prf-page .prf-bulk{
+  max-width:1400px; margin:0 auto 10px; display:flex; justify-content:space-between; align-items:center; gap:10px;
+  background:var(--panel-bg); border:1px solid var(--card-border); border-radius:12px; padding:10px; box-shadow:0 6px 18px rgba(0,0,0,.08);
+}
+.prf-page .prf-bulk-left,.prf-page .prf-bulk-right{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.prf-page .prf-bulk-count{ font-weight:800 }
+
+/* Modal permisos */
+.prf-page .prf-modal{ position:fixed; inset:0; display:none; z-index:60 }
+.prf-page .prf-modal[aria-hidden="false"]{ display:block }
+.prf-page .prf-backdrop{ position:absolute; inset:0; background:var(--overlay); backdrop-filter: blur(1.5px) }
+.prf-page .prf-modal-card{
+  position:relative; z-index:1; width:min(1100px,96vw); max-height:90vh; margin:5vh auto;
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; box-shadow:0 16px 40px rgba(0,0,0,.25);
+  display:flex; flex-direction:column; animation: modalIn .2s ease;
+}
+@keyframes modalIn{ from{ transform:translateY(6px); opacity:.6 } to{ transform:none; opacity:1 } }
+.prf-page .prf-modal-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--card-border) }
+.prf-page .prf-modal-title{ font-weight:800; font-size:18px }
+.prf-page .prf-modal-sub{ color:var(--muted); font-size:12px }
+.prf-page .prf-modal-close{ border:1px solid var(--card-border); background:transparent; color:var(--text); padding:6px 10px; border-radius:8px; cursor:pointer }
+.prf-page .prf-perms-toolbar{ display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--card-border) }
+.prf-page .prf-perms-toolbar .spacer{ flex:1 }
+.prf-page .prf-modal-body{ padding:10px 14px; overflow:auto }
+
+.prf-page .prf-groups{ display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)) }
+.prf-page .prf-group{ border:1px solid var(--card-border); border-radius:10px; padding:10px; background:var(--panel-bg) }
+.prf-page .prf-group-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; font-weight:800 }
+.prf-page .prf-perm{ display:flex; align-items:center; gap:8px; padding:4px 0 }
+.prf-page .prf-perm input{ transform: translateY(1px) }
+
+/* Bot lateral (Asistente) */
+.prf-bot{ position:fixed; right:12px; bottom:12px; width:min(480px, 92vw); max-height:80vh; background:var(--card-bg);
+  border:1px solid var(--card-border); border-radius:14px; box-shadow:0 16px 40px rgba(0,0,0,.25);
+  display:none; flex-direction:column; overflow:hidden; z-index:70
+}
+.prf-bot[aria-hidden="false"]{ display:flex }
+.prf-bot .bot-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border-bottom:1px solid var(--card-border) }
+.prf-bot .bot-head .t{ font-weight:800 }
+.prf-bot .bot-close{ border:1px solid var(--card-border); background:transparent; border-radius:8px; padding:4px 8px; cursor:pointer }
+.prf-bot .bot-body{ padding:10px 12px; display:flex; flex-direction:column; gap:10px }
+.prf-bot .bot-hint{ margin:0; color:var(--muted); font-size:12px }
+.prf-bot .bot-quick{ display:flex; gap:8px; flex-wrap:wrap }
+.prf-bot .bot-btn{ border:1px solid var(--card-border); background:var(--panel-bg); color:var(--text); border-radius:9999px; padding:6px 10px; font-weight:800; cursor:pointer }
+.prf-bot .bot-input{ display:flex; gap:8px }
+.prf-bot .bot-input input{ flex:1; min-height:36px; padding:8px 10px; border:1px solid var(--card-border); border-radius:8px; background:var(--card-bg); color:var(--text) }
+.prf-bot .bot-input button{ min-height:36px; padding:8px 12px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg) }
+.prf-bot .bot-log{ border:1px solid var(--card-border); background:var(--panel-bg); border-radius:10px; min-height:90px; max-height:260px; overflow:auto; padding:8px; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace }
+.prf-bot .bot-log .ok{ color:var(--success) } .prf-bot .bot-log .info{ color:var(--info) } .prf-bot .bot-log .warn{ color:var(--warning) } .prf-bot .bot-log .err{ color:var(--danger) }
+
+@media (prefers-reduced-motion: reduce){ *{ animation:none!important; transition:none!important } }

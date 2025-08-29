@@ -1,0 +1,276 @@
+{
+    "timestamp": "2025-08-20 00:47:15",
+    "routes": [
+        {
+            "method": "GET|HEAD",
+            "uri": "up",
+            "name": null,
+            "action": "Closure",
+            "middleware": []
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "\/",
+            "name": null,
+            "action": "Closure",
+            "middleware": [
+                "web"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "login",
+            "name": "login",
+            "action": "Closure",
+            "middleware": [
+                "web"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/login",
+            "name": "admin.login",
+            "action": "App\\Http\\Controllers\\Admin\\Auth\\LoginController@showLogin",
+            "middleware": [
+                "web",
+                "guest:admin"
+            ]
+        },
+        {
+            "method": "POST",
+            "uri": "admin\/login",
+            "name": "admin.login.do",
+            "action": "App\\Http\\Controllers\\Admin\\Auth\\LoginController@login",
+            "middleware": [
+                "web",
+                "guest:admin",
+                "throttle:5,1"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin",
+            "name": "admin.root",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/dashboard",
+            "name": "admin.dashboard",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/home",
+            "name": "admin.home",
+            "action": "App\\Http\\Controllers\\Admin\\HomeController@index",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/home\/stats",
+            "name": "admin.home.stats",
+            "action": "App\\Http\\Controllers\\Admin\\HomeController@stats",
+            "middleware": [
+                "web",
+                "auth:admin",
+                "throttle:60,1"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/home\/income\/{ym}",
+            "name": "admin.home.incomeMonth",
+            "action": "App\\Http\\Controllers\\Admin\\HomeController@incomeByMonth",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/perfil",
+            "name": "admin.perfil",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/profile",
+            "name": "admin.profile",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/config",
+            "name": "admin.config.index",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/configuracion",
+            "name": "admin.configuracion.index",
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "POST",
+            "uri": "admin\/logout",
+            "name": "logout",
+            "action": "App\\Http\\Controllers\\Admin\\Auth\\LoginController@logout",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "POST",
+            "uri": "admin\/admin\/logout",
+            "name": "admin.logout",
+            "action": "App\\Http\\Controllers\\Admin\\Auth\\LoginController@logout",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "admin\/{fallbackPlaceholder}",
+            "name": null,
+            "action": "Closure",
+            "middleware": [
+                "web",
+                "auth:admin"
+            ]
+        },
+        {
+            "method": "GET|HEAD",
+            "uri": "storage\/{path}",
+            "name": "storage.local",
+            "action": "Closure",
+            "middleware": []
+        }
+    ],
+    "migrations": [
+        "0001_01_01_000000_create_users_table.php",
+        "0001_01_01_000001_create_cache_table.php",
+        "0001_01_01_000002_create_jobs_table.php",
+        "2025_08_08_100001_create_or_update_planes_table.php",
+        "2025_08_08_100002_create_or_update_clientes_table.php",
+        "2025_08_08_100003_create_or_update_pagos_table.php",
+        "2025_08_08_100004_create_or_update_cfdis_table.php",
+        "admin\\2025_01_01_000000_create_pagos_admin.php",
+        "admin\\2025_01_01_000010_create_timbres_table.php",
+        "admin\\2025_05_22_000002_create_users_admin_table.php",
+        "admin\\2025_05_22_000003_create_planes_promos_pagos.php",
+        "admin\\2025_08_12_000001_create_accounts_table.php",
+        "admin\\2025_08_12_000002_create_account_users_table.php",
+        "admin\\2025_08_12_000003_create_plans_table.php",
+        "admin\\2025_08_12_000004_create_modules_table.php",
+        "admin\\2025_08_12_000004_create_or_fix_subscriptions_table.php",
+        "admin\\2025_08_12_000004_create_subscriptions_table.php",
+        "admin\\2025_08_12_000005_create_payments_table.php",
+        "admin\\2025_08_12_000005_create_plan_module_table.php",
+        "admin\\2025_08_12_000006_create_promotions_table.php",
+        "admin\\2025_08_12_000007_create_customers_table.php",
+        "admin\\2025_08_12_000008_create_admin_users_table.php",
+        "admin\\2025_08_12_000009_create_account_users_table.php",
+        "admin\\2025_08_12_000010_create_subscriptions_table.php",
+        "admin\\2025_08_12_000011_create_invoices_table.php",
+        "admin\\2025_08_12_000011_create_modules_tables.php",
+        "admin\\2025_08_12_000012_create_hits_tables.php",
+        "admin\\2025_08_12_000013_create_billing_tables.php",
+        "admin\\2025_08_12_000013_create_hits_tables.php",
+        "admin\\2025_08_12_000014_create_email_verifications_table.php",
+        "admin\\2025_08_12_000015_create_sync_outbox_table.php",
+        "admin\\2025_08_12_185622_create_failed_jobs_table.php",
+        "admin\\2025_08_13_000010_alter_subscriptions_add_billing_cycle_columns.php",
+        "admin\\2025_08_13_000010_alter_subscriptions_add_billing_fields.php",
+        "admin\\2025_08_13_000110_fix_subscriptions_billing_cycle.php",
+        "cliente\\2025_01_01_000001_create_clientes_clientes.php",
+        "cliente\\2025_01_01_000100_create_clientes_table.php",
+        "cliente\\2025_05_22_000101_create_cliente_users_table.php",
+        "cliente\\2025_08_12_000001_create_cuentas_cliente_table.php",
+        "cliente\\2025_08_12_000020_create_accounts_table.php",
+        "cliente\\2025_08_12_000021_create_users_table.php",
+        "cliente\\2025_08_12_000022_create_companies_table.php",
+        "cliente\\2025_08_12_000101_alter_users_add_account_id.php",
+        "cliente\\2025_08_12_000101_create_account_users_mirror_table.php",
+        "cliente\\2025_08_12_000102_create_usuarios_cuenta_table.php",
+        "cliente\\2025_08_12_185622_create_jobs_table.php",
+        "cliente\\2025_08_12_185654_create_cache_table.php",
+        "cliente\\2025_08_13_000011_alter_users_add_account_fields.php",
+        "cliente\\2025_08_13_000020_alter_users_add_account_id_and_admin_fields.php",
+        "cliente\\2025_08_13_000120_add_account_id_to_users_if_missing.php",
+        "cliente\\2025_08_18_000200_create_facturas_table.php"
+    ],
+    "views": [
+        "admin\\auth\\login.blade.php",
+        "admin\\config\\index.blade.php",
+        "admin\\dashboard.blade.php",
+        "admin\\home.blade.php",
+        "admin\\layouts\\admin.blade.php",
+        "admin\\layouts\\master_admin.blade.php",
+        "admin\\partials\\home_boot.blade.php",
+        "admin\\perfil.blade.php",
+        "layouts\\admin.blade.php",
+        "layouts\\partials\\head.blade.php",
+        "layouts\\partials\\header.blade.php",
+        "layouts\\partials\\novabot.blade.php",
+        "layouts\\partials\\scripts.blade.php",
+        "layouts\\partials\\sidebar.blade.php",
+        "welcome.blade.php"
+    ],
+    "assets": [
+        "css\\dashboard.css",
+        "css\\home.css",
+        "css\\layout.css",
+        "css\\login.css",
+        "css\\novabot.css",
+        "img\\avatar-default.png",
+        "img\\favicon.png",
+        "img\\icon-192-maskable.png",
+        "img\\icon-192.png",
+        "img\\icon-512-maskable.png",
+        "img\\icon-512.png",
+        "img\\logo-pactopia360-dark.png",
+        "img\\logo-pactopia360-white.png",
+        "js\\dashboard.js",
+        "js\\home.js",
+        "js\\home\\api.js",
+        "js\\home\\charts.js",
+        "js\\home\\helpers.js",
+        "js\\home\\index.js",
+        "js\\home\\state.js",
+        "js\\home\\tables.js",
+        "js\\home\\ui.js",
+        "js\\login.js",
+        "js\\novabot.js",
+        "manifest.webmanifest"
+    ]
+}

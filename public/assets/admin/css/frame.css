@@ -1,0 +1,47 @@
+/* ====== Frame base del panel (estructura + scroll) ====== */
+:root{
+  --sidebar-w: 16rem;          /* Debe coincidir con sidebar.css */
+  --sidebar-w-collapsed: 72px; /* idem */
+  --header-h: 56px;
+}
+
+html, body { height: 100%; }
+body{
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* el scroll vive en el contenido principal */
+}
+
+/* Contenedor general del app (header fuera) */
+.admin-app{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Zona scrolleable */
+.admin-content{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Espacio para el sidebar en desktop */
+@media (min-width: 1024px){
+  main, #p360-main, .admin-content{ margin-left: var(--sidebar-w); }
+  html.sidebar-collapsed main,
+  html.sidebar-collapsed #p360-main,
+  html.sidebar-collapsed .admin-content,
+  body.sidebar-collapsed main,
+  body.sidebar-collapsed #p360-main,
+  body.sidebar-collapsed .admin-content{
+    margin-left: var(--sidebar-w-collapsed);
+  }
+}
+
+/* Footer */
+.admin-footer { border-top: 1px solid rgba(0,0,0,.05); margin-top: 1rem; }
+[data-theme="dark"] .admin-footer { border-top-color: rgba(255,255,255,.1); }

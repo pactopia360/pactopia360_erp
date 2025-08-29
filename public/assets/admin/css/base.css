@@ -1,0 +1,58 @@
+/* ===== P360 · Admin · BASE =====  (se carga SIEMPRE antes de los módulos) */
+:root{
+  --header-h:56px;              /* ajusta si tu header mide diferente */
+  --sidebar-w:260px;            /* ancho sidebar abierto */
+  --sidebar-w-collapsed:72px;   /* ancho sidebar cerrado */
+  /* colores/vars mínimas por si aún no carga el CSS del módulo */
+  --text:#111827; --muted:#6b7280;
+  --bg:#f6f7f9; --card-bg:#fff; --card-border:#e5e7eb;
+  --shadow-1:0 6px 18px rgba(0,0,0,.12);
+}
+
+/* Tema claro/oscuro a nivel <html>  */
+html.theme-light, html[data-theme="light"]{
+  color-scheme:light;
+  --text:#111827; --muted:#6b7280;
+  --bg:#f6f7f9; --card-bg:#fff; --card-border:#e5e7eb;
+}
+html.theme-dark, html[data-theme="dark"]{
+  color-scheme:dark;
+  --text:#e5e7eb; --muted:#9ca3af;
+  --bg:#0e141c; --card-bg:#111827; --card-border:rgba(255,255,255,.12);
+}
+
+/* —————————————————————
+   Estructura y scroll “contenidos”, no body
+   ————————————————————— */
+html,body{height:100%}
+body{overflow:hidden;background:var(--bg);color:var(--text)}
+
+/* Header */
+#topbar{min-height:var(--header-h)}
+
+/* App frame */
+.admin-app{height:calc(100vh - var(--header-h)); overflow:hidden;}
+
+/* Sidebar: que scrollee SOLO su interior */
+#sidebar{height:100%; overflow:auto}
+
+/* Contenido principal: único scroll del contenido */
+.admin-content{
+  height:100%;
+  overflow:auto;                      /* <- aquí vive el scroll */
+  -webkit-overflow-scrolling:touch;
+  background:var(--bg);
+}
+
+/* Contenedor de página (márgenes internos) */
+.page-container{padding:.75rem}
+
+/* Evita “brincos” visuales al cambiar tema/densidad */
+*{scrollbar-gutter: stable both-edges}
+
+/* Mini guard para FOUC: si falta CSS del módulo, que al menos se vea decente */
+.page-card{
+  background:var(--card-bg); border:1px solid var(--card-border);
+  border-radius:12px; padding:12px; box-shadow:var(--shadow-1)
+}
+

@@ -1,9 +1,10 @@
 /* =========================================================
-   PACTOPIA360 · DASHBOARD LAYOUT
+   PACTOPIA360 · DASHBOARD LAYOUT (ACTUALIZADO)
    - Header fijo full-width
-   - Sidebar fija bajo header (colapsable)
-   - Tema claro/oscuro
+   - Sidebar fija bajo header (colapsable, sin logo)
+   - Tema claro/oscuro global (toggle desde header)
    - Dropdowns (perfil / notificaciones)
+   - Tooltips del sidebar SOLO cuando está colapsado
    ========================================================= */
 
 /* ---- Dimensiones y marca ---- */
@@ -108,12 +109,13 @@ body{
 .header-usermeta{ display:flex; flex-direction:column; min-width:180px }
 .header-usermeta small{ color:var(--muted) }
 
+/* Brand del HEADER (logo solo aquí) */
 .brand-link{ display:flex; align-items:center; gap:10px; text-decoration:none; color:inherit }
+.brand-name{ font-weight:800; letter-spacing:.02em }
 .brand-logo{ height:26px; display:block }
-.brand-logo.brand-light{ display:none }
-body.theme-light .brand-logo.brand-dark{ display:none }
-body.theme-light .brand-logo.brand-light{ display:inline }
-.brand-name{ font-weight:800 }
+.brand-logo.light { display:none }
+body.theme-light .brand-logo.dark { display:none }
+body.theme-light .brand-logo.light{ display:inline }
 
 .menu-btn{
   background:transparent;border:1px solid var(--header-border);
@@ -195,26 +197,19 @@ body.theme-light .brand-logo.brand-light{ display:inline }
 }
 
 /* =========================================================
-   SIDEBAR FIJA (BAJO EL HEADER)
+   SIDEBAR FIJA (BAJO EL HEADER) — SIN LOGO
    ========================================================= */
 .sidebar{
   position:fixed; top:var(--header-h); left:0; bottom:0;
   width:var(--sidebar-w);
   background:var(--sidebar-bg);
   border-right:1px solid var(--sidebar-border);
-  overflow:auto; z-index:30;
+  overflow:auto; z-index:50; /* <- fix: sobre el overlay móvil */
   transition: width .15s ease;
 }
 body.sidebar-collapsed .sidebar{ width:var(--sidebar-w-collapsed); }
 
-.sidebar-brand{
-  display:flex; align-items:center; justify-content:center;
-  padding:12px 14px; border-bottom:1px solid var(--sidebar-border);
-}
-.logo-img{height:28px;width:auto;display:block}
-.logo-light{display:none}
-body.theme-light .logo-dark{display:none}
-body.theme-light .logo-light{display:block}
+/* (Eliminado bloque de brand/logos en sidebar) */
 
 .nav{ padding:10px 8px 60px }
 .nav-section{
@@ -222,10 +217,12 @@ body.theme-light .logo-light{display:block}
   color:var(--sidebar-section); font-weight:700; letter-spacing:.04em
 }
 .nav-link{
+  position:relative;
   display:flex; align-items:center; gap:10px;
   color:var(--sidebar-link); text-decoration:none;
   padding:10px 12px; margin:2px 4px; border-radius:10px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  border:1px solid transparent;
 }
 .nav-link:hover{background:var(--sidebar-hover)}
 .nav-link.active{
@@ -235,22 +232,42 @@ body.theme-light .logo-light{display:block}
 }
 .nav-link .ico{width:20px;text-align:center}
 
+/* Tooltip: por defecto oculto (para evitar duplicados) */
+.nav-link .tip{ display:none }
+
+/* Botón colapsar */
 .collapse-btn{
   position:sticky; bottom:12px; width:calc(100% - 16px); margin:12px 8px;
   border:1px solid var(--sidebar-border); background:transparent; color:var(--sidebar-section);
   border-radius:10px; padding:8px; cursor:pointer;
 }
 
-/* Sidebar colapsada (texto oculto, solo iconos) */
+/* Sidebar colapsada (solo iconos) */
 body.sidebar-collapsed .nav-section{ display:none; }
 body.sidebar-collapsed .nav-link .txt{ display:none; }
 body.sidebar-collapsed .nav-link{ justify-content:center; }
+
+/* Tooltip visible SOLO en colapsado */
+body.sidebar-collapsed .nav-link .tip{
+  position:absolute; inset:auto auto 50% calc(100% + 8px);
+  transform:translateY(50%); white-space:nowrap; display:none;
+  background:var(--card-bg); color:var(--text);
+  border:1px solid var(--card-border); padding:6px 8px; border-radius:8px;
+  box-shadow:0 16px 40px rgba(0,0,0,.18); font-size:12px; pointer-events:none
+}
+body.sidebar-collapsed .nav-link:hover .tip{ display:block }
+body.sidebar-collapsed .nav-link .tip::before{
+  content:""; position:absolute; right:100%; top:50%; transform:translateY(-50%);
+  border:6px solid transparent; border-right-color:var(--card-bg);
+  filter:drop-shadow(-1px 0 0 var(--card-border))
+}
 
 /* ---- Móvil: overlay ---- */
 @media (max-width: 992px){
   .sidebar{
     transform:translateX(-100%); transition:transform .2s ease;
     width:var(--sidebar-w);
+    box-shadow:0 24px 60px rgba(0,0,0,.25);
   }
   body.sidebar-open .sidebar{ transform:translateX(0) }
 }
@@ -260,6 +277,7 @@ body.sidebar-collapsed .nav-link{ justify-content:center; }
    ========================================================= */
 .app{ min-height:100% } /* wrapper opcional */
 
+/* Empuje para layouts que usan .main */
 .main{
   padding-top: calc(var(--header-h) + 12px);
   margin-left: var(--sidebar-w);
@@ -269,6 +287,18 @@ body.sidebar-collapsed .nav-link{ justify-content:center; }
 body.sidebar-collapsed .main{ margin-left: var(--sidebar-w-collapsed); }
 @media (max-width: 992px){
   .main{ margin-left:0 }
+}
+
+/* Empuje para tu layout actual que usa .admin-content */
+.admin-content{
+  margin-left: var(--sidebar-w);
+  transition: margin-left .15s ease;
+  padding-top: calc(var(--header-h) + 12px);
+  min-width:0;
+}
+body.sidebar-collapsed .admin-content{ margin-left: var(--sidebar-w-collapsed); }
+@media (max-width: 992px){
+  .admin-content{ margin-left:0 }
 }
 
 .content{ padding:16px }
@@ -321,3 +351,10 @@ body.theme-light .main  ::-webkit-scrollbar-thumb{
 .quick-menu > summary::-webkit-details-marker{display:none}
 .kbd{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;
      color:var(--muted);border:1px solid var(--header-border);border-radius:6px;padding:2px 6px}
+
+
+     /* ===== Safety net: asegura que el sidebar quede por encima del overlay y visible en desktop ===== */
+.sidebar{ z-index:50; }
+@media (min-width: 993px){
+  .sidebar{ transform:none !important; } /* nunca fuera de pantalla en desktop */
+}
