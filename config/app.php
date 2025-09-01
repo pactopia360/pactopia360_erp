@@ -125,4 +125,8 @@ return [
 
     'deploy_secret' => env('APP_DEPLOY_SECRET', null),
 
+    // Lista de correos con privilegio total (separados por coma en .env)
+    'superadmins' => array_filter(array_map('trim', explode(',', (string) env('APP_SUPERADMINS', '')))),
+
+
 ];

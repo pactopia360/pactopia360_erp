@@ -7,9 +7,13 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class AuthServiceProvider extends ServiceProvider
 {
+    /**
+     * Mapeo de Policies (respeta tus clases).
+     */
     protected $policies = [
         \App\Models\Admin\Auth\UsuarioAdministrativo::class => \App\Policies\UsuarioAdministrativoPolicy::class,
         \App\Models\Cliente::class => \App\Policies\ClientePolicy::class,
@@ -31,11 +35,24 @@ class AuthServiceProvider extends ServiceProvider
             if (!$user) return false;
             $get = fn($k) => method_exists($user,'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
 
+            // Flag directo en modelo
             $sa  = (bool)($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
             if ($sa) return true;
 
+            // Rol por texto
             $rol = strtolower((string)($get('rol') ?? $get('role') ?? ''));
-            return $rol === 'superadmin';
+            if ($rol === 'superadmin') return true;
+
+            // Lista desde .env (config('app.superadmins'))
+            $list = config('app.superadmins', []);
+            $email = Str::lower((string) ($get('email') ?? ''));
+            foreach ((array) $list as $allowed) {
+                if ($email !== '' && Str::lower(trim($allowed)) === $email) {
+                    return true;
+                }
+            }
+
+            return false;
         } catch (\Throwable $e) {
             return false;
         }
@@ -47,31 +64,21 @@ class AuthServiceProvider extends ServiceProvider
 
         /**
          * BEFORE global:
-         *  - Env local/dev/testing → deja pasar todo (flujo de desarrollo)
-         *  - Dueño (tu correo) → todo permitido
-         *  - Superadmin flag/rol → todo permitido
-         * Aplica a cualquier ability (incluido 'perm').
+         *  - local/dev/testing → permite TODO en /admin/*
+         *  - superadmin por flag/rol o por lista APP_SUPERADMINS → TODO permitido
          */
         Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) {
             $u = $this->currentUser($user);
 
-            // 1) Desbloqueo en entornos de desarrollo
+            // 1) Entornos de desarrollo
             if (app()->environment(['local','development','testing'])) {
-                // Solo por higiene, si no estás en /admin no fuerces permitir:
                 if (request()->is('admin/*')) return true;
             }
 
-            // 2) Dueño (por correo)
-            try {
-                if ($u && strcasecmp((string)$u->email, 'marco.padilla@pactopia.com') === 0) {
-                    return true;
-                }
-            } catch (\Throwable $e) {}
-
-            // 3) Superadmin
+            // 2) Superadmin (flag/rol/lista .env)
             if ($this->isSuper($u)) return true;
 
-            return null; // deja que lo resuelvan las definiciones siguientes
+            return null; // deja que lo evalúen policies/gates
         });
 
         /**
@@ -81,7 +88,7 @@ class AuthServiceProvider extends ServiceProvider
             $u   = $this->currentUser($user);
             $key = strtolower(trim($perm));
 
-            // hasPerm() de tu modelo tiene prioridad si existe
+            // Método en modelo tiene prioridad
             try {
                 if ($u && method_exists($u, 'hasPerm')) {
                     $res = $u->hasPerm($key);
@@ -89,7 +96,7 @@ class AuthServiceProvider extends ServiceProvider
                 }
             } catch (\Throwable $e) {}
 
-            // Si no hay infraestructura de permisos, no bloquees navegación base
+            // Sin infraestructura → no bloquees navegación base
             try {
                 if (!Schema::hasTable('permisos')) return true;
             } catch (\Throwable $e) { return true; }
@@ -97,7 +104,7 @@ class AuthServiceProvider extends ServiceProvider
             try {
                 $permId = DB::table('permisos')->where('clave', $key)->value('id');
                 if (!$permId) {
-                    // Claves comunes permitidas por defecto (puedes ajustar)
+                    // Claves comunes permitidas por defecto
                     $allow = [
                         'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
                         'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
@@ -132,18 +139,16 @@ class AuthServiceProvider extends ServiceProvider
                         ->exists();
                 }
 
-                // Infra presente pero sin match -> deniega
+                // Hay infraestructura pero sin match → deniega
                 return false;
             } catch (\Throwable $e) {
-                // Si algo truena, no bloquees
+                // En error, no bloquees
                 return true;
             }
         });
 
         /**
-         * ALIAS automáticos:
-         * Si alguna ruta usa `can:usuarios_admin.ver` (u otra),
-         * la delegamos al gate `perm` con la misma clave.
+         * ALIAS automáticos a "perm".
          */
         $abilities = [
             'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
@@ -164,8 +169,7 @@ class AuthServiceProvider extends ServiceProvider
         }
 
         /**
-         * AFTER (opcional, útil para debug):
-         * Loguea la decisión de Gate (solo cuando deniega y estés en /admin).
+         * AFTER (debug opcional).
          */
         Gate::after(function ($user = null, string $ability, bool $result, array $arguments = []) {
             if ($result === false && request()->is('admin/*')) {
