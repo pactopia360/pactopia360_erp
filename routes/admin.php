@@ -11,11 +11,11 @@ use App\Http\Controllers\Admin\ProfileController;
 use App\Http\Controllers\Admin\ConfigController;
 use App\Http\Controllers\Admin\ReportesController;
 
-// -------------------------------------------------------------
-// Helper permiso -> middleware 'can:perm,<clave>'
-// - En local/dev/testing no aplica (para no estorbar).
-// - Acepta string o array de strings.
-// -------------------------------------------------------------
+/**
+ * Helper permiso -> middleware 'can:perm,<clave>'
+ * - En local/dev/testing no aplica (para no estorbar).
+ * - Acepta string o array de strings.
+ */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
@@ -25,9 +25,9 @@ if (!function_exists('perm_mw')) {
     }
 }
 
-// -------------------------------------------------------------
-// UI endpoints (heartbeat / log)
-// -------------------------------------------------------------
+/* ===========================
+   UI: heartbeat / log
+   =========================== */
 Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware('throttle:60,1')->name('ui.heartbeat');
 
@@ -38,9 +38,9 @@ Route::match(['POST','GET'], 'ui/log', [UiController::class, 'log'])
     ])
     ->middleware('throttle:240,1')->name('ui.log');
 
-// -------------------------------------------------------------
-// Auth (guard admin)
-// -------------------------------------------------------------
+/* ===========================
+   Auth (guard admin)
+   =========================== */
 Route::middleware('guest:admin')->group(function () {
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
     Route::post('login', [LoginController::class, 'login'])
@@ -48,21 +48,35 @@ Route::middleware('guest:admin')->group(function () {
 });
 
 Route::middleware('auth:admin')->group(function () {
-
-    // Alias clásicos
+    // Aliases
     Route::get('/', fn() => redirect()->route('admin.home'))->name('root');
     Route::get('dashboard', fn() => redirect()->route('admin.home'))->name('dashboard');
 
-    // ---------------------------------------------------------
-    // Home & métricas
-    // ---------------------------------------------------------
+    // ===== WhoAmI (diagnóstico rápido) =====
+    Route::get('_whoami', function () {
+        $u = auth('admin')->user();
+        return response()->json([
+            'ok'    => (bool) $u,
+            'id'    => $u?->id,
+            'name'  => $u?->name ?? $u?->nombre,
+            'email' => $u?->email,
+            'guard' => 'admin',
+            'now'   => now()->toDateTimeString(),
+            'canAny'=> [
+                'access-admin' => Gate::forUser($u)->allows('access-admin'),
+            ],
+        ]);
+    })->name('whoami');
+
+    /* ===========================
+       Home & métricas
+       =========================== */
     Route::get('home', [HomeController::class, 'index'])->name('home');
     Route::get('home/stats', [HomeController::class, 'stats'])
         ->middleware('throttle:60,1')->name('home.stats');
     Route::get('home/income/{ym}', [HomeController::class, 'incomeByMonth'])
         ->where(['ym' => '\d{4}-(0[1-9]|1[0-2])'])->name('home.incomeMonth');
 
-    // Endpoints extra del Home (sólo si existen los métodos)
     if (method_exists(HomeController::class, 'compare')) {
         Route::get('home/compare/{ym}', [HomeController::class, 'compare'])
             ->where(['ym' => '\d{4}-(0[1-9]|1[0-2])'])->name('home.compare');
@@ -84,13 +98,12 @@ Route::middleware('auth:admin')->group(function () {
             ->where(['months'=>'\d+'])->name('home.plansBreakdown');
     }
     if (method_exists(HomeController::class, 'export')) {
-        Route::get('home/export', [HomeController::class, 'export'])
-            ->name('home.export');
+        Route::get('home/export', [HomeController::class, 'export'])->name('home.export');
     }
 
-    // ---------------------------------------------------------
-    // Utilidades de panel
-    // ---------------------------------------------------------
+    /* ===========================
+       Utilidades
+       =========================== */
     Route::get('search', [SearchController::class, 'index'])->name('search');
 
     Route::get('notificaciones',        [NotificationController::class, 'index'])->name('notificaciones');
@@ -101,24 +114,21 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('ui/diag', [UiController::class, 'diag'])->middleware('throttle:30,1')->name('ui.diag');
     Route::post('ui/bot-ask', [UiController::class, 'botAsk'])->middleware('throttle:30,1')->name('ui.botAsk');
 
-    // Mi perfil
+    // Perfil
     Route::get('perfil', [ProfileController::class, 'index'])->name('perfil');
     Route::get('perfil/edit', [ProfileController::class, 'edit'])->name('perfil.edit');
     Route::put('perfil', [ProfileController::class, 'update'])->name('perfil.update');
     Route::post('perfil/password', [ProfileController::class, 'password'])->name('perfil.password');
 
-    // Configuración (si aplica)
-    Route::get('config', [ConfigController::class, 'index'])->name('config.index');
-
-    // Configuración (si aplica)
+    // Configuración (quitamos duplicado)
     Route::get('config', [ConfigController::class, 'index'])->name('config.index');
 
     Route::get('reportes', [ReportesController::class, 'index'])
         ->middleware(perm_mw('reportes.ver'))->name('reportes.index');
 
-    // ---------------------------------------------------------
-    // Usuarios Admin  (¡rutas planas ANTES del resource!)
-    // ---------------------------------------------------------
+    /* ===========================
+       Usuarios Admin
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\UsuariosController::class)) {
         Route::get('usuarios/export', [\App\Http\Controllers\Admin\UsuariosController::class, 'export'])
             ->middleware(perm_mw('usuarios_admin.ver'))->name('usuarios.export');
@@ -141,12 +151,10 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('usuarios_admin.ver'))->name('usuarios.index');
     }
 
-    // ---------------------------------------------------------
-    // Perfiles & Permisos  (extras + resource)
-    // ---------------------------------------------------------
+    /* ===========================
+       Perfiles & Permisos
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\PerfilesController::class)) {
-
-        // Extras usados por el front (deben ir antes del resource)
         Route::get('perfiles/export', [\App\Http\Controllers\Admin\PerfilesController::class, 'export'])
             ->middleware(perm_mw('perfiles.ver'))->name('perfiles.export');
 
@@ -171,9 +179,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('perfiles.ver'))->name('perfiles.index');
     }
 
-    // ---------------------------------------------------------
-    // Clientes
-    // ---------------------------------------------------------
+    /* ===========================
+       Clientes
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\ClientesController::class)) {
         Route::get('clientes/export', [\App\Http\Controllers\Admin\ClientesController::class, 'export'])
             ->middleware(perm_mw('clientes.ver'))->name('clientes.export');
@@ -187,9 +195,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('clientes.ver'))->name('clientes.index');
     }
 
-    // ---------------------------------------------------------
-    // Planes
-    // ---------------------------------------------------------
+    /* ===========================
+       Planes
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\PlanesController::class)) {
         Route::resource('planes', \App\Http\Controllers\Admin\PlanesController::class)
             ->parameters(['planes' => 'plan'])
@@ -200,9 +208,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('planes.ver'))->name('planes.index');
     }
 
-    // ---------------------------------------------------------
-    // Pagos
-    // ---------------------------------------------------------
+    /* ===========================
+       Pagos
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\PagosController::class)) {
         Route::get('pagos/export', [\App\Http\Controllers\Admin\PagosController::class, 'export'])
             ->middleware(perm_mw('pagos.ver'))->name('pagos.export');
@@ -216,9 +224,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('pagos.ver'))->name('pagos.index');
     }
 
-    // ---------------------------------------------------------
-    // Facturación
-    // ---------------------------------------------------------
+    /* ===========================
+       Facturación
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\FacturacionController::class)) {
         Route::get('facturacion/export', [\App\Http\Controllers\Admin\FacturacionController::class, 'export'])
             ->middleware(perm_mw('facturacion.ver'))->name('facturacion.export');
@@ -232,9 +240,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('facturacion.ver'))->name('facturacion.index');
     }
 
-    // ---------------------------------------------------------
-    // Auditoría (solo lectura)
-    // ---------------------------------------------------------
+    /* ===========================
+       Auditoría (solo lectura)
+       =========================== */
     if (class_exists(\App\Http\Controllers\Admin\AuditoriaController::class)) {
         Route::resource('auditoria', \App\Http\Controllers\Admin\AuditoriaController::class)
             ->only(['index','show'])
@@ -246,9 +254,9 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('auditoria.ver'))->name('auditoria.index');
     }
 
-    // ---------------------------------------------------------
-    // Miscelánea
-    // ---------------------------------------------------------
+    /* ===========================
+       Miscelánea
+       =========================== */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
     Route::get('permcheck', function () {
@@ -257,13 +265,14 @@ Route::middleware('auth:admin')->group(function () {
             'env'  => app()->environment(),
             'user' => $u ? $u->only(['id','email','rol','es_superadmin']) : null,
             'can'  => [
-                'usuarios_admin.ver' => Gate::forUser($u)->allows('perm','usuarios_admin.ver'),
-                'clientes.ver'       => Gate::forUser($u)->allows('perm','clientes.ver'),
-                'planes.ver'         => Gate::forUser($u)->allows('perm','planes.ver'),
-                'pagos.ver'          => Gate::forUser($u)->allows('perm','pagos.ver'),
-                'facturacion.ver'    => Gate::forUser($u)->allows('perm','facturacion.ver'),
-                'auditoria.ver'      => Gate::forUser($u)->allows('perm','auditoria.ver'),
-                'reportes.ver'       => Gate::forUser($u)->allows('perm','reportes.ver'),
+                'usuarios_admin.ver'        => Gate::forUser($u)->allows('perm','usuarios_admin.ver'),
+                'usuarios_admin.impersonar' => Gate::forUser($u)->allows('perm','usuarios_admin.impersonar'),
+                'clientes.ver'              => Gate::forUser($u)->allows('perm','clientes.ver'),
+                'planes.ver'                => Gate::forUser($u)->allows('perm','planes.ver'),
+                'pagos.ver'                 => Gate::forUser($u)->allows('perm','pagos.ver'),
+                'facturacion.ver'           => Gate::forUser($u)->allows('perm','facturacion.ver'),
+                'auditoria.ver'             => Gate::forUser($u)->allows('perm','auditoria.ver'),
+                'reportes.ver'              => Gate::forUser($u)->allows('perm','reportes.ver'),
             ],
             'path' => request()->path(),
         ]);

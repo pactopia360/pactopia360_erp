@@ -107,6 +107,7 @@ class AuthServiceProvider extends ServiceProvider
                     // Claves comunes permitidas por defecto
                     $allow = [
                         'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
+                        'usuarios_admin.impersonar',
                         'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
                         'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
                         'planes.ver','planes.crear','planes.editar','planes.eliminar',
@@ -115,6 +116,7 @@ class AuthServiceProvider extends ServiceProvider
                         'auditoria.ver','reportes.ver',
                         'configuracion.ver',
                     ];
+
                     return in_array($key, $allow, true);
                 }
 
@@ -152,6 +154,7 @@ class AuthServiceProvider extends ServiceProvider
          */
         $abilities = [
             'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
+            'usuarios_admin.impersonar',
             'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
             'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
             'planes.ver','planes.crear','planes.editar','planes.eliminar',
@@ -159,6 +162,7 @@ class AuthServiceProvider extends ServiceProvider
             'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
             'auditoria.ver','reportes.ver','configuracion.ver',
         ];
+
 
         foreach ($abilities as $ab) {
             if (!Gate::has($ab)) {
