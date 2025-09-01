@@ -1,0 +1,75 @@
+name: Deploy to Hostinger (FTP)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 1) Build de assets (Vite)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node deps and build
+        run: |
+          npm ci
+          npm run build
+
+      # 2) Composer (vendor) sin dev
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+
+      - name: Composer install (no-dev, optimized)
+        run: |
+          composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      # 3) Deploy FTP (sube vendor/ y public/build/)
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4
+        with:
+          server:   ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port:     ${{ secrets.FTP_PORT || 21 }}
+          protocol: ftp
+          local-dir: .
+          server-dir: /public_html/pactopia360_erp/   # <-- AJUSTA a tu ruta real
+          dangerous-clean-slate: true
+          exclude: |
+            **/.git*
+            **/.github/**
+            **/node_modules/**
+            **/tests/**
+            **/storage/logs/**
+            **/storage/framework/cache/**
+            **/storage/framework/sessions/**
+            **/storage/framework/views/**
+            **/vendor/bin/**
+            **/.env
+            **/.env.*
+            **/docker/**
+            **/.idea/**
+            **/.vscode/**
+            **/public/hot
+            **/public/storage
+            **/npm-debug.log
+            **/yarn.lock
+            **/pnpm-lock.yaml
+
+      # 4) Llamar al hook post-deploy
+      - name: Call post-deploy hook
+        run: |
+          curl --max-time 30 -fsSL "${{ secrets.POST_DEPLOY_URL }}"
