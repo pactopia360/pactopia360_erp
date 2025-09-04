@@ -70,16 +70,21 @@ class AuthServiceProvider extends ServiceProvider
         Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) {
             $u = $this->currentUser($user);
 
-            // 1) Entornos de desarrollo
+            // 🔧 Forzar reconocimiento de superadmin
+            if ($u && ($u->es_superadmin === true || strtolower((string) $u->rol) === 'superadmin')) {
+                return true;
+            }
+
+            // Entornos dev siempre todo permitido
             if (app()->environment(['local','development','testing'])) {
                 if (request()->is('admin/*')) return true;
             }
 
-            // 2) Superadmin (flag/rol/lista .env)
             if ($this->isSuper($u)) return true;
 
-            return null; // deja que lo evalúen policies/gates
+            return null;
         });
+
 
         /**
          * Gate genérico "perm" (punto único de verdad).
