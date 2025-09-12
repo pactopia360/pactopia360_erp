@@ -3,76 +3,131 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
-return new class extends Migration {
-    public function up(): void {
-        // permisos (si no existiera)
-        if (!Schema::hasTable('permisos')) {
-            Schema::create('permisos', function (Blueprint $table) {
-                $table->id();
-                $table->string('clave', 128)->unique();
-                $table->string('grupo', 64)->default('')->index();
-                $table->string('label', 191)->nullable();
-                $table->boolean('activo')->default(true);
-                $table->timestamps();
+return new class extends Migration
+{
+    /**
+     * ¡No tipar! La clase padre ya define el tipo.
+     */
+    protected $connection = 'mysql_admin';
+
+    private string $tablaPerfiles = 'perfiles';
+    private string $tablaPermisos = 'permisos';
+    private string $tablaPivotPerfilPermiso = 'perfil_permiso';
+    private string $uxPermisosClave = 'permisos_clave_unique';
+
+    public function up(): void
+    {
+        // Asegura tablas base (sin recrear si ya existen)
+        if (!Schema::connection($this->connection)->hasTable($this->tablaPerfiles)) {
+            Schema::connection($this->connection)->create($this->tablaPerfiles, function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->string('clave', 191);
+                $t->string('nombre', 191);
+                $t->text('descripcion')->nullable();
+                $t->boolean('activo')->default(true);
+                $t->timestamps();
+                $t->index(['clave', 'activo']);
+            });
+        }
+
+        if (!Schema::connection($this->connection)->hasTable($this->tablaPermisos)) {
+            Schema::connection($this->connection)->create($this->tablaPermisos, function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->string('clave', 191);
+                $t->string('grupo', 191)->nullable();
+                $t->string('label', 191);
+                $t->text('descripcion')->nullable();
+                $t->boolean('activo')->default(true);
+                $t->timestamps();
+                $t->index(['grupo', 'activo']);
+                // Índice único SOLO si no existía (pero como es tabla nueva, no existirá)
+                $t->unique('clave', $this->uxPermisosClave);
             });
         } else {
-            Schema::table('permisos', function (Blueprint $table) {
-                if (!Schema::hasColumn('permisos','label'))  $table->string('label',191)->nullable();
-                if (!Schema::hasColumn('permisos','activo')) $table->boolean('activo')->default(true);
-                // unique clave
-                try { $table->unique('clave'); } catch (\Throwable $e) {}
+            // Si la tabla ya existe, asegurar columnas mínimas sin romper nada
+            if (!Schema::connection($this->connection)->hasColumn($this->tablaPermisos, 'clave')) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->string('clave', 191);
+                });
+            }
+            if (!Schema::connection($this->connection)->hasColumn($this->tablaPermisos, 'grupo')) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->string('grupo', 191)->nullable();
+                });
+            }
+            if (!Schema::connection($this->connection)->hasColumn($this->tablaPermisos, 'label')) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->string('label', 191);
+                });
+            }
+            if (!Schema::connection($this->connection)->hasColumn($this->tablaPermisos, 'descripcion')) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->text('descripcion')->nullable();
+                });
+            }
+            if (!Schema::connection($this->connection)->hasColumn($this->tablaPermisos, 'activo')) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->boolean('activo')->default(true);
+                });
+            }
+
+            // Crear índice único en 'clave' SOLO si no existe
+            $db = DB::connection($this->connection);
+            if (!$this->indexExists($db, $this->tablaPermisos, $this->uxPermisosClave)) {
+                Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                    $t->unique('clave', $this->uxPermisosClave);
+                });
+            }
+        }
+
+        // Tabla pivot perfil_permiso (si no existe)
+        if (!Schema::connection($this->connection)->hasTable($this->tablaPivotPerfilPermiso)) {
+            Schema::connection($this->connection)->create($this->tablaPivotPerfilPermiso, function (Blueprint $t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('perfil_id');
+                $t->unsignedBigInteger('permiso_id');
+                $t->timestamps();
+
+                $t->unique(['perfil_id', 'permiso_id'], 'ux_perfil_permiso');
+                $t->index('perfil_id');
+                $t->index('permiso_id');
+
+                // Descomenta si deseas FKs (sólo si las tablas/columnas están íntegras)
+                // $t->foreign('perfil_id')->references('id')->on('perfiles')->onDelete('cascade');
+                // $t->foreign('permiso_id')->references('id')->on('permisos')->onDelete('cascade');
             });
         }
 
-        // perfiles
-        if (!Schema::hasTable('perfiles')) {
-            Schema::create('perfiles', function (Blueprint $table) {
-                $table->id();
-                $table->string('nombre', 128)->unique();
-                $table->boolean('activo')->default(true);
-                $table->timestamps();
-            });
+        // (Opcional) Semillas mínimas idempotentes: sólo si te interesa, puedes insertar aquí
+        // perfiles/permiso base verificando que no existan previamente (omito para no tocar data existente).
+    }
+
+    public function down(): void
+    {
+        // No borres tablas productivas; sólo limpia lo que esta migración podría haber agregado
+        if (Schema::connection($this->connection)->hasTable($this->tablaPivotPerfilPermiso)) {
+            Schema::connection($this->connection)->drop($this->tablaPivotPerfilPermiso);
         }
 
-        // pivot perfil_permiso
-        if (!Schema::hasTable('perfil_permiso')) {
-            Schema::create('perfil_permiso', function (Blueprint $table) {
-                $table->unsignedBigInteger('perfil_id');
-                $table->unsignedBigInteger('permiso_id');
-                $table->primary(['perfil_id','permiso_id']);
-
-                $table->foreign('perfil_id')->references('id')->on('perfiles')->cascadeOnDelete();
-                $table->foreign('permiso_id')->references('id')->on('permisos')->cascadeOnDelete();
-            });
-        }
-
-        // pivot usuario_permiso (opcional, por-usuario)
-        if (!Schema::hasTable('usuario_permiso')) {
-            Schema::create('usuario_permiso', function (Blueprint $table) {
-                $table->unsignedBigInteger('usuario_id');
-                $table->unsignedBigInteger('permiso_id');
-                $table->primary(['usuario_id','permiso_id']);
-                // Ajusta el nombre de la tabla de admins si difiere
-                $table->foreign('usuario_id')->references('id')->on('usuario_administrativos')->cascadeOnDelete();
-                $table->foreign('permiso_id')->references('id')->on('permisos')->cascadeOnDelete();
-            });
-        }
-
-        // Columna perfil_id en usuario_administrativos (si no existe)
-        if (Schema::hasTable('usuario_administrativos') && !Schema::hasColumn('usuario_administrativos','perfil_id')) {
-            Schema::table('usuario_administrativos', function (Blueprint $table) {
-                $table->unsignedBigInteger('perfil_id')->nullable()->after('rol');
-                $table->foreign('perfil_id')->references('id')->on('perfiles')->nullOnDelete();
+        // No eliminamos 'perfiles' ni 'permisos' en down para evitar pérdida de datos/índices previos.
+        // Si quisieras retirar el índice único específico que esta migración podría haber agregado:
+        $db = DB::connection($this->connection);
+        if ($this->indexExists($db, $this->tablaPermisos, $this->uxPermisosClave)) {
+            Schema::connection($this->connection)->table($this->tablaPermisos, function (Blueprint $t) {
+                $t->dropUnique($this->uxPermisosClave);
             });
         }
     }
 
-    public function down(): void {
-        // No bajamos nada para no romper producción; si quisieras:
-        // Schema::dropIfExists('usuario_permiso');
-        // Schema::dropIfExists('perfil_permiso');
-        // Schema::dropIfExists('perfiles');
-        // (y quitar columnas en usuario_administrativos…)
+    /**
+     * Verifica si un índice existe en MySQL sin doctrine/dbal.
+     */
+    private function indexExists(\Illuminate\Database\Connection $db, string $table, string $indexName): bool
+    {
+        if ($db->getDriverName() !== 'mysql') return false;
+        $res = $db->select("SHOW INDEX FROM `{$table}` WHERE `Key_name` = ?", [$indexName]);
+        return !empty($res);
     }
 };
