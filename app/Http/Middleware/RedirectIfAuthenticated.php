@@ -9,13 +9,26 @@ use Illuminate\Support\Facades\Auth;
 
 class RedirectIfAuthenticated
 {
+    /**
+     * Si el usuario YA está autenticado en el/los guard(s) indicados,
+     * redirige al HOME del panel. Si no se indicó guard, elegimos
+     * inteligentemente según la URL/route (admin -> guard 'admin').
+     */
     public function handle(Request $request, Closure $next, string ...$guards)
     {
-        $guards = empty($guards) ? [null] : $guards;
+        // Si no especificaron guard, elegimos por contexto.
+        if (empty($guards)) {
+            $routeName = optional($request->route())->getName();
+            $isAdminArea =
+                ($routeName && str_starts_with($routeName, 'admin.')) ||
+                $request->is('admin') || $request->is('admin/*');
+
+            $guards = [$isAdminArea ? 'admin' : config('auth.defaults.guard', 'web')];
+        }
 
         foreach ($guards as $guard) {
             if (Auth::guard($guard)->check()) {
-                // Si ya hay sesión, manda al HOME del sistema
+                // Ya tiene sesión en ese guard → manda al HOME del sistema
                 return redirect()->intended(RouteServiceProvider::HOME);
             }
         }

@@ -1,8 +1,9 @@
-@extends('layouts.admin')
+{{-- resources/views/admin/home.blade.php --}}
+@extends('layouts.app')
 
 @section('title','Home')
 
-@push('styles')
+@push('head')
   @php
     $HOME_CSS_PATH = public_path('assets/admin/css/home.css');
     $HOME_CSS_URL  = asset('assets/admin/css/home.css') . (is_file($HOME_CSS_PATH) ? ('?v='.filemtime($HOME_CSS_PATH)) : '');
@@ -25,7 +26,7 @@
   <i hidden data-require-css="{{ $HOME_CSS_URL }}"></i>
 <div class="page"
      data-stats-url="{{ route('admin.home.stats') }}"
-    data-income-url="{{ route('admin.home.incomeMonth', ['ym'=>'__YM__']) }}">
+     data-income-url="{{ route('admin.home.incomeMonth', ['ym'=>'__YM__']) }}">
 
   <div id="alerts" aria-live="polite" aria-atomic="true"></div>
   <div id="loadingOverlay" aria-hidden="true"><div class="spinner" role="status" aria-label="Cargando"></div></div>
@@ -357,4 +358,3 @@
     })();
   </script>
 @endpush
-

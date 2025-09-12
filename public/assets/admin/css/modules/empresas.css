@@ -1,0 +1,50 @@
+:root{ --card-bg:#fff; --muted:#64748b; --ring:rgba(99,102,241,.22); }
+html.theme-dark{ --card-bg:#0f172a; --muted:#94a3b8; --ring:rgba(99,102,241,.28); }
+
+.mod-empresa .hero{
+  position:relative; border-radius:18px; padding:18px 18px 16px;
+  color:#fff; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.18);
+}
+.mod-empresa .hero .title{font:800 20px/1.15 system-ui,Segoe UI,Roboto}
+.mod-empresa .hero .desc{opacity:.9;margin-top:6px}
+.mod-empresa .chip{font:700 10px/1 system-ui; padding:6px 10px; border-radius:9999px; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.28); backdrop-filter:blur(2px)}
+.mod-empresa .chips{margin-top:12px; display:flex; gap:8px; flex-wrap:wrap}
+.mod-empresa .btn-ghost{
+  display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:12px;
+  border:1px solid rgba(255,255,255,.45); color:#fff; text-decoration:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,0));
+}
+.mod-empresa .btn-ghost:hover{ background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.04)); }
+.mod-empresa .grid{display:grid; gap:12px; grid-template-columns: repeat(12, 1fr); margin-top:14px}
+.mod-empresa .card{
+  grid-column: span 12;
+  background:var(--card-bg); border:1px solid rgba(0,0,0,.06);
+  border-radius:14px; padding:14px; min-height:130px;
+}
+html.theme-dark .mod-empresa .card{ border-color:rgba(255,255,255,.10); }
+.mod-empresa .card h3{font:700 12px/1 system-ui; color:var(--muted); margin-bottom:8px}
+.mod-empresa .kpi{display:flex; align-items:baseline; gap:8px}
+.mod-empresa .kpi .v{font:800 24px/1.1 system-ui}
+.mod-empresa .kpi .s{font:12px/1.2 system-ui; color:var(--muted)}
+
+@media (min-width: 1024px){
+  .mod-empresa .span-3{grid-column: span 3}
+  .mod-empresa .span-4{grid-column: span 4}
+  .mod-empresa .span-6{grid-column: span 6}
+  .mod-empresa .span-8{grid-column: span 8}
+  .mod-empresa .span-12{grid-column: span 12}
+}
+
+/* Gradientes por empresa */
+.mod-empresa.pactopia360 .hero{ background:linear-gradient(135deg,#4f46e5,#22d3ee) }
+.mod-empresa.pactopia    .hero{ background:linear-gradient(135deg,#0ea5e9,#22d3ee) }
+.mod-empresa.waretek-mx  .hero{ background:linear-gradient(135deg,#22c55e,#10b981) }
+
+.mod-empresa .hero::after{
+  content:''; position:absolute; inset:auto -20% -40% auto; width:360px; height:360px;
+  background:radial-gradient(closest-side, rgba(255,255,255,.45), transparent 60%);
+  transform:rotate(12deg);
+}
+
+.btn-ghost.is-disabled{opacity:.5;pointer-events:none;cursor:not-allowed}
+

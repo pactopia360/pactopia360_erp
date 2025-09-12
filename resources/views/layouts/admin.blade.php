@@ -8,17 +8,21 @@
   $htmlThemeClass  = $bodyTheme === 'dark' ? 'theme-dark' : 'theme-light';
 
   // Rutas de CSS (con cache-busting si existen)
-  $BASE_ABS = public_path('assets/admin/css/base.css');   // tu skin global previo
-  $UI_ABS   = public_path('assets/admin/css/ui.css');     // alterno si renombraste
-  $APP_ABS  = public_path('assets/admin/css/app.css');    // si lo integraste en app.css
-  $SB_ABS   = public_path('assets/admin/css/sidebar.css'); // skin del sidebar
-  $FRAME_ABS= public_path('assets/admin/css/frame.css');   // estructura/scroll opcional
+  $BASE_ABS  = public_path('assets/admin/css/base.css');   // tu skin global previo
+  $UI_ABS    = public_path('assets/admin/css/ui.css');     // alterno si renombraste
+  $APP_ABS   = public_path('assets/admin/css/app.css');    // si lo integraste en app.css
+  $SB_ABS    = public_path('assets/admin/css/sidebar.css'); // skin del sidebar
+  $FRAME_ABS = public_path('assets/admin/css/frame.css');   // estructura/scroll opcional
 
-  $BASE_URL = is_file($BASE_ABS) ? asset('assets/admin/css/base.css').'?v='.filemtime($BASE_ABS) : null;
-  $UI_URL   = is_file($UI_ABS)   ? asset('assets/admin/css/ui.css').'?v='.filemtime($UI_ABS)     : null;
-  $APP_URL  = is_file($APP_ABS)  ? asset('assets/admin/css/app.css').'?v='.filemtime($APP_ABS)   : null;
-  $SB_URL   = is_file($SB_ABS)   ? asset('assets/admin/css/sidebar.css').'?v='.filemtime($SB_ABS): null;
-  $FRAME_URL= is_file($FRAME_ABS)? asset('assets/admin/css/frame.css').'?v='.filemtime($FRAME_ABS): null;
+  // Si el archivo existe pero está vacío (o casi), lo ignoramos para forzar fallback
+  $minSize   = 16; // bytes
+  $SB_ABS    = public_path('assets/admin/css/sidebar.css');
+
+  $BASE_URL  = (is_file($BASE_ABS)  && filesize($BASE_ABS)  > $minSize) ? asset('assets/admin/css/base.css')   .'?v='.filemtime($BASE_ABS)  : null;
+  $UI_URL    = (is_file($UI_ABS)    && filesize($UI_ABS)    > $minSize) ? asset('assets/admin/css/ui.css')     .'?v='.filemtime($UI_ABS)    : null;
+  $APP_URL   = (is_file($APP_ABS)   && filesize($APP_ABS)   > $minSize) ? asset('assets/admin/css/app.css')    .'?v='.filemtime($APP_ABS)   : null;
+  $SB_URL    = (is_file($SB_ABS) && filesize($SB_ABS) > $minSize) ? asset('assets/admin/css/sidebar.css') . '?v=' . filemtime($SB_ABS)    : null;
+  $FRAME_URL = (is_file($FRAME_ABS) && filesize($FRAME_ABS) > $minSize) ? asset('assets/admin/css/frame.css')  .'?v='.filemtime($FRAME_ABS) : null;
 
   // Elegimos 1 skin principal (el primero que exista)
   $SKIN_URL = $BASE_URL ?: ($UI_URL ?: $APP_URL);

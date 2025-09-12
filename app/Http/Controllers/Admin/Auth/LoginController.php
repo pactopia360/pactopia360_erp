@@ -5,15 +5,22 @@ namespace App\Http\Controllers\Admin\Auth;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class LoginController extends Controller
 {
     /**
      * Mostrar formulario de login admin.
      */
-    public function showLogin()
+    public function showLogin(Request $request)
     {
+        // Forzar a usar siempre el guard 'admin' en esta pantalla
+        Auth::shouldUse('admin');
+
+        // Si ya hay sesión de admin, redirigir al home admin
+        if (Auth::guard('admin')->check()) {
+            return redirect()->route('admin.home');
+        }
+
         return view('admin.auth.login');
     }
 
@@ -22,6 +29,8 @@ class LoginController extends Controller
      */
     public function login(Request $request)
     {
+        Auth::shouldUse('admin'); // refuerza el guard correcto
+
         $credentials = $request->validate([
             'email'    => ['required','email'],
             'password' => ['required'],
@@ -33,9 +42,8 @@ class LoginController extends Controller
         if (Auth::guard('admin')->attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
 
-            // Guardar último acceso
-            $adminId = Auth::guard('admin')->id();
-            return redirect()->route('admin.dashboard');
+            // Redirección segura al dashboard admin
+            return redirect()->intended(route('admin.home'));
         }
 
         return back()

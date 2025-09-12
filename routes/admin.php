@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
+
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\HomeController;
 use App\Http\Controllers\Admin\SearchController;
@@ -10,6 +11,10 @@ use App\Http\Controllers\Admin\UiController;
 use App\Http\Controllers\Admin\ProfileController;
 use App\Http\Controllers\Admin\ConfigController;
 use App\Http\Controllers\Admin\ReportesController;
+use App\Http\Controllers\Admin\Empresas\DashboardController;
+
+use App\Http\Controllers\Admin\Empresas\Pactopia360\CRM\CarritosController;
+use App\Http\Controllers\Admin\Empresas\Pactopia360\CRM\ContactosController;
 
 /**
  * Helper permiso -> middleware 'can:perm,<clave>'
@@ -22,6 +27,26 @@ if (!function_exists('perm_mw')) {
         if (app()->environment(['local','development','testing'])) return [];
         $perms = is_array($perm) ? $perm : [$perm];
         return array_map(fn($p) => 'can:perm,'.$p, $perms);
+    }
+}
+
+/**
+ * Placeholder reusable:
+ * - Si existe la vista admin.generic.placeholder la usa,
+ * - si no, regresa un HTML simple (para no romper).
+ */
+if (!function_exists('admin_placeholder_view')) {
+    function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360') {
+        if (view()->exists('admin.generic.placeholder')) {
+            return view('admin.generic.placeholder', compact('title','company'));
+        }
+        $html = "<!doctype html><meta charset='utf-8'><title>{$title}</title>
+                 <div style='font:16px system-ui;padding:20px'>
+                   <h1 style='margin:0 0 8px'>{$title}</h1>
+                   <p style='color:#64748b'>Empresa: {$company}</p>
+                   <p style='margin-top:14px'>Vista placeholder. Implementación pendiente.</p>
+                 </div>";
+        return response($html, 200);
     }
 }
 
@@ -120,7 +145,7 @@ Route::middleware('auth:admin')->group(function () {
     Route::put('perfil', [ProfileController::class, 'update'])->name('perfil.update');
     Route::post('perfil/password', [ProfileController::class, 'password'])->name('perfil.password');
 
-    // Configuración (quitamos duplicado)
+    // Configuración
     Route::get('config', [ConfigController::class, 'index'])->name('config.index');
 
     Route::get('reportes', [ReportesController::class, 'index'])
@@ -240,19 +265,188 @@ Route::middleware('auth:admin')->group(function () {
         )->middleware(perm_mw('facturacion.ver'))->name('facturacion.index');
     }
 
-    /* ===========================
-       Auditoría (solo lectura)
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\AuditoriaController::class)) {
-        Route::resource('auditoria', \App\Http\Controllers\Admin\AuditoriaController::class)
-            ->only(['index','show'])
-            ->parameters(['auditoria' => 'evento'])
-            ->middleware(perm_mw('auditoria.ver'));
-    } else {
-        Route::get('auditoria', fn () =>
-            response('<h1>Auditoría</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('auditoria.ver'))->name('auditoria.index');
-    }
+    /* =======================================================
+       EMPRESAS · Dashboards
+       ======================================================= */
+    Route::get('empresas/pactopia360', [DashboardController::class, 'pactopia360'])
+        ->name('empresas.pactopia360.dashboard');
+
+    Route::get('empresas/pactopia', [DashboardController::class, 'pactopia'])
+        ->name('empresas.pactopia.dashboard');
+
+    Route::get('empresas/waretek-mx', [DashboardController::class, 'waretekMx'])
+        ->name('empresas.waretek-mx.dashboard');
+
+    /* =======================================================
+       EMPRESAS · Submódulos
+       ======================================================= */
+
+    // -------- Pactopia360 --------
+    Route::prefix('empresas/pactopia360')->name('empresas.pactopia360.')->group(function () {
+
+        // === CRM · Carritos (CRUD real) ===
+        Route::resource('crm/carritos', CarritosController::class)
+            ->parameters(['carritos' => 'id'])
+            // ->middleware(perm_mw('crm.ver p360'))
+            ->names([
+                'index'   => 'crm.carritos.index',
+                'create'  => 'crm.carritos.create',
+                'store'   => 'crm.carritos.store',
+                'show'    => 'crm.carritos.show',
+                'edit'    => 'crm.carritos.edit',
+                'update'  => 'crm.carritos.update',
+                'destroy' => 'crm.carritos.destroy',
+            ]);
+
+        // === CRM · Contactos (CRUD real) ===
+        Route::resource('crm/contactos', ContactosController::class)
+            ->parameters(['contactos' => 'contacto'])
+            // ->middleware(perm_mw('crm.ver p360'))
+            ->names([
+                'index'   => 'crm.contactos.index',
+                'create'  => 'crm.contactos.create',
+                'store'   => 'crm.contactos.store',
+                'edit'    => 'crm.contactos.edit',
+                'update'  => 'crm.contactos.update',
+                'destroy' => 'crm.contactos.destroy',
+            ])
+            ->only(['index','create','store','edit','update','destroy']); // (no show por ahora)
+
+        // === CRM · resto (placeholders clicables) ===
+        Route::get('crm/comunicaciones',  fn() => admin_placeholder_view('CRM · Comunicaciones', 'Pactopia360'))->name('crm.comunicaciones.index');
+        Route::get('crm/correos',         fn() => admin_placeholder_view('CRM · Correos', 'Pactopia360'))->name('crm.correos.index');
+        Route::get('crm/empresas',        fn() => admin_placeholder_view('CRM · Empresas', 'Pactopia360'))->name('crm.empresas.index');
+        Route::get('crm/contratos',       fn() => admin_placeholder_view('CRM · Contratos', 'Pactopia360'))->name('crm.contratos.index');
+        Route::get('crm/cotizaciones',    fn() => admin_placeholder_view('CRM · Cotizaciones', 'Pactopia360'))->name('crm.cotizaciones.index');
+        Route::get('crm/facturas',        fn() => admin_placeholder_view('CRM · Facturas', 'Pactopia360'))->name('crm.facturas.index');
+        Route::get('crm/estados',         fn() => admin_placeholder_view('CRM · Estados de cuenta', 'Pactopia360'))->name('crm.estados.index');
+        Route::get('crm/negocios',        fn() => admin_placeholder_view('CRM · Negocios', 'Pactopia360'))->name('crm.negocios.index');
+        Route::get('crm/notas',           fn() => admin_placeholder_view('CRM · Notas', 'Pactopia360'))->name('crm.notas.index');
+        Route::get('crm/suscripciones',   fn() => admin_placeholder_view('CRM · Suscripciones', 'Pactopia360'))->name('crm.suscripciones.index');
+        Route::get('crm/robots',          fn() => admin_placeholder_view('CRM · Robots', 'Pactopia360'))->name('crm.robots.index');
+
+        // === Cuentas por pagar ===
+        Route::get('cxp/gastos',          fn() => admin_placeholder_view('CxP · Gastos', 'Pactopia360'))->name('cxp.gastos.index');
+        Route::get('cxp/proveedores',     fn() => admin_placeholder_view('CxP · Proveedores', 'Pactopia360'))->name('cxp.proveedores.index');
+        Route::get('cxp/viaticos',        fn() => admin_placeholder_view('CxP · Viáticos', 'Pactopia360'))->name('cxp.viaticos.index');
+        Route::get('cxp/robots',          fn() => admin_placeholder_view('CxP · Robots', 'Pactopia360'))->name('cxp.robots.index');
+
+        // === Cuentas por cobrar ===
+        Route::get('cxc/ventas',          fn() => admin_placeholder_view('CxC · Ventas', 'Pactopia360'))->name('cxc.ventas.index');
+        Route::get('cxc/facturacion',     fn() => admin_placeholder_view('CxC · Facturación y cobranza', 'Pactopia360'))->name('cxc.facturacion.index');
+        Route::get('cxc/robots',          fn() => admin_placeholder_view('CxC · Robots', 'Pactopia360'))->name('cxc.robots.index');
+
+        // === Contabilidad ===
+        Route::get('conta/robots',        fn() => admin_placeholder_view('Contabilidad · Robots', 'Pactopia360'))->name('conta.robots.index');
+
+        // === Nómina ===
+        Route::get('nomina/robots',       fn() => admin_placeholder_view('Nómina · Robots', 'Pactopia360'))->name('nomina.robots.index');
+
+        // === Facturación ===
+        Route::get('facturacion/timbres',   fn() => admin_placeholder_view('Facturación · Timbres / HITS', 'Pactopia360'))->name('facturacion.timbres.index');
+        Route::get('facturacion/cancel',    fn() => admin_placeholder_view('Facturación · Cancelaciones', 'Pactopia360'))->name('facturacion.cancel.index');
+        Route::get('facturacion/resguardo', fn() => admin_placeholder_view('Facturación · Resguardo 6 meses', 'Pactopia360'))->name('facturacion.resguardo.index');
+        Route::get('facturacion/robots',    fn() => admin_placeholder_view('Facturación · Robots', 'Pactopia360'))->name('facturacion.robots.index');
+
+        // === Documentación ===
+        Route::get('docs',                fn() => admin_placeholder_view('Documentación · Gestor/Plantillas', 'Pactopia360'))->name('docs.index');
+        Route::get('docs/robots',         fn() => admin_placeholder_view('Documentación · Robots', 'Pactopia360'))->name('docs.robots.index');
+
+        // === Punto de venta ===
+        Route::get('pv/cajas',            fn() => admin_placeholder_view('Punto de venta · Cajas', 'Pactopia360'))->name('pv.cajas.index');
+        Route::get('pv/tickets',          fn() => admin_placeholder_view('Punto de venta · Tickets', 'Pactopia360'))->name('pv.tickets.index');
+        Route::get('pv/arqueos',          fn() => admin_placeholder_view('Punto de venta · Arqueos', 'Pactopia360'))->name('pv.arqueos.index');
+        Route::get('pv/robots',           fn() => admin_placeholder_view('Punto de venta · Robots', 'Pactopia360'))->name('pv.robots.index');
+
+        // === Bancos ===
+        Route::get('bancos/cuentas',      fn() => admin_placeholder_view('Bancos · Cuentas', 'Pactopia360'))->name('bancos.cuentas.index');
+        Route::get('bancos/concilia',     fn() => admin_placeholder_view('Bancos · Conciliación', 'Pactopia360'))->name('bancos.concilia.index');
+        Route::get('bancos/robots',       fn() => admin_placeholder_view('Bancos · Robots', 'Pactopia360'))->name('bancos.robots.index');
+    });
+
+    // -------- Pactopia --------
+    Route::prefix('empresas/pactopia')->name('empresas.pactopia.')->group(function () {
+        Route::get('crm/contactos',  fn() => admin_placeholder_view('CRM · Contactos', 'Pactopia'))->name('crm.contactos.index');
+        Route::get('crm/robots',     fn() => admin_placeholder_view('CRM · Robots', 'Pactopia'))->name('crm.robots.index');
+    });
+
+    // -------- Waretek México --------
+    Route::prefix('empresas/waretek-mx')->name('empresas.waretek-mx.')->group(function () {
+        Route::get('crm/contactos',  fn() => admin_placeholder_view('CRM · Contactos', 'Waretek México'))->name('crm.contactos.index');
+        Route::get('crm/robots',     fn() => admin_placeholder_view('CRM · Robots', 'Waretek México'))->name('crm.robots.index');
+    });
+
+    /* =======================================================
+       ADMINISTRACIÓN (Usuarios / Soporte)
+      ======================================================= */
+    Route::get('usuarios/robots', fn() => admin_placeholder_view('Usuarios · Robots'))->name('usuarios.robots.index');
+
+    Route::prefix('soporte')->name('soporte.')->group(function () {
+        Route::get('tickets', fn() => admin_placeholder_view('Soporte · Tickets'))->name('tickets.index');
+        Route::get('sla',     fn() => admin_placeholder_view('Soporte · SLA / Asignación'))->name('sla.index');
+        Route::get('comms',   fn() => admin_placeholder_view('Soporte · Comunicaciones'))->name('comms.index');
+        Route::get('robots',  fn() => admin_placeholder_view('Soporte · Robots'))->name('robots.index');
+    });
+
+    /* =======================================================
+       AUDITORÍA (submódulos)
+      ======================================================= */
+    Route::prefix('auditoria')->name('auditoria.')->group(function () {
+        Route::get('accesos',    fn() => admin_placeholder_view('Auditoría · Logs de acceso'))->name('accesos.index');
+        Route::get('cambios',    fn() => admin_placeholder_view('Auditoría · Bitácora de cambios'))->name('cambios.index');
+        Route::get('integridad', fn() => admin_placeholder_view('Auditoría · Integridad'))->name('integridad.index');
+        Route::get('robots',     fn() => admin_placeholder_view('Auditoría · Robots'))->name('robots.index');
+    });
+
+    /* =======================================================
+       CONFIGURACIÓN (Plataforma / Integraciones / Parámetros)
+      ======================================================= */
+    Route::prefix('config')->name('config.')->group(function () {
+        // Plataforma
+        Route::get('mantenimiento', fn() => admin_placeholder_view('Config · Mantenimiento'))->name('mantenimiento');
+        Route::get('limpieza',      fn() => admin_placeholder_view('Config · Optimización/Limpieza demo'))->name('limpieza');
+        Route::get('backups',       fn() => admin_placeholder_view('Config · Backups / Restore'))->name('backups');
+        Route::get('robots',        fn() => admin_placeholder_view('Config · Robots'))->name('robots');
+
+        // Integraciones
+        Route::prefix('int')->name('int.')->group(function () {
+            Route::get('pacs',   fn() => admin_placeholder_view('Integraciones · PAC(s)'))->name('pacs');
+            Route::get('mail',   fn() => admin_placeholder_view('Integraciones · Mailgun/MailerLite'))->name('mail');
+            Route::get('api',    fn() => admin_placeholder_view('Integraciones · API Keys / Webhooks'))->name('api');
+            Route::get('pay',    fn() => admin_placeholder_view('Integraciones · Stripe/Conekta'))->name('pay');
+            Route::get('robots', fn() => admin_placeholder_view('Integraciones · Robots'))->name('robots');
+        });
+
+        // Parámetros
+        Route::prefix('param')->name('param.')->group(function () {
+            Route::get('precios', fn() => admin_placeholder_view('Parámetros · Planes & Precios'))->name('precios');
+            Route::get('cupones', fn() => admin_placeholder_view('Parámetros · Descuentos / Cupones'))->name('cupones');
+            Route::get('limites', fn() => admin_placeholder_view('Parámetros · Límites por plan'))->name('limites');
+            Route::get('robots',  fn() => admin_placeholder_view('Parámetros · Robots'))->name('robots');
+        });
+    });
+
+    /* =======================================================
+       PERFIL (extras)
+      ======================================================= */
+    Route::prefix('perfil')->name('perfil.')->group(function () {
+        Route::get('preferencias', fn() => admin_placeholder_view('Mi cuenta · Preferencias'))->name('preferencias');
+        Route::get('robots',       fn() => admin_placeholder_view('Mi cuenta · Robots'))->name('robots');
+    });
+
+    /* =======================================================
+       REPORTES (por módulo)
+      ======================================================= */
+    Route::prefix('reportes')->name('reportes.')->group(function () {
+        Route::get('crm',         fn() => admin_placeholder_view('Reportes · CRM'))->name('crm');
+        Route::get('cxp',         fn() => admin_placeholder_view('Reportes · Cuentas por pagar'))->name('cxp');
+        Route::get('cxc',         fn() => admin_placeholder_view('Reportes · Cuentas por cobrar'))->name('cxc');
+        Route::get('conta',       fn() => admin_placeholder_view('Reportes · Contabilidad'))->name('conta');
+        Route::get('nomina',      fn() => admin_placeholder_view('Reportes · Nómina'))->name('nomina');
+        Route::get('facturacion', fn() => admin_placeholder_view('Reportes · Facturación'))->name('facturacion');
+        Route::get('descargas',   fn() => admin_placeholder_view('Reportes · Descargas'))->name('descargas');
+        Route::get('robots',      fn() => admin_placeholder_view('Reportes · Robots'))->name('robots');
+    });
 
     /* ===========================
        Miscelánea
