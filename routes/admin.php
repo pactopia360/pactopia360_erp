@@ -72,7 +72,13 @@ Route::middleware('guest:admin')->group(function () {
         ->middleware('throttle:5,1')->name('login.do');
 });
 
+// ===== Notificaciones: contador público (para badge del header) =====
+Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
+    ->middleware('throttle:60,1')
+    ->name('notificaciones.count');
+
 Route::middleware('auth:admin')->group(function () {
+
     // Aliases
     Route::get('/', fn() => redirect()->route('admin.home'))->name('root');
     Route::get('dashboard', fn() => redirect()->route('admin.home'))->name('dashboard');
@@ -127,17 +133,17 @@ Route::middleware('auth:admin')->group(function () {
     }
 
     /* ===========================
-       Utilidades
-       =========================== */
+   Utilidades
+   =========================== */
     Route::get('search', [SearchController::class, 'index'])->name('search');
 
     Route::get('notificaciones',        [NotificationController::class, 'index'])->name('notificaciones');
-    Route::get('notificaciones/count',  [NotificationController::class, 'count'])->name('notificaciones.count');
     Route::get('notificaciones/list',   [NotificationController::class, 'list'])->name('notificaciones.list');
     Route::post('notificaciones/read-all', [NotificationController::class, 'readAll'])->name('notificaciones.readAll');
 
     Route::get('ui/diag', [UiController::class, 'diag'])->middleware('throttle:30,1')->name('ui.diag');
     Route::post('ui/bot-ask', [UiController::class, 'botAsk'])->middleware('throttle:30,1')->name('ui.botAsk');
+
 
     // Perfil
     Route::get('perfil', [ProfileController::class, 'index'])->name('perfil');

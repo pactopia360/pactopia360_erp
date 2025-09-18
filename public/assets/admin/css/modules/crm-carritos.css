@@ -1,0 +1,412 @@
+/* ==========================================================================
+   PACTOPIA360 · MÓDULO CRM » Carritos — v2.0 (pro skin)
+   - Visual limpio, profesional y “brand-first”
+   - Accesible (contraste AA, focus visibles, reduce-motion)
+   - Light/Dark via [data-theme] + tokens sólidos
+   - Tablas con thead sticky y primera columna sticky
+   - Modo responsive con "cards" en móvil y grid fluido en desktop
+   - Estados consistentes, chips, badges, tooltips y skeletons
+   - Opt-in: aplica en .mod-carritos (no contamina otros módulos)
+   ========================================================================== */
+
+/* =========================
+   1) TOKENS DE MARCA / BASE
+   ========================= */
+:root{
+  /* Paleta Pactopia (fallback si layout no define) */
+  --p360-red:       #e11d48;   /* rojo marca */
+  --p360-red-700:   #9f1239;
+  --p360-navy:      #0b2a3a;   /* azul petróleo */
+  --p360-bluegray:  #394759;
+  --p360-slate:     #323642;
+
+  /* Base UI */
+  --bg:             #f6f7f9;
+  --card-bg:        #ffffff;
+  --panel-bg:       #f8fafc;
+  --surface-2:      #eef2f6;
+  --text:           #0f172a;
+  --muted:          #64748b;
+  --border:         rgba(0,0,0,.10);
+  --border-strong:  rgba(0,0,0,.16);
+  --ring:           rgba(14,165,233,.45);
+  --shadow-1:       0 10px 28px rgba(0,0,0,.08);
+  --shadow-2:       0 18px 42px rgba(0,0,0,.10);
+
+  /* Estados */
+  --ok:   #16a34a;
+  --warn: #f59e0b;
+  --info: #2563eb;
+  --bad:  var(--p360-red);
+
+  /* Densidad */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --pad-1: 8px;
+  --pad-2: 12px;
+  --pad-3: 16px;
+
+  /* Tipografía */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fw-700: 700;
+  --fw-800: 800;
+
+  /* Acentos de módulo (derivan de marca) */
+  --mod-accent:   var(--p360-navy);
+  --mod-accent-2: var(--p360-bluegray);
+  --mod-accent-3: var(--p360-slate);
+
+  /* Transiciones (se reducen con prefers-reduced-motion) */
+  --ease-1: cubic-bezier(.2,.8,.2,1);
+  --t-fast: .15s;
+  --t-med:  .25s;
+}
+
+[data-theme="dark"]{
+  --bg:            #0b1220;
+  --card-bg:       #0f172a;
+  --panel-bg:      #0c172b;
+  --surface-2:     #0c1a2e;
+  --text:          #e5e7eb;
+  --muted:         #a1a1aa;
+  --border:        rgba(255,255,255,.10);
+  --border-strong: rgba(255,255,255,.16);
+  --ring:          rgba(56,189,248,.45);
+  --shadow-1:      0 10px 30px rgba(0,0,0,.55);
+  --shadow-2:      0 18px 44px rgba(0,0,0,.60);
+}
+
+/* =========================
+   2) ALCANCE DEL SKIN
+   ========================= */
+.mod-carritos{
+  color: var(--text);
+  font-family: var(--font-ui);
+  accent-color: var(--mod-accent);
+  --row-h: 48px; /* alto de filas */
+}
+
+/* Densidad alterna (activar si quieres modo compacto) */
+/* .mod-carritos.is-compact{ --row-h: 42px; --pad-2: 10px; --pad-3: 12px } */
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce){
+  .mod-carritos *{ transition: none !important; animation: none !important }
+}
+
+/* =========================
+   3) CABECERA / KPIs
+   ========================= */
+.mod-carritos .mod-head{
+  background:
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--mod-accent) 12%, transparent),
+      color-mix(in oklab, var(--card-bg) 92%, transparent));
+  border:1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--pad-3);
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap:12px;
+  align-items:start;
+}
+.mod-carritos .mod-title{
+  display:flex; align-items:center; gap:12px;
+}
+.mod-carritos .mod-title .ico{
+  width:40px; height:40px; display:grid; place-items:center;
+  border-radius:12px; color:#fff;
+  background: linear-gradient(135deg, var(--mod-accent), color-mix(in oklab, var(--mod-accent-2) 72%, black 28%));
+  box-shadow: 0 14px 30px color-mix(in oklab, var(--mod-accent) 22%, transparent);
+}
+.mod-carritos .mod-title h1{
+  margin:0; font: var(--fw-800) 18px/1.2 var(--font-ui); letter-spacing:.2px;
+}
+.mod-carritos .mod-sub{
+  margin:2px 0 0; color:var(--muted); font-size: var(--fs-12);
+}
+.mod-carritos .kpis{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;
+}
+.mod-carritos .kpi{
+  display:flex; align-items:center; gap:8px;
+  padding:7px 10px; border-radius:999px; font-weight:var(--fw-800); font-size: var(--fs-12);
+  background: color-mix(in oklab, var(--mod-accent) 10%, transparent);
+  color: color-mix(in oklab, #fff 92%, var(--mod-accent));
+  border:1px solid color-mix(in oklab, var(--mod-accent) 28%, transparent);
+}
+[data-theme="dark"] .mod-carritos .kpi{
+  background: color-mix(in oklab, var(--mod-accent) 18%, transparent);
+}
+
+/* KPI variantes rápidas */
+.mod-carritos .kpi--ok{    background: color-mix(in oklab, var(--ok) 12%, transparent);    color: color-mix(in oklab, #fff 92%, var(--ok));    border-color: color-mix(in oklab, var(--ok) 35%, transparent) }
+.mod-carritos .kpi--warn{  background: color-mix(in oklab, var(--warn) 12%, transparent);  color: color-mix(in oklab, #fff 92%, var(--warn));  border-color: color-mix(in oklab, var(--warn) 35%, transparent) }
+.mod-carritos .kpi--info{  background: color-mix(in oklab, var(--info) 12%, transparent);  color: color-mix(in oklab, #fff 92%, var(--info));  border-color: color-mix(in oklab, var(--info) 35%, transparent) }
+
+/* =========================
+   4) TOOLBAR / FILTROS
+   ========================= */
+.mod-carritos .toolbar{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0 8px;
+}
+.mod-carritos .search{
+  display:flex; align-items:center; gap:8px; min-width:260px;
+  padding:10px 12px; border:1px solid var(--border); border-radius:12px;
+  background:var(--panel-bg); color:var(--muted);
+}
+.mod-carritos .search input{
+  background:transparent; border:0; outline:0; color:var(--text); min-width:200px; font-size: var(--fs-14);
+}
+.mod-carritos .select,
+.mod-carritos select{
+  -webkit-appearance:none; appearance:none;
+  padding:10px 12px; border:1px solid var(--border); border-radius:12px;
+  background:var(--card-bg); color:var(--text); min-height:38px; font-size: var(--fs-14);
+}
+.mod-carritos .btn{
+  padding:10px 12px; border-radius:12px; border:1px solid var(--border);
+  background:var(--card-bg); color:var(--text); font-weight:var(--fw-800); cursor:pointer; min-height:38px;
+  transition: filter var(--t-fast) var(--ease-1), transform var(--t-fast) var(--ease-1), box-shadow var(--t-fast) var(--ease-1);
+}
+.mod-carritos .btn:hover{ filter:brightness(1.06) }
+.mod-carritos .btn:active{ transform: translateY(1px) }
+.mod-carritos .btn:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.mod-carritos .btn-primary{
+  background: linear-gradient(135deg, var(--mod-accent), color-mix(in oklab, var(--mod-accent-2) 72%, black 28%));
+  color:#fff; border:0;
+  box-shadow:0 10px 26px color-mix(in oklab, var(--mod-accent) 20%, transparent);
+}
+.mod-carritos .btn-danger{
+  background: linear-gradient(135deg, var(--p360-red), color-mix(in oklab, var(--p360-red) 70%, black 30%));
+  color:#fff; border:0;
+}
+.mod-carritos .view-chip{
+  padding:6px 10px; border-radius:999px; font:700 12px/1 var(--font-ui);
+  border:1px dashed color-mix(in oklab, var(--mod-accent) 28%, transparent);
+  color: color-mix(in oklab, var(--mod-accent) 72%, var(--text));
+  background: color-mix(in oklab, var(--mod-accent) 10%, transparent);
+}
+
+/* =========================
+   5) CONTENEDORES / CARDS
+   ========================= */
+.mod-carritos .card{
+  background:var(--card-bg); border:1px solid var(--border); border-radius: var(--radius-md); padding: var(--pad-2);
+  box-shadow: var(--shadow-1);
+}
+.mod-carritos .card--muted{
+  background:var(--surface-2);
+}
+
+/* =========================
+   6) TABLA (DESKTOP)
+   ========================= */
+.mod-carritos .table-wrap{ overflow:auto }
+.mod-carritos table{
+  width:100%; border-collapse:separate; border-spacing:0;
+}
+.mod-carritos th, .mod-carritos td{
+  padding: 10px var(--pad-2);
+  border-bottom:1px solid var(--border);
+  white-space:nowrap; font-size: var(--fs-14); color:var(--text);
+  height: var(--row-h); vertical-align: middle;
+}
+.mod-carritos th{
+  position:sticky; top:0; z-index:3;
+  background:linear-gradient(180deg,var(--card-bg), color-mix(in oklab, var(--card-bg) 88%, transparent));
+  color:var(--muted); font-weight:var(--fw-800); text-align:left; backdrop-filter: blur(2px);
+  border-bottom:1px solid var(--border-strong);
+}
+
+/* Primera columna sticky (p.ej. folio / cliente) */
+.mod-carritos td.is-sticky,
+.mod-carritos th.is-sticky{
+  position: sticky; left: 0; z-index: 2;
+  background: linear-gradient(180deg,var(--card-bg), color-mix(in oklab, var(--card-bg) 88%, transparent));
+  border-right:1px solid var(--border);
+}
+
+/* Hover y zebra */
+.mod-carritos tbody tr:hover{ background: color-mix(in oklab, var(--mod-accent) 6%, transparent) }
+.mod-carritos tbody tr:nth-child(odd){ background: color-mix(in oklab, var(--text) 3%, transparent) }
+
+/* Estados de selección / deshabilitado */
+.mod-carritos tr[aria-selected="true"]{ outline: 2px solid color-mix(in oklab, var(--info) 40%, transparent) }
+.mod-carritos tr[aria-disabled="true"]{ opacity:.6; filter: grayscale(.1) }
+
+/* Sortable headers: añadir data-sort="asc|desc" al th */
+.mod-carritos th.th-sortable{ cursor: pointer; user-select:none; }
+.mod-carritos th.th-sortable::after{
+  content: "⟂"; /* barra vertical como placeholder */
+  margin-left:8px; opacity:.35; font-size: 12px;
+}
+.mod-carritos th.th-sortable[data-sort="asc"]::after{ content:"▲"; opacity:.9 }
+.mod-carritos th.th-sortable[data-sort="desc"]::after{ content:"▼"; opacity:.9 }
+
+/* Numérico alineado */
+.mod-carritos .num{ text-align:right; font-variant-numeric: tabular-nums; }
+
+/* =========================
+   7) ESTADOS / BADGES / ACCIONES
+   ========================= */
+.mod-carritos .status{
+  display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+  border-radius:999px; font:700 12px/1 var(--font-ui); border:1px solid transparent;
+}
+.mod-carritos .status .dot{ width:8px; height:8px; border-radius:999px; background:currentColor; }
+
+/* Estados mapeados del Carrito */
+.mod-carritos .is-open{       color:#1d4ed8; background: color-mix(in oklab, #1d4ed8 16%, transparent); border-color: color-mix(in oklab, #1d4ed8 30%, transparent) }
+.mod-carritos .is-new{        color:#0891b2; background: color-mix(in oklab, #0891b2 16%, transparent); border-color: color-mix(in oklab, #0891b2 30%, transparent) }
+.mod-carritos .is-converted{  color:#16a34a; background: color-mix(in oklab, #16a34a 16%, transparent); border-color: color-mix(in oklab, #16a34a 28%, transparent) }
+.mod-carritos .is-cancelled{  color:var(--p360-red); background: color-mix(in oklab, var(--p360-red) 14%, transparent); border-color: color-mix(in oklab, var(--p360-red) 28%, transparent) }
+
+/* Botones de fila */
+.mod-carritos .row-actions{ display:flex; align-items:center; gap:6px }
+.mod-carritos .icon-btn{
+  width:34px; height:34px; display:grid; place-items:center; border-radius:10px;
+  border:1px solid var(--border); background:var(--card-bg); color:var(--text); cursor:pointer;
+  transition: filter var(--t-fast) var(--ease-1), transform var(--t-fast) var(--ease-1), box-shadow var(--t-fast) var(--ease-1);
+}
+.mod-carritos .icon-btn:hover{ filter:brightness(1.06) }
+.mod-carritos .icon-btn:active{ transform: translateY(1px) }
+.mod-carritos .icon-btn:focus-visible{ outline: none; box-shadow: 0 0 0 3px var(--ring) }
+
+/* Etiquetas / chips ligeros */
+.mod-carritos .tag{
+  display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:8px;
+  font:600 12px/1 var(--font-ui);
+  background: color-mix(in oklab, var(--mod-accent) 8%, transparent);
+  color: color-mix(in oklab, #fff 92%, var(--mod-accent));
+  border:1px solid color-mix(in oklab, var(--mod-accent) 25%, transparent);
+}
+
+/* =========================
+   8) VACÍO / SKELETONS
+   ========================= */
+.mod-carritos .empty{
+  text-align:center; color:var(--muted); padding:30px 10px; border:1px dashed var(--border); border-radius:12px;
+  background: var(--panel-bg);
+}
+.mod-carritos .skeleton{
+  position: relative; overflow: hidden; background: color-mix(in oklab, var(--text) 8%, transparent); border-radius:8px;
+}
+.mod-carritos .skeleton::after{
+  content:""; position:absolute; inset:0;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, #fff 14%, transparent), transparent);
+  animation: p360-shimmer 1.25s infinite var(--ease-1);
+}
+@keyframes p360-shimmer{
+  0% { transform: translateX(-100%) }
+  100% { transform: translateX(100%) }
+}
+
+/* =========================
+   9) PAGINACIÓN (Laravel)
+   ========================= */
+.mod-carritos .pagination{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; justify-content:flex-end; padding:10px 0; }
+.mod-carritos .pagination .page-link{
+  display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:34px; padding:0 10px;
+  border:1px solid var(--border); border-radius:10px; background:var(--card-bg); color:var(--text); font-weight:700;
+  transition: filter var(--t-fast) var(--ease-1), transform var(--t-fast) var(--ease-1);
+}
+.mod-carritos .pagination .page-link:hover{ filter: brightness(1.05) }
+.mod-carritos .pagination .active .page-link{
+  background: color-mix(in oklab, var(--mod-accent) 18%, transparent);
+  color: color-mix(in oklab, #fff 92%, var(--mod-accent)); border-color: color-mix(in oklab, var(--mod-accent) 40%, transparent);
+}
+
+/* =========================
+   10) RESPONSIVE
+   ========================= */
+@media (max-width: 1200px){
+  .mod-carritos .mod-head{ grid-template-columns:1fr; }
+  .mod-carritos .kpis{ justify-content:flex-start }
+  .mod-carritos .search{ min-width: 220px }
+}
+
+/* “Card table” en móvil: cada fila se vuelve tarjeta */
+@media (max-width: 920px){
+  .mod-carritos table{ display:none } /* ocultamos la tabla clásica */
+  .mod-carritos .table-cards{
+    display:grid; gap:12px;
+  }
+  .mod-carritos .table-card{
+    background: var(--card-bg);
+    border:1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--pad-2);
+    box-shadow: var(--shadow-1);
+    display:grid; gap:8px;
+  }
+  .mod-carritos .table-card .tc-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    border-bottom:1px dashed var(--border);
+    padding-bottom:6px; margin-bottom:6px;
+  }
+  .mod-carritos .table-card .tc-row:last-child{ border-bottom:0; padding-bottom:0; margin-bottom:0 }
+  .mod-carritos .table-card .tc-label{ color:var(--muted); font-weight: var(--fw-700); font-size: var(--fs-12) }
+  .mod-carritos .table-card .tc-value{ font-size: var(--fs-14) }
+  .mod-carritos .table-card .tc-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+}
+
+/* =========================
+   11) TOOLTIP MINIMAL
+   ========================= */
+.mod-carritos [data-tooltip]{
+  position:relative;
+}
+.mod-carritos [data-tooltip]:hover::after{
+  content: attr(data-tooltip);
+  position:absolute; z-index:10; bottom: calc(100% + 8px); left:50%; transform: translateX(-50%);
+  white-space: nowrap;
+  background: color-mix(in oklab, var(--mod-accent) 82%, black 18%);
+  color:#fff; font-size: var(--fs-12);
+  padding:6px 8px; border-radius:8px; box-shadow: var(--shadow-2);
+}
+
+/* =========================
+   12) FOCUS RING GENERIC
+   ========================= */
+.mod-carritos :is(input,select,textarea){ transition: box-shadow var(--t-fast) var(--ease-1), border-color var(--t-fast) var(--ease-1) }
+.mod-carritos :is(input,select,textarea):focus-visible{
+  outline: none; border-color: transparent;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* =========================
+   13) PRINT (básico)
+   ========================= */
+@media print{
+  .mod-carritos .mod-head,
+  .mod-carritos .toolbar,
+  .mod-carritos .pagination{ display:none !important }
+  .mod-carritos table{ box-shadow:none !important }
+}
+
+/* =========================
+   14) FALLBACKS COLOR-MIX
+   (para navegadores viejos)
+   ========================= */
+@supports not (color: color-mix(in oklab, #000 10%, transparent)){
+  .mod-carritos .mod-head{ background: var(--card-bg) }
+  .mod-carritos .kpi{ background: var(--surface-2); color: var(--mod-accent); border-color: var(--border) }
+  .mod-carritos tbody tr:hover{ background: var(--surface-2) }
+  .mod-carritos tbody tr:nth-child(odd){ background: transparent }
+  .mod-carritos .btn-primary{ background: var(--mod-accent) }
+  .mod-carritos .btn-danger{ background: var(--p360-red) }
+  .mod-carritos .status.is-open{ background:#e8efff; color:#1d4ed8 }
+  .mod-carritos .status.is-new{ background:#def7ff; color:#0891b2 }
+  .mod-carritos .status.is-converted{ background:#e7f7eb; color:#16a34a }
+  .mod-carritos .status.is-cancelled{ background:#ffe5ea; color:var(--p360-red) }
+}

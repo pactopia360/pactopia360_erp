@@ -1,3 +1,4 @@
+{{-- resources/views/layouts/partials/header.blade.php --}}
 @php
   use Illuminate\Support\Facades\Route;
 
@@ -6,22 +7,26 @@
   $userEmail  = $user?->email ?? '';
   $brandUrl   = Route::has('admin.home') ? route('admin.home') : url('/');
 
-  $logoLight  = asset('assets/admin/img/logo-pactopia360-dark.png');
-  $logoDark   = asset('assets/admin/img/logo-pactopia360-white.png');
+  // Logos (claro/oscuro)
+  $logoLight  = asset('assets/admin/img/logo-pactopia360-dark.png');   // tema claro
+  $logoDark   = asset('assets/admin/img/logo-pactopia360-white.png');  // tema oscuro
 
-  $urlPerfil  = Route::has('admin.perfil') ? route('admin.perfil') : (Route::has('admin.profile') ? route('admin.profile') : '#');
-  $urlConfig  = Route::has('admin.config.index') ? route('admin.config.index') : (Route::has('admin.configuracion.index') ? route('admin.configuracion.index') : '#');
-  $logoutRoute= Route::has('admin.logout') ? route('admin.logout') : (Route::has('logout') ? route('logout') : '#');
+  // Rutas
+  $urlPerfil   = Route::has('admin.perfil') ? route('admin.perfil')
+                : (Route::has('admin.profile') ? route('admin.profile') : '#');
+  $urlConfig   = Route::has('admin.config.index') ? route('admin.config.index')
+                : (Route::has('admin.configuracion.index') ? route('admin.configuracion.index') : '#');
+  $logoutRoute = Route::has('admin.logout') ? route('admin.logout')
+                : (Route::has('logout') ? route('logout') : '#');
 
-  $searchUrl  = Route::has('admin.search') ? route('admin.search') : '#';
-
+  $searchUrl     = Route::has('admin.search') ? route('admin.search') : '#';
   $notifCountUrl = Route::has('admin.notificaciones.count') ? route('admin.notificaciones.count') : null;
-  $notifListUrl  = Route::has('admin.notificaciones.list')  ? route('admin.notificaciones.list')  : (Route::has('admin.notificaciones') ? route('admin.notificaciones') : null);
-
+  $notifListUrl  = Route::has('admin.notificaciones.list')  ? route('admin.notificaciones.list')
+                  : (Route::has('admin.notificaciones') ? route('admin.notificaciones') : null);
   $heartbeatUrl  = Route::has('admin.ui.heartbeat') ? route('admin.ui.heartbeat') : null;
-  $envName       = app()->environment();
 
-  $unread = (int) (session('admin_unread_notifications', 0));
+  $envName = app()->environment();
+  $unread  = (int) (session('admin_unread_notifications', 0));
 @endphp
 
 <header id="topbar" class="header" role="banner" aria-label="Barra superior"
@@ -32,6 +37,7 @@
         data-env="{{ $envName }}">
 
   <div class="header-left">
+    {{-- Botón Sidebar (desktop colapsa / móvil drawer) --}}
     <button id="sidebarBtn" class="btn-sidebar-pro" type="button"
             aria-label="Alternar menú" aria-controls="sidebar"
             aria-pressed="false" aria-expanded="true" title="Menú">
@@ -41,30 +47,37 @@
       <span class="btn-glow" aria-hidden="true"></span>
     </button>
 
+    {{-- Marca --}}
     <a class="brand-link" href="{{ $brandUrl }}" aria-label="Inicio">
-      <img class="brand-logo brand-light" src="{{ $logoLight }}" alt="PACTOPIA 360" decoding="async" fetchpriority="high">
-      <img class="brand-logo brand-dark"  src="{{ $logoDark  }}" alt="PACTOPIA 360" decoding="async">
-      <span class="brand-name">PACTOPIA 360</span>
+      <img class="brand-logo brand-light" src="{{ $logoLight }}" alt="Pactopia360"
+           width="140" height="28" decoding="async" fetchpriority="high">
+      <img class="brand-logo brand-dark"  src="{{ $logoDark  }}" alt="Pactopia360"
+           width="140" height="28" decoding="async">
     </a>
 
+    {{-- Entorno + Heartbeat --}}
     <span class="env-badge" title="Entorno de ejecución">
       {{ strtoupper($envName) }}
       <span id="hbDot" class="hb-dot" aria-label="Estado del servidor" title="Estado"></span>
     </span>
   </div>
 
+  {{-- Búsqueda centrada --}}
   <div class="header-search">
     <form class="search-wrap" role="search" method="get"
           action="{{ $searchUrl }}"
           data-pjax-form
           onsubmit="return this.q.value.trim().length>0">
       <span class="search-icon" aria-hidden="true">🔎</span>
-      <input id="globalSearch" name="q" type="search" placeholder="Buscar en el panel… (Ctrl + K o /)" autocomplete="off" aria-label="Buscar">
-      <kbd class="kbd">Ctrl + K</kbd>
+      <input id="globalSearch" name="q" type="search"
+             placeholder="Buscar en el panel… (Ctrl + K o /)"
+             autocomplete="off" aria-label="Buscar en el panel">
+      <kbd class="kbd" aria-hidden="true">Ctrl + K</kbd>
     </form>
   </div>
 
   <div class="header-right">
+    {{-- Acciones rápidas --}}
     <details class="notif-menu" data-menu="quick">
       <summary class="notif-btn" title="Acciones rápidas" aria-label="Acciones rápidas">⚡</summary>
       <div class="dropdown" style="min-width:260px">
@@ -81,11 +94,13 @@
       </div>
     </details>
 
+    {{-- Tema --}}
     <button id="btnTheme" class="theme-btn" type="button" aria-label="Cambiar tema" title="Cambiar tema" aria-pressed="false">
       <span class="ico" aria-hidden="true">🌓</span>
       <span id="themeLabel" aria-live="polite">Modo claro</span>
     </button>
 
+    {{-- Notificaciones --}}
     <details class="notif-menu" data-menu="notifications">
       <summary class="notif-btn" title="Notificaciones" aria-label="Notificaciones">
         🔔
@@ -106,10 +121,12 @@
       </div>
     </details>
 
+    {{-- Asistente --}}
     <button id="btnNovaBot" class="theme-btn" type="button" title="Abrir asistente" aria-label="Abrir asistente">
       🤖 <span class="sr-only">Asistente</span>
     </button>
 
+    {{-- Usuario --}}
     <details class="avatar-menu" data-menu="profile">
       <summary class="theme-btn" aria-label="Menú de usuario" style="gap:10px">
         <img class="avatar-img" src="{{ $user?->avatar_url ?? 'https://ui-avatars.com/api/?name='.urlencode($userName).'&background=0D8ABC&color=fff' }}" alt="">
@@ -139,6 +156,7 @@
   </div>
 </header>
 
+{{-- Backdrop móvil del sidebar (controlado por JS) --}}
 <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
 <style>
@@ -154,15 +172,19 @@
   }
   .header-left{display:flex;align-items:center;gap:10px;min-width:240px}
   .header-right{display:flex;align-items:center;gap:10px}
-  .brand-link{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none;font-weight:700}
-  .brand-logo{height:26px}
-  .brand-logo[hidden]{display:none!important}
-  .brand-name{display:none}
-  @media (min-width:992px){ .brand-name{display:inline} }
+
+  .brand-link{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none}
+  .brand-logo{height:28px}
+  .brand-dark{display:none}
+  html.theme-dark .brand-dark{display:inline}
+  html.theme-dark .brand-light{display:none}
 
   .header-search{flex:1;display:flex;justify-content:center}
-  .search-wrap{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.08);
-    padding:6px 10px;border-radius:12px;width:100%;max-width:560px}
+  .search-wrap{
+    display:flex;align-items:center;gap:8px;
+    background:rgba(0,0,0,.04); border:1px solid rgba(0,0,0,.08);
+    padding:6px 10px; border-radius:12px; width:100%; max-width:560px
+  }
   html.theme-dark .search-wrap{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.08)}
   .search-wrap input{flex:1;border:0;outline:0;background:transparent}
   .kbd{font:600 10px/1 system-ui;background:rgba(0,0,0,.08);padding:2px 6px;border-radius:6px}
@@ -171,22 +193,30 @@
   .notif-menu{position:relative}
   .notif-menu>summary{list-style:none;cursor:pointer}
   .notif-menu>summary::-webkit-details-marker{display:none}
-  .notif-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;min-width:38px;
-    padding:0 8px;border-radius:10px;border:1px solid rgba(0,0,0,.08);background:transparent}
+  .notif-btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;min-width:38px;
+    padding:0 8px;border-radius:10px;border:1px solid rgba(0,0,0,.08);background:transparent
+  }
   html.theme-dark .notif-btn{border-color:rgba(255,255,255,.12)}
-  .dropdown{position:absolute;right:0;top:calc(100% + 8px);background:var(--sb-bg,#fff);border:1px solid var(--sb-border,rgba(0,0,0,.08));
-    border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.12);padding:8px;min-width:220px;z-index:100}
+  .dropdown{
+    position:absolute;right:0;top:calc(100% + 8px);
+    background:var(--sb-bg,#fff);border:1px solid var(--sb-border,rgba(0,0,0,.08));
+    border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.12);padding:8px;min-width:220px;z-index:100
+  }
   .dropdown-header{font:700 12px/1 system-ui;margin:6px 4px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
   .menu-vert a,.menu-vert .linklike{display:block;padding:6px 8px;border-radius:8px;text-decoration:none;color:inherit}
   .menu-vert a:hover,.menu-vert .linklike:hover{background:rgba(0,0,0,.06)}
   html.theme-dark .menu-vert a:hover,html.theme-dark .menu-vert .linklike:hover{background:rgba(255,255,255,.08)}
   .badge{display:inline-flex;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ef4444;color:#fff;font:700 10px/18px system-ui}
+
   .avatar-img{width:24px;height:24px;border-radius:9999px;object-fit:cover}
 
-  .theme-btn{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 10px;border-radius:10px;border:1px solid rgba(0,0,0,.08);background:transparent}
+  .theme-btn{
+    display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 10px;border-radius:10px;
+    border:1px solid rgba(0,0,0,.08);background:transparent
+  }
   html.theme-dark .theme-btn{border-color:rgba(255,255,255,.12)}
-  .linklike{appearance:none;background:none;border:0;padding:6px 0;text-align:left;cursor:pointer;width:100%}
-  .toggle{display:flex;align-items:center;gap:.5rem}
+
   .env-badge{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 system-ui;padding:4px 8px;margin-left:10px;border-radius:9999px;background:rgba(0,0,0,.06)}
   html.theme-dark .env-badge{background:rgba(255,255,255,.08)}
   .hb-dot{width:8px;height:8px;border-radius:9999px;display:inline-block;background:#9ca3af;box-shadow:0 0 0 0 rgba(16,185,129,.0)}
@@ -205,24 +235,88 @@
   .btn-sidebar-pro:hover{border-color:rgba(99,102,241,.35)}
   .btn-sidebar-pro:hover .btn-glow{opacity:1}
   .btn-sidebar-pro:active{transform:scale(.96)}
-  html.sidebar-collapsed .btn-sidebar-pro .btn-bars:nth-child(1){transform:translateY(4px) rotate(35deg);width:14px}
-  html.sidebar-collapsed .btn-sidebar-pro .btn-bars:nth-child(2){opacity:0}
-  html.sidebar-collapsed .btn-sidebar-pro .btn-bars:nth-child(3){transform:translateY(-4px) rotate(-35deg);width:14px}
 
   .sidebar-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1040;display:none}
   body.sidebar-open .sidebar-backdrop{display:block}
+
+  /* Oculta legales accidentales en header */
+  .header .topbar-copy, .header .copyright, .header .legal, .header [data-copyright]{ display:none !important; }
 </style>
 
 <script>
+/* ==========================================================================
+   P360 · HEADER CORE (unificado, sin duplicaciones)
+   - Control de sidebar (desktop/móvil) con persistencia
+   - Debug logger, tema sin parpadeo, búsqueda rápida
+   - Heartbeat, notificaciones, NovaBot, logout seguro
+   ========================================================================== */
 (function(){
   'use strict';
   const html=document.documentElement, body=document.body;
   const $=(s,c=document)=>c.querySelector(s);
   const $$=(s,c=document)=>Array.from(c.querySelectorAll(s));
-  const BTN = $('#sidebarBtn');
+
+  /* ========= Sidebar: desktop colapsa / móvil drawer ========= */
+  (function sidebarCtrl(){
+    const KEY_MODE='p360.sidebar.mode';   // 'expanded' | 'collapsed' (desktop)
+    const KEY_OPEN='p360.sidebar.open';   // '1'|'0' (móvil)
+    const MQ = matchMedia('(min-width: 1024px)');
+    const btn = $('#sidebarBtn');
+    const backdrop = $('#sidebarBackdrop') || $('#sidebar-backdrop');
+
+    const isDesktop = ()=> MQ.matches;
+    const getMode = ()=> { try{ return localStorage.getItem(KEY_MODE) || 'expanded'; }catch{ return 'expanded'; } };
+    const setMode = (m)=> { try{ localStorage.setItem(KEY_MODE,m); }catch{} };
+    const getOpen = ()=> { try{ return localStorage.getItem(KEY_OPEN)==='1'; }catch{ return false; } };
+    const setOpen = (v)=> { try{ localStorage.setItem(KEY_OPEN, v?'1':'0'); }catch{} };
+
+    const reflect = ()=>{
+      html.classList.remove('sidebar-collapsed');
+      body.classList.remove('sidebar-collapsed','sidebar-open');
+      if (isDesktop()){
+        const collapsed = (getMode()==='collapsed');
+        html.classList.toggle('sidebar-collapsed', collapsed);
+        body.classList.toggle('sidebar-collapsed', collapsed);
+        if (btn){ btn.setAttribute('aria-expanded', collapsed?'false':'true'); btn.setAttribute('aria-pressed', collapsed?'false':'true'); }
+      } else {
+        const open=getOpen();
+        body.classList.toggle('sidebar-open', open);
+        if (btn){ btn.setAttribute('aria-expanded', open?'true':'false'); btn.setAttribute('aria-pressed', open?'true':'false'); }
+      }
+      if (backdrop) backdrop.style.display = (!isDesktop() && getOpen()) ? 'block' : 'none';
+    };
+
+    const API = (window.P360 = window.P360 || {}, window.P360.sidebar = window.P360.sidebar || {});
+    API.toggle = ()=>{
+      if (isDesktop()){
+        setMode(getMode()==='collapsed' ? 'expanded' : 'collapsed');
+      } else {
+        setOpen(!getOpen());
+      }
+      reflect();
+      window.dispatchEvent(new CustomEvent('p360:sidebar:toggled', { detail:{ desktop:isDesktop() } }));
+    };
+    API.openMobile = (open=true)=>{ if (isDesktop()) return; setOpen(!!open); reflect(); };
+    API.reset = ()=>{ setMode('expanded'); setOpen(false); reflect(); };
+
+    if (btn && !btn.dataset.bound){
+      btn.dataset.bound='1';
+      btn.addEventListener('mousemove', e=>{ const r=btn.getBoundingClientRect(); btn.style.setProperty('--mx',(e.clientX-r.left)+'px'); btn.style.setProperty('--my',(e.clientY-r.top)+'px'); });
+      btn.addEventListener('click', API.toggle);
+      btn.addEventListener('dblclick', API.reset);
+    }
+    if (backdrop && !backdrop.dataset.bound){
+      backdrop.dataset.bound='1';
+      backdrop.addEventListener('click', ()=>API.openMobile(false));
+    }
+    MQ.addEventListener?.('change', reflect);
+    window.addEventListener('resize', reflect);
+    window.addEventListener('p360:pjax:before', ()=>API.openMobile(false));
+    reflect();
+  })();
 
   /* ========= Fallback de P360.debug → /admin/ui/log ========= */
-  (function(){
+  (function debugFallback(){
     window.P360 = window.P360 || {};
     if (!window.P360.debug) {
       const LOG_URL = "{{ Route::has('admin.ui.log') ? route('admin.ui.log') : url('/admin/ui/log') }}";
@@ -235,7 +329,7 @@
               headers: {
                 'Content-Type': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': (document.querySelector('meta[name=\"csrf-token\"]')?.content || '')
+                'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]')?.content || '')
               },
               credentials: 'same-origin',
               body: JSON.stringify(body)
@@ -246,48 +340,42 @@
     }
   })();
 
-  /* ========= Tema ========= */
-  (function(){
+  /* ========= Tema (sin parpadeo de logo y respeto de prefers-color-scheme) ========= */
+  (function themeCtrl(){
     const KEY='p360-theme'; const btn=$('#btnTheme'); const label=$('#themeLabel');
     const logoL=$('.brand-logo.brand-light'); const logoD=$('.brand-logo.brand-dark');
-    const reflect=(dark)=>{ try{ if(logoL) logoL.hidden=!!dark; if(logoD) logoD.hidden=!dark; }catch{} };
-    const apply=(m)=>{ const d=(m==='dark'); html.classList.toggle('theme-dark',d); html.classList.toggle('theme-light',!d);
+    const mPref = matchMedia('(prefers-color-scheme: dark)');
+    const current = ()=>{
+      try{ const v=localStorage.getItem(KEY); if(v==='dark'||v==='light') return v; }catch{}
+      return mPref.matches ? 'dark' : 'light';
+    };
+    const reflect=(dark)=>{ if(logoL) logoL.style.display=dark?'none':''; if(logoD) logoD.style.display=dark?'':'none'; };
+    const apply=(m)=>{
+      const d=(m==='dark'); html.classList.toggle('theme-dark',d); html.classList.toggle('theme-light',!d);
       html.setAttribute('data-theme', d?'dark':'light'); body.classList.toggle('theme-dark',d); body.classList.toggle('theme-light',!d);
-      try{localStorage.setItem(KEY,m)}catch{}; if(label) label.textContent=d?'Modo claro':'Modo oscuro'; if(btn) btn.setAttribute('aria-pressed',d?'true':'false'); reflect(d); };
-    const current=()=>{ try{const v=localStorage.getItem(KEY); if(v==='dark'||v==='light') return v;}catch{} return html.classList.contains('theme-dark')?'dark':'light'; };
-    apply(current()); if(btn && !btn.dataset.bound){ btn.dataset.bound='1'; btn.addEventListener('click',()=>apply(current()==='dark'?'light':'dark')); }
+      try{ localStorage.setItem(KEY,m); }catch{}
+      if(label) label.textContent=d?'Modo claro':'Modo oscuro';
+      if(btn) btn.setAttribute('aria-pressed', d?'true':'false');
+      reflect(d);
+    };
+    apply(current());
+    if (btn && !btn.dataset.bound){ btn.dataset.bound='1'; btn.addEventListener('click',()=>apply(current()==='dark'?'light':'dark')); }
+    mPref.addEventListener?.('change', e=>{ const saved = (localStorage.getItem(KEY)||''); if(!saved) apply(e.matches?'dark':'light'); });
     addEventListener('storage',e=>{ if(e.key===KEY && e.newValue) apply(e.newValue); });
   })();
 
-  /* ========= Botón sidebar ========= */
-  if (BTN && !BTN.dataset.bound){
-    BTN.dataset.bound='1';
-    BTN.addEventListener('mousemove', e=>{
-      const r=BTN.getBoundingClientRect();
-      BTN.style.setProperty('--mx', (e.clientX-r.left)+'px');
-      BTN.style.setProperty('--my', (e.clientY-r.top)+'px');
-    });
-    BTN.addEventListener('click', ()=>{ try{ window.P360?.sidebar?.toggle(); }catch{} });
-    BTN.addEventListener('dblclick', ()=>{ try{ P360.sidebar?.reset(); }catch{} });
-  }
-
   /* ========= Atajos de búsqueda (Ctrl+K y /) ========= */
-  (function(){
-    const input = $('#globalSearch');
-    if(!input) return;
+  (function searchHotkeys(){
+    const input = $('#globalSearch'); if(!input) return;
     document.addEventListener('keydown', (e)=>{
-      const isSlash = (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey);
-      const isCtrlK = ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey));
-      if (isSlash || isCtrlK){
-        e.preventDefault();
-        input.focus();
-        input.select();
-      }
+      const isSlash = (e.key==='/' && !e.ctrlKey && !e.metaKey && !e.altKey);
+      const isCtrlK = ((e.key==='k'||e.key==='K') && (e.ctrlKey || e.metaKey));
+      if (isSlash || isCtrlK){ e.preventDefault(); input.focus(); input.select(); }
     });
   })();
 
   /* ========= Heartbeat ========= */
-  (function(){
+  (function heartbeat(){
     const root=$('#topbar'); const dot=$('#hbDot'); const url=root?.dataset.heartbeatUrl;
     if(!dot || !url) return;
     async function ping(){
@@ -303,7 +391,7 @@
   })();
 
   /* ========= Notificaciones ========= */
-  (function(){
+  (function notifications(){
     const root=$('#topbar'), badge=$('#notifBadge'), bodyEl=$('#p360NotifBody');
     const countUrl=root?.dataset.notifCountUrl||null, listUrl=root?.dataset.notifListUrl||null;
     const fetchJSON=async url=>{ try{
@@ -311,12 +399,15 @@
       const ct=res.headers.get('content-type')||''; if(!ct.includes('application/json')) return null;
       return await res.json();
     }catch{return null;} };
-    const updateBadge=async ()=>{ if(!countUrl||!badge) return;
-      const data=await fetchJSON(countUrl); const n=Math.max(0, parseInt((data&&(data.count??data.unread??data.total))||0,10));
+    const updateBadge=async ()=>{
+      if(!countUrl||!badge) return;
+      const data=await fetchJSON(countUrl);
+      const n=Math.max(0, parseInt((data&&(data.count??data.unread??data.total))||0,10));
       if(n>0){ badge.innerText=n>99?'99+':String(n); badge.hidden=false; badge.setAttribute('aria-label', n+' sin leer'); }
       else{ badge.hidden=true; badge.innerText=''; badge.setAttribute('aria-label','0 sin leer'); }
     };
-    const loadListOnOpen=async ()=>{ if(!listUrl||!bodyEl||bodyEl.dataset.state!=='idle') return;
+    const loadListOnOpen=async ()=>{
+      if(!listUrl||!bodyEl||bodyEl.dataset.state!=='idle') return;
       bodyEl.dataset.state='loading'; bodyEl.innerHTML='<p class="muted">Cargando…</p>';
       const data=await fetchJSON(listUrl);
       if(Array.isArray(data?.items)&&data.items.length){
@@ -347,23 +438,28 @@
   })();
 
   /* ========= NovaBot ========= */
-  (function(){
+  (function novabot(){
     const btn=$('#btnNovaBot'); if(!btn || btn.dataset.bound) return; btn.dataset.bound='1';
     btn.addEventListener('click', ()=>{
       try{
         if (window.NovaBot && typeof window.NovaBot.open === 'function'){ window.NovaBot.open(); }
-        else { P360.toast?.info('Cargando asistente…'); window.dispatchEvent(new CustomEvent('p360:bot:open')); }
-      }catch{ P360.toast?.error('No se pudo abrir el asistente'); }
+        else { window.P360?.toast?.info?.('Cargando asistente…'); window.dispatchEvent(new CustomEvent('p360:bot:open')); }
+      }catch{ window.P360?.toast?.error?.('No se pudo abrir el asistente'); }
     });
   })();
 
-  /* ========= Logout + backdrop móvil ========= */
-  (function(){
+  /* ========= Logout con bloqueo doble click ========= */
+  (function logoutProtect(){
     const b=$('#logoutBtn'), f=$('#logoutForm');
     if(b&&f&&!b.dataset.bound){ b.dataset.bound='1';
       b.addEventListener('click', ()=>{ if(b.disabled) return false; b.disabled=true; b.textContent='Cerrando…'; setTimeout(()=>{ try{f.submit();}catch{ b.disabled=false; } },10); });
     }
-    const backdrop=$('#sidebarBackdrop'); if(backdrop){ backdrop.addEventListener('click', ()=>{ try{ P360.sidebar?.openMobile(false); }catch{} }); }
+  })();
+
+  /* ========= Cerrar menus al hacer click fuera ========= */
+  (function clickOutsideToClose(){
+    const menus = $$('details[data-menu]');
+    document.addEventListener('click', (e)=>{ menus.forEach(d=>{ if (!d.contains(e.target)) d.open = false; }); }, {capture:true});
   })();
 })();
 </script>

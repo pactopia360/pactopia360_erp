@@ -12,19 +12,24 @@ use App\Http\Controllers\DeployController;
 // Página de bienvenida
 Route::get('/', function () {
     return view('welcome');
-});
+})->name('home.public');
 
 // Alias de login genérico → manda al login del panel admin
 Route::get('/login', function () {
     return redirect()->route('admin.login');
 })->name('login');
 
-// Rutas del panel administrativo (se cargan desde routes/admin.php)
+// Panel ADMIN (carga routes/admin.php con prefijo y nombres)
 Route::prefix('admin')
-    ->name('admin.')
+    ->as('admin.')
     ->group(base_path('routes/admin.php'));
 
-// Hook de deploy (opcional; úsalo si tu proceso CI/CD lo invoca)
+// Panel CLIENTE (carga routes/cliente.php con prefijo y nombres)
+Route::prefix('cliente')
+    ->as('cliente.')
+    ->group(base_path('routes/cliente.php'));
+
+// Hook de deploy (opcional; para CI/CD)
 Route::get('/_deploy/finish/{signature}', [DeployController::class, 'finish'])
     ->where('signature', '[A-Za-z0-9._-]+')
     ->name('deploy.finish');
@@ -32,9 +37,8 @@ Route::get('/_deploy/finish/{signature}', [DeployController::class, 'finish'])
 /*
 |--------------------------------------------------------------------------
 | Utilidades de entorno local (opcionales)
+| Útiles cuando no existe el symlink de storage en Windows/WAMP.
 |--------------------------------------------------------------------------
-| Útiles cuando no existe el symlink de storage en desarrollo Windows/WAMP.
-| Puedes eliminarlas si ya usas "php artisan storage:link".
 */
 if (app()->environment(['local', 'development'])) {
     Route::get('storage/{path}', function (string $path) {

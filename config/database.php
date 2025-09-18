@@ -9,7 +9,8 @@ return [
     | Default Database Connection Name
     |--------------------------------------------------------------------------
     |
-    | Que el default sea "mysql" (admin). El .env debe apuntar DB_DATABASE=p360v1_admin.
+    | Default "mysql" apuntando a la BD de admin.
+    | Tu .env debe tener DB_DATABASE=p360v1_admin para local.
     |
     */
     'default' => env('DB_CONNECTION', 'mysql'),
@@ -19,14 +20,17 @@ return [
     | Database Connections
     |--------------------------------------------------------------------------
     |
-    | Se mantienen conexiones nombradas:
-    | - mysql          → admin (por .env DB_*)
-    | - mysql_admin    → admin explícito (por DB_ADMIN_*)
-    | - mysql_clientes → clientes (por DB_CLIENT_*)
+    | Conexiones pensadas para LOCAL (MySQL) y PRODUCCIÓN (MariaDB) usando
+    | el mismo driver PDO MySQL. Charset/collation en utf8mb4 para ambos.
+    |
+    | - mysql           → admin por variables DB_* (default)
+    | - mysql_admin     → admin explícito (DB_ADMIN_*)
+    | - mysql_clientes  → clientes (DB_CLIENT_*)
     |
     */
     'connections' => [
 
+        // --- SQLite opcional para pruebas/herramientas ---
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
@@ -38,9 +42,9 @@ return [
             'synchronous' => null,
         ],
 
-        // DEFAULT → Admin vía variables DB_*
+        // ============= DEFAULT → Admin (usa DB_*) =============
         'mysql' => [
-            'driver' => 'mysql',
+            'driver' => 'mysql', // MariaDB en prod también usa este driver
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
@@ -54,31 +58,60 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+            'options' => extension_loaded('pdo_mysql') ? array_filter(array_merge(
+                [PDO::ATTR_EMULATE_PREPARES => false],
+                (env('MYSQL_ATTR_SSL_CA') && defined('PDO::MYSQL_ATTR_SSL_CA')) ? [PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA')] : [],
+                (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) ? [PDO::MYSQL_ATTR_MULTI_STATEMENTS => false] : []
+            )) : [],
         ],
 
-        'mariadb' => [
-            'driver' => 'mariadb',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'p360v1_admin'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+        // ============= ADMIN explícita (p360v1_admin) =============
+        'mysql_admin' => [
+            'driver' => env('DB_ADMIN_CONNECTION', 'mysql'),
+            'url' => env('DB_ADMIN_URL'),
+            'host' => env('DB_ADMIN_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('DB_ADMIN_PORT', env('DB_PORT', '3306')),
+            'database' => env('DB_ADMIN_DATABASE', env('DB_DATABASE', 'p360v1_admin')),
+            'username' => env('DB_ADMIN_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('DB_ADMIN_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('DB_ADMIN_SOCKET', ''),
+            'charset' => env('DB_ADMIN_CHARSET', env('DB_CHARSET', 'utf8mb4')),
+            'collation' => env('DB_ADMIN_COLLATION', env('DB_COLLATION', 'utf8mb4_unicode_ci')),
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+            'options' => extension_loaded('pdo_mysql') ? array_filter(array_merge(
+                [PDO::ATTR_EMULATE_PREPARES => false],
+                (env('DB_ADMIN_MYSQL_ATTR_SSL_CA') && defined('PDO::MYSQL_ATTR_SSL_CA')) ? [PDO::MYSQL_ATTR_SSL_CA => env('DB_ADMIN_MYSQL_ATTR_SSL_CA')] : [],
+                (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) ? [PDO::MYSQL_ATTR_MULTI_STATEMENTS => false] : []
+            )) : [],
         ],
 
+        // ============= CLIENTES (p360v1_clientes) =============
+        'mysql_clientes' => [
+            'driver' => env('DB_CLIENT_CONNECTION', 'mysql'),
+            'url' => env('DB_CLIENT_URL'),
+            'host' => env('DB_CLIENT_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('DB_CLIENT_PORT', env('DB_PORT', '3306')),
+            'database' => env('DB_CLIENT_DATABASE', 'p360v1_clientes'),
+            'username' => env('DB_CLIENT_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('DB_CLIENT_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('DB_CLIENT_SOCKET', ''),
+            'charset' => env('DB_CLIENT_CHARSET', env('DB_CHARSET', 'utf8mb4')),
+            'collation' => env('DB_CLIENT_COLLATION', env('DB_COLLATION', 'utf8mb4_unicode_ci')),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter(array_merge(
+                [PDO::ATTR_EMULATE_PREPARES => false],
+                (env('DB_CLIENT_MYSQL_ATTR_SSL_CA') && defined('PDO::MYSQL_ATTR_SSL_CA')) ? [PDO::MYSQL_ATTR_SSL_CA => env('DB_CLIENT_MYSQL_ATTR_SSL_CA')] : [],
+                (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) ? [PDO::MYSQL_ATTR_MULTI_STATEMENTS => false] : []
+            )) : [],
+        ],
+
+        // ---- Otros drivers por compatibilidad (no usados ahora) ----
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DB_URL'),
@@ -105,54 +138,6 @@ return [
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            // 'encrypt' => env('DB_ENCRYPT', 'yes'),
-            // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
-        ],
-
-        // ============================
-        // ADMIN (p360v1_admin)
-        // ============================
-        'mysql_admin' => [
-            'driver' => env('DB_ADMIN_CONNECTION', 'mysql'),
-            'url' => env('DB_ADMIN_URL'),
-            'host' => env('DB_ADMIN_HOST', '127.0.0.1'),
-            'port' => env('DB_ADMIN_PORT', '3306'),
-            'database' => env('DB_ADMIN_DATABASE', 'p360v1_admin'),
-            'username' => env('DB_ADMIN_USERNAME', 'root'),
-            'password' => env('DB_ADMIN_PASSWORD', ''),
-            'unix_socket' => env('DB_ADMIN_SOCKET', ''),
-            'charset' => env('DB_ADMIN_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_ADMIN_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('DB_ADMIN_MYSQL_ATTR_SSL_CA'),
-            ]) : [],
-        ],
-
-        // ============================
-        // CLIENTES (p360v1_clientes)
-        // ============================
-        'mysql_clientes' => [
-            'driver' => env('DB_CLIENT_CONNECTION', 'mysql'),
-            'url' => env('DB_CLIENT_URL'),
-            'host' => env('DB_CLIENT_HOST', '127.0.0.1'),
-            'port' => env('DB_CLIENT_PORT', '3306'),
-            'database' => env('DB_CLIENT_DATABASE', 'p360v1_clientes'),
-            'username' => env('DB_CLIENT_USERNAME', 'root'),
-            'password' => env('DB_CLIENT_PASSWORD', ''),
-            'unix_socket' => env('DB_CLIENT_SOCKET', ''),
-            'charset' => env('DB_CLIENT_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_CLIENT_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('DB_CLIENT_MYSQL_ATTR_SSL_CA'),
-            ]) : [],
         ],
 
     ],
@@ -161,6 +146,10 @@ return [
     |--------------------------------------------------------------------------
     | Migration Repository Table
     |--------------------------------------------------------------------------
+    |
+    | Conservamos tu estructura ampliada. Si prefieres el valor clásico
+    | 'migrations' => 'migrations', dímelo y lo cambio.
+    |
     */
     'migrations' => [
         'table' => 'migrations',

@@ -8,12 +8,13 @@ return [
     ],
 
     'guards' => [
+        // Clientes (frontend)
         'web' => [
             'driver'   => 'session',
             'provider' => 'users',
         ],
 
-        // Guard para administradores
+        // Administradores (ERP maestro)
         'admin' => [
             'driver'   => 'session',
             'provider' => 'usuario_administrativos',
@@ -21,12 +22,13 @@ return [
     ],
 
     'providers' => [
+        // Usuarios cliente
         'users' => [
             'driver' => 'eloquent',
             'model'  => env('AUTH_MODEL', App\Models\User::class),
         ],
 
-        // Provider que apunta a tu tabla/modelo de admins
+        // Usuarios administrativos
         'usuario_administrativos' => [
             'driver' => 'eloquent',
             'model'  => App\Models\Admin\Auth\UsuarioAdministrativo::class,
@@ -34,8 +36,17 @@ return [
     ],
 
     'passwords' => [
+        // Broker para usuarios cliente
         'users' => [
             'provider' => 'users',
+            'table'    => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
+            'expire'   => 60,
+            'throttle' => 60,
+        ],
+
+        // Broker opcional para admins (usa misma tabla de tokens)
+        'admins' => [
+            'provider' => 'usuario_administrativos',
             'table'    => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
             'expire'   => 60,
             'throttle' => 60,
