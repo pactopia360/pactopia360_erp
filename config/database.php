@@ -9,8 +9,8 @@ return [
     | Default Database Connection Name
     |--------------------------------------------------------------------------
     |
-    | Default "mysql" apuntando a la BD de admin.
-    | Tu .env debe tener DB_DATABASE=p360v1_admin para local.
+    | Usamos "mysql" apuntando a la BD de admin.
+    | En local tu .env tiene DB_DATABASE=p360v1_admin.
     |
     */
     'default' => env('DB_CONNECTION', 'mysql'),
@@ -20,8 +20,8 @@ return [
     | Database Connections
     |--------------------------------------------------------------------------
     |
-    | Conexiones pensadas para LOCAL (MySQL) y PRODUCCIÓN (MariaDB) usando
-    | el mismo driver PDO MySQL. Charset/collation en utf8mb4 para ambos.
+    | Conexiones para LOCAL (MySQL) y PRODUCCIÓN (MariaDB) usando el driver
+    | PDO MySQL. Charset/collation en utf8mb4 para ambos.
     |
     | - mysql           → admin por variables DB_* (default)
     | - mysql_admin     → admin explícito (DB_ADMIN_*)
@@ -30,7 +30,7 @@ return [
     */
     'connections' => [
 
-        // --- SQLite opcional para pruebas/herramientas ---
+        // --- SQLite (opcional para pruebas/herramientas) ---
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
@@ -95,7 +95,8 @@ return [
             'host' => env('DB_CLIENT_HOST', env('DB_HOST', '127.0.0.1')),
             'port' => env('DB_CLIENT_PORT', env('DB_PORT', '3306')),
             'database' => env('DB_CLIENT_DATABASE', 'p360v1_clientes'),
-            'username' => env('DB_CLIENT_USERNAME', env('DB_USERNAME', 'root')),
+            'username' => env('DB_CLIENT_USERNAME', env('DB_PASSWORD', '') === '' ? env('DB_USERNAME', 'root') : env('DB_USERNAME', 'root')),
+            // Nota: arriba tomamos por defecto DB_USERNAME si no defines DB_CLIENT_USERNAME
             'password' => env('DB_CLIENT_PASSWORD', env('DB_PASSWORD', '')),
             'unix_socket' => env('DB_CLIENT_SOCKET', ''),
             'charset' => env('DB_CLIENT_CHARSET', env('DB_CHARSET', 'utf8mb4')),
@@ -139,17 +140,12 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
         ],
-
     ],
 
     /*
     |--------------------------------------------------------------------------
     | Migration Repository Table
     |--------------------------------------------------------------------------
-    |
-    | Conservamos tu estructura ampliada. Si prefieres el valor clásico
-    | 'migrations' => 'migrations', dímelo y lo cambio.
-    |
     */
     'migrations' => [
         'table' => 'migrations',
@@ -188,7 +184,5 @@ return [
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
         ],
-
     ],
-
 ];

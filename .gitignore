@@ -1,16 +1,14 @@
 /vendor/
-node_modules/
+/node_modules/
 /public/storage
 /storage/*.key
 /storage/logs/
 /storage/framework/
 /bootstrap/cache/*.php
-
 .env
 .env.*
 *.sql
 *.sqlite
-
 .DS_Store
 Thumbs.db
 *.bak
