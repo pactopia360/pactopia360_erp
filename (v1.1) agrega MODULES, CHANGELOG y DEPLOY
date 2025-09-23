@@ -1,0 +1,5 @@
+  dev                [m e09bf06 chore: inicializa proyecto pactopia360_erp
+  feature/fix-403    [m 3b5e156 fix(auth): corrige 403 Forbidden en rutas admin y prepara deploy
+  feature/login-admin[m 655730d Publicación inicial: snapshot local antes de subir (feature/login-admin)
+  fix/db-connections [m 52b0955 fix(core): corrige configuración de conexiones MySQL y sesión
+* [32mmain               [m bcfbc50 [[34morigin/main[m] chore: actualiza .gitignore y database.php (multi-conexión)
