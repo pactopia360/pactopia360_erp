@@ -2,43 +2,42 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View as ViewContract;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
-abstract class CrudController extends Controller
+/**
+ * CrudController base (backoffice)
+ */
+abstract class CrudController extends \App\Http\Controllers\Controller
 {
     /** @var class-string<Model> */
     protected string $model;
 
-    /** Base de rutas nombradas (ej: admin.clientes) */
     protected string $routeBase = 'admin.module';
 
-    /** Títulos para vistas */
     protected array $titles = [
         'index'  => 'Listado',
         'create' => 'Crear',
         'edit'   => 'Editar',
+        'show'   => 'Detalle',
     ];
 
-    /**
-     * Definición de campos:
-     * - name, label, type, options, step, required, only(create|edit), full(bool)
-     */
     protected array $fields = [];
+    protected array $rules  = [];
 
-    /** Reglas base (store/update usarán esto salvo overrides en hijos) */
-    protected array $rules = [];
+    protected int $defaultPerPage = 25;
+    protected int $maxPerPage     = 200;
 
-    /** (Opcional) CSS/JS propio del módulo (se inyecta con @push en las vistas CRUD) */
     protected ?string $moduleCss = null;
     protected ?string $moduleJs  = null;
-
-    // ===================== Helpers =====================
 
     protected function newModel(): Model
     {
@@ -52,23 +51,31 @@ abstract class CrudController extends Controller
         return $this->newModel()->newQuery();
     }
 
-    /** Columnas visibles en listados (omite passwords, etc.) */
     protected function indexColumns(): array
     {
         $cols = [];
         foreach ($this->fields as $f) {
             $type = $f['type'] ?? 'text';
             if (in_array($type, ['password'], true)) continue;
-            $cols[] = $f['name'];
+            if (!empty($f['name'])) $cols[] = $f['name'];
         }
         if (!$cols) {
-            $cols = $this->newModel()->getFillable();
-            if (!$cols) $cols = ['id'];
+            $model = $this->newModel();
+            $cols  = $model->getFillable();
+            if (!$cols) {
+                $table = $model->getTable();
+                try {
+                    $cols = Schema::connection($model->getConnectionName())
+                        ->getColumnListing($table);
+                } catch (\Throwable $e) {
+                    $cols = ['id'];
+                }
+            }
         }
-        return array_values(array_unique($cols));
+        $cols = array_values(array_unique($cols));
+        return array_values(array_filter($cols, fn($c) => !in_array($c, ['password','remember_token'], true)));
     }
 
-    /** Campos ‘buscables’ en query string q */
     protected function searchableColumns(): array
     {
         $out = [];
@@ -82,7 +89,11 @@ abstract class CrudController extends Controller
         return $out ?: $this->indexColumns();
     }
 
-    /** Normaliza payload según tipos (switch, datetime, etc.) */
+    protected function orderableColumns(): array
+    {
+        return $this->indexColumns();
+    }
+
     protected function normalizeByFieldTypes(array $data): array
     {
         foreach ($this->fields as $f) {
@@ -91,25 +102,49 @@ abstract class CrudController extends Controller
 
             if ($type === 'switch') {
                 $data[$name] = (int) !empty($data[$name]);
-            } elseif ($type === 'datetime' && array_key_exists($name, $data)) {
+            } elseif (($type === 'datetime' || $type === 'date') && array_key_exists($name, $data)) {
                 if ($data[$name]) {
-                    try { $data[$name] = \Illuminate\Support\Carbon::parse($data[$name])->toDateTimeString(); } catch (\Throwable $e) {}
+                    try {
+                        $dt = \Illuminate\Support\Carbon::parse($data[$name]);
+                        $data[$name] = $type === 'date' ? $dt->toDateString() : $dt->toDateTimeString();
+                    } catch (\Throwable $e) {}
                 }
             } elseif ($type === 'multiselect') {
                 if (!isset($data[$name])) $data[$name] = [];
                 if (!is_array($data[$name])) $data[$name] = (array) $data[$name];
+            } elseif ($type === 'password') {
+                if (array_key_exists($name, $data) && $data[$name] !== '') {
+                    $data[$name] = Hash::make($data[$name]);
+                }
             }
         }
         return $data;
     }
 
-    // ===================== Acciones =====================
+    protected function rulesFor(string $action): array
+    {
+        return $this->rules;
+    }
 
-    /** Listado */
+    protected function prepareFormData(?Model $item = null): array
+    {
+        return [
+            'item'      => $item,
+            'fields'    => $this->fields,
+            'titles'    => $this->titles,
+            'routeBase' => $this->routeBase,
+            'moduleCss' => $this->moduleCss,
+            'moduleJs'  => $this->moduleJs,
+        ];
+    }
+
+    protected function beforeSave(string $action, Model $model, array &$data): void {}
+    protected function afterSave(string $action, Model $model): void {}
+
     public function index(Request $request): ViewContract
     {
         $query = $this->baseQuery();
-        $q = trim((string) $request->query('q', ''));
+        $q     = trim((string) $request->query('q', ''));
 
         if ($q !== '') {
             $cols = $this->searchableColumns();
@@ -121,14 +156,33 @@ abstract class CrudController extends Controller
             });
         }
 
+        $sort  = (string) $request->query('sort', '');
+        $dir   = strtolower((string) $request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
         $model = $this->newModel();
         $table = $model->getTable();
-        $hasCreatedAt = in_array('created_at', $model->getConnection()->getSchemaBuilder()->getColumnListing($table), true);
 
-        if ($hasCreatedAt) $query->orderByDesc('created_at');
-        else $query->orderByDesc($model->getKeyName());
+        $orderables   = $this->orderableColumns();
+        $hasCreatedAt = false;
+        try {
+            $hasCreatedAt = in_array('created_at',
+                Schema::connection($model->getConnectionName())->getColumnListing($table),
+                true
+            );
+        } catch (\Throwable $e) {}
 
-        $items = $query->paginate(20)->withQueryString();
+        if ($sort !== '' && in_array($sort, $orderables, true)) {
+            $query->orderBy($sort, $dir);
+        } elseif ($hasCreatedAt) {
+            $query->orderByDesc('created_at');
+        } else {
+            $query->orderByDesc($model->getKeyName());
+        }
+
+        $perPage = (int) $request->query('per_page', $this->defaultPerPage);
+        if ($perPage < 1) $perPage = $this->defaultPerPage;
+        if ($perPage > $this->maxPerPage) $perPage = $this->maxPerPage;
+
+        $items = $query->paginate($perPage)->withQueryString();
 
         return view('admin.crud.index', [
             'items'     => $items,
@@ -140,87 +194,91 @@ abstract class CrudController extends Controller
         ]);
     }
 
-    /** Formulario de creación */
     public function create(): ViewContract
     {
-        return view('admin.crud.form', [
-            'item'      => null,
-            'fields'    => $this->fields,
-            'titles'    => $this->titles,
-            'routeBase' => $this->routeBase,
-            'moduleCss' => $this->moduleCss,
-            'moduleJs'  => $this->moduleJs,
-        ]);
+        return view('admin.crud.form', $this->prepareFormData(null));
     }
 
-    /** Guardar nuevo */
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate($this->rules);
-        $data = $this->normalizeByFieldTypes($data);
+        $rules = $this->rulesFor('store');
+        $data  = $request->validate($rules);
+        $data  = $this->normalizeByFieldTypes($data);
 
         $model = $this->newModel();
-        $model->forceFill($data)->save();
 
-        return redirect()
-            ->route($this->routeBase.'.index')
-            ->with('status', 'Creado correctamente.');
-    }
-
-    /** Formulario de edición */
-    public function edit($id): ViewContract
-    {
-        $item = $this->newModel()->newQuery()->findOrFail($id);
-
-        return view('admin.crud.form', [
-            'item'      => $item,
-            'fields'    => $this->fields,
-            'titles'    => $this->titles,
-            'routeBase' => $this->routeBase,
-            'moduleCss' => $this->moduleCss,
-            'moduleJs'  => $this->moduleJs,
-        ]);
-    }
-
-    /** Actualizar */
-    public function update(Request $request, $id): RedirectResponse
-    {
-        $data = $request->validate($this->rules);
-        $data = $this->normalizeByFieldTypes($data);
-
-        $item = $this->newModel()->newQuery()->findOrFail($id);
         foreach ($this->fields as $f) {
             if (($f['type'] ?? 'text') === 'password') {
                 $n = $f['name'] ?? null;
-                if ($n && Arr::get($data, $n) === '') unset($data[$n]);
+                if ($n && \Illuminate\Support\Arr::has($data, $n) && $data[$n] === '') {
+                    unset($data[$n]);
+                }
             }
         }
-        $item->forceFill($data)->save();
 
-        return redirect()
-            ->route($this->routeBase.'.index')
-            ->with('status', 'Actualizado correctamente.');
+        DB::transaction(function () use (&$model, &$data) {
+            $this->beforeSave('store', $model, $data);
+            $model->forceFill($data)->save();
+            $this->afterSave('store', $model);
+        });
+
+        return redirect()->route($this->routeBase.'.index')->with('ok', 'Creado correctamente.');
     }
 
-    /** Eliminar */
-    public function destroy($id): RedirectResponse
+    public function edit($id): ViewContract
     {
         $item = $this->newModel()->newQuery()->findOrFail($id);
-        $item->delete();
-
-        return redirect()
-            ->route($this->routeBase.'.index')
-            ->with('status', 'Eliminado correctamente.');
+        return view('admin.crud.form', $this->prepareFormData($item));
     }
 
-    /** Mostrar */
+    public function update(Request $request, $id): RedirectResponse
+    {
+        $rules = $this->rulesFor('update');
+        $data  = $request->validate($rules);
+        $data  = $this->normalizeByFieldTypes($data);
+
+        $item = $this->newModel()->newQuery()->findOrFail($id);
+
+        foreach ($this->fields as $f) {
+            if (($f['type'] ?? 'text') === 'password') {
+                $n = $f['name'] ?? null;
+                if ($n && \Illuminate\Support\Arr::has($data, $n) && $data[$n] === '') {
+                    unset($data[$n]);
+                }
+            }
+        }
+
+        DB::transaction(function () use ($item, &$data) {
+            $this->beforeSave('update', $item, $data);
+            $item->forceFill($data)->save();
+            $this->afterSave('update', $item);
+        });
+
+        return redirect()->route($this->routeBase.'.index')->with('ok', 'Actualizado correctamente.');
+    }
+
+    /** Firma base */
+    public function destroy(Request $request, $id): RedirectResponse
+    {
+        $item  = $this->newModel()->newQuery()->findOrFail($id);
+        $force = (int) $request->query('force', 0) === 1;
+
+        if ($force && in_array(SoftDeletes::class, class_uses_recursive($this->model), true)) {
+            $item->forceDelete();
+        } else {
+            $item->delete();
+        }
+
+        return redirect()->route($this->routeBase.'.index')->with('ok', 'Eliminado correctamente.');
+    }
+
     public function show($id): ViewContract
     {
         $item = $this->newModel()->newQuery()->findOrFail($id);
         return view('admin.crud.show', [
             'item'      => $item,
             'fields'    => $this->fields,
-            'titles'    => $this->titles + ['show' => ($this->titles['index'] ?? 'Detalle')],
+            'titles'    => $this->titles,
             'routeBase' => $this->routeBase,
             'moduleCss' => $this->moduleCss,
             'moduleJs'  => $this->moduleJs,

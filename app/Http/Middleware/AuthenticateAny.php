@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Auth\Middleware\Authenticate as Base;
+use Illuminate\Support\Facades\Route;
 
 class AuthenticateAny extends Base
 {
@@ -26,8 +27,30 @@ class AuthenticateAny extends Base
     {
         if ($request->expectsJson()) return null;
 
-        return \Illuminate\Support\Facades\Route::has('admin.login')
-            ? route('admin.login')
-            : ( \Illuminate\Support\Facades\Route::has('login') ? route('login') : '/' );
+        // Detecta área por ruta y por URL
+        $routeName = optional($request->route())->getName();
+
+        $isClienteArea =
+            ($routeName && str_starts_with($routeName, 'cliente.')) ||
+            $request->is('cliente') || $request->is('cliente/*');
+
+        $isAdminArea =
+            ($routeName && str_starts_with($routeName, 'admin.')) ||
+            $request->is('admin') || $request->is('admin/*');
+
+        // 1) Si es área cliente → login cliente
+        if ($isClienteArea && Route::has('cliente.login')) {
+            return route('cliente.login');
+        }
+
+        // 2) Si es área admin → login admin
+        if ($isAdminArea && Route::has('admin.login')) {
+            return route('admin.login');
+        }
+
+        // 3) Fallbacks: preferimos cliente si existe
+        if (Route::has('cliente.login')) return route('cliente.login');
+        if (Route::has('login'))         return route('login');
+        return '/';
     }
 }

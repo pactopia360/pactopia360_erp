@@ -1,0 +1,167 @@
+
+  GET|HEAD  / ............................................................................................ home.public
+  GET|HEAD  _deploy/finish/{signature} ....................................... deploy.finish › DeployController@finish
+  GET|HEAD  admin ......................................................................................... admin.root
+  GET|HEAD  admin/_whoami ............................................................................... admin.whoami
+  GET|HEAD  admin/auditoria/accesos .................................................... admin.auditoria.accesos.index
+  GET|HEAD  admin/auditoria/cambios .................................................... admin.auditoria.cambios.index
+  GET|HEAD  admin/auditoria/integridad .............................................. admin.auditoria.integridad.index
+  GET|HEAD  admin/auditoria/robots ...................................................... admin.auditoria.robots.index
+  GET|HEAD  admin/clientes ..................................... admin.clientes.index › Admin\ClientesController@index
+  POST      admin/clientes/bulk .................................. admin.clientes.bulk › Admin\ClientesController@bulk
+  POST      admin/clientes/impersonate/stop admin.clientes.impersonate.stop › Admin\ClientesController@impersonateStop
+  POST      admin/clientes/sync-to-clientes .. admin.clientes.syncToClientes › Admin\ClientesController@syncToClientes
+  POST      admin/clientes/{rfc}/email-credentials admin.clientes.emailCredentials › Admin\ClientesController@emailCr…
+  POST      admin/clientes/{rfc}/force-email . admin.clientes.forceEmail › Admin\ClientesController@forceEmailVerified
+  POST      admin/clientes/{rfc}/force-phone . admin.clientes.forcePhone › Admin\ClientesController@forcePhoneVerified
+  POST      admin/clientes/{rfc}/impersonate ....... admin.clientes.impersonate › Admin\ClientesController@impersonate
+  POST      admin/clientes/{rfc}/resend-email admin.clientes.resendEmail › Admin\ClientesController@resendEmailVerifi…
+  POST      admin/clientes/{rfc}/reset-password admin.clientes.resetPassword › Admin\ClientesController@resetPassword
+  POST      admin/clientes/{rfc}/save ............................ admin.clientes.save › Admin\ClientesController@save
+  POST      admin/clientes/{rfc}/send-otp ............. admin.clientes.sendOtp › Admin\ClientesController@sendPhoneOtp
+  GET|HEAD  admin/config ........................................... admin.config.index › Admin\ConfigController@index
+  GET|HEAD  admin/config/backups ................................................................ admin.config.backups
+  GET|HEAD  admin/config/int/api ................................................................ admin.config.int.api
+  GET|HEAD  admin/config/int/mail .............................................................. admin.config.int.mail
+  GET|HEAD  admin/config/int/pacs .............................................................. admin.config.int.pacs
+  GET|HEAD  admin/config/int/pay ................................................................ admin.config.int.pay
+  GET|HEAD  admin/config/int/robots .......................................................... admin.config.int.robots
+  GET|HEAD  admin/config/limpieza .............................................................. admin.config.limpieza
+  GET|HEAD  admin/config/mantenimiento .................................................... admin.config.mantenimiento
+  GET|HEAD  admin/config/param/cupones .................................................... admin.config.param.cupones
+  GET|HEAD  admin/config/param/limites .................................................... admin.config.param.limites
+  GET|HEAD  admin/config/param/precios .................................................... admin.config.param.precios
+  GET|HEAD  admin/config/param/robots ...................................................... admin.config.param.robots
+  GET|HEAD  admin/config/robots .................................................................. admin.config.robots
+  GET|HEAD  admin/dashboard .......................................................................... admin.dashboard
+  POST      admin/dev/force-email ...................... admin.dev.force_email › Admin\QaController@forceEmailVerified
+  POST      admin/dev/force-phone ...................... admin.dev.force_phone › Admin\QaController@forcePhoneVerified
+  GET|HEAD  admin/dev/qa ..................................................... admin.dev.qa › Admin\QaController@index
+  POST      admin/dev/resend-email ........................... admin.dev.resend_email › Admin\QaController@resendEmail
+  POST      admin/dev/send-otp ....................................... admin.dev.send_otp › Admin\QaController@sendOtp
+  GET|HEAD  admin/empresas/pactopia ................................................ admin.empresas.pactopia.dashboard
+  GET|HEAD  admin/empresas/pactopia/crm/contactos ........................ admin.empresas.pactopia.crm.contactos.index
+  GET|HEAD  admin/empresas/pactopia/crm/robots .............................. admin.empresas.pactopia.crm.robots.index
+  GET|HEAD  admin/empresas/pactopia360 .......................................... admin.empresas.pactopia360.dashboard
+  GET|HEAD  admin/empresas/pactopia360/bancos/concilia .............. admin.empresas.pactopia360.bancos.concilia.index
+  GET|HEAD  admin/empresas/pactopia360/bancos/cuentas ................ admin.empresas.pactopia360.bancos.cuentas.index
+  GET|HEAD  admin/empresas/pactopia360/bancos/robots .................. admin.empresas.pactopia360.bancos.robots.index
+  GET|HEAD  admin/empresas/pactopia360/conta/robots .................... admin.empresas.pactopia360.conta.robots.index
+  GET|HEAD  admin/empresas/pactopia360/crm/carritos .................... admin.empresas.pactopia360.crm.carritos.index
+  GET|HEAD  admin/empresas/pactopia360/crm/carritos/create ............ admin.empresas.pactopia360.crm.carritos.create
+  GET|HEAD  admin/empresas/pactopia360/crm/carritos/{id} ................ admin.empresas.pactopia360.crm.carritos.show
+  GET|HEAD  admin/empresas/pactopia360/crm/carritos/{id}/edit ........... admin.empresas.pactopia360.crm.carritos.edit
+  GET|HEAD  admin/empresas/pactopia360/crm/comunicaciones ........ admin.empresas.pactopia360.crm.comunicaciones.index
+  GET|HEAD  admin/empresas/pactopia360/crm/contactos .................. admin.empresas.pactopia360.crm.contactos.index
+  GET|HEAD  admin/empresas/pactopia360/crm/contactos/create .......... admin.empresas.pactopia360.crm.contactos.create
+  GET|HEAD  admin/empresas/pactopia360/crm/contactos/{id}/edit ......... admin.empresas.pactopia360.crm.contactos.edit
+  GET|HEAD  admin/empresas/pactopia360/crm/contratos .................. admin.empresas.pactopia360.crm.contratos.index
+  GET|HEAD  admin/empresas/pactopia360/crm/correos ...................... admin.empresas.pactopia360.crm.correos.index
+  GET|HEAD  admin/empresas/pactopia360/crm/cotizaciones ............ admin.empresas.pactopia360.crm.cotizaciones.index
+  GET|HEAD  admin/empresas/pactopia360/crm/empresas .................... admin.empresas.pactopia360.crm.empresas.index
+  GET|HEAD  admin/empresas/pactopia360/crm/estados ...................... admin.empresas.pactopia360.crm.estados.index
+  GET|HEAD  admin/empresas/pactopia360/crm/facturas .................... admin.empresas.pactopia360.crm.facturas.index
+  GET|HEAD  admin/empresas/pactopia360/crm/negocios .................... admin.empresas.pactopia360.crm.negocios.index
+  GET|HEAD  admin/empresas/pactopia360/crm/notas .......................... admin.empresas.pactopia360.crm.notas.index
+  GET|HEAD  admin/empresas/pactopia360/crm/robots ........................ admin.empresas.pactopia360.crm.robots.index
+  GET|HEAD  admin/empresas/pactopia360/crm/suscripciones .......... admin.empresas.pactopia360.crm.suscripciones.index
+  GET|HEAD  admin/empresas/pactopia360/cxc/facturacion .............. admin.empresas.pactopia360.cxc.facturacion.index
+  GET|HEAD  admin/empresas/pactopia360/cxc/robots ........................ admin.empresas.pactopia360.cxc.robots.index
+  GET|HEAD  admin/empresas/pactopia360/cxc/ventas ........................ admin.empresas.pactopia360.cxc.ventas.index
+  GET|HEAD  admin/empresas/pactopia360/cxp/gastos ........................ admin.empresas.pactopia360.cxp.gastos.index
+  GET|HEAD  admin/empresas/pactopia360/cxp/proveedores .............. admin.empresas.pactopia360.cxp.proveedores.index
+  GET|HEAD  admin/empresas/pactopia360/cxp/robots ........................ admin.empresas.pactopia360.cxp.robots.index
+  GET|HEAD  admin/empresas/pactopia360/cxp/viaticos .................... admin.empresas.pactopia360.cxp.viaticos.index
+  GET|HEAD  admin/empresas/pactopia360/docs .................................... admin.empresas.pactopia360.docs.index
+  GET|HEAD  admin/empresas/pactopia360/docs/robots ...................... admin.empresas.pactopia360.docs.robots.index
+  GET|HEAD  admin/empresas/pactopia360/facturacion/cancel ........ admin.empresas.pactopia360.facturacion.cancel.index
+  GET|HEAD  admin/empresas/pactopia360/facturacion/resguardo .. admin.empresas.pactopia360.facturacion.resguardo.index
+  GET|HEAD  admin/empresas/pactopia360/facturacion/robots ........ admin.empresas.pactopia360.facturacion.robots.index
+  GET|HEAD  admin/empresas/pactopia360/facturacion/timbres ...... admin.empresas.pactopia360.facturacion.timbres.index
+  GET|HEAD  admin/empresas/pactopia360/nomina/robots .................. admin.empresas.pactopia360.nomina.robots.index
+  GET|HEAD  admin/empresas/pactopia360/pv/arqueos ........................ admin.empresas.pactopia360.pv.arqueos.index
+  GET|HEAD  admin/empresas/pactopia360/pv/cajas ............................ admin.empresas.pactopia360.pv.cajas.index
+  GET|HEAD  admin/empresas/pactopia360/pv/robots .......................... admin.empresas.pactopia360.pv.robots.index
+  GET|HEAD  admin/empresas/pactopia360/pv/tickets ........................ admin.empresas.pactopia360.pv.tickets.index
+  GET|HEAD  admin/empresas/waretek-mx ............................................ admin.empresas.waretek-mx.dashboard
+  GET|HEAD  admin/empresas/waretek-mx/crm/contactos .................... admin.empresas.waretek-mx.crm.contactos.index
+  GET|HEAD  admin/empresas/waretek-mx/crm/robots .......................... admin.empresas.waretek-mx.crm.robots.index
+  GET|HEAD  admin/home ....................................................... admin.home › Admin\HomeController@index
+  GET|HEAD  admin/home/income/{ym} ....................... admin.home.incomeMonth › Admin\HomeController@incomeByMonth
+  GET|HEAD  admin/home/stats ........................................... admin.home.stats › Admin\HomeController@stats
+  GET|HEAD  admin/login ........................................... admin.login › Admin\Auth\LoginController@showLogin
+  POST      admin/login ............................................ admin.login.do › Admin\Auth\LoginController@login
+  POST      admin/logout ............................................ admin.logout › Admin\Auth\LoginController@logout
+  GET|HEAD  admin/notificaciones ........................... admin.notificaciones › Admin\NotificationController@index
+  GET|HEAD  admin/notificaciones/count ............... admin.notificaciones.count › Admin\NotificationController@count
+  GET|HEAD  admin/notificaciones/list .................. admin.notificaciones.list › Admin\NotificationController@list
+  POST      admin/notificaciones/read-all ........ admin.notificaciones.readAll › Admin\NotificationController@readAll
+  GET|HEAD  admin/perfil ................................................ admin.perfil › Admin\ProfileController@index
+  PUT       admin/perfil ........................................ admin.perfil.update › Admin\ProfileController@update
+  GET|HEAD  admin/perfil/edit ....................................... admin.perfil.edit › Admin\ProfileController@edit
+  POST      admin/perfil/password ........................... admin.perfil.password › Admin\ProfileController@password
+  GET|HEAD  admin/reportes ..................................... admin.reportes.index › Admin\ReportesController@index
+  GET|HEAD  admin/reportes/conta ................................................................ admin.reportes.conta
+  GET|HEAD  admin/reportes/crm .................................................................... admin.reportes.crm
+  GET|HEAD  admin/reportes/cxc .................................................................... admin.reportes.cxc
+  GET|HEAD  admin/reportes/cxp .................................................................... admin.reportes.cxp
+  GET|HEAD  admin/reportes/descargas ........................................................ admin.reportes.descargas
+  GET|HEAD  admin/reportes/facturacion .................................................... admin.reportes.facturacion
+  GET|HEAD  admin/reportes/nomina .............................................................. admin.reportes.nomina
+  GET|HEAD  admin/reportes/robots .............................................................. admin.reportes.robots
+  GET|HEAD  admin/search ................................................. admin.search › Admin\SearchController@index
+  GET|HEAD  admin/soporte/comms ............................................................ admin.soporte.comms.index
+  GET|HEAD  admin/soporte/robots .......................................................... admin.soporte.robots.index
+  GET|HEAD  admin/soporte/sla ................................................................ admin.soporte.sla.index
+  GET|HEAD  admin/soporte/tickets ........................................................ admin.soporte.tickets.index
+  POST      admin/ui/bot-ask ............................................. admin.ui.botAsk › Admin\UiController@botAsk
+  GET|HEAD  admin/ui/diag .................................................... admin.ui.diag › Admin\UiController@diag
+  GET|HEAD  admin/ui/heartbeat ..................................... admin.ui.heartbeat › Admin\UiController@heartbeat
+  POST|GET|HEAD admin/ui/log ................................................... admin.ui.log › Admin\UiController@log
+  GET|HEAD  admin/usuarios ...................................................................... admin.usuarios.index
+  GET|HEAD  admin/usuarios/robots ........................................................ admin.usuarios.robots.index
+  GET|HEAD  admin/{fallbackPlaceholder} ....................................................................... admin.
+  GET|HEAD  cliente ..................................................................................... cliente.root
+  POST      cliente/_qa/force-owner-password cliente.qa.force_owner_password › Cliente\Auth\LoginController@qaForceOw…
+  POST      cliente/_qa/hash-check .................. cliente.qa.hash_check › Cliente\Auth\LoginController@qaHashCheck
+  POST      cliente/_qa/queue-test ............................................................. cliente.qa.queue_test
+  POST      cliente/_qa/reset-pass .............. cliente.qa.reset_pass › Cliente\Auth\LoginController@qaResetPassword
+  POST      cliente/_qa/test-pass ................. cliente.qa.test_pass › Cliente\Auth\LoginController@qaTestPassword
+  GET|HEAD  cliente/_whoami ........................................................................... cliente.whoami
+  POST      cliente/billing/pay-pending ..... cliente.billing.payPending › Cliente\AccountBillingController@payPending
+  GET|HEAD  cliente/billing/statement ......... cliente.billing.statement › Cliente\AccountBillingController@statement
+  GET|HEAD  cliente/checkout/cancel ........................ cliente.checkout.cancel › Cliente\StripeController@cancel
+  POST      cliente/checkout/pro/anual ......... cliente.checkout.pro.annual › Cliente\StripeController@checkoutAnnual
+  POST      cliente/checkout/pro/mensual ..... cliente.checkout.pro.monthly › Cliente\StripeController@checkoutMonthly
+  GET|HEAD  cliente/checkout/success ..................... cliente.checkout.success › Cliente\StripeController@success
+  GET|HEAD  cliente/estado-cuenta ....................... cliente.estado_cuenta › Cliente\EstadoCuentaController@index
+  GET|HEAD  cliente/home ................................................. cliente.home › Cliente\HomeController@index
+  GET|HEAD  cliente/login ..................................... cliente.login › Cliente\Auth\LoginController@showLogin
+  POST      cliente/login ...................................... cliente.login.do › Cliente\Auth\LoginController@login
+  POST      cliente/logout ...................................... cliente.logout › Cliente\Auth\LoginController@logout
+  POST      cliente/password/email ............ cliente.password.email › Cliente\PasswordController@sendResetLinkEmail
+  GET|HEAD  cliente/password/first ..................... cliente.password.first › Cliente\PasswordController@showFirst
+  POST      cliente/password/first ............ cliente.password.first.update › Cliente\PasswordController@updateFirst
+  GET|HEAD  cliente/password/forgot ......... cliente.password.forgot › Cliente\PasswordController@showLinkRequestForm
+  POST      cliente/password/reset ........................ cliente.password.update › Cliente\PasswordController@reset
+  GET|HEAD  cliente/password/reset/{token} ......... cliente.password.reset › Cliente\PasswordController@showResetForm
+  GET|HEAD  cliente/registro ............................. cliente.registro.free › Cliente\RegisterController@showFree
+  POST      cliente/registro ......................... cliente.registro.free.do › Cliente\RegisterController@storeFree
+  GET|HEAD  cliente/registro/pro ........................... cliente.registro.pro › Cliente\RegisterController@showPro
+  POST      cliente/registro/pro ....................... cliente.registro.pro.do › Cliente\RegisterController@storePro
+  GET|HEAD  cliente/terminos ........................................................................ cliente.terminos
+  GET|HEAD  cliente/verificar/email/link cliente.verify.email.signed › Cliente\VerificationController@verifyEmailSign…
+  GET|HEAD  cliente/verificar/email/resend cliente.verify.email.resend › Cliente\VerificationController@showResendEma…
+  POST      cliente/verificar/email/resend cliente.verify.email.resend.do › Cliente\VerificationController@resendEmail
+  GET|HEAD  cliente/verificar/email/{token} .. cliente.verify.email.token › Cliente\VerificationController@verifyEmail
+  GET|HEAD  cliente/verificar/telefono ................. cliente.verify.phone › Cliente\VerificationController@showOtp
+  POST      cliente/verificar/telefono ............ cliente.verify.phone.send › Cliente\VerificationController@sendOtp
+  POST      cliente/verificar/telefono/check .... cliente.verify.phone.check › Cliente\VerificationController@checkOtp
+  POST      cliente/verify/phone/update ..... cliente.verify.phone.update › Cliente\VerificationController@updatePhone
+  POST      cliente/webhook/stripe ......................... cliente.webhook.stripe › Cliente\StripeController@webhook
+  ANY       login .................................................... login › Illuminate\Routing › RedirectController
+  GET|HEAD  storage/{path} ............................................................................. storage.local
+  GET|HEAD  up ....................................................................................................... 
+
+                                                                                                  Showing [163] routes
+

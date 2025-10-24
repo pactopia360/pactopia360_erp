@@ -92,11 +92,9 @@ class UsuariosController extends CrudController
         unset($f);
     }
 
-    /** Listado propio con barra de filtros/orden y paginación */
+    /** Listado con filtros/orden y paginación */
     public function index(Request $request): ViewContract
     {
-        // OJO: no usamos Gate aquí para respetar el bypass de permisos en local (perm_mw en rutas).
-
         $q = trim((string) $request->query('q',''));
         $rol = trim((string) $request->query('rol',''));
         $sa  = $request->query('sa', '');
@@ -116,8 +114,8 @@ class UsuariosController extends CrudController
             });
         }
         if ($rol !== '') $query->where('rol', $rol);
-        if ($sa !== '')   $query->where('es_superadmin', (int) $sa);
-        if ($ac !== '')   $query->where('activo', (int) $ac);
+        if ($sa !== '')  $query->where('es_superadmin', (int) $sa);
+        if ($ac !== '')  $query->where('activo', (int) $ac);
 
         $query->orderBy($sort, $dir);
         $items = $query->paginate($pp)->withQueryString();
@@ -131,7 +129,6 @@ class UsuariosController extends CrudController
         return view('admin.usuarios.index', [
             'titles'    => $this->titles,
             'routeBase' => $this->routeBase,
-
             'items'     => $items,
             'filters'   => compact('q','rol','sa','ac','sort','dir','pp'),
             'roles'     => $roles,
@@ -155,7 +152,7 @@ class UsuariosController extends CrudController
         if (empty($data['rol'])) $data['rol'] = 'admin';
 
         try {
-            User::create($data); // password se castea a hashed en el modelo
+            User::create($data); // el modelo hashea el password
             return redirect()->route('admin.usuarios.index')->with('ok', 'Usuario creado correctamente.');
         } catch (\Throwable $e) {
             Log::error('[Usuarios.store] '.$e->getMessage(), ['ex'=>$e]);
@@ -207,7 +204,8 @@ class UsuariosController extends CrudController
         }
     }
 
-    public function destroy($usuario): RedirectResponse
+    /** FIRMA COMPATIBLE con CrudController::destroy(Request $request, $id) */
+    public function destroy(Request $request, $usuario): RedirectResponse
     {
         Gate::authorize('perm', 'usuarios_admin.eliminar');
 
@@ -228,5 +226,27 @@ class UsuariosController extends CrudController
             Log::error('[Usuarios.destroy] '.$e->getMessage(), ['ex'=>$e]);
             return back()->with('error', 'No se pudo eliminar el usuario.');
         }
+    }
+
+    /* ====== Stubs para las rutas opcionales de admin.php (evita 500 si se usan) ====== */
+
+    public function export(): RedirectResponse
+    {
+        return back()->with('ok', 'Export aún no implementado.');
+    }
+
+    public function bulk(Request $request): RedirectResponse
+    {
+        return back()->with('ok', 'Acción masiva recibida (placeholder).');
+    }
+
+    public function impersonate($usuario): RedirectResponse
+    {
+        return back()->with('ok', "Impersonate placeholder para usuario {$usuario}.");
+    }
+
+    public function impersonateStop(): RedirectResponse
+    {
+        return back()->with('ok', 'Fin de impersonate (placeholder).');
     }
 }

@@ -4,7 +4,7 @@ namespace App\Models\Admin;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Promocion extends Model
+class Promocion extends BaseAdminModel
 {
     protected $table = 'promociones';
     protected $connection = 'mysql_admin';

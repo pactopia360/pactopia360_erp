@@ -2,64 +2,85 @@
 
 namespace App\Models\Admin\Auth;
 
-use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Foundation\Auth\User as Authenticatable;
+use App\Models\Admin\BaseAdminModel;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
+use Illuminate\Auth\Authenticatable; // Métodos core de Auth
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+use App\Support\Auth\WithoutRememberToken;
 
-class UsuarioAdministrativo extends Authenticatable
+
+/**
+ * Modelo de usuario administrativo (backoffice).
+ * - Conexión: mysql_admin (con fallback a default si no existe)
+ * - SIN remember_token (se anula con el trait WithoutRememberToken con precedencia)
+ * - SIN cast 'hashed' en password para evitar doble-hash accidental.
+ */
+class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableContract
 {
-    use Notifiable;
+    use HasFactory, Notifiable;
 
-    /**
-     * Conexión por defecto para admins.
-     * Si la conexión 'mysql_admin' no existe en config/database.php,
-     * Eloquent usará el valor retornado por getConnectionName() (abajo).
-     */
+    // Resolvemos la colisión: damos prioridad a *WithoutRememberToken*
+    use Authenticatable, WithoutRememberToken {
+        WithoutRememberToken::getRememberToken insteadof Authenticatable;
+        WithoutRememberToken::setRememberToken insteadof Authenticatable;
+        WithoutRememberToken::getRememberTokenName insteadof Authenticatable;
+
+        // (opcional) Si quieres seguir accediendo a los originales del trait de Laravel,
+        // puedes exponer alias protegidos así:
+        Authenticatable::getRememberToken as protected __authGetRememberToken;
+        Authenticatable::setRememberToken as protected __authSetRememberToken;
+        Authenticatable::getRememberTokenName as protected __authGetRememberTokenName;
+    }
+
+    /** Conexión recomendada */
     protected $connection = 'mysql_admin';
-
-    /**
-     * Tabla asociada.
-     */
     protected $table = 'usuario_administrativos';
 
-    /**
-     * Asignación masiva permitida.
-     */
+    /** Clave primaria (UUID) */
+    public $incrementing  = false;
+    protected $keyType    = 'string';
+    protected $primaryKey = 'id';
+
+    /** Atributos asignables (sin remember_token) */
     protected $fillable = [
+        'id',
         'nombre',
         'email',
-        'password',
-        'rol',                    // <-- agregado
+        'password',  // guardar hash manualmente con Hash::make()
+        'rol',
         'activo',
         'es_superadmin',
-        'force_password_change',  // <-- agregado
+        'force_password_change',
         'last_login_at',
         'last_login_ip',
-        'remember_token',
+        // opcionales si existen en BD:
+        'codigo_usuario',
+        'estatus',
+        'is_blocked',
+        'ultimo_login_at',
+        'ip_ultimo_login',
     ];
 
-    /**
-     * Atributos ocultos en arrays/JSON.
-     */
-    protected $hidden = ['password', 'remember_token'];
+    /** Ocultos en arrays/JSON */
+    protected $hidden = [
+        'password',
+    ];
 
-    /**
-     * Casts de atributos.
-     */
+    /** Casts seguros */
     protected $casts = [
-        'activo'               => 'boolean',
-        'es_superadmin'        => 'boolean',
-        'force_password_change'=> 'boolean', // <-- agregado
-        'last_login_at'        => 'datetime',
-        // Siempre que se asigne password, se guardará hasheado (Laravel 10+).
-        'password'             => 'hashed',
+        'activo'                => 'boolean',
+        'es_superadmin'         => 'boolean',
+        'force_password_change' => 'boolean',
+        'last_login_at'         => 'datetime',
+        'created_at'            => 'datetime',
+        'updated_at'            => 'datetime',
     ];
 
-    /**
-     * Conexión efectiva. Si no existe 'mysql_admin', cae a la default.
-     */
+    /** Fallback si no existe conexión mysql_admin en config/database */
     public function getConnectionName()
     {
         return config('database.connections.mysql_admin')
@@ -67,115 +88,142 @@ class UsuarioAdministrativo extends Authenticatable
             : (config('database.default') ?? 'mysql');
     }
 
-    /**
-     * Accessor moderno: si no existe 'name', usa 'nombre' como fallback.
-     * Permite $user->name en vistas/controladores.
-     */
-    protected function name(): Attribute
+    /** Guard para Policies/Gates */
+    public function getGuardName(): string
     {
-        return Attribute::get(function ($value, array $attributes) {
-            return $value ?: ($attributes['nombre'] ?? null);
+        return 'admin';
+    }
+
+    /** UUID al crear si no viene */
+    protected static function booted(): void
+    {
+        static::creating(function (self $model) {
+            if (empty($model->id)) {
+                $model->id = (string) Str::uuid();
+            }
         });
     }
 
-    /**
-     * Normaliza email a minúsculas al asignar.
-     */
-    protected function email(): Attribute
+    /* =========================
+     | Mutators / Accessors
+     * ========================= */
+
+    /** Normaliza email a minúsculas */
+    public function setEmailAttribute($value): void
     {
-        return Attribute::make(
-            set: fn ($value) => is_string($value) ? mb_strtolower(trim($value)) : $value,
-        );
+        $this->attributes['email'] = is_string($value) ? mb_strtolower(trim($value)) : $value;
     }
 
-    /**
-     * Scope: solo activos.
-     */
+    /* =========================
+     | Scopes
+     * ========================= */
+
     public function scopeActive($q)
     {
-        return Schema::hasColumn($this->getTable(), 'activo')
+        $schema = Schema::connection($this->getConnectionName());
+        return $schema->hasColumn($this->getTable(), 'activo')
             ? $q->where('activo', 1)
             : $q;
     }
 
-    /**
-     * Scope: por email.
-     */
     public function scopeEmail($q, string $email)
     {
-        return $q->where('email', mb_strtolower($email));
+        return $q->where('email', mb_strtolower(trim($email)));
     }
 
-    /**
-     * Marca último login (fecha + IP). Seguro ante ausencia de columnas.
-     */
+    /* =========================
+     | Helpers de estado
+     * ========================= */
+
+    public function mustChangePassword(): bool
+    {
+        return (bool) ($this->force_password_change ?? false);
+    }
+
+    public function isActive(): bool
+    {
+        $schema = Schema::connection($this->getConnectionName());
+        if (!$schema->hasColumn($this->getTable(), 'activo')) return true;
+        return (bool) $this->activo;
+    }
+
     public function markLastLogin(?string $ip = null): void
     {
-        $data = [];
-        if (Schema::hasColumn($this->getTable(), 'last_login_at')) {
+        $schema = Schema::connection($this->getConnectionName());
+        $data   = [];
+
+        if ($schema->hasColumn($this->getTable(), 'last_login_at')) {
             $data['last_login_at'] = now();
         }
-        if ($ip && Schema::hasColumn($this->getTable(), 'last_login_ip')) {
+        if ($ip && $schema->hasColumn($this->getTable(), 'last_login_ip')) {
             $data['last_login_ip'] = $ip;
         }
+
         if ($data) {
             $this->forceFill($data)->saveQuietly();
         }
     }
 
-    /**
-     * Cache interno de permisos calculados en la request.
-     */
+    /* =========================
+     | Superadmin / Permisos (opcionales)
+     * ========================= */
+
     protected array $permCache = [];
 
-    /**
-     * Verifica si el usuario posee un permiso lógico ($clave).
-     * Compatible con:
-     *  - usuario_perfil (usuario_id, perfil_id)
-     *  - perfil_permiso (perfil_id, permiso_id)
-     *  - permisos (id, clave?, nombre?)
-     *
-     * Reglas:
-     *  - superadmin => true
-     *  - si no existen las tablas/columnas, fallback = false
-     */
+    public function isSuperAdmin(): bool
+    {
+        if (!empty($this->es_superadmin)) return true;
+
+        $envList = config('app.superadmins', []);
+        if (empty($envList)) {
+            $envList = array_filter(array_map('trim', explode(',', (string) env('APP_SUPERADMINS', ''))));
+        }
+        if (empty($envList)) return false;
+
+        $email = mb_strtolower((string) $this->email);
+        return in_array($email, array_map('mb_strtolower', (array) $envList), true);
+    }
+
+    public function hasRole(string|array $roles): bool
+    {
+        $roles = (array) $roles;
+        $mine  = mb_strtolower((string) ($this->rol ?? ''));
+        foreach ($roles as $r) {
+            if ($mine === mb_strtolower(trim((string) $r))) return true;
+        }
+        return false;
+    }
+
     public function hasPerm(string $clave): bool
     {
-        // Superadmin accede a todo
-        if (!empty($this->es_superadmin)) {
-            return true;
-        }
+        if ($this->isSuperAdmin()) return true;
 
-        $key = strtolower(trim($clave));
-        if ($key === '') {
-            return false;
-        }
+        $key = mb_strtolower(trim($clave));
+        if ($key === '') return false;
 
-        // Cache por request
         if (array_key_exists($key, $this->permCache)) {
             return $this->permCache[$key];
         }
 
-        // Verifica existencia de tablas requeridas
+        $conn   = $this->getConnectionName();
+        $schema = Schema::connection($conn);
+
         if (
-            !Schema::hasTable('usuario_perfil') ||
-            !Schema::hasTable('perfil_permiso') ||
-            !Schema::hasTable('permisos')
+            !$schema->hasTable('usuario_perfil') ||
+            !$schema->hasTable('perfil_permiso') ||
+            !$schema->hasTable('permisos')
         ) {
             return $this->permCache[$key] = false;
         }
 
-        // Determina columnas presentes en 'permisos'
-        $hasClave  = Schema::hasColumn('permisos', 'clave');
-        $hasNombre = Schema::hasColumn('permisos', 'nombre');
+        $hasClave  = $schema->hasColumn('permisos', 'clave');
+        $hasNombre = $schema->hasColumn('permisos', 'nombre');
 
-        // Si no hay ni clave ni nombre, no podemos resolver
         if (!$hasClave && !$hasNombre) {
             return $this->permCache[$key] = false;
         }
 
-        // Construye la consulta de existencia
-        $q = DB::connection($this->getConnectionName())
+        $q = DB::connection($conn)
             ->table('usuario_perfil')
             ->join('perfil_permiso', 'usuario_perfil.perfil_id', '=', 'perfil_permiso.perfil_id')
             ->join('permisos', 'perfil_permiso.permiso_id', '=', 'permisos.id')
@@ -188,10 +236,20 @@ class UsuarioAdministrativo extends Authenticatable
             });
         } elseif ($hasClave) {
             $q->whereRaw('LOWER(permisos.clave) = ?', [$key]);
-        } else { // solo nombre
+        } else {
             $q->whereRaw('LOWER(permisos.nombre) = ?', [$key]);
         }
 
         return $this->permCache[$key] = $q->exists();
+    }
+
+    public function canDo(string $perm): bool
+    {
+        return $this->hasPerm($perm);
+    }
+
+    public function canAccessEverything(): bool
+    {
+        return $this->isSuperAdmin();
     }
 }

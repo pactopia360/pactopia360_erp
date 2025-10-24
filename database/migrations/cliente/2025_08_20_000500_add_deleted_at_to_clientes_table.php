@@ -9,7 +9,7 @@ return new class extends Migration
     /**
      * Ejecuta en la conexión de CLIENTES.
      */
-    protected string $connection = 'mysql_clientes';
+    public $connection = 'mysql_clientes';
 
     public function up(): void
     {

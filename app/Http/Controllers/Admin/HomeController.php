@@ -15,6 +15,28 @@ use Carbon\Carbon;
 
 class HomeController extends Controller
 {
+    /** Nombre de la conexión que usaremos para estadísticas */
+    protected string $statsConn;
+
+    public function __construct()
+    {
+        // Permite fijarlo en config('database.stats_connection') o en .env (DB_STATS_CONNECTION)
+        $this->statsConn = config('database.stats_connection')
+            ?? env('DB_STATS_CONNECTION', config('database.default'));
+    }
+
+    /** Atajo para DB con la conexión de stats */
+    protected function db()
+    {
+        return DB::connection($this->statsConn);
+    }
+
+    /** Atajo para Schema con la conexión de stats */
+    protected function schema()
+    {
+        return Schema::connection($this->statsConn);
+    }
+
     public function index()
     {
         return view('admin.home');
@@ -74,16 +96,19 @@ class HomeController extends Controller
         $from = now()->startOfMonth()->subMonths($months - 1);
         $to   = now()->endOfMonth();
 
-        // ====== Cache key ======
-        $cacheKey = sprintf('home:stats:m%d:plan:%s', $months, $planFilter ?: 'all');
+        // ====== Cache key (amarrada a la conexión) ======
+        $cacheKey = sprintf('home:stats:conn:%s:m%d:plan:%s', $this->statsConn, $months, $planFilter ?: 'all');
 
         // ====== Compute (con cache opcional) ======
         $bots = [];
         $compute = function () use ($from, $to, $months, $planFilter, &$bots) {
 
+            $db = $this->db();
+            $sch = $this->schema();
+
             // Helpers tabla/col
-            $has    = fn(string $t)             => Schema::hasTable($t);
-            $hasCol = fn(string $t, string $c)  => Schema::hasColumn($t, $c);
+            $has    = fn(string $t)             => $sch->hasTable($t);
+            $hasCol = fn(string $t, string $c)  => $sch->hasColumn($t, $c);
             $resolveTable = function (array $candidates) use ($has): ?string {
                 foreach ($candidates as $t) if ($has($t)) return $t;
                 return null;
@@ -107,7 +132,7 @@ class HomeController extends Controller
                     $query->join($T_CLIENTES, "{$T_CLIENTES}.id", '=', "{$mainTable}.{$clienteIdCol}");
                     if ($T_PLANES && $hasCol($T_CLIENTES, 'plan_id') && $hasCol($T_PLANES, 'clave')) {
                         $query->join($T_PLANES, "{$T_PLANES}.id", '=', "{$T_CLIENTES}.plan_id")
-                            ->whereRaw('LOWER('.$T_PLANES.'.clave) = ?', [$planFilter]);
+                              ->whereRaw('LOWER('.$T_PLANES.'.clave) = ?', [$planFilter]);
                     } elseif ($hasCol($T_CLIENTES, 'plan')) {
                         $query->whereRaw('LOWER('.$T_CLIENTES.'.plan) = ?', [$planFilter]);
                     }
@@ -116,13 +141,13 @@ class HomeController extends Controller
             };
 
             // ===== KPIs =====
-            $totalClientes = $T_CLIENTES ? (int) DB::table($T_CLIENTES)->count() : 0;
-            $activos = ($T_CLIENTES && $hasCol($T_CLIENTES, 'activo')) ? (int) DB::table($T_CLIENTES)->where('activo',1)->count() : 0;
+            $totalClientes = $T_CLIENTES ? (int) $db->table($T_CLIENTES)->count() : 0;
+            $activos = ($T_CLIENTES && $hasCol($T_CLIENTES, 'activo')) ? (int) $db->table($T_CLIENTES)->where('activo',1)->count() : 0;
             $inactivos = max(0, $totalClientes - $activos);
 
             $nuevosMes = 0;
             if ($T_CLIENTES && $hasCol($T_CLIENTES, 'created_at')) {
-                $nuevosMes = (int) DB::table($T_CLIENTES)
+                $nuevosMes = (int) $db->table($T_CLIENTES)
                     ->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])
                     ->count();
             }
@@ -130,12 +155,12 @@ class HomeController extends Controller
             $premium = 0;
             if ($T_CLIENTES) {
                 if ($T_PLANES && $hasCol($T_CLIENTES, 'plan_id') && $hasCol($T_PLANES, 'clave')) {
-                    $premium = (int) DB::table($T_CLIENTES)
+                    $premium = (int) $db->table($T_CLIENTES)
                         ->join($T_PLANES, "{$T_PLANES}.id", '=', "{$T_CLIENTES}.plan_id")
                         ->whereRaw('LOWER('.$T_PLANES.'.clave) = ?', ['premium'])
                         ->count();
                 } elseif ($hasCol($T_CLIENTES, 'plan')) {
-                    $premium = (int) DB::table($T_CLIENTES)->whereRaw('LOWER('.$T_CLIENTES.'.plan) = ?', ['premium'])->count();
+                    $premium = (int) $db->table($T_CLIENTES)->whereRaw('LOWER('.$T_CLIENTES.'.plan) = ?', ['premium'])->count();
                 }
             }
 
@@ -143,7 +168,7 @@ class HomeController extends Controller
             if ($T_PAGOS) {
                 $estadoCol = $hasCol($T_PAGOS, 'estado') ? 'estado' : ($hasCol($T_PAGOS, 'status') ? 'status' : null);
                 if ($estadoCol) {
-                    $pendientes = (int) DB::table($T_PAGOS)
+                    $pendientes = (int) $db->table($T_PAGOS)
                         ->whereIn(DB::raw("LOWER($estadoCol)"), ['pendiente','pending'])->count();
                 }
             }
@@ -157,7 +182,7 @@ class HomeController extends Controller
                 $amtCol  = $hasCol($T_PAGOS,'monto') ? 'monto' : ($hasCol($T_PAGOS,'amount') ? 'amount' : null);
                 $dateCol = $hasCol($T_PAGOS,'fecha') ? 'fecha' : ($hasCol($T_PAGOS,'created_at') ? 'created_at' : null);
                 if ($amtCol && $dateCol) {
-                    $q = DB::table($T_PAGOS)
+                    $q = $db->table($T_PAGOS)
                         ->selectRaw("DATE_FORMAT($dateCol, '%Y-%m') as ym, COUNT(*) as pagos, SUM($amtCol) as total, AVG($amtCol) as avg_ticket")
                         ->whereBetween($dateCol, [$from, $to])
                         ->groupByRaw("DATE_FORMAT($dateCol, '%Y-%m')");
@@ -166,7 +191,7 @@ class HomeController extends Controller
                     foreach ($rows as $r) if (isset($ingresos[$r->ym])) $ingresos[$r->ym] = (float) $r->total;
 
                     $ingresoMesActual = (float) $applyPlanFilter(
-                        DB::table($T_PAGOS)->whereBetween($dateCol, [now()->startOfMonth(), now()->endOfMonth()]),
+                        $db->table($T_PAGOS)->whereBetween($dateCol, [now()->startOfMonth(), now()->endOfMonth()]),
                         $T_PAGOS
                     )->sum($amtCol);
 
@@ -192,7 +217,7 @@ class HomeController extends Controller
             if ($T_CFDI) {
                 $cfdiDate = $hasCol($T_CFDI, 'fecha') ? 'fecha' : ($hasCol($T_CFDI, 'created_at') ? 'created_at' : null);
                 if ($cfdiDate) {
-                    $q = DB::table($T_CFDI)
+                    $q = $db->table($T_CFDI)
                         ->selectRaw("DATE_FORMAT($cfdiDate, '%Y-%m') as ym, COUNT(*) as c")
                         ->whereBetween($cfdiDate, [$from, $to])
                         ->groupByRaw("DATE_FORMAT($cfdiDate, '%Y-%m')");
@@ -200,7 +225,7 @@ class HomeController extends Controller
                         $q->join($T_CLIENTES, "{$T_CLIENTES}.id", '=', "{$T_CFDI}.cliente_id");
                         if ($T_PLANES && $hasCol($T_CLIENTES, 'plan_id') && $hasCol($T_PLANES,'clave')) {
                             $q->join($T_PLANES, "{$T_PLANES}.id", '=', "{$T_CLIENTES}.plan_id")
-                                ->whereRaw('LOWER('.$T_PLANES.'.clave) = ?', [$planFilter]);
+                              ->whereRaw('LOWER('.$T_PLANES.'.clave) = ?', [$planFilter]);
                         } elseif ($hasCol($T_CLIENTES, 'plan')) {
                             $q->whereRaw('LOWER('.$T_CLIENTES.'.plan) = ?', [$planFilter]);
                         }
@@ -218,7 +243,7 @@ class HomeController extends Controller
             $planOptions = [];
             if ($T_CLIENTES) {
                 if ($T_PLANES && $hasCol($T_CLIENTES,'plan_id')) {
-                    $rows = DB::table($T_CLIENTES)
+                    $rows = $db->table($T_CLIENTES)
                         ->join($T_PLANES, "{$T_PLANES}.id", '=', "{$T_CLIENTES}.plan_id")
                         ->selectRaw('LOWER('.$T_PLANES.'.clave) as clave, COUNT(*) as c, MAX('.$T_PLANES.'.nombre) as nombre')
                         ->groupBy('clave')->get();
@@ -227,7 +252,7 @@ class HomeController extends Controller
                         $planOptions[] = ['value'=>$r->clave,'label'=>$r->nombre ?: ucfirst($r->clave)];
                     }
                 } elseif ($hasCol($T_CLIENTES, 'plan')) {
-                    $rows = DB::table($T_CLIENTES)->selectRaw('LOWER(plan) as clave, COUNT(*) as c')->groupBy('clave')->get();
+                    $rows = $db->table($T_CLIENTES)->selectRaw('LOWER(plan) as clave, COUNT(*) as c')->groupBy('clave')->get();
                     foreach ($rows as $r) {
                         $planesChart[$r->clave] = (int) $r->c;
                         $planOptions[] = ['value'=>$r->clave,'label'=>ucfirst($r->clave)];
@@ -239,7 +264,7 @@ class HomeController extends Controller
             $labels = array_keys($monthsMap);
             $nuevosClientes = array_fill(0, count($labels), 0);
             if ($T_CLIENTES && $hasCol($T_CLIENTES, 'created_at')) {
-                $rows = DB::table($T_CLIENTES)
+                $rows = $db->table($T_CLIENTES)
                     ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, COUNT(*) as c")
                     ->whereBetween('created_at', [$from, $to])
                     ->groupBy('ym')->get();
@@ -254,7 +279,7 @@ class HomeController extends Controller
                 $amtCol = $hasCol($T_PAGOS,'monto') ? 'monto' : ($hasCol($T_PAGOS,'amount') ? 'amount' : null);
                 $dateCol = $hasCol($T_PAGOS,'fecha') ? 'fecha' : ($hasCol($T_PAGOS,'created_at') ? 'created_at' : null);
                 if ($amtCol && $dateCol) {
-                    $q = DB::table($T_PAGOS)
+                    $q = $db->table($T_PAGOS)
                         ->whereBetween($dateCol, [$from,$to])
                         ->selectRaw("DATE_FORMAT($dateCol,'%Y-%m') as ym");
 
@@ -301,7 +326,7 @@ class HomeController extends Controller
                 $dateCol = $hasCol($T_PAGOS,'fecha') ? 'fecha' : ($hasCol($T_PAGOS,'created_at') ? 'created_at' : null);
                 if ($amtCol && $dateCol) {
                     $nameCol = $hasCol($T_CLIENTES,'razon_social') ? 'razon_social' : ($hasCol($T_CLIENTES,'nombre') ? 'nombre' : 'id');
-                    $q = DB::table($T_PAGOS)
+                    $q = $db->table($T_PAGOS)
                         ->join($T_CLIENTES, "{$T_CLIENTES}.id", '=', "{$T_PAGOS}.cliente_id")
                         ->whereBetween($dateCol, [$from,$to])
                         ->selectRaw("MAX({$T_CLIENTES}.{$nameCol}) as cliente, SUM({$T_PAGOS}.{$amtCol}) as total")
@@ -325,9 +350,9 @@ class HomeController extends Controller
 
             if ($T_CLIENTES) {
                 if ($T_CFDI && $hasCol($T_CFDI, 'cliente_id')) {
-                    $cfdiDate = $hasCol($T_CFDI,'fecha') ? 'fecha' : ($hasCol($T_CFDI,'created_at') ? 'created_at' : null);
+                    $cfdiDate = $hasCol($T_CFDI,'fecha') ? 'fecha' : ($hasCol($T_CFDI, 'created_at') ? 'created_at' : null);
                     if ($cfdiDate) {
-                        $qT = DB::table($T_CFDI)
+                        $qT = $db->table($T_CFDI)
                             ->selectRaw("{$T_CFDI}.cliente_id, COUNT(*) as c")
                             ->whereBetween($cfdiDate, [$from, $to])
                             ->groupBy("{$T_CFDI}.cliente_id");
@@ -351,7 +376,7 @@ class HomeController extends Controller
                 $rfcCol  = $hasCol($T_CLIENTES,'rfc') ? 'rfc' : null;
                 $tsCol   = $hasCol($T_CLIENTES,'updated_at') ? 'updated_at' : ($hasCol($T_CLIENTES,'created_at') ? 'created_at' : null);
 
-                $qC = DB::table($T_CLIENTES)->select(["{$T_CLIENTES}.id", "{$T_CLIENTES}.{$nameCol} as nombre"]);
+                $qC = $db->table($T_CLIENTES)->select(["{$T_CLIENTES}.id", "{$T_CLIENTES}.{$nameCol} as nombre"]);
                 if ($rfcCol) $qC->addSelect("{$T_CLIENTES}.{$rfcCol} as rfc");
                 if ($tsCol)  $qC->addSelect("{$T_CLIENTES}.{$tsCol} as ts");
                 if ($hasCol($T_CLIENTES,'activo')) $qC->where("{$T_CLIENTES}.activo",1);
@@ -370,7 +395,7 @@ class HomeController extends Controller
                     $cid = (int) $r->id;
                     $clientesTabla[] = [
                         'id'      => $cid,
-                        'empresa' => (string) ($r->nombre ?? ('#'.$cid)),
+                        'empresa' => (string) $r->nombre,
                         'rfc'     => $r->rfc ?? '',
                         'timbres' => $timbresPorCliente[$cid] ?? 0,
                         'ultimo'  => isset($r->ts) ? Carbon::parse($r->ts)->diffForHumans() : '',
@@ -403,9 +428,9 @@ class HomeController extends Controller
                     ],
                 ],
                 'counts' => [
-                    'clientes' => $T_CLIENTES ? (int) DB::table($T_CLIENTES)->count() : 0,
-                    'pagos'    => $T_PAGOS    ? (int) DB::table($T_PAGOS)->count()    : 0,
-                    'cfdi'     => $T_CFDI     ? (int) DB::table($T_CFDI)->count()     : 0,
+                    'clientes' => $T_CLIENTES ? (int) $db->table($T_CLIENTES)->count() : 0,
+                    'pagos'    => $T_PAGOS    ? (int) $db->table($T_PAGOS)->count()    : 0,
+                    'cfdi'     => $T_CFDI     ? (int) $db->table($T_CFDI)->count()     : 0,
                 ],
                 'warnings' => [],
             ];
@@ -417,9 +442,6 @@ class HomeController extends Controller
                     'sql'  => 'ALTER TABLE pagos ADD COLUMN cliente_id BIGINT NULL; -- y luego poblar/crear FK',
                 ]);
             }
-            // ingresos vacíos
-            // (ojo: array_sum puede ser costoso, pero aquí es chico)
-            // @phpstan-ignore-next-line
             if (!$T_PAGOS || !array_sum(array_values($ingresos))) {
                 $diagnostics['warnings'][] = 'Serie de ingresos vacía para el periodo/columns; revisa columnas monto/fecha o datos.';
                 $this->pushBot($bots, 'info', 'empty_ingresos', 'No hay datos de ingresos en el periodo/columnas detectadas.', [
@@ -463,7 +485,6 @@ class HomeController extends Controller
                 ],
                 'ingresosTable' => $ingresosTabla,
                 'clientes'      => $clientesTabla,
-                // “Bots” → tu front puede mostrarlos (HUD/NovaBot) o ignorarlos sin romper nada
                 'bots'          => $bots,
             ];
 
@@ -472,24 +493,39 @@ class HomeController extends Controller
 
         // Cache remember
         $cacheHit = false;
-        if ($TTL > 0 && !$NO_CACHE) {
-            [$payload, $diagnostics] = Cache::remember($cacheKey, $TTL, function () use ($compute) {
-                return $compute();
-            });
-            $cacheHit = true;
-        } else {
-            [$payload, $diagnostics] = $compute();
+        try {
+            if ($TTL > 0 && !$NO_CACHE) {
+                [$payload, $diagnostics] = Cache::remember($cacheKey, $TTL, function () use ($compute) {
+                    return $compute();
+                });
+                $cacheHit = true;
+            } else {
+                [$payload, $diagnostics] = $compute();
+            }
+        } catch (\Throwable $e) {
+            // Fallback duro (no romper el panel)
+            $payload = [
+                'filters' => ['months'=>$months, 'plan'=>$planFilter ?: 'all', 'planOptions'=>[]],
+                'kpis'    => ['totalClientes'=>0,'activos'=>0,'inactivos'=>0,'nuevosMes'=>0,'pendientes'=>0,'premium'=>0,'timbresUsados'=>0,'ingresosMes'=>0.0],
+                'series'  => ['labels'=>[], 'ingresos'=>[], 'timbres'=>[], 'planes'=>[]],
+                'extra'   => ['nuevosClientes'=>['labels'=>[], 'values'=>[]], 'ingresosPorPlan'=>['labels'=>[], 'plans'=>[]], 'topClientes'=>['labels'=>[], 'values'=>[]], 'scatterIncomeStamps'=>[]],
+                'ingresosTable'=>[],
+                'clientes'=>[],
+                'bots'    => [['level'=>'error','code'=>'stats_exception','text'=>'No se pudieron calcular las métricas.', 'meta'=>['error'=>$e->getMessage()]]],
+            ];
+            $diagnostics = ['took_ms'=>0,'tables'=>[],'columns'=>[],'counts'=>[],'warnings'=>['exception: '.$e->getMessage()]];
         }
 
         // Meta + timings
         $tookMs = (int) ((microtime(true) - $t0) * 1000);
         $payload['meta'] = [
-            'request_id' => $rid,
-            'admin_id'   => $adminId,
-            'ip'         => $ip,
-            'generated_at' => now()->toIso8601String(),
-            'took_ms'    => $tookMs,
-            'cache'      => $cacheHit ? 'hit' : 'miss',
+            'request_id'  => $rid,
+            'admin_id'    => $adminId,
+            'ip'          => $ip,
+            'generated_at'=> now()->toIso8601String(),
+            'took_ms'     => $tookMs,
+            'cache'       => $cacheHit ? 'hit' : 'miss',
+            'conn'        => $this->statsConn,
         ];
         $diagnostics['took_ms'] = $tookMs;
 
@@ -531,14 +567,15 @@ class HomeController extends Controller
                         'admin_id'  => $adminId,
                         'ip'        => $ip,
                         'filters'   => ['months'=>$months, 'plan'=>$planFilter ?: 'all'],
-                        'tables'    => $diagnostics['tables'],
-                        'columns'   => $diagnostics['columns'],
-                        'counts'    => $diagnostics['counts'],
-                        'warnings'  => $diagnostics['warnings'],
+                        'tables'    => $diagnostics['tables'] ?? [],
+                        'columns'   => $diagnostics['columns'] ?? [],
+                        'counts'    => $diagnostics['counts'] ?? [],
+                        'warnings'  => $diagnostics['warnings'] ?? [],
                         'took_ms'   => $tookMs,
                         'cache'     => $cacheHit ? 'hit' : 'miss',
                         'query_cnt' => $queryCount,
                         'slow_cnt'  => count($slowQueries),
+                        'conn'      => $this->statsConn,
                     ]);
                 }
             } catch (\Throwable $e) {
@@ -573,12 +610,15 @@ class HomeController extends Controller
         $planFilter = trim(mb_strtolower((string) $request->string('plan')));
         if ($planFilter === 'all' || $planFilter === '') $planFilter = null;
 
-        $cacheKey = sprintf('home:income:%s:plan:%s', $ym, $planFilter ?: 'all');
+        $cacheKey = sprintf('home:income:conn:%s:%s:plan:%s', $this->statsConn, $ym, $planFilter ?: 'all');
 
         $compute = function () use ($ym, $planFilter) {
 
-            $has    = fn(string $t)             => Schema::hasTable($t);
-            $hasCol = fn(string $t, string $c)  => Schema::hasColumn($t, $c);
+            $db  = $this->db();
+            $sch = $this->schema();
+
+            $has    = fn(string $t)             => $sch->hasTable($t);
+            $hasCol = fn(string $t, string $c)  => $sch->hasColumn($t, $c);
             $resolveTable = function (array $cands) use ($has): ?string {
                 foreach ($cands as $t) if ($has($t)) return $t; return null;
             };
@@ -601,7 +641,7 @@ class HomeController extends Controller
             $from = Carbon::createFromFormat('Y-m-d', $ym.'-01')->startOfMonth();
             $to   = $from->copy()->endOfMonth();
 
-            $q = DB::table($T_PAGOS)
+            $q = $db->table($T_PAGOS)
                 ->select(["{$T_PAGOS}.id", "{$T_PAGOS}.{$dateCol} as fecha", "{$T_PAGOS}.{$amtCol} as monto"])
                 ->whereBetween($dateCol, [$from, $to]);
             if ($estado) $q->addSelect("{$T_PAGOS}.{$estado} as estado");
@@ -659,24 +699,34 @@ class HomeController extends Controller
         };
 
         $cacheHit = false;
-        if ($TTL > 0 && !$NO_CACHE) {
-            $payload = Cache::remember($cacheKey, $TTL, function () use ($compute) {
-                return $compute();
-            });
-            $cacheHit = true;
-        } else {
-            $payload = $compute();
+        try {
+            if ($TTL > 0 && !$NO_CACHE) {
+                $payload = Cache::remember($cacheKey, $TTL, function () use ($compute) {
+                    return $compute();
+                });
+                $cacheHit = true;
+            } else {
+                $payload = $compute();
+            }
+        } catch (\Throwable $e) {
+            $payload = [
+                'ym'     => $ym,
+                'rows'   => [],
+                'totals' => ['monto'=>0.0, 'pagos'=>0],
+                'bots'   => [['level'=>'error','code'=>'income_exception','text'=>'No se pudo obtener el detalle del mes.', 'meta'=>['error'=>$e->getMessage()]]],
+            ];
         }
 
         // Meta + log
         $tookMs = (int) ((microtime(true) - $t0) * 1000);
         $payload['meta'] = [
-            'request_id' => $rid,
-            'admin_id'   => $adminId,
-            'ip'         => $ip,
-            'generated_at' => now()->toIso8601String(),
-            'took_ms'    => $tookMs,
-            'cache'      => $cacheHit ? 'hit' : 'miss',
+            'request_id'  => $rid,
+            'admin_id'    => $adminId,
+            'ip'          => $ip,
+            'generated_at'=> now()->toIso8601String(),
+            'took_ms'     => $tookMs,
+            'cache'       => $cacheHit ? 'hit' : 'miss',
+            'conn'        => $this->statsConn,
         ];
 
         if ($LOG_ENABLED) {
@@ -691,6 +741,7 @@ class HomeController extends Controller
                     'amount'    => (float) ($payload['totals']['monto'] ?? 0),
                     'took_ms'   => $tookMs,
                     'cache'     => $cacheHit ? 'hit' : 'miss',
+                    'conn'      => $this->statsConn,
                 ]);
             } catch (\Throwable $e) {
                 // no romper por logging

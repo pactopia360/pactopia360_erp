@@ -6,16 +6,17 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
-class AdminUser extends Authenticatable
+class AdminUser extends BaseAdminModel
 {
     use HasFactory, Notifiable;
 
     /**
-     * Conexión y tabla del módulo ADMIN
+     * Conexión y tabla del módulo ADMIN 
+     * protected $table = 'account_users';
      */
+    protected $table = 'admin_users';
     protected $connection = 'mysql_admin';
-    protected $table = 'account_users';
-
+    
     /**
      * PK UUID (string, no autoincrement)
      */

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Empresas\Pactopia360\CRM\Carrito;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -21,14 +22,16 @@ class CarritosController extends Controller
     ];
 
     /**
-     * Estados válidos (tomamos del modelo si existe, si no fallback).
+     * Estados válidos:
+     * - Si el modelo define ESTADOS, úsalo.
+     * - Si no, usa fallback que INCLUYE "nuevo" (coincide con seeder y vista).
      */
     private function estados(): array
     {
         if (defined(Carrito::class.'::ESTADOS')) {
             return Carrito::ESTADOS;
         }
-        return ['abierto', 'convertido', 'cancelado'];
+        return ['nuevo', 'abierto', 'convertido', 'cancelado'];
     }
 
     /**
@@ -59,7 +62,7 @@ class CarritosController extends Controller
             });
         }
 
-        // Filtro por estado
+        // Filtro por estado (solo si es válido)
         if ($estado && in_array($estado, $this->estados(), true)) {
             $query->where('estado', $estado);
         }
@@ -71,7 +74,6 @@ class CarritosController extends Controller
 
         // Filtro por etiqueta (si etiquetas es JSON/array)
         if ($etiqueta) {
-            // Si el modelo castea a array, puedes usar whereJsonContains
             $query->where(function ($w) use ($etiqueta) {
                 $w->whereJsonContains('etiquetas', $etiqueta)
                   ->orWhere('etiquetas', 'like', '%"'.$etiqueta.'"%'); // fallback
@@ -79,20 +81,12 @@ class CarritosController extends Controller
         }
 
         // Rango de fechas (created_at)
-        if ($desde) {
-            $query->whereDate('created_at', '>=', $desde);
-        }
-        if ($hasta) {
-            $query->whereDate('created_at', '<=', $hasta);
-        }
+        if ($desde) $query->whereDate('created_at', '>=', $desde);
+        if ($hasta) $query->whereDate('created_at', '<=', $hasta);
 
         // Rango de totales
-        if ($minTotal !== null && $minTotal !== '') {
-            $query->where('total', '>=', (float)$minTotal);
-        }
-        if ($maxTotal !== null && $maxTotal !== '') {
-            $query->where('total', '<=', (float)$maxTotal);
-        }
+        if ($minTotal !== null && $minTotal !== '') $query->where('total', '>=', (float)$minTotal);
+        if ($maxTotal !== null && $maxTotal !== '') $query->where('total', '<=', (float)$maxTotal);
 
         return $query;
     }
@@ -285,13 +279,13 @@ class CarritosController extends Controller
 
     /**
      * Reglas de validación (store/update).
+     * Incluye "nuevo" para alinear con seeder y vista.
      */
     private function validateData(Request $request, ?int $id = null): array
     {
-        // Puedes ajustar la validación de moneda a un listado real que uses.
         return $request->validate([
             'titulo'       => ['required', 'string', 'max:200'],
-            'estado'       => ['required', 'in:abierto,convertido,cancelado'],
+            'estado'       => ['required', 'in:'.implode(',', $this->estados())],
             'total'        => ['required', 'numeric', 'min:0'],
             'moneda'       => ['required', 'string', 'size:3'],
 
@@ -351,7 +345,6 @@ class CarritosController extends Controller
      */
     private function metricsPorEstado(Request $request): array
     {
-        // Builder base ya con filtros (y soft deletes aplicados)
         $base = $this->buildQuery($request);
 
         $estados = $this->estados();
@@ -371,6 +364,7 @@ class CarritosController extends Controller
 
     /**
      * Exporta CSV con filtros aplicados.
+     * Filtra columnas por existencia para no romper si el esquema varía.
      */
     private function exportCsv($query, Request $request): StreamedResponse
     {
@@ -381,11 +375,24 @@ class CarritosController extends Controller
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        $columns = [
+        $candidatas = [
             'id','titulo','estado','total','moneda',
             'cliente','email','telefono','origen',
-            'etiquetas','empresa_slug','created_at','updated_at',
+            'etiquetas','meta','empresa_slug','created_at','updated_at',
         ];
+
+        // Filtra por columnas que existan realmente (si hay conexión)
+        $columns = [];
+        try {
+            foreach ($candidatas as $c) {
+                if ($c === 'id' || Schema::hasColumn((new Carrito)->getTable(), $c)) {
+                    $columns[] = $c;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Si falla el esquema, usa el set por defecto (no rompe)
+            $columns = $candidatas;
+        }
 
         $callback = function () use ($query, $columns) {
             $out = fopen('php://output', 'w');

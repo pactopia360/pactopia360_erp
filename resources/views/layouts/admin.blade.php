@@ -60,6 +60,7 @@
         --container-max:1280px; --header-h:56px;
         --radius-sm:10px; --radius-md:12px; --radius-lg:14px;
         --shadow-1:0 2px 8px rgba(0,0,0,.06); --shadow-2:0 10px 28px rgba(0,0,0,.12);
+        --safe-top:  env(safe-area-inset-top, 0px);
         --safe-bottom: env(safe-area-inset-bottom, 0px);
       }
       [data-theme="dark"]{
@@ -84,12 +85,13 @@
         -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
       }
 
-      /* Topbar fijo */
+      /* Topbar fijo (contenido real viene del partial) */
       .p360-topbar{
         position:fixed; inset:0 0 auto 0; height:var(--header-h);
         background:var(--topbar-bg); color:var(--topbar-fg);
         border-bottom:1px solid var(--topbar-border);
         z-index:1100; display:flex; align-items:center;
+        padding-top: max(0px, var(--safe-top)); /* notch safe */
       }
       .p360-topbar > *{width:100%}
 
@@ -102,7 +104,7 @@
         background:var(--bg);
         display:flex; flex-direction:column; /* footer al fondo */
       }
-      .page-container{ padding:.75rem; flex:1 1 auto }
+      .page-container{ padding: clamp(10px,2.4vw,18px); flex:1 1 auto }
       .page-shell{ width:100%; max-width:var(--container-max); margin-inline:auto }
 
       /* Footer fijo al fondo del contenido */
@@ -117,7 +119,7 @@
       .admin-footer .meta a{ color:inherit; text-decoration:underline; opacity:.9; margin-left:12px }
       [data-theme="dark"] .admin-footer{ border-top-color:rgba(255,255,255,.10) }
 
-      /* Page header sticky */
+      /* Page header sticky (si la vista lo define) */
       #page-header{
         position:sticky; top:0; z-index:5;
         background:color-mix(in oklab, var(--card-bg) 96%, transparent);
@@ -131,8 +133,8 @@
       #p360-loading{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.25); z-index:1250; backdrop-filter: blur(2px) }
       #p360-loading .spinner{ width:56px; height:56px; border-radius:50%; border:6px solid #fff; border-top-color:transparent; animation:spin 1s linear infinite }
       @keyframes spin{ to{ transform:rotate(360deg) } }
-      #p360-alerts{ position:fixed; right:16px; bottom:calc(16px + var(--safe-bottom)); display:flex; flex-direction:column; gap:8px; z-index:1400 }
-      .toast{ background:#111827; color:#fff; border-radius:12px; padding:10px 12px; box-shadow:var(--shadow-2); display:flex; align-items:center; gap:10px; max-width:min(92vw, 520px) }
+      #p360-alerts{ position:fixed; right:16px; bottom:calc(16px + var(--safe-bottom)); display:flex; flex-direction:column; gap:8px; z-index:1400; max-width:min(92vw,520px) }
+      .toast{ background:#111827; color:#fff; border-radius:12px; padding:10px 12px; box-shadow:var(--shadow-2); display:flex; align-items:center; gap:10px }
       .toast.info{ background:color-mix(in oklab, var(--info) 86%, #000) } .toast.success{ background:color-mix(in oklab, var(--success) 86%, #000) } .toast.warn{ background:color-mix(in oklab, var(--warning) 86%, #000) } .toast.error{ background:color-mix(in oklab, var(--danger) 86%, #000) }
       .toast .x{ background:transparent;border:0;color:#fff;cursor:pointer;font-weight:700 }
 
@@ -147,14 +149,20 @@
 
       /* Densidad compacta (opt-in) */
       html[data-density="compact"]{ --radius-sm:8px; --radius-md:10px; --radius-lg:12px }
-      html[data-density="compact"] .page-container{ padding:.6rem }
+      html[data-density="compact"] .page-container{ padding: clamp(8px,2vw,14px) }
 
       /* Si algún widget dibuja legal en TOPBAR, no lo mostramos ahí */
       .p360-topbar .topbar-copy, .p360-topbar .copyright, .p360-topbar .legal, .p360-topbar [data-copyright]{ display:none!important }
 
+      /* Responsivo mínimo del shell */
+      @media (max-width: 720px){
+        .admin-footer .footer-inner{ padding:12px; gap:8px }
+        .admin-footer .meta a{ margin-left:8px }
+      }
+
       @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
       @media (forced-colors: active){ .p360-topbar{ border-bottom:1px solid CanvasText } }
-      @media print{ .p360-topbar, #sidebar, #p360-alerts, #p360-progress{ display:none !important } .admin-app{ padding-top:0 } }
+      @media print{ .p360-topbar, #nebula-sidebar, #p360-alerts, #p360-progress{ display:none !important } .admin-app{ padding-top:0 } }
     </style>
 
     {{-- Kill-switch CSS extra para el topbar (por si terceros inyectan cosas) --}}
@@ -213,7 +221,11 @@
         @endif
 
         {{-- Contenido principal --}}
-        <div class="page-container">@yield('content')</div>
+        <div class="page-container">
+          <div class="page-shell">
+            @yield('content')
+          </div>
+        </div>
 
         {{-- FOOTER real al fondo --}}
         <footer class="admin-footer">
@@ -315,7 +327,7 @@
         setTimeout(tick, 180);
       }
 
-      // ===== Altura real del Topbar → CSS var =====
+      // ===== Altura real del Topbar → CSS var (para que el contenido no “salte”) =====
       function syncHeaderHeight(){
         const tb = document.getElementById('p360-topbar') || document.getElementById('topbar');
         if(!tb) return;
@@ -353,7 +365,7 @@
       addEventListener('beforeunload', ()=>{ try{ main && sessionStorage.setItem(keyScroll(), String(main.scrollTop||0)); }catch(_){ }});
       addEventListener('load', ()=>{ try{ const y = parseInt(sessionStorage.getItem(keyScroll())||'0',10)||0; main && main.scrollTo({top:y}); }catch(_){ }});
 
-      // ===== Limpieza de assets de vista =====
+      // ===== Limpieza de assets de vista (opt) =====
       function cleanupViewAssets(){
         ['css-home','css-usuarios','css-perfiles','css-crud-module'].forEach(id=>{ const el = document.getElementById(id); el && el.remove(); });
         document.querySelectorAll('#p360-main script[data-p360-script]').forEach(s=>s.remove());
@@ -387,7 +399,7 @@
         if (/Ignition|Whoops|exceptionAsMarkdown/.test(txt)) location.reload();
       });
 
-      // ===== LEGAL ENFORCER v3: mueve/borra legal del header y clona enlaces al footer =====
+      // ===== LEGAL ENFORCER v3 (mueve/limpia legales desde el header al footer) =====
       (function legalEnforcerV3(){
         const HDR_Q = ['#p360-topbar', '#topbar', 'header.header', 'header[role="banner"]'];
         const headEls  = () => HDR_Q.flatMap(q => Array.from(document.querySelectorAll(q)));
@@ -402,11 +414,7 @@
           let right = $('#footer-right') || ( () => { const d=document.createElement('div'); d.id='footer-right'; d.className='meta'; inner.append(d);   return d; } )();
           return {left, right};
         }
-
-        function moveIfInHeader(el, dest){
-          if(el && inHeader(el) && dest){ try{ dest.appendChild(el); }catch(_){ } }
-        }
-
+        function moveIfInHeader(el, dest){ if(el && inHeader(el) && dest){ try{ dest.appendChild(el); }catch(_){ } } }
         function killTextNodes(container){
           const rx=/©|Pactopia|Pactopia360|derechos\s+reservados/i;
           const tw=document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
@@ -415,7 +423,6 @@
           const rm=[]; while(tw.nextNode()) rm.push(tw.currentNode);
           rm.forEach(n=>{ n.parentNode && n.parentNode.removeChild(n); });
         }
-
         function sanitizeHeaderRight(){
           headEls().forEach(hdr=>{
             $$('.header-right .meta, .header-right small, .header-right .legal, .header-right .copyright, .header-right [data-copyright]', hdr)
@@ -428,11 +435,9 @@
             killTextNodes(hdr);
           });
         }
-
         function sweep(){
           const {left, right} = ensureFooterBuckets();
           const legal = $('#p360-copy');  if(legal){ moveIfInHeader(legal, left||document.body); }
-
           headEls().forEach(hdr=>{
             $$('a', hdr).forEach(a=>{
               const txt=(a.textContent||'').trim().toLowerCase();
@@ -449,7 +454,6 @@
             sanitizeHeaderRight();
           });
         }
-
         sweep();
         try{
           const mo = new MutationObserver((muts)=>{

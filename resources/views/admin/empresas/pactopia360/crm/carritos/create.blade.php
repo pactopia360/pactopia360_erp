@@ -5,6 +5,7 @@
 @php
   use App\Models\Empresas\Pactopia360\CRM\Carrito as CarritoModel;
 
+  /** $row vacío en create */
   $row     = $row ?? null;
   $estados = $estados
       ?? (defined(CarritoModel::class.'::ESTADOS') ? CarritoModel::ESTADOS : ['abierto','convertido','cancelado','nuevo']);
@@ -21,6 +22,7 @@
       @include('admin.empresas.pactopia360.crm.carritos._edit_inner', [
         'row'     => $row,
         'estados' => $estados,
+        'mode'    => 'create',
       ])
     </div>
   </div>

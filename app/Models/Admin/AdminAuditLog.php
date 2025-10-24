@@ -4,7 +4,7 @@ namespace App\Models\Admin;
 
 use Illuminate\Database\Eloquent\Model;
 
-class AdminAuditLog extends Model
+class AdminAuditLog extends BaseAdminModel
 {
     protected $connection = 'mysql_admin';
     protected $table = 'admin_audit_logs';

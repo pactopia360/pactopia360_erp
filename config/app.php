@@ -107,4 +107,22 @@ return [
         array_map('trim', explode(',', (string) env('APP_SUPERADMINS', '')))
     ),
 
+    'providers' => Illuminate\Support\ServiceProvider::defaultProviders()->merge([
+        // ---- Tus providers de aplicación ----
+        App\Providers\AppServiceProvider::class,
+        App\Providers\AuthServiceProvider::class,
+        // App\Providers\BroadcastServiceProvider::class, // opcional
+        App\Providers\EventServiceProvider::class,
+        App\Providers\RouteServiceProvider::class,
+
+        // ---- Tu provider de vistas personalizado ----
+        App\Providers\ViewServiceProvider::class,
+    ])->toArray(),
+
+
+    'aliases' => Illuminate\Support\Facades\Facade::defaultAliases()->merge([
+        // Alias personalizados opcionales...
+    ])->toArray(),
+
+
 ];

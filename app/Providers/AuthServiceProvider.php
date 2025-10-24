@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Throwable;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,18 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\Cfdi::class    => \App\Policies\CfdiPolicy::class,
     ];
 
+    /** Abilities “comunes” (alias a perm) */
+    private const COMMON_ABILITIES = [
+        'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
+        'usuarios_admin.impersonar',
+        'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
+        'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
+        'planes.ver','planes.crear','planes.editar','planes.eliminar',
+        'pagos.ver','pagos.crear','pagos.editar','pagos.eliminar',
+        'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
+        'auditoria.ver','reportes.ver','configuracion.ver',
+    ];
+
     /** -------- Helpers internos -------- */
     private function currentUser($passedUser)
     {
@@ -33,7 +47,8 @@ class AuthServiceProvider extends ServiceProvider
     {
         try {
             if (!$user) return false;
-            $get = fn($k) => method_exists($user,'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
+
+            $get = fn($k) => method_exists($user, 'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
 
             // Flag directo en modelo
             $sa  = (bool)($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
@@ -43,133 +58,160 @@ class AuthServiceProvider extends ServiceProvider
             $rol = strtolower((string)($get('rol') ?? $get('role') ?? ''));
             if ($rol === 'superadmin') return true;
 
-            // Lista desde .env (config('app.superadmins'))
+            // Lista desde config('app.superadmins') o APP_SUPERADMINS coma-separado
             $list = config('app.superadmins', []);
+            if (empty($list)) {
+                $envList = array_filter(array_map('trim', explode(',', (string) env('APP_SUPERADMINS', ''))));
+                $list = array_map('strtolower', $envList);
+            }
             $email = Str::lower((string) ($get('email') ?? ''));
-            foreach ((array) $list as $allowed) {
-                if ($email !== '' && Str::lower(trim($allowed)) === $email) {
-                    return true;
-                }
+            foreach ((array)$list as $allowed) {
+                if ($email !== '' && Str::lower(trim($allowed)) === $email) return true;
             }
 
             return false;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             return false;
         }
+    }
+
+    /** request() seguro en CLI/jobs */
+    private function isAdminRequest(): bool
+    {
+        try {
+            if (!app()->runningInConsole() && function_exists('request')) {
+                $req = request();
+                if ($req) {
+                    $path = ltrim((string)$req->path(), '/');
+                    return Str::startsWith($path, 'admin/');
+                }
+            }
+        } catch (Throwable $e) {}
+        return false;
     }
 
     public function boot(): void
     {
         $this->registerPolicies();
 
+        $isProd         = app()->environment('production');
+        $strictProd     = filter_var(env('PERM_STRICT_PROD', true), FILTER_VALIDATE_BOOL);
+        $auditGates     = filter_var(env('AUDIT_GATES', true), FILTER_VALIDATE_BOOL);
+        $bypassDevLocal = filter_var(env('ADMIN_BYPASS_DEV', true), FILTER_VALIDATE_BOOL);
+
         /**
          * BEFORE global:
-         *  - local/dev/testing → permite TODO en /admin/*
-         *  - superadmin por flag/rol o por lista APP_SUPERADMINS → TODO permitido
+         * - Si es superadmin → acceso total.
+         * - En local/testing, puedes permitir admin en rutas /admin/* con ADMIN_BYPASS_DEV=true.
+         *   (EN PRODUCCIÓN, NUNCA HAY BYPASS.)
          */
-        Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) {
+        Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) use ($bypassDevLocal) {
             $u = $this->currentUser($user);
 
-            // 🔧 Forzar reconocimiento de superadmin
-            if ($u && ($u->es_superadmin === true || strtolower((string) $u->rol) === 'superadmin')) {
-                return true;
-            }
-
-            // Entornos dev siempre todo permitido
-            if (app()->environment(['local','development','testing'])) {
-                if (request()->is('admin/*')) return true;
-            }
-
+            // Superadmin siempre pasa
             if ($this->isSuper($u)) return true;
 
-            return null;
-        });
+            // Bypass opcional SOLO en local/testing (nunca en producción)
+            if (app()->environment(['local', 'development', 'testing']) && $bypassDevLocal) {
+                if ($this->isAdminRequest()) return true;
+            }
 
+            return null; // continúa con otras gates/policies
+        });
 
         /**
          * Gate genérico "perm" (punto único de verdad).
+         * - En prod+strict → si no hay infraestructura de permisos → DENIEGA.
+         * - En local/testing → si no hay infraestructura → PERMITE para no bloquear desarrollo.
+         * - Consulta cacheada para reducir roundtrips a DB.
          */
-        Gate::define('perm', function ($user, string $perm) {
-            $u   = $this->currentUser($user);
+        Gate::define('perm', function ($user, string $perm) use ($isProd, $strictProd) {
+            $u = $this->currentUser($user);
+            if (!$u) return false;
+
             $key = strtolower(trim($perm));
 
             // Método en modelo tiene prioridad
             try {
-                if ($u && method_exists($u, 'hasPerm')) {
+                if (method_exists($u, 'hasPerm')) {
                     $res = $u->hasPerm($key);
                     if ($res !== null) return (bool)$res;
                 }
-            } catch (\Throwable $e) {}
+            } catch (Throwable $e) {
+                // continúa al flujo por tablas
+            }
 
-            // Sin infraestructura → no bloquees navegación base
+            // ¿Infraestructura de permisos?
             try {
-                if (!Schema::hasTable('permisos')) return true;
-            } catch (\Throwable $e) { return true; }
+                $hasPermTable = Schema::hasTable('permisos');
+            } catch (Throwable $e) {
+                $hasPermTable = false;
+            }
+
+            if (!$hasPermTable) {
+                // Producción estricta -> deniega; en otros entornos -> permite
+                return ($isProd && $strictProd) ? false : true;
+            }
+
+            // Cache TTL corto para no martillar DB (ajustable si lo ves necesario)
+            $ttl = (int) env('PERM_CACHE_TTL', 30);
 
             try {
-                $permId = DB::table('permisos')->where('clave', $key)->value('id');
+                // Buscar permiso por clave (cacheado)
+                $permId = Cache::remember("perm:id:{$key}", $ttl, function () use ($key) {
+                    return DB::table('permisos')->where('clave', $key)->value('id');
+                });
+
                 if (!$permId) {
-                    // Claves comunes permitidas por defecto
-                    $allow = [
-                        'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
-                        'usuarios_admin.impersonar',
-                        'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
-                        'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
-                        'planes.ver','planes.crear','planes.editar','planes.eliminar',
-                        'pagos.ver','pagos.crear','pagos.editar','pagos.eliminar',
-                        'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
-                        'auditoria.ver','reportes.ver',
-                        'configuracion.ver',
-                    ];
-
-                    return in_array($key, $allow, true);
+                    // Si no existe, en prod+strict deniega; en local/testing se permite para claves comunes
+                    if ($isProd && $strictProd) {
+                        return false;
+                    }
+                    return in_array($key, self::COMMON_ABILITIES, true);
                 }
 
-                // Por perfil (si existe columna)
-                $perfilId = null;
-                if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
-                    $perfilId = (int) DB::table('usuario_administrativos')
-                        ->where('id', $u->id)->value('perfil_id');
-                }
+                // Por perfil (si existe columna en usuario_administrativos) — cacheado
+                $perfilId = Cache::remember("user:perfil:{$u->id}", $ttl, function () use ($u) {
+                    if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
+                        return (int) DB::table('usuario_administrativos')
+                            ->where('id', $u->id)->value('perfil_id');
+                    }
+                    return 0;
+                });
+
                 if ($perfilId) {
-                    return DB::table('perfil_permiso')
-                        ->where('perfil_id', $perfilId)
-                        ->where('permiso_id', $permId)
-                        ->exists();
+                    $has = Cache::remember("perm:perfil:{$perfilId}:{$permId}", $ttl, function () use ($perfilId, $permId) {
+                        return DB::table('perfil_permiso')
+                            ->where('perfil_id', $perfilId)
+                            ->where('permiso_id', $permId)
+                            ->exists();
+                    });
+                    if ($has) return true;
                 }
 
-                // Pivot usuario_permiso (fallback)
+                // Pivot usuario_permiso (fallback) — cacheado
                 if (Schema::hasTable('usuario_permiso')) {
-                    return DB::table('usuario_permiso')
-                        ->where('usuario_id', $u->id)
-                        ->where('permiso_id', $permId)
-                        ->exists();
+                    $has = Cache::remember("perm:user:{$u->id}:{$permId}", $ttl, function () use ($u, $permId) {
+                        return DB::table('usuario_permiso')
+                            ->where('usuario_id', $u->id)
+                            ->where('permiso_id', $permId)
+                            ->exists();
+                    });
+                    if ($has) return true;
                 }
 
-                // Hay infraestructura pero sin match → deniega
-                return false;
-            } catch (\Throwable $e) {
-                // En error, no bloquees
-                return true;
+                // Infra parcial pero sin match → deniega (o permite en entornos no estrictos)
+                return ($isProd && $strictProd) ? false : false;
+            } catch (Throwable $e) {
+                // En error, en prod+strict deniega; en otros entornos permite.
+                return ($isProd && $strictProd) ? false : true;
             }
         });
 
         /**
          * ALIAS automáticos a "perm".
          */
-        $abilities = [
-            'usuarios_admin.ver','usuarios_admin.crear','usuarios_admin.editar','usuarios_admin.eliminar',
-            'usuarios_admin.impersonar',
-            'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
-            'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
-            'planes.ver','planes.crear','planes.editar','planes.eliminar',
-            'pagos.ver','pagos.crear','pagos.editar','pagos.eliminar',
-            'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
-            'auditoria.ver','reportes.ver','configuracion.ver',
-        ];
-
-
-        foreach ($abilities as $ab) {
+        foreach (self::COMMON_ABILITIES as $ab) {
             if (!Gate::has($ab)) {
                 Gate::define($ab, function ($user) use ($ab) {
                     return Gate::forUser($user)->allows('perm', $ab);
@@ -178,20 +220,25 @@ class AuthServiceProvider extends ServiceProvider
         }
 
         /**
-         * AFTER (debug opcional).
+         * AFTER (log de denegación en /admin/* si AUDIT_GATES=true).
          */
-        Gate::after(function ($user = null, string $ability, bool $result, array $arguments = []) {
-            if ($result === false && request()->is('admin/*')) {
+        Gate::after(function ($user = null, string $ability, bool $result, array $arguments = []) use ($auditGates) {
+            if (!$auditGates) return;
+
+            // Evitar depender de request() en CLI/jobs
+            $isAdminReq = $this->isAdminRequest();
+
+            if ($result === false && $isAdminReq) {
                 try {
                     Log::warning('[Gate deny]', [
                         'ability' => $ability,
                         'user_id' => $user?->id,
                         'email'   => $user?->email,
                         'args'    => $arguments,
-                        'path'    => request()->path(),
+                        'path'    => (!app()->runningInConsole() && function_exists('request') && request()) ? request()->path() : 'cli/job',
                         'env'     => app()->environment(),
                     ]);
-                } catch (\Throwable $e) {}
+                } catch (Throwable $e) {}
             }
         });
     }

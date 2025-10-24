@@ -39,7 +39,7 @@
   <div class="header-left">
     {{-- Botón Sidebar (desktop colapsa / móvil drawer) --}}
     <button id="sidebarBtn" class="btn-sidebar-pro" type="button"
-            aria-label="Alternar menú" aria-controls="sidebar"
+            aria-label="Alternar menú" aria-controls="nebula-sidebar"
             aria-pressed="false" aria-expanded="true" title="Menú">
       <span class="btn-bars" aria-hidden="true"></span>
       <span class="btn-bars" aria-hidden="true"></span>
@@ -47,17 +47,17 @@
       <span class="btn-glow" aria-hidden="true"></span>
     </button>
 
-    {{-- Marca --}}
+    {{-- Marca (logos claro/oscuro) --}}
     <a class="brand-link" href="{{ $brandUrl }}" aria-label="Inicio">
       <img class="brand-logo brand-light" src="{{ $logoLight }}" alt="Pactopia360"
-           width="140" height="28" decoding="async" fetchpriority="high">
+           width="150" height="30" decoding="async" fetchpriority="high">
       <img class="brand-logo brand-dark"  src="{{ $logoDark  }}" alt="Pactopia360"
-           width="140" height="28" decoding="async">
+           width="150" height="30" decoding="async">
     </a>
 
     {{-- Entorno + Heartbeat --}}
     <span class="env-badge" title="Entorno de ejecución">
-      {{ strtoupper($envName) }}
+      <span class="env-text">{{ strtoupper($envName) }}</span>
       <span id="hbDot" class="hb-dot" aria-label="Estado del servidor" title="Estado"></span>
     </span>
   </div>
@@ -71,7 +71,7 @@
       <span class="search-icon" aria-hidden="true">🔎</span>
       <input id="globalSearch" name="q" type="search"
              placeholder="Buscar en el panel… (Ctrl + K o /)"
-             autocomplete="off" aria-label="Buscar en el panel">
+             autocomplete="off" aria-label="Buscar en el panel" enterkeyhint="search">
       <kbd class="kbd" aria-hidden="true">Ctrl + K</kbd>
     </form>
   </div>
@@ -160,33 +160,36 @@
 <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
 <style>
-  :root{ --header-h:56px; }
+  :root{
+    --header-h:56px;
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
   .header{
     position:sticky; top:0; z-index:1050;
     height:var(--header-h);
     display:flex; align-items:center; gap:12px;
-    padding:8px 12px;
+    padding:calc(6px + var(--safe-top)) 12px 8px;
     background:var(--sb-bg, #fff); color:inherit;
     border-bottom:1px solid var(--sb-border, rgba(0,0,0,.08));
     backdrop-filter:saturate(180%) blur(6px);
   }
-  .header-left{display:flex;align-items:center;gap:10px;min-width:240px}
-  .header-right{display:flex;align-items:center;gap:10px}
+  .header-left{display:flex;align-items:center;gap:10px;min-width:0}
+  .header-right{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 
-  .brand-link{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none}
-  .brand-logo{height:28px}
+  .brand-link{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none;min-width:0}
+  .brand-logo{height:30px;max-width:150px;width:auto}
   .brand-dark{display:none}
   html.theme-dark .brand-dark{display:inline}
   html.theme-dark .brand-light{display:none}
 
-  .header-search{flex:1;display:flex;justify-content:center}
+  .header-search{flex:1;display:flex;justify-content:center;min-width:140px}
   .search-wrap{
     display:flex;align-items:center;gap:8px;
     background:rgba(0,0,0,.04); border:1px solid rgba(0,0,0,.08);
-    padding:6px 10px; border-radius:12px; width:100%; max-width:560px
+    padding:6px 10px; border-radius:12px; width:100%; max-width:560px; min-height:38px;
   }
   html.theme-dark .search-wrap{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.08)}
-  .search-wrap input{flex:1;border:0;outline:0;background:transparent}
+  .search-wrap input{flex:1;border:0;outline:0;background:transparent;min-width:0}
   .kbd{font:600 10px/1 system-ui;background:rgba(0,0,0,.08);padding:2px 6px;border-radius:6px}
   html.theme-dark .kbd{background:rgba(255,255,255,.12)}
 
@@ -217,8 +220,9 @@
   }
   html.theme-dark .theme-btn{border-color:rgba(255,255,255,.12)}
 
-  .env-badge{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 system-ui;padding:4px 8px;margin-left:10px;border-radius:9999px;background:rgba(0,0,0,.06)}
+  .env-badge{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 system-ui;padding:4px 8px;margin-left:10px;border-radius:9999px;background:rgba(0,0,0,.06);min-width:0}
   html.theme-dark .env-badge{background:rgba(255,255,255,.08)}
+  .env-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:12ch}
   .hb-dot{width:8px;height:8px;border-radius:9999px;display:inline-block;background:#9ca3af;box-shadow:0 0 0 0 rgba(16,185,129,.0)}
   .hb-dot.ok{background:#10b981;box-shadow:0 0 0 6px rgba(16,185,129,.18)}
   .hb-dot.warn{background:#f59e0b;box-shadow:0 0 0 6px rgba(245,158,11,.18)}
@@ -236,230 +240,242 @@
   .btn-sidebar-pro:hover .btn-glow{opacity:1}
   .btn-sidebar-pro:active{transform:scale(.96)}
 
-  .sidebar-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1040;display:none}
+  .sidebar-backdrop{position:fixed;left:0;right:0;top:var(--header-h);bottom:0;background:rgba(0,0,0,.35);z-index:1040;display:none}
   body.sidebar-open .sidebar-backdrop{display:block}
+
+  /* Responsive: prioriza acciones a la derecha y que todo ajuste sin romper */
+  @media (max-width: 992px){
+    .env-badge{display:none}
+    .kbd{display:none}
+    .brand-logo{height:26px;max-width:132px}
+    .search-wrap{max-width:100%;min-height:36px}
+  }
+  @media (max-width: 680px){
+    .header{gap:8px}
+    .header-right{gap:6px}
+    .header-search{order:3;width:100%}
+    .search-wrap{width:100%}
+  }
+  @media (max-width: 420px){
+    .brand-logo{height:24px;max-width:120px}
+    .theme-btn span#themeLabel{display:none}
+    .notif-btn{min-width:36px;height:36px}
+    .theme-btn{height:36px}
+    .btn-sidebar-pro{width:40px;height:40px}
+    .header{padding-right:10px;padding-left:10px}
+  }
 
   /* Oculta legales accidentales en header */
   .header .topbar-copy, .header .copyright, .header .legal, .header [data-copyright]{ display:none !important; }
+
+  @media (prefers-reduced-motion: reduce){
+    .btn-sidebar-pro, .btn-sidebar-pro .btn-bars, .btn-sidebar-pro .btn-glow{ transition:none }
+  }
 </style>
 
 <script>
 /* ==========================================================================
-   P360 · HEADER CORE (unificado, sin duplicaciones)
-   - Control de sidebar (desktop/móvil) con persistencia
-   - Debug logger, tema sin parpadeo, búsqueda rápida
-   - Heartbeat, notificaciones, NovaBot, logout seguro
+   P360 · HEADER CORE (misma UI, solo adaptación & accesibilidad)
    ========================================================================== */
 (function(){
   'use strict';
-  const html=document.documentElement, body=document.body;
-  const $=(s,c=document)=>c.querySelector(s);
-  const $$=(s,c=document)=>Array.from(c.querySelectorAll(s));
+  var html=document.documentElement, body=document.body;
+  var $=function(s,c){return (c||document).querySelector(s);};
+  var $$=function(s,c){return Array.from((c||document).querySelectorAll(s));};
 
-  /* ========= Sidebar: desktop colapsa / móvil drawer ========= */
-  (function sidebarCtrl(){
-    const KEY_MODE='p360.sidebar.mode';   // 'expanded' | 'collapsed' (desktop)
-    const KEY_OPEN='p360.sidebar.open';   // '1'|'0' (móvil)
-    const MQ = matchMedia('(min-width: 1024px)');
-    const btn = $('#sidebarBtn');
-    const backdrop = $('#sidebarBackdrop') || $('#sidebar-backdrop');
+  /* ========= Sidebar ========= */
+  (function(){
+    var btn = $('#sidebarBtn');
+    var backdrop = $('#sidebarBackdrop') || $('#sidebar-backdrop');
 
-    const isDesktop = ()=> MQ.matches;
-    const getMode = ()=> { try{ return localStorage.getItem(KEY_MODE) || 'expanded'; }catch{ return 'expanded'; } };
-    const setMode = (m)=> { try{ localStorage.setItem(KEY_MODE,m); }catch{} };
-    const getOpen = ()=> { try{ return localStorage.getItem(KEY_OPEN)==='1'; }catch{ return false; } };
-    const setOpen = (v)=> { try{ localStorage.setItem(KEY_OPEN, v?'1':'0'); }catch{} };
-
-    const reflect = ()=>{
-      html.classList.remove('sidebar-collapsed');
-      body.classList.remove('sidebar-collapsed','sidebar-open');
+    function isDesktop(){ return matchMedia('(min-width: 1024px)').matches; }
+    function fallbackToggle(){
       if (isDesktop()){
-        const collapsed = (getMode()==='collapsed');
-        html.classList.toggle('sidebar-collapsed', collapsed);
-        body.classList.toggle('sidebar-collapsed', collapsed);
-        if (btn){ btn.setAttribute('aria-expanded', collapsed?'false':'true'); btn.setAttribute('aria-pressed', collapsed?'false':'true'); }
-      } else {
-        const open=getOpen();
-        body.classList.toggle('sidebar-open', open);
-        if (btn){ btn.setAttribute('aria-expanded', open?'true':'false'); btn.setAttribute('aria-pressed', open?'true':'false'); }
+        html.classList.toggle('sidebar-collapsed');
+        body.classList.toggle('sidebar-collapsed');
+      }else{
+        body.classList.toggle('sidebar-open');
+        if (backdrop) backdrop.style.display = body.classList.contains('sidebar-open') ? 'block' : 'none';
       }
-      if (backdrop) backdrop.style.display = (!isDesktop() && getOpen()) ? 'block' : 'none';
-    };
-
-    const API = (window.P360 = window.P360 || {}, window.P360.sidebar = window.P360.sidebar || {});
-    API.toggle = ()=>{
-      if (isDesktop()){
-        setMode(getMode()==='collapsed' ? 'expanded' : 'collapsed');
-      } else {
-        setOpen(!getOpen());
-      }
-      reflect();
-      window.dispatchEvent(new CustomEvent('p360:sidebar:toggled', { detail:{ desktop:isDesktop() } }));
-    };
-    API.openMobile = (open=true)=>{ if (isDesktop()) return; setOpen(!!open); reflect(); };
-    API.reset = ()=>{ setMode('expanded'); setOpen(false); reflect(); };
+    }
+    function reflectBtn(){
+      if(!btn) return;
+      var expanded = (!html.classList.contains('sidebar-collapsed')) || body.classList.contains('sidebar-open');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      btn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+    }
 
     if (btn && !btn.dataset.bound){
       btn.dataset.bound='1';
-      btn.addEventListener('mousemove', e=>{ const r=btn.getBoundingClientRect(); btn.style.setProperty('--mx',(e.clientX-r.left)+'px'); btn.style.setProperty('--my',(e.clientY-r.top)+'px'); });
-      btn.addEventListener('click', API.toggle);
-      btn.addEventListener('dblclick', API.reset);
+      btn.addEventListener('mousemove', function(e){
+        var r=btn.getBoundingClientRect();
+        btn.style.setProperty('--mx',(e.clientX-r.left)+'px');
+        btn.style.setProperty('--my',(e.clientY-r.top)+'px');
+      });
+      btn.addEventListener('click', function(){
+        if (window.P360 && P360.sidebar && typeof P360.sidebar.toggle==='function'){
+          P360.sidebar.toggle();
+        } else {
+          fallbackToggle();
+        }
+        reflectBtn();
+      });
     }
     if (backdrop && !backdrop.dataset.bound){
       backdrop.dataset.bound='1';
-      backdrop.addEventListener('click', ()=>API.openMobile(false));
-    }
-    MQ.addEventListener?.('change', reflect);
-    window.addEventListener('resize', reflect);
-    window.addEventListener('p360:pjax:before', ()=>API.openMobile(false));
-    reflect();
-  })();
-
-  /* ========= Fallback de P360.debug → /admin/ui/log ========= */
-  (function debugFallback(){
-    window.P360 = window.P360 || {};
-    if (!window.P360.debug) {
-      const LOG_URL = "{{ Route::has('admin.ui.log') ? route('admin.ui.log') : url('/admin/ui/log') }}";
-      window.P360.debug = {
-        async send(tag, data){
-          try{
-            const body = { tag, ...(data && typeof data==='object' ? { data } : {}) };
-            await fetch(LOG_URL, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]')?.content || '')
-              },
-              credentials: 'same-origin',
-              body: JSON.stringify(body)
-            });
-          }catch(_){}
+      backdrop.addEventListener('click', function(){
+        if (window.P360 && P360.sidebar && typeof P360.sidebar.openMobile==='function'){
+          P360.sidebar.openMobile(false);
+        } else {
+          body.classList.remove('sidebar-open'); backdrop.style.display='none';
         }
-      };
+        reflectBtn();
+      });
     }
+    addEventListener('resize', reflectBtn);
   })();
 
-  /* ========= Tema (sin parpadeo de logo y respeto de prefers-color-scheme) ========= */
-  (function themeCtrl(){
-    const KEY='p360-theme'; const btn=$('#btnTheme'); const label=$('#themeLabel');
-    const logoL=$('.brand-logo.brand-light'); const logoD=$('.brand-logo.brand-dark');
-    const mPref = matchMedia('(prefers-color-scheme: dark)');
-    const current = ()=>{
-      try{ const v=localStorage.getItem(KEY); if(v==='dark'||v==='light') return v; }catch{}
+  /* ========= Tema (clave 'p360.theme') ========= */
+  (function(){
+    var KEY='p360.theme';
+    var btn=$('#btnTheme'), label=$('#themeLabel');
+    var logoL=$('.brand-logo.brand-light'), logoD=$('.brand-logo.brand-dark');
+    var mPref = matchMedia('(prefers-color-scheme: dark)');
+
+    function current(){
+      try{ var v=localStorage.getItem(KEY); if(v==='dark'||v==='light') return v; }catch(_){}
       return mPref.matches ? 'dark' : 'light';
-    };
-    const reflect=(dark)=>{ if(logoL) logoL.style.display=dark?'none':''; if(logoD) logoD.style.display=dark?'':'none'; };
-    const apply=(m)=>{
-      const d=(m==='dark'); html.classList.toggle('theme-dark',d); html.classList.toggle('theme-light',!d);
-      html.setAttribute('data-theme', d?'dark':'light'); body.classList.toggle('theme-dark',d); body.classList.toggle('theme-light',!d);
-      try{ localStorage.setItem(KEY,m); }catch{}
-      if(label) label.textContent=d?'Modo claro':'Modo oscuro';
-      if(btn) btn.setAttribute('aria-pressed', d?'true':'false');
-      reflect(d);
-    };
+    }
+    function reflectImages(dark){
+      if(logoL) logoL.style.display=dark?'none':'';
+      if(logoD) logoD.style.display=dark?'':'none';
+    }
+    function apply(mode){
+      if (window.P360 && typeof P360.setTheme==='function'){
+        P360.setTheme(mode);
+      } else {
+        var d=(mode==='dark');
+        html.classList.toggle('theme-dark',d); html.classList.toggle('theme-light',!d);
+        html.setAttribute('data-theme', d?'dark':'light');
+        body.classList.toggle('theme-dark',d); body.classList.toggle('theme-light',!d);
+        try{ localStorage.setItem(KEY, mode); }catch(_){}
+      }
+      if(label) label.textContent = (mode==='dark') ? 'Modo claro' : 'Modo oscuro';
+      if(btn)   btn.setAttribute('aria-pressed', (mode==='dark') ? 'true' : 'false');
+      reflectImages(mode==='dark');
+    }
+    function toggle(){ apply(current()==='dark' ? 'light' : 'dark'); }
+
     apply(current());
-    if (btn && !btn.dataset.bound){ btn.dataset.bound='1'; btn.addEventListener('click',()=>apply(current()==='dark'?'light':'dark')); }
-    mPref.addEventListener?.('change', e=>{ const saved = (localStorage.getItem(KEY)||''); if(!saved) apply(e.matches?'dark':'light'); });
-    addEventListener('storage',e=>{ if(e.key===KEY && e.newValue) apply(e.newValue); });
+    if(btn && !btn.dataset.bound){ btn.dataset.bound='1'; btn.addEventListener('click', toggle); }
+
+    mPref.addEventListener?.('change', function(e){
+      try{ if(!localStorage.getItem(KEY)) apply(e.matches?'dark':'light'); }catch(_){}
+    });
+    addEventListener('storage', function(e){ if(e.key===KEY && e.newValue) apply(e.newValue); });
   })();
 
-  /* ========= Atajos de búsqueda (Ctrl+K y /) ========= */
-  (function searchHotkeys(){
-    const input = $('#globalSearch'); if(!input) return;
-    document.addEventListener('keydown', (e)=>{
-      const isSlash = (e.key==='/' && !e.ctrlKey && !e.metaKey && !e.altKey);
-      const isCtrlK = ((e.key==='k'||e.key==='K') && (e.ctrlKey || e.metaKey));
-      if (isSlash || isCtrlK){ e.preventDefault(); input.focus(); input.select(); }
+  /* ========= Hotkeys búsqueda ========= */
+  (function(){
+    var input = $('#globalSearch'); if(!input) return;
+    document.addEventListener('keydown', function(e){
+      var isSlash = (e.key==='/' && !e.ctrlKey && !e.metaKey && !e.altKey);
+      var isCtrlK = ((e.key==='k'||e.key==='K') && (e.ctrlKey || e.metaKey));
+      if (isSlash || isCtrlK){ e.preventDefault(); input.focus(); input.select && input.select(); }
     });
   })();
 
   /* ========= Heartbeat ========= */
-  (function heartbeat(){
-    const root=$('#topbar'); const dot=$('#hbDot'); const url=root?.dataset.heartbeatUrl;
+  (function(){
+    var root=$('#topbar'); var dot=$('#hbDot'); var url=root && root.dataset.heartbeatUrl;
     if(!dot || !url) return;
     async function ping(){
       try{
-        const t0=performance.now();
-        const res=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'},cache:'no-store',credentials:'same-origin'});
-        const t1=performance.now(); const ms=Math.round(t1-t0);
+        var t0=performance.now();
+        var res=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'},cache:'no-store',credentials:'same-origin'});
+        var t1=performance.now(); var ms=Math.round(t1-t0);
         if(res.ok){ dot.className='hb-dot ok'; dot.title='OK · '+ms+' ms'; }
-        else{ dot.className='hb-dot warn'; dot.title='Warn · '+ms+' ms (HTTP '+res.status+')'; }
-      }catch(_){ dot.className='hb-dot fail'; dot.title='Sin respuesta'; }
+        else      { dot.className='hb-dot warn'; dot.title='Warn · '+ms+' ms (HTTP '+res.status+')'; }
+      }catch(_){  dot.className='hb-dot fail'; dot.title='Sin respuesta'; }
     }
     ping(); setInterval(ping, 30000);
   })();
 
   /* ========= Notificaciones ========= */
-  (function notifications(){
-    const root=$('#topbar'), badge=$('#notifBadge'), bodyEl=$('#p360NotifBody');
-    const countUrl=root?.dataset.notifCountUrl||null, listUrl=root?.dataset.notifListUrl||null;
-    const fetchJSON=async url=>{ try{
-      const res=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'},credentials:'same-origin'});
-      const ct=res.headers.get('content-type')||''; if(!ct.includes('application/json')) return null;
-      return await res.json();
-    }catch{return null;} };
-    const updateBadge=async ()=>{
+  (function(){
+    var root=$('#topbar'), badge=$('#notifBadge'), bodyEl=$('#p360NotifBody');
+    var countUrl=root && root.dataset.notifCountUrl; var listUrl=root && root.dataset.notifListUrl;
+
+    async function fetchJSON(url){
+      try{
+        var res=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'},credentials:'same-origin'});
+        var ct=res.headers.get('content-type')||''; if(!ct.includes('application/json')) return null;
+        return await res.json();
+      }catch(_){ return null; }
+    }
+    async function updateBadge(){
       if(!countUrl||!badge) return;
-      const data=await fetchJSON(countUrl);
-      const n=Math.max(0, parseInt((data&&(data.count??data.unread??data.total))||0,10));
+      var data=await fetchJSON(countUrl);
+      var n=Math.max(0, parseInt((data&&(data.count??data.unread??data.total))||0,10));
       if(n>0){ badge.innerText=n>99?'99+':String(n); badge.hidden=false; badge.setAttribute('aria-label', n+' sin leer'); }
-      else{ badge.hidden=true; badge.innerText=''; badge.setAttribute('aria-label','0 sin leer'); }
-    };
-    const loadListOnOpen=async ()=>{
+      else   { badge.hidden=true; badge.innerText=''; badge.setAttribute('aria-label','0 sin leer'); }
+    }
+    async function loadListOnOpen(){
       if(!listUrl||!bodyEl||bodyEl.dataset.state!=='idle') return;
       bodyEl.dataset.state='loading'; bodyEl.innerHTML='<p class="muted">Cargando…</p>';
-      const data=await fetchJSON(listUrl);
+      var data=await fetchJSON(listUrl);
       if(Array.isArray(data?.items)&&data.items.length){
-        const ul=document.createElement('ul'); ul.className='notif-list';
-        data.items.slice(0,10).forEach(it=>{
-          const li=document.createElement('li');
-          const t=(it.title||it.text||'Notificación'); const d=(it.date||it.time||'');
-          li.innerHTML=`<div class="notif-title">${t}</div><div class="notif-date muted">${d}</div>`;
+        var ul=document.createElement('ul'); ul.className='notif-list';
+        data.items.slice(0,10).forEach(function(it){
+          var li=document.createElement('li');
+          var t=(it.title||it.text||'Notificación'); var d=(it.date||it.time||'');
+          li.innerHTML='<div class="notif-title">'+t+'</div><div class="notif-date muted">'+d+'</div>';
           ul.appendChild(li);
         });
         bodyEl.innerHTML=''; bodyEl.appendChild(ul);
-        if(data.more_url){ const a=document.createElement('a'); a.href=data.more_url; a.className='logout-btn'; a.textContent='Ver todas'; bodyEl.appendChild(a); }
+        if(data.more_url){ var a=document.createElement('a'); a.href=data.more_url; a.className='logout-btn'; a.textContent='Ver todas'; bodyEl.appendChild(a); }
       }else{
         @if(Route::has('admin.notificaciones'))
-          bodyEl.innerHTML = `<p class="muted">Sin notificaciones.</p><a class="logout-btn" href="{{ route('admin.notificaciones') }}">Ver todas</a>`;
+          bodyEl.innerHTML = '<p class="muted">Sin notificaciones.</p><a class="logout-btn" href="{{ route('admin.notificaciones') }}">Ver todas</a>';
         @else
-          bodyEl.innerHTML = `<p class="muted">Sin notificaciones.</p>`;
+          bodyEl.innerHTML = '<p class="muted">Sin notificaciones.</p>';
         @endif
       }
-    };
-    $$('details[data-menu="notifications"]').forEach(d=>{
-      if(!d.dataset.bound){ d.dataset.bound='1'; d.addEventListener('toggle', ()=>{ if(d.open) loadListOnOpen(); }); }
+    }
+    $$('details[data-menu="notifications"]').forEach(function(d){
+      if(!d.dataset.bound){ d.dataset.bound='1'; d.addEventListener('toggle', function(){ if(d.open) loadListOnOpen(); }); }
     });
-    const allMenus=$$('details[data-menu]'); allMenus.forEach(d=>{
-      if(!d.dataset.closeothers){ d.dataset.closeothers='1'; d.addEventListener('toggle', ()=>{ if(d.open) allMenus.forEach(x=>{ if(x!==d) x.open=false; }); }); }
+    var allMenus=$$('details[data-menu]');
+    allMenus.forEach(function(d){
+      if(!d.dataset.closeothers){ d.dataset.closeothers='1'; d.addEventListener('toggle', function(){ if(d.open) allMenus.forEach(function(x){ if(x!==d) x.open=false; }); }); }
     });
+
     if(countUrl){ updateBadge(); setInterval(updateBadge,60000); }
   })();
 
   /* ========= NovaBot ========= */
-  (function novabot(){
-    const btn=$('#btnNovaBot'); if(!btn || btn.dataset.bound) return; btn.dataset.bound='1';
-    btn.addEventListener('click', ()=>{
+  (function(){
+    var btn=$('#btnNovaBot'); if(!btn || btn.dataset.bound) return; btn.dataset.bound='1';
+    btn.addEventListener('click', function(){
       try{
         if (window.NovaBot && typeof window.NovaBot.open === 'function'){ window.NovaBot.open(); }
-        else { window.P360?.toast?.info?.('Cargando asistente…'); window.dispatchEvent(new CustomEvent('p360:bot:open')); }
-      }catch{ window.P360?.toast?.error?.('No se pudo abrir el asistente'); }
+        else { window.P360 && P360.toast && P360.toast('Cargando asistente…'); window.dispatchEvent(new CustomEvent('p360:bot:open')); }
+      }catch(_){ window.P360 && P360.toast && P360.toast('No se pudo abrir el asistente'); }
     });
   })();
 
   /* ========= Logout con bloqueo doble click ========= */
-  (function logoutProtect(){
-    const b=$('#logoutBtn'), f=$('#logoutForm');
+  (function(){
+    var b=$('#logoutBtn'), f=$('#logoutForm');
     if(b&&f&&!b.dataset.bound){ b.dataset.bound='1';
-      b.addEventListener('click', ()=>{ if(b.disabled) return false; b.disabled=true; b.textContent='Cerrando…'; setTimeout(()=>{ try{f.submit();}catch{ b.disabled=false; } },10); });
+      b.addEventListener('click', function(){ if(b.disabled) return false; b.disabled=true; b.textContent='Cerrando…'; setTimeout(function(){ try{f.submit();}catch(_){ b.disabled=false; } },10); });
     }
   })();
 
-  /* ========= Cerrar menus al hacer click fuera ========= */
-  (function clickOutsideToClose(){
-    const menus = $$('details[data-menu]');
-    document.addEventListener('click', (e)=>{ menus.forEach(d=>{ if (!d.contains(e.target)) d.open = false; }); }, {capture:true});
+  /* ========= Cerrar <details> al hacer click fuera ========= */
+  (function(){
+    var menus = $$('details[data-menu]');
+    document.addEventListener('click', function(e){ menus.forEach(function(d){ if (!d.contains(e.target)) d.open = false; }); }, {capture:true});
   })();
 })();
 </script>

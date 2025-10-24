@@ -2,7 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
+// Controladores ADMIN
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\HomeController;
 use App\Http\Controllers\Admin\SearchController;
@@ -11,16 +13,29 @@ use App\Http\Controllers\Admin\UiController;
 use App\Http\Controllers\Admin\ProfileController;
 use App\Http\Controllers\Admin\ConfigController;
 use App\Http\Controllers\Admin\ReportesController;
-use App\Http\Controllers\Admin\Empresas\DashboardController;
+use App\Http\Controllers\Admin\ClientesController;
+use App\Http\Controllers\Admin\QaController;
+use App\Http\Controllers\Admin\Soporte\ResetClientePasswordController;
 
-use App\Http\Controllers\Admin\Empresas\Pactopia360\CRM\CarritosController;
-use App\Http\Controllers\Admin\Empresas\Pactopia360\CRM\ContactosController;
 
-/**
- * Helper permiso -> middleware 'can:perm,<clave>'
- * - En local/dev/testing no aplica (para no estorbar).
- * - Acepta string o array de strings.
- */
+// CSRF (para desactivar en local cuando convenga)
+use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
+
+$isLocal = app()->environment(['local','development','testing']);
+
+// Throttles
+$thrLogin        = $isLocal ? 'throttle:60,1'  : 'throttle:5,1';
+$thrUiHeartbeat  = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrUiLog        = $isLocal ? 'throttle:480,1' : 'throttle:240,1';
+$thrHomeStats    = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrUiDiag       = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrUiBotAsk     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrDevQa        = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrDevPosts     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
+
+/** Helper permisos → middleware 'can:perm,<clave>' */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
@@ -30,11 +45,7 @@ if (!function_exists('perm_mw')) {
     }
 }
 
-/**
- * Placeholder reusable:
- * - Si existe la vista admin.generic.placeholder la usa,
- * - si no, regresa un HTML simple (para no romper).
- */
+/** Placeholder rápido (por si faltan vistas) */
 if (!function_exists('admin_placeholder_view')) {
     function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360') {
         if (view()->exists('admin.generic.placeholder')) {
@@ -50,61 +61,55 @@ if (!function_exists('admin_placeholder_view')) {
     }
 }
 
-/* ===========================
-   UI: heartbeat / log
-   =========================== */
+/* ============ UI ============ */
 Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
-    ->middleware('throttle:60,1')->name('ui.heartbeat');
+    ->middleware($thrUiHeartbeat)->name('ui.heartbeat');
 
-Route::match(['POST','GET'], 'ui/log', [UiController::class, 'log'])
-    ->withoutMiddleware([
-        \App\Http\Middleware\VerifyCsrfToken::class,
-        \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
-    ])
-    ->middleware('throttle:240,1')->name('ui.log');
+$uiLog = Route::match(['POST','GET'], 'ui/log', [UiController::class, 'log'])
+    ->middleware($thrUiLog)->name('ui.log');
+if ($isLocal) $uiLog->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
 
-/* ===========================
-   Auth (guard admin)
-   =========================== */
-Route::middleware('guest:admin')->group(function () {
+/* ============ Auth (guard admin) ============ */
+Route::middleware('guest:admin')->group(function () use ($isLocal, $thrLogin) {
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
-    Route::post('login', [LoginController::class, 'login'])
-        ->middleware('throttle:5,1')->name('login.do');
+
+    $loginPost = Route::post('login', [LoginController::class, 'login'])
+        ->middleware($thrLogin)->name('login.do');
+
+    if ($isLocal) {
+        $loginPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
 });
 
-// ===== Notificaciones: contador público (para badge del header) =====
+// Notificaciones: contador público
 Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
-    ->middleware('throttle:60,1')
-    ->name('notificaciones.count');
+    ->middleware('throttle:60,1')->name('notificaciones.count');
 
-Route::middleware('auth:admin')->group(function () {
+/* ============ Área autenticada ADMIN ============ */
+Route::middleware(['auth:admin','account.active'])->group(function () use ($thrHomeStats, $thrUiDiag, $thrUiBotAsk, $thrDevQa, $thrDevPosts, $thrAdminPosts, $isLocal) {
 
     // Aliases
     Route::get('/', fn() => redirect()->route('admin.home'))->name('root');
     Route::get('dashboard', fn() => redirect()->route('admin.home'))->name('dashboard');
 
-    // ===== WhoAmI (diagnóstico rápido) =====
+    // WhoAmI
     Route::get('_whoami', function () {
         $u = auth('admin')->user();
         return response()->json([
-            'ok'    => (bool) $u,
-            'id'    => $u?->id,
-            'name'  => $u?->name ?? $u?->nombre,
-            'email' => $u?->email,
-            'guard' => 'admin',
-            'now'   => now()->toDateTimeString(),
-            'canAny'=> [
-                'access-admin' => Gate::forUser($u)->allows('access-admin'),
-            ],
+            'ok'     => (bool) $u,
+            'id'     => $u?->id,
+            'name'   => $u?->name ?? $u?->nombre,
+            'email'  => $u?->email,
+            'guard'  => 'admin',
+            'now'    => now()->toDateTimeString(),
+            'canAny' => ['access-admin' => \Illuminate\Support\Facades\Gate::forUser($u)->allows('access-admin')],
+            'super'  => method_exists($u, 'isSuperAdmin') ? (bool) $u->isSuperAdmin() : false,
         ]);
     })->name('whoami');
 
-    /* ===========================
-       Home & métricas
-       =========================== */
+    /* Home & métricas */
     Route::get('home', [HomeController::class, 'index'])->name('home');
-    Route::get('home/stats', [HomeController::class, 'stats'])
-        ->middleware('throttle:60,1')->name('home.stats');
+    Route::get('home/stats', [HomeController::class, 'stats'])->middleware($thrHomeStats)->name('home.stats');
     Route::get('home/income/{ym}', [HomeController::class, 'incomeByMonth'])
         ->where(['ym' => '\d{4}-(0[1-9]|1[0-2])'])->name('home.incomeMonth');
 
@@ -132,18 +137,15 @@ Route::middleware('auth:admin')->group(function () {
         Route::get('home/export', [HomeController::class, 'export'])->name('home.export');
     }
 
-    /* ===========================
-   Utilidades
-   =========================== */
+    /* Utilidades */
     Route::get('search', [SearchController::class, 'index'])->name('search');
 
     Route::get('notificaciones',        [NotificationController::class, 'index'])->name('notificaciones');
     Route::get('notificaciones/list',   [NotificationController::class, 'list'])->name('notificaciones.list');
     Route::post('notificaciones/read-all', [NotificationController::class, 'readAll'])->name('notificaciones.readAll');
 
-    Route::get('ui/diag', [UiController::class, 'diag'])->middleware('throttle:30,1')->name('ui.diag');
-    Route::post('ui/bot-ask', [UiController::class, 'botAsk'])->middleware('throttle:30,1')->name('ui.botAsk');
-
+    Route::get('ui/diag', [UiController::class, 'diag'])->middleware($thrUiDiag)->name('ui.diag');
+    Route::post('ui/bot-ask', [UiController::class, 'botAsk'])->middleware($thrUiBotAsk)->name('ui.botAsk');
 
     // Perfil
     Route::get('perfil', [ProfileController::class, 'index'])->name('perfil');
@@ -151,332 +153,248 @@ Route::middleware('auth:admin')->group(function () {
     Route::put('perfil', [ProfileController::class, 'update'])->name('perfil.update');
     Route::post('perfil/password', [ProfileController::class, 'password'])->name('perfil.password');
 
-    // Configuración
-    Route::get('config', [ConfigController::class, 'index'])->name('config.index');
+    // Config
+    Route::get('config', [ConfigController::class, 'index'])
+        ->middleware(perm_mw('admin.config'))->name('config.index');
 
+    // Reportes
     Route::get('reportes', [ReportesController::class, 'index'])
         ->middleware(perm_mw('reportes.ver'))->name('reportes.index');
 
-    /* ===========================
-       Usuarios Admin
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\UsuariosController::class)) {
-        Route::get('usuarios/export', [\App\Http\Controllers\Admin\UsuariosController::class, 'export'])
-            ->middleware(perm_mw('usuarios_admin.ver'))->name('usuarios.export');
-
-        Route::post('usuarios/bulk', [\App\Http\Controllers\Admin\UsuariosController::class, 'bulk'])
-            ->middleware(perm_mw('usuarios_admin.editar'))->name('usuarios.bulk');
-
-        Route::post('usuarios/{usuario}/impersonate', [\App\Http\Controllers\Admin\UsuariosController::class, 'impersonate'])
-            ->middleware(perm_mw('usuarios_admin.impersonar'))->name('usuarios.impersonate');
-
-        Route::post('usuarios/impersonate/stop', [\App\Http\Controllers\Admin\UsuariosController::class, 'impersonateStop'])
-            ->name('usuarios.impersonateStop');
-
-        Route::resource('usuarios', \App\Http\Controllers\Admin\UsuariosController::class)
-            ->parameters(['usuarios' => 'usuario'])
-            ->middleware(perm_mw('usuarios_admin.ver'));
-    } else {
-        Route::get('usuarios', fn () =>
-            response('<h1>Usuarios Admin</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('usuarios_admin.ver'))->name('usuarios.index');
-    }
-
-    /* ===========================
-       Perfiles & Permisos
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\PerfilesController::class)) {
-        Route::get('perfiles/export', [\App\Http\Controllers\Admin\PerfilesController::class, 'export'])
-            ->middleware(perm_mw('perfiles.ver'))->name('perfiles.export');
-
-        Route::post('perfiles/bulk', [\App\Http\Controllers\Admin\PerfilesController::class, 'bulk'])
-            ->middleware(perm_mw('perfiles.editar'))->name('perfiles.bulk');
-
-        Route::post('perfiles/toggle', [\App\Http\Controllers\Admin\PerfilesController::class, 'toggle'])
-            ->middleware(perm_mw('perfiles.editar'))->name('perfiles.toggle');
-
-        Route::get('perfiles/permissions', [\App\Http\Controllers\Admin\PerfilesController::class, 'permissions'])
-            ->middleware(perm_mw('perfiles.ver'))->name('perfiles.permissions');
-
-        Route::post('perfiles/permissions', [\App\Http\Controllers\Admin\PerfilesController::class, 'permissionsSave'])
-            ->middleware(perm_mw('perfiles.editar'))->name('perfiles.permissions.save');
-
-        Route::resource('perfiles', \App\Http\Controllers\Admin\PerfilesController::class)
-            ->parameters(['perfiles' => 'perfil'])
-            ->middleware(perm_mw('perfiles.ver'));
-    } else {
-        Route::get('perfiles', fn () =>
-            response('<h1>Perfiles & Permisos</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('perfiles.ver'))->name('perfiles.index');
-    }
-
-    /* ===========================
-       Clientes
-       =========================== */
+    /* Clientes (accounts) */
     if (class_exists(\App\Http\Controllers\Admin\ClientesController::class)) {
-        Route::get('clientes/export', [\App\Http\Controllers\Admin\ClientesController::class, 'export'])
-            ->middleware(perm_mw('clientes.ver'))->name('clientes.export');
 
-        Route::resource('clientes', \App\Http\Controllers\Admin\ClientesController::class)
-            ->parameters(['clientes' => 'cliente'])
-            ->middleware(perm_mw('clientes.ver'));
+        Route::get('clientes', [ClientesController::class, 'index'])
+            ->middleware(perm_mw('clientes.ver'))->name('clientes.index');
+
+        Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.save');
+
+        Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.resendEmail');
+
+        Route::post('clientes/{rfc}/send-otp', [ClientesController::class, 'sendPhoneOtp'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.sendOtp');
+
+        Route::post('clientes/{rfc}/force-email', [ClientesController::class, 'forceEmailVerified'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.forceEmail');
+
+        Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.forcePhone');
+
+        $rp = Route::post('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.resetPassword');
+
+        if ($isLocal) {
+            // En local: desactiva CSRF para el POST…
+            $rp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+
+            // …y habilita un GET para poder pegar la URL en el navegador y ver ?format=pretty / ?format=json
+            Route::get('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
+                ->middleware($thrAdminPosts)
+                ->name('clientes.resetPassword.get');
+        }
+
+        Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.emailCredentials');
+
+        Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
+            ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver','clientes.impersonate'])])
+            ->name('clientes.impersonate');
+
+        Route::post('clientes/impersonate/stop', [ClientesController::class, 'impersonateStop'])
+            ->middleware($thrAdminPosts)->name('clientes.impersonate.stop');
+
+        Route::post('clientes/sync-to-clientes', [ClientesController::class, 'syncToClientes'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.syncToClientes');
+
+        Route::post('clientes/bulk', [ClientesController::class, 'bulk'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])->name('clientes.bulk');
+
     } else {
         Route::get('clientes', fn () =>
             response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200)
         )->middleware(perm_mw('clientes.ver'))->name('clientes.index');
     }
 
-    /* ===========================
-       Planes
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\PlanesController::class)) {
-        Route::resource('planes', \App\Http\Controllers\Admin\PlanesController::class)
-            ->parameters(['planes' => 'plan'])
-            ->middleware(perm_mw('planes.ver'));
-    } else {
-        Route::get('planes', fn () =>
-            response('<h1>Planes</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('planes.ver'))->name('planes.index');
-    }
 
-    /* ===========================
-       Pagos
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\PagosController::class)) {
-        Route::get('pagos/export', [\App\Http\Controllers\Admin\PagosController::class, 'export'])
-            ->middleware(perm_mw('pagos.ver'))->name('pagos.export');
+    Route::middleware(['auth:admin'])->prefix('soporte')->as('admin.soporte.')->group(function () {
+        Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
+        Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
+    });
 
-        Route::resource('pagos', \App\Http\Controllers\Admin\PagosController::class)
-            ->parameters(['pagos' => 'pago'])
-            ->middleware(perm_mw('pagos.ver'));
-    } else {
-        Route::get('pagos', fn () =>
-            response('<h1>Pagos</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('pagos.ver'))->name('pagos.index');
-    }
-
-    /* ===========================
-       Facturación
-       =========================== */
-    if (class_exists(\App\Http\Controllers\Admin\FacturacionController::class)) {
-        Route::get('facturacion/export', [\App\Http\Controllers\Admin\FacturacionController::class, 'export'])
-            ->middleware(perm_mw('facturacion.ver'))->name('facturacion.export');
-
-        Route::resource('facturacion', \App\Http\Controllers\Admin\FacturacionController::class)
-            ->parameters(['facturacion' => 'factura'])
-            ->middleware(perm_mw('facturacion.ver'));
-    } else {
-        Route::get('facturacion', fn () =>
-            response('<h1>Facturación</h1><p>Pendiente de implementar.</p>', 200)
-        )->middleware(perm_mw('facturacion.ver'))->name('facturacion.index');
-    }
-
-    /* =======================================================
-       EMPRESAS · Dashboards
-       ======================================================= */
-    Route::get('empresas/pactopia360', [DashboardController::class, 'pactopia360'])
-        ->name('empresas.pactopia360.dashboard');
-
-    Route::get('empresas/pactopia', [DashboardController::class, 'pactopia'])
-        ->name('empresas.pactopia.dashboard');
-
-    Route::get('empresas/waretek-mx', [DashboardController::class, 'waretekMx'])
-        ->name('empresas.waretek-mx.dashboard');
-
-    /* =======================================================
-       EMPRESAS · Submódulos
-       ======================================================= */
-
-    // -------- Pactopia360 --------
+    /* EMPRESAS · PACTOPIA360 */
     Route::prefix('empresas/pactopia360')->name('empresas.pactopia360.')->group(function () {
+        if (view()->exists('admin.empresas.pactopia360.dashboard')) {
+            Route::view('/', 'admin.empresas.pactopia360.dashboard')->name('dashboard');
+        } else {
+            Route::get('/', fn()=>admin_placeholder_view('Pactopia360 — Dashboard'));
+        }
 
-        // === CRM · Carritos (CRUD real) ===
-        Route::resource('crm/carritos', CarritosController::class)
-            ->parameters(['carritos' => 'id'])
-            // ->middleware(perm_mw('crm.ver p360'))
-            ->names([
-                'index'   => 'crm.carritos.index',
-                'create'  => 'crm.carritos.create',
-                'store'   => 'crm.carritos.store',
-                'show'    => 'crm.carritos.show',
-                'edit'    => 'crm.carritos.edit',
-                'update'  => 'crm.carritos.update',
-                'destroy' => 'crm.carritos.destroy',
-            ]);
+        Route::prefix('crm')->name('crm.')->group(function () {
+            Route::prefix('carritos')->name('carritos.')->group(function () {
+                Route::view('/', 'admin.empresas.pactopia360.crm.carritos.index')->name('index');
+                Route::view('/create', 'admin.empresas.pactopia360.crm.carritos.create')->name('create');
+                Route::view('/{id}', 'admin.empresas.pactopia360.crm.carritos.show')->whereNumber('id')->name('show');
+                Route::view('/{id}/edit', 'admin.empresas.pactopia360.crm.carritos.edit')->whereNumber('id')->name('edit');
+            });
 
-        // === CRM · Contactos (CRUD real) ===
-        Route::resource('crm/contactos', ContactosController::class)
-            ->parameters(['contactos' => 'contacto'])
-            // ->middleware(perm_mw('crm.ver p360'))
-            ->names([
-                'index'   => 'crm.contactos.index',
-                'create'  => 'crm.contactos.create',
-                'store'   => 'crm.contactos.store',
-                'edit'    => 'crm.contactos.edit',
-                'update'  => 'crm.contactos.update',
-                'destroy' => 'crm.contactos.destroy',
-            ])
-            ->only(['index','create','store','edit','update','destroy']); // (no show por ahora)
+            Route::prefix('contactos')->name('contactos.')->group(function () {
+                Route::view('/', 'admin.empresas.pactopia360.crm.contactos.index')->name('index');
+                Route::view('/create', 'admin.empresas.pactopia360.crm.contactos.create')->name('create');
+                Route::view('/{id}/edit', 'admin.empresas.pactopia360.crm.contactos.edit')->whereNumber('id')->name('edit');
+            });
 
-        // === CRM · resto (placeholders clicables) ===
-        Route::get('crm/comunicaciones',  fn() => admin_placeholder_view('CRM · Comunicaciones', 'Pactopia360'))->name('crm.comunicaciones.index');
-        Route::get('crm/correos',         fn() => admin_placeholder_view('CRM · Correos', 'Pactopia360'))->name('crm.correos.index');
-        Route::get('crm/empresas',        fn() => admin_placeholder_view('CRM · Empresas', 'Pactopia360'))->name('crm.empresas.index');
-        Route::get('crm/contratos',       fn() => admin_placeholder_view('CRM · Contratos', 'Pactopia360'))->name('crm.contratos.index');
-        Route::get('crm/cotizaciones',    fn() => admin_placeholder_view('CRM · Cotizaciones', 'Pactopia360'))->name('crm.cotizaciones.index');
-        Route::get('crm/facturas',        fn() => admin_placeholder_view('CRM · Facturas', 'Pactopia360'))->name('crm.facturas.index');
-        Route::get('crm/estados',         fn() => admin_placeholder_view('CRM · Estados de cuenta', 'Pactopia360'))->name('crm.estados.index');
-        Route::get('crm/negocios',        fn() => admin_placeholder_view('CRM · Negocios', 'Pactopia360'))->name('crm.negocios.index');
-        Route::get('crm/notas',           fn() => admin_placeholder_view('CRM · Notas', 'Pactopia360'))->name('crm.notas.index');
-        Route::get('crm/suscripciones',   fn() => admin_placeholder_view('CRM · Suscripciones', 'Pactopia360'))->name('crm.suscripciones.index');
-        Route::get('crm/robots',          fn() => admin_placeholder_view('CRM · Robots', 'Pactopia360'))->name('crm.robots.index');
+            foreach ([['comunicaciones','Comunicaciones'],['correos','Correos'],['empresas','Empresas'],
+                      ['contratos','Contratos'],['cotizaciones','Cotizaciones'],['facturas','Facturas'],
+                      ['estados','Estados de cuenta'],['negocios','Negocios'],['notas','Notas'],
+                      ['suscripciones','Suscripciones'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
 
-        // === Cuentas por pagar ===
-        Route::get('cxp/gastos',          fn() => admin_placeholder_view('CxP · Gastos', 'Pactopia360'))->name('cxp.gastos.index');
-        Route::get('cxp/proveedores',     fn() => admin_placeholder_view('CxP · Proveedores', 'Pactopia360'))->name('cxp.proveedores.index');
-        Route::get('cxp/viaticos',        fn() => admin_placeholder_view('CxP · Viáticos', 'Pactopia360'))->name('cxp.viaticos.index');
-        Route::get('cxp/robots',          fn() => admin_placeholder_view('CxP · Robots', 'Pactopia360'))->name('cxp.robots.index');
+        Route::prefix('cxp')->name('cxp.')->group(function () {
+            foreach ([['gastos','Gastos'],['proveedores','Proveedores'],['viaticos','Viáticos'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Cuentas por pagar · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
 
-        // === Cuentas por cobrar ===
-        Route::get('cxc/ventas',          fn() => admin_placeholder_view('CxC · Ventas', 'Pactopia360'))->name('cxc.ventas.index');
-        Route::get('cxc/facturacion',     fn() => admin_placeholder_view('CxC · Facturación y cobranza', 'Pactopia360'))->name('cxc.facturacion.index');
-        Route::get('cxc/robots',          fn() => admin_placeholder_view('CxC · Robots', 'Pactopia360'))->name('cxc.robots.index');
+        Route::prefix('cxc')->name('cxc.')->group(function () {
+            foreach ([['ventas','Ventas'],['facturacion','Facturación y cobranza'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Cuentas por cobrar · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
 
-        // === Contabilidad ===
-        Route::get('conta/robots',        fn() => admin_placeholder_view('Contabilidad · Robots', 'Pactopia360'))->name('conta.robots.index');
+        Route::prefix('conta')->name('conta.')->group(function () {
+            Route::get('robots', fn()=>admin_placeholder_view('Contabilidad · Robots','PACTOPIA 360'))->name('robots.index');
+        });
 
-        // === Nómina ===
-        Route::get('nomina/robots',       fn() => admin_placeholder_view('Nómina · Robots', 'Pactopia360'))->name('nomina.robots.index');
+        Route::prefix('nomina')->name('nomina.')->group(function () {
+            Route::get('robots', fn()=>admin_placeholder_view('Nómina · Robots','PACTOPIA 360'))->name('robots.index');
+        });
 
-        // === Facturación ===
-        Route::get('facturacion/timbres',   fn() => admin_placeholder_view('Facturación · Timbres / HITS', 'Pactopia360'))->name('facturacion.timbres.index');
-        Route::get('facturacion/cancel',    fn() => admin_placeholder_view('Facturación · Cancelaciones', 'Pactopia360'))->name('facturacion.cancel.index');
-        Route::get('facturacion/resguardo', fn() => admin_placeholder_view('Facturación · Resguardo 6 meses', 'Pactopia360'))->name('facturacion.resguardo.index');
-        Route::get('facturacion/robots',    fn() => admin_placeholder_view('Facturación · Robots', 'Pactopia360'))->name('facturacion.robots.index');
+        Route::prefix('facturacion')->name('facturacion.')->group(function () {
+            foreach ([['timbres','Timbres / HITS'],['cancel','Cancelaciones'],['resguardo','Resguardo 6 meses'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Facturación · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
 
-        // === Documentación ===
-        Route::get('docs',                fn() => admin_placeholder_view('Documentación · Gestor/Plantillas', 'Pactopia360'))->name('docs.index');
-        Route::get('docs/robots',         fn() => admin_placeholder_view('Documentación · Robots', 'Pactopia360'))->name('docs.robots.index');
+        Route::prefix('docs')->name('docs.')->group(function () {
+            Route::get('/', fn()=>admin_placeholder_view('Documentación · Gestor / Plantillas','PACTOPIA 360'))->name('index');
+            Route::get('robots', fn()=>admin_placeholder_view('Documentación · Robots','PACTOPIA 360'))->name('robots.index');
+        });
 
-        // === Punto de venta ===
-        Route::get('pv/cajas',            fn() => admin_placeholder_view('Punto de venta · Cajas', 'Pactopia360'))->name('pv.cajas.index');
-        Route::get('pv/tickets',          fn() => admin_placeholder_view('Punto de venta · Tickets', 'Pactopia360'))->name('pv.tickets.index');
-        Route::get('pv/arqueos',          fn() => admin_placeholder_view('Punto de venta · Arqueos', 'Pactopia360'))->name('pv.arqueos.index');
-        Route::get('pv/robots',           fn() => admin_placeholder_view('Punto de venta · Robots', 'Pactopia360'))->name('pv.robots.index');
+        Route::prefix('pv')->name('pv.')->group(function () {
+            foreach ([['cajas','Cajas'],['tickets','Tickets'],['arqueos','Arqueos'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Punto de venta · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
 
-        // === Bancos ===
-        Route::get('bancos/cuentas',      fn() => admin_placeholder_view('Bancos · Cuentas', 'Pactopia360'))->name('bancos.cuentas.index');
-        Route::get('bancos/concilia',     fn() => admin_placeholder_view('Bancos · Conciliación', 'Pactopia360'))->name('bancos.concilia.index');
-        Route::get('bancos/robots',       fn() => admin_placeholder_view('Bancos · Robots', 'Pactopia360'))->name('bancos.robots.index');
+        Route::prefix('bancos')->name('bancos.')->group(function () {
+            foreach ([['cuentas','Cuentas'],['concilia','Conciliación'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Bancos · {$label}", 'PACTOPIA 360'))->name("{$slug}.index");
+            }
+        });
     });
 
-    // -------- Pactopia --------
+    /* EMPRESAS · PACTOPIA */
     Route::prefix('empresas/pactopia')->name('empresas.pactopia.')->group(function () {
-        Route::get('crm/contactos',  fn() => admin_placeholder_view('CRM · Contactos', 'Pactopia'))->name('crm.contactos.index');
-        Route::get('crm/robots',     fn() => admin_placeholder_view('CRM · Robots', 'Pactopia'))->name('crm.robots.index');
+        if (view()->exists('admin.empresas.pactopia.dashboard')) {
+            Route::view('/', 'admin.empresas.pactopia.dashboard')->name('dashboard');
+        } else {
+            Route::get('/', fn()=>admin_placeholder_view('Pactopia — Dashboard', 'Pactopia'));
+        }
+        Route::prefix('crm')->name('crm.')->group(function () {
+            foreach ([['contactos','Contactos'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'Pactopia'))->name("{$slug}.index");
+            }
+        });
     });
 
-    // -------- Waretek México --------
+    /* EMPRESAS · WARETEK MX */
     Route::prefix('empresas/waretek-mx')->name('empresas.waretek-mx.')->group(function () {
-        Route::get('crm/contactos',  fn() => admin_placeholder_view('CRM · Contactos', 'Waretek México'))->name('crm.contactos.index');
-        Route::get('crm/robots',     fn() => admin_placeholder_view('CRM · Robots', 'Waretek México'))->name('crm.robots.index');
+        if (view()->exists('admin.empresas.waretek-mx.dashboard')) {
+            Route::view('/', 'admin.empresas.waretek-mx.dashboard')->name('dashboard');
+        } else {
+            Route::get('/', fn()=>admin_placeholder_view('Waretek México — Dashboard', 'Waretek México'));
+        }
+        Route::prefix('crm')->name('crm.')->group(function () {
+            foreach ([['contactos','Contactos'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'Waretek México'))->name("{$slug}.index");
+            }
+        });
     });
 
-    /* =======================================================
-       ADMINISTRACIÓN (Usuarios / Soporte)
-      ======================================================= */
-    Route::get('usuarios/robots', fn() => admin_placeholder_view('Usuarios · Robots'))->name('usuarios.robots.index');
+    /* Administración */
+    Route::prefix('usuarios')->name('usuarios.')->group(function () {
+        Route::get('/', fn()=> view()->exists('admin.usuarios.index')
+            ? view('admin.usuarios.index')
+            : admin_placeholder_view('Usuarios · Administrativos'))->name('index');
+        Route::get('robots', fn()=>admin_placeholder_view('Usuarios · Robots'))->name('robots.index');
+    });
 
     Route::prefix('soporte')->name('soporte.')->group(function () {
-        Route::get('tickets', fn() => admin_placeholder_view('Soporte · Tickets'))->name('tickets.index');
-        Route::get('sla',     fn() => admin_placeholder_view('Soporte · SLA / Asignación'))->name('sla.index');
-        Route::get('comms',   fn() => admin_placeholder_view('Soporte · Comunicaciones'))->name('comms.index');
-        Route::get('robots',  fn() => admin_placeholder_view('Soporte · Robots'))->name('robots.index');
+        foreach ([['tickets','Tickets'],['sla','SLA / Asignación'],['comms','Comunicaciones'],['robots','Robots']] as [$slug,$label]) {
+            Route::get($slug, fn()=>admin_placeholder_view("Soporte · {$label}"))->name("{$slug}.index");
+        }
     });
 
-    /* =======================================================
-       AUDITORÍA (submódulos)
-      ======================================================= */
+    /* Auditoría */
     Route::prefix('auditoria')->name('auditoria.')->group(function () {
-        Route::get('accesos',    fn() => admin_placeholder_view('Auditoría · Logs de acceso'))->name('accesos.index');
-        Route::get('cambios',    fn() => admin_placeholder_view('Auditoría · Bitácora de cambios'))->name('cambios.index');
-        Route::get('integridad', fn() => admin_placeholder_view('Auditoría · Integridad'))->name('integridad.index');
-        Route::get('robots',     fn() => admin_placeholder_view('Auditoría · Robots'))->name('robots.index');
+        foreach ([['accesos','Logs de acceso'],['cambios','Bitácora cambios'],['integridad','Integridad'],['robots','Robots']] as [$slug,$label]) {
+            Route::get($slug, fn()=>admin_placeholder_view("Auditoría · {$label}"))->name("{$slug}.index");
+        }
     });
 
-    /* =======================================================
-       CONFIGURACIÓN (Plataforma / Integraciones / Parámetros)
-      ======================================================= */
+    /* Config (submódulos) */
     Route::prefix('config')->name('config.')->group(function () {
-        // Plataforma
-        Route::get('mantenimiento', fn() => admin_placeholder_view('Config · Mantenimiento'))->name('mantenimiento');
-        Route::get('limpieza',      fn() => admin_placeholder_view('Config · Optimización/Limpieza demo'))->name('limpieza');
-        Route::get('backups',       fn() => admin_placeholder_view('Config · Backups / Restore'))->name('backups');
-        Route::get('robots',        fn() => admin_placeholder_view('Config · Robots'))->name('robots');
+        foreach ([['mantenimiento','Mantenimiento'],['limpieza','Optimización/Limpieza demo'],
+                  ['backups','Backups / Restore'],['robots','Robots']] as [$slug,$label]) {
+            Route::get($slug, fn()=>admin_placeholder_view("Plataforma · {$label}"))->name($slug);
+        }
 
-        // Integraciones
         Route::prefix('int')->name('int.')->group(function () {
-            Route::get('pacs',   fn() => admin_placeholder_view('Integraciones · PAC(s)'))->name('pacs');
-            Route::get('mail',   fn() => admin_placeholder_view('Integraciones · Mailgun/MailerLite'))->name('mail');
-            Route::get('api',    fn() => admin_placeholder_view('Integraciones · API Keys / Webhooks'))->name('api');
-            Route::get('pay',    fn() => admin_placeholder_view('Integraciones · Stripe/Conekta'))->name('pay');
-            Route::get('robots', fn() => admin_placeholder_view('Integraciones · Robots'))->name('robots');
+            foreach ([['pacs','PAC(s)'],['mail','Mailgun/MailerLite'],['api','API Keys / Webhooks'],
+                      ['pay','Stripe / Conekta'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Integraciones · {$label}"))->name($slug);
+            }
         });
 
-        // Parámetros
         Route::prefix('param')->name('param.')->group(function () {
-            Route::get('precios', fn() => admin_placeholder_view('Parámetros · Planes & Precios'))->name('precios');
-            Route::get('cupones', fn() => admin_placeholder_view('Parámetros · Descuentos / Cupones'))->name('cupones');
-            Route::get('limites', fn() => admin_placeholder_view('Parámetros · Límites por plan'))->name('limites');
-            Route::get('robots',  fn() => admin_placeholder_view('Parámetros · Robots'))->name('robots');
+            foreach ([['precios','Planes & Precios'],['cupones','Descuentos / Cupones'],
+                      ['limites','Límites por plan'],['robots','Robots']] as [$slug,$label]) {
+                Route::get($slug, fn()=>admin_placeholder_view("Parámetros · {$label}"))->name($slug);
+            }
         });
     });
 
-    /* =======================================================
-       PERFIL (extras)
-      ======================================================= */
-    Route::prefix('perfil')->name('perfil.')->group(function () {
-        Route::get('preferencias', fn() => admin_placeholder_view('Mi cuenta · Preferencias'))->name('preferencias');
-        Route::get('robots',       fn() => admin_placeholder_view('Mi cuenta · Robots'))->name('robots');
-    });
-
-    /* =======================================================
-       REPORTES (por módulo)
-      ======================================================= */
+    /* Reportes (subrutas) */
     Route::prefix('reportes')->name('reportes.')->group(function () {
-        Route::get('crm',         fn() => admin_placeholder_view('Reportes · CRM'))->name('crm');
-        Route::get('cxp',         fn() => admin_placeholder_view('Reportes · Cuentas por pagar'))->name('cxp');
-        Route::get('cxc',         fn() => admin_placeholder_view('Reportes · Cuentas por cobrar'))->name('cxc');
-        Route::get('conta',       fn() => admin_placeholder_view('Reportes · Contabilidad'))->name('conta');
-        Route::get('nomina',      fn() => admin_placeholder_view('Reportes · Nómina'))->name('nomina');
-        Route::get('facturacion', fn() => admin_placeholder_view('Reportes · Facturación'))->name('facturacion');
-        Route::get('descargas',   fn() => admin_placeholder_view('Reportes · Descargas'))->name('descargas');
-        Route::get('robots',      fn() => admin_placeholder_view('Reportes · Robots'))->name('robots');
+        foreach (['crm','cxp','cxc','conta','nomina','facturacion','descargas','robots'] as $slug) {
+            Route::get($slug, fn()=>admin_placeholder_view('Reportes · '.Str::headline($slug)))->name($slug);
+        }
     });
 
-    /* ===========================
-       Miscelánea
-       =========================== */
+    // Logout
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
-    Route::get('permcheck', function () {
-        $u = auth('admin')->user();
-        return response()->json([
-            'env'  => app()->environment(),
-            'user' => $u ? $u->only(['id','email','rol','es_superadmin']) : null,
-            'can'  => [
-                'usuarios_admin.ver'        => Gate::forUser($u)->allows('perm','usuarios_admin.ver'),
-                'usuarios_admin.impersonar' => Gate::forUser($u)->allows('perm','usuarios_admin.impersonar'),
-                'clientes.ver'              => Gate::forUser($u)->allows('perm','clientes.ver'),
-                'planes.ver'                => Gate::forUser($u)->allows('perm','planes.ver'),
-                'pagos.ver'                 => Gate::forUser($u)->allows('perm','pagos.ver'),
-                'facturacion.ver'           => Gate::forUser($u)->allows('perm','facturacion.ver'),
-                'auditoria.ver'             => Gate::forUser($u)->allows('perm','auditoria.ver'),
-                'reportes.ver'              => Gate::forUser($u)->allows('perm','reportes.ver'),
-            ],
-            'path' => request()->path(),
-        ]);
-    })->name('permcheck');
+    /* DEV · QA */
+    Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
+        Route::get('qa', [QaController::class,'index'])->middleware($thrDevQa)->name('qa');
 
+        $r1 = Route::post('resend-email', [QaController::class,'resendEmail'])->middleware($thrDevPosts)->name('resend_email');
+        $r2 = Route::post('send-otp',     [QaController::class,'sendOtp'])->middleware($thrDevPosts)->name('send_otp');
+        $r3 = Route::post('force-email',  [QaController::class,'forceEmailVerified'])->middleware($thrDevPosts)->name('force_email');
+        $r4 = Route::post('force-phone',  [QaController::class,'forcePhoneVerified'])->middleware($thrDevPosts)->name('force_phone');
+
+        if ($isLocal) {
+            foreach ([$r1,$r2,$r3,$r4] as $route) {
+                $route->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+    });
+
+    // Fallback interno
     Route::fallback(fn () => redirect()->route('admin.home'));
 });

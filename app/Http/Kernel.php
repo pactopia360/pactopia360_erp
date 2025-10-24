@@ -7,7 +7,6 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 class Kernel extends HttpKernel
 {
     /**
-     * Middleware global de la aplicación.
      * Se ejecutan en toda petición HTTP.
      */
     protected $middleware = [
@@ -17,77 +16,69 @@ class Kernel extends HttpKernel
         // Respeta proxies (X-Forwarded-*) y fija IP real del cliente
         \App\Http\Middleware\TrustProxies::class,
 
-        // CORS para peticiones cross-domain (config/cors.php)
+        // CORS
         \Illuminate\Http\Middleware\HandleCors::class,
 
-        // Modo mantenimiento (artisan down)
+        // Modo mantenimiento / tamaño de POST / normalizaciones
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
-
-        // Límite de tamaño de POST
         \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
-
-        // Recorta espacios en inputs
         \App\Http\Middleware\TrimStrings::class,
-
-        // Convierte cadenas vacías a null
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
     ];
 
     /**
-     * Grupos de middleware por tipo de rutas.
+     * Grupos de middleware.
      */
     protected $middlewareGroups = [
         'web' => [
+            // Cookies (¡incluye excepción para p360_tmp_* en EncryptCookies!)
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+
+            // Sesión
             \Illuminate\Session\Middleware\StartSession::class,
-            // \Illuminate\Session\Middleware\AuthenticateSession::class, // habilítalo si lo requieres
+            // \Illuminate\Session\Middleware\AuthenticateSession::class,
+
+            // Errores de validación a las vistas
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+
+            // CSRF + route model binding
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
 
         'api' => [
-            // \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-            \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
+            'throttle:api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
 
     /**
-     * Aliases de middleware (Laravel 11/12).
-     * Si tu proyecto aún usa $routeMiddleware, también lo dejamos por compat.
+     * Alias de middleware para usar en rutas.
+     * Sustituye al antiguo $routeMiddleware.
      */
     protected $middlewareAliases = [
-        'auth'               => \App\Http\Middleware\Authenticate::class,
-        'auth.basic'         => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
-        'auth.session'       => \Illuminate\Session\Middleware\AuthenticateSession::class,
-        'cache.headers'      => \Illuminate\Http\Middleware\SetCacheHeaders::class,
-        'can'                => \Illuminate\Auth\Middleware\Authorize::class,
-        'guest'              => \App\Http\Middleware\RedirectIfAuthenticated::class,
-        'password.confirm'   => \Illuminate\Auth\Middleware\RequirePassword::class,
-        'signed'             => \Illuminate\Routing\Middleware\ValidateSignature::class,
-        'throttle'           => \Illuminate\Routing\Middleware\ThrottleRequests::class,
-        'verified'           => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'auth.any'           => \App\Http\Middleware\AuthenticateAny::class,
+        // Núcleo de auth / seguridad
+        'auth'             => \App\Http\Middleware\Authenticate::class,
+        'auth.basic'       => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
+        'auth.session'     => \Illuminate\Session\Middleware\AuthenticateSession::class,
+        'guest'            => \App\Http\Middleware\RedirectIfAuthenticated::class,
+        'can'              => \Illuminate\Auth\Middleware\Authorize::class,
+        'throttle'         => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+        'signed'           => \Illuminate\Routing\Middleware\ValidateSignature::class,
+        'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
+        'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+        'cache.headers'    => \Illuminate\Http\Middleware\SetCacheHeaders::class,
 
-        // Personalizados
-        'account.active'     => \App\Http\Middleware\EnsureAccountIsActive::class,
-    ];
+        // --- Custom existentes
+        'auth.any'         => \App\Http\Middleware\AuthenticateAny::class,
+        'account.active'   => \App\Http\Middleware\EnsureAccountIsActive::class,
 
-    // Compatibilidad con proyectos que aún referencian $routeMiddleware
-    protected $routeMiddleware = [
-        'auth'               => \App\Http\Middleware\Authenticate::class,
-        'auth.basic'         => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
-        'auth.session'       => \Illuminate\Session\Middleware\AuthenticateSession::class,
-        'cache.headers'      => \Illuminate\Http\Middleware\SetCacheHeaders::class,
-        'can'                => \Illuminate\Auth\Middleware\Authorize::class,
-        'guest'              => \App\Http\Middleware\RedirectIfAuthenticated::class,
-        'password.confirm'   => \Illuminate\Auth\Middleware\RequirePassword::class,
-        'signed'             => \Illuminate\Routing\Middleware\ValidateSignature::class,
-        'throttle'           => \Illuminate\Routing\Middleware\ThrottleRequests::class,
-        'verified'           => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'auth.any'           => \App\Http\Middleware\AuthenticateAny::class,
-        'account.active'     => \App\Http\Middleware\EnsureAccountIsActive::class,
+        // --- Clientes
+        'client.account.active' => \App\Http\Middleware\EnsureClientAccountIsActive::class,
+
+        // --- Conveniencia (mismo Authenticate; el guard lo decide la ruta/config)
+        'auth.admin'       => \App\Http\Middleware\Authenticate::class,
+        'auth.web'         => \App\Http\Middleware\Authenticate::class,
     ];
 }

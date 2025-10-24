@@ -4,7 +4,7 @@ namespace App\Models\Admin;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Cliente extends Model
+class Cliente extends BaseAdminModel
 {
     protected $table = 'clientes';
     protected $guarded = [];

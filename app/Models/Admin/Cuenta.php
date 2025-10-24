@@ -5,11 +5,12 @@ namespace App\Models\Admin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Cuenta extends Model
+class Cuenta extends BaseAdminModel
 {
     use SoftDeletes;
 
-    protected $table = 'cuentas';
+    protected $table = 'accounts';
+    //protected $table = 'cuentas';
     protected $connection = 'mysql_admin';
     public $incrementing = false;
     protected $keyType = 'string';

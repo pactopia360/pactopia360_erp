@@ -1,47 +1,58 @@
 <?php
 
-namespace App\Models\Empresas\Pactopia360\CRM;
+namespace Database\Seeders;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
-class Carrito extends Model
+class PermisosCrmCarritosSeeder extends Seeder
 {
-    use HasFactory, SoftDeletes;
-
-    protected $table = 'crm_carritos';
-    protected $guarded = [];
-
-    /**
-     * Estados válidos usados en formularios/filtros.
-     * (Alineado con el controlador y el FormRequest)
-     */
-    public const ESTADOS = ['abierto', 'convertido', 'cancelado'];
-
-    /**
-     * Casts de columnas JSON/numéricas/fechas.
-     */
-    protected $casts = [
-        'total'      => 'decimal:2',
-        'etiquetas'  => 'array',
-        'meta'       => 'array',
-        'metadata'   => 'array', // por compatibilidad si existe esta columna en BD
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-        'deleted_at' => 'datetime',
-    ];
-
-    /**
-     * Título legible para listar.
-     */
-    public function getDisplayTitleAttribute(): string
+    public function run(): void
     {
-        $id = $this->attributes['id'] ?? null;
+        $table = 'permissions'; // ajusta si tu tabla de permisos se llama distinto
 
-        return $this->attributes['titulo']
-            ?? $this->attributes['cliente']
-            ?? $this->attributes['email']
-            ?? ($id ? ('Carrito #'.$id) : 'Carrito');
+        if (!Schema::hasTable($table)) {
+            $this->command?->warn("Tabla {$table} no existe. Omitiendo PermisosCrmCarritosSeeder.");
+            return;
+        }
+
+        $perms = [
+            'crm.ver p360',
+            'crm.robots p360',
+            'crm.carritos.ver',
+            'crm.carritos.crear',
+            'crm.carritos.editar',
+            'crm.carritos.eliminar',
+            'crm.carritos.exportar',
+        ];
+
+        $has = fn(string $col) => Schema::hasColumn($table, $col);
+
+        foreach ($perms as $p) {
+            $row = [];
+
+            if ($has('slug'))       $row['slug'] = $p;
+            elseif ($has('name'))   $row['name'] = $p;
+            elseif ($has('clave'))  $row['clave'] = $p;
+
+            if ($has('guard_name')) $row['guard_name'] = 'admin';
+            if ($has('description')) $row['description'] = 'Permiso auto-sembrado para CRM · Carritos';
+
+            $keyCol = $has('slug') ? 'slug' : ($has('name') ? 'name' : ($has('clave') ? 'clave' : null));
+            if (!$keyCol) {
+                $this->command?->warn("No hay columna clave (slug/name/clave) en {$table}. Omito '{$p}'.");
+                continue;
+            }
+
+            $exists = DB::table($table)->where($keyCol, $p)->exists();
+            if ($exists) {
+                DB::table($table)->where($keyCol, $p)->update(array_filter($row, fn($v) => $v !== null));
+            } else {
+                DB::table($table)->insert($row);
+            }
+        }
+
+        $this->command?->info('Permisos CRM · Carritos sembrados/actualizados.');
     }
 }

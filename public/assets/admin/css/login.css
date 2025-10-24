@@ -58,7 +58,7 @@ body.theme-light{
       #ff4a4a 78%,
       #ff8a66 100%
     );
-  /* 👇 ahora el gradiente claro también es animado */
+  /* Animación del gradiente claro */
   background-size: 240% 240%;
   animation: gradientShiftLight 22s ease infinite;
 
@@ -87,7 +87,6 @@ body.theme-light{
 
   --link-muted-color:#374151;
 
-  /* Botón bien rojo en claro */
   --btn-gradient:linear-gradient(135deg, #ff2a2a, #d0161c);
   --btn-shadow:0 10px 20px rgba(227,27,35,.32);
 
@@ -115,7 +114,32 @@ body{
 
   display:grid; 
   place-items:center;
+  overflow-x:hidden;
 }
+
+/* >>> Capa animada adicional (NO reemplaza tu fondo, solo suma movilidad real) <<< */
+body::before{
+  content:""; position:fixed; inset:-10%; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(1200px 800px at -10% -10%, rgba(227,27,35,.18), transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, rgba(45,59,76,.18), transparent 62%),
+    radial-gradient(900px 600px  at 50% 110%, rgba(255,255,255,.04), transparent 70%);
+  background-size: 200% 200%, 220% 220%, 240% 240%;
+  animation: p360-pan-a 26s ease-in-out infinite alternate,
+             p360-pan-b 32s ease-in-out infinite alternate-reverse,
+             p360-pan-c 40s linear infinite;
+  filter: saturate(1.05);
+}
+body.theme-light::before{
+  background:
+    radial-gradient(1200px 800px at -10% -10%, rgba(255,120,120,.20), transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, rgba(255,180,180,.16), transparent 62%),
+    radial-gradient(900px 600px  at 50% 110%, rgba(255,255,255,.30), transparent 70%);
+  filter: saturate(1.02);
+}
+@keyframes p360-pan-a { 0%{background-position:-10% -10%, 110% 10%, 50% 110%} 50%{background-position:8% -4%, 92% 18%, 52% 102%} 100%{background-position:20% -14%, 78% 22%, 54% 126%} }
+@keyframes p360-pan-b { 0%{background-position:-10% -10%, 110% 10%, 50% 110%} 50%{background-position:-4% 6%, 100% 4%, 48% 118%} 100%{background-position:-14% 2%, 96% -2%, 46% 132%} }
+@keyframes p360-pan-c { 0%{background-position:50% 110%} 100%{background-position:100% 110%} }
 
 /* Animación suave (oscuro) */
 @keyframes gradientShift{
@@ -133,6 +157,11 @@ body{
   100% { background-position: 0% 50%; }
 }
 
+/* Aviso sin JS */
+.nojs{
+  padding:.75rem 1rem;background:#fee2e2;border:1px solid #fecaca;border-radius:.5rem;margin:1rem;
+}
+
 /* Botón flotante para cambiar tema */
 .theme-switch{ position:fixed; top:16px; right:16px; z-index:50; }
 .theme-btn{
@@ -146,6 +175,7 @@ body{
 }
 .theme-btn:active{transform:translateY(1px)}
 
+/* Shell */
 .shell{
   width:100%; max-width:980px; display:grid; grid-template-columns:1.15fr .85fr;
   background:var(--shell-bg); border-radius:20px; overflow:hidden;
@@ -179,8 +209,22 @@ body.theme-light .logo-img{filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));}
   background:var(--card-bg); 
   border:1px solid var(--card-border); 
   border-radius:16px; 
-  padding:22px
+  padding:22px;
+  position:relative;
+  box-shadow: 0 22px 60px rgba(0,0,0,.24);
 }
+/* Borde “glow” sutil (solo se añade; no reemplaza nada) */
+.card::before{
+  content:""; position:absolute; inset:-1px; border-radius:18px; padding:1px;
+  background: linear-gradient(135deg, rgba(227,27,35,.55), rgba(255,255,255,.06));
+  pointer-events:none; z-index:0;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+}
+.card > *{ position:relative; z-index:1; }
+
 .title{margin:0 0 6px 0; font-weight:800; color:var(--title-color); font-size:22px}
 .subtitle{margin:0 0 18px 0; color:var(--subtitle-color); font-size:13px}
 
@@ -224,9 +268,16 @@ label{font-size:12px; color:var(--label-color)}
 }
 .hint{font-size:12px; color:var(--text-muted); margin-top:10px}
 
+/* Responsivo */
 @media (max-width: 900px){
   .shell{grid-template-columns:1fr}
   .brand{display:none}
   .panel{padding:28px}
   .card{background:var(--card-bg)}
+}
+
+/* Accesibilidad: reduce motion */
+@media (prefers-reduced-motion: reduce){
+  body{animation:none}
+  body::before{animation:none}
 }

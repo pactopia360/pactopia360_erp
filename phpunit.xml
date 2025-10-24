@@ -1,33 +1,58 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
-         bootstrap="vendor/autoload.php"
-         colors="true"
+<phpunit
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+  bootstrap="vendor/autoload.php"
+  colors="true"
+  failOnRisky="true"
+  failOnWarning="true"
 >
-    <testsuites>
-        <testsuite name="Unit">
-            <directory>tests/Unit</directory>
-        </testsuite>
-        <testsuite name="Feature">
-            <directory>tests/Feature</directory>
-        </testsuite>
-    </testsuites>
-    <source>
-        <include>
-            <directory>app</directory>
-        </include>
-    </source>
-    <php>
-        <env name="APP_ENV" value="testing"/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="CACHE_STORE" value="array"/>
-        <!-- <env name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <env name="DB_DATABASE" value=":memory:"/> -->
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="PULSE_ENABLED" value="false"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
-    </php>
+  <testsuites>
+    <testsuite name="Unit">
+      <directory suffix="Test.php">tests/Unit</directory>
+    </testsuite>
+    <testsuite name="Feature">
+      <directory suffix="Test.php">tests/Feature</directory>
+    </testsuite>
+  </testsuites>
+
+  <source>
+    <include>
+      <directory>app</directory>
+    </include>
+  </source>
+
+  <coverage processUncoveredFiles="true">
+    <include>
+      <directory suffix=".php">app</directory>
+    </include>
+  </coverage>
+
+  <php>
+    <!-- Ambiente de pruebas -->
+    <env name="APP_ENV" value="testing"/>
+    <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+    <env name="BCRYPT_ROUNDS" value="4"/>
+    <env name="CACHE_STORE" value="array"/>
+    <env name="QUEUE_CONNECTION" value="sync"/>
+    <env name="SESSION_DRIVER" value="array"/>
+    <env name="MAIL_MAILER" value="array"/>
+    <env name="PULSE_ENABLED" value="false"/>
+    <env name="TELESCOPE_ENABLED" value="false"/>
+
+    <!-- Por defecto, en testing no forzamos el candado del middleware -->
+    <env name="P360_ENFORCE_ACCOUNT_ACTIVE" value="false"/>
+
+    <!-- Conexiones: dejamos la default como 'mysql' para no romper config,
+         pero el *trait* de pruebas fuerza todas a SQLite :memory: en runtime. -->
+    <env name="DB_CONNECTION" value="mysql"/>
+
+    <!-- ADMIN sobre SQLite (si algún código lee estos envs) -->
+    <env name="DB_ADMIN_CONNECTION" value="sqlite"/>
+    <env name="DB_ADMIN_DATABASE" value=":memory:"/>
+
+    <!-- CLIENTES sobre SQLite -->
+    <env name="DB_CLIENT_CONNECTION" value="sqlite"/>
+    <env name="DB_CLIENT_DATABASE" value=":memory:"/>
+  </php>
 </phpunit>
