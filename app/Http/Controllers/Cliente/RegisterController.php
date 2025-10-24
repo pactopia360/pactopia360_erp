@@ -27,8 +27,8 @@ class RegisterController extends Controller
 
     public function showPro()
     {
-        $priceMonthly = config('services.stripe.display_price_monthly', 249.99);
-        $priceAnnual  = config('services.stripe.display_price_annual', 1999.99);
+        $priceMonthly = config('services.stripe.display_price_monthly', 990.00);
+        $priceAnnual  = config('services.stripe.display_price_annual', 9990.00);
 
         return view('cliente.auth.register_pro', [
             'price_monthly' => $priceMonthly,
@@ -260,8 +260,8 @@ class RegisterController extends Controller
             $usuario->save();
 
             // 4) CRM Carrito
-            $priceMonthly = config('services.stripe.display_price_monthly', 249.99);
-            $priceAnnual  = config('services.stripe.display_price_annual', 1999.99);
+            $priceMonthly = config('services.stripe.display_price_monthly', 990.00);
+            $priceAnnual  = config('services.stripe.display_price_annual', 9990.00);
             $total        = $req->plan === 'mensual' ? $priceMonthly : $priceAnnual;
 
             $this->insertCarrito(

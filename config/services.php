@@ -48,8 +48,8 @@ return [
         'price_annual'           => env('STRIPE_PRICE_ANNUAL'),
 
         // Precios visibles en UI (solo informativos)
-        'display_price_monthly'  => (float) env('STRIPE_DISPLAY_PRICE_MONTHLY', 249.99),
-        'display_price_annual'   => (float) env('STRIPE_DISPLAY_PRICE_ANNUAL', 1999.99),
+        'display_price_monthly'  => (float) env('STRIPE_DISPLAY_PRICE_MONTHLY', 990.00),
+        'display_price_annual'   => (float) env('STRIPE_DISPLAY_PRICE_ANNUAL', 9990.00),
     ],
 
     // ===== reCAPTCHA (registro/login si se desea) =====

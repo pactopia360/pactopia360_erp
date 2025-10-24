@@ -169,7 +169,8 @@
 
     <div class="title">
       <h1>Cuenta PRO</h1>
-      <p>ERP completo con módulos avanzados, multiusuario y emisión masiva.</p>
+      <p>1 usuario, multiempresa ilimitado y timbrado ilimitado en emisión manual.
+    Plan anual incluye 1 mes gratis y soporte prioritario.</p>
     </div>
 
     {{-- Alertas servidor --}}
@@ -232,15 +233,45 @@
         <label class="label">Selecciona tu plan *</label>
         <div class="plan" role="radiogroup" aria-label="Planes PRO">
           <label class="opt" for="plan_mensual">
-            <input type="radio" name="plan" id="plan_mensual" value="mensual" {{ old('plan','mensual')==='mensual'?'checked':'' }} aria-label="Mensual">
-            <div><strong>Mensual</strong><br>${{ number_format($price_monthly,2) }} + IVA</div>
+            <input
+              type="radio"
+              name="plan"
+              id="plan_mensual"
+              value="mensual"
+              {{ old('plan','mensual')==='mensual'?'checked':'' }}
+              aria-label="Mensual"
+            >
+            <div>
+              <strong>Mensual</strong><br>
+              ${{ number_format($price_monthly, 2) }} MXN / mes + IVA
+              <div class="help" style="margin-top:2px;font-size:10px;line-height:1.3">
+                1 usuario · multiempresa ilimitado · timbrado ilimitado manual.
+              </div>
+            </div>
           </label>
+
           <label class="opt" for="plan_anual">
-            <input type="radio" name="plan" id="plan_anual" value="anual" {{ old('plan')==='anual'?'checked':'' }} aria-label="Anual">
-            <div><strong>Anual</strong><br>${{ number_format($price_annual,2) }} + IVA</div>
+            <input
+              type="radio"
+              name="plan"
+              id="plan_anual"
+              value="anual"
+              {{ old('plan')==='anual'?'checked':'' }}
+              aria-label="Anual"
+            >
+            <div>
+              <strong>Anual</strong><br>
+              ${{ number_format($price_annual, 2) }} MXN / año + IVA
+              <div class="help" style="margin-top:2px;font-size:10px;line-height:1.3">
+                Equivale a $832/mes aprox. 1 mes gratis + soporte prioritario.
+              </div>
+            </div>
           </label>
         </div>
-        <div class="price-note">Podrás aplicar cupones/promos en el checkout si están activos.</div>
+
+        <div class="price-note">
+          La carga masiva por Excel usa timbres prepagados. La emisión manual incluye timbrado ilimitado.
+        </div>
       </div>
 
       <div class="terms">
