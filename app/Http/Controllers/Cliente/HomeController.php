@@ -25,13 +25,16 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        // Plan / saldo / timbres (valores seguros por si no existen columnas aún)
+        // Plan / saldo / timbres (valores seguros)
         $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));  // FREE|PRO
+        $planKey = strtolower($plan);
         $timbres = (int) ($cuenta->timbres_disponibles ?? ($plan === 'FREE' ? 10 : 0));
         $saldo   = (float) ($cuenta->saldo_mxn ?? 0.0);
         $razon   = $cuenta->razon_social
                  ?? $cuenta->nombre_fiscal
                  ?? ($user->nombre ?? $user->email ?? '—');
+
+        $isLocal = app()->environment(['local','development','testing']);
 
         // Base de consulta (scoped por cuenta si aplica)
         $base = Cfdi::on('mysql_clientes');
@@ -44,40 +47,56 @@ class HomeController extends Controller
             $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
         }
 
-        // Últimos CFDI sin agrupar (aquí sí se puede ordenar por fecha)
+        // Últimos CFDI (no críticos)
         $recent = (clone $base)
             ->orderByDesc('fecha')
             ->limit(8)
             ->get(['id','uuid','serie','folio','total','fecha','estatus','cliente_id']);
 
         // Período: mes corriente
-        $from = now()->startOfMonth()->toDateTimeString();
-        $to   = now()->endOfMonth()->toDateTimeString();
+        [$from, $to] = $this->resolveMonthRange(null);
 
-        // KPIs + series
+        // KPIs + series reales
         $kpis   = $this->calcKpisFor(clone $base, $from, $to);
         $series = $this->buildSeriesFor(clone $base, $from, $to);
 
-        // NUEVO: summary + pricing (no interfiere con tus kpis/series)
+        // ¿Hay datos reales?
+        $hasRealSeries = !empty($series['series']['emitidos_total']);
+
+        // Fallback DEMO solo en local: si no hay datos reales
+        $usedDemo = false;
+        if ($this->isDemoMode() && !$hasRealSeries) {
+            [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+            // si hay algo real en KPIs, respétalo; si no, usa demo
+            $kpis   = $kpis['total'] > 0 ? $kpis : $demoKpis;
+            $series = $demoSeries;
+            $usedDemo = true;
+        }
+
+        // Summary cacheado (ligero)
         $summary = Cache::remember(
             'home:summary:uid:'.(Auth::id() ?? 'guest'),
-            30,    // TTL segundos, ajustable
+            30,
             fn() => $this->buildAccountSummary()
         );
 
-        // Precios visibles para CTA upgrade
         $pricing = [
-            'monthly' => (float) config('services.stripe.display_price_monthly', 249.99),
-            'annual'  => (float) config('services.stripe.display_price_annual', 1999.99),
+            'monthly' => (float) config('services.stripe.display_price_monthly', 990.00),
+            'annual'  => (float) config('services.stripe.display_price_annual', 9990.00),
         ];
 
+        // dataSource para la vista (db|demo) y flag de entorno
+        $dataSource = $usedDemo ? 'demo' : 'db';
+
         return view('cliente.home', compact(
-            'plan','timbres','saldo','razon','recent','kpis','series',
-            'summary','pricing'
+            'plan','planKey','timbres','saldo','razon','recent','kpis','series',
+            'summary','pricing','dataSource','isLocal'
         ));
     }
 
-    // === AJUSTE: kpis() acepta month ===
+    /**
+     * KPIs (JSON). Devuelve 'source' y 'row_count'.
+     */
     public function kpis(Request $request): JsonResponse
     {
         $user   = Auth::guard('web')->user();
@@ -91,10 +110,24 @@ class HomeController extends Controller
         }
 
         [$from, $to] = $this->resolveMonthRange($request->string('month'));
-        return response()->json($this->calcKpisFor($base, $from, $to));
+        $k = $this->calcKpisFor($base, $from, $to);
+
+        $source = 'db';
+        if ($this->isDemoMode() && $k['total'] <= 0) {
+            [$demoKpis] = $this->buildDemoData($from, $to);
+            $k = $demoKpis;
+            $source = 'demo';
+        }
+
+        return response()->json($k + [
+            'source'    => $source,
+            'row_count' => (int) (clone $base)->whereBetween('fecha', [$from, $to])->count(),
+        ]);
     }
 
-    // === AJUSTE: series() acepta month y entrega claves esperadas por la vista ===
+    /**
+     * Series (JSON). Devuelve 'source' y 'row_count'.
+     */
     public function series(Request $request): JsonResponse
     {
         $user   = Auth::guard('web')->user();
@@ -109,7 +142,6 @@ class HomeController extends Controller
 
         [$from, $to] = $this->resolveMonthRange($request->string('month'));
 
-        // Serie diaria emitidos / cancelados
         $rows = (clone $base)->whereBetween('fecha', [$from, $to])
             ->selectRaw("
                 DATE(fecha) as d,
@@ -125,28 +157,37 @@ class HomeController extends Controller
             $lineCancelados[] = round((float)$r->ca_total, 2);
         }
 
-        // Barras Q1..Q4 con suma del mes por semanas (aprox. 4 cortes)
-        // (no perfecto calendario; suficiente para tendencia visual)
+        // Barras por cuartiles del mes
         $q = [0,0,0,0];
         foreach ($rows as $r) {
-            $day = (int) \Carbon\Carbon::parse($r->d)->format('j'); // 1..31
-            $bucket = min(3, intdiv($day-1, 8)); // 0..3
+            $day = (int) \Carbon\Carbon::parse($r->d)->format('j');
+            $bucket = min(3, intdiv($day-1, 8));
             $q[$bucket] += (float)$r->em_total;
         }
         $barQ = array_map(fn($v)=>round($v,2), $q);
 
-        return response()->json([
+        $payload = [
             'labels' => $labels,
             'series' => [
                 'line_facturacion' => $lineEmitidos,
                 'line_cancelados'  => $lineCancelados,
                 'bar_q'            => $barQ,
+                'emitidos_total'   => $lineEmitidos, // compat
             ],
-        ]);
+            'source'    => 'db',
+            'row_count' => count($rows),
+        ];
+
+        if ($this->isDemoMode() && empty($lineEmitidos)) {
+            [, $demoSeries] = $this->buildDemoData($from, $to);
+            $payload = $demoSeries + ['source' => 'demo', 'row_count' => 0];
+        }
+
+        return response()->json($payload);
     }
 
     /**
-     * (Opcional) Combo para un solo fetch en el front.
+     * (Opcional) Combo para un solo fetch en el front. Incluye 'source'.
      */
     public function combo(Request $request): JsonResponse
     {
@@ -159,13 +200,23 @@ class HomeController extends Controller
             $base->whereIn('cliente_id', empty($ids)?[-1]:$ids);
         }
 
-        $from = now()->startOfMonth()->toDateTimeString();
-        $to   = now()->endOfMonth()->toDateTimeString();
+        [$from, $to] = $this->resolveMonthRange($request->string('month'));
+        $k = $this->calcKpisFor(clone $base, $from, $to);
+        $s = $this->buildSeriesFor(clone $base, $from, $to);
+
+        $source = 'db';
+        if ($this->isDemoMode() && empty($s['series']['emitidos_total'])) {
+            [$dk, $ds] = $this->buildDemoData($from, $to);
+            $k = $k['total'] > 0 ? $k : $dk;
+            $s = $ds;
+            $source = 'demo';
+        }
 
         return response()->json([
             'summary' => $this->buildAccountSummary(),
-            'kpis'    => $this->calcKpisFor(clone $base, $from, $to),
-            'series'  => $this->buildSeriesFor(clone $base, $from, $to),
+            'kpis'    => $k,
+            'series'  => $s,
+            'source'  => $source,
         ]);
     }
 
@@ -173,9 +224,6 @@ class HomeController extends Controller
      * Helpers internos
      * =========================== */
 
-    /**
-     * Calcula KPIs del período: total, emitidos, cancelados, delta vs mes previo.
-     */
     private function calcKpisFor($baseQuery, string $from, string $to): array
     {
         $period   = (clone $baseQuery)->whereBetween('fecha', [$from, $to]);
@@ -183,7 +231,6 @@ class HomeController extends Controller
         $emitidos = (float) ($period->clone()->where('estatus', 'emitido')->sum('total') ?? 0);
         $cancel   = (float) ($period->clone()->where('estatus', 'cancelado')->sum('total') ?? 0);
 
-        // Delta vs mes anterior (mismo rango mensual)
         $fromC = Carbon::parse($from);
         $prevFrom = $fromC->copy()->subMonth()->startOfMonth()->toDateTimeString();
         $prevTo   = $fromC->copy()->subMonth()->endOfMonth()->toDateTimeString();
@@ -198,10 +245,6 @@ class HomeController extends Controller
         ];
     }
 
-    /**
-     * Construye serie por día (emitidos_total) sin violar ONLY_FULL_GROUP_BY.
-     * Ordena por el alias del grupo (d).
-     */
     private function buildSeriesFor($baseQuery, string $from, string $to): array
     {
         $rows = (clone $baseQuery)
@@ -223,11 +266,13 @@ class HomeController extends Controller
 
         return [
             'labels' => $labels,
-            'series' => ['emitidos_total' => $vals],
+            'series' => [
+                'emitidos_total'   => $vals,          // legacy / compat
+                'line_facturacion' => $vals,          // nuevo nombre
+            ],
         ];
     }
 
-    /** % delta con protección división entre 0. */
     private function deltaPct(float $prev, float $now): float
     {
         if ($prev <= 0 && $now <= 0) return 0.0;
@@ -235,7 +280,6 @@ class HomeController extends Controller
         return round((($now - $prev) / max($prev, 0.00001)) * 100, 2);
     }
 
-    /** Verifica columna en esquema de mysql_clientes. */
     private function schemaHasCol(string $table, string $col): bool
     {
         try {
@@ -245,135 +289,194 @@ class HomeController extends Controller
         }
     }
 
-    /** Busca si existe columna en una conexión dada. */
     private function hasCol(string $conn, string $table, string $col): bool
     {
         try { return Schema::connection($conn)->hasColumn($table, $col); } catch (\Throwable $e) { return false; }
     }
 
     /**
- * Resumen de cuenta: plan/ciclo/next_invoice/estado/bloqueo/saldo/espacio/pro/admin_id/razon.
- * Robusto ante esquemas: estados_cuenta puede tener account_id, cuenta_id o rfc.
- */
-private function buildAccountSummary(): array
-{
-    $u = Auth::guard('web')->user();
-    $cuenta = $u?->cuenta;
-    $cliConn = 'mysql_clientes';
-    $admConn = 'mysql_admin';
+     * Resumen de cuenta.
+     */
+    private function buildAccountSummary(): array
+    {
+        $u = Auth::guard('web')->user();
+        $cuenta = $u?->cuenta;
+        $admConn = 'mysql_admin';
 
-    // ----- Plan / timbres / saldo en espejo cliente -----
-    $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
-    $timbres = (int) ($cuenta->timbres_disponibles ?? ($planKey === 'FREE' ? 10 : 0));
-    $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
-    $razon   = $cuenta->razon_social ?? $cuenta->nombre_fiscal ?? ($u->nombre ?? $u->email ?? '—');
+        $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
+        $timbres = (int) ($cuenta->timbres_disponibles ?? ($planKey === 'FREE' ? 10 : 0));
+        $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
+        $razon   = $cuenta->razon_social ?? $cuenta->nombre_fiscal ?? ($u->nombre ?? $u->email ?? '—');
 
-    // ----- Resolver admin_id por relación directa o por RFC -----
-    $adminId = $cuenta->admin_account_id ?? null;
-    $rfc     = $cuenta->rfc_padre ?? null;
+        $adminId = $cuenta->admin_account_id ?? null;
+        $rfc     = $cuenta->rfc_padre ?? null;
 
-    if (!$adminId && $rfc && Schema::connection($admConn)->hasTable('accounts')) {
-        $acc = DB::connection($admConn)->table('accounts')->select('id')->where('rfc', strtoupper($rfc))->first();
-        if ($acc) $adminId = (int) $acc->id;
-    }
-
-    // ----- Traer cuenta admin (plan/ciclo/estado/bloqueo/next_invoice) -----
-    $acc = null;
-    if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
-        $cols = ['id'];
-        foreach (['plan','billing_cycle','next_invoice_date','estado_cuenta','is_blocked','razon_social','email','email_verified_at','phone_verified_at'] as $c) {
-            if ($this->hasCol($admConn,'accounts',$c)) $cols[] = $c;
-        }
-        $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id',$adminId)->first();
-    }
-
-    // ----- Balance desde estados_cuenta (dinámico por columna de enlace) -----
-    $balance = $saldoMx;
-
-    if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
-        $linkCol = null; $linkVal = null;
-
-        // Detecta columna de enlace en orden de preferencia
-        if ($this->hasCol($admConn,'estados_cuenta','account_id') && $adminId) {
-            $linkCol = 'account_id'; $linkVal = $adminId;
-        } elseif ($this->hasCol($admConn,'estados_cuenta','cuenta_id') && $adminId) {
-            $linkCol = 'cuenta_id';  $linkVal = $adminId;
-        } elseif ($this->hasCol($admConn,'estados_cuenta','rfc') && $rfc) {
-            $linkCol = 'rfc';        $linkVal = strtoupper($rfc);
+        if (!$adminId && $rfc && Schema::connection($admConn)->hasTable('accounts')) {
+            $acc = DB::connection($admConn)->table('accounts')->select('id')->where('rfc', strtoupper($rfc))->first();
+            if ($acc) $adminId = (int) $acc->id;
         }
 
-        if ($linkCol !== null) {
-            $orderCol = $this->hasCol($admConn,'estados_cuenta','periodo')
-                ? 'periodo'
-                : ($this->hasCol($admConn,'estados_cuenta','created_at') ? 'created_at' : 'id');
+        $acc = null;
+        if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
+            $cols = ['id'];
+            foreach (['plan','billing_cycle','next_invoice_date','estado_cuenta','is_blocked','razon_social','email','email_verified_at','phone_verified_at'] as $c) {
+                if ($this->hasCol($admConn,'accounts',$c)) $cols[] = $c;
+            }
+            $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id',$adminId)->first();
+        }
 
-            // Último movimiento para intentar tomar 'saldo'
-            $last = DB::connection($admConn)->table('estados_cuenta')
-                ->where($linkCol, $linkVal)
-                ->orderByDesc($orderCol)
-                ->first();
+        $balance = $saldoMx;
+        if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
+            $linkCol = null; $linkVal = null;
 
-            if ($last && property_exists($last, 'saldo') && $last->saldo !== null) {
-                $balance = (float) $last->saldo;
-            } else {
-                // Fallback: sumar cargos/abonos sólo si existen ambas columnas
-                $hasCargo = $this->hasCol($admConn,'estados_cuenta','cargo');
-                $hasAbono = $this->hasCol($admConn,'estados_cuenta','abono');
+            if ($this->hasCol($admConn,'estados_cuenta','account_id') && $adminId) {
+                $linkCol = 'account_id'; $linkVal = $adminId;
+            } elseif ($this->hasCol($admConn,'estados_cuenta','cuenta_id') && $adminId) {
+                $linkCol = 'cuenta_id';  $linkVal = $adminId;
+            } elseif ($this->hasCol($admConn,'estados_cuenta','rfc') && $rfc) {
+                $linkCol = 'rfc';        $linkVal = strtoupper($rfc);
+            }
 
-                if ($hasCargo || $hasAbono) {
-                    $cargo = $hasCargo
-                        ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('cargo')
-                        : 0.0;
-                    $abono = $hasAbono
-                        ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('abono')
-                        : 0.0;
-                    $balance = $cargo - $abono;
+            if ($linkCol !== null) {
+                $orderCol = $this->hasCol($admConn,'estados_cuenta','periodo')
+                    ? 'periodo'
+                    : ($this->hasCol($admConn,'estados_cuenta','created_at') ? 'created_at' : 'id');
+
+                $last = DB::connection($admConn)->table('estados_cuenta')
+                    ->where($linkCol, $linkVal)
+                    ->orderByDesc($orderCol)
+                    ->first();
+
+                if ($last && property_exists($last, 'saldo') && $last->saldo !== null) {
+                    $balance = (float) $last->saldo;
+                } else {
+                    $hasCargo = $this->hasCol($admConn,'estados_cuenta','cargo');
+                    $hasAbono = $this->hasCol($admConn,'estados_cuenta','abono');
+
+                    if ($hasCargo || $hasAbono) {
+                        $cargo = $hasCargo
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('cargo')
+                            : 0.0;
+                        $abono = $hasAbono
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('abono')
+                            : 0.0;
+                        $balance = $cargo - $abono;
+                    }
                 }
-                // Si no existen columnas, dejamos el saldo como estaba (saldoMx).
             }
         }
+
+        $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
+        $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
+        $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed/$spaceTotal)*100,1)) : 0;
+
+        $plan   = strtolower((string) ($acc->plan ?? $planKey));
+        $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
+        $estado = $acc->estado_cuenta ?? ($cuenta->estado_cuenta ?? null);
+        $blocked = (bool) (($acc->is_blocked ?? 0) || ($cuenta->is_blocked ?? 0));
+
+        return [
+            'razon'        => (string) ($acc->razon_social ?? $razon),
+            'plan'         => $plan,
+            'is_pro'       => in_array($plan, ['pro','premium','empresa','business'], true),
+            'cycle'        => $cycle,
+            'next_invoice' => $acc->next_invoice_date ?? null,
+            'estado'       => $estado,
+            'blocked'      => $blocked,
+            'balance'      => $balance,
+            'space_total'  => $spaceTotal,
+            'space_used'   => $spaceUsed,
+            'space_pct'    => $spacePct,
+            'timbres'      => $timbres,
+            'admin_id'     => $adminId,
+        ];
     }
 
-    // ----- Espacio usado/total -----
-    $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
-    $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
-    $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed/$spaceTotal)*100,1)) : 0;
-
-    // ----- Consolidado -----
-    $plan   = strtolower((string) ($acc->plan ?? $planKey));
-    $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
-    $estado = $acc->estado_cuenta ?? ($cuenta->estado_cuenta ?? null);
-    $blocked = (bool) (($acc->is_blocked ?? 0) || ($cuenta->is_blocked ?? 0));
-
-    return [
-        'razon'        => (string) ($acc->razon_social ?? $razon),
-        'plan'         => $plan,                    // 'free' | 'pro' | …
-        'is_pro'       => in_array($plan, ['pro','premium','empresa','business'], true),
-        'cycle'        => $cycle,
-        'next_invoice' => $acc->next_invoice_date ?? null,
-        'estado'       => $estado,
-        'blocked'      => $blocked,
-        'balance'      => $balance,
-        'space_total'  => $spaceTotal,
-        'space_used'   => $spaceUsed,
-        'space_pct'    => $spacePct,
-        'timbres'      => $timbres,
-        'admin_id'     => $adminId,
-    ];
-}
-
-
-// === NUEVO: helper de periodo (month=YYYY-MM) ===
-private function resolveMonthRange(?string $month): array
-{
-    if ($month && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $month)) {
-        $from = \Carbon\Carbon::createFromFormat('Y-m', $month)->startOfMonth();
-        $to   = \Carbon\Carbon::createFromFormat('Y-m', $month)->endOfMonth();
-    } else {
-        $from = now()->startOfMonth();
-        $to   = now()->endOfMonth();
+    // month=YYYY-MM
+    private function resolveMonthRange(?string $month): array
+    {
+        if ($month && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $month)) {
+            $from = \Carbon\Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+            $to   = \Carbon\Carbon::createFromFormat('Y-m', $month)->endOfMonth();
+        } else {
+            $from = now()->startOfMonth();
+            $to   = now()->endOfMonth();
+        }
+        return [$from->toDateTimeString(), $to->toDateTimeString()];
     }
-    return [$from->toDateTimeString(), $to->toDateTimeString()];
-}
 
+    /**
+     * DEMO solo en entornos locales/desarrollo/testing.
+     * En producción siempre retorna false.
+     */
+    private function isDemoMode(): bool
+    {
+        return app()->environment(['local','development','testing']);
+    }
+
+    /**
+     * Construye KPIs y series DEMO estables dentro del mes dado.
+     */
+    private function buildDemoData(string $from, string $to): array
+    {
+        $start = Carbon::parse($from)->startOfMonth();
+        $end   = Carbon::parse($to)->endOfMonth();
+
+        // Semilla estable por usuario+mes
+        $seed = crc32((string)(Auth::id() ?? 0) . '|' . $start->format('Y-m'));
+        mt_srand($seed);
+
+        $labels = [];
+        $emit   = [];
+        $canc   = [];
+
+        $day = $start->copy();
+        while ($day->lte($end)) {
+            $labels[] = $day->format('Y-m-d');
+
+            // Base entre 3,000 y 18,000 al día con variación ondulante
+            $base = 3000 + mt_rand(0, 15000);
+            $wave = 1 + 0.25 * sin(($day->dayOfYear / 58) * 3.14159);
+            $val  = round($base * $wave, 2);
+
+            $emit[] = $val;
+
+            // Cancelados ~1.5% promedio
+            $canc[] = round($val * (mt_rand(5, 30) / 1000), 2);
+
+            $day->addDay();
+        }
+
+        // Barras por cuartiles
+        $q = [0,0,0,0];
+        foreach ($labels as $i => $d) {
+            $dayNum = (int) substr($d, 8, 2);
+            $bucket = min(3, intdiv($dayNum-1, 8));
+            $q[$bucket] += $emit[$i];
+        }
+        $barQ = array_map(fn($v)=>round($v,2), $q);
+
+        // Totales demo
+        $sumEmit = array_sum($emit);
+        $sumCanc = array_sum($canc);
+        $kpis = [
+            'total'      => round($sumEmit, 2),
+            'emitidos'   => round($sumEmit, 2),
+            'cancelados' => round($sumCanc, 2),
+            'delta'      => mt_rand(-12, 18), // +/- variación
+            'period'     => ['from' => $from, 'to' => $to],
+        ];
+
+        $series = [
+            'labels' => $labels,
+            'series' => [
+                'line_facturacion' => $emit,
+                'line_cancelados'  => $canc,
+                'bar_q'            => $barQ,
+                'emitidos_total'   => $emit, // compat
+            ],
+        ];
+
+        return [$kpis, $series];
+    }
 }

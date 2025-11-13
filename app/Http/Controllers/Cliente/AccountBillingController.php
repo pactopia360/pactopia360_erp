@@ -70,8 +70,8 @@ class AccountBillingController extends Controller
         $totalDue = (float) $pending->sum('amount');
 
         // Precios visibles (muestran CTA si hace falta)
-        $displayMonthly = (float) config('services.stripe.display_price_monthly', 249.99);
-        $displayAnnual  = (float) config('services.stripe.display_price_annual', 1999.99);
+        $displayMonthly = (float) config('services.stripe.display_price_monthly', 990.00);
+        $displayAnnual  = (float) config('services.stripe.display_price_annual', 9990.00);
 
         // Flags de estado para la vista
         $isPastDue     = $sub && ($sub->status === 'past_due');

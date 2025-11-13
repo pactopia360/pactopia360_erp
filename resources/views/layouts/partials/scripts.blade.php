@@ -669,3 +669,146 @@
 })();
 </script>
 
+<!-- ============================================================
+     NUEVO · Exportación a IMAGEN (PNG/JPG) con encabezado
+     - Detecta #btnExportPng y #btnExportJpg si existen
+     - Captura [data-shot] o #p360-main (fallback: body)
+     - Encabezado con logo (claro/oscuro), título y fecha/hora
+     ============================================================ -->
+<script>
+(function(){
+  'use strict';
+  const { qs } = (window.P360 && P360.util) ? P360.util : { qs:(s,c)=> (c||document).querySelector(s) };
+
+  // Carga perezosa de html2canvas
+  let _h2cPromise = null;
+  function ensureHtml2Canvas(){
+    if (window.html2canvas) return Promise.resolve(window.html2canvas);
+    if (_h2cPromise) return _h2cPromise;
+    _h2cPromise = new Promise((resolve, reject)=>{
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      s.async = true;
+      s.onload = ()=> resolve(window.html2canvas);
+      s.onerror = ()=> reject(new Error('No se pudo cargar html2canvas'));
+      document.head.appendChild(s);
+    });
+    return _h2cPromise;
+  }
+
+  function nowStamp(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  }
+
+  function findShotNode(){
+    return qs('[data-shot]') ||
+           qs('#p360-main, main.admin-content, main[role="main"]') ||
+           document.body;
+  }
+
+  function getBrandAssets(){
+    const dark = document.documentElement.classList.contains('theme-dark');
+    // Admin logos (definidos en tus assets/admin/img)
+    const logoLight = "{{ asset('assets/admin/img/logo-pactopia360-dark.png') }}";  // tema claro
+    const logoDark  = "{{ asset('assets/admin/img/logo-pactopia360-white.png') }}"; // tema oscuro
+    return {
+      dark,
+      logoUrl: dark ? logoDark : logoLight,
+      title: document.title || 'Pactopia360 · Captura'
+    };
+  }
+
+  async function captureWithHeader(node, {type='png', scale=2}={}){
+    const h2c = await ensureHtml2Canvas();
+
+    // Captura del nodo seleccionado
+    const canvas = await h2c(node, {
+      backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff',
+      scale: scale,
+      windowWidth: document.documentElement.scrollWidth,
+      windowHeight: document.documentElement.scrollHeight
+    });
+
+    // Canvas de salida con header
+    const pad = 16 * scale;
+    const headerH = 64 * scale;
+    const out = document.createElement('canvas');
+    out.width  = canvas.width;
+    out.height = canvas.height + headerH + pad;
+    const ctx = out.getContext('2d');
+
+    // Header background
+    const { dark, logoUrl, title } = getBrandAssets();
+    ctx.fillStyle = dark ? '#0b1220' : '#ffffff';
+    ctx.fillRect(0, 0, out.width, headerH + pad);
+
+    // Línea inferior header
+    ctx.fillStyle = dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)';
+    ctx.fillRect(0, headerH + pad - 1*scale, out.width, 1*scale);
+
+    // Logo
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = logoUrl;
+    await new Promise(res => { img.onload = res; img.onerror = res; });
+
+    const logoH = 36 * scale;
+    const ratio = img.naturalWidth && img.naturalHeight ? (img.naturalWidth / img.naturalHeight) : (180/36);
+    const logoW = Math.round(logoH * ratio);
+    const x0 = pad, y0 = Math.round((headerH - logoH)/2);
+    if (img.naturalWidth) ctx.drawImage(img, x0, y0, logoW, logoH);
+
+    // Títulos
+    ctx.fillStyle = dark ? '#e5e7eb' : '#0f172a';
+    ctx.font = `600 ${14*scale}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.fillText(title, x0 + logoW + 12*scale, y0 + 18*scale);
+
+    ctx.fillStyle = dark ? '#9aa3af' : '#6b7280';
+    ctx.font = `500 ${12*scale}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.fillText(`Generado: ${nowStamp()}`, x0 + logoW + 12*scale, y0 + 36*scale);
+
+    // Contenido
+    ctx.drawImage(canvas, 0, headerH + pad);
+
+    // Blob final
+    return await new Promise(resolve=>{
+      out.toBlob(blob=>{
+        resolve(blob);
+      }, type === 'jpg' ? 'image/jpeg' : 'image/png', 0.92);
+    });
+  }
+
+  async function exportShot(kind='png'){
+    try{
+      const node = findShotNode();
+      const blob = await captureWithHeader(node, {type: kind, scale: 2});
+      const a = document.createElement('a');
+      const ext = kind === 'jpg' ? 'jpg' : 'png';
+      a.href = URL.createObjectURL(blob);
+      a.download = `p360_captura_${(new Date()).toISOString().slice(0,19).replace(/[:T]/g,'-')}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      try { window.P360?.toast?.('Imagen exportada'); } catch(_){}
+    }catch(e){
+      console.error('[P360] Export image error:', e);
+      try { window.P360?.toast?.error('No se pudo exportar la imagen'); } catch(_){}
+    }
+  }
+
+  // Enlaza si existen los botones
+  document.getElementById('btnExportPng')?.addEventListener('click', ()=> exportShot('png'));
+  document.getElementById('btnExportJpg')?.addEventListener('click', ()=> exportShot('jpg'));
+
+  // Re-enlaza tras PJAX
+  window.addEventListener('p360:pjax:after', ()=>{
+    document.getElementById('btnExportPng')?.addEventListener('click', ()=> exportShot('png'));
+    document.getElementById('btnExportJpg')?.addEventListener('click', ()=> exportShot('jpg'));
+  });
+})();
+</script>

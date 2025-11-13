@@ -205,5 +205,17 @@ class DatabaseSeeder extends Seeder
         if (class_exists(CarritosSeeder::class)) {
             $this->call(CarritosSeeder::class);
         }
+
+        /* ======================================================
+           5) SAT · Credenciales dummy (solo si existe el seeder)
+              - útil para habilitar UI SAT sin subir CSD real
+           ====================================================== */
+        if (class_exists(SatDummyCredentialSeeder::class)) {
+            // En local/dev/testing siempre se corre; en prod solo si EXPLICITAMENTE
+            $env = app()->environment();
+            if (in_array($env, ['local','development','testing'], true) || env('SEED_SAT_DUMMY', false)) {
+                $this->call(SatDummyCredentialSeeder::class);
+            }
+        }
     }
 }

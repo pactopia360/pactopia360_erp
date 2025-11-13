@@ -59,29 +59,41 @@ return [
         'secret_key' => env('RECAPTCHA_SECRET_KEY'),
     ],
 
-    // ===== OTP (opcional) =====
-    // Activa uno de los drivers cuando vayas a enviar SMS/WhatsApp.
-    // Implementación en un futuro OtpService:
-    //   - driver: 'twilio' | 'whatsapp' | null
-    //   - Los tokens/ids se leerán desde aquí
+    // En la parte superior del array:
     'otp' => [
-        'driver' => env('OTP_DRIVER', null), // 'twilio' | 'whatsapp'
-        'twilio' => [
-            'sid'   => env('TWILIO_SID'),
-            'token' => env('TWILIO_TOKEN'),
-            'from'  => env('TWILIO_FROM'), // E.164
-        ],
+        // 'whatsapp' -> usa WhatsApp (Meta o Twilio), 'twilio' -> SMS por Twilio
+        'driver'   => env('OTP_DRIVER', 'whatsapp'),
+
+        // Cuando driver = 'whatsapp'
         'whatsapp' => [
-            'token'         => env('WA_CLOUD_API_TOKEN'),
-            'phone_number'  => env('WA_CLOUD_API_PHONE'),   //  WhatsApp Business number ID
-            'app_id'        => env('WA_CLOUD_APP_ID'),
+            // 'meta' para WhatsApp Cloud API, 'twilio' para WhatsApp via Twilio
+            'provider' => env('WHATSAPP_PROVIDER', 'meta'),
         ],
     ],
 
+    // Twilio (SMS y/o WhatsApp vía Twilio)
+    'twilio' => [
+        'sid'            => env('TWILIO_ACCOUNT_SID'),
+        'token'          => env('TWILIO_AUTH_TOKEN'),
+        'from'           => env('TWILIO_SMS_FROM'),        // ej: +12025550123
+        'whatsapp_from'  => env('TWILIO_WHATSAPP_FROM'),   // ej: whatsapp:+14155238886
+    ],
+
+    // WhatsApp Cloud (Meta)
+    'whatsapp_cloud' => [
+        'token'           => env('WHATSAPP_CLOUD_TOKEN'),        // Bearer
+        'phone_number_id' => env('WHATSAPP_CLOUD_PHONE_ID'),     // ID del nº remitente
+    ],
 
     'facturotopia' => [
         'base'  => env('FT_BASE', 'https://api-demo.facturotopia.com/api'),
         'token' => env('FT_TOKEN'), 
+    ],
+
+    'sat' => [
+        'driver' => env('SAT_DRIVER', 'fake'),
+        'base'  => env('FT_BASE', ''),   // p.ej: https://api-demo.facturotopia.com/api
+        'token' => env('FT_TOKEN', ''),  // Bearer token
     ],
 
 ];

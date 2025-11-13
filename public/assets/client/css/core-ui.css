@@ -1,8 +1,9 @@
-/* Pactopia360 · Cliente · core-ui.css (v1.8) */
+/* Pactopia360 · Cliente · core-ui.css (v1.9.4) */
+/* Main blanco uniforme (tema claro) + tokens de marca + resaltado discreto sin gradientes */
 
 /* ====================== TOKENS ====================== */
 :root{
-  /* Default (dark) */
+  /* Dark por defecto */
   --bg:#0b111c; --text:#e6e9ef; --muted:#9aa4b2;
   --card:#0f1726; --elev:#121c2e; --border:rgba(255,255,255,.10);
   --ink:#0f172a; --ink-2:#1f2937;
@@ -10,8 +11,10 @@
   --brand:#38bdf8; --brand-2:#22c55e; --accent:#10b981;
   --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; --info:#0ea5e9;
 
-  --header:56px;
-  --logo-h:34px;
+  /* Header + logo */
+  --header:64px;
+  --logo-h:38px;
+
   --radius:12px; --radius-lg:14px; --radius-sm:10px;
   --shadow:0 10px 28px rgba(0,0,0,.22);
   --chip: color-mix(in oklab, var(--card) 96%, transparent);
@@ -26,26 +29,31 @@
   /* Alturas y gaps canónicos */
   --h-xs:30px; --h-sm:36px; --h-md:38px; --h-lg:44px;
   --gap-1:6px; --gap-2:8px; --gap-3:12px; --gap-4:14px; --gap-5:18px;
+
+  /* Realce (fallback al rojo del logo si existe) */
+  --hi:#E11D48;
 }
 
-/* === Tema claro (estilo corporativo como referencia) === */
+/* ====================== TEMA CLARO ====================== */
 [data-theme="light"]{
-  --bg:#f5f5f5;
-  --text:#21262c;
-  --muted:#515a66;
+  --bg:#ffffff;    /* fondo general blanco (uniforme con header) */
+  --text:#21262c;  --muted:#515a66;
 
-  --card:#ffffff;
-  --elev:#ffffff;
-  --border:#e1e4ea;
+  --card:#ffffff;  --elev:#ffffff;  --border:#e1e4ea;
 
   --ink:#ffffff; --ink-2:#f8fafc;
-  --brand:#22c55e;   /* verde principal */
+  --brand:#22c55e;
   --brand-2:#16a34a;
+  --brand-red:#E11D48;     /* rojo del logo para acentos */
   --accent:#0ea5e9;
+
   --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; --info:#0ea5e9;
 
   --shadow:0 4px 14px rgba(0,0,0,.06);
   --chip: color-mix(in oklab, var(--card) 98%, transparent);
+
+  /* usa el rojo de marca si está definido */
+  --hi: var(--brand-red, #E11D48);
 }
 
 /* ====================== RESET ====================== */
@@ -67,25 +75,27 @@ button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer }
 /* ====================== TOPBAR ====================== */
 .topbar{
   position:sticky; top:0; z-index:90; height:var(--header);
-  display:grid; grid-template-columns: var(--sidebar-collapsed) 1fr auto; align-items:center; gap:var(--gap-3);
+  display:grid; grid-template-columns: auto 1fr auto; align-items:center; gap:var(--gap-3);
   padding:8px 12px;
   background: color-mix(in oklab, var(--elev) 92%, transparent);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(10px) saturate(120%);
+  color: var(--text);
 }
 .brand{ display:flex; align-items:center; gap:10px; min-width:0 }
 .brand-logo{ height:var(--logo-h); width:auto; object-fit:contain }
-.hamburger{
-  display:grid; place-items:center; width:38px; height:38px; border-radius:10px;
-  background:var(--chip); border:1px solid var(--border); font-weight:900
-}
+
 .searchbar{
   display:flex; align-items:center; gap:8px; width:100%; min-width:260px; max-width:860px;
-  background:var(--chip); border:1px solid var(--border); border-radius:999px; padding:9px 12px
+  background:var(--chip); border:1px solid var(--border); border-radius:999px; padding:9px 12px;
 }
 .searchbar input{ all:unset; width:100%; font-weight:600; letter-spacing:.1px; color:inherit }
 .ico{ width:18px; height:18px; opacity:.9 }
 .top-actions{ display:flex; align-items:center; gap:var(--gap-2); white-space:nowrap }
+
+/* Etiquetas de cuenta (contraste correcto) */
+.topbar .acct-name{ color: var(--text) !important; font-weight:800; }
+.topbar .acct-plan{ color: color-mix(in oklab, var(--text) 60%, transparent) !important; font-weight:800; }
 
 /* ====================== BOTONES ====================== */
 .btn{
@@ -104,9 +114,9 @@ button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer }
 .btn.outline{ background:transparent; border-color: color-mix(in oklab, var(--text) 24%, transparent) }
 
 .avatar{ --s:32px; display:grid; place-items:center; width:var(--s); height:var(--s); border-radius:999px; background:var(--chip); border:1px solid var(--border); font-weight:900 }
-.badge{ display:inline-grid; place-items:center; min-width:16px; height:16px; padding:0 3px; border-radius:999px; background:var(--err); color:#fff; font-size:10px; font-weight:800; transform:translate(8px,-10px)}
+.badge{ display:inline-grid; place-items:center; min-width:16px; height:16px; padding:0 3px; border-radius:999px; background:var(--err); color:#fff; font-size:10px; font-weight:800; transform:translate(8px,-10px) }
 
-/* Buscador móvil (overlay) */
+/* ====================== BUSCADOR MÓVIL ====================== */
 .search-trigger{ display:none }
 .search-panel{
   position:fixed; inset:0; z-index:100; display:none;
@@ -117,7 +127,7 @@ button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer }
 .search-panel .searchbar{ max-width:none; min-width:unset; padding:12px 14px }
 .search-panel .close{
   margin-top:8px; display:inline-flex; align-items:center; gap:8px;
-  background:var(--chip); border:1px solid var(--border); border-radius:10px; padding:8px 12px
+  background:var(--chip); border:1px solid var(--border); border-radius:10px; padding:8px 12px;
 }
 
 /* ====================== LAYOUT ====================== */
@@ -157,14 +167,25 @@ button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer }
 .sidebar:not(.open) .tip:hover::after{
   content: attr(data-tip); position:absolute; left: calc(100% + 8px); top:50%; transform:translateY(-50%);
   white-space:nowrap; background:var(--card); border:1px solid var(--border); border-radius:8px;
-  padding:6px 8px; font-size:12px; box-shadow:var(--shadow); z-index:50
+  padding:6px 8px; font-size:12px; box-shadow:var(--shadow); z-index:50;
 }
 
 /* ====================== CONTENT ====================== */
-.content{ overflow:auto; padding:14px; min-width:0 }
+.content{ overflow:auto; padding:14px; min-width:0; }
 .container{ width:100%; max-width: var(--container); margin:0 auto }
 
-.card{ background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:14px }
+/* Main blanco uniforme (solo en tema claro) */
+html[data-theme="light"] body,
+html[data-theme="light"] .content,
+html[data-theme="light"] .sidebar{
+  background:#fff;
+}
+
+/* Tarjetas y elementos comunes */
+.card{
+  background:var(--card); border:1px solid var(--border);
+  border-radius:14px; box-shadow:var(--shadow); padding:14px;
+}
 .card.headered > .card-head{ display:flex; align-items:center; justify-content:space-between; gap:var(--gap-2); margin-bottom:8px }
 .card.headless{ padding-top:12px }
 .card .card-title{ font-weight:900; font-size:var(--fs-16) }
@@ -193,7 +214,7 @@ footer{ border-top:1px solid var(--border); color:var(--muted); padding:12px }
 @media (min-width: 1100px){ .grid-2{ grid-template-columns: 1.2fr .8fr } }
 @media (min-width: 1200px){ .grid-3{ grid-template-columns: repeat(3,minmax(0,1fr)) } }
 
-/* KPIs estilo tarjeta plana */
+/* KPIs */
 .kpis{ display:grid; gap:var(--gap-3); grid-template-columns: 1.2fr .8fr .8fr 1fr }
 @media (max-width: 1100px){ .kpis{ grid-template-columns: repeat(2,minmax(0,1fr)) } }
 .kpi{
@@ -207,7 +228,7 @@ footer{ border-top:1px solid var(--border); color:var(--muted); padding:12px }
 .kpi .trend.up{ color: var(--ok) } .kpi .trend.down{ color: var(--err) } .kpi .trend.flat{ color:var(--muted) }
 .kpi.primary .value{ font-size:32px }
 
-/* Contenedores de gráficas (bordes redondeados, fondo claro) */
+/* Gráficas */
 .chart-card{ background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:12px }
 .chart-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
 .chart-head h3{ margin:0; font-size:14px; font-weight:900 }
@@ -234,7 +255,7 @@ table.list th{ color:var(--muted); font-weight:900 }
   .shell{ grid-template-columns: 0 1fr }
   .sidebar{
     position:fixed; left:8px; right:auto; top: calc(var(--header) + 8px); bottom:8px; height:auto;
-    width: var(--sidebar-collapsed); transform: translateX(-115%); border-radius:12px; box-shadow: var(--shadow)
+    width: var(--sidebar-collapsed); transform: translateX(-115%); border-radius:12px; box-shadow: var(--shadow);
   }
   .sidebar.open{ transform: translateX(0); width: var(--sidebar-expanded) }
 }
@@ -243,9 +264,136 @@ table.list th{ color:var(--muted); font-weight:900 }
 .btn.icon svg{ width:20px; height:20px }
 .topbar .ico, .topbar .btn.icon svg, .searchbar .ico{ stroke: currentColor; fill: none; stroke-width: 2; }
 
-
 /* ===== Facturación (tune UX) ===== */
 .tbl tbody tr:nth-child(2n+1) td{ background: color-mix(in oklab, var(--ink-2) 12%, transparent) }
 .tbl tbody tr:hover td{ background: color-mix(in oklab, var(--brand) 10%, transparent) }
 .fx-chip{ cursor:pointer }
 .fx-chip:active{ transform: translateY(1px) }
+
+/* ===================================================================== */
+/* === Limpieza de gradientes + resaltado discreto SOLO en lo activo ==== */
+/* ===================================================================== */
+
+/* 1) Quitar gradientes globales (fondos planos) */
+.topbar,
+.searchbar,
+.card,
+.kpi,
+.chart-card,
+.alert,
+.sidebar,
+.content {
+  background-image: none !important;
+}
+
+/* 2) Sidebar: resaltar SÓLO el módulo activo (contorno rojo suave) */
+.sidebar .nav a.active{
+  background: var(--card);
+  border-color: color-mix(in oklab, var(--hi) 35%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--hi) 55%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.sidebar .nav a.active::before{
+  background: var(--hi); /* barrita izquierda en rojo */
+}
+.sidebar .nav a:hover{
+  outline: 0; /* evita “parpadeo” rojo al hover */
+  border-color: var(--border);
+}
+
+/* 3) Contenido: usa clase para marcar el panel principal del módulo */
+.card.is-current,
+.card[data-current="1"],
+.module-current,
+.mod-current{
+  border-color: color-mix(in oklab, var(--hi) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--hi) 25%, transparent);
+}
+
+/* 4) Accesibilidad: focus amable en rojo */
+.nav a:focus-visible,
+.btn:focus-visible,
+.select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--hi) 55%, transparent);
+  outline: none;
+}
+
+/* 5) Sombra contenida (sin glow) */
+.card, .kpi, .chart-card { box-shadow: 0 8px 20px rgba(0,0,0,.06); }
+
+/* (opcional ultra-flat)
+.card, .kpi, .chart-card { box-shadow: none; }
+*/
+
+/* ======= Layout: contenedor y gutters más amplios ======= */
+.content{ padding:24px; }
+.container{ max-width: 1240px; }
+
+/* ======= Sidebar: activo tipo “pill” + icono alineado ======= */
+.sidebar .nav a{
+  grid-template-columns: 20px 1fr auto;
+  border-radius: 12px;
+}
+.sidebar .nav a.active{
+  background: color-mix(in oklab, var(--hi) 6%, #fff);
+  border-color: color-mix(in oklab, var(--hi) 30%, transparent);
+  outline: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hi) 35%, transparent);
+}
+.sidebar .nav a.active::before{
+  content:''; position:absolute; left:-10px; top:8px; bottom:8px; width:3px; border-radius:3px;
+  background: var(--hi);
+}
+
+/* ======= Tarjeta base más plana y uniforme ======= */
+.card{
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0,0,0,.05);
+  background: var(--card);
+}
+
+/* Variantes de tarjeta (usa .card--panel, .card--kpi, .is-current) */
+.card--panel{ box-shadow:none; border-color: color-mix(in oklab, var(--text) 8%, transparent); }
+.card--kpi{ box-shadow:none; }
+.card--kpi .card-head{ margin:-6px -6px 8px; padding:6px; border-bottom:1px dashed color-mix(in oklab, var(--text) 10%, transparent);}
+.card--kpi{ border-top:3px solid color-mix(in oklab, var(--hi) 55%, transparent); }
+
+.card.is-current,
+.card[data-current="1"]{
+  border-color: color-mix(in oklab, var(--hi) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--hi) 18%, transparent);
+}
+
+/* ======= KPI: tipografía y jerarquía ======= */
+.kpi{ padding:16px; min-height:108px; }
+.kpi .label{ font-size:11px; letter-spacing:.3px; text-transform:uppercase; color:var(--muted); }
+.kpi .value{ font-size:30px; line-height:1; font-weight:900; }
+.kpi .hint{ color:var(--muted); }
+
+/* ======= Tablas: filas “hover” muy sutil ======= */
+table.list tr:hover td{
+  background: color-mix(in oklab, var(--hi) 6%, transparent);
+}
+
+/* ======= Badges de status sin brillo ======= */
+.badge.status{
+  border:1px solid color-mix(in oklab, var(--text) 14%, transparent);
+  background:#fff;
+}
+.badge.emitido{ border-color: color-mix(in oklab, var(--ok) 40%, transparent); background: color-mix(in oklab, var(--ok) 10%, #fff); }
+.badge.cancelado{ border-color: color-mix(in oklab, var(--err) 40%, transparent); background: color-mix(in oklab, var(--err) 8%, #fff); }
+.badge.borrador{ border-color: color-mix(in oklab, var(--info) 38%, transparent); background: color-mix(in oklab, var(--info) 8%, #fff); }
+
+/* ======= Chips/acciones rápidas planas ======= */
+.fx-chip{ background:#fff; border:1px solid var(--border); border-radius:999px; padding:6px 10px; }
+.fx-chip:hover{ background: color-mix(in oklab, var(--hi) 6%, #fff); }
+
+/* ======= Empty states (borde punteado) ======= */
+.empty{
+  border:2px dashed color-mix(in oklab, var(--text) 16%, transparent);
+  border-radius:12px; padding:18px; color:var(--muted);
+}

@@ -43,15 +43,19 @@ class CuentaCliente extends BaseClienteModel
     protected $fillable = [
         'id',
         'codigo_cliente',
-        'customer_no',
+        'customer_no',      // 👈 asegúrate de incluirlo
         'rfc_padre',
         'razon_social',
-        'plan_actual',          // BASIC|FREE|PRO (normalizamos a BASIC/PRO)
-        'modo_cobro',           // mensual|anual|…
-        'estado_cuenta',        // activa|bloqueada|suspendida|…
+        'plan_actual',
+        'modo_cobro',
+        'estado_cuenta',
+        'admin_account_id',
         'espacio_asignado_mb',
         'hits_asignados',
+        'max_usuarios',
+        'max_empresas',
     ];
+
 
     /** Casts */
     protected $casts = [

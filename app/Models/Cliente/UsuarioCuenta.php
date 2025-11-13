@@ -2,142 +2,140 @@
 
 namespace App\Models\Cliente;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
-class UsuarioCuenta extends BaseClienteAuthenticatable
+class UsuarioCuenta extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use Notifiable;
 
-    /** Conexión y tabla (BD clientes) */
+    /** Conexión y tabla. */
     protected $connection = 'mysql_clientes';
     protected $table      = 'usuarios_cuenta';
 
-    /** PK como UUID string */
-    public $incrementing  = false;
-    protected $keyType    = 'string';
-    protected $primaryKey = 'id';
+    /** Primary key es UUID string, no autoincrement. */
+    protected $primaryKey  = 'id';
+    public $incrementing   = false;
+    protected $keyType     = 'string';
 
-    /** Asignables */
+    /** Campos asignables. */
     protected $fillable = [
         'id',
         'cuenta_id',
-        'tipo',                 // owner | admin | user (histórico)
-        'rol',                  // owner | admin | user (preferido)
+        'tipo',
+        'rol',
         'nombre',
         'email',
-        'phone',
-        'password',             // IMPORTANTE: asignable pero sin cast 'hashed'
+        'password',
+        'password_temp',
+        'must_change_password',
         'activo',
-        'ultimo_login_at',
-        'ip_ultimo_login',
-        'sync_version',
-        // 'must_change_password', // si existe en tu schema y quieres fillable
-        'remember_token',       // si la columna existe
+        'created_at',
+        'updated_at',
     ];
 
-    /** Ocultos en arrays/JSON */
+    /** Ocultos. */
     protected $hidden = [
         'password',
-        'password_temp',   // compat opcional si existiera
-        'password_plain',  // compat opcional si existiera
+        'password_temp',
         'remember_token',
     ];
 
-    /** Casts (sin 'hashed' para evitar re-hash accidental) */
+    /** Casts. */
     protected $casts = [
         'activo'               => 'boolean',
-        'ultimo_login_at'      => 'datetime',
+        'must_change_password' => 'boolean',
         'created_at'           => 'datetime',
         'updated_at'           => 'datetime',
-        'sync_version'         => 'integer',
-        'must_change_password' => 'boolean', // si no existe la columna, queda null
-        'email_verified_at'    => 'datetime',
     ];
 
-    /** Genera UUID al crear (si no viene) */
+    /** Nombre de remember me cookie (si existe esa columna). */
+    protected $rememberTokenName = 'remember_token';
+
+    /** ========= UUID AUTO ========== */
     protected static function booted(): void
     {
-        static::creating(function (self $model) {
-            if (empty($model->id)) {
-                $model->id = (string) Str::uuid();
+        static::creating(function (self $m) {
+            if (empty($m->id)) {
+                $m->id = (string) Str::uuid();
             }
         });
     }
 
-    /* ==========================
-     | Relaciones
-     * ========================== */
+    /* ========================= RELACIONES ========================= */
 
-    /** usuario → cuenta */
     public function cuenta(): BelongsTo
     {
         return $this->belongsTo(CuentaCliente::class, 'cuenta_id', 'id');
     }
 
-    /* ==========================
-     | Scopes / Helpers
-     * ========================== */
+    /* =================== ACCESSORS / HELPERS ====================== */
 
-    public function scopeActivos($q)
+    protected function displayName(): Attribute
     {
-        return $q->where('activo', 1);
+        return Attribute::get(fn () => $this->nombre ?: $this->attributes['nombre'] ?? 'Usuario');
     }
 
-    public function scopeOfCuenta($q, string $cuentaId)
-    {
-        return $q->where('cuenta_id', $cuentaId);
-    }
-
-    /** Guard útil en Policies */
-    public function getGuardName(): string
-    {
-        return 'web';
-    }
-
-    /** ¿Es propietario? (acepta rol o tipo = owner) */
     public function isOwner(): bool
     {
-        return ($this->rol === 'owner') || ($this->tipo === 'owner');
+        $rol  = strtolower((string) $this->rol);
+        $tipo = strtolower((string) $this->tipo);
+        return $rol === 'owner' || $tipo === 'owner';
     }
 
-    /** ¿Puede iniciar sesión? */
-    public function canLogin(): bool
+    public function mustChangePassword(): bool
     {
-        return (bool) $this->activo;
+        return (bool) ($this->must_change_password ?? false);
     }
 
-    /** Marca último login (fecha + IP) guardando en silencio */
-    public function markLastLogin(?string $ip = null): void
+    public function isActive(): bool
     {
-        $this->forceFill([
-            'ultimo_login_at' => now(),
-            'ip_ultimo_login' => $ip,
-        ])->saveQuietly();
+        return (bool) ($this->activo ?? false);
     }
 
-    /* ==========================
-     | Mutators
-     * ========================== */
-
-    public function setEmailAttribute($value): void
+    public function planActual(): ?string
     {
-        $this->attributes['email'] = $value ? Str::lower(trim((string) $value)) : null;
+        if (!$this->relationLoaded('cuenta')) {
+            $this->loadMissing('cuenta');
+        }
+        return $this->cuenta?->plan_actual;
     }
 
-    public function setNombreAttribute($value): void
+    public function estadoCuenta(): ?string
     {
-        $this->attributes['nombre'] = $value ? trim((string) $value) : null;
+        if (!$this->relationLoaded('cuenta')) {
+            $this->loadMissing('cuenta');
+        }
+        return $this->cuenta?->estado_cuenta;
     }
 
-    /**
-     * Si tu columna de contraseña se llama distinto a 'password',
-     * define getAuthPassword(). En este caso no hace falta.
-     */
-    // public function getAuthPassword()
-    // {
-    //     return (string) ($this->password ?? '');
-    // }
+    public function cuentaActiva(): bool
+    {
+        $estado = strtolower((string) $this->estadoCuenta());
+        return $this->isActive() && in_array($estado, ['activa','activa_ok','ok','active'], true);
+    }
+
+    public function emailOrNull(): ?string
+    {
+        return $this->email ?: null;
+    }
+
+    public function getAuthPassword()
+    {
+        return $this->password;
+    }
+
+    /** Siempre almacenar password ya hasheado (evita doble-hash si ya viene bcrypt). */
+    protected function password(): Attribute
+    {
+        return Attribute::set(function ($value) {
+            if (is_string($value) && preg_match('/^\$2y\$/', $value)) {
+                return $value;
+            }
+            return !empty($value) ? bcrypt($value) : $value;
+        });
+    }
 }

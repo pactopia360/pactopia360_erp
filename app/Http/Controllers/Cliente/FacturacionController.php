@@ -136,6 +136,16 @@ class FacturacionController extends Controller
             ->paginate($perPage, ['id','uuid','serie','folio','subtotal','iva','total','fecha','estatus','cliente_id'])
             ->withQueryString();
 
+        // ⚙️ Selecciona un CFDI "actual" para vistas/partials que esperan $cfdi (singular)
+        $current = $cfdis->getCollection()->first();
+        if (!$current) {
+            // Stub seguro para evitar errores si la vista accede a propiedades
+            $current = (object)[
+                'id'=>null,'uuid'=>null,'serie'=>null,'folio'=>null,
+                'subtotal'=>0,'iva'=>0,'total'=>0,'fecha'=>null,'estatus'=>null,'cliente_id'=>null
+            ];
+        }
+
         $kpis   = $this->calcKpis($request, $from, $to);
         $series = $this->buildSeries($request, $from, $to);
 
@@ -147,7 +157,8 @@ class FacturacionController extends Controller
             'period_to'   => $to,
             'kpis'        => $kpis,
             'series'      => $series,
-            'cfdis'       => $cfdis,
+            'cfdis'       => $cfdis,   // listado paginado para la tabla
+            'cfdi'        => $current, // modelo (o stub) para vistas que usan singular
             'filters'     => [
                 'q'      => trim((string) $request->input('q', '')),
                 'status' => trim((string) $request->input('status', '')),

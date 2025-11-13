@@ -1,237 +1,237 @@
-{{-- resources/views/layouts/guest.blade.php (v4.0 con Popup/Toast dinámico) --}}
+{{-- resources/views/layouts/guest.blade.php --}}
 @php
-  // Permite ocultar la marca desde la vista hija: @section('hide-brand','1')
-  $hideBrand = trim($__env->yieldContent('hide-brand')) === '1' || trim($__env->yieldContent('hide_global_brand')) === '1';
+  // Ocultar marca superior desde vistas hijas: @section('hide-brand','1')
+  $hideBrand = trim($__env->yieldContent('hide-brand')) === '1';
 
-  // Prepara mensajes flash para el popup
+  // Flash
   $flashOk    = session('ok');
-  $flashError = $errors->any() ? $errors->first() : null;
-  // Hint de clave del primer error (si existe)
-  $flashErrKey = null;
-  if (method_exists($errors, 'keys')) {
-      $keys = $errors->keys();
-      $flashErrKey = $keys[0] ?? null;
-  }
+  $flashInfo  = session('info');
+  $firstError = $errors->any() ? $errors->first() : null;
+  $flashError = $firstError ?? session('error');
+
+  // LOGOS (con espacios -> URL encoded)
+  $logoLight = asset('assets/client/' . rawurlencode('P360 BLACK.png'));
+  $logoDark  = asset('assets/client/' . rawurlencode('P360 WHITE.png'));
 @endphp
 <!doctype html>
-<html lang="es" data-theme="dark">
+<html lang="es" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>@yield('title','Pactopia 360')</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>@yield('title','Pactopia360')</title>
   <meta name="color-scheme" content="light dark">
+
   <style>
-    /* Guest Layout con gradiente animado */
     :root{
-      --p360-red:#ff2a2a; --p360-rose:#ff6b8a; --bg:#f6f7fb; --card:#fff; --text:#0e1626; --muted:#5f6f86; --border:#e6ebf2;
-      --shadow:0 26px 90px rgba(11,42,58,.12); --focus:rgba(255,42,42,.20); --ring:#ff6b8a;
-      --ok:#10b981; --ok-ink:#064e3b; --ok-soft:#e7fff5;
-      --err:#ef4444; --err-ink:#7f1d1d; --err-soft:#fff1f2;
+      /* Marca */
+      --rose:#ff6b8a; --red:#ff2a2a;
+
+      /* Light */
+      --bg:#f7f9fc; --bg1:#ffffff; --bg2:#ecf1fb;
+      --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e6eaf2;
+
+      /* Shadow */
+      --shadow:0 26px 100px rgba(15,23,42,.12);
+
+      /* Estados */
+      --ok:#10b981; --ok-soft:#e7fff5;
+      --err:#ef4444; --err-soft:#fff1f2;
+
+      /* Radios */
+      --r-card:22px; --r-pill:999px;
+
+      --font:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial;
     }
     [data-theme="dark"]{
-      --bg:#0b1120; --card:#0e172a; --text:#e7eef6; --muted:#9fb0c5; --border:#18263b; --shadow:0 34px 120px rgba(0,0,0,.6);
-      --focus:rgba(255,42,42,.28); --ring:#ff6b8a;
-      --ok:#34d399; --ok-ink:#093; --ok-soft:#062e24;
-      --err:#f87171; --err-ink:#ffe5e5; --err-soft:#3a0a0a;
+      --bg:#0a1020; --bg1:#0f172a; --bg2:#0b1324;
+      --card:#0f172a; --text:#eaf2ff; --muted:#9fb0c5; --border:#1b2a40;
+      --shadow:0 42px 160px rgba(0,0,0,.65);
+      --ok:#34d399; --ok-soft:#062e24;
+      --err:#f87171; --err-soft:#3a0a0a;
     }
+
     html,body{height:100%}
     body{
-      margin:0;color:var(--text);
+      margin:0; font-family:var(--font); color:var(--text);
       background:
-        radial-gradient(1600px 900px at 12% -10%, rgba(255,107,138,.20), transparent 60%),
-        radial-gradient(1400px 900px at 100% 90%, rgba(70,100,160,.25), transparent 60%),
-        linear-gradient(160deg, #0b2230 0%, #0f172a 60%, #091320 100%);
-      font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial;
-      overflow-x:hidden;
+        radial-gradient(1200px 780px at 12% -10%, color-mix(in srgb,var(--bg2) 55%, transparent), transparent 60%),
+        radial-gradient(1100px 720px at 90% 110%, color-mix(in srgb,var(--bg2) 45%, transparent), transparent 60%),
+        linear-gradient(180deg, var(--bg1), var(--bg));
+      background-color:var(--bg);
     }
-    body::before{
-      content:""; position:fixed; inset:-30%;
-      background:
-        radial-gradient(46% 56% at 16% 12%, rgba(255,42,42,.30), transparent 60%),
-        radial-gradient(40% 58% at 84% 70%, rgba(56,88,140,.40), transparent 60%);
-      filter:blur(90px); opacity:.75; pointer-events:none; z-index:-1;
-      animation:pan 22s ease-in-out infinite alternate;
+
+    /* Shell */
+    .wrap{min-height:100vh; display:grid; grid-template-rows:auto 1fr auto}
+
+    .topbar{display:flex; align-items:center; justify-content:space-between; padding:14px 18px}
+    .brand{display:flex; align-items:center; gap:10px; text-decoration:none}
+    .brand img{height:22px; object-fit:contain; display:block}
+    .brand.is-hidden{display:none}
+
+    .theme{border:1px solid var(--border); background:transparent; color:var(--text);
+           padding:8px 12px; border-radius:var(--r-pill); font-weight:700; cursor:pointer; font-size:13px}
+
+    /* CENTRADO REAL del contenido */
+    .main-shell{
+      display:grid; place-items:center;
+      padding:clamp(16px,3vw,28px);
     }
-    @keyframes pan{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(-1.2%,1%,0) scale(1.02)}100%{transform:translate3d(1.2%,-1%,0) scale(1.01)}}
-    .guest-wrap{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto}
 
-    .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:transparent}
-    .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);padding:6px 8px;border-radius:12px}
-    .brand.is-hidden{display:none !important;}
-    .sr-only{position:absolute!important;width:1px;height:1px;margin:-1px;clip:rect(0,0,0,0);overflow:hidden}
-    .theme-toggle{border:1px solid var(--border);background:transparent;color:var(--text);padding:8px 12px;border-radius:999px;cursor:pointer;font-weight:800;box-shadow:0 8px 26px rgba(0,0,0,.12)}
+    .footer{padding:16px 18px; text-align:center; color:var(--muted); font-size:12px}
 
-    .container{display:flex;align-items:center;justify-content:center;padding:clamp(16px,2.2vw,24px)}
-    .card{width:min(1100px,96vw);background:color-mix(in srgb, var(--card) 92%, transparent);border:1px solid var(--border);border-radius:22px;box-shadow:var(--shadow);padding:clamp(16px,2.2vw,26px)}
+    /* Toast */
+    .toast{position:fixed; inset:0; display:none; place-items:center; background:rgba(2,8,23,.28); backdrop-filter:blur(3px); z-index:50}
+    .toast.is-open{display:grid}
+    .toast-card{width:min(560px,92vw); border:1px solid var(--border); border-radius:16px; background:var(--card);
+                color:var(--text); box-shadow:var(--shadow); padding:16px 18px}
+    .toast-h{display:flex; align-items:center; gap:10px; margin-bottom:6px}
+    .toast-ico{width:34px; height:34px; border-radius:12px; display:grid; place-items:center; font-weight:800}
+    .ok{background:var(--ok-soft); color:var(--ok)} .err{background:var(--err-soft); color:var(--err)}
+    .toast-actions{margin-top:10px; display:flex; gap:8px; justify-content:flex-end}
+    .btn{border:1px solid var(--border); background:transparent; color:var(--text); border-radius:12px; padding:10px 12px; font-weight:700; cursor:pointer}
+    .btn-primary{border:0; color:#fff; background:linear-gradient(180deg, var(--rose), var(--red))}
 
-    .footer{padding:14px 20px;text-align:center;color:var(--muted);font-size:12px}
-    .pill{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:color-mix(in srgb, var(--card) 75%, transparent);color:var(--muted);font-weight:800;font-size:12px}
+    *{transition:background .25s,color .25s,border-color .25s,box-shadow .25s,filter .25s}
 
-    /* Anti-logo automático para páginas login/registro */
-    html.page-register-free .topbar .brand,
-    html.page-register-pro  .topbar .brand,
-    html.page-login-client  .topbar .brand{ display:none !important; }
-
-    /* ===========================
-       Popup / Toast dinámico
-       =========================== */
-    .toast-overlay{
-      position:fixed; inset:0; display:none; place-items:center; backdrop-filter:blur(3px);
-      background:rgba(2,8,23,.28); z-index:9999; animation:fadeIn .15s ease-out forwards;
+    /* ===== Toolbar de captura (PNG/JPG) ===== */
+    .shot-toolbar{
+      display:flex; gap:8px; align-items:center; justify-content:flex-end;
+      width:min(980px, 92vw);
+      margin: 0 auto 10px auto;
+      transform: translateY(-6px);
+      flex-wrap:wrap;
     }
-    .toast-overlay.is-open{ display:grid; }
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-
-    .toast-card{
-      width:min(560px,92vw); border-radius:18px; border:1px solid color-mix(in srgb, var(--border) 82%, transparent);
-      background:linear-gradient(180deg, color-mix(in srgb,var(--card) 94%, transparent), color-mix(in srgb,var(--card) 88%, transparent));
-      box-shadow:0 40px 120px rgba(0,0,0,.38); padding:18px 18px 16px; transform:translateY(10px); opacity:0;
-      animation:popIn .22s ease-out forwards;
+    .btn-shot{
+      display:inline-flex; align-items:center; gap:6px;
+      border:1px solid var(--border);
+      background:transparent; color:inherit;
+      padding:6px 10px; border-radius:12px; font-weight:700; cursor:pointer;
+      user-select:none; font-size:13px;
     }
-    @keyframes popIn{to{transform:translateY(0);opacity:1}}
-
-    .toast-head{ display:flex; align-items:center; gap:10px; margin-bottom:8px }
-    .toast-ico{
-      display:grid; place-items:center; width:36px; height:36px; border-radius:12px;
-      background:var(--ok-soft); color:var(--ok); font-size:18px; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ok) 40%, transparent);
-    }
-    .toast-ico.err{ background:var(--err-soft); color:var(--err); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--err) 40%, transparent); }
-    .toast-title{ font-weight:900; font-size:16px }
-    .toast-body{ color:var(--muted); font-size:14px; margin:6px 0 2px; line-height:1.4 }
-    .toast-actions{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
-    .btn-toast{
-      border:0; padding:10px 12px; border-radius:12px; font-weight:900; cursor:pointer;
-      background:color-mix(in srgb, var(--card) 90%, transparent); color:var(--text); border:1px solid color-mix(in srgb, var(--border) 80%, transparent);
-    }
-    .btn-primary{
-      background:linear-gradient(180deg, var(--p360-rose), var(--p360-red));
-      color:#fff; box-shadow:0 18px 40px rgba(255,42,42,.28);
-    }
+    .btn-shot:hover{ background:rgba(0,0,0,.05) }
+    [data-theme="dark"] .btn-shot{ border-color:rgba(255,255,255,.22) }
+    [data-theme="dark"] .btn-shot:hover{ background:rgba(255,255,255,.08) }
   </style>
+
   @stack('styles')
 </head>
 <body>
-<div class="guest-wrap">
-  <header class="topbar" role="banner">
+<div class="wrap">
+  <header class="topbar">
     <a class="brand {{ $hideBrand ? 'is-hidden' : '' }}" href="{{ url('/') }}" aria-label="Inicio">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="{{ asset('assets/client/logop360dark.png') }}">
-        <img src="{{ asset('assets/client/logp360ligjt.png') }}" alt="Pactopia 360" height="28"
-             onerror="this.src='{{ asset('assets/client/logop360dark.png') }}';">
-      </picture>
-      <span class="sr-only">Pactopia 360</span>
+      <img id="brandLogo" src="{{ $logoLight }}" alt="Pactopia360">
     </a>
-
-    <button class="theme-toggle" id="themeToggle" type="button" aria-live="polite">
-      <span id="themeIcon" aria-hidden="true">🌙</span><span class="sr-only">Cambiar tema</span>
-    </button>
+    <button class="theme" id="themeBtn"><span id="themeIco">🌙</span> Tema</button>
   </header>
 
-  <main id="main" class="container" role="main">
-    <div class="card">@yield('content')</div>
-  </main>
+  {{-- Toolbar de captura arriba del contenido centrado --}}
+  <div class="shot-toolbar" aria-label="Exportar captura del contenido">
+    <button type="button" class="btn-shot" data-shot="png" data-shot-target="#guestMain">🖼️ PNG</button>
+    <button type="button" class="btn-shot" data-shot="jpg" data-shot-target="#guestMain">JPG</button>
+  </div>
 
-  <footer class="footer" role="contentinfo">
-    <span class="pill">Hecho para contadoras exigentes</span>
-    <div>© {{ date('Y') }} Pactopia360. Todos los derechos reservados.</div>
+  <main id="guestMain" class="main-shell">@yield('content')</main>
+
+  <footer class="footer">
+    {{-- Sin lema para mantener limpio --}}
+    © {{ date('Y') }} Pactopia360. Todos los derechos reservados.
   </footer>
 </div>
 
-<!-- Popup / Toast -->
-<div class="toast-overlay" id="flashToast" role="dialog" aria-modal="true" aria-hidden="true">
-  <div class="toast-card" role="document">
-    <div class="toast-head">
-      <div class="toast-ico" id="flashIcon" aria-hidden="true">✅</div>
-      <div class="toast-title" id="flashTitle">Listo</div>
-    </div>
-    <div class="toast-body" id="flashBody">Operación completada.</div>
-    <div class="toast-actions">
-      <button class="btn-toast" id="flashClose">Cerrar</button>
-      <a class="btn-toast btn-primary sr-only" id="flashCta" href="#"></a>
-    </div>
+<!-- Toast -->
+<div class="toast" id="toast">
+  <div class="toast-card">
+    <div class="toast-h"><div class="toast-ico ok" id="toastIco">✅</div><strong id="toastTitle">Listo</strong></div>
+    <div id="toastBody" style="color:var(--muted); font-size:14px">Operación completada.</div>
+    <div class="toast-actions"><button class="btn" id="toastClose">Cerrar</button></div>
   </div>
 </div>
 
 <script>
-  // Persistencia de tema (light/dark)
+  // Theme + logo swap
   (function(){
-    const root=document.documentElement, key='p360-theme', btn=document.getElementById('themeToggle'), icon=document.getElementById('themeIcon');
-    const setIcon=(m)=> icon&&(icon.textContent=m==='dark'?'🌙':'☀️');
-    const saved=localStorage.getItem(key);
-    if(saved){ root.setAttribute('data-theme', saved); setIcon(saved); }
-    else{ const init=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; root.setAttribute('data-theme', init); setIcon(init); }
-    btn?.addEventListener('click', ()=>{ const next=root.getAttribute('data-theme')==='dark'?'light':'dark'; root.setAttribute('data-theme', next); localStorage.setItem(key,next); setIcon(next); });
+    const root = document.documentElement;
+    const btn  = document.getElementById('themeBtn');
+    const ico  = document.getElementById('themeIco');
+    const logo = document.getElementById('brandLogo');
+    const path = { light: @json($logoLight), dark: @json($logoDark) };
+
+    function apply(mode){
+      root.setAttribute('data-theme', mode);
+      ico.textContent = mode === 'dark' ? '🌙' : '☀️';
+      if (logo) logo.src = mode === 'dark' ? path.dark : path.light;
+    }
+    const saved = localStorage.getItem('p360-theme');
+    if (saved === 'light' || saved === 'dark') apply(saved);
+    else apply(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+
+    btn.addEventListener('click', ()=>{
+      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('p360-theme', next); apply(next);
+    });
   })();
 
-  // Datos flash desde servidor (éxito / error)
-  window.FLASH = {
-    ok: @json($flashOk),
-    error: @json($flashError),
-    errorKey: @json($flashErrKey),
-    // CTA opcional (por ejemplo, tras registro exitoso -> "Verificar teléfono")
-    cta: null,
-    ctaHref: null
-  };
-
+  // Flash -> Toast
   (function(){
-    const $ov = document.getElementById('flashToast');
-    const $ico= document.getElementById('flashIcon');
-    const $ti = document.getElementById('flashTitle');
-    const $bd = document.getElementById('flashBody');
-    const $cl = document.getElementById('flashClose');
-    const $cta= document.getElementById('flashCta');
+    const ok   = @json($flashOk);
+    const info = @json($flashInfo);
+    const err  = @json($flashError);
+    const $ov  = document.getElementById('toast');
+    const $ico = document.getElementById('toastIco');
+    const $ti  = document.getElementById('toastTitle');
+    const $bd  = document.getElementById('toastBody');
+    const $cl  = document.getElementById('toastClose');
 
-    function setIcon(type){
-      $ico.classList.remove('err');
-      if(type==='error'){ $ico.classList.add('err'); $ico.textContent='⚠️'; }
-      else{ $ico.textContent='✅'; }
+    function show(type, title, body){
+      $ico.className = 'toast-ico ' + (type === 'error' ? 'err' : 'ok');
+      $ico.textContent = type === 'error' ? '⚠️' : '✅';
+      $ti.textContent = title || (type === 'error' ? 'Revisa tu información' : '¡Listo!');
+      $bd.textContent = body  || (type === 'error' ? 'Hubo un problema.' : 'Operación completada.');
+      $ov.classList.add('is-open'); const t = setTimeout(hide, 6000);
+      $cl.onclick = ()=>{ clearTimeout(t); hide(); };
+      $ov.onclick = (e)=>{ if (e.target === $ov){ clearTimeout(t); hide(); } };
+      function hide(){ $ov.classList.remove('is-open'); }
+    }
+    if (err)  { show('error', null, err); return; }
+    if (info) { show('ok', 'Info', info); return; }
+    if (ok)   { show('ok', '¡Bien!', ok); return; }
+  })();
+
+  // ===== Captura (png/jpg) usando html2canvas si existe; si no, emite evento p360:capture =====
+  (function(){
+    function downloadFromCanvas(canvas, type){
+      const mime = (type==='jpg' || type==='jpeg') ? 'image/jpeg' : 'image/png';
+      const url  = canvas.toDataURL(mime, 0.92);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'p360_captura.' + (type==='jpg'?'jpg':'png');
+      a.click();
+    }
+    async function capture(el, type){
+      if (window.html2canvas && el){
+        try{
+          const canvas = await window.html2canvas(el, {
+            useCORS:true, logging:false, backgroundColor:null, scale: window.devicePixelRatio || 1
+          });
+          return downloadFromCanvas(canvas, type);
+        }catch(e){}
+      }
+      // Fallback para tu loader/orquestador global
+      try{
+        window.dispatchEvent(new CustomEvent('p360:capture', { detail:{ element: el, type } }));
+      }catch(_){}
     }
 
-    function show(type, title, body, opts={}){
-      setIcon(type);
-      $ti.textContent = title || (type==='error' ? 'Algo no salió bien' : '¡Listo!');
-      $bd.textContent = body || (type==='error' ? 'Revisa los campos e intenta de nuevo.' : 'Operación completada.');
-
-      // CTA opcional
-      if(opts.cta && opts.ctaHref){
-        $cta.textContent = opts.cta; $cta.href = opts.ctaHref; $cta.classList.remove('sr-only');
-      }else{
-        $cta.classList.add('sr-only');
-      }
-
-      $ov.classList.add('is-open');
-      $ov.setAttribute('aria-hidden','false');
-
-      // Auto-cierre
-      const timeout = setTimeout(hide, 7000);
-      // Cierre manual
-      $cl.onclick = ()=>{ clearTimeout(timeout); hide(); };
-      $ov.onclick = (e)=>{ if(e.target === $ov){ clearTimeout(timeout); hide(); } };
-      document.addEventListener('keydown', escOnce);
-      function escOnce(ev){ if(ev.key==='Escape'){ clearTimeout(timeout); hide(); document.removeEventListener('keydown', escOnce);} }
-      function hide(){ $ov.classList.remove('is-open'); $ov.setAttribute('aria-hidden','true'); }
-    }
-
-    // Heurísticas de mensaje amable
-    const f = window.FLASH || {};
-    if(f.ok){
-      // Éxito genérico; si venimos del registro FREE, proponemos ir a verificar teléfono
-      const isVerifyEmail = /verific(a|ación).*correo/i.test(document.title) || window.location.href.includes('/cliente/verificar/email');
-      const isRegister    = /registro/i.test(document.title) || window.location.href.includes('/cliente/registro');
-      const opts = {};
-      if(isRegister || isVerifyEmail){
-        opts.cta = 'Verificar teléfono';
-        opts.ctaHref = "{{ route('cliente.verify.phone') }}";
-      }
-      show('success', '¡Felicidades! 🎉', f.ok, opts);
-    } else if(f.error){
-      let title = 'Revisa tu información';
-      // Si el primer error está ligado a RFC, damos mensaje específico
-      if((f.errorKey&&f.errorKey.toLowerCase()==='rfc') || /rfc/i.test(f.error)){
-        title = 'Este RFC ya fue registrado';
-      }
-      show('error', title, f.error);
-    }
+    document.addEventListener('click', (e)=>{
+      const b = e.target.closest('[data-shot]');
+      if(!b) return;
+      e.preventDefault();
+      const type = (b.getAttribute('data-shot') || 'png').toLowerCase();
+      const sel  = b.getAttribute('data-shot-target') || '#guestMain';
+      const el   = document.querySelector(sel);
+      if(!el) return;
+      capture(el, type);
+    });
   })();
 </script>
 

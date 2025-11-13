@@ -1,11 +1,78 @@
-@extends('cliente.layouts.app')
+{{-- resources/views/cliente/estado_cuenta.blade.php (v4 visual Pactopia360) --}}
+@extends('layouts.cliente')
+@section('title','Estado de cuenta · Pactopia360')
+
+@push('styles')
+<style>
+/* ============================================================
+   PACTOPIA360 · Estado de cuenta (visual 4.0)
+   ============================================================ */
+.estado-wrap{
+  font-family:'Poppins',system-ui,sans-serif;
+  --rose:#E11D48;--rose-dark:#BE123C;
+  --mut:#6b7280;--border:#f3d5dc;--card:#fff;--bg:#fff8f9;
+  color:#0f172a;display:grid;gap:20px;padding:20px;
+}
+html[data-theme="dark"] .estado-wrap{
+  --card:#0b1220;--border:#2b2f36;--bg:#0e172a;--mut:#a5adbb;color:#e5e7eb;
+}
+.header{
+  background:linear-gradient(90deg,#E11D48,#BE123C);
+  color:#fff;padding:18px 22px;border-radius:16px;
+  box-shadow:0 8px 22px rgba(225,29,72,.25);
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+}
+.header h1{margin:0;font-weight:900;font-size:22px;}
+.header .sub{font-size:13px;opacity:.85;}
+.badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 10px;border-radius:999px;font-weight:800;font-size:12px;
+}
+.badge.ok{background:#ecfdf5;color:#047857;}
+.badge.warn{background:#fef3c7;color:#92400e;}
+.kpis{display:grid;gap:14px;}
+@media(min-width:900px){.kpis{grid-template-columns:repeat(4,1fr);}}
+.kpi{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:14px;box-shadow:0 4px 14px rgba(225,29,72,.06);
+}
+.kpi small{color:var(--mut);font-weight:700;font-size:12px;}
+.kpi b{font:800 22px/1.1 'Poppins';}
+.table-wrap{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  overflow:auto;box-shadow:0 6px 22px rgba(225,29,72,.06);
+}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+thead{background:#fff0f3;}
+th,td{padding:10px 14px;border-bottom:1px solid var(--border);}
+th{text-align:left;font-weight:900;color:var(--rose);}
+td.align-top{vertical-align:top;}
+tr:hover td{background:#fffafc;}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  border-radius:10px;font-weight:800;padding:10px 16px;font-size:14px;
+  cursor:pointer;text-decoration:none;transition:.15s all ease;
+}
+.btn.dark{background:#0f172a;color:#fff;}
+.btn.dark:hover{background:#1e293b;}
+.btn.primary{
+  background:linear-gradient(90deg,#E11D48,#BE123C);
+  color:#fff;box-shadow:0 6px 18px rgba(225,29,72,.25);
+}
+.btn.primary:hover{filter:brightness(.96);}
+.alert{
+  border:1px solid #facc15;background:#fef9c3;color:#78350f;
+  border-radius:12px;padding:12px 14px;
+}
+.note{color:var(--mut);font-size:12px;}
+</style>
+@endpush
 
 @section('content')
 @php
   use Illuminate\Support\Str;
   use Illuminate\Support\Carbon;
 
-  // Datos de cuenta (verificados desde el controlador)
   $acc   = $account ?? [];
   $rfc   = $acc['rfc'] ?? null;
   $razon = $acc['razon_social'] ?? null;
@@ -14,175 +81,115 @@
   $phoneVerified = $acc['phone_verified'] ?? false;
   $isBlocked     = $acc['is_blocked'] ?? false;
   $estadoTxt     = $acc['estado_cuenta'] ?? null;
-
   $plan          = $acc['plan'] ?? '—';
   $cycle         = $acc['billing_cycle'] ?? '—';
   $nextInvoice   = $acc['next_invoice_at'] ?? null;
 
-  // Moneda heurística (si la trae algún movimiento)
   $currency = 'MXN';
   if (isset($movs) && count($movs)) {
     foreach ($movs as $__m) { if (!empty($__m->moneda)) { $currency = (string)$__m->moneda; break; } }
   }
 
-  // Helpers
-  $fmtDate = function($v){
-    if (empty($v)) return '—';
-    try { return Carbon::parse($v)->format('Y-m-d'); } catch (\Throwable $e) { return (string)$v; }
-  };
-  $fmtYm = function($v){
-    if (empty($v)) return '—';
-    try { return Carbon::parse($v)->format('Y-m'); } catch (\Throwable $e) { return (string)$v; }
-  };
-  $fmtMoney = fn($n) => number_format((float)($n ?? 0), 2);
+  $fmtDate = fn($v)=>!$v?'—':(Carbon::parse($v)->format('Y-m-d'));
+  $fmtYm   = fn($v)=>!$v?'—':(Carbon::parse($v)->format('Y-m'));
+  $fmtMoney= fn($n)=>number_format((float)($n??0),2);
 @endphp
 
-<div class="p-6 space-y-6">
-  {{-- Encabezado --}}
-  <div class="flex items-baseline justify-between">
+<div class="estado-wrap">
+  {{-- Header --}}
+  <div class="header">
     <div>
-      <h1 class="text-2xl font-bold">Estado de cuenta</h1>
-      <p class="text-sm text-zinc-500 mt-1">
-        {{ $razon ?: 'Tu cuenta' }} {!! $rfc ? '· <span class="font-mono">'.e($rfc).'</span>' : '' !!}
-      </p>
+      <h1>Estado de cuenta</h1>
+      <div class="sub">{{ $razon ?: 'Tu cuenta' }} {!! $rfc ? '· <span class="font-mono">'.e($rfc).'</span>' : '' !!}</div>
     </div>
-    <div class="flex items-center gap-2">
-      @if ($emailVerified)
-        <span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">Email verificado</span>
-      @else
-        <span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700">Email sin verificar</span>
-      @endif
-      @if ($phoneVerified)
-        <span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">Teléfono verificado</span>
-      @else
-        <span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700">Teléfono sin verificar</span>
-      @endif>
+    <div class="flex flex-wrap gap-2">
+      <span class="badge {{ $emailVerified?'ok':'warn' }}">{{ $emailVerified?'Email verificado':'Email sin verificar' }}</span>
+      <span class="badge {{ $phoneVerified?'ok':'warn' }}">{{ $phoneVerified?'Teléfono verificado':'Teléfono sin verificar' }}</span>
     </div>
   </div>
 
-  {{-- Alertas de estado --}}
+  {{-- Alerta de bloqueo --}}
   @if ($isBlocked || ($estadoTxt && Str::contains(Str::lower($estadoTxt), ['bloqueada','suspendida','pendiente'])))
-    <div class="p-4 rounded-lg border border-amber-300 bg-amber-50 text-amber-800">
-      <div class="font-medium">Cuenta con restricciones</div>
-      <div class="text-sm mt-1">
-        Estado: <strong>{{ Str::ucfirst($estadoTxt ?? '—') }}</strong>.
-        Si tienes pagos pendientes, puedes regularizar desde el botón “Pagar ahora”.
-      </div>
+    <div class="alert">
+      <b>⚠️ Cuenta con restricciones</b><br>
+      Estado: <strong>{{ Str::ucfirst($estadoTxt ?? '—') }}</strong>.
+      Si tienes pagos pendientes, puedes regularizar desde <b>Pagar ahora</b>.
     </div>
   @endif
 
-  {{-- Resumen / KPIs --}}
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-    <div class="rounded-xl border bg-white p-4">
-      <div class="text-xs text-zinc-500">Balance actual</div>
-      <div class="mt-1 text-2xl font-semibold tracking-tight">
-        {{ $currency }} ${{ $fmtMoney($balance) }}
-      </div>
-      <div class="mt-1 text-xs text-zinc-400">Con base en los movimientos mostrados</div>
-    </div>
-    <div class="rounded-xl border bg-white p-4">
-      <div class="text-xs text-zinc-500">Plan</div>
-      <div class="mt-1 text-lg font-medium">{{ Str::upper($plan) }}</div>
-      <div class="text-xs text-zinc-500">Ciclo: {{ Str::of($cycle)->lower()->replace('_',' ')->value() }}</div>
-    </div>
-    <div class="rounded-xl border bg-white p-4">
-      <div class="text-xs text-zinc-500">Próxima facturación</div>
-      <div class="mt-1 text-lg font-medium">{{ $fmtDate($nextInvoice) }}</div>
-      <div class="text-xs text-zinc-500">Si aplica</div>
-    </div>
-    <div class="rounded-xl border bg-white p-4">
-      <div class="text-xs text-zinc-500">Estado</div>
-      <div class="mt-1 text-lg font-medium">
-        {{ $estadoTxt ? Str::title($estadoTxt) : '—' }}
-      </div>
-      <div class="text-xs {{ $isBlocked ? 'text-rose-600' : 'text-emerald-600' }}">
-        {{ $isBlocked ? 'Con bloqueo' : 'Activa' }}
-      </div>
-    </div>
+  {{-- KPIs --}}
+  <div class="kpis">
+    <div class="kpi"><small>Balance actual</small><b>{{ $currency }} ${{ $fmtMoney($balance) }}</b><small>Con base en movimientos</small></div>
+    <div class="kpi"><small>Plan</small><b>{{ Str::upper($plan) }}</b><small>Ciclo: {{ Str::of($cycle)->lower()->replace('_',' ') }}</small></div>
+    <div class="kpi"><small>Próxima facturación</small><b>{{ $fmtDate($nextInvoice) }}</b><small>Si aplica</small></div>
+    <div class="kpi"><small>Estado</small><b>{{ $estadoTxt ? Str::title($estadoTxt) : '—' }}</b>
+      <small class="{{ $isBlocked?'text-rose-600':'text-emerald-600' }}">{{ $isBlocked?'Con bloqueo':'Activa' }}</small></div>
   </div>
 
   {{-- Acciones --}}
-  <div class="flex flex-wrap items-center gap-3">
+  <div class="flex flex-wrap gap-3">
     @if (Route::has('cliente.billing.statement'))
-      <a href="{{ route('cliente.billing.statement') }}"
-         class="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-white hover:bg-zinc-800 transition">
-        Ver detalle de facturación
-      </a>
+      <a href="{{ route('cliente.billing.statement') }}" class="btn dark">Ver detalle de facturación</a>
     @endif
 
     @if (Route::has('cliente.billing.payPending'))
       <form action="{{ route('cliente.billing.payPending') }}" method="POST"
-            onsubmit="return confirm('Continuar con el pago de pendientes?');">
+            onsubmit="return confirm('¿Continuar con el pago de pendientes?');">
         @csrf
-        <button type="submit"
-          class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-500 transition">
-          Pagar ahora
-        </button>
+        <button type="submit" class="btn primary">Pagar ahora</button>
       </form>
     @else
-      <a href="/pago" class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-500 transition">
-        Pagar ahora
-      </a>
+      <a href="/pago" class="btn primary">Pagar ahora</a>
     @endif
   </div>
 
-  {{-- Tabla de movimientos --}}
-  <div class="overflow-x-auto rounded-xl border bg-white">
-    <table class="min-w-full text-sm">
-      <thead class="bg-zinc-50">
-        <tr class="text-left">
-          <th class="p-3 font-semibold">Periodo / Fecha</th>
-          <th class="p-3 font-semibold">Concepto</th>
-          <th class="p-3 text-right font-semibold">Cargo ({{ $currency }})</th>
-          <th class="p-3 text-right font-semibold">Abono ({{ $currency }})</th>
-          <th class="p-3 text-right font-semibold">Saldo ({{ $currency }})</th>
+  {{-- Tabla --}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Periodo / Fecha</th><th>Concepto</th>
+          <th class="text-right">Cargo ({{ $currency }})</th>
+          <th class="text-right">Abono ({{ $currency }})</th>
+          <th class="text-right">Saldo ({{ $currency }})</th>
         </tr>
       </thead>
       <tbody>
         @forelse($movs as $m)
           @php
-            // Periodo flexible: usa periodo; si no, created_at; si no, id
             $periodo = $m->periodo ?? ($m->created_at ?? null);
-            $periodoTxt = $periodo ? (Str::contains((string)$periodo, '-') ? $fmtYm($periodo) : (string)$periodo) : '—';
-            $cargo = $m->cargo ?? 0;
-            $abono = $m->abono ?? 0;
-            $saldo = $m->saldo ?? null; // podría venir null si la tabla no tiene
+            $periodoTxt = $periodo ? (Str::contains((string)$periodo,'-') ? $fmtYm($periodo) : (string)$periodo) : '—';
           @endphp
-          <tr class="border-t">
-            <td class="p-3 align-top">
-              <div class="font-medium">{{ $periodoTxt }}</div>
-              @if (!empty($m->created_at))
-                <div class="text-xs text-zinc-500">{{ $fmtDate($m->created_at) }}</div>
+          <tr>
+            <td class="align-top">
+              <div class="font-semibold">{{ $periodoTxt }}</div>
+              @if(!empty($m->created_at))
+                <div class="note">{{ $fmtDate($m->created_at) }}</div>
               @endif
             </td>
-            <td class="p-3 align-top">
+            <td class="align-top">
               <div>{{ $m->concepto ?? '—' }}</div>
-              @if (!empty($m->detalle))
-                <div class="text-xs text-zinc-500 mt-1">{{ $m->detalle }}</div>
+              @if(!empty($m->detalle))
+                <div class="note">{{ $m->detalle }}</div>
               @endif
             </td>
-            <td class="p-3 text-right align-top">${{ $fmtMoney($cargo) }}</td>
-            <td class="p-3 text-right align-top">${{ $fmtMoney($abono) }}</td>
-            <td class="p-3 text-right align-top">
-              @if(!is_null($saldo))
-                ${{ $fmtMoney($saldo) }}
+            <td class="text-right align-top">${{ $fmtMoney($m->cargo ?? 0) }}</td>
+            <td class="text-right align-top">${{ $fmtMoney($m->abono ?? 0) }}</td>
+            <td class="text-right align-top">
+              @if(!is_null($m->saldo))
+                ${{ $fmtMoney($m->saldo) }}
               @else
-                <span class="text-zinc-400">—</span>
+                <span class="note">—</span>
               @endif
             </td>
           </tr>
         @empty
-          <tr>
-            <td colspan="5" class="p-6 text-center text-zinc-500">Sin movimientos</td>
-          </tr>
+          <tr><td colspan="5" class="text-center note p-4">Sin movimientos</td></tr>
         @endforelse
       </tbody>
     </table>
   </div>
 
-  {{-- Tips de ayuda (opcional) --}}
-  <div class="text-xs text-zinc-500">
-    * Si notas datos incompletos, es posible que tu empresa esté migrando o que aún no existan movimientos en el periodo.
-  </div>
+  <div class="note">* Si notas datos incompletos, tu empresa puede estar en migración o sin movimientos en el periodo.</div>
 </div>
 @endsection

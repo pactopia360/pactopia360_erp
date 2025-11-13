@@ -485,4 +485,30 @@ class PerfilController extends Controller
         }
         return null;
     }
+
+
+    /**
+ * Sube y actualiza la foto de perfil del usuario.
+ */
+public function uploadAvatar(Request $request)
+{
+    $user = auth('web')->user();
+    if (!$user) {
+        abort(403, 'Usuario no autenticado');
+    }
+
+    $request->validate([
+        'avatar' => ['required', 'image', 'max:2048'], // hasta 2 MB
+    ]);
+
+    // Guarda la imagen en storage/app/public/avatars
+    $path = $request->file('avatar')->store('avatars', 'public');
+
+    // Guarda la ruta en la base de datos
+    $user->avatar_url = '/storage/'.$path;
+    $user->save();
+
+    return back()->with('ok', 'Foto de perfil actualizada correctamente.');
+}
+
 }

@@ -1,47 +1,132 @@
-{{-- resources/views/cliente/facturacion/create.blade.php (v2.0) --}}
+{{-- resources/views/cliente/facturacion/create.blade.php (v2 visual Pactopia360) --}}
 @extends('layouts.client')
 @section('title','Nuevo Documento · Pactopia360')
 
 @push('styles')
 <style>
-  .page-header{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap }
-  .page-title{ margin:0; font-size:clamp(18px,2.4vw,22px); font-weight:900; color:var(--text) }
-  .btn{ display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:12px; font-weight:900; cursor:pointer; text-decoration:none; border:1px solid var(--border) }
-  .btn.primary{ background:linear-gradient(180deg,var(--accent),color-mix(in oklab,var(--accent) 85%,black)); color:#fff; border:0 }
-  .btn.ghost{ background:transparent; color:var(--text) }
-  .btn:disabled{ opacity:.5; pointer-events:none }
-  .right{ margin-left:auto }
+  body{font-family:'Poppins',system-ui,sans-serif;}
 
-  .steps{ display:grid; gap:14px }
-  .grid-2{ display:grid; gap:12px }
-  @media (min-width:1080px){ .grid-2{ grid-template-columns:1fr 1fr } }
-
-  .card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; box-shadow:var(--shadow); display:grid; gap:12px }
-  .card h3{ margin:0; font-size:12px; color:var(--muted); letter-spacing:.2px; text-transform:uppercase; font-weight:900 }
-
-  .field{ display:grid; gap:6px }
-  .lbl{ font-weight:800; color:var(--muted); font-size:12px }
-  .input, .select, .number, textarea{
-    width:100%; border:1px solid var(--border); border-radius:12px;
-    background:color-mix(in oklab,var(--card) 96%,transparent);
-    color:var(--text); padding:10px 12px; font-weight:700; resize:vertical;
-    transition:border-color .2s, background .2s;
+  /* ======== Header ======== */
+  .page-header{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:12px;flex-wrap:wrap;margin-bottom:18px;
   }
-  .input:focus, .select:focus, .number:focus, textarea:focus{ border-color:var(--accent) }
+  .page-title{
+    margin:0;
+    font-weight:900;
+    font-size:22px;
+    color:#E11D48;
+  }
 
-  table.items{ width:100%; border-collapse:separate; border-spacing:0; }
-  table.items th, table.items td{ padding:10px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
-  table.items th{ color:var(--muted); font-weight:900; text-transform:uppercase; font-size:12px }
-  table.items td textarea{ min-height:38px }
-  .total{ font-size:clamp(18px,3vw,22px); font-weight:900 }
+  /* ======== Botones ======== */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:10px 14px;
+    border-radius:12px;
+    font-weight:800;
+    font-size:14px;
+    cursor:pointer;
+    text-decoration:none;
+    transition:.15s filter ease;
+  }
+  .btn.primary{
+    background:linear-gradient(90deg,#E11D48,#BE123C);
+    color:#fff;border:0;
+    box-shadow:0 8px 20px rgba(225,29,72,.25);
+  }
+  .btn.primary:hover{filter:brightness(.96);}
+  .btn.ghost{
+    background:#fff;
+    border:1px solid #f3d5dc;
+    color:#E11D48;
+  }
+  .btn.ghost:hover{background:#fff0f3;}
+  .btn:disabled{opacity:.5;pointer-events:none;}
 
-  .calc-line{ background:color-mix(in oklab,var(--panel) 96%,transparent); padding:8px 12px; border-radius:10px; font-weight:800 }
+  /* ======== Contenedores ======== */
+  .steps{display:grid;gap:18px;}
+  .grid-2{display:grid;gap:14px;}
+  @media(min-width:1080px){.grid-2{grid-template-columns:1fr 1fr;}}
+
+  .card{
+    position:relative;
+    background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(255,255,255,.9));
+    border:1px solid #f3d5dc;
+    border-radius:18px;
+    padding:20px 22px;
+    box-shadow:0 8px 28px rgba(225,29,72,.08);
+    display:grid;
+    gap:14px;
+  }
+  .card::before{
+    content:"";position:absolute;inset:-1px;border-radius:19px;padding:1px;
+    background:linear-gradient(145deg,#E11D48,#BE123C);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;
+    opacity:.25;pointer-events:none;
+  }
+  .card h3{
+    margin:0;font-size:13px;text-transform:uppercase;
+    letter-spacing:.25px;font-weight:800;color:#E11D48;
+  }
+
+  /* ======== Inputs ======== */
+  .field{display:grid;gap:6px;}
+  .lbl{font-weight:700;color:#6b7280;font-size:12px;}
+  .input,.select,.number,textarea{
+    width:100%;border:1px solid #f3d5dc;border-radius:12px;
+    background:#fff;color:#0f172a;
+    padding:10px 12px;font-weight:700;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .input:focus,.select:focus,.number:focus,textarea:focus{
+    border-color:#E11D48;box-shadow:0 0 0 3px rgba(225,29,72,.25);
+  }
+  textarea{resize:vertical;min-height:60px;}
+
+  /* ======== Tabla ======== */
+  table.items{
+    width:100%;
+    border-collapse:collapse;
+    border:1px solid #f3d5dc;
+    border-radius:14px;
+    overflow:hidden;
+  }
+  table.items th,table.items td{
+    padding:10px 12px;
+    border-bottom:1px solid #f3d5dc;
+    text-align:left;
+  }
+  table.items th{
+    background:#fff0f3;
+    color:#6b7280;
+    font-size:12px;
+    font-weight:900;
+    text-transform:uppercase;
+  }
+  table.items tr:hover td{background:#fffafc;}
+  table.items td textarea{min-height:38px;}
+
+  .subtotal,.total{font-weight:700;font-size:13px;}
+  .calc-line{
+    background:#fff0f3;
+    border-radius:10px;
+    padding:8px 14px;
+    font-weight:800;
+    color:#BE123C;
+  }
+
+  .total{
+    font-size:clamp(18px,3vw,22px);
+    font-weight:900;
+    color:#E11D48;
+  }
 </style>
 @endpush
 
 @section('content')
 <div class="page-header">
-  <h1 class="page-title">Nuevo documento</h1>
+  <h1 class="page-title">Nuevo Documento</h1>
   <div class="tools">
     <a href="{{ route('cliente.facturacion.index') }}" class="btn ghost">← Volver</a>
   </div>
@@ -110,7 +195,6 @@
     {{-- ================== CONCEPTOS ================== --}}
     <div class="card">
       <h3>Conceptos / Productos</h3>
-
       <table class="items" id="itemsTable">
         <thead>
           <tr>
@@ -127,10 +211,12 @@
         <tbody id="itemsBody"></tbody>
       </table>
 
-      <div style="display:flex; align-items:center; gap:8px; margin-top:10px">
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
         <button type="button" class="btn ghost" onclick="addItem()">＋ Agregar concepto</button>
         <div class="right"></div>
-        <div class="calc-line" id="calcPreview" aria-live="polite">Subtotal: $0.00 · IVA: $0.00 · Total: $0.00</div>
+        <div class="calc-line" id="calcPreview" aria-live="polite">
+          Subtotal: $0.00 · IVA: $0.00 · Total: $0.00
+        </div>
       </div>
     </div>
 
@@ -148,7 +234,7 @@
         </div>
       </div>
 
-      <div style="display:flex; align-items:center; gap:12px; margin-top:8px">
+      <div style="display:flex;align-items:center;gap:12px;margin-top:10px;">
         <div class="total" id="totalLabel">$0.00</div>
         <div class="right"></div>
         <button type="submit" class="btn primary">Guardar borrador</button>
@@ -164,7 +250,7 @@
 <script>
   const PRODUCTOS = @json($productos->map(fn($p)=>[
     'id'=>$p->id,
-    'label'=>trim(($p->sku ? $p->sku.' - ' : '').$p->descripcion),
+    'label'=>trim(($p->sku ? $p->sku+' - ' : '')+$p->descripcion),
     'descripcion'=>$p->descripcion,
     'precio_unitario'=>$p->precio_unitario,
     'iva_tasa'=>$p->iva_tasa
@@ -176,15 +262,15 @@
   const payload = document.getElementById('conceptos_payload');
   const form = document.getElementById('docForm');
 
-  function fmt(n){ return (n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmt(n){return (n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}
 
-  function rowTemplate(idx, data){
-    const d = Object.assign({producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,iva_tasa:0.16}, data||{});
+  function rowTemplate(idx,data){
+    const d=Object.assign({producto_id:'',descripcion:'',cantidad:1,precio_unitario:0,iva_tasa:0.16},data||{});
     return `
       <tr data-idx="${idx}">
         <td><textarea class="input" name="conceptos[${idx}][descripcion]" rows="2" required>${d.descripcion||''}</textarea></td>
         <td>
-          <select class="select" name="conceptos[${idx}][producto_id]" onchange="onProductChange(${idx}, this.value)">
+          <select class="select" name="conceptos[${idx}][producto_id]" onchange="onProductChange(${idx},this.value)">
             <option value="">—</option>
             ${PRODUCTOS.map(p=>`<option value="${p.id}" ${String(d.producto_id)===String(p.id)?'selected':''}>${p.label}</option>`).join('')}
           </select>
@@ -195,61 +281,59 @@
         <td class="subtotal">$0.00</td>
         <td class="total">$0.00</td>
         <td><button type="button" class="btn ghost" onclick="removeItem(${idx})">✕</button></td>
-      </tr>
-    `;
+      </tr>`;
   }
 
   function addItem(data){
-    const idx = itemsBody.children.length;
-    itemsBody.insertAdjacentHTML('beforeend', rowTemplate(idx, data));
+    const idx=itemsBody.children.length;
+    itemsBody.insertAdjacentHTML('beforeend',rowTemplate(idx,data));
     recalc();
   }
 
   function removeItem(idx){
-    const tr = itemsBody.querySelector(`tr[data-idx="${idx}"]`);
-    if(tr){ tr.remove(); recalc(); }
+    const tr=itemsBody.querySelector(`tr[data-idx="${idx}"]`);
+    if(tr){tr.remove();recalc();}
   }
 
-  function onProductChange(idx, pid){
-    const p = PRODUCTOS.find(x=>String(x.id)===String(pid));
-    const tr = itemsBody.querySelector(`tr[data-idx="${idx}"]`);
-    if(p && tr){
-      tr.querySelector(`[name="conceptos[${idx}][descripcion]"]`).value = p.descripcion;
-      tr.querySelector(`[name="conceptos[${idx}][precio_unitario]"]`).value = p.precio_unitario;
-      tr.querySelector(`[name="conceptos[${idx}][iva_tasa]"]`).value = p.iva_tasa;
+  function onProductChange(idx,pid){
+    const p=PRODUCTOS.find(x=>String(x.id)===String(pid));
+    const tr=itemsBody.querySelector(`tr[data-idx="${idx}"]`);
+    if(p&&tr){
+      tr.querySelector(`[name="conceptos[${idx}][descripcion]"]`).value=p.descripcion;
+      tr.querySelector(`[name="conceptos[${idx}][precio_unitario]"]`).value=p.precio_unitario;
+      tr.querySelector(`[name="conceptos[${idx}][iva_tasa]"]`).value=p.iva_tasa;
       recalc();
     }
   }
 
   function recalc(){
-    let subtotal=0, iva=0, total=0;
-    [...itemsBody.children].forEach((tr, i)=>{
-      const q = parseFloat(tr.querySelector(`[name="conceptos[${i}][cantidad]"]`)?.value || '0');
-      const pu= parseFloat(tr.querySelector(`[name="conceptos[${i}][precio_unitario]"]`)?.value || '0');
-      const t = parseFloat(tr.querySelector(`[name="conceptos[${i}][iva_tasa]"]`)?.value || '0');
-      const s = Math.round(q*pu*100)/100;
-      const v = Math.round(s*t*100)/100;
-      const tot = Math.round((s+v)*100)/100;
-      subtotal+=s; iva+=v; total+=tot;
-      tr.querySelector('.subtotal').textContent = '$'+fmt(s);
-      tr.querySelector('.total').textContent    = '$'+fmt(tot);
+    let subtotal=0,iva=0,total=0;
+    [...itemsBody.children].forEach((tr,i)=>{
+      const q=parseFloat(tr.querySelector(`[name="conceptos[${i}][cantidad]"]`)?.value||'0');
+      const pu=parseFloat(tr.querySelector(`[name="conceptos[${i}][precio_unitario]"]`)?.value||'0');
+      const t=parseFloat(tr.querySelector(`[name="conceptos[${i}][iva_tasa]"]`)?.value||'0');
+      const s=Math.round(q*pu*100)/100;
+      const v=Math.round(s*t*100)/100;
+      const tot=Math.round((s+v)*100)/100;
+      subtotal+=s;iva+=v;total+=tot;
+      tr.querySelector('.subtotal').textContent='$'+fmt(s);
+      tr.querySelector('.total').textContent='$'+fmt(tot);
     });
-    calcPreview.textContent = `Subtotal: $${fmt(subtotal)} · IVA: $${fmt(iva)} · Total: $${fmt(total)}`;
-    totalLabel.textContent = '$'+fmt(total);
+    calcPreview.textContent=`Subtotal: $${fmt(subtotal)} · IVA: $${fmt(iva)} · Total: $${fmt(total)}`;
+    totalLabel.textContent='$'+fmt(total);
   }
 
-  // Inicializa con una fila
   addItem();
 
-  form.addEventListener('submit', ()=>{
-    const conceptos = [...itemsBody.children].map((tr,i)=>({
-      producto_id: tr.querySelector(`[name="conceptos[${i}][producto_id]"]`)?.value || null,
-      descripcion: tr.querySelector(`[name="conceptos[${i}][descripcion]"]`)?.value || '',
-      cantidad: parseFloat(tr.querySelector(`[name="conceptos[${i}][cantidad]"]`)?.value || '0'),
-      precio_unitario: parseFloat(tr.querySelector(`[name="conceptos[${i}][precio_unitario]"]`)?.value || '0'),
-      iva_tasa: parseFloat(tr.querySelector(`[name="conceptos[${i}][iva_tasa]"]`)?.value || '0'),
+  form.addEventListener('submit',()=>{
+    const conceptos=[...itemsBody.children].map((tr,i)=>({
+      producto_id:tr.querySelector(`[name="conceptos[${i}][producto_id]"]`)?.value||null,
+      descripcion:tr.querySelector(`[name="conceptos[${i}][descripcion]"]`)?.value||'',
+      cantidad:parseFloat(tr.querySelector(`[name="conceptos[${i}][cantidad]"]`)?.value||'0'),
+      precio_unitario:parseFloat(tr.querySelector(`[name="conceptos[${i}][precio_unitario]"]`)?.value||'0'),
+      iva_tasa:parseFloat(tr.querySelector(`[name="conceptos[${i}][iva_tasa]"]`)?.value||'0'),
     }));
-    payload.value = JSON.stringify(conceptos);
+    payload.value=JSON.stringify(conceptos);
   });
 </script>
 @endpush

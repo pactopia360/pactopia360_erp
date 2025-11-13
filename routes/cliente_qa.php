@@ -23,7 +23,7 @@ if ($isLocal) {
             $res = ClientCredentials::resetOwnerByRfc($r->string('rfc')->toString());
             return response()->json($res, $res['ok'] ? 200 : 422);
         })
-        ->middleware('throttle:30,1')
+        ->middleware(['throttle:30,1', \App\Http\Middleware\ClientSessionConfig::class])
         ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
         // nombre único para evitar choques con la versión de cliente.php
         ->name('qa.reset_pass');

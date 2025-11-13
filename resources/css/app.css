@@ -6,7 +6,19 @@
 @source "../**/*.js";
 @source "../**/*.vue";
 
+/* Usa Poppins por consistencia del portal, con fallback a Instrument Sans */
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-sans: 'Poppins', 'Instrument Sans', ui-sans-serif, system-ui, -apple-system,
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+               'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';
+}
+
+/* ---- P360 UI: ajustes globales de tipografía ---- */
+:root{ --font-sans: 'Poppins', 'Instrument Sans', ui-sans-serif, system-ui, -apple-system,
+                   'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+                   'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol'; }
+html, body{
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }

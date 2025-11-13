@@ -12,21 +12,27 @@ use Illuminate\Support\Facades\Schema;
 
 class FirstPasswordController extends Controller
 {
-    /** GET /cliente/password/first  -> muestra formulario */
-    public function show()
+    /** GET /cliente/password/first -> muestra formulario (FORZA TEMA CLARO) */
+    public function show(Request $request)
     {
-        return view('cliente.auth.first');
-        
+        // Forzar tema claro para esta pantalla (coherente con /home por ahora)
+        session(['client_ui.theme' => 'light']);
+
         /** @var \App\Models\Cliente\UsuarioCuenta|null $u */
         $u = Auth::guard('web')->user();
-        if (!$u) return redirect()->route('cliente.login');
+        if (!$u) {
+            return redirect()->route('cliente.login');
+        }
 
-        // Si no está marcada la bandera, mándalo al home
+        // Si no está marcada la bandera, redirigir al home
         if (!($u->must_change_password ?? false)) {
             return redirect()->route('cliente.home');
         }
 
-        return view('cliente.auth.first_password'); // crea un blade simple con 2 campos
+        $email = $request->input('email', $u->email ?? null);
+
+        // Vista de primer cambio de contraseña
+        return view('cliente.auth.password_first', compact('email'));
     }
 
     /** POST /cliente/password/first -> guarda y limpia bandera */
@@ -38,12 +44,23 @@ class FirstPasswordController extends Controller
 
         /** @var \App\Models\Cliente\UsuarioCuenta|null $u */
         $u = Auth::guard('web')->user();
-        if (!$u) return redirect()->route('cliente.login');
+        if (!$u) {
+            return redirect()->route('cliente.login');
+        }
 
         $u->password = ClientAuth::make((string) $r->input('password'));
-        try { if (Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta','must_change_password')) $u->must_change_password = 0; } catch (\Throwable $e) {}
+
+        // Limpia la bandera si existe la columna
+        try {
+            if (Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'must_change_password')) {
+                $u->must_change_password = 0;
+            }
+        } catch (\Throwable $e) {
+            // La columna puede no existir en algunos entornos
+        }
+
         $u->saveQuietly();
 
-        return redirect()->route('cliente.home')->with('ok','Contraseña actualizada.');
+        return redirect()->route('cliente.home')->with('ok', 'Contraseña actualizada.');
     }
 }

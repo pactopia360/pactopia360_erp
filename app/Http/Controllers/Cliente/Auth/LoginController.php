@@ -22,8 +22,18 @@ class LoginController extends Controller
     /* ============================================================
      | VISTAS
      * ============================================================*/
-    public function showLogin()
+    public function showLogin(Request $request)
     {
+        // Aseguramos que este flujo SIEMPRE trabaje con el guard 'web'
+        Auth::shouldUse('web');
+
+        // Si YA está logueado en guard web, mándalo directo a su dashboard cliente
+        if (Auth::guard('web')->check()) {
+            return redirect()->intended(
+                \Route::has('cliente.home') ? route('cliente.home') : '/'
+            );
+        }
+
         return view('cliente.auth.login');
     }
 
@@ -31,179 +41,117 @@ class LoginController extends Controller
      | LOGIN (correo o RFC)
      * ============================================================*/
     public function login(Request $request)
-{
-    $reqId      = (string) Str::ulid(); // correlación
-    $identifier = trim((string) $request->input('login', $request->input('email', '')));
-    $password   = (string) $request->input('password', '');
-    $remember   = $request->boolean('remember');
+    {
+        Auth::shouldUse('web');
 
-    // Desactiva "remember me" si no existe la columna
-    try {
-        if (!Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'remember_token')) {
-            $remember = false;
-        }
-    } catch (\Throwable $e) { $remember = false; }
+        $reqId      = (string) Str::ulid();
+        $identifier = trim((string) $request->input('login', $request->input('email', '')));
+        $password   = (string) $request->input('password', '');
+        $remember   = $request->boolean('remember');
 
-    // ===== Diag inicial
-    $diag = [];
-    $this->d($diag, $reqId, 'Start', [
-        'identifier' => $identifier,
-        'has_csrf'   => (bool) $request->session()->token(),
-        'ip'         => $request->ip(),
-    ]);
-
-    // ===== Validación mínima
-    $request->merge(['identifier' => $identifier]);
-    $request->validate([
-        'identifier' => 'required|string|max:150',
-        'password'   => 'required|string|min:6|max:100',
-    ], [
-        'identifier.required' => 'Ingresa tu correo o tu RFC.',
-        'password.required'   => 'Ingresa tu contraseña.',
-    ]);
-
-    // ===== Throttle
-    if ($this->tooManyAttempts($request, $identifier)) {
-        $wait = $this->remainingLockSeconds($request, $identifier);
-        return $this->failBack("Demasiados intentos. Intenta de nuevo en {$wait}s.", $identifier, $diag, $reqId, 'E0: throttled');
-    }
-
-    $usuario = null;
-    $cuenta  = null;
-
-    // ===== ¿Email o RFC?
-    $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) !== false;
-    $this->d($diag, $reqId, 'Identifier type', ['is_email' => $isEmail]);
-
-    if ($isEmail) {
-        // -------- EMAIL --------
-        $email   = strtolower($identifier);
-        $usuario = UsuarioCuenta::on('mysql_clientes')->where('email', $email)->first();
-        $this->d($diag, $reqId, 'User by email', ['found' => (bool) $usuario, 'user_id' => $usuario->id ?? null]);
-
-        if (!$usuario) {
-            $this->hitThrottle($request, $identifier);
-            return $this->invalid($identifier, $diag, $reqId, 'E1: email no existe en usuarios_cuenta');
-        }
-
-        $cuenta = $usuario->cuenta ?: CuentaCliente::on('mysql_clientes')->find($usuario->cuenta_id);
-
-        // *** hash CRUDO del modelo (misma lógica que ya te funciona por email) ***
-        $hashRaw = (string) $usuario->getRawOriginal('password');
-        if (!$this->passwordMatchesAny($password, $hashRaw)) {
-            $this->hitThrottle($request, $identifier);
-            return $this->invalid($identifier, $diag, $reqId, 'E3: pass mismatch (email)');
-        }
-
-    } else {
-        // -------- RFC --------
-        $rfcInput  = (string) $identifier;
-        $rfcUpper  = Str::upper($rfcInput);
-        $rfcSan    = $this->sanitizeRfc($rfcUpper);
-        $rfcColCli = $this->rfcColumnClientes();
-
-        $this->d($diag, $reqId, 'RFC normalized', [
-            'input' => $rfcInput, 'rfc_upper' => $rfcUpper, 'rfc_sanitized' => $rfcSan, 'rfc_col' => $rfcColCli
-        ]);
-
-        // Busca cuentas por RFC (full normalización en SQL)
-        $cuentas = CuentaCliente::on('mysql_clientes')
-            ->where(function ($q) use ($rfcUpper, $rfcSan, $rfcColCli) {
-                $q->whereRaw("UPPER($rfcColCli) = ?", [$rfcUpper])
-                  ->orWhereRaw('REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(UPPER('.$rfcColCli.')," ",""),"-",""),"_",""),".",""),"/","") = ?', [$rfcSan]);
-            })
-            ->get();
-
-        $this->d($diag, $reqId, 'Cuentas candidate por RFC', ['count' => $cuentas->count()]);
-
-        if ($cuentas->isEmpty()) {
-            $this->hitThrottle($request, $identifier);
-            if (!$this->looksLikeRfc($rfcSan)) {
-                return $this->failValidation('El RFC no tiene un formato válido.', $diag, $reqId, 'E4: RFC inválido');
+        try {
+            if (!Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'remember_token')) {
+                $remember = false;
             }
-            return $this->invalid($identifier, $diag, $reqId, 'E5: RFC no corresponde a ninguna cuenta');
-        }
+        } catch (\Throwable $e) { $remember = false; }
 
-        // Ranking y usuarios de la mejor cuenta (owner primero)
-        [$cuenta, $usuariosAll, $rankDump] = $this->pickBestCuentaByRfcCandidates($cuentas, $diag, $reqId);
-        $this->d($diag, $reqId, 'Cuenta elegida', [
-            'cuenta_id' => $cuenta->id ?? null,
-            'rfc_padre' => $cuenta->rfc_padre ?? null,
-            'ranking'   => $rankDump,
+        $diag = [];
+        $this->d($diag, $reqId, 'Start', [
+            'identifier' => $identifier,
+            'has_csrf'   => (bool) $request->session()->token(),
+            'ip'         => $request->ip(),
         ]);
 
-        if ($usuariosAll->isEmpty()) {
-            $this->hitThrottle($request, $identifier);
-            return $this->failBack('Tu cuenta no tiene usuarios registrados.', $identifier, $diag, $reqId, 'E6: sin usuarios');
-        }
-
-        // Preferir activos (pero probaremos todos si no hay match)
-        $activos    = $usuariosAll->filter(fn ($u) => $this->userLooksActive($u));
-        $candidatos = $activos->isNotEmpty() ? $activos : $usuariosAll;
-
-        $this->d($diag, $reqId, 'Candidatos password', [
-            'activos_primero' => $activos->isNotEmpty(),
-            'cand_count'      => $candidatos->count(),
+        $request->merge(['identifier' => $identifier]);
+        $request->validate([
+            'identifier' => 'required|string|max:150',
+            'password'   => 'required|string|min:6|max:100',
+        ], [
+            'identifier.required' => 'Ingresa tu correo o tu RFC.',
+            'password.required'   => 'Ingresa tu contraseña.',
         ]);
 
-        // === Chequeo FIRME: contra hash crudo (fila o modelo) ===
+        if ($this->tooManyAttempts($request, $identifier)) {
+            $wait = $this->remainingLockSeconds($request, $identifier);
+            return $this->failBack("Demasiados intentos. Intenta de nuevo en {$wait}s.", $identifier, $diag, $reqId, 'E0: throttled');
+        }
+
         $usuario = null;
+        $cuenta  = null;
 
-        foreach ($candidatos as $row) {
-            // 1) Intento con el hash de la FILA (sin recargar modelo)
-            $hashFromRow = isset($row->password) ? (string) $row->password : '';
-            $matched     = false;
+        // ¿Email o RFC?
+        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) !== false;
+        $this->d($diag, $reqId, 'Identifier type', ['is_email' => $isEmail]);
 
-            if ($hashFromRow !== '') {
-                $matched = $this->passwordMatchesAny($password, $hashFromRow);
-                $this->d($diag, $reqId, 'RFC: row-hash check', [
-                    'user_id' => $row->id,
-                    'email'   => $row->email,
-                    'ok'      => $matched,
-                    'p7'      => substr($hashFromRow, 0, 7),
-                    'len'     => strlen($hashFromRow),
-                ]);
+        if ($isEmail) {
+            // -------- EMAIL --------
+            $email   = strtolower($identifier);
+            $usuario = UsuarioCuenta::on('mysql_clientes')->where('email', $email)->first();
+            $this->d($diag, $reqId, 'User by email', ['found' => (bool) $usuario, 'user_id' => $usuario->id ?? null]);
+
+            if (!$usuario) {
+                $this->hitThrottle($request, $identifier);
+                return $this->invalid($identifier, $diag, $reqId, 'E1: email no existe en usuarios_cuenta');
             }
 
-            // 2) Si no hubo match con la fila, carga el MODELO y usa getRawOriginal('password')
-            if (!$matched) {
-                /** @var \App\Models\Cliente\UsuarioCuenta|null $m */
-                $m = UsuarioCuenta::on('mysql_clientes')->find($row->id);
-                if (!$m) {
-                    $this->d($diag, $reqId, 'RFC: candidato no cargó como modelo', ['user_row_id' => $row->id]);
-                    continue;
-                }
+            $cuenta = $usuario->cuenta ?: CuentaCliente::on('mysql_clientes')->find($usuario->cuenta_id);
 
-                $hashRaw = (string) $m->getRawOriginal('password');
-                $matched = ($hashRaw !== '') && $this->passwordMatchesAny($password, $hashRaw);
-
-                $this->d($diag, $reqId, 'RFC: modelo/getRawOriginal check', [
-                    'user_id' => $m->id,
-                    'email'   => $m->email,
-                    'ok'      => $matched,
-                    'p7'      => substr($hashRaw, 0, 7),
-                    'len'     => strlen($hashRaw),
-                ]);
-
-                if ($matched) {
-                    $usuario = $m; // ya tenemos el modelo correcto
-                    break;
-                }
-            } else {
-                // Si ya hizo match con el hash de la fila, ahora sí carga el modelo para loguear
-                $m = UsuarioCuenta::on('mysql_clientes')->find($row->id);
-                if (!$m) {
-                    $this->d($diag, $reqId, 'RFC: match en fila pero modelo no cargó', ['user_row_id' => $row->id]);
-                    continue;
-                }
-                $usuario = $m;
-                break;
+            $hashRaw = (string) $usuario->getRawOriginal('password');
+            if (!$this->passwordMatchesAny($password, $hashRaw)) {
+                $this->hitThrottle($request, $identifier);
+                return $this->invalid($identifier, $diag, $reqId, 'E3: pass mismatch (email)');
             }
-        }
 
-        // Si no hubo match entre activos, intenta con TODOS con el mismo método
-        if (!$usuario && $activos->isNotEmpty() && $usuariosAll->count() > $activos->count()) {
-            foreach ($usuariosAll as $row) {
+        } else {
+            // -------- RFC --------
+            $rfcInput  = (string) $identifier;
+            $rfcUpper  = Str::upper($rfcInput);
+            $rfcSan    = $this->sanitizeRfc($rfcUpper);
+            $rfcColCli = $this->rfcColumnClientes();
+
+            $this->d($diag, $reqId, 'RFC normalized', [
+                'input' => $rfcInput, 'rfc_upper' => $rfcUpper, 'rfc_sanitized' => $rfcSan, 'rfc_col' => $rfcColCli
+            ]);
+
+            $cuentas = CuentaCliente::on('mysql_clientes')
+                ->where(function ($q) use ($rfcUpper, $rfcSan, $rfcColCli) {
+                    $q->whereRaw("UPPER($rfcColCli) = ?", [$rfcUpper])
+                    ->orWhereRaw('REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(UPPER('.$rfcColCli.')," ",""),"-",""),"_",""),".",""),"/","") = ?', [$rfcSan]);
+                })
+                ->get();
+
+            $this->d($diag, $reqId, 'Cuentas candidate por RFC', ['count' => $cuentas->count()]);
+
+            if ($cuentas->isEmpty()) {
+                $this->hitThrottle($request, $identifier);
+                if (!$this->looksLikeRfc($rfcSan)) {
+                    return $this->failValidation('El RFC no tiene un formato válido.', $diag, $reqId, 'E4: RFC inválido');
+                }
+                return $this->invalid($identifier, $diag, $reqId, 'E5: RFC no corresponde a ninguna cuenta');
+            }
+
+            [$cuenta, $usuariosAll, $rankDump] = $this->pickBestCuentaByRfcCandidates($cuentas, $diag, $reqId);
+            $this->d($diag, $reqId, 'Cuenta elegida', [
+                'cuenta_id' => $cuenta->id ?? null,
+                'rfc_padre' => $cuenta->rfc_padre ?? null,
+                'ranking'   => $rankDump,
+            ]);
+
+            if ($usuariosAll->isEmpty()) {
+                $this->hitThrottle($request, $identifier);
+                return $this->failBack('Tu cuenta no tiene usuarios registrados.', $identifier, $diag, $reqId, 'E6: sin usuarios');
+            }
+
+            $activos    = $usuariosAll->filter(fn ($u) => $this->userLooksActive($u));
+            $candidatos = $activos->isNotEmpty() ? $activos : $usuariosAll;
+
+            $this->d($diag, $reqId, 'Candidatos password', [
+                'activos_primero' => $activos->isNotEmpty(),
+                'cand_count'      => $candidatos->count(),
+            ]);
+
+            $usuario = null;
+            foreach ($candidatos as $row) {
                 $hashFromRow = isset($row->password) ? (string) $row->password : '';
                 $matched     = ($hashFromRow !== '') && $this->passwordMatchesAny($password, $hashFromRow);
 
@@ -212,80 +160,116 @@ class LoginController extends Controller
                     if ($m) {
                         $hashRaw = (string) $m->getRawOriginal('password');
                         $matched = ($hashRaw !== '') && $this->passwordMatchesAny($password, $hashRaw);
-                    } else {
-                        $this->d($diag, $reqId, 'RFC: ALL usuarios sin modelo', ['user_row_id' => $row->id]);
                     }
+                } else {
+                    $m = UsuarioCuenta::on('mysql_clientes')->find($row->id);
                 }
 
-                $this->d($diag, $reqId, 'RFC: ALL usuarios check', [
-                    'user_id' => $row->id,
-                    'email'   => $row->email,
-                    'ok'      => $matched,
-                ]);
-
-                if ($matched) {
-                    $usuario = isset($m) && $m ? $m : UsuarioCuenta::on('mysql_clientes')->find($row->id);
+                if (!empty($matched) && !empty($m)) {
+                    $usuario = $m;
                     break;
                 }
             }
+
+            if (!$usuario && $activos->isNotEmpty() && $usuariosAll->count() > $activos->count()) {
+                foreach ($usuariosAll as $row) {
+                    $hashFromRow = isset($row->password) ? (string) $row->password : '';
+                    $matched     = ($hashFromRow !== '') && $this->passwordMatchesAny($password, $hashFromRow);
+
+                    if (!$matched) {
+                        $m = UsuarioCuenta::on('mysql_clientes')->find($row->id);
+                        if ($m) {
+                            $hashRaw = (string) $m->getRawOriginal('password');
+                            $matched = ($hashRaw !== '') && $this->passwordMatchesAny($password, $hashRaw);
+                        }
+                    } else {
+                        $m = UsuarioCuenta::on('mysql_clientes')->find($row->id);
+                    }
+
+                    if (!empty($matched) && !empty($m)) {
+                        $usuario = $m;
+                        break;
+                    }
+                }
+            }
+
+            $this->d($diag, $reqId, 'Resultado match', [
+                'matched' => (bool) $usuario,
+                'user_id' => $usuario?->id,
+                'email'   => $usuario?->email,
+            ]);
+
+            if (!$usuario) {
+                $this->hitThrottle($request, $identifier);
+                return $this->invalid($identifier, $diag, $reqId, 'E7: pass mismatch (RFC route)');
+            }
         }
 
-        $this->d($diag, $reqId, 'Resultado match', [
-            'matched' => (bool) $usuario,
-            'user_id' => $usuario?->id,
-            'email'   => $usuario?->email,
+        // ===== Estado de cuenta local
+        if (in_array((string) ($cuenta->estado_cuenta ?? ''), ['bloqueada', 'suspendida'], true)) {
+            $this->hitThrottle($request, $identifier);
+            return $this->failBack('Tu cuenta no está activa. Contacta a soporte@pactopia.com', $identifier, $diag, $reqId, 'E8: cuenta bloqueada/suspendida');
+        }
+
+        // ===== Validación en admin.accounts
+        $accAdmin = $this->findAdminAccountByRfc($cuenta->rfc_padre ?? '');
+        if ($accAdmin) {
+            if ((int) ($accAdmin->is_blocked ?? 0) === 1) {
+                $this->hitThrottle($request, $identifier);
+                return $this->failBack('Tu cuenta requiere pago para activarse. Completa tu pago para continuar.', $identifier, $diag, $reqId, 'E9: admin.is_blocked=1');
+            }
+
+            // <<< CONTEXTO PARA POST-VERIFICACIÓN Y OTP >>>
+            $rfcPadre = Str::upper((string) ($cuenta->rfc_padre ?? ''));
+            $emailLo  = Str::lower((string) ($usuario->email ?? ''));
+            $accId    = (int) ($accAdmin->id ?? 0);
+
+            // Autologin post-verify
+            $this->setPostVerifyContext($usuario, $remember);
+
+            // Contexto OTP/resolveAccountId
+            session([
+                'verify.account_id' => $accId,
+                'verify.rfc'        => $rfcPadre,
+                'verify.email'      => $emailLo,
+            ]);
+
+            // Si falta email verificado → flujo email
+            if (property_exists($accAdmin, 'email_verified_at') && empty($accAdmin->email_verified_at)) {
+                $this->flashDiag($diag, $reqId);
+                return redirect()
+                    ->route('cliente.verify.email.resend')
+                    ->with('info', 'Debes confirmar tu correo antes de entrar.');
+            }
+
+            // Si falta teléfono verificado → flujo teléfono (OTP)
+            if (property_exists($accAdmin, 'phone_verified_at') && empty($accAdmin->phone_verified_at)) {
+                $this->flashDiag($diag, $reqId);
+                return redirect()
+                    ->route('cliente.verify.phone')
+                    ->with('info', 'Debes verificar tu teléfono antes de entrar.');
+            }
+        }
+
+        // ===== Autenticación en guard 'web' (ya todo verificado)
+        Auth::guard('web')->login($usuario, $remember);
+        $request->session()->regenerate();
+        $this->clearThrottle($request, $identifier);
+
+        $this->d($diag, $reqId, 'LOGIN OK', [
+            'user_id' => $usuario->id,
+            'email'   => $usuario->email,
+            'cuenta'  => $cuenta->id ?? null,
         ]);
 
-        if (!$usuario) {
-            $this->hitThrottle($request, $identifier);
-            return $this->invalid($identifier, $diag, $reqId, 'E7: pass mismatch (RFC route)');
-        }
-    }
-
-    // ===== Estado de cuenta local
-    if (in_array((string) ($cuenta->estado_cuenta ?? ''), ['bloqueada', 'suspendida'], true)) {
-        $this->hitThrottle($request, $identifier);
-        return $this->failBack('Tu cuenta no está activa. Contacta a soporte@pactopia.com', $identifier, $diag, $reqId, 'E8: cuenta bloqueada/suspendida');
-    }
-
-    // ===== Validación en admin.accounts
-    $accAdmin = $this->findAdminAccountByRfc($cuenta->rfc_padre ?? '');
-    if ($accAdmin) {
-        if ((int) ($accAdmin->is_blocked ?? 0) === 1) {
-            $this->hitThrottle($request, $identifier);
-            return $this->failBack('Tu cuenta está suspendida.', $identifier, $diag, $reqId, 'E9: admin.is_blocked=1');
-        }
-        if (property_exists($accAdmin, 'email_verified_at') && empty($accAdmin->email_verified_at)) {
+        if ($this->hasCol('mysql_clientes', 'usuarios_cuenta', 'must_change_password') && (bool) ($usuario->must_change_password ?? false)) {
             $this->flashDiag($diag, $reqId);
-            return redirect()->route('cliente.verify.email.resend')->with('info', 'Debes confirmar tu correo antes de entrar.');
+            return redirect()->route('cliente.password.first');
         }
-        if (property_exists($accAdmin, 'phone_verified_at') && empty($accAdmin->phone_verified_at)) {
-            $this->flashDiag($diag, $reqId);
-            return redirect()->route('cliente.verify.phone')->with('info', 'Debes verificar tu teléfono antes de entrar.');
-        }
-    }
 
-    // ===== Autenticación
-    Auth::guard('web')->login($usuario, $remember);
-    $request->session()->regenerate();
-    $this->clearThrottle($request, $identifier);
-
-    $this->d($diag, $reqId, 'LOGIN OK', [
-        'user_id' => $usuario->id,
-        'email'   => $usuario->email,
-        'cuenta'  => $cuenta->id ?? null,
-    ]);
-
-    if ($this->hasCol('mysql_clientes', 'usuarios_cuenta', 'must_change_password') && (bool) ($usuario->must_change_password ?? false)) {
         $this->flashDiag($diag, $reqId);
-        return redirect()->route('cliente.password.first');
+        return redirect()->route('cliente.home');
     }
-
-    $this->flashDiag($diag, $reqId);
-    return redirect()->route('cliente.home');
-}
-
-
 
 
     /* ============================================================
@@ -293,11 +277,19 @@ class LoginController extends Controller
      * ============================================================*/
     public function logout(Request $request)
     {
+        // por si venías de impersonate admin
+        $request->session()->forget('impersonated_by_admin');
+
+        // Cerrar sesión del cliente (guard 'web')
         auth('web')->logout();
+
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('cliente.login'); // <-- login de cliente
+        // Redirigir SIEMPRE al login cliente, NUNCA al admin
+        return redirect()
+            ->route('cliente.login')
+            ->with('logged_out', true);
     }
 
     /* ============================================================
@@ -441,17 +433,17 @@ class LoginController extends Controller
     /** Compara contra hash probando TODOS los caminos seguros. */
     private function passwordMatchesAny(string $plain, string $hash): bool
     {
-        // 1) Bcrypt “crudo” (lo que escribimos desde Admin)
+        // 1) Bcrypt / hash ya guardado
         if ($hash && Hash::check($plain, $hash)) {
             return true;
         }
 
-        // 2) Compat con ClientAuth (si en algún punto hubo normalización)
+        // 2) Compat con ClientAuth (normalización interna)
         if ($hash && ClientAuth::check($plain, $hash)) {
             return true;
         }
 
-        // 3) (opc) intenta también con trim
+        // 3) Variante con trim
         $t = trim($plain);
         if ($t !== $plain && Hash::check($t, $hash)) return true;
         if ($t !== $plain && ClientAuth::check($t, $hash)) return true;
@@ -502,11 +494,27 @@ class LoginController extends Controller
      * ============================================================*/
     private function findAdminAccountByAnyRfc(string $rfcUpper)
     {
-        if ($rfcUpper === '') return null;
-        return DB::connection('mysql_admin')->table('accounts')
-            ->whereRaw('UPPER(CAST(id AS CHAR)) = ?', [$rfcUpper])
-            ->orWhereRaw('UPPER(COALESCE(rfc, "")) = ?', [$rfcUpper])
+        if ($rfcUpper === '') {
+            return null;
+        }
+
+        $conn = DB::connection('mysql_admin');
+
+        // 1) buscar por RFC normalizado
+        $acc = $conn->table('accounts')
+            ->whereRaw('UPPER(COALESCE(rfc, "")) = ?', [$rfcUpper])
             ->first();
+
+        if ($acc) {
+            return $acc;
+        }
+
+        // 2) fallback legacy: a veces en instalaciones viejas el RFC se usaba como id
+        $acc = $conn->table('accounts')
+            ->whereRaw('UPPER(CAST(id AS CHAR)) = ?', [$rfcUpper])
+            ->first();
+
+        return $acc ?: null;
     }
 
     private function findAdminAccountByRfc(string $rfcPadre)
@@ -749,7 +757,7 @@ class LoginController extends Controller
         abort_unless($this->isLocal(), 404);
 
         $r->validate([
-            'rfc'      => 'required|string|max:32',
+            'rfc' => 'required|string|max:32',
             'password' => 'required|string|max:200',
         ]);
 
@@ -1090,4 +1098,77 @@ class LoginController extends Controller
         for ($i = strlen($pwd); $i < $length; $i++) { $pwd .= $all[random_int(0, strlen($all) - 1)]; }
         return str_shuffle($pwd);
     }
+
+    /* ============================================================
+    | VERIFICACIÓN (helpers privados para login/OTP)
+    * ============================================================*/
+
+    /**
+     * Determina si el usuario ya tiene verificados correo y teléfono
+     * en la fila correspondiente de mysql_admin.accounts (vía RFC).
+     *
+     * Regresa true si:
+     *  - existe la cuenta admin para el RFC del usuario, y
+     *  - (si existen las columnas) email_verified_at y phone_verified_at NO están vacías.
+     */
+    private function emailYTelefonoVerificados(UsuarioCuenta $user): bool
+    {
+        try {
+            // RFC del usuario (desde su cuenta en clientes)
+            $cuenta = $user->cuenta()->first();
+            $rfcPadre = $cuenta?->rfc_padre ? Str::upper($cuenta->rfc_padre) : null;
+            if (!$rfcPadre) {
+                return false;
+            }
+
+            // Busca la fila en admin.accounts para ese RFC (usa el helper ya existente)
+            $accAdmin = $this->findAdminAccountByRfc($rfcPadre);
+            if (!$accAdmin) {
+                return false;
+            }
+
+            // Si las columnas existen, deben estar pobladas
+            $schemaAdmin = Schema::connection('mysql_admin');
+
+            $emailOk = true;
+            if ($schemaAdmin->hasColumn('accounts', 'email_verified_at')) {
+                $emailOk = !empty($accAdmin->email_verified_at);
+            }
+
+            $phoneOk = true;
+            if ($schemaAdmin->hasColumn('accounts', 'phone_verified_at')) {
+                $phoneOk = !empty($accAdmin->phone_verified_at);
+            }
+
+            return $emailOk && $phoneOk;
+
+        } catch (\Throwable $e) {
+            Log::error('[login] emailYTelefonoVerificados error', ['e' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Guarda en sesión el contexto necesario para autologin
+     * cuando el usuario complete la verificación (OTP).
+     *
+     * Se lee posteriormente en VerificationController@checkOtp().
+     */
+    private function setPostVerifyContext(UsuarioCuenta $user, bool $remember = false): void
+    {
+        session([
+            'post_verify.user_id'  => $user->id,
+            'post_verify.remember' => $remember,
+        ]);
+    }
+
+    /**
+     * Limpia el contexto de autologin post-verificación.
+     * Útil en logout o al finalizar correctamente el proceso.
+     */
+    private function clearPostVerifyContext(): void
+    {
+        session()->forget(['post_verify.user_id', 'post_verify.remember']);
+    }
+
 }

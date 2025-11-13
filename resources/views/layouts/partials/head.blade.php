@@ -1,3 +1,4 @@
+{{-- resources/views/layouts/partials/head.blade.php (v3) --}}
 @php
   // Versión robusta para bustear caché de assets en /public
   if (!function_exists('assetv')) {
@@ -30,7 +31,11 @@
 
 {{-- Metas de seguridad y ambiente --}}
 <meta name="csrf-token" content="{{ csrf_token() }}" />
-<meta name="robots" content="noindex, nofollow" />
+@production
+  <meta name="robots" content="index, follow" />
+@else
+  <meta name="robots" content="noindex, nofollow" />
+@endproduction
 <meta name="locale" content="{{ app()->getLocale() }}" />
 <meta name="color-scheme" content="light dark" />
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -48,10 +53,8 @@
 <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('assets/admin/img/favicon-32.png') }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('assets/admin/img/favicon-16.png') }}">
 <link rel="manifest" href="{{ url('/site.webmanifest') }}">
-
-<meta name="theme-color" content="#0b1220">
-<meta name="mobile-web-app-capable" content="yes">      <!-- ← nuevo -->
-<meta name="apple-mobile-web-app-capable" content="yes"> <!-- ← iOS -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 
 {{-- =========================
    Meta Pixel (solo producción)
@@ -82,29 +85,35 @@
 <script>
   (function () {
     try {
-      var th = localStorage.getItem('p360-theme');
-      if (!th) th = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      // 1) Tema: prioriza clave cliente, luego legacy, luego preferencia del SO
+      var th =
+        localStorage.getItem('p360_client_theme') ||
+        localStorage.getItem('p360-theme') ||
+        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
-      // Soporta clave nueva y legacy para colapso del sidebar
-      var sbNew = localStorage.getItem('p360.sidebar.collapsed') === '1';
-      var sbOld = localStorage.getItem('p360-sidebar') === '1'; // compat
-      var sb = sbNew || sbOld;
+      var html = document.documentElement, body = document.body;
+      html.classList.remove('theme-dark','theme-light');
+      body.classList.remove('theme-dark','theme-light');
+      html.classList.add(th === 'dark' ? 'theme-dark' : 'theme-light');
+      body.classList.add(th === 'dark' ? 'theme-dark' : 'theme-light');
+      html.setAttribute('data-theme', th);
 
-      var el = document.documentElement, body=document.body;
-      el.classList.toggle('theme-dark', th === 'dark');
-      el.classList.toggle('theme-light', th !== 'dark');
-      el.setAttribute('data-theme', th);
-      body.classList.toggle('theme-dark', th === 'dark');
-      body.classList.toggle('theme-light', th !== 'dark');
-      if (sb) {
-        el.classList.add('sidebar-collapsed');
-        body.classList.add('sidebar-collapsed');
-      }
+      // 2) Sidebar collapsed (lee varias claves por compatibilidad)
+      // - Nueva: p360.client.sidebar.state = 'collapsed'|'expanded'
+      // - Legacy booleanas: p360.sidebar.collapsed === '1'  ó  p360-sidebar === '1'
+      var sbState = localStorage.getItem('p360.client.sidebar.state');
+      var collapsed =
+        (sbState === 'collapsed') ||
+        localStorage.getItem('p360.sidebar.collapsed') === '1' ||
+        localStorage.getItem('p360-sidebar') === '1';
+
+      html.classList.toggle('sidebar-collapsed', !!collapsed);
+      body.classList.toggle('sidebar-collapsed', !!collapsed);
     } catch(e) {}
   })();
 </script>
 
-{{-- Anti-FOUC para logo por tema --}}
+{{-- Anti-FOUC para logo por tema (si tu header los usa con estas clases) --}}
 <style>
   .brand-logo{display:none}
   html.theme-light .brand-light{display:inline}
@@ -126,6 +135,6 @@
 {{-- CSS por vista (ej. home.css) --}}
 @stack('styles')
 
-{{-- Favicon / iOS icons --}}
+{{-- Favicon / iOS icons (fallbacks) --}}
 <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('assets/admin/img/favicon.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('assets/admin/img/apple-touch-icon.png') }}">

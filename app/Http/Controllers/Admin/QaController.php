@@ -287,4 +287,53 @@ class QaController extends Controller
     {
         return $this->adminHasPhoneOtps('code') ? 'code' : 'otp';
     }
+
+
+    /**
+ * Limpia OTPs expirados / usados (solo local / dev).
+ * Devuelve JSON con cuántos registros se eliminaron.
+ */
+public function cleanOtps()
+{
+    // Seguridad extra: solo permitir en local / dev / testing
+    if (!app()->environment(['local', 'development', 'testing'])) {
+        abort(403, 'No disponible en este entorno.');
+    }
+
+    try {
+        $total = \Illuminate\Support\Facades\DB::connection('mysql_admin')
+            ->table('phone_otps')
+            ->where(function ($q) {
+                $q->whereNotNull('used_at')
+                  ->orWhere('expires_at', '<', now());
+            })
+            ->delete();
+
+        \Illuminate\Support\Facades\Log::info('[OTP-CLEAN][QA-HTTP] Limpieza manual ejecutada', [
+            'by_admin' => optional(auth('admin')->user())->id ?? 'unknown',
+            'eliminados' => $total,
+        ]);
+
+        return response()->json([
+            'ok'         => true,
+            'deleted'    => $total,
+            'timestamp'  => now()->toDateTimeString(),
+            'env'        => app()->environment(),
+            'message'    => "OTPs expirados/usados eliminados: {$total}",
+        ]);
+
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('[OTP-CLEAN][QA-HTTP] Error en limpieza', [
+            'e'       => $e->getMessage(),
+            'by_admin'=> optional(auth('admin')->user())->id ?? 'unknown',
+        ]);
+
+        return response()->json([
+            'ok'       => false,
+            'error'    => $e->getMessage(),
+            'env'      => app()->environment(),
+        ], 500);
+    }
+}
+
 }

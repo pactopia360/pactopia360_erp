@@ -16,11 +16,14 @@ class LoginController extends Controller
      */
     public function showLogin(Request $request)
     {
+        // Aseguramos que TODO este flujo use el guard 'admin'
         Auth::shouldUse('admin');
 
+        // Si ya está autenticado como admin, mándalo directo al dashboard admin
         if (Auth::guard('admin')->check()) {
-            // Ya autenticado: a donde quiso ir o al home
-            return redirect()->intended(route('admin.home'));
+            return redirect()->intended(
+                \Route::has('admin.home') ? route('admin.home') : '/'
+            );
         }
 
         return view('admin.auth.login');
@@ -31,6 +34,8 @@ class LoginController extends Controller
      */
     public function login(Request $request)
     {
+        // Importantísimo: fijar contexto del guard admin,
+        // para que no intente usar el guard web del cliente.
         Auth::shouldUse('admin');
 
         $reqId  = (string) Str::ulid();
@@ -40,7 +45,9 @@ class LoginController extends Controller
         ]);
 
         // Acepta email o codigo_usuario (si existe)
-        $identifier = $this->normalizeIdentifier((string) ($request->input('email') ?? $request->input('codigo_usuario') ?? ''));
+        $identifier = $this->normalizeIdentifier(
+            (string) ($request->input('email') ?? $request->input('codigo_usuario') ?? '')
+        );
         $password   = (string) $request->input('password', '');
         $remember   = $request->boolean('remember', false);
 
@@ -51,16 +58,20 @@ class LoginController extends Controller
             'password' => ['required','string','min:6','max:200'],
         ], [], ['_login' => 'usuario/email']);
 
-        // Si hay demasiados intentos, pausa
+        // Throttle (intentos fallidos)
         if ($this->tooManyAttempts($request, $identifier)) {
             $wait = $this->remainingLockSeconds($request, $identifier);
-            return back()
-                ->withErrors(['email' => "Demasiados intentos. Intenta de nuevo en {$wait}s."])
-                ->withInput(['email' => $identifier]);
+            return $this->failBack(
+                "Demasiados intentos. Intenta de nuevo en {$wait}s.",
+                $identifier,
+                $diag,
+                $reqId,
+                'E0: throttled'
+            );
         }
 
         // Intento 1: por email (si parece email)
-        $ok = false;
+        $ok    = false;
         $guard = Auth::guard('admin');
 
         $isEmail   = Str::contains($identifier, '@');
@@ -68,14 +79,20 @@ class LoginController extends Controller
 
         if ($isEmail) {
             $this->d($diag, $reqId, 'Try by email');
-            $ok = $guard->attempt(['email' => Str::lower($identifier), 'password' => $password], $remember);
+            $ok = $guard->attempt(
+                ['email' => Str::lower($identifier), 'password' => $password],
+                $remember
+            );
         }
 
         // Intento 2: por codigo_usuario (si existe columna o si el input NO parece email)
         if (!$ok) {
             if ($hasCodigo) {
                 $this->d($diag, $reqId, 'Try by codigo_usuario');
-                $ok = $guard->attempt(['codigo_usuario' => $identifier, 'password' => $password], $remember);
+                $ok = $guard->attempt(
+                    ['codigo_usuario' => $identifier, 'password' => $password],
+                    $remember
+                );
             } else {
                 $this->d($diag, $reqId, 'codigo_usuario column not present, skipped');
             }
@@ -83,9 +100,13 @@ class LoginController extends Controller
 
         if (!$ok) {
             $this->hitThrottle($request, $identifier);
-            return back()
-                ->withErrors(['email' => 'Credenciales inválidas'])
-                ->withInput(['email' => $identifier]);
+            return $this->failBack(
+                'Credenciales inválidas',
+                $identifier,
+                $diag,
+                $reqId,
+                'E1: bad credentials'
+            );
         }
 
         /** @var \App\Models\Admin\Auth\UsuarioAdministrativo $user */
@@ -104,7 +125,13 @@ class LoginController extends Controller
             if ($this->colExists('activo') && (int)($user->activo ?? 0) !== 1) {
                 $this->logoutNow($request);
                 $this->hitThrottle($request, $identifier);
-                return back()->withErrors(['email' => 'Cuenta inactiva'])->withInput(['email' => $identifier]);
+                return $this->failBack(
+                    'Cuenta inactiva',
+                    $identifier,
+                    $diag,
+                    $reqId,
+                    'E2: inactiva'
+                );
             }
 
             if ($this->colExists('estatus')) {
@@ -112,14 +139,26 @@ class LoginController extends Controller
                 if (!in_array($st, ['activo','active','enabled','ok'], true)) {
                     $this->logoutNow($request);
                     $this->hitThrottle($request, $identifier);
-                    return back()->withErrors(['email' => 'Cuenta no autorizada'])->withInput(['email' => $identifier]);
+                    return $this->failBack(
+                        'Cuenta no autorizada',
+                        $identifier,
+                        $diag,
+                        $reqId,
+                        'E3: estatus bloqueado'
+                    );
                 }
             }
 
             if ($this->colExists('is_blocked') && (int)($user->is_blocked ?? 0) === 1) {
                 $this->logoutNow($request);
                 $this->hitThrottle($request, $identifier);
-                return back()->withErrors(['email' => 'Cuenta bloqueada'])->withInput(['email' => $identifier]);
+                return $this->failBack(
+                    'Cuenta bloqueada',
+                    $identifier,
+                    $diag,
+                    $reqId,
+                    'E4: blocked'
+                );
             }
         }
 
@@ -130,9 +169,17 @@ class LoginController extends Controller
             } else {
                 // Fallback suave: si existen columnas, intenta guardarlas
                 $updated = false;
-                if ($this->colExists('ultimo_login_at')) { $user->ultimo_login_at = now(); $updated = true; }
-                if ($this->colExists('ip_ultimo_login')) { $user->ip_ultimo_login = (string) $request->ip(); $updated = true; }
-                if ($updated && method_exists($user, 'saveQuietly')) { $user->saveQuietly(); }
+                if ($this->colExists('ultimo_login_at')) {
+                    $user->ultimo_login_at = now();
+                    $updated = true;
+                }
+                if ($this->colExists('ip_ultimo_login')) {
+                    $user->ip_ultimo_login = (string) $request->ip();
+                    $updated = true;
+                }
+                if ($updated && method_exists($user, 'saveQuietly')) {
+                    $user->saveQuietly();
+                }
             }
         } catch (\Throwable $e) {
             $this->d($diag, $reqId, 'markLastLogin error', ['e' => $e->getMessage()]);
@@ -142,9 +189,11 @@ class LoginController extends Controller
         $request->session()->regenerate();
         $this->clearThrottle($request, $identifier);
 
-        // Forzar cambio de contraseña (si existe columna)
+        // Forzar cambio de contraseña (si existe la bandera/columna)
         if ($this->colExists('force_password_change') && (bool)($user->force_password_change ?? false)) {
             $this->d($diag, $reqId, 'Must change password');
+            $this->flashDiag($diag, $reqId);
+
             return redirect()
                 ->route('admin.perfil.edit')
                 ->with('password_force', true)
@@ -156,7 +205,11 @@ class LoginController extends Controller
             'email'   => $user?->email ?? null,
         ]);
 
-        return redirect()->intended(route('admin.home'));
+        $this->flashDiag($diag, $reqId);
+
+        return redirect()->intended(
+            \Route::has('admin.home') ? route('admin.home') : '/'
+        );
     }
 
     /**
@@ -164,7 +217,10 @@ class LoginController extends Controller
      */
     public function logout(Request $request)
     {
+        // logout SIEMPRE del guard admin, limpia sesión
         $this->logoutNow($request);
+
+        // redirigir SIEMPRE al login admin
         return redirect()->route('admin.login');
     }
 
@@ -191,7 +247,9 @@ class LoginController extends Controller
         try {
             if (!$user) return false;
 
-            $get = fn($k) => method_exists($user, 'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
+            $get = fn($k) => method_exists($user, 'getAttribute')
+                ? $user->getAttribute($k)
+                : ($user->$k ?? null);
 
             $sa  = (bool)($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
             if ($sa) return true;
@@ -233,7 +291,10 @@ class LoginController extends Controller
             return [$conn, $table];
         }
 
-        $conn  = config('database.connections.mysql_admin') ? 'mysql_admin' : (config('database.default') ?? 'mysql');
+        $conn  = config('database.connections.mysql_admin')
+            ? 'mysql_admin'
+            : (config('database.default') ?? 'mysql');
+
         $table = 'usuario_administrativos';
         return [$conn, $table];
     }
@@ -282,13 +343,39 @@ class LoginController extends Controller
         return $age >= $decay ? 0 : ($decay - $age);
     }
 
-    /* ===================== Diagnóstico ===================== */
+    /* ===================== Diagnóstico / Debug ===================== */
 
     private function d(array &$diag, string $reqId, string $step, array $ctx = []): void
     {
         if (app()->environment(['local','development','testing'])) {
             Log::debug('[admin-login]['.$reqId.'] '.$step, $ctx);
         }
-        $diag[] = ['req' => $reqId, 'step' => $step, 'ctx' => $ctx, 'ts' => now()->toDateTimeString()];
+        $diag[] = [
+            'req'  => $reqId,
+            'step' => $step,
+            'ctx'  => $ctx,
+            'ts'   => now()->toDateTimeString()
+        ];
+    }
+
+    private function flashDiag(array $diag, string $reqId): void
+    {
+        if (app()->environment(['local','development','testing'])) {
+            session()->flash('admin_diag', $diag);
+            session()->flash('admin_diag_req', $reqId);
+        }
+    }
+
+    private function failBack(string $message, string $identifier, array $diag, string $reqId, string $code)
+    {
+        $msg = app()->environment(['local','development','testing'])
+            ? "$message ($code)"
+            : $message;
+
+        $this->flashDiag($diag, $reqId);
+
+        return back()
+            ->withErrors(['email' => $msg])
+            ->withInput(['email' => $identifier]);
     }
 }

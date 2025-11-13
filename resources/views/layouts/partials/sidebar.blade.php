@@ -361,12 +361,16 @@
   }
 
   #nebula-sidebar{
-    position:fixed; left:0; top:var(--header-h); bottom:0; width:var(--ns-w);
+    position:fixed; left:0;
+    /* antes: top: var(--header-h); */
+    top: calc(var(--header-h) - var(--p360-rail-h, 2px));
+    bottom:0; width:var(--ns-w);
     background:var(--ns-bg); color:var(--ns-fg); border-right:1px solid var(--ns-bd);
     z-index:1045; overflow:auto; overscroll-behavior:contain;
-    -webkit-overflow-scrolling: touch; /* scroll suave iOS */
-    contain: layout paint style; /* micro-opt */
+    -webkit-overflow-scrolling: touch;
+    contain: layout paint style;
   }
+
   .ns-wrap{min-height:100%; display:flex; flex-direction:column}
   .ns-tools{position:sticky; top:0; background:inherit; z-index:5; padding:10px; border-bottom:1px solid var(--ns-bd); backdrop-filter:saturate(140%) blur(4px)}
   .ns-tabs{display:flex; gap:6px; margin-bottom:6px}
@@ -447,6 +451,43 @@
   #nebula-sidebar *::-webkit-scrollbar-track{ background:transparent }
 
   @media (prefers-reduced-motion: reduce){ .car{ transition:none } }
+
+  /* ===== Overrides: Nebula (admin) plano + active por contorno rojo ===== */
+:root{
+  --ns-hi: var(--brand-red, #E11D48);
+  --ns-hi-16: color-mix(in oklab, var(--ns-hi) 16%, #fff);
+  --ns-hi-30: color-mix(in oklab, var(--ns-hi) 30%, transparent);
+}
+#nebula-sidebar{
+  background: var(--ns-bg);
+}
+
+/* Hover mínimo */
+#nebula-sidebar .ns-link:hover,
+#nebula-sidebar .ns-summary:hover{
+  background: color-mix(in oklab, var(--ns-fg) 6%, transparent);
+}
+
+/* ACTIVO: sin gradiente, contorno/inner ring y barra izquierda */
+#nebula-sidebar .ns-link.active{
+  background:#fff;
+  border:1px solid var(--ns-bd);
+  box-shadow: inset 0 0 0 2px var(--ns-hi-16);
+  position:relative;
+  font-weight:800;
+}
+#nebula-sidebar .ns-link.active::before{
+  content:''; position:absolute; left:8px; top:10px; bottom:10px; width:3px; border-radius:3px; background:var(--ns-hi);
+}
+
+/* Dark mode coherente */
+html.theme-dark #nebula-sidebar .ns-link.active{
+  background: transparent;
+  border-color: color-mix(in oklab, #fff 20%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ns-hi) 26%, transparent);
+}
+
+
 </style>
 
 <script>

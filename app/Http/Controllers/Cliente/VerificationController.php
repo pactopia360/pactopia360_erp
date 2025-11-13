@@ -4,21 +4,51 @@ namespace App\Http\Controllers\Cliente;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Str;
+use App\Services\OtpService;
 
 class VerificationController extends Controller
 {
     private const OTP_MAX_ATTEMPTS = 5;
 
-    /* =========================================================
-     * EMAIL
-     * ========================================================= */
+    /* =========================
+     * Helpers de guard unificado
+     * ========================= */
+    private function currentClientUser()
+    {
+        if (Auth::guard('web')->check()) {
+            return Auth::guard('web')->user();
+        }
+        try {
+            if (Auth::guard('cliente')->check()) {
+                return Auth::guard('cliente')->user();
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+        if (auth()->check()) {
+            return auth()->user();
+        }
+        return null;
+    }
 
+    private function clientIsAuthenticated(): bool
+    {
+        if (Auth::guard('web')->check()) return true;
+        try {
+            if (Auth::guard('cliente')->check()) return true;
+        } catch (\Throwable $e) {}
+        return auth()->check();
+    }
+
+    /* =========================================================
+     * EMAIL con token /cliente/verificar/email/{token}
+     * ========================================================= */
     public function verifyEmail(string $token)
     {
         $row = DB::connection('mysql_admin')
@@ -27,75 +57,160 @@ class VerificationController extends Controller
             ->first();
 
         if (!$row) {
-            return view('cliente.auth.verify_email', [
-                'status'  => 'error',
-                'message' => 'El enlace no es válido. Solicita uno nuevo.',
-            ]);
+            return redirect()
+                ->route('cliente.login')
+                ->with('error', 'El enlace no es válido o ya fue usado.');
         }
 
         if ($row->expires_at && now()->greaterThan($row->expires_at)) {
             return view('cliente.auth.verify_email', [
-                'status'  => 'expired',
-                'message' => 'El enlace expiró. Reenvíalo para continuar.',
-                'email'   => $row->email,
+                'status'       => 'expired',
+                'message'      => 'El enlace de verificación expiró. Solicita uno nuevo.',
+                'email'        => $row->email ?? null,
+                'phone_masked' => null,
             ]);
         }
 
-        $toUpdate = [];
-        if ($this->adminHas('email_verified_at')) $toUpdate['email_verified_at'] = now();
-        if ($this->adminHas('updated_at'))        $toUpdate['updated_at']        = now();
-        if (!empty($toUpdate)) {
-            $emailCol = $this->adminEmailColumn();
-            DB::connection('mysql_admin')->table('accounts')
-                ->where('id', $row->account_id)
-                ->where($emailCol, $row->email)
-                ->update($toUpdate);
-        }
+        DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $row->account_id)
+            ->update([
+                'email_verified_at' => now(),
+                'updated_at'        => now(),
+            ]);
 
-        DB::connection('mysql_admin')->table('email_verifications')
+        DB::connection('mysql_admin')
+            ->table('email_verifications')
             ->where('account_id', $row->account_id)
             ->delete();
 
-        session([
-            'verify.account_id' => $row->account_id,
-            'verify.email'      => $row->email,
-        ]);
+        $resolvedAccountId = null;
+        $resolvedPhone     = null;
 
-        $phoneCol = $this->adminPhoneColumn();
-        $account = DB::connection('mysql_admin')->table('accounts')
-            ->select($phoneCol.' as phone')
-            ->where('id', $row->account_id)
-            ->first();
+        if ($this->clientIsAuthenticated()) {
+            $user       = $this->currentClientUser();
+            $userCuenta = $user?->cuenta()?->first();
+            if ($userCuenta && !empty($userCuenta->rfc_padre)) {
+                $accAdm = DB::connection('mysql_admin')
+                    ->table('accounts')
+                    ->whereRaw('UPPER(rfc)=?', [Str::upper($userCuenta->rfc_padre)])
+                    ->select('id', 'telefono')
+                    ->orderByDesc('id')
+                    ->first();
+
+                if ($accAdm) {
+                    $resolvedAccountId = (int) $accAdm->id;
+                    $resolvedPhone     = $accAdm->telefono ?? null;
+                }
+            }
+        }
+
+        if (!$resolvedAccountId) {
+            $accAdmByToken = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('id', $row->account_id)
+                ->select('id', 'telefono')
+                ->first();
+
+            if ($accAdmByToken) {
+                $resolvedAccountId = (int) $accAdmByToken->id;
+                $resolvedPhone     = $accAdmByToken->telefono ?? null;
+            }
+        }
+
+        if ($resolvedAccountId) {
+            session([
+                'verify.account_id' => $resolvedAccountId,
+                'verify.email'      => Str::lower((string)$row->email),
+            ]);
+        }
 
         return view('cliente.auth.verify_email', [
             'status'       => 'ok',
-            'message'      => '¡Correo verificado! Ahora verifica tu teléfono para asegurar tu cuenta.',
-            'phone_masked' => $this->maskPhone($account?->phone ?? ''),
+            'message'      => '¡Correo verificado! Ahora verifica tu teléfono.',
+            'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
         ]);
     }
 
+    /* =========================================================
+     * EMAIL firmada /cliente/verificar/email/link?account_id=..&email=..
+     * ========================================================= */
     public function verifyEmailSigned(Request $request)
     {
-        $accountId = (int) $request->query('account_id');
-        $email     = (string) $request->query('email', '');
-        if (!$accountId || !$email) abort(404);
+        $accountIdFromLink = (int) $request->query('account_id');
+        $emailFromLink     = (string) $request->query('email', '');
 
-        $toUpdate = [];
-        if ($this->adminHas('email_verified_at')) $toUpdate['email_verified_at'] = now();
-        if ($this->adminHas('updated_at'))        $toUpdate['updated_at']        = now();
-        if (!empty($toUpdate)) {
-            $emailCol = $this->adminEmailColumn();
-            DB::connection('mysql_admin')->table('accounts')
-                ->where('id', $accountId)->where($emailCol, $email)
-                ->update($toUpdate);
+        if (!$accountIdFromLink || !$emailFromLink) {
+            abort(404);
         }
 
-        session(['verify.account_id' => $accountId, 'verify.email' => $email]);
+        DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $accountIdFromLink)
+            ->where(function ($q) use ($emailFromLink) {
+                $q->where('correo_contacto', $emailFromLink)
+                  ->orWhere('correo_contacto', Str::lower($emailFromLink))
+                  ->orWhere('correo_contacto', Str::upper($emailFromLink))
+                  ->orWhere('email', $emailFromLink)
+                  ->orWhere('email', Str::lower($emailFromLink))
+                  ->orWhere('email', Str::upper($emailFromLink));
+            })
+            ->update([
+                'email_verified_at' => now(),
+                'updated_at'        => now(),
+            ]);
 
-        return redirect()->route('cliente.verify.phone')
-            ->with('ok', 'Correo verificado. Verifica tu teléfono para terminar.');
+        $resolvedAccountId = null;
+        $resolvedPhone     = null;
+
+        if ($this->clientIsAuthenticated()) {
+            $user       = $this->currentClientUser();
+            $userCuenta = $user?->cuenta()?->first();
+            if ($userCuenta && !empty($userCuenta->rfc_padre)) {
+                $accAdm = DB::connection('mysql_admin')
+                    ->table('accounts')
+                    ->whereRaw('UPPER(rfc)=?', [Str::upper($userCuenta->rfc_padre)])
+                    ->select('id', 'telefono')
+                    ->orderByDesc('id')
+                    ->first();
+
+                if ($accAdm) {
+                    $resolvedAccountId = (int) $accAdm->id;
+                    $resolvedPhone     = $accAdm->telefono ?? null;
+                }
+            }
+        }
+
+        if (!$resolvedAccountId) {
+            $accAdmByLink = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('id', $accountIdFromLink)
+                ->select('id', 'telefono')
+                ->first();
+
+            if ($accAdmByLink) {
+                $resolvedAccountId = (int) $accAdmByLink->id;
+                $resolvedPhone     = $accAdmByLink->telefono ?? null;
+            }
+        }
+
+        if ($resolvedAccountId) {
+            session([
+                'verify.account_id' => $resolvedAccountId,
+                'verify.email'      => Str::lower($emailFromLink),
+            ]);
+        }
+
+        return view('cliente.auth.verify_email', [
+            'status'       => 'ok',
+            'message'      => 'Correo verificado. Falta tu teléfono 👍',
+            'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
+        ]);
     }
 
+    /* =========================================================
+     * Reenviar verificación de correo
+     * ========================================================= */
     public function showResendEmail()
     {
         return view('cliente.auth.verify_email_resend');
@@ -103,197 +218,698 @@ class VerificationController extends Controller
 
     public function resendEmail(Request $request)
     {
-        $request->validate([
-            'email' => ['required', 'email:rfc,dns', 'max:150'],
-        ]);
+        $request->validate(
+            [
+                'email' => ['required', 'email:rfc,dns', 'max:150'],
+            ],
+            [
+                'email.required' => 'Ingresa tu correo electrónico.',
+                'email.email'    => 'Escribe un correo válido (ej. nombre@dominio.com).',
+                'email.max'      => 'El correo no debe exceder 150 caracteres.',
+            ]
+        );
 
-        $emailCol = $this->adminEmailColumn();
-        $account = DB::connection('mysql_admin')->table('accounts')
-            ->where($emailCol, strtolower($request->email))
+        $email = Str::lower($request->email);
+
+        $account = DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('correo_contacto', $email)
             ->first();
 
         if (!$account) {
-            return back()->withErrors(['email' => 'No encontramos una cuenta con ese correo.'])->withInput();
+            return back()
+                ->withErrors(['email' => 'No encontramos una cuenta con ese correo.'])
+                ->withInput();
         }
 
-        if ($this->adminHas('email_verified_at') && $account->email_verified_at) {
-            return back()->with('ok', 'Ese correo ya estaba verificado. Puedes continuar con la verificación de teléfono.');
+        if (!empty($account->email_verified_at)) {
+            return back()->with('ok', 'Ese correo ya está verificado. Continúa con tu teléfono.');
         }
 
-        $token = $this->createEmailVerificationToken($account->id, $request->email);
-        $this->sendEmailVerification($request->email, $token, $this->adminDisplayName($account));
+        $token = $this->createEmailVerificationToken($account->id, $email);
+        $this->sendEmailVerification($email, $token, $this->adminDisplayName($account));
 
-        return back()->with('ok', 'Te enviamos un nuevo enlace de verificación. Revisa tu correo.');
+        session([
+            'verify.account_id' => $account->id,
+            'verify.email'      => $email,
+        ]);
+
+        return back()->with('ok', 'Te enviamos un nuevo enlace de verificación.');
     }
 
-    /* =========================================================
-     * TELÉFONO (OTP 6 dígitos)
-     * ========================================================= */
-
-    public function showOtp(Request $request)
+    /**
+     * Resolución FINAL del account_id admin que vamos a usar en todo el flujo.
+     */
+    private function resolveAccountId(Request $request): ?int
     {
-        $accountId = session('verify.account_id');
-
-        $email = $request->query('email');
-        if (!$accountId && $email) {
-            $emailCol = $this->adminEmailColumn();
-            $acc = DB::connection('mysql_admin')->table('accounts')
-                ->where($emailCol, strtolower($email))
-                ->first();
-            if ($acc) {
-                session(['verify.account_id' => $acc->id, 'verify.email' => $email]);
-                $accountId = $acc->id;
+        if ($request->filled('account_id')) {
+            $aid = (int) $request->input('account_id');
+            if ($aid > 0) {
+                session(['verify.account_id' => $aid]);
+                Log::debug('[OTP-FLOW][resolveAccountId] from request.account_id', ['aid' => $aid]);
+                return $aid;
             }
         }
 
-        $phoneCol = $this->adminPhoneColumn();
-        $account = null;
-        if ($accountId) {
-            $account = DB::connection('mysql_admin')->table('accounts')
-                ->select('id', $phoneCol.' as phone')
-                ->where('id', $accountId)->first();
+        if (session()->has('verify.account_id')) {
+            $aid = (int) session('verify.account_id');
+            if ($aid > 0) {
+                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.account_id', ['aid' => $aid]);
+                return $aid;
+            }
         }
 
-        return view('cliente.auth.verify_phone', [
-            'account'      => $account,
-            'phone_masked' => $this->maskPhone($account?->phone ?? ''),
-        ]);
+        if ($this->clientIsAuthenticated()) {
+            $user       = $this->currentClientUser();
+            $userCuenta = $user?->cuenta()?->first();
+            $rfcPadre   = $userCuenta?->rfc_padre ? Str::upper($userCuenta->rfc_padre) : null;
+
+            if ($rfcPadre) {
+                $otpRow = DB::connection('mysql_admin')
+                    ->table('phone_otps as po')
+                    ->join('accounts as a', 'a.id', '=', 'po.account_id')
+                    ->whereRaw('UPPER(a.rfc) = ?', [$rfcPadre])
+                    ->orderByDesc('po.id')
+                    ->select('po.account_id')
+                    ->first();
+
+                if ($otpRow?->account_id) {
+                    $final = (int) $otpRow->account_id;
+                    session([
+                        'verify.account_id' => $final,
+                        'verify.email'      => $this->fetchAccountEmailById($final),
+                    ]);
+                    Log::debug('[OTP-FLOW][resolveAccountId] from otpRow/rfc', ['aid' => $final, 'rfc' => $rfcPadre]);
+                    return $final;
+                }
+
+                $connAdmin = DB::connection('mysql_admin');
+                $schema    = Schema::connection('mysql_admin');
+
+                $q = $connAdmin->table('accounts')->whereRaw('UPPER(rfc)=?', [$rfcPadre]);
+                if ($schema->hasColumn('accounts', 'is_blocked')) {
+                    $q->orderBy('is_blocked', 'asc');
+                }
+                $q->orderByDesc('id');
+
+                $accAdm = $q->select('id')->first();
+                if ($accAdm?->id) {
+                    $final = (int) $accAdm->id;
+                    session([
+                        'verify.account_id' => $final,
+                        'verify.email'      => $this->fetchAccountEmailById($final),
+                    ]);
+                    Log::debug('[OTP-FLOW][resolveAccountId] from accounts/rfc', ['aid' => $final, 'rfc' => $rfcPadre]);
+                    return $final;
+                }
+            }
+        }
+
+        if (session()->has('verify.rfc')) {
+            $rfc = Str::upper((string) session('verify.rfc'));
+            $acc = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->whereRaw('UPPER(rfc)=?', [$rfc])
+                ->orderByDesc('id')
+                ->select('id')
+                ->first();
+
+            if ($acc?->id) {
+                $final = (int) $acc->id;
+                session(['verify.account_id' => $final]);
+                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.rfc', ['aid' => $final, 'rfc' => $rfc]);
+                return $final;
+            }
+        }
+
+        if (session()->has('verify.email')) {
+            $email = (string) session('verify.email');
+            $acc = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('correo_contacto', $email)
+                ->orWhere('email', $email)
+                ->orderByDesc('id')
+                ->select('id')
+                ->first();
+
+            if ($acc?->id) {
+                $final = (int) $acc->id;
+                session(['verify.account_id' => $final]);
+                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.email', ['aid' => $final, 'email' => $email]);
+                return $final;
+            }
+        }
+
+        Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id');
+        return null;
     }
 
-    public function sendOtp(Request $request)
+    private function fetchAccountEmailById(int $accountId): string
     {
-        $request->validate([
-            'channel' => ['required', 'in:sms,whatsapp'],
-        ], [
-            'channel.required' => 'Elige un canal para recibir tu código.',
-        ]);
+        $schemaAdmin = Schema::connection('mysql_admin');
+        $emailCol = $schemaAdmin->hasColumn('accounts', 'correo_contacto')
+            ? 'correo_contacto'
+            : ($schemaAdmin->hasColumn('accounts', 'email') ? 'email' : 'correo_contacto');
 
-        $accountId = session('verify.account_id');
-        if (!$accountId) {
-            return back()->withErrors(['general' => 'No pudimos identificar tu cuenta. Abre tu enlace de verificación de correo nuevamente.']);
-        }
+        $acc = DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $accountId)
+            ->select($emailCol . ' as email')
+            ->first();
 
-        $phoneCol = $this->adminPhoneColumn();
-        $emailCol = $this->adminEmailColumn();
+        return $acc ? Str::lower((string)($acc->email ?? '')) : '';
+    }
 
-        $account = DB::connection('mysql_admin')->table('accounts')
-            ->select('id', $phoneCol.' as phone', $emailCol.' as email')
-            ->where('id', $accountId)->first();
+    /**
+     * GET /cliente/verificar/telefono
+     */
+    public function showOtp(Request $request)
+    {
+        $accountId = $this->resolveAccountId($request);
 
-        if (!$account) {
-            return back()->withErrors(['general' => 'Cuenta no encontrada.'])->withInput();
-        }
-
-        if (!$account->phone) {
-            return back()->withErrors(['general' => 'No tenemos teléfono registrado. Completa tu registro nuevamente.']);
-        }
-
-        // Limpia OTPs vencidos
-        DB::connection('mysql_admin')->table('phone_otps')
-            ->where('account_id', $account->id)
-            ->where('expires_at', '<', now())
-            ->delete();
-
-        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-        try {
-            $data = [
-                'account_id' => $account->id,
-                'phone'      => $account->phone,
-                'expires_at' => now()->addMinutes(10),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-            $codeCol = $this->phoneOtpsCodeColumn();
-            $data[$codeCol] = $code;
-            $chanCol = 'channel';
-            $data[$chanCol] = $request->channel === 'whatsapp'
-                ? ($this->phoneOtpsAcceptsWa() ? 'wa' : 'whatsapp')
-                : 'sms';
-            if ($this->adminHasPhoneOtps('attempts')) $data['attempts'] = 0;
-            if ($this->adminHasPhoneOtps('used_at'))  $data['used_at']  = null;
-
-            DB::connection('mysql_admin')->table('phone_otps')->insert($data);
-        } catch (\Throwable $e) {
-            Log::error('No se pudo insertar OTP', ['e' => $e->getMessage()]);
-            return back()->withErrors([
-                'general' => 'No pudimos generar el código en este momento. Intenta más tarde.',
+        if (app()->environment(['local','development','testing'])) {
+            Log::debug('[OTP-FLOW][DEBUG showOtp FINAL]', [
+                'auth_web_id'         => Auth::guard('web')->id(),
+                'auth_cli_id'         => (function(){ try { return Auth::guard('cliente')->id(); } catch (\Throwable $e) { return null; } })(),
+                'session_verify_acc'  => session('verify.account_id'),
+                'final_account_id'    => $accountId,
             ]);
         }
 
-        // Envío simulado por email (en cola si MAIL_QUEUE=true)
-        $this->mailRawQueued($account->email, 'Código de verificación Pactopia360', "Tu código Pactopia360 es: {$code} (válido 10 minutos).");
-
-        return back()->with('ok', 'Enviamos un código de 6 dígitos. Revisa tu dispositivo e ingrésalo a continuación.')
-                     ->with('otp_sent', true);
+        $viewData = $this->loadAccountWithPhone($accountId);
+        return view('cliente.auth.verify_phone', $viewData);
     }
 
-    public function checkOtp(Request $request)
+    private function loadAccountWithPhone(?int $accountId): array
     {
-        $request->validate([
-            'code' => ['required','digits:6'],
-        ], [
-            'code.required' => 'Ingresa el código que te enviamos.',
-            'code.digits'   => 'El código debe tener 6 dígitos.',
-        ]);
+        $phoneCol = $this->adminPhoneColumn();
+        $account  = null;
 
-        $accountId = session('verify.account_id');
-        if (!$accountId) {
-            return back()->withErrors(['general' => 'Sesión no válida. Abre de nuevo tu enlace de verificación.']);
+        if ($accountId) {
+            $account = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->select('id', "{$phoneCol} as phone")
+                ->where('id', $accountId)
+                ->first();
         }
 
-        $codeCol = $this->phoneOtpsCodeColumn();
+        $safeAccount = $account ? (object)[
+            'id'    => $account->id,
+            'phone' => $account->phone,
+        ] : (object)[
+            'id'    => null,
+            'phone' => null,
+        ];
 
-        $otp = DB::connection('mysql_admin')->table('phone_otps')
-            ->where('account_id', $accountId)
-            ->whereNull('used_at')
-            ->where('expires_at', '>', now())
-            ->orderByDesc('id')
-            ->first();
+        $phoneMasked = $this->maskPhone($safeAccount->phone ?? '');
 
-        if (!$otp) {
-            return back()->withErrors(['code' => 'El código expiró o no existe. Solicita otro.']);
-        }
+        $hasOtpSession = session()->has('verify.otp_code');
+        $state = ($hasOtpSession || !empty($safeAccount->phone))
+            ? 'otp'
+            : 'phone';
 
-        if ($this->adminHasPhoneOtps('attempts') && (int)($otp->attempts ?? 0) >= self::OTP_MAX_ATTEMPTS) {
-            DB::connection('mysql_admin')->table('phone_otps')->where('id', $otp->id)
-                ->update(['expires_at' => now()->subMinute(), 'updated_at' => now()]);
-            return back()->withErrors(['code' => 'Se excedió el número de intentos. Solicita un código nuevo.']);
-        }
-
-        if (($otp->{$codeCol} ?? null) !== $request->code) {
-            if ($this->adminHasPhoneOtps('attempts')) {
-                DB::connection('mysql_admin')->table('phone_otps')->where('id', $otp->id)
-                    ->update(['attempts' => DB::raw('attempts + 1'), 'updated_at' => now()]);
-            }
-            return back()->withErrors(['code' => 'Código incorrecto. Intenta nuevamente.']);
-        }
-
-        // Marca OTP usado
-        DB::connection('mysql_admin')->table('phone_otps')->where('id', $otp->id)->update([
-            'used_at'    => now(),
-            'updated_at' => now(),
-        ]);
-
-        // Marca phone_verified_at
-        $upd = [];
-        if ($this->adminHas('phone_verified_at')) $upd['phone_verified_at'] = now();
-        if ($this->adminHas('updated_at'))        $upd['updated_at']        = now();
-        if (!empty($upd)) {
-            DB::connection('mysql_admin')->table('accounts')->where('id', $accountId)->update($upd);
-        }
-
-        // Activación final (sin cambiar contraseña)
-        $this->finalizeActivationAndNotify($accountId);
-
-        session()->forget(['verify.account_id', 'verify.email']);
-
-        return redirect()->route('cliente.login')
-            ->with('ok', '¡Listo! Verificaste tu correo y tu teléfono. Ya puedes acceder.');
+        return [
+            'account'      => $safeAccount,
+            'phone_masked' => $phoneMasked,
+            'state'        => $state,
+        ];
     }
 
     /* =========================================================
-     * Helpers
+     * POST cliente.verify.phone.update
+     * Guardar teléfono + generar OTP (con envío)
+     * ========================================================= */
+    public function updatePhone(Request $request)
+    {
+        $request->validate([
+            'country_code' => 'required|string|max:5',
+            'telefono'     => 'required|string|max:25',
+            'account_id'   => 'nullable|integer',
+        ]);
+
+        $country = trim($request->country_code);
+        $line    = trim($request->telefono);
+        $full    = trim($country . ' ' . $line);
+
+        $accountId = $this->resolveAccountId($request);
+
+        Log::info('[OTP-FLOW][1] updatePhone', [
+            'fullPhone'          => $full,
+            'pre_session_accid'  => session('verify.account_id'),
+            'resolved_accountId' => $accountId,
+        ]);
+
+        if (!$accountId) {
+            return redirect()
+                ->route('cliente.verify.phone')
+                ->withErrors([
+                    'general' => 'No pudimos ubicar tu cuenta para actualizar el teléfono.',
+                ]);
+        }
+
+        $phoneCol = $this->adminPhoneColumn();
+
+        DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $accountId)
+            ->update([
+                $phoneCol    => $full,
+                'updated_at' => now(),
+            ]);
+
+        $channel = config('services.otp.driver', 'whatsapp'); // 'whatsapp' | 'twilio'
+
+        $digits = preg_replace('/\D+/', '', $full);
+        [$code, $expiresTs] = $this->generateAndStoreOtp(
+            $accountId,
+            $digits,
+            $channel
+        );
+
+        Log::info('[OTP-FLOW][2] OTP generado', [
+            'account_id' => $accountId,
+            'code'       => $code,
+            'expires'    => $expiresTs,
+            'channel'    => $channel,
+        ]);
+
+        if (!$code) {
+            return redirect()
+                ->route('cliente.verify.phone')
+                ->withErrors(['general' => 'Error generando el código.']);
+        }
+
+        session([
+            'verify.account_id'  => $accountId,
+            'verify.phone'       => $digits,
+            'verify.otp_code'    => $code,
+            'verify.otp_expires' => $expiresTs,
+        ]);
+
+        return redirect()
+            ->route('cliente.verify.phone')
+            ->with(
+                'ok',
+                'Te enviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo. Si no llega en 1–2 minutos, toca “Reenviar código”.'
+            );
+    }
+
+    /* =========================================================
+     * POST cliente.verify.phone.send
+     * Reenviar OTP al teléfono guardado (con envío dentro de generateAndStoreOtp)
+     * ========================================================= */
+    public function sendOtp(Request $request)
+    {
+        $accountId = $this->resolveAccountId($request);
+
+        if (!$accountId) {
+            return redirect()
+                ->route('cliente.verify.phone')
+                ->withErrors([
+                    'general' => 'No pudimos asociar tu cuenta. Abre de nuevo tu enlace de verificación.',
+                ]);
+        }
+
+        $phoneCol = $this->adminPhoneColumn();
+
+        $accAdm = DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $accountId)
+            ->select('id', "{$phoneCol} as phone")
+            ->first();
+
+        $rawPhone   = $accAdm?->phone ?? '';
+        $onlyDigits = preg_replace('/\D+/', '', $rawPhone);
+
+        $channel = config('services.otp.driver', 'whatsapp'); // 'whatsapp' | 'twilio'
+
+        [$code, $expiresTs] = $this->generateAndStoreOtp(
+            $accountId,
+            $onlyDigits,
+            $channel
+        );
+
+        if (!$code) {
+            return redirect()
+                ->route('cliente.verify.phone')
+                ->withErrors([
+                    'general' => 'No pudimos generar el código en este momento. Intenta más tarde.',
+                ]);
+        }
+
+        session([
+            'verify.account_id'  => $accountId,
+            'verify.phone'       => $onlyDigits,
+            'verify.otp_code'    => $code,
+            'verify.otp_expires' => $expiresTs,
+        ]);
+
+        return redirect()
+            ->route('cliente.verify.phone')
+            ->with(
+                'ok',
+                'Reenviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo.'
+            );
+    }
+
+    /* =========================================================
+     * POST cliente.verify.phone.check
+     * Validar OTP, activar cuenta, enviar bienvenida y registrar auditoría
+     * ========================================================= */
+    public function checkOtp(Request $request)
+    {
+        $request->validate([
+            'code'       => ['required', 'digits:6'],
+            'account_id' => ['nullable', 'integer'],
+        ]);
+
+        $accountId = (int) $this->resolveAccountId($request);
+        $inputCode = $request->code;
+
+        Log::info('[OTP-FLOW][3] checkOtp start', [
+            'input_code'          => $inputCode,
+            'session_account_id'  => session('verify.account_id'),
+            'resolved_account_id' => $accountId,
+        ]);
+
+        if (!$accountId) {
+            return back()->withErrors(['general' => 'Sesión no válida.']);
+        }
+
+        $otpRow = DB::connection('mysql_admin')
+            ->table('phone_otps')
+            ->where('account_id', $accountId)
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$otpRow) {
+            return back()->withErrors(['code' => 'No existe ningún código activo.']);
+        }
+
+        // Bloqueo por intentos
+        if ((int)($otpRow->attempts ?? 0) >= self::OTP_MAX_ATTEMPTS) {
+            return back()->withErrors(['code' => 'Demasiados intentos. Solicita un código nuevo.']);
+        }
+
+        if (!empty($otpRow->expires_at) && now()->greaterThan($otpRow->expires_at)) {
+            Log::warning('[OTP-FLOW][5] OTP expirado', [
+                'otp_id'     => $otpRow->id,
+                'expires_at' => $otpRow->expires_at,
+            ]);
+            return back()->withErrors(['code' => 'El código expiró.']);
+        }
+
+        // Comparación estricta
+        $dbCodeA = (string)($otpRow->code ?? '');
+        $dbCodeB = (string)($otpRow->otp  ?? '');
+
+        if ($dbCodeA !== $inputCode && $dbCodeB !== $inputCode) {
+            // incrementar attempts
+            DB::connection('mysql_admin')
+                ->table('phone_otps')
+                ->where('id', $otpRow->id)
+                ->update([
+                    'attempts'   => DB::raw('attempts + 1'),
+                    'updated_at' => now(),
+                ]);
+
+            Log::warning('[OTP-FLOW][6] Código incorrecto', [
+                'input_code' => $inputCode,
+                'db_code'    => $dbCodeA,
+                'db_otp'     => $dbCodeB,
+            ]);
+            return back()->withErrors(['code' => 'Código incorrecto.']);
+        }
+
+        // éxito → marcar usado
+        DB::connection('mysql_admin')
+            ->table('phone_otps')
+            ->where('id', $otpRow->id)
+            ->update([
+                'used_at'    => now(),
+                'updated_at' => now(),
+            ]);
+
+        DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $accountId)
+            ->update([
+                'phone_verified_at' => now(),
+                'updated_at'        => now(),
+            ]);
+
+        Log::info('[OTP-FLOW][7] OTP OK, phone_verified_at set', [
+            'account_id' => $accountId,
+        ]);
+
+        // ==== AUTO LOGIN CLIENTE ====
+        try {
+            Auth::shouldUse('cliente');
+        } catch (\Throwable $e) {
+            Auth::shouldUse('web');
+        }
+        if (Auth::guard('admin')->check()) {
+            Auth::guard('admin')->logout();
+        }
+
+        $logged   = false;
+        $userId   = (int) session('post_verify.user_id');
+        $remember = (bool) session('post_verify.remember', false);
+
+        if ($userId) {
+            $user = \App\Models\Cliente\UsuarioCuenta::on('mysql_clientes')->find($userId);
+            if ($user) {
+                auth()->login($user, $remember);
+                $request->session()->regenerate();
+                $logged = true;
+            }
+        }
+
+        // Plan B: por RFC (case-insensitive)
+        if (!$logged) {
+            $acc = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('id', $accountId)
+                ->select('rfc')
+                ->first();
+
+            if ($acc && !empty($acc->rfc)) {
+                $cuentaCli = DB::connection('mysql_clientes')
+                    ->table('cuentas_cliente')
+                    ->whereRaw('UPPER(rfc_padre)=?', [Str::upper($acc->rfc)])
+                    ->first();
+
+                if ($cuentaCli) {
+                    $ownerRow = DB::connection('mysql_clientes')
+                        ->table('usuarios_cuenta')
+                        ->where('cuenta_id', $cuentaCli->id)
+                        ->orderByRaw("FIELD(rol,'owner') DESC, FIELD(tipo,'owner') DESC")
+                        ->orderBy('created_at','asc')
+                        ->first();
+
+                    if ($ownerRow) {
+                        $owner = \App\Models\Cliente\UsuarioCuenta::on('mysql_clientes')->find($ownerRow->id);
+                        if ($owner) {
+                            auth()->login($owner, false);
+                            $request->session()->regenerate();
+                            $logged = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // FINALIZAR ACTIVACIÓN + BIENVENIDA
+        $uid = null;
+        try {
+            $uid = $this->finalizeActivationAndNotify($accountId);
+            Log::info('[ACTIVATION] finalizeActivationAndNotify ejecutado', [
+                'account_id' => $accountId,
+                'usuario_id' => $uid,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[ACTIVATION] Error al ejecutar finalizeActivationAndNotify', [
+                'account_id' => $accountId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
+        // AUDITORÍA (archivo)
+        try {
+            $accInfo = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->select('rfc', 'razon_social', 'correo_contacto', 'plan')
+                ->where('id', $accountId)
+                ->first();
+
+            $auditData = [
+                'timestamp'    => now()->toDateTimeString(),
+                'event'        => 'ACTIVACION_COMPLETA',
+                'account_id'   => $accountId,
+                'usuario_id'   => $uid,
+                'rfc'          => $accInfo->rfc ?? null,
+                'razon_social' => $accInfo->razon_social ?? null,
+                'correo'       => $accInfo->correo_contacto ?? null,
+                'plan'         => $accInfo->plan ?? null,
+                'ip'           => $request->ip(),
+                'user_agent'   => $request->userAgent(),
+            ];
+
+            $path  = storage_path('logs/p360_audit.log');
+            $entry = '[' . now()->format('Y-m-d H:i:s') . '] ' . json_encode($auditData, JSON_UNESCAPED_UNICODE) . PHP_EOL;
+            file_put_contents($path, $entry, FILE_APPEND | LOCK_EX);
+
+            Log::info('[AUDIT] Registro de activación guardado', ['account_id' => $accountId]);
+        } catch (\Throwable $e) {
+            Log::error('[AUDIT] Error al escribir en p360_audit.log', [
+                'error'      => $e->getMessage(),
+                'account_id' => $accountId,
+            ]);
+        }
+
+        // Limpiar sesión temporal OTP
+        session()->forget([
+            'post_verify.user_id',
+            'post_verify.remember',
+            'verify.otp_code',
+            'verify.otp_expires',
+        ]);
+
+        return redirect()
+            ->route('cliente.home')
+            ->with('ok', '✅ Teléfono verificado correctamente. Tu cuenta ya fue activada.');
+    }
+
+    /* =========================================================
+     * FINALIZAR ACTIVACIÓN + ENVIAR CORREO DE BIENVENIDA
+     * ========================================================= */
+    private function finalizeActivationAndNotify(int $adminAccountId): ?string
+    {
+        $acc = DB::connection('mysql_admin')
+            ->table('accounts')
+            ->where('id', $adminAccountId)
+            ->first();
+
+        if (!$acc) {
+            return null;
+        }
+
+        $emailOk = !empty($acc->email_verified_at);
+        $phoneOk = !empty($acc->phone_verified_at);
+
+        if (!$emailOk || !$phoneOk) {
+            Log::warning('[ACTIVATION] Aún faltan verificaciones', [
+                'account_id' => $adminAccountId,
+                'email_ok'   => $emailOk,
+                'phone_ok'   => $phoneOk,
+            ]);
+            return null;
+        }
+
+        $email = $acc->correo_contacto ?? $acc->email ?? null;
+        $rfc   = $acc->rfc ?? null;
+        $plan  = strtoupper((string)($acc->plan ?? 'FREE'));
+
+        $cuenta = DB::connection('mysql_clientes')
+            ->table('cuentas_cliente')
+            ->whereRaw('UPPER(rfc_padre)=?', [Str::upper((string)$rfc)])
+            ->first();
+
+        if (!$cuenta) {
+            Log::error('[ACTIVATION] No se encontró cuenta_cliente', ['rfc' => $rfc]);
+            return null;
+        }
+
+        $usuario = DB::connection('mysql_clientes')
+            ->table('usuarios_cuenta')
+            ->where('cuenta_id', $cuenta->id)
+            ->where(function ($q) {
+                $q->where('tipo', 'owner')
+                  ->orWhere('rol', 'owner');
+            })
+            ->orderBy('created_at', 'asc')
+            ->first();
+
+        if (!$usuario) {
+            Log::error('[ACTIVATION] No se encontró usuario owner', [
+                'cuenta_id' => $cuenta->id,
+                'rfc'       => $rfc,
+            ]);
+            return null;
+        }
+
+        DB::connection('mysql_clientes')->beginTransaction();
+        try {
+            DB::connection('mysql_clientes')
+                ->table('usuarios_cuenta')
+                ->where('id', $usuario->id)
+                ->update([
+                    'activo'               => 1,
+                    'must_change_password' => 1,
+                    'updated_at'           => now(),
+                ]);
+
+            DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuenta->id)
+                ->update([
+                    'estado_cuenta' => 'activa',
+                    'updated_at'    => now(),
+                ]);
+
+            DB::connection('mysql_clientes')->commit();
+        } catch (\Throwable $e) {
+            DB::connection('mysql_clientes')->rollBack();
+            Log::error('[ACTIVATION] Error activando cuenta', [
+                'error' => $e->getMessage(),
+                'account_id' => $adminAccountId,
+            ]);
+            return null;
+        }
+
+        if ($email) {
+            try {
+                $loginUrl = route('cliente.login');
+
+                $viewData = [
+                    'nombre'       => $this->adminDisplayName($acc),
+                    'email'        => $email,
+                    'rfc'          => $rfc,
+                    'loginUrl'     => $loginUrl,
+                    'is_pro'       => ($plan === 'PRO'),
+                    'soporte'      => 'soporte@pactopia.com',
+                    'preheader'    => 'Tu cuenta ya está activa. Inicia sesión y cambia tu contraseña.',
+                ];
+
+                Mail::send(
+                    [
+                        'html' => 'emails.cliente.welcome_active',
+                        'text' => 'emails.cliente.welcome_active_text',
+                    ],
+                    $viewData,
+                    fn ($m) => $m->to($email)
+                                 ->subject('Tu cuenta ya está activa · Pactopia360')
+                );
+
+                Log::info('[EMAIL] Enviado correo de bienvenida final', [
+                    'to'        => $email,
+                    'accountId' => $adminAccountId,
+                    'rfc'       => $rfc,
+                    'plan'      => $plan,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('[EMAIL] Falló envío bienvenida', [
+                    'to' => $email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return (string) $usuario->id;
+    }
+
+    /* =========================================================
+     * HELPERS
      * ========================================================= */
 
     private function maskPhone(string $phone): string
@@ -301,200 +917,139 @@ class VerificationController extends Controller
         if (!$phone) return '';
         $digits = preg_replace('/\D+/', '', $phone);
         if (strlen($digits) < 4) return $phone;
-        return str_repeat('•', max(0, strlen($digits) - 4)).substr($digits, -4);
+        return str_repeat('•', max(0, strlen($digits) - 4)) . substr($digits, -4);
     }
 
     private function createEmailVerificationToken(int $accountId, string $email): string
     {
         $token = Str::random(40);
 
-        DB::connection('mysql_admin')->table('email_verifications')->insert([
-            'account_id' => $accountId,
-            'email'      => $email,
-            'token'      => $token,
-            'expires_at' => now()->addDay(),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::connection('mysql_admin')
+            ->table('email_verifications')
+            ->insert([
+                'account_id' => $accountId,
+                'email'      => $email,
+                'token'      => $token,
+                'expires_at' => now()->addDay(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
         return $token;
     }
 
     private function sendEmailVerification(string $email, string $token, string $nombre): void
     {
-        $url  = route('cliente.verify.email.token', ['token' => $token]);
-        $body = "Hola {$nombre},\n\n".
-                "Confirma tu correo haciendo clic en el siguiente enlace (válido 24 h):\n{$url}\n\n".
-                "Después te pediremos verificar tu teléfono.\n\n".
-                "Si no fuiste tú, ignora este correo.";
+        $url = route('cliente.verify.email.token', ['token' => $token]);
+        $data = [
+            'nombre'     => $nombre,
+            'actionUrl'  => $url,
+            'soporte'    => 'soporte@pactopia.com',
+            'preheader'  => 'Confirma tu correo para activar tu cuenta en Pactopia360.',
+        ];
 
-        $this->mailRawQueued($email, 'Confirma tu correo - Pactopia360', $body);
-    }
+        try {
+            Mail::send(
+                ['html' => 'emails.cliente.verify_email', 'text' => 'emails.cliente.verify_email_text'],
+                $data,
+                fn ($m) => $m->to($email)->subject('Confirma tu correo · Pactopia360')
+            );
 
-    /**
-     * Activa FREE (cuando aplique) sin tocar la contraseña, y avisa por correo.
-     */
-    private function finalizeActivationAndNotify(int $adminAccountId): void
-    {
-        $emailCol = $this->adminEmailColumn();
-
-        $select = [$emailCol.' as email', 'rfc', 'plan'];
-        if ($this->adminHas('is_blocked'))        $select[] = 'is_blocked';
-        if ($this->adminHas('email_verified_at')) $select[] = 'email_verified_at';
-        if ($this->adminHas('phone_verified_at')) $select[] = 'phone_verified_at';
-
-        $acc = DB::connection('mysql_admin')->table('accounts')
-            ->select($select)
-            ->where('id', $adminAccountId)->first();
-
-        if (!$acc) return;
-
-        $emailOk = $this->adminHas('email_verified_at') ? (bool) $acc->email_verified_at : true;
-        $phoneOk = $this->adminHas('phone_verified_at') ? (bool) $acc->phone_verified_at : true;
-
-        // Vincula cuenta clientes por RFC
-        $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')
-            ->where('rfc_padre', $acc->rfc)->first();
-        if (!$cuenta) return;
-
-        // Owner
-        $usuario = DB::connection('mysql_clientes')->table('usuarios_cuenta')
-            ->where('cuenta_id', $cuenta->id)->where('tipo', 'owner')->first();
-        if (!$usuario) return;
-
-        if ($emailOk && $phoneOk) {
-            DB::connection('mysql_clientes')->beginTransaction();
-            try {
-                // Activar usuario (NO cambiamos password)
-                DB::connection('mysql_clientes')->table('usuarios_cuenta')
-                    ->where('id', $usuario->id)
-                    ->update([
-                        'activo'               => 1,
-                        'must_change_password' => 1,
-                        'updated_at'           => now(),
-                    ]);
-
-                // FREE → activar cuenta
-                if (strtoupper($acc->plan) === 'FREE') {
-                    DB::connection('mysql_clientes')->table('cuentas_cliente')
-                        ->where('id', $cuenta->id)
-                        ->update(['estado_cuenta' => 'activa', 'updated_at' => now()]);
-                }
-
-                DB::connection('mysql_clientes')->commit();
-            } catch (\Throwable $e) {
-                DB::connection('mysql_clientes')->rollBack();
-                Log::error('Error finalizando activación', ['e' => $e->getMessage(), 'account_id' => $adminAccountId]);
-                return;
-            }
-
-            // Aviso simple de activación (sin reenviar password)
-            $loginUrl = route('cliente.login');
-            $this->mailRawQueued($acc->email, 'Tu cuenta ya está activa - Pactopia360',
-                "¡Listo! Completaste la verificación en Pactopia360.\n\n".
-                "Ya puedes iniciar sesión aquí: {$loginUrl}\n\n".
-                "Si no recuerdas tu contraseña, usa \"Olvidé mi contraseña\" para restablecerla.");
+            Log::info('[EMAIL] Enviado enlace de verificación', ['to' => $email, 'url' => $url]);
+        } catch (\Throwable $e) {
+            Log::error('[EMAIL] Falló envío verificación', ['to' => $email, 'error' => $e->getMessage()]);
         }
-    }
-
-    /* ===== Helpers de esquema admin.accounts / phone_otps ===== */
-
-    private function adminHas(string $col): bool
-    {
-        try { return Schema::connection('mysql_admin')->hasColumn('accounts', $col); }
-        catch (\Throwable $e) { return false; }
-    }
-
-    private function adminEmailColumn(): string
-    {
-        foreach (['correo_contacto','email'] as $c) if ($this->adminHas($c)) return $c;
-        return 'email';
     }
 
     private function adminPhoneColumn(): string
     {
-        foreach (['telefono','phone'] as $c) if ($this->adminHas($c)) return $c;
+        foreach (['telefono', 'phone'] as $c) {
+            if (Schema::connection('mysql_admin')->hasColumn('accounts', $c)) {
+                return $c;
+            }
+        }
         return 'telefono';
     }
 
     private function adminDisplayName(object $account): string
     {
-        foreach (['name','razon_social','nombre','nombre_cuenta'] as $c) {
-            if (isset($account->{$c}) && $account->{$c}) return (string) $account->{$c};
+        foreach (['razon_social', 'nombre', 'name', 'nombre_cuenta'] as $c) {
+            if (!empty($account->{$c})) {
+                return (string) $account->{$c};
+            }
         }
         return 'Usuario';
     }
 
-    private function adminHasPhoneOtps(string $col): bool
+    /**
+     * Genera y guarda un OTP, intenta enviarlo por el canal configurado
+     * y devuelve [code, expires_timestamp].
+     */
+    private function generateAndStoreOtp(int $accountId, string $digitsPhone, string $channel): array
     {
-        try { return Schema::connection('mysql_admin')->hasColumn('phone_otps', $col); }
-        catch (\Throwable $e) { return false; }
-    }
+        $code    = (string) random_int(100000, 999999);
+        $now     = now();
+        $expires = $now->copy()->addMinutes(10);
 
-    private function phoneOtpsCodeColumn(): string
-    {
-        return $this->adminHasPhoneOtps('code') ? 'code' : 'otp';
-    }
+        try {
+            $normalizedChannel = ($channel === 'whatsapp') ? 'whatsapp' : 'sms';
 
-    private function phoneOtpsAcceptsWa(): bool
-    {
-        return true;
-    }
+            // (Opcional) invalidar/expirar OTPs anteriores del mismo account
+            // DB::connection('mysql_admin')->table('phone_otps')
+            //   ->where('account_id', $accountId)
+            //   ->update(['expires_at' => $now->copy()->subMinute(), 'updated_at' => $now]);
 
-    /* ====== Envío de correo en cola opcional ====== */
+            $row = [
+                'account_id' => $accountId,
+                'phone'      => $digitsPhone,
+                'code'       => $code,
+                'otp'        => $code,
+                'channel'    => $normalizedChannel,
+                'attempts'   => 0,
+                'expires_at' => $expires,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
 
-    private function mailRawQueued(string $to, string $subject, string $body): void
-    {
-        $useQueue = (bool) env('MAIL_QUEUE', false);
+            DB::connection('mysql_admin')->table('phone_otps')->insert($row);
 
-        if ($useQueue) {
-            Bus::dispatch(function () use ($to, $subject, $body) {
-                Mail::raw($body, function ($m) use ($to, $subject) {
-                    $m->to($to)->subject($subject);
-                });
-            })->onQueue('default');
-        } else {
             try {
-                Mail::raw($body, function ($m) use ($to, $subject) {
-                    $m->to($to)->subject($subject);
-                });
+                $sent = OtpService::send($digitsPhone, $code, $normalizedChannel);
+
+                if (!$sent) {
+                    Log::warning('[OTP SEND] No se pudo enviar el OTP al usuario', [
+                        'account_id' => $accountId,
+                        'phone'      => $digitsPhone,
+                        'channel'    => $normalizedChannel,
+                    ]);
+                }
             } catch (\Throwable $e) {
-                Log::error('Fallo envío de correo', ['to' => $to, 'subject' => $subject, 'e' => $e->getMessage()]);
+                Log::error('[OTP SEND] Excepción durante envío', [
+                    'e'          => $e->getMessage(),
+                    'account_id' => $accountId,
+                    'phone'      => $digitsPhone,
+                    'channel'    => $normalizedChannel,
+                ]);
             }
+
+            if (app()->environment(['local','development','testing'])) {
+                Log::debug('[OTP-GENERATED]', [
+                    'account_id' => $accountId,
+                    'phone'      => $digitsPhone,
+                    'code'       => $code,
+                    'channel'    => $normalizedChannel,
+                    'expires_at' => $expires->toDateTimeString(),
+                ]);
+            }
+
+            return [$code, $expires->timestamp];
+
+        } catch (\Throwable $e) {
+            Log::error('Error al generar OTP', [
+                'e'          => $e->getMessage(),
+                'account_id' => $accountId,
+            ]);
+            return [null, null];
         }
-    }
-
-    /* ====== Actualizar teléfono desde el usuario autenticado o sesión de verificación ====== */
-
-    public function updatePhone(Request $request)
-    {
-        $request->validate([
-            'phone'   => 'required|string|max:25',
-            'channel' => 'nullable|in:sms,whatsapp,wa',
-        ]);
-
-        $phone   = trim($request->phone);
-        $channel = $request->channel ?: 'sms';
-
-        // 1) Preferimos el account_id de la sesión de verificación
-        $accountId = session('verify.account_id');
-
-        // 2) Si no hay, tratamos de obtenerlo desde el usuario autenticado (vía cuenta.admin_account_id)
-        if (!$accountId && auth('web')->check()) {
-            $accountId = optional(auth('web')->user()->cuenta)->admin_account_id;
-        }
-
-        if (!$accountId) {
-            return back()->withErrors(['general' => 'No pudimos ubicar tu cuenta para actualizar el teléfono.'])
-                         ->withInput();
-        }
-
-        // Actualiza teléfono en admin.accounts (columna dinámica)
-        $phoneCol = $this->adminPhoneColumn();
-        DB::connection('mysql_admin')->table('accounts')
-            ->where('id', $accountId)
-            ->update([$phoneCol => $phone, 'updated_at'=>now()]);
-
-        return back()->with('ok','Teléfono actualizado. Ahora solicita tu OTP.')->withInput(['channel' => $channel]);
     }
 }
