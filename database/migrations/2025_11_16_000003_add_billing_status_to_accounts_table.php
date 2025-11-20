@@ -6,30 +6,47 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Esta migración corre en la conexión mysql_admin
-     */
-    protected $connection = 'mysql_admin';
-
     public function up(): void
     {
-        Schema::table('accounts', function (Blueprint $table) {
-            // billing_status: active, trial, grace, overdue, suspended, cancelled, demo, etc.
-            if (!Schema::connection('mysql_admin')->hasColumn('accounts', 'billing_status')) {
+        // Si no existe la tabla accounts en esta conexión, salimos
+        if (! Schema::hasTable('accounts')) {
+            return;
+        }
+
+        // Si ya existe billing_status, no hacemos nada
+        if (Schema::hasColumn('accounts', 'billing_status')) {
+            return;
+        }
+
+        // Vemos si existe billing_cycle (para usar AFTER) o no
+        $hasBillingCycle = Schema::hasColumn('accounts', 'billing_cycle');
+
+        Schema::table('accounts', function (Blueprint $table) use ($hasBillingCycle) {
+            if ($hasBillingCycle) {
+                // En DB donde SÍ existe billing_cycle
                 $table->string('billing_status', 30)
                     ->nullable()
-                    ->after('billing_cycle')
-                    ->index();
+                    ->after('billing_cycle');
+            } else {
+                // En DB donde NO existe billing_cycle, la agregamos al final
+                $table->string('billing_status', 30)
+                    ->nullable();
             }
         });
     }
 
     public function down(): void
     {
+        if (! Schema::hasTable('accounts')) {
+            return;
+        }
+
+        if (! Schema::hasColumn('accounts', 'billing_status')) {
+            return;
+        }
+
         Schema::table('accounts', function (Blueprint $table) {
-            if (Schema::connection('mysql_admin')->hasColumn('accounts', 'billing_status')) {
-                $table->dropColumn('billing_status');
-            }
+            $table->dropColumn('billing_status');
         });
     }
 };
