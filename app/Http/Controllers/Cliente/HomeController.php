@@ -26,7 +26,7 @@ class HomeController extends Controller
         $cuenta = $user?->cuenta;
 
         // Plan / saldo / timbres (valores seguros)
-        $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));  // FREE|PRO
+        $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));  // FREE|PRO|...
         $planKey = strtolower($plan);
         $timbres = (int) ($cuenta->timbres_disponibles ?? ($plan === 'FREE' ? 10 : 0));
         $saldo   = (float) ($cuenta->saldo_mxn ?? 0.0);
@@ -36,41 +36,81 @@ class HomeController extends Controller
 
         $isLocal = app()->environment(['local','development','testing']);
 
-        // Base de consulta (scoped por cuenta si aplica)
-        $base = Cfdi::on('mysql_clientes');
-        if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
-            $clienteIds = DB::connection('mysql_clientes')
-                ->table('clientes')
-                ->where('cuenta_id', $cuenta->id)
-                ->pluck('id')
-                ->all();
-            $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
-        }
-
-        // Últimos CFDI (no críticos)
-        $recent = (clone $base)
-            ->orderByDesc('fecha')
-            ->limit(8)
-            ->get(['id','uuid','serie','folio','total','fecha','estatus','cliente_id']);
-
         // Período: mes corriente
         [$from, $to] = $this->resolveMonthRange(null);
 
-        // KPIs + series reales
-        $kpis   = $this->calcKpisFor(clone $base, $from, $to);
-        $series = $this->buildSeriesFor(clone $base, $from, $to);
+        // ===== Base de consulta (scoped por cuenta si aplica) =====
+        $recent     = collect();
+        $kpis       = [
+            'total'      => 0.0,
+            'emitidos'   => 0.0,
+            'cancelados' => 0.0,
+            'delta'      => 0.0,
+            'period'     => ['from' => $from, 'to' => $to],
+        ];
+        $series     = [
+            'labels' => [],
+            'series' => [
+                'emitidos_total'   => [],
+                'line_facturacion' => [],
+                'line_cancelados'  => [],
+                'bar_q'            => [0, 0, 0, 0],
+            ],
+        ];
+        $usedDemo   = false;
 
-        // ¿Hay datos reales?
-        $hasRealSeries = !empty($series['series']['emitidos_total']);
+        if ($this->canQueryCfdi()) {
+            try {
+                $base = Cfdi::on('mysql_clientes');
 
-        // Fallback DEMO solo en local: si no hay datos reales
-        $usedDemo = false;
-        if ($this->isDemoMode() && !$hasRealSeries) {
-            [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-            // si hay algo real en KPIs, respétalo; si no, usa demo
-            $kpis   = $kpis['total'] > 0 ? $kpis : $demoKpis;
-            $series = $demoSeries;
-            $usedDemo = true;
+                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
+                    $clienteIds = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->where('cuenta_id', $cuenta->id)
+                        ->pluck('id')
+                        ->all();
+                    $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
+                }
+
+                // Últimos CFDI (no críticos)
+                $recent = (clone $base)
+                    ->orderByDesc('fecha')
+                    ->limit(8)
+                    ->get(['id', 'uuid', 'serie', 'folio', 'total', 'fecha', 'estatus', 'cliente_id']);
+
+                // KPIs + series reales
+                $kpis   = $this->calcKpisFor(clone $base, $from, $to);
+                $series = $this->buildSeriesFor(clone $base, $from, $to);
+
+                // ¿Hay datos reales?
+                $hasRealSeries = !empty($series['series']['emitidos_total']);
+
+                // Fallback DEMO solo en local: si no hay datos reales
+                if ($this->isDemoMode() && !$hasRealSeries) {
+                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+                    $kpis     = $kpis['total'] > 0 ? $kpis : $demoKpis;
+                    $series   = $demoSeries;
+                    $usedDemo = true;
+                }
+            } catch (\Throwable $e) {
+                // Si algo truena en la BD, no reventamos el home: usamos DEMO en local
+                if ($this->isDemoMode()) {
+                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+                    $kpis     = $demoKpis;
+                    $series   = $demoSeries;
+                    $recent   = collect();
+                    $usedDemo = true;
+                }
+            }
+        } else {
+            // No existe tabla/estructura de cfdis: usar DEMO (solo entornos locales)
+            if ($this->isDemoMode()) {
+                [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+                $kpis     = $demoKpis;
+                $series   = $demoSeries;
+                $recent   = collect();
+                $usedDemo = true;
+            }
         }
 
         // Summary cacheado (ligero)
@@ -89,8 +129,18 @@ class HomeController extends Controller
         $dataSource = $usedDemo ? 'demo' : 'db';
 
         return view('cliente.home', compact(
-            'plan','planKey','timbres','saldo','razon','recent','kpis','series',
-            'summary','pricing','dataSource','isLocal'
+            'plan',
+            'planKey',
+            'timbres',
+            'saldo',
+            'razon',
+            'recent',
+            'kpis',
+            'series',
+            'summary',
+            'pricing',
+            'dataSource',
+            'isLocal'
         ));
     }
 
@@ -102,28 +152,68 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        $base = Cfdi::on('mysql_clientes');
-        if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
-            $clienteIds = DB::connection('mysql_clientes')
-                ->table('clientes')->where('cuenta_id', $cuenta->id)->pluck('id')->all();
-            $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
-        }
+        // Aseguramos que lo que mandamos sea ?string (string o null)
+        $monthRaw = $request->input('month'); // viene del query o body
+        $month    = is_string($monthRaw) ? $monthRaw : null;
 
-        [$from, $to] = $this->resolveMonthRange($request->string('month'));
-        $k = $this->calcKpisFor($base, $from, $to);
+        [$from, $to] = $this->resolveMonthRange($month);
 
-        $source = 'db';
-        if ($this->isDemoMode() && $k['total'] <= 0) {
+        $k        = [
+            'total'      => 0.0,
+            'emitidos'   => 0.0,
+            'cancelados' => 0.0,
+            'delta'      => 0.0,
+            'period'     => ['from' => $from, 'to' => $to],
+        ];
+        $source   = 'db';
+        $rowCount = 0;
+
+        if ($this->canQueryCfdi()) {
+            try {
+                $base = Cfdi::on('mysql_clientes');
+
+                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
+                    $clienteIds = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->where('cuenta_id', $cuenta->id)
+                        ->pluck('id')
+                        ->all();
+
+                    $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
+                }
+
+                $k        = $this->calcKpisFor(clone $base, $from, $to);
+                $rowCount = (int) (clone $base)
+                    ->whereBetween('fecha', [$from, $to])
+                    ->count();
+
+                if ($this->isDemoMode() && $k['total'] <= 0) {
+                    [$demoKpis] = $this->buildDemoData($from, $to);
+                    $k          = $demoKpis;
+                    $source     = 'demo';
+                    $rowCount   = 0;
+                }
+            } catch (\Throwable $e) {
+                if ($this->isDemoMode()) {
+                    [$demoKpis] = $this->buildDemoData($from, $to);
+                    $k          = $demoKpis;
+                    $source     = 'demo';
+                    $rowCount   = 0;
+                }
+            }
+        } elseif ($this->isDemoMode()) {
             [$demoKpis] = $this->buildDemoData($from, $to);
-            $k = $demoKpis;
-            $source = 'demo';
+            $k          = $demoKpis;
+            $source     = 'demo';
+            $rowCount   = 0;
         }
 
         return response()->json($k + [
             'source'    => $source,
-            'row_count' => (int) (clone $base)->whereBetween('fecha', [$from, $to])->count(),
+            'row_count' => $rowCount,
         ]);
     }
+
 
     /**
      * Series (JSON). Devuelve 'source' y 'row_count'.
@@ -133,54 +223,99 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        $base = Cfdi::on('mysql_clientes');
-        if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
-            $clienteIds = DB::connection('mysql_clientes')
-                ->table('clientes')->where('cuenta_id', $cuenta->id)->pluck('id')->all();
-            $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
-        }
+        $monthRaw = $request->input('month');
+        $month    = is_string($monthRaw) ? $monthRaw : null;
+        [$from, $to] = $this->resolveMonthRange($month);
 
-        [$from, $to] = $this->resolveMonthRange($request->string('month'));
-
-        $rows = (clone $base)->whereBetween('fecha', [$from, $to])
-            ->selectRaw("
-                DATE(fecha) as d,
-                SUM(CASE WHEN estatus='emitido'   THEN total ELSE 0 END) as em_total,
-                SUM(CASE WHEN estatus='cancelado' THEN total ELSE 0 END) as ca_total
-            ")
-            ->groupBy('d')->orderBy('d','asc')->get();
-
-        $labels = []; $lineEmitidos = []; $lineCancelados = [];
-        foreach ($rows as $r) {
-            $labels[]         = $r->d;
-            $lineEmitidos[]   = round((float)$r->em_total, 2);
-            $lineCancelados[] = round((float)$r->ca_total, 2);
-        }
-
-        // Barras por cuartiles del mes
-        $q = [0,0,0,0];
-        foreach ($rows as $r) {
-            $day = (int) \Carbon\Carbon::parse($r->d)->format('j');
-            $bucket = min(3, intdiv($day-1, 8));
-            $q[$bucket] += (float)$r->em_total;
-        }
-        $barQ = array_map(fn($v)=>round($v,2), $q);
 
         $payload = [
-            'labels' => $labels,
-            'series' => [
-                'line_facturacion' => $lineEmitidos,
-                'line_cancelados'  => $lineCancelados,
-                'bar_q'            => $barQ,
-                'emitidos_total'   => $lineEmitidos, // compat
+            'labels'    => [],
+            'series'    => [
+                'line_facturacion' => [],
+                'line_cancelados'  => [],
+                'bar_q'            => [0, 0, 0, 0],
+                'emitidos_total'   => [],
             ],
             'source'    => 'db',
-            'row_count' => count($rows),
+            'row_count' => 0,
         ];
 
-        if ($this->isDemoMode() && empty($lineEmitidos)) {
+        if ($this->canQueryCfdi()) {
+            try {
+                $base = Cfdi::on('mysql_clientes');
+
+                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
+                    $clienteIds = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->where('cuenta_id', $cuenta->id)
+                        ->pluck('id')
+                        ->all();
+                    $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
+                }
+
+                $rows = (clone $base)->whereBetween('fecha', [$from, $to])
+                    ->selectRaw("
+                        DATE(fecha) as d,
+                        SUM(CASE WHEN estatus='emitido'   THEN total ELSE 0 END) as em_total,
+                        SUM(CASE WHEN estatus='cancelado' THEN total ELSE 0 END) as ca_total
+                    ")
+                    ->groupBy('d')
+                    ->orderBy('d', 'asc')
+                    ->get();
+
+                $labels = [];
+                $lineEmitidos = [];
+                $lineCancelados = [];
+
+                foreach ($rows as $r) {
+                    $labels[]         = $r->d;
+                    $lineEmitidos[]   = round((float) $r->em_total, 2);
+                    $lineCancelados[] = round((float) $r->ca_total, 2);
+                }
+
+                // Barras por cuartiles del mes
+                $q = [0, 0, 0, 0];
+                foreach ($rows as $r) {
+                    $day   = (int) Carbon::parse($r->d)->format('j');
+                    $bucket= min(3, intdiv($day - 1, 8));
+                    $q[$bucket] += (float) $r->em_total;
+                }
+                $barQ = array_map(fn ($v) => round($v, 2), $q);
+
+                $payload = [
+                    'labels' => $labels,
+                    'series' => [
+                        'line_facturacion' => $lineEmitidos,
+                        'line_cancelados'  => $lineCancelados,
+                        'bar_q'            => $barQ,
+                        'emitidos_total'   => $lineEmitidos,
+                    ],
+                    'source'    => 'db',
+                    'row_count' => count($rows),
+                ];
+
+                if ($this->isDemoMode() && empty($lineEmitidos)) {
+                    [, $demoSeries] = $this->buildDemoData($from, $to);
+                    $payload = $demoSeries + [
+                        'source'    => 'demo',
+                        'row_count' => 0,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                if ($this->isDemoMode()) {
+                    [, $demoSeries] = $this->buildDemoData($from, $to);
+                    $payload = $demoSeries + [
+                        'source'    => 'demo',
+                        'row_count' => 0,
+                    ];
+                }
+            }
+        } elseif ($this->isDemoMode()) {
             [, $demoSeries] = $this->buildDemoData($from, $to);
-            $payload = $demoSeries + ['source' => 'demo', 'row_count' => 0];
+            $payload = $demoSeries + [
+                'source'    => 'demo',
+                'row_count' => 0,
+            ];
         }
 
         return response()->json($payload);
@@ -194,21 +329,60 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        $base = Cfdi::on('mysql_clientes');
-        if ($cuenta && $this->schemaHasCol('clientes','cuenta_id')) {
-            $ids = DB::connection('mysql_clientes')->table('clientes')->where('cuenta_id',$cuenta->id)->pluck('id')->all();
-            $base->whereIn('cliente_id', empty($ids)?[-1]:$ids);
-        }
-
         [$from, $to] = $this->resolveMonthRange($request->string('month'));
-        $k = $this->calcKpisFor(clone $base, $from, $to);
-        $s = $this->buildSeriesFor(clone $base, $from, $to);
 
+        $k      = [
+            'total'      => 0.0,
+            'emitidos'   => 0.0,
+            'cancelados' => 0.0,
+            'delta'      => 0.0,
+            'period'     => ['from' => $from, 'to' => $to],
+        ];
+        $s      = [
+            'labels' => [],
+            'series' => [
+                'emitidos_total'   => [],
+                'line_facturacion' => [],
+                'line_cancelados'  => [],
+                'bar_q'            => [0, 0, 0, 0],
+            ],
+        ];
         $source = 'db';
-        if ($this->isDemoMode() && empty($s['series']['emitidos_total'])) {
+
+        if ($this->canQueryCfdi()) {
+            try {
+                $base = Cfdi::on('mysql_clientes');
+
+                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
+                    $ids = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->where('cuenta_id', $cuenta->id)
+                        ->pluck('id')
+                        ->all();
+                    $base->whereIn('cliente_id', empty($ids) ? [-1] : $ids);
+                }
+
+                $k = $this->calcKpisFor(clone $base, $from, $to);
+                $s = $this->buildSeriesFor(clone $base, $from, $to);
+
+                if ($this->isDemoMode() && empty($s['series']['emitidos_total'])) {
+                    [$dk, $ds] = $this->buildDemoData($from, $to);
+                    $k      = $k['total'] > 0 ? $k : $dk;
+                    $s      = $ds;
+                    $source = 'demo';
+                }
+            } catch (\Throwable $e) {
+                if ($this->isDemoMode()) {
+                    [$dk, $ds] = $this->buildDemoData($from, $to);
+                    $k      = $dk;
+                    $s      = $ds;
+                    $source = 'demo';
+                }
+            }
+        } elseif ($this->isDemoMode()) {
             [$dk, $ds] = $this->buildDemoData($from, $to);
-            $k = $k['total'] > 0 ? $k : $dk;
-            $s = $ds;
+            $k      = $dk;
+            $s      = $ds;
             $source = 'demo';
         }
 
@@ -231,7 +405,7 @@ class HomeController extends Controller
         $emitidos = (float) ($period->clone()->where('estatus', 'emitido')->sum('total') ?? 0);
         $cancel   = (float) ($period->clone()->where('estatus', 'cancelado')->sum('total') ?? 0);
 
-        $fromC = Carbon::parse($from);
+        $fromC    = Carbon::parse($from);
         $prevFrom = $fromC->copy()->subMonth()->startOfMonth()->toDateTimeString();
         $prevTo   = $fromC->copy()->subMonth()->endOfMonth()->toDateTimeString();
         $prevTotal= (float) ((clone $baseQuery)->whereBetween('fecha', [$prevFrom, $prevTo])->sum('total') ?? 0);
@@ -259,6 +433,7 @@ class HomeController extends Controller
 
         $labels = [];
         $vals   = [];
+
         foreach ($rows as $r) {
             $labels[] = $r->d;
             $vals[]   = round((float) $r->emitidos_total, 2);
@@ -267,8 +442,8 @@ class HomeController extends Controller
         return [
             'labels' => $labels,
             'series' => [
-                'emitidos_total'   => $vals,          // legacy / compat
-                'line_facturacion' => $vals,          // nuevo nombre
+                'emitidos_total'   => $vals, // legacy / compat
+                'line_facturacion' => $vals, // nuevo nombre
             ],
         ];
     }
@@ -291,15 +466,35 @@ class HomeController extends Controller
 
     private function hasCol(string $conn, string $table, string $col): bool
     {
-        try { return Schema::connection($conn)->hasColumn($table, $col); } catch (\Throwable $e) { return false; }
+        try {
+            return Schema::connection($conn)->hasColumn($table, $col);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function hasTable(string $conn, string $table): bool
+    {
+        try {
+            return Schema::connection($conn)->hasTable($table);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function canQueryCfdi(): bool
+    {
+        // Si no existe tabla de cfdis, no intentamos consultar
+        $table = (new Cfdi)->getTable();
+        return $this->hasTable('mysql_clientes', $table);
     }
 
     /**
      * Resumen de cuenta.
      */
-    private function buildAccountSummary(): array
+    public function buildAccountSummary(): array
     {
-        $u = Auth::guard('web')->user();
+        $u      = Auth::guard('web')->user();
         $cuenta = $u?->cuenta;
         $admConn = 'mysql_admin';
 
@@ -319,28 +514,44 @@ class HomeController extends Controller
         $acc = null;
         if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
             $cols = ['id'];
-            foreach (['plan','billing_cycle','next_invoice_date','estado_cuenta','is_blocked','razon_social','email','email_verified_at','phone_verified_at'] as $c) {
-                if ($this->hasCol($admConn,'accounts',$c)) $cols[] = $c;
+            foreach ([
+                'plan',
+                'billing_cycle',
+                'next_invoice_date',
+                'estado_cuenta',
+                'is_blocked',
+                'razon_social',
+                'email',
+                'email_verified_at',
+                'phone_verified_at',
+            ] as $c) {
+                if ($this->hasCol($admConn, 'accounts', $c)) {
+                    $cols[] = $c;
+                }
             }
-            $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id',$adminId)->first();
+            $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id', $adminId)->first();
         }
 
         $balance = $saldoMx;
         if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
-            $linkCol = null; $linkVal = null;
+            $linkCol = null;
+            $linkVal = null;
 
-            if ($this->hasCol($admConn,'estados_cuenta','account_id') && $adminId) {
-                $linkCol = 'account_id'; $linkVal = $adminId;
-            } elseif ($this->hasCol($admConn,'estados_cuenta','cuenta_id') && $adminId) {
-                $linkCol = 'cuenta_id';  $linkVal = $adminId;
-            } elseif ($this->hasCol($admConn,'estados_cuenta','rfc') && $rfc) {
-                $linkCol = 'rfc';        $linkVal = strtoupper($rfc);
+            if ($this->hasCol($admConn, 'estados_cuenta', 'account_id') && $adminId) {
+                $linkCol = 'account_id';
+                $linkVal = $adminId;
+            } elseif ($this->hasCol($admConn, 'estados_cuenta', 'cuenta_id') && $adminId) {
+                $linkCol = 'cuenta_id';
+                $linkVal = $adminId;
+            } elseif ($this->hasCol($admConn, 'estados_cuenta', 'rfc') && $rfc) {
+                $linkCol = 'rfc';
+                $linkVal = strtoupper($rfc);
             }
 
             if ($linkCol !== null) {
-                $orderCol = $this->hasCol($admConn,'estados_cuenta','periodo')
+                $orderCol = $this->hasCol($admConn, 'estados_cuenta', 'periodo')
                     ? 'periodo'
-                    : ($this->hasCol($admConn,'estados_cuenta','created_at') ? 'created_at' : 'id');
+                    : ($this->hasCol($admConn, 'estados_cuenta', 'created_at') ? 'created_at' : 'id');
 
                 $last = DB::connection($admConn)->table('estados_cuenta')
                     ->where($linkCol, $linkVal)
@@ -350,15 +561,15 @@ class HomeController extends Controller
                 if ($last && property_exists($last, 'saldo') && $last->saldo !== null) {
                     $balance = (float) $last->saldo;
                 } else {
-                    $hasCargo = $this->hasCol($admConn,'estados_cuenta','cargo');
-                    $hasAbono = $this->hasCol($admConn,'estados_cuenta','abono');
+                    $hasCargo = $this->hasCol($admConn, 'estados_cuenta', 'cargo');
+                    $hasAbono = $this->hasCol($admConn, 'estados_cuenta', 'abono');
 
                     if ($hasCargo || $hasAbono) {
                         $cargo = $hasCargo
-                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('cargo')
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('cargo')
                             : 0.0;
                         $abono = $hasAbono
-                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol,$linkVal)->sum('abono')
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('abono')
                             : 0.0;
                         $balance = $cargo - $abono;
                     }
@@ -368,7 +579,7 @@ class HomeController extends Controller
 
         $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
         $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
-        $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed/$spaceTotal)*100,1)) : 0;
+        $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed / $spaceTotal) * 100, 1)) : 0;
 
         $plan   = strtolower((string) ($acc->plan ?? $planKey));
         $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
@@ -378,7 +589,7 @@ class HomeController extends Controller
         return [
             'razon'        => (string) ($acc->razon_social ?? $razon),
             'plan'         => $plan,
-            'is_pro'       => in_array($plan, ['pro','premium','empresa','business'], true),
+            'is_pro'       => in_array($plan, ['pro', 'premium', 'empresa', 'business'], true),
             'cycle'        => $cycle,
             'next_invoice' => $acc->next_invoice_date ?? null,
             'estado'       => $estado,
@@ -396,12 +607,13 @@ class HomeController extends Controller
     private function resolveMonthRange(?string $month): array
     {
         if ($month && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $month)) {
-            $from = \Carbon\Carbon::createFromFormat('Y-m', $month)->startOfMonth();
-            $to   = \Carbon\Carbon::createFromFormat('Y-m', $month)->endOfMonth();
+            $from = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+            $to   = Carbon::createFromFormat('Y-m', $month)->endOfMonth();
         } else {
             $from = now()->startOfMonth();
             $to   = now()->endOfMonth();
         }
+
         return [$from->toDateTimeString(), $to->toDateTimeString()];
     }
 
@@ -411,7 +623,7 @@ class HomeController extends Controller
      */
     private function isDemoMode(): bool
     {
-        return app()->environment(['local','development','testing']);
+        return app()->environment(['local', 'development', 'testing']);
     }
 
     /**
@@ -423,7 +635,7 @@ class HomeController extends Controller
         $end   = Carbon::parse($to)->endOfMonth();
 
         // Semilla estable por usuario+mes
-        $seed = crc32((string)(Auth::id() ?? 0) . '|' . $start->format('Y-m'));
+        $seed = crc32((string) (Auth::id() ?? 0) . '|' . $start->format('Y-m'));
         mt_srand($seed);
 
         $labels = [];
@@ -448,13 +660,13 @@ class HomeController extends Controller
         }
 
         // Barras por cuartiles
-        $q = [0,0,0,0];
+        $q = [0, 0, 0, 0];
         foreach ($labels as $i => $d) {
             $dayNum = (int) substr($d, 8, 2);
-            $bucket = min(3, intdiv($dayNum-1, 8));
+            $bucket = min(3, intdiv($dayNum - 1, 8));
             $q[$bucket] += $emit[$i];
         }
-        $barQ = array_map(fn($v)=>round($v,2), $q);
+        $barQ = array_map(fn ($v) => round($v, 2), $q);
 
         // Totales demo
         $sumEmit = array_sum($emit);

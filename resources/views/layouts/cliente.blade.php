@@ -1,9 +1,34 @@
-{{-- resources/views/layouts/cliente.blade.php (v3 · header/sidebar fijos, scroll solo contenido, footer full-bleed) --}}
+{{-- resources/views/layouts/cliente.blade.php (v3.1 · header/sidebar fijos, scroll solo contenido, footer full-bleed + plan unificado) --}}
 @php
   use Illuminate\Support\Facades\File;
+  use Illuminate\Support\Facades\Auth;
 
   $title = trim($__env->yieldContent('title', 'P360 · Cliente'));
   $theme = session('client_ui.theme','light'); // 'light' | 'dark'
+
+  // Usuario y cuenta espejo (mysql_clientes)
+  $user   = Auth::guard('web')->user();
+  // Si alguna vista ya inyectó $cuenta, lo respetamos; si no, tratamos de sacarlo del usuario
+  $cuenta = $cuenta ?? ($user->cuenta ?? null);
+
+  // Si hay resumen de cuenta (HomeController::buildAccountSummary), úsalo para el plan/ciclo
+  $summaryPlan = null;
+  $summaryCycle = null;
+  if (isset($summary) && is_array($summary)) {
+      if (!empty($summary['plan'])) {
+          $summaryPlan = strtoupper((string) $summary['plan']);
+      }
+      if (!empty($summary['cycle'])) {
+          $summaryCycle = (string) $summary['cycle'];
+      }
+  }
+
+  // Plan: prioriza summary.plan, luego plan_actual, luego plan, luego FREE
+  $planRaw = $summaryPlan ?? ($cuenta->plan_actual ?? $cuenta->plan ?? 'FREE');
+  $plan    = strtoupper((string) $planRaw);
+
+  // Ciclo de facturación (monthly/yearly) si existe
+  $billingCycle = $cuenta->billing_cycle ?? $summaryCycle ?? null;
 
   $viteManifest = public_path('build/manifest.json');
   $hasViteBuild = File::exists($viteManifest);
@@ -15,7 +40,7 @@
   $demoJs  = asset('assets/client/js/p360-demo-mode.js');
 @endphp
 <!DOCTYPE html>
-<html lang="es" class="theme-{{ $theme }}" data-theme="{{ $theme }}">
+<html lang="es" class="theme-{{ $theme }}" data-theme="{{ $theme }}" data-plan="{{ strtolower($plan) }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -181,39 +206,38 @@
       box-sizing:border-box;
     }
 
-
     /* ==== Fix footer visible: un poco más arriba + centrado + encima del main ==== */
-:root{
-  --footer-h: 40px;        /* altura */
-  --footer-offset: 8px;    /* súbelo ~8px. Ajusta 6–10px si prefieres */
-}
+    :root{
+      --footer-h: 40px;        /* altura */
+      --footer-offset: 8px;    /* súbelo ~8px. Ajusta 6–10px si prefieres */
+    }
 
-@media (max-width:1119.98px){
-  main.content{
-    bottom: calc(var(--footer-h) + var(--footer-offset));
-  }
-}
-@media (min-width:1120px){
-  main.content{
-    bottom: calc(var(--footer-h) + var(--footer-offset));
-  }
-}
+    @media (max-width:1119.98px){
+      main.content{
+        bottom: calc(var(--footer-h) + var(--footer-offset));
+      }
+    }
+    @media (min-width:1120px){
+      main.content{
+        bottom: calc(var(--footer-h) + var(--footer-offset));
+      }
+    }
 
-.client-footer{
-  bottom: var(--footer-offset);      /* <- lo sube un poco */
-  z-index: 60;                       /* por encima del contenido */
-  display: flex;                     /* centra contenido vertical/horizontal */
-  align-items: center;
-  justify-content: center;
-  line-height: 1.2;                  /* evita que se “corte” el texto */
-}
+    .client-footer{
+      bottom: var(--footer-offset);      /* <- lo sube un poco */
+      z-index: 60;                       /* por encima del contenido */
+      display: flex;                     /* centra contenido vertical/horizontal */
+      align-items: center;
+      justify-content: center;
+      line-height: 1.2;                  /* evita que se “corte” el texto */
+    }
 
-/* Si el partial trae contenedor interno, que no meta márgenes verticales raros */
-.client-footer > .container{
-  display:flex; align-items:center; justify-content:center;
-  height: 100%;
-  padding-top: 0; padding-bottom: 0;
-}
+    /* Si el partial trae contenedor interno, que no meta márgenes verticales raros */
+    .client-footer > .container{
+      display:flex; align-items:center; justify-content:center;
+      height: 100%;
+      padding-top: 0; padding-bottom: 0;
+    }
 
   </style>
 
@@ -228,7 +252,13 @@
   </noscript>
 
   {{-- Header --}}
-  @include('layouts.partials.client_header', ['renderDemoToggle' => true])
+  @include('layouts.partials.client_header', [
+      'renderDemoToggle' => true,
+      'plan'             => $plan,
+      'billingCycle'     => $billingCycle,
+      'cuenta'           => $cuenta,
+      'summary'          => $summary ?? null,
+  ])
 
   <div class="shell">
     {{-- Sidebar --}}
@@ -236,7 +266,8 @@
 
     {{-- Main (scrolleable) --}}
     <main id="clientMain" class="content" role="main">
-      @includeIf('components.client.demo-toggle', ['bannerId'=>'p360DemoBannerTop','storageKey'=>'p360_demo_mode'])
+      {{-- Banner DEMO eliminado de aquí; el botón de producción/pruebas quedará en el menú/SAT --}}
+      {{-- @includeIf('components.client.demo-toggle', ['bannerId'=>'p360DemoBannerTop','storageKey'=>'p360_demo_mode']) --}}
 
       <div class="container" id="shotArea">
         {{-- Toolbar de captura eliminada (quitamos botón JPG) --}}

@@ -2,8 +2,16 @@
 @section('title','Inicio · Pactopia360')
 
 @php
-  $plan     = $plan    ?? 'FREE';
-  $planKey  = $planKey ?? strtolower($plan);
+  // Plan unificado: si viene del summary (admin), úsalo primero
+  $summaryPlan = null;
+  if (isset($summary) && is_array($summary) && !empty($summary['plan'])) {
+      $summaryPlan = strtoupper((string)$summary['plan']);
+  }
+
+  $planBase = $plan    ?? 'FREE';
+  $plan     = $summaryPlan ?? $planBase;
+  $planKey  = strtolower($planKey ?? $plan);
+
   $razonV   = $razon   ?? (auth('web')->user()->nombre ?? 'Cliente');
   $timbresV = (int)($timbres ?? 0);
   $saldoV   = (float)($saldo ?? 0.0);

@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class AccountBillingController extends Controller
@@ -78,6 +80,9 @@ class AccountBillingController extends Controller
         $isBlocked     = $acc && (bool)($acc->is_blocked ?? false);
         $estadoCuenta  = $acc->estado_cuenta ?? null;
 
+        // === NUEVO: resumen común para que el header muestre PRO correcto ===
+        $summary = $this->buildAccountSummary();
+
         return view('cliente.billing.statement', [
             'account'          => $acc,
             'subscription'     => $sub,
@@ -91,6 +96,7 @@ class AccountBillingController extends Controller
             'estadoCuenta'     => $estadoCuenta,
             'accountId'        => $accountId,   // útil para los formularios de checkout
             'resolvedVia'      => $via,         // debug/diag opcional en la vista
+            'summary'          => $summary,
         ]);
     }
 
@@ -152,5 +158,139 @@ class AccountBillingController extends Controller
         }
 
         return [null, 'unresolved'];
+    }
+
+    /**
+     * Resumen de cuenta igualado a la lógica de Home/Perfil/EstadoCuenta
+     * para que el header sepa si la cuenta es PRO.
+     */
+    private function buildAccountSummary(): array
+    {
+        $u      = Auth::guard('web')->user();
+        $cuenta = $u?->cuenta;
+
+        if (!$cuenta) {
+            return [
+                'razon'        => (string) ($u->nombre ?? $u->email ?? '—'),
+                'plan'         => 'free',
+                'is_pro'       => false,
+                'cycle'        => 'mensual',
+                'next_invoice' => null,
+                'estado'       => null,
+                'blocked'      => false,
+                'balance'      => 0.0,
+                'space_total'  => 512.0,
+                'space_used'   => 0.0,
+                'space_pct'    => 0.0,
+                'timbres'      => 0,
+                'admin_id'     => null,
+            ];
+        }
+
+        $admConn = 'mysql_admin';
+
+        $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
+        $timbres = (int) ($cuenta->timbres_disponibles ?? ($planKey === 'FREE' ? 10 : 0));
+        $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
+        $razon   = $cuenta->razon_social ?? $cuenta->nombre_fiscal ?? ($u->nombre ?? $u->email ?? '—');
+
+        $adminId = $cuenta->admin_account_id ?? null;
+        $rfc     = $cuenta->rfc_padre ?? null;
+
+        if (!$adminId && $rfc && Schema::connection($admConn)->hasTable('accounts')) {
+            $acc = DB::connection($admConn)->table('accounts')->select('id')->where('rfc', strtoupper($rfc))->first();
+            if ($acc) $adminId = (int) $acc->id;
+        }
+
+        $acc = null;
+        if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
+            $cols = ['id'];
+            foreach ([
+                'plan',
+                'billing_cycle',
+                'next_invoice_date',
+                'estado_cuenta',
+                'is_blocked',
+                'razon_social',
+                'email',
+                'email_verified_at',
+                'phone_verified_at',
+            ] as $c) {
+                if (Schema::connection($admConn)->hasColumn('accounts', $c)) {
+                    $cols[] = $c;
+                }
+            }
+            $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id', $adminId)->first();
+        }
+
+        $balance = $saldoMx;
+        if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
+            $linkCol = null;
+            $linkVal = null;
+
+            if (Schema::connection($admConn)->hasColumn('estados_cuenta', 'account_id') && $adminId) {
+                $linkCol = 'account_id';
+                $linkVal = $adminId;
+            } elseif (Schema::connection($admConn)->hasColumn('estados_cuenta', 'cuenta_id') && $adminId) {
+                $linkCol = 'cuenta_id';
+                $linkVal = $adminId;
+            } elseif (Schema::connection($admConn)->hasColumn('estados_cuenta', 'rfc') && $rfc) {
+                $linkCol = 'rfc';
+                $linkVal = strtoupper($rfc);
+            }
+
+            if ($linkCol !== null) {
+                $orderCol = Schema::connection($admConn)->hasColumn('estados_cuenta', 'periodo')
+                    ? 'periodo'
+                    : (Schema::connection($admConn)->hasColumn('estados_cuenta', 'created_at') ? 'created_at' : 'id');
+
+                $last = DB::connection($admConn)->table('estados_cuenta')
+                    ->where($linkCol, $linkVal)
+                    ->orderByDesc($orderCol)
+                    ->first();
+
+                if ($last && property_exists($last, 'saldo') && $last->saldo !== null) {
+                    $balance = (float) $last->saldo;
+                } else {
+                    $hasCargo = Schema::connection($admConn)->hasColumn('estados_cuenta', 'cargo');
+                    $hasAbono = Schema::connection($admConn)->hasColumn('estados_cuenta', 'abono');
+
+                    if ($hasCargo || $hasAbono) {
+                        $cargo = $hasCargo
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('cargo')
+                            : 0.0;
+                        $abono = $hasAbono
+                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('abono')
+                            : 0.0;
+                        $balance = $cargo - $abono;
+                    }
+                }
+            }
+        }
+
+        $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
+        $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
+        $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed / $spaceTotal) * 100, 1)) : 0;
+
+        $plan   = strtolower((string) ($acc->plan ?? $planKey));
+        $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
+        $estado = $acc->estado_cuenta ?? ($cuenta->estado_cuenta ?? null);
+        $blocked = (bool) (($acc->is_blocked ?? 0) || ($cuenta->is_blocked ?? 0));
+
+        return [
+            'razon'        => (string) ($acc->razon_social ?? $razon),
+            'plan'         => $plan,
+            'is_pro'       => in_array($plan, ['pro','premium','empresa','business'], true) || Str::startsWith($plan, 'pro'),
+            'cycle'        => $cycle,
+            'next_invoice' => $acc->next_invoice_date ?? null,
+            'estado'       => $estado,
+            'blocked'      => $blocked,
+            'balance'      => $balance,
+            'space_total'  => $spaceTotal,
+            'space_used'   => $spaceUsed,
+            'space_pct'    => $spacePct,
+            'timbres'      => $timbres,
+            'admin_id'     => $adminId,
+        ];
     }
 }

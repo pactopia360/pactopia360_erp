@@ -20,7 +20,7 @@ use App\Models\Cliente\Cfdi;
 use App\Models\Cliente\CfdiConcepto;
 use App\Models\Cliente\Producto;
 use App\Models\Cliente\Receptor;
-use App\Models\Cliente as Emisor;
+use App\Models\Cliente\Emisor; // ✅ ahora sí el modelo correcto
 
 class FacturacionController extends Controller
 {
@@ -63,10 +63,19 @@ class FacturacionController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        // Filtra por emisores de la cuenta si aplica
-        $cliConn = $this->firstConnWith('clientes') ?? $conn;
-        if ($cuenta && $this->hasColumn('clientes', 'cuenta_id', $cliConn)) {
-            $ids = Emisor::on($cliConn)->where('cuenta_id', $cuenta->id)->pluck('id')->all();
+        // ✅ Filtra por EMISORES de la cuenta (tabla emisores), no por usuarios
+        $emiConn = $this->firstConnWith('emisores', ['mysql_clientes','mysql']) ?? $conn;
+
+        if ($cuenta && $this->hasColumn('emisores', 'cuenta_id', $emiConn)) {
+            try {
+                $ids = Emisor::on($emiConn)
+                    ->where('cuenta_id', $cuenta->id)
+                    ->pluck('id')
+                    ->all();
+            } catch (\Throwable $e) {
+                $ids = [];
+            }
+
             $q->whereIn('cliente_id', empty($ids) ? [-1] : $ids);
         }
 
@@ -136,10 +145,9 @@ class FacturacionController extends Controller
             ->paginate($perPage, ['id','uuid','serie','folio','subtotal','iva','total','fecha','estatus','cliente_id'])
             ->withQueryString();
 
-        // ⚙️ Selecciona un CFDI "actual" para vistas/partials que esperan $cfdi (singular)
+        // CFDI actual (stub si no hay)
         $current = $cfdis->getCollection()->first();
         if (!$current) {
-            // Stub seguro para evitar errores si la vista accede a propiedades
             $current = (object)[
                 'id'=>null,'uuid'=>null,'serie'=>null,'folio'=>null,
                 'subtotal'=>0,'iva'=>0,'total'=>0,'fecha'=>null,'estatus'=>null,'cliente_id'=>null
@@ -157,8 +165,8 @@ class FacturacionController extends Controller
             'period_to'   => $to,
             'kpis'        => $kpis,
             'series'      => $series,
-            'cfdis'       => $cfdis,   // listado paginado para la tabla
-            'cfdi'        => $current, // modelo (o stub) para vistas que usan singular
+            'cfdis'       => $cfdis,
+            'cfdi'        => $current,
             'filters'     => [
                 'q'      => trim((string) $request->input('q', '')),
                 'status' => trim((string) $request->input('status', '')),
@@ -227,7 +235,7 @@ class FacturacionController extends Controller
     ): Collection {
         $connToUse = $conn ?: $this->firstConnWith($table);
         if (!$connToUse || !$this->tableExists($table, $connToUse)) {
-            return collect(); // tabla no existe en ninguna conexión -> no reventar
+            return collect();
         }
         try {
             $q = DB::connection($connToUse)->table($table);
@@ -236,7 +244,7 @@ class FacturacionController extends Controller
             if ($limit > 0) $q->limit($limit);
             return $q->get($columns);
         } catch (\Throwable $e) {
-            return collect(); // ante cualquier error, devolvemos vacío
+            return collect();
         }
     }
 
@@ -246,20 +254,20 @@ class FacturacionController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        $emisores = $this->safeList(
-            'clientes',
-            ['id','rfc','razon_social','nombre_comercial'],
-            "COALESCE(nombre_comercial, razon_social, '') ASC",
-            200,
-            null,
-            function ($q) use ($cuenta) {
-                $conn = $q->getConnection()->getName();
-                if ($cuenta && $this->hasColumn('clientes', 'cuenta_id', $conn)) {
-                    $q->where('cuenta_id', $cuenta->id);
-                }
+        // ✅ EMISORES: sólo los de la cuenta, desde tabla emisores
+        $emisores = collect();
+        if ($cuenta) {
+            try {
+                $emisores = Emisor::query()
+                    ->where('cuenta_id', $cuenta->id)
+                    ->orderByRaw("COALESCE(nombre_comercial, razon_social, '') ASC")
+                    ->get(['id','rfc','razon_social','nombre_comercial']);
+            } catch (\Throwable $e) {
+                $emisores = collect();
             }
-        );
+        }
 
+        // Receptores de la cuenta
         $receptores = $this->safeList(
             'receptores',
             ['id','rfc','razon_social','nombre_comercial'],
@@ -274,6 +282,7 @@ class FacturacionController extends Controller
             }
         );
 
+        // Productos de la cuenta
         $productos = $this->safeList(
             'productos',
             ['id','sku','descripcion','precio_unitario','iva_tasa','cuenta_id'],
@@ -313,6 +322,7 @@ class FacturacionController extends Controller
             'conceptos.*.cantidad'        => 'required|numeric|min:0.0001',
             'conceptos.*.precio_unitario' => 'required|numeric|min:0',
             'conceptos.*.iva_tasa'        => 'nullable|numeric|min:0',
+            // complementos[] de momento se ignoran a nivel validación/persistencia
         ]);
 
         $subtotal = 0.0; $iva = 0.0; $total = 0.0;

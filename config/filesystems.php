@@ -30,33 +30,56 @@ return [
 
     'disks' => [
 
+        // Disco local "privado" (config base Pactopia360)
         'local' => [
             'driver' => 'local',
-            'root' => storage_path('app/private'),
-            'serve' => true,
-            'throw' => false,
+            'root'   => storage_path('app/private'),
+            'serve'  => true,
+            'throw'  => false,
             'report' => false,
         ],
 
+        // Disco público estándar de Laravel (para /storage symlink)
         'public' => [
-            'driver' => 'local',
-            'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            'driver'     => 'local',
+            'root'       => storage_path('app/public'),
+            'url'        => env('APP_URL') . '/storage',
             'visibility' => 'public',
-            'throw' => false,
-            'report' => false,
+            'throw'      => false,
+            'report'     => false,
         ],
 
+        // S3 / compatibles
         's3' => [
-            'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION'),
-            'bucket' => env('AWS_BUCKET'),
-            'url' => env('AWS_URL'),
-            'endpoint' => env('AWS_ENDPOINT'),
+            'driver'                  => 's3',
+            'key'                     => env('AWS_ACCESS_KEY_ID'),
+            'secret'                  => env('AWS_SECRET_ACCESS_KEY'),
+            'region'                  => env('AWS_DEFAULT_REGION'),
+            'bucket'                  => env('AWS_BUCKET'),
+            'url'                     => env('AWS_URL'),
+            'endpoint'                => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-            'throw' => false,
+            'throw'                   => false,
+            'report'                  => false,
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | SAT ZIP – Descargas CFDI
+        |--------------------------------------------------------------------------
+        |
+        | Disco dedicado a los ZIP de descargas SAT. Apunta al mismo root que
+        | "local" para que:
+        |   - SatDescargaController::downloadPackage() (disk('sat_zip'))
+        |   - SatDescargaController::downloadZip() (disk(default='local'))
+        | compartan la misma ruta física (storage/app/private/jobs/...).
+        |
+        */
+
+        'sat_zip' => [
+            'driver' => 'local',
+            'root'   => storage_path('app/private'),
+            'throw'  => false,
             'report' => false,
         ],
 

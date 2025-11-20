@@ -162,9 +162,18 @@ Route::middleware([
 
     Route::get('marketplace', [MarketplaceController::class, 'index'])->name('marketplace');
 
+        // PERFIL
     Route::get('perfil', [PerfilController::class, 'show'])->name('perfil');
     Route::post('perfil/avatar', [PerfilController::class, 'uploadAvatar'])->name('cliente.perfil.avatar');
 
+    // NUEVAS RUTAS PERFIL (coinciden con los form action del partial)
+    Route::put('perfil/password', [PerfilController::class, 'updatePassword'])->name('perfil.password.update');
+    Route::put('perfil/phone',    [PerfilController::class, 'updatePhone'])->name('perfil.phone.update');
+
+    // CONFIGURACIÓN DE LA CUENTA (para el menú "Configuración")
+    Route::get('configuracion', [PerfilController::class, 'settings'])->name('settings');
+
+    // EMISORES
     Route::post('emisores', [PerfilController::class, 'storeEmisor'])->name('emisores.store');
     Route::post('emisores/{id}/logo', [PerfilController::class, 'uploadEmisorLogo'])->name('emisores.logo');
     Route::post('emisores/import', [PerfilController::class, 'importEmisores'])->name('emisores.import');

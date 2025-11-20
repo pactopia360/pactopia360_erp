@@ -1,10 +1,12 @@
 {{-- resources/views/cliente/sat/_partials/rfcs.blade.php
-     v17 · RFCs: diseño limpio + guardado/validación por AJAX compatible --}}
+     v25 · RFCs: listado limpio + panel CSD
+     Usa el modal global de index.blade.php (data-open="add-rfc") --}}
+
 @php
   /**
    * Espera:
    *  - $credList   (array|Collection de RFCs)
-   *  - $plan       ('FREE'|'PRO')
+   *  - $plan       ('FREE'|'PRO'|'EMPRESA'...)
    *  - $rtCsdStore (ruta para subir .cer/.key/password)
    *  - $rtAlias    (ruta para guardar razón social / alias)
    *  - $rtRfcReg   (ruta para actualizar RFC)
@@ -18,12 +20,18 @@
       <h3>1) RFCs registrados</h3>
       <p class="rfcs-neo-sub">RFCs y certificados CSD registrados</p>
     </div>
-    <button type="button" class="btn-rfcs primary" id="btnAddRfc" data-tip="Agregar nuevo RFC">
+
+    {{-- Usa el modal global del SAT (index) --}}
+    <button type="button"
+            class="btn-rfcs primary"
+            data-open="add-rfc"
+            data-tip="Agregar nuevo RFC">
       <span aria-hidden="true">＋</span>
       <span>Agregar RFC</span>
     </button>
   </div>
 
+  {{-- Encabezado de columnas --}}
   <div class="rfcs-neo-head">
     <div class="c-chevron"></div>
     <div class="c-rfc">RFC</div>
@@ -33,15 +41,11 @@
   </div>
 
   @forelse($credList as $i => $c)
-        @php
+    @php
       $rowId = 'rfc_'.$i;
       $rfc   = strtoupper($c['rfc'] ?? $c->rfc ?? '');
       $alias = trim((string)($c['razon_social'] ?? $c->razon_social ?? $c['alias'] ?? $c->alias ?? ''));
 
-      // Consideramos varias señales de "ok":
-      // - campo booleano validado
-      // - validated_at lleno
-      // - has_files = true (ya tiene .cer y .key)
       $okFlag = !empty($c['validado'] ?? null)
              || !empty($c['validated_at'] ?? null)
              || !empty($c['has_files'] ?? null);
@@ -57,7 +61,6 @@
       }
     @endphp
 
-
     {{-- FILA PRINCIPAL --}}
     <div class="rfcs-neo-row" data-row="{{ $rowId }}">
       {{-- Chevron --}}
@@ -71,19 +74,17 @@
         </button>
       </div>
 
-      {{-- RFC editable --}}
+      {{-- RFC editable (POST clásico) --}}
       <div class="c-rfc">
         <form method="post"
               action="{{ $rtRfcReg }}"
-              class="pill-form js-rfc-form"
-              data-kind="rfc">
+              class="pill-form js-rfc-form">
           @csrf
-          {{-- nombres alternos para máxima compatibilidad --}}
           <input type="hidden" name="old_rfc"      value="{{ $rfc }}">
           <input type="hidden" name="rfc_old"      value="{{ $rfc }}">
           <input type="hidden" name="rfc_original" value="{{ $rfc }}">
 
-          <input class="pill-input mono"
+          <input class="pill-input mono js-rfc-upper"
                  name="rfc"
                  maxlength="13"
                  value="{{ $rfc }}"
@@ -102,14 +103,12 @@
       <div class="c-name">
         <form method="post"
               action="{{ $rtAlias }}"
-              class="pill-form js-alias-form"
-              data-kind="alias">
+              class="pill-form js-alias-form">
           @csrf
-          <input type="hidden" name="rfc"   value="{{ $rfc }}">
-          {{-- nombres alternos alias / razon_social --}}
-          <input type="hidden" name="alias"         value="{{ $alias }}">
-          <input type="hidden" name="nombre"        value="{{ $alias }}">
-          <input type="hidden" name="razon_social"  value="{{ $alias }}">
+          <input type="hidden" name="rfc"          value="{{ $rfc }}">
+          <input type="hidden" name="alias"        value="{{ $alias }}">
+          <input type="hidden" name="nombre"       value="{{ $alias }}">
+          <input type="hidden" name="razon_social" value="{{ $alias }}">
 
           <input class="pill-input pill-alias"
                  data-field="alias-visible"
@@ -132,11 +131,14 @@
 
       {{-- Acciones --}}
       <div class="c-actions">
+        {{-- Aplica el form de RFC (práctico si el usuario solo cambió el texto) --}}
         <button type="button"
                 class="btn-rfcs icon ghost js-rfc-apply"
                 data-tip="Aplicar cambios de RFC">
           ⟳
         </button>
+
+        {{-- Abre/cierra el panel de CSD --}}
         <button type="button"
                 class="btn-rfcs icon ghost"
                 data-tip="Validar / revalidar certificados"
@@ -146,7 +148,7 @@
       </div>
     </div>
 
-    {{-- PANEL DATOS FISCALES (FIEL / CSD) --}}
+    {{-- PANEL DATOS FISCALES (CSD / FIEL) --}}
     <div id="{{ $rowId }}_panel"
          class="rfcs-neo-panel"
          hidden
@@ -154,14 +156,12 @@
       <form method="post"
             action="{{ $rtCsdStore }}"
             enctype="multipart/form-data"
-            class="rfcs-neo-panel-grid js-csd-form"
-            data-kind="csd">
+            class="rfcs-neo-panel-grid">
         @csrf
         <input type="hidden" name="rfc" value="{{ $rfc }}">
 
-        {{-- fila de inputs --}}
         <label class="fld">
-          <span>.cer</span>
+          <span>Certificado (.cer)</span>
           <input type="file"
                  name="cer"
                  accept=".cer"
@@ -170,7 +170,7 @@
         </label>
 
         <label class="fld">
-          <span>.key</span>
+          <span>Llave privada (.key)</span>
           <input type="file"
                  name="key"
                  accept=".key"
@@ -187,7 +187,6 @@
                  {{ $okFlag ? '' : 'required' }}>
         </label>
 
-        {{-- fila de acciones / nota --}}
         <div class="panel-actions">
           <div class="panel-actions-left">
             <button type="submit"
@@ -200,14 +199,14 @@
 
             <button type="submit"
                     class="btn-rfcs primary"
-                    data-tip="{{ $okFlag ? 'Revalidar FIEL' : 'Validar FIEL' }}">
+                    data-tip="{{ $okFlag ? 'Revalidar CSD' : 'Validar CSD' }}">
               {{ $okFlag ? 'Revalidar' : 'Validar' }}
             </button>
           </div>
 
           <span class="note">
             @if(($plan ?? 'FREE') === 'FREE')
-              Listo para <b>solicitudes</b>. Automatizadas: <b>solo Pro</b>.
+              Listo para <b>solicitudes</b>. Automatizadas: <b>solo PRO</b>.
             @else
               Listo para <b>solicitudes</b> y <b>automatizaciones</b>.
             @endif
@@ -226,31 +225,44 @@
   </div>
 </div>
 
-
 @push('styles')
 <style>
-/* ===== RFCs · Neo clean ===== */
+/* =========================================================
+   LISTADO RFCs (usa tokens de .sat-ui)
+   ========================================================= */
 .rfcs-neo{
   --bd:var(--bd, #e5e7eb);
-  --card:var(--card, #fff);
+  --card:var(--card, #ffffff);
   --ink:var(--ink, #0f172a);
   --mut:var(--mut, #6b7280);
   --shadow:0 8px 22px rgba(15,23,42,.04);
   border-radius:16px;
 }
 .rfcs-neo-hd{
-  display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;gap:10px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  margin-bottom:12px;
+  gap:10px;
 }
 .rfcs-neo-hd h3{
-  margin:0;font:900 18px/1.2 'Poppins',system-ui;color:var(--ink);
+  margin:0;
+  font:900 18px/1.2 'Poppins',system-ui;
+  color:var(--ink);
 }
 .rfcs-neo-sub{
-  margin:2px 0 0;font-size:11px;font-weight:600;color:var(--mut);
+  margin:2px 0 0;
+  font-size:11px;
+  font-weight:600;
+  color:var(--mut);
 }
 
-/* Botones genéricos */
+/* Botones propios del bloque */
 .btn-rfcs{
-  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
   padding:7px 11px;
   border-radius:999px;
   border:1px solid var(--bd);
@@ -259,6 +271,7 @@
   font:800 12px/1 'Poppins';
   cursor:pointer;
   min-height:32px;
+  transition:background .12s ease, box-shadow .12s ease, transform .12s ease;
 }
 .btn-rfcs span[aria-hidden="true"]{font-size:15px}
 .btn-rfcs.primary{
@@ -267,8 +280,14 @@
   color:#fff;
   box-shadow:var(--shadow);
 }
+.btn-rfcs.primary:hover{
+  background:#be123c;
+  transform:translateY(-1px);
+}
 .btn-rfcs.icon{
-  width:30px;height:30px;padding:0;
+  width:30px;
+  height:30px;
+  padding:0;
   border-radius:999px;
 }
 .btn-rfcs.ghost{
@@ -279,7 +298,7 @@
   background:#f3f4f6;
 }
 
-/* Head y filas – columnas alineadas */
+/* Encabezado y filas */
 .rfcs-neo-head,
 .rfcs-neo-row{
   display:grid;
@@ -316,20 +335,37 @@
   background:#ffffff;
   box-shadow:var(--shadow);
 }
+html[data-theme="dark"] .rfcs-neo-row{
+  background:#020617;
+}
 .rfcs-neo-row > div{
   padding:10px 14px;
-  display:flex;align-items:center;gap:10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
 
 /* Chevron */
 .chev{
-  width:26px;height:26px;border-radius:999px;
-  border:1px solid var(--bd);background:#f9fafb;
-  cursor:pointer;font-size:12px;
+  width:26px;
+  height:26px;
+  border-radius:999px;
+  border:1px solid var(--bd);
+  background:#f9fafb;
+  cursor:pointer;
+  font-size:12px;
+}
+.chev:hover{
+  background:#e5e7eb;
 }
 
 /* Pills RFC / Alias */
-.pill-form{position:relative;display:flex;align-items:center;width:100%}
+.pill-form{
+  position:relative;
+  display:flex;
+  align-items:center;
+  width:100%;
+}
 .pill-input{
   width:100%;
   border-radius:999px;
@@ -337,22 +373,33 @@
   background:#f9fafb;
   padding:7px 30px 7px 12px;
   font:800 12.5px/1 'Poppins';
-  color:var(--ink);
+  color:#111827;
 }
 .pill-input.mono{
   font-family:ui-monospace,Menlo,Consolas,monospace;
 }
 .pill-alias::placeholder{
-  color:#9ca3af;font-weight:500;
+  color:#9ca3af;
+  font-weight:500;
 }
 .pill-input:focus{
-  outline:none;border-color:#fb7185;background:#fff;
+  outline:none;
+  border-color:#fb7185;
+  background:#fff;
 }
 .pill-icon{
-  position:absolute;right:8px;
-  width:20px;height:20px;border-radius:999px;
-  border:0;background:#ffffff;cursor:pointer;font-size:12px;
-  display:flex;align-items:center;justify-content:center;
+  position:absolute;
+  right:8px;
+  width:20px;
+  height:20px;
+  border-radius:999px;
+  border:0;
+  background:#ffffff;
+  cursor:pointer;
+  font-size:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
   box-shadow:0 2px 6px rgba(15,23,42,.12);
 }
 
@@ -378,7 +425,7 @@
   border:1px solid #fed7aa;
 }
 
-/* Panel de FIEL – versión más limpia */
+/* Panel CSD debajo de la fila */
 .rfcs-neo-panel{
   margin:10px 0 0 46px;
   border-radius:18px;
@@ -386,6 +433,9 @@
   padding:14px 18px 12px;
   background:linear-gradient(180deg,#f9fafb,#ffffff);
   box-shadow:0 10px 26px rgba(15,23,42,.05);
+}
+html[data-theme="dark"] .rfcs-neo-panel{
+  background:linear-gradient(180deg,#020617,#020617);
 }
 .rfcs-neo-panel-grid{
   display:grid;
@@ -400,13 +450,17 @@
   border:1px dashed #d1d5db;
   padding:7px 12px;
   font:600 12px/1 'Poppins';
+  background:#f9fafb;
+  color:#111827;
 }
 .fld span{
-  display:block;font:800 11.5px/1 'Poppins';
-  color:var(--mut);margin-bottom:4px;
+  display:block;
+  font:800 11.5px/1 'Poppins';
+  color:#6b7280;
+  margin-bottom:4px;
 }
 
-/* Botones + nota */
+/* Botones + nota panel CSD */
 .panel-actions{
   grid-column:1 / -1;
   display:flex;
@@ -420,15 +474,24 @@
   flex-wrap:wrap;
   gap:8px;
 }
-.note{color:var(--mut);font-weight:600;font-size:11px}
+.note{
+  color:#6b7280;
+  font-weight:600;
+  font-size:11px;
+}
 
-/* Vacío / footer */
+/* Vacíos / pie */
 .rfcs-neo-empty{
-  margin-top:10px;padding:14px;
-  text-align:center;color:var(--mut);font-weight:800;
+  margin-top:10px;
+  padding:14px;
+  text-align:center;
+  color:#6b7280;
+  font-weight:800;
 }
 .rfcs-neo-foot{
-  margin-top:8px;font-size:11px;color:var(--mut);
+  margin-top:8px;
+  font-size:11px;
+  color:#6b7280;
 }
 
 /* Responsive */
@@ -438,7 +501,8 @@
     grid-template-columns:40px 150px minmax(200px,1fr) 110px 100px;
   }
   .rfcs-neo-panel{
-    margin-left:0;margin-top:6px;
+    margin-left:0;
+    margin-top:6px;
   }
   .rfcs-neo-panel-grid{
     grid-template-columns:1fr;
@@ -454,33 +518,38 @@
 @push('scripts')
 <script>
 (function(){
-  const csrf = '{{ csrf_token() }}';
+  // RFC siempre en mayúsculas
+  document.querySelectorAll('.rfcs-neo .js-rfc-upper').forEach(input => {
+    input.addEventListener('input', () => {
+      input.value = (input.value || '').toUpperCase();
+    });
+  });
 
-  // Sincroniza alias visible con los campos ocultos alias/razon_social
-  document.querySelectorAll('.rfcs-neo .js-alias-form').forEach(form=>{
+  // Alias visible -> inputs ocultos alias/nombre/razon_social
+  document.querySelectorAll('.rfcs-neo .js-alias-form').forEach(form => {
     const visible = form.querySelector('[data-field="alias-visible"]');
+    if(!visible) return;
     const syncHidden = () => {
       const v = visible.value || '';
-      form.querySelectorAll('input[name="alias"],input[name="nombre"],input[name="razon_social"]').forEach(h=>{
+      form.querySelectorAll('input[name="alias"],input[name="nombre"],input[name="razon_social"]').forEach(h => {
         h.value = v;
       });
     };
-    if(visible){
-      visible.addEventListener('input', syncHidden);
-      syncHidden();
-    }
+    visible.addEventListener('input', syncHidden);
+    syncHidden();
   });
 
-  // Toggle panel desde chevron o botón con data-open-panel
-  document.querySelectorAll('.rfcs-neo .chev, .rfcs-neo [data-open-panel]').forEach(btn=>{
-    btn.addEventListener('click',()=>{
+  // Chevron / botón escudo -> abrir/cerrar panel CSD
+  document.querySelectorAll('.rfcs-neo .chev, .rfcs-neo [data-open-panel]').forEach(btn => {
+    btn.addEventListener('click', () => {
       const row = btn.closest('[data-row]');
       const panelId = btn.dataset.openPanel || (row ? row.dataset.row + '_panel' : null);
       if(!panelId) return;
       const panel = document.getElementById(panelId);
       if(!panel) return;
-      const open = !panel.hasAttribute('hidden');
-      if(open){
+      const isOpen = !panel.hasAttribute('hidden');
+
+      if(isOpen){
         panel.setAttribute('hidden','');
         panel.setAttribute('aria-hidden','true');
       }else{
@@ -490,79 +559,15 @@
     });
   });
 
-  // Botón "⟳" dispara submit del form RFC
-  document.querySelectorAll('.rfcs-neo .js-rfc-apply').forEach(btn=>{
-    btn.addEventListener('click',()=>{
+  // Botón ⟳ -> dispara submit del form de RFC
+  document.querySelectorAll('.rfcs-neo .js-rfc-apply').forEach(btn => {
+    btn.addEventListener('click', () => {
       const row = btn.closest('.rfcs-neo-row');
-      const f   = row?.querySelector('.js-rfc-form');
-      if(f) f.dispatchEvent(new Event('submit', {cancelable:true,bubbles:true}));
+      const f   = row ? row.querySelector('.js-rfc-form') : null;
+      if(f) f.submit();
     });
   });
 
-  // Enviar formularios por AJAX
-  document.querySelectorAll('.rfcs-neo form').forEach(form=>{
-    form.addEventListener('submit', async (ev)=>{
-      ev.preventDefault();
-
-      const kind = form.dataset.kind || '';
-      const btn  = form.querySelector('button[type="submit"], .pill-icon');
-
-      if(btn) btn.disabled = true;
-
-      try{
-        let res;
-        if(kind === 'csd'){
-          // con archivos: usar FormData directo
-          const fd = new FormData(form);
-          res = await fetch(form.action, {
-            method:'POST',
-            headers:{
-              'X-Requested-With':'XMLHttpRequest',
-              'X-CSRF-TOKEN': csrf
-            },
-            body: fd
-          });
-        }else{
-          // RFC / alias: enviamos JSON
-          const fd = new FormData(form);
-          const plain = {};
-          fd.forEach((v,k)=>{ plain[k] = v; });
-          res = await fetch(form.action, {
-            method:'POST',
-            headers:{
-              'Content-Type':'application/json',
-              'X-Requested-With':'XMLHttpRequest',
-              'X-CSRF-TOKEN': csrf
-            },
-            body: JSON.stringify(plain)
-          });
-        }
-
-        if(!res.ok){
-          console.error('SAT RFCs error HTTP', res.status);
-          alert('No se pudo guardar. Revisa la información.');
-          return;
-        }
-
-        // Ver cambios (estatus, alias, etc.)
-        window.location.reload();
-
-      }catch(e){
-        console.error('SAT RFCs error', e);
-        alert('Error de conexión al guardar.');
-      }finally{
-        if(btn) btn.disabled = false;
-      }
-    });
-  });
-
-  // CTA Agregar RFC (placeholder)
-  const add = document.getElementById('btnAddRfc');
-  if(add){
-    add.addEventListener('click',()=>{
-      alert('Aquí irá el modal "Agregar RFC".');
-    });
-  }
 })();
 </script>
 @endpush

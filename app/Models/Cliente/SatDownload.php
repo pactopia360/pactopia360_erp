@@ -14,10 +14,11 @@ class SatDownload extends Model
     use HasFactory;
 
     protected $connection = 'mysql_clientes';
-    protected $table = 'sat_downloads';
+    protected $table      = 'sat_downloads';
 
-    public $incrementing = false;   // se ajustará dinámicamente
-    protected $keyType   = 'string';// se ajustará dinámicamente
+    // tu id es un UUID string, no autoincrement
+    public $incrementing = false;
+    protected $keyType   = 'string';
 
     protected $fillable = [
         'id',

@@ -54,12 +54,12 @@ return [
 
     // ===== reCAPTCHA (registro/login si se desea) =====
     'recaptcha' => [
-        'enabled' => (bool) env('RECAPTCHA_ENABLED', false),
-        'site_key' => env('RECAPTCHA_SITE_KEY'),
+        'enabled'    => (bool) env('RECAPTCHA_ENABLED', false),
+        'site_key'   => env('RECAPTCHA_SITE_KEY'),
         'secret_key' => env('RECAPTCHA_SECRET_KEY'),
     ],
 
-    // En la parte superior del array:
+    // OTP (WhatsApp / SMS)
     'otp' => [
         // 'whatsapp' -> usa WhatsApp (Meta o Twilio), 'twilio' -> SMS por Twilio
         'driver'   => env('OTP_DRIVER', 'whatsapp'),
@@ -87,13 +87,25 @@ return [
 
     'facturotopia' => [
         'base'  => env('FT_BASE', 'https://api-demo.facturotopia.com/api'),
-        'token' => env('FT_TOKEN'), 
+        'token' => env('FT_TOKEN'),
     ],
 
+    // SAT / servicios relacionados
     'sat' => [
+        // driver legacy general (si tienes algo que use esto)
         'driver' => env('SAT_DRIVER', 'fake'),
-        'base'  => env('FT_BASE', ''),   // p.ej: https://api-demo.facturotopia.com/api
-        'token' => env('FT_TOKEN', ''),  // Bearer token
+
+        // si usas algún proxy tipo Facturotopia
+        'base'   => env('FT_BASE', ''),
+        'token'  => env('FT_TOKEN', ''),
+
+        // Config específico para descarga masiva vía SATWS (phpcfdi/sat-ws-descarga-masiva)
+        'download' => [
+            // 'satws' = directo al SAT, 'fake' o 'database' para otros drivers
+            'driver'       => env('SAT_DOWNLOAD_DRIVER', 'satws'),
+            // timeout HTTP en segundos
+            'http_timeout' => (int) env('SAT_DOWNLOAD_HTTP_TIMEOUT', 60),
+        ],
     ],
 
 ];

@@ -96,15 +96,29 @@
 @php
   $u  = auth('web')->user();
   $c  = $u?->cuenta;
-  $planLabel = strtoupper(($c->plan_actual ?? $account->plan_actual ?? 'FREE'));
-  $modoCobro = $account->modo_cobro ?? $c->modo_cobro ?? '—';
+
+  // summary viene del controlador (misma lógica que Home/Perfil/EstadoCuenta)
+  $summaryArr = $summary ?? null;
+
+  // Plan y ciclo: priorizar admin.accounts (plan / billing_cycle) y luego espejo
+  $planLabel = strtoupper(
+      $summaryArr['plan'] ?? ($account->plan ?? ($c->plan_actual ?? 'FREE'))
+  );
+
+  $modoCobro = $summaryArr['cycle']
+      ?? ($account->billing_cycle ?? ($c->modo_cobro ?? '—'));
+
   $rfcView   = $account->rfc ?? $c->rfc_padre ?? '—';
   $emailView = $account->email ?? $u->email ?? '—';
+
   $isBlocked = (bool)($account->is_blocked ?? false);
   $isPastDue = (isset($subscription->status) && $subscription->status === 'past_due');
+
   $statusText  = $isBlocked ? 'Bloqueada' : ($isPastDue ? 'Pago pendiente' : 'Activa');
   $statusClass = $isBlocked ? 'warn' : ($isPastDue ? 'warn' : 'ok');
+
   $accountId   = $accountId ?? ($account->id ?? null);
+
   $displayMonthly = $displayMonthly ?? config('services.stripe.display_price_monthly',990.00);
   $displayAnnual  = $displayAnnual  ?? config('services.stripe.display_price_annual',9990.00);
 @endphp
@@ -220,7 +234,9 @@
               <td>{{ \Illuminate\Support\Carbon::parse($p->created_at)->format('d/M/Y H:i') }}</td>
               <td>${{ number_format($p->amount, 2) }} {{ strtoupper($p->currency ?? 'MXN') }}</td>
               <td>{{ strtoupper($p->method ?? 'stripe') }}</td>
-              <td style="font-family:ui-monospace,monospace">{{ $p->reference }}</td>
+              <td style="font-family:ui-monospace,monospace">
+                {{ $p->reference ?? $p->stripe_id ?? $p->payment_intent ?? $p->id ?? '-' }}
+              </td>
             </tr>
           @endforeach
         </tbody>

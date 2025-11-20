@@ -55,6 +55,11 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
 .input:focus,select:focus{outline:none;box-shadow:var(--ring)}
 .search{min-width:260px}
 
+/* mini botones para presets de plan */
+.btn-xs{height:var(--h-xs);padding:2px 8px;font-size:11px}
+.plan-quick{display:grid;grid-template-columns:minmax(130px,170px) 1fr;gap:6px;align-items:center;margin-top:4px}
+.plan-chips{display:flex;flex-wrap:wrap;gap:4px}
+
 /* ===== Alerts ===== */
 .alerts{display:grid;gap:8px;margin:6px 0 10px}
 .alert{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:8px 10px}
@@ -126,6 +131,7 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
   .actions{justify-content:flex-start}
   .table{min-width:860px}
   .btn{height:40px;padding:8px 12px}
+  .plan-quick{grid-template-columns:1fr}
 }
 @media (max-width: 700px){
   .kpi strong{font-size:16px}
@@ -281,6 +287,7 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
           $info     = $extras[$r->id] ?? null;
           $c        = $creds[$r->id] ?? ['owner_email'=>null,'temp_pass'=>null];
           $tokenUrl = $info && !empty($info['email_token']) ? route('cliente.verify.email.token', ['token'=>$info['email_token']]) : null;
+          $planVal  = strtolower((string)($r->plan ?? ''));
         @endphp
         <tr id="row-{{ $r->id }}">
           {{-- Cliente --}}
@@ -301,7 +308,21 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
               <input class="input" name="razon_social" value="{{ $r->razon_social }}" placeholder="Razón social" aria-label="Razón social">
               <input class="input" name="email" value="{{ $r->email }}" placeholder="Correo" aria-label="Correo">
               <input class="input" name="phone" value="{{ $r->phone }}" placeholder="Teléfono" aria-label="Teléfono">
-              <input class="input" name="plan" value="{{ $r->plan }}" placeholder="Plan (free, pro...)" aria-label="Plan">
+
+              {{-- Plan + presets Free / Pro --}}
+              <div class="plan-quick">
+                <select class="input" name="plan" aria-label="Plan">
+                  <option value="">— Plan —</option>
+                  <option value="free" {{ $planVal==='free'?'selected':'' }}>Free</option>
+                  <option value="pro"  {{ $planVal==='pro'?'selected':'' }}>Pro</option>
+                </select>
+                <div class="plan-chips">
+                  <button type="button" class="btn btn-xs" data-plan-preset="free" data-cycle="" data-days="0">Free</button>
+                  <button type="button" class="btn btn-xs btnp" data-plan-preset="pro" data-cycle="monthly" data-days="30">Pro · mensual</button>
+                  <button type="button" class="btn btn-xs btnp" data-plan-preset="pro" data-cycle="yearly" data-days="365">Pro · anual</button>
+                </div>
+              </div>
+
               @php $bc = $r->billing_cycle; @endphp
               <select name="billing_cycle" class="input" aria-label="Ciclo de cobro">
                 <option value="">— Ciclo —</option>
@@ -328,7 +349,8 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
               <span class="badge {{ $r->phone_verified_at ? 'ok':'warn' }}">Tel {{ $r->phone_verified_at?'✔':'pendiente' }}</span>
               <span class="badge {{ (int)$r->is_blocked===1 ? 'danger':'ok' }}">{{ (int)$r->is_blocked===1 ? 'Bloqueado' : 'Operando' }}</span>
               @if($r->plan)
-                <span class="badge info">Plan: {{ $r->plan }}</span>
+                @php $p = strtolower($r->plan); @endphp
+                <span class="badge {{ $p==='pro' ? 'ok' : 'warn' }}">Plan: {{ $r->plan }}</span>
               @endif
             </div>
             <div class="meta" style="margin-top:4px">
@@ -403,7 +425,7 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
                 </form>
               </div>
 
-                            {{-- Credenciales --}}
+              {{-- Credenciales --}}
               <div class="card">
                 <h3>Credenciales</h3>
                 @php
@@ -528,7 +550,7 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
     }
   }
 
-  // Expand/collapse
+  // Expand/collapse + copiar + presets de plan + columnas
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.expbtn');
     if (btn) {
@@ -559,6 +581,37 @@ h1{font-size:22px;margin:8px 0 2px;font-weight:800;letter-spacing:-.2px}
         setTimeout(()=>{ copyBtn.disabled=false; copyBtn.textContent=prev; }, 800);
       });
     }
+
+    // Presets de plan Free / Pro
+    const presetBtn = e.target.closest('[data-plan-preset]');
+    if (presetBtn) {
+      e.preventDefault();
+      const plan  = presetBtn.getAttribute('data-plan-preset') || '';
+      const cycle = presetBtn.getAttribute('data-cycle') || '';
+      const days  = parseInt(presetBtn.getAttribute('data-days') || '0', 10);
+
+      const formRow = presetBtn.closest('form.row-form');
+      if (!formRow) return;
+
+      const planField = formRow.querySelector('select[name="plan"], input[name="plan"]');
+      if (planField) planField.value = plan;
+
+      const cycleSel = formRow.querySelector('select[name="billing_cycle"]');
+      if (cycleSel) cycleSel.value = cycle;
+
+      const nextInput = formRow.querySelector('input[name="next_invoice_date"]');
+      if (nextInput) {
+        if (days > 0) {
+          const d = new Date();
+          d.setDate(d.getDate() + days);
+          const iso = d.toISOString().slice(0,10);
+          nextInput.value = iso;
+        } else {
+          nextInput.value = '';
+        }
+      }
+    }
+
     // Columnas menu
     if (e.target.id==='btnCols'){
       const pnl = $('#colsPanel'); const btn2 = e.target;

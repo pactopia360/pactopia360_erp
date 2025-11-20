@@ -2,8 +2,23 @@
 @section('title','SAT · Descargas masivas CFDI')
 
 @php
-  // ===== Datos base seguros
-  $plan     = strtoupper((string)($cuenta?->plan_actual ?? 'FREE'));
+  // ===== Resumen unificado de cuenta (admin.accounts) =====
+  // Reutilizamos el helper del Home para que el layout y este módulo
+  // vean el mismo plan (FREE / PRO / etc.)
+  $summary = $summary ?? app(\App\Http\Controllers\Cliente\HomeController::class)->buildAccountSummary();
+
+  $planFromSummary = strtoupper((string)($summary['plan'] ?? 'FREE'));
+  $isProSummary    = (bool)($summary['is_pro'] ?? in_array(
+      strtolower($planFromSummary),
+      ['pro','premium','empresa','business'],
+      true
+  ));
+
+  // ===== Datos base seguros (SAT) =====
+  $plan      = $planFromSummary;
+  $isProPlan = $isProSummary;   // bandera principal para FREE / PRO en este módulo
+  $isPro     = $isProPlan;      // alias por compatibilidad si se usa en otra parte
+
   $credList = $credList    ?? [];
   $rowsInit = $initialRows ?? [];
 
@@ -12,6 +27,7 @@
   $driver      = config('services.sat.download.driver','satws');
   $isLocalDemo = app()->environment(['local','development','testing']) && $driver !== 'satws';
   $mode        = $cookieMode ? strtolower($cookieMode) : ($isLocalDemo ? 'demo' : 'prod');
+  $modeLabel   = strtoupper($mode === 'demo' ? 'FUENTE: DEMO' : 'FUENTE: PRODUCCIÓN');
 
   // Totales rápidos
   $kRfc   = is_countable($credList) ? count($credList) : 0;
@@ -30,9 +46,11 @@
       }
   }
 
-  $asig   = (int)($cuenta->sat_quota_assigned ?? ($plan==='PRO' ? 12 : 1));
-  $usadas = (int)($cuenta->sat_quota_used ?? 0);
-  $pct    = $asig > 0 ? min(100, max(0, round(($usadas / $asig) * 100))) : 0;
+  // Cuotas SAT: si es PRO usa 12, si no 1 (ajusta según tus reglas reales)
+  $asigDefault = $isProPlan ? 12 : 1;
+  $asig        = (int)($cuenta->sat_quota_assigned ?? $asigDefault);
+  $usadas      = (int)($cuenta->sat_quota_used ?? 0);
+  $pct         = $asig > 0 ? min(100, max(0, round(($usadas / $asig) * 100))) : 0;
 
   // Rutas (defensivas)
   $rtCsdStore  = \Route::has('cliente.sat.credenciales.store') ? route('cliente.sat.credenciales.store') : '#';
@@ -43,11 +61,13 @@
   $rtReport    = \Route::has('cliente.sat.report')             ? route('cliente.sat.report')             : '#';
   $rtVault     = \Route::has('cliente.sat.vault')              ? route('cliente.sat.vault')              : '#';
   $rtMode      = \Route::has('cliente.sat.mode')               ? route('cliente.sat.mode')               : null;
+  $rtCharts    = \Route::has('cliente.sat.charts')             ? route('cliente.sat.charts')             : null;
 
-  // Rutas para RFCs (partial)
+  // Rutas para RFCs (partial / modal)
   $rtAlias     = \Route::has('cliente.sat.alias')        ? route('cliente.sat.alias')         : '#';
   $rtRfcReg    = \Route::has('cliente.sat.rfc.register') ? route('cliente.sat.rfc.register')  : '#';
 @endphp
+
 
 
 @push('styles')
@@ -140,7 +160,7 @@ html[data-theme="dark"] .sat-icon{
   color:var(--mut);
 }
 
-/* Zona de acciones (Actualizar / CSV / Excel / Reporte / Modo) */
+/* Zona de acciones */
 .sat-actions{
   display:flex;
   flex-wrap:wrap;
@@ -561,6 +581,250 @@ html[data-theme="dark"] .badge-plan-ok{
   font-weight:600;
   color:var(--mut);
 }
+
+/* ==========================
+   MODAL AGREGAR RFC / CSD
+   ========================== */
+.sat-modal-backdrop{
+  position:fixed;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(15,23,42,.38);
+  z-index:80;
+}
+.sat-modal-backdrop.is-open{display:flex;}
+
+html[data-theme="dark"] .sat-modal-backdrop{
+  background:rgba(0,0,0,.70);
+}
+
+.sat-modal{
+  width:100%;
+  max-width:540px;
+  background:var(--card);
+  border-radius:18px;
+  border:1px solid var(--bd-soft);
+  box-shadow:var(--shadow-soft);
+  padding:18px 20px 16px;
+}
+
+.sat-modal-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:12px;
+}
+
+.sat-modal-kicker{
+  font:800 10px/1 'Poppins';
+  text-transform:uppercase;
+  letter-spacing:.16em;
+  color:var(--mut);
+  margin-bottom:4px;
+}
+
+.sat-modal-title{
+  font:900 19px/1.2 'Poppins';
+  color:var(--ink);
+}
+
+.sat-modal-sub{
+  margin:4px 0 0;
+  font-size:12px;
+  font-weight:500;
+  color:var(--mut);
+}
+
+.sat-modal-close{
+  border:0;
+  background:transparent;
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+  cursor:pointer;
+  color:var(--mut);
+}
+.sat-modal-close:hover{
+  background:#f3f4f6;
+  color:var(--ink);
+}
+html[data-theme="dark"] .sat-modal-close:hover{
+  background:#111827;
+}
+
+.sat-modal-body{
+  padding-top:4px;
+  padding-bottom:6px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.sat-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.sat-field-label{
+  font:800 11px/1.1 'Poppins';
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  color:var(--mut);
+}
+
+.sat-modal .input{
+  width:100%;
+  border-radius:12px;
+  border:1px solid var(--bd);
+  background:var(--bg);
+  padding:8px 10px;
+  font:800 13px/1 'Poppins';
+  color:var(--ink);
+}
+.sat-modal .input::placeholder{
+  color:#9ca3af;
+  font-weight:500;
+}
+.sat-modal .input[type="file"]{
+  padding:6px 10px;
+  font-weight:600;
+  font-size:12px;
+}
+
+.sat-field-inline{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px 16px;
+}
+
+.sat-modal-sep{
+  border:0;
+  border-top:1px dashed var(--bd);
+  margin:4px 0 4px;
+}
+
+.sat-modal-note{
+  margin:4px 0 0;
+  font-size:11px;
+  font-weight:600;
+  color:var(--mut);
+}
+
+.sat-modal-footer{
+  margin-top:8px;
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+}
+@media(max-width:640px){
+  .sat-modal{
+    margin:0 10px;
+    padding:16px 14px 14px;
+  }
+  .sat-field-inline{
+    grid-template-columns:1fr;
+  }
+}
+
+/* ==========================
+   LISTADO DESCARGAS (mejorado)
+   ========================== */
+.sat-dl-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  margin-bottom:8px;
+}
+.sat-dl-title h3{
+  margin:0;
+  font:900 16px/1 'Poppins';
+  color:var(--ink);
+}
+.sat-dl-title p{
+  margin:2px 0 0;
+  font-size:11px;
+  color:var(--mut);
+}
+.sat-dl-filters{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+.sat-dl-filters input,
+.sat-dl-filters select{
+  border-radius:999px;
+  border:1px solid var(--bd);
+  background:var(--card);
+  padding:6px 10px;
+  font-size:12px;
+  font-family:'Poppins',system-ui;
+}
+.sat-dl-table-wrap{
+  border-radius:14px;
+  border:1px solid var(--bd-soft);
+  overflow:hidden;
+  background:var(--card);
+}
+.sat-dl-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+  font-family:'Poppins',system-ui;
+}
+.sat-dl-table thead{
+  background:#fef2f2;
+  text-transform:uppercase;
+  font-size:11px;
+  letter-spacing:.08em;
+  color:#9ca3af;
+}
+html[data-theme="dark"] .sat-dl-table thead{
+  background:#4b1120;
+}
+.sat-dl-table th,
+.sat-dl-table td{
+  padding:8px 10px;
+  border-bottom:1px solid rgba(148,163,184,.2);
+  text-align:left;
+  vertical-align:middle;
+}
+.sat-dl-table tbody tr:last-child td{border-bottom:0;}
+.sat-badge-status{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  text-transform:uppercase;
+}
+.sat-badge-status.done{background:#dcfce7;color:#166534;}
+.sat-badge-status.pending,
+.sat-badge-status.processing{background:#fef3c7;color:#92400e;}
+.sat-dl-btn-download{
+  width:26px;
+  height:26px;
+  border-radius:999px;
+  border:1px solid #e5e7eb;
+  background:#eff6ff;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* ========================== */
 </style>
 @endpush
 
@@ -605,7 +869,7 @@ html[data-theme="dark"] .badge-plan-ok{
             data-url="{{ $rtMode }}"
           >
             <span class="dot"></span>
-            <span>{{ strtoupper($mode)==='PROD' ? 'PRODUCCIÓN' : 'DEMO' }}</span>
+            <span>{{ $modeLabel }}</span>
           </button>
         @endif
       </div>
@@ -645,15 +909,15 @@ html[data-theme="dark"] .badge-plan-ok{
       <div class="section-sub">Genera nuevas solicitudes de descarga manuales</div>
     </div>
 
-    @if($plan==='FREE')
+    @if(!$isProPlan)
       <div class="chip-plan" data-tip="FREE: 1 solicitud activa, periodos máximo 1 mes">
         <span aria-hidden="true">🆓</span>
         <span>Plan FREE · 1 solicitud · ≤ 1 mes</span>
       </div>
     @else
-      <div class="chip-plan" data-tip="PRO: hasta 12 solicitudes por RFC">
-        <span aria-hidden="true">⭐</span>
-        <span>Plan PRO · hasta 12 solicitudes por RFC</span>
+      <div class="chip-plan" data-tip="Cuota contratada de descargas SAT">
+        <span aria-hidden="true">✅</span>
+        <span>Cuota actual · hasta {{ $asig }} solicitudes por RFC</span>
       </div>
     @endif
 
@@ -664,18 +928,28 @@ html[data-theme="dark"] .badge-plan-ok{
         <option value="recibidos">Recibidos</option>
         <option value="ambos">Ambos</option>
       </select>
-      <input class="input" type="date" name="date_from" aria-label="Desde">
-      <input class="input" type="date" name="date_to" aria-label="Hasta">
-      <select class="select" name="rfc" aria-label="RFC">
-        <option value="">RFC</option>
+
+      {{-- Nombres from/to para empatar con SatDescargaController::requestList --}}
+      <input class="input" type="date" name="from" aria-label="Desde" required>
+      <input class="input" type="date" name="to" aria-label="Hasta" required>
+
+      {{-- RFC único (controlado por ahora por backend) --}}
+      <select class="select" name="rfc" id="satRfc" aria-label="RFC" required
+              data-tip="Selecciona el RFC para esta solicitud">
+        <option value="">RFC...</option>
         @foreach($credList as $c)
-          @php $rf = strtoupper($c['rfc'] ?? $c->rfc ?? ''); @endphp
-          <option value="{{ $rf }}">{{ $rf }}</option>
+          @php
+            $rf = strtoupper($c['rfc'] ?? ($c->rfc ?? ''));
+            $alias = $c['razon_social'] ?? ($c->razon_social ?? '');
+          @endphp
+          <option value="{{ $rf }}">
+            {{ $rf }} @if($alias) · {{ $alias }} @endif
+          </option>
         @endforeach
       </select>
 
       <button class="btn primary" type="submit" data-tip="Crear solicitud">
-        <span aria-hidden="true">⤵️</span>
+        <span aria-hidden="true">⤵️</span><span>Solicitar</span>
       </button>
       <button type="button" class="btn" id="btnSatVerify" data-tip="Verificar estado de solicitudes">
         <span aria-hidden="true">🔄</span><span>Verificar</span>
@@ -684,6 +958,13 @@ html[data-theme="dark"] .badge-plan-ok{
         <span aria-hidden="true">💼</span><span>Bóveda</span>
       </a>
     </form>
+
+    @if(!$isProPlan)
+      <p class="text-muted" style="margin-top:6px">
+        En el plan FREE puedes solicitar hasta <b>1 mes de rango</b> por ejecución
+        y un volumen limitado de solicitudes simultáneas.
+      </p>
+    @endif
   </div>
 
   {{-- 3) AUTOMATIZADAS --}}
@@ -693,33 +974,33 @@ html[data-theme="dark"] .badge-plan-ok{
         <div class="section-title">Automatizadas</div>
         <div class="section-sub">Programación de descargas periódicas por RFC</div>
       </div>
-      @if($plan==='FREE')
+      @if(!$isProPlan)
         <div class="badge-plan-lock">Solo PRO</div>
       @else
         <div class="badge-plan-ok">Incluido en tu plan PRO</div>
       @endif
     </div>
 
-    <div class="auto-grid {{ $plan==='FREE' ? 'is-locked' : '' }}">
-      <button type="button" class="btn auto-btn" {{ $plan==='FREE' ? 'disabled' : '' }}>
+    <div class="auto-grid {{ !$isProPlan ? 'is-locked' : '' }}">
+      <button type="button" class="btn auto-btn" {{ !$isProPlan ? 'disabled' : '' }}>
         <span aria-hidden="true">⏱</span><span>Diario</span>
       </button>
-      <button type="button" class="btn auto-btn" {{ $plan==='FREE' ? 'disabled' : '' }}>
+      <button type="button" class="btn auto-btn" {{ !$isProPlan ? 'disabled' : '' }}>
         <span aria-hidden="true">📅</span><span>Semanal</span>
       </button>
-      <button type="button" class="btn auto-btn" {{ $plan==='FREE' ? 'disabled' : '' }}>
+      <button type="button" class="btn auto-btn" {{ !$isProPlan ? 'disabled' : '' }}>
         <span aria-hidden="true">🗓</span><span>Mensual</span>
       </button>
-      <button type="button" class="btn auto-btn" {{ $plan==='FREE' ? 'disabled' : '' }}>
+      <button type="button" class="btn auto-btn" {{ !$isProPlan ? 'disabled' : '' }}>
         <span aria-hidden="true">⚙️</span><span>Por rango</span>
       </button>
     </div>
 
     <p class="text-muted" style="margin-top:8px">
-      @if($plan==='FREE')
+      @if(!$isProPlan)
         Estas opciones se activan al contratar el plan PRO. Cada ejecución automática consume solicitudes de tu cuota contratada.
       @else
-        Cada ejecución automática consumirá solicitudes de tu cuota contratada de descargas SAT.
+        Tus automatizaciones están activas. Cada ejecución automática consumirá solicitudes de tu cuota contratada de descargas SAT.
       @endif
     </p>
   </div>
@@ -729,7 +1010,7 @@ html[data-theme="dark"] .badge-plan-ok{
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
       <div>
         <div class="section-title">Tendencias</div>
-        <div class="section-sub">Movimientos recientes de CFDI</div>
+        <div class="section-sub">Movimientos recientes de CFDI (últimos 6 meses)</div>
       </div>
       <div class="tabs">
         <button class="tab is-active" data-scope="emitidos">Emitidos</button>
@@ -744,7 +1025,7 @@ html[data-theme="dark"] .badge-plan-ok{
     </div>
 
     <p class="text-muted" style="margin-top:8px">
-      Gráficas ilustrativas. Puedes conectar aquí tus datos reales de bóveda o reportes contables.
+      Las series se calculan con tus CFDI reales (o, en su defecto, con el historial de descargas SAT).
     </p>
   </div>
 
@@ -755,9 +1036,9 @@ html[data-theme="dark"] .badge-plan-ok{
       <div class="section-sub">Flujos frecuentes de trabajo</div>
     </div>
     <div class="pills-row">
-      <div class="pill primary" data-tip="Crear nueva solicitud de descarga">
-        <span aria-hidden="true">🧾</span><span>Solicitar CFDI</span>
-      </div>
+      <button type="button" class="pill primary" data-open="add-rfc" data-tip="Registrar un nuevo RFC / CSD">
+        <span aria-hidden="true">➕</span><span>Agregar RFC</span>
+      </button>
       <div class="pill" data-tip="Ir a automatizadas">
         <span aria-hidden="true">⚙️</span><span>Descargas automatizadas</span>
       </div>
@@ -783,55 +1064,42 @@ html[data-theme="dark"] .badge-plan-ok{
     ])
   </div>
 
-  {{-- 7) LISTADO DE DESCARGAS SAT --}}
+  {{-- 7) LISTADO DE DESCARGAS SAT (mejorado) --}}
   <div class="sat-card">
-    <div style="margin-bottom:10px">
-      <div class="section-title">Listado de descargas SAT</div>
-      <div class="section-sub">Histórico de solicitudes y paquetes generados</div>
+    <div class="sat-dl-head">
+      <div class="sat-dl-title">
+        <h3>Listado de descargas SAT</h3>
+        <p>Histórico de solicitudes y paquetes generados</p>
+      </div>
+      <div class="sat-dl-filters">
+        <input id="satDlSearch" type="text" placeholder="Buscar por ID o RFC">
+        <select id="satDlTipo">
+          <option value="">Todos los tipos</option>
+          <option value="emitidos">Emitidos</option>
+          <option value="recibidos">Recibidos</option>
+        </select>
+        <select id="satDlStatus">
+          <option value="">Todos los estados</option>
+          <option value="pending">Pending</option>
+          <option value="processing">Processing</option>
+          <option value="done">Listos</option>
+        </select>
+      </div>
     </div>
 
-    <div class="table-wrap">
-      <table class="table" aria-label="Solicitudes recientes">
+    <div class="sat-dl-table-wrap">
+      <table class="sat-dl-table">
         <thead>
-          <tr>
-            <th>ID</th>
-            <th>Tipo</th>
-            <th>Periodo</th>
-            <th>Estado</th>
-            <th>Paquete</th>
-            <th>Acciones</th>
-          </tr>
+        <tr>
+          <th>ID</th>
+          <th>Tipo</th>
+          <th>Periodo</th>
+          <th>Estado</th>
+          <th>Paquete</th>
+          <th>Acciones</th>
+        </tr>
         </thead>
-        <tbody>
-          @forelse($rowsInit as $r)
-            @php
-              $estado = strtolower($r['estado']??'');
-              $ok  = str_contains($estado,'ready') || str_contains($estado,'done') || str_contains($estado,'listo');
-              $cls = $ok ? 'ok' : (str_contains($estado,'error')||str_contains($estado,'fail') ? 'err' : 'warn');
-            @endphp
-            <tr>
-              <td>{{ $r['dlid']??'—' }}</td>
-              <td><span class="tag">{{ ucfirst($r['tipo']??'') }}</span></td>
-              <td>{{ $r['desde']??'' }} → {{ $r['hasta']??'' }}</td>
-              <td><span class="badge-status {{ $cls }}">{{ $r['estado']??'' }}</span></td>
-              <td class="mono">{{ $r['package_id']??'—' }}</td>
-              <td>
-                @if($ok && ($r['dlid']??false))
-                  <a class="btn icon" data-tip="Descargar ZIP"
-                     href="{{ str_replace('__ID__',$r['dlid'],$rtZipGet) }}">⬇️</a>
-                @else
-                  <form method="post" action="{{ $rtPkgPost }}" style="display:inline">
-                    @csrf
-                    <input type="hidden" name="download_id" value="{{ $r['dlid']??'' }}">
-                    <button class="btn icon" data-tip="Reintentar creación de paquete">↻</button>
-                  </form>
-                @endif
-              </td>
-            </tr>
-          @empty
-            <tr><td colspan="6" class="empty">Aún no has generado solicitudes de descarga.</td></tr>
-          @endforelse
-        </tbody>
+        <tbody id="satDlBody"></tbody>
       </table>
     </div>
   </div>
@@ -893,19 +1161,118 @@ html[data-theme="dark"] .badge-plan-ok{
   </div>
 
 </div>
+
+{{-- MODAL: AGREGAR RFC / CSD --}}
+<div class="sat-modal-backdrop" id="modalRfc">
+  <div class="sat-modal">
+    <div class="sat-modal-header">
+      <div>
+        <div class="sat-modal-kicker">Conexiones SAT · CSD</div>
+        <div class="sat-modal-title">Agregar RFC</div>
+        <p class="sat-modal-sub">
+          Registra un nuevo RFC y, si quieres, sube el CSD para empezar a descargar CFDI.
+        </p>
+      </div>
+      <button type="button"
+              class="sat-modal-close"
+              data-close="modal-rfc"
+              aria-label="Cerrar">
+        ✕
+      </button>
+    </div>
+
+    <form id="formRfc">
+      @csrf
+      <div class="sat-modal-body">
+        <div class="sat-field">
+          <div class="sat-field-label">RFC</div>
+          <input class="input"
+                 type="text"
+                 name="rfc"
+                 maxlength="13"
+                 placeholder="AAA010101AAA"
+                 required>
+        </div>
+
+        <div class="sat-field">
+          <div class="sat-field-label">Nombre o razón social (alias)</div>
+          <input class="input"
+                 type="text"
+                 name="alias"
+                 maxlength="190"
+                 placeholder="Razón social para identificar el RFC">
+        </div>
+
+        <hr class="sat-modal-sep">
+
+        <div class="sat-field sat-field-inline">
+          <div>
+            <div class="sat-field-label">Certificado (.cer)</div>
+            <input class="input"
+                   type="file"
+                   name="cer"
+                   accept=".cer">
+          </div>
+          <div>
+            <div class="sat-field-label">Llave privada (.key)</div>
+            <input class="input"
+                   type="file"
+                   name="key"
+                   accept=".key">
+          </div>
+        </div>
+
+        <div class="sat-field">
+          <div class="sat-field-label">Contraseña de la llave</div>
+          <input class="input"
+                 type="password"
+                 name="key_password"
+                 autocomplete="new-password"
+                 placeholder="••••••••">
+        </div>
+
+        <p class="sat-modal-note">
+          Si no adjuntas <b>.cer</b> y <b>.key</b>, sólo se registrará el RFC.  
+          Si adjuntas archivos y contraseña, se validará el <b>CSD</b> contra el SAT.
+        </p>
+      </div>
+
+      <div class="sat-modal-footer">
+        <button type="button" class="btn" data-close="modal-rfc">Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
 @endsection
 
 
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
+const SAT_ROUTES = {
+  charts: @json($rtCharts),
+  csdStore: @json($rtCsdStore),
+  rfcReg: @json($rtRfcReg),
+  verify: @json($rtVerify),
+  download: @json($rtPkgPost),
+};
+const SAT_ZIP_PATTERN   = @json($rtZipGet);
+const SAT_DOWNLOAD_ROWS = @json($rowsInit);
+const SAT_CSRF = '{{ csrf_token() }}';
+</script>
+<script>
 /* ===== Cambiar DEMO/PROD con el botón de modo ===== */
 (() => {
   const badge = document.getElementById('badgeMode');
   if (!badge || !badge.dataset.url) return;
   badge.addEventListener('click', async () => {
+    const url = badge.dataset.url;
+    badge.disabled = true;
     try{
-      const res = await fetch(badge.dataset.url, {
+      const res = await fetch(url, {
         method:'POST',
         headers:{
           'X-Requested-With':'XMLHttpRequest',
@@ -915,7 +1282,9 @@ html[data-theme="dark"] .badge-plan-ok{
       if(!res.ok) throw new Error('HTTP '+res.status);
       location.reload();
     }catch(e){
+      console.error(e);
       alert('No se pudo cambiar el modo');
+      badge.disabled = false;
     }
   });
 })();
@@ -929,20 +1298,25 @@ html[data-theme="dark"] .badge-plan-ok{
   });
 })();
 
-/* ===== Verificar solicitudes ===== */
+/* ===== Verificar solicitudes (POST) ===== */
 (() => {
   const btn = document.getElementById('btnSatVerify');
-  if(!btn) return;
+  if(!btn || !SAT_ROUTES.verify) return;
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try{
-      const r = await fetch("{{ $rtVerify }}", {
-        headers:{'X-Requested-With':'XMLHttpRequest'}
+      const r = await fetch(SAT_ROUTES.verify, {
+        method:'POST',
+        headers:{
+          'X-Requested-With':'XMLHttpRequest',
+          'X-CSRF-TOKEN':SAT_CSRF
+        }
       });
       const j = await r.json();
       alert(`Pendientes: ${j.pending ?? 0} · Listos: ${j.ready ?? 0}`);
       location.reload();
     }catch(e){
+      console.error(e);
       alert('No se pudo verificar');
     }finally{
       btn.disabled = false;
@@ -952,13 +1326,13 @@ html[data-theme="dark"] .badge-plan-ok{
 
 /* ===== Regla FREE: ≤ 1 mes ===== */
 (() => {
-  const plan = "{{ $plan }}";
+  const planIsPro = @json($isProPlan);
   const f = document.getElementById('reqForm');
-  if(!f || plan!=='FREE') return;
+  if(!f || planIsPro) return;
   f.addEventListener('submit', ev=>{
     const d = new FormData(f);
-    const a = new Date(d.get('date_from'));
-    const b = new Date(d.get('date_to'));
+    const a = new Date(d.get('from'));
+    const b = new Date(d.get('to'));
     if(isNaN(+a) || isNaN(+b)) return;
     if((b - a) > 32*24*3600*1000){
       ev.preventDefault();
@@ -967,8 +1341,77 @@ html[data-theme="dark"] .badge-plan-ok{
   });
 })();
 
-/* ===== Charts dummy ===== */
+/* ===== Modal RFC (abrir / cerrar / submit) ===== */
 (() => {
+  const modal = document.getElementById('modalRfc');
+  const form  = document.getElementById('formRfc');
+  if(!modal || !form) return;
+
+  const open  = () => modal.classList.add('is-open');
+  const close = () => modal.classList.remove('is-open');
+
+  document.addEventListener('click',(ev)=>{
+    const openBtn  = ev.target.closest('[data-open="add-rfc"]');
+    const closeBtn = ev.target.closest('[data-close="modal-rfc"]');
+    if(openBtn){
+      ev.preventDefault();
+      open();
+    }
+    if(closeBtn || ev.target === modal){
+      ev.preventDefault();
+      close();
+    }
+  });
+
+  window.addEventListener('sat-open-add-rfc', open);
+
+  form.addEventListener('submit', async (ev)=>{
+    ev.preventDefault();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if(submitBtn) submitBtn.disabled = true;
+
+    const fd = new FormData(form);
+    const hasCer = fd.get('cer') instanceof File && fd.get('cer').name;
+    const hasKey = fd.get('key') instanceof File && fd.get('key').name;
+    const pwd    = (fd.get('key_password') || '').toString().trim();
+    const useCsd = (hasCer || hasKey || pwd !== '');
+    const url    = useCsd ? SAT_ROUTES.csdStore : SAT_ROUTES.rfcReg;
+
+    if(!url || url === '#'){
+      alert('Ruta de guardado de RFC no configurada.');
+      if(submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
+    try{
+      const res = await fetch(url, {
+        method:'POST',
+        headers:{'X-Requested-With':'XMLHttpRequest'},
+        body: fd
+      });
+      let data = {};
+      try{ data = await res.json(); }catch(_){}
+      if(!res.ok || (data.ok === false)){
+        const msg = data.msg || 'No se pudo guardar el RFC / CSD';
+        alert(msg);
+        if(submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      close();
+      location.reload();
+    }catch(e){
+      console.error(e);
+      alert('Error enviando datos');
+    }finally{
+      if(submitBtn) submitBtn.disabled = false;
+    }
+  });
+})();
+
+/* ===== Charts con datos reales (endpoint /sat/charts) ===== */
+(() => {
+  if(!SAT_ROUTES.charts) return;
+
   const mk = (id,label)=> {
     const el = document.getElementById(id);
     if(!el) return null;
@@ -987,29 +1430,188 @@ html[data-theme="dark"] .badge-plan-ok{
     });
   };
 
-  const A = mk('chartA','Importe total');
-  const B = mk('chartB','# CFDI');
-  if(!A || !B) return;
+  const chartA = mk('chartA','Importe total');
+  const chartB = mk('chartB','# CFDI');
+  if(!chartA || !chartB) return;
 
-  const reload = (scope) => {
-    const labels = Array.from({length:6},(_,i)=>`M-${i+1}`);
-    const rnd  = () => labels.map(()=> Math.round(Math.random()*1000));
-    A.data.labels = labels;
-    B.data.labels = labels;
-    A.data.datasets[0].data = rnd();
-    B.data.datasets[0].data = rnd();
-    A.update(); B.update();
+  const loadScope = async (scope) => {
+    try{
+      const url = SAT_ROUTES.charts + '?scope=' + encodeURIComponent(scope || 'emitidos');
+      const res = await fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const j = await res.json();
+      const labels  = j.labels || [];
+      const series  = j.series || {};
+      const amounts = series.amounts || [];
+      const counts  = series.counts  || [];
+
+      chartA.data.labels = labels;
+      chartB.data.labels = labels;
+
+      chartA.data.datasets[0].label = series.label_amount || 'Importe total';
+      chartB.data.datasets[0].label = series.label_count  || '# CFDI';
+
+      chartA.data.datasets[0].data = amounts;
+      chartB.data.datasets[0].data = counts;
+
+      chartA.update();
+      chartB.update();
+    }catch(e){
+      console.error(e);
+    }
   };
 
-  reload('emitidos');
+  loadScope('emitidos');
 
   document.querySelectorAll('.tab').forEach(t=>{
     t.addEventListener('click',()=>{
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('is-active'));
       t.classList.add('is-active');
-      reload(t.dataset.scope);
+      loadScope(t.dataset.scope || 'emitidos');
     });
   });
 })();
+
+/* ===== LISTADO DESCARGAS: filtros + descarga ZIP ===== */
+(() => {
+  const rows = Array.isArray(SAT_DOWNLOAD_ROWS) ? SAT_DOWNLOAD_ROWS : [];
+  const body = document.getElementById('satDlBody');
+  const qInput = document.getElementById('satDlSearch');
+  const tipoSel = document.getElementById('satDlTipo');
+  const statusSel = document.getElementById('satDlStatus');
+
+  function normalizeStatus(s){
+    s = (s || '').toString().toLowerCase();
+    if (['ready','done','listo'].includes(s)) return 'done';
+    return s;
+  }
+
+  function render(){
+    if (!body) return;
+    const q = (qInput?.value || '').toLowerCase();
+    const ftipo = (tipoSel?.value || '').toLowerCase();
+    const fstat = (statusSel?.value || '').toLowerCase();
+
+    body.innerHTML = '';
+
+    if (!rows.length){
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 6;
+      td.className = 'empty';
+      td.textContent = 'Aún no has generado solicitudes de descarga.';
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+
+    rows.forEach(r => {
+      const id = r.dlid || r.id || '';
+      const rfc = (r.rfc || '').toString();
+      const tipo = (r.tipo || '').toString().toLowerCase();
+      const statusRaw = (r.estado || r.status || '').toString();
+      const status = normalizeStatus(statusRaw);
+
+      if (q && !id.toLowerCase().includes(q) && !rfc.toLowerCase().includes(q)) {
+        return;
+      }
+      if (ftipo && tipo !== ftipo) return;
+      if (fstat && status !== fstat) return;
+
+      const tr = document.createElement('tr');
+
+      const periodo = (r.desde || '') && (r.hasta || '')
+        ? `${r.desde} → ${r.hasta}`
+        : '';
+
+      tr.innerHTML = `
+        <td class="mono">${id}</td>
+        <td>${tipo ? ('• ' + tipo.charAt(0).toUpperCase() + tipo.slice(1)) : ''}</td>
+        <td>${periodo}</td>
+        <td><span class="sat-badge-status ${status}">${status || ''}</span></td>
+        <td class="mono">${r.package_id || ''}</td>
+        <td>
+          <button
+            class="sat-dl-btn-download"
+            data-id="${id}"
+            data-status="${status}"
+            title="Descargar ZIP"
+          >
+            ⬇
+          </button>
+        </td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  if (qInput) qInput.addEventListener('input', render);
+  if (tipoSel) tipoSel.addEventListener('change', render);
+  if (statusSel) statusSel.addEventListener('change', render);
+
+  if (body) {
+    body.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.sat-dl-btn-download');
+      if (!btn) return;
+
+      const id     = btn.dataset.id;
+      const status = (btn.dataset.status || '').toLowerCase();
+
+      if (!id) return;
+
+      // 1) Si ya está "done", abrimos directamente el ZIP
+      if (status === 'done' && SAT_ZIP_PATTERN && SAT_ZIP_PATTERN !== '#') {
+        const zipUrl = SAT_ZIP_PATTERN.replace('__ID__', id);
+        window.location.href = zipUrl;
+        return;
+      }
+
+      // 2) Si no está listo, llamamos al endpoint /sat/download
+      if (!SAT_ROUTES.download || SAT_ROUTES.download === '#') return;
+
+      btn.disabled = true;
+
+      try{
+        const fd = new FormData();
+        // IMPORTANTE: el backend espera "download_id"
+        fd.append('download_id', id);
+
+        const res = await fetch(SAT_ROUTES.download, {
+          method:'POST',
+          headers:{
+            'X-Requested-With':'XMLHttpRequest',
+            'X-CSRF-TOKEN': SAT_CSRF,
+          },
+          body: fd,
+        });
+
+        const ct = res.headers.get('content-type') || '';
+        let json = null;
+        if (ct.includes('application/json')) {
+          json = await res.json().catch(()=>null);
+        }
+
+        if (!res.ok) {
+          alert(json?.msg || 'No se pudo preparar el ZIP.');
+          return;
+        }
+
+        if (json && json.zip_url) {
+          window.location.href = json.zip_url;
+        } else {
+          location.reload();
+        }
+      }catch(e){
+        console.error(e);
+        alert('Error de conexión al descargar.');
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  }
+
+  render();
+})();
+
 </script>
 @endpush
