@@ -1,7 +1,8 @@
-{{-- resources/views/cliente/auth/register_free.blade.php (v2 visual refinado Pactopia360) --}}
+{{-- resources/views/cliente/auth/register_free.blade.php (v2.1 visual refinado Pactopia360) --}}
 @extends('layouts.guest')
 
 @section('title', 'Registro FREE · Pactopia360')
+@section('hide-brand','1') {{-- OCULTA LOGO DEL LAYOUT PARA EVITAR DOBLE LOGO --}}
 
 @push('styles')
 <style>
@@ -68,8 +69,8 @@
     opacity:.25;pointer-events:none;
   }
 
-  .brand{display:flex;align-items:center;justify-content:center;gap:10px;}
-  .logo{height:40px;width:auto;}
+  .brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:4px;}
+  .logo{height:56px;width:auto;display:block;}
   .logo-dark{display:none;}
   html[data-theme="dark"] .logo-light{display:none;}
   html[data-theme="dark"] .logo-dark{display:block;}
@@ -77,23 +78,26 @@
   .theme{
     position:absolute;top:12px;right:12px;border:1px solid var(--border);
     background:var(--card);color:var(--text);border-radius:999px;
-    padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer;
+    width:44px;height:44px;padding:0;
+    display:grid;place-items:center;
+    font-weight:800;font-size:18px;cursor:pointer;
     box-shadow:0 6px 20px rgba(0,0,0,.1);
   }
+  .theme span{pointer-events:none;}
   .theme:hover{filter:brightness(.97)}
 
   .badge-free{
     display:inline-flex;align-items:center;gap:8px;
     padding:5px 9px;border-radius:999px;background:linear-gradient(90deg,#E11D48,#BE123C);
     color:#fff;font-size:11px;font-weight:800;
-    margin:10px auto 0;box-shadow:0 8px 20px rgba(225,29,72,.25);
+    margin:6px auto 0;box-shadow:0 8px 20px rgba(225,29,72,.25);
   }
 
-  .title{text-align:center;margin-top:8px;}
-  .title h1{margin:0;font-size:20px;font-weight:900;color:var(--text);}
+  .title{text-align:center;margin-top:8px;margin-bottom:4px;}
+  .title h1{margin:0;font-size:22px;font-weight:900;color:var(--text);}
   .title p{margin:6px 0 0;color:var(--muted);font-size:13px;}
 
-  .form{margin-top:14px;max-height:calc(100vh - 20vh);overflow:auto;padding-right:4px;}
+  .form{margin-top:10px;max-height:calc(100vh - 20vh);overflow:auto;padding-right:4px;}
   .form::-webkit-scrollbar{width:8px;}
   .form::-webkit-scrollbar-thumb{background:#fda4af55;border-radius:8px;}
 
@@ -108,6 +112,9 @@
   .input[aria-invalid="true"]{border-color:var(--bad);box-shadow:0 0 0 3px rgba(239,68,68,.2);}
   .help{font-size:11px;color:var(--muted);}
   .error{color:var(--bad);}
+
+  /* Ocultar honeypot (anti-bots) */
+  .hp{position:absolute;left:-9999px;opacity:0;width:1px;height:1px;overflow:hidden;}
 
   .terms{font-size:12px;color:var(--muted);margin:6px 0;line-height:1.45;}
   .terms a{font-weight:800;text-decoration:none;color:var(--brand);}
@@ -165,11 +172,13 @@
 @php use Illuminate\Support\Str; @endphp
 <div class="wrap">
   <section class="card" role="region" aria-label="Registro FREE">
-    <button type="button" class="theme" id="rfThemeToggle" aria-label="Cambiar tema">🌙 Modo</button>
+    <button type="button" class="theme" id="rfThemeToggle" aria-label="Cambiar tema">
+      <span id="rfThemeIcon">🌙</span>
+    </button>
 
     <div class="brand">
-      <img class="logo logo-light" src="{{ asset('assets/client/logop360light.png') }}" alt="Pactopia360">
-      <img class="logo logo-dark" src="{{ asset('assets/client/logop360dark.png') }}" alt="">
+      <img class="logo logo-light" src="{{ asset('assets/client/p360-black.png') }}" alt="Pactopia360">
+      <img class="logo logo-dark"  src="{{ asset('assets/client/p360-white.png') }}" alt="Pactopia360">
     </div>
 
     <span class="badge-free">FOR EVER FREE</span>
@@ -185,6 +194,7 @@
     <form method="POST" action="{{ route('cliente.registro.free.do') }}" novalidate id="regForm" class="form">
       @csrf
 
+      {{-- Honeypot oculto --}}
       <div class="hp" aria-hidden="true">
         <input type="text" name="hp_field" id="hp_field" tabindex="-1" autocomplete="off">
       </div>
@@ -234,10 +244,6 @@
       @php $recaptchaKey = env('RECAPTCHA_SITE_KEY'); @endphp
       @if ($recaptchaKey)
         <div style="margin-top:10px"><div class="g-recaptcha" data-sitekey="{{ $recaptchaKey }}"></div></div>
-      @else
-        <div class="help" style="margin-top:10px">
-          <strong>Nota (solo local):</strong> Configura <code>RECAPTCHA_SITE_KEY</code> en tu .env para habilitar el captcha.
-        </div>
       @endif
 
       <div class="actions">
@@ -267,13 +273,16 @@
 <script>
   document.documentElement.classList.add('page-register-free');
 
-  // Tema persistente
+  // Tema persistente (icono solo)
   (function(){
     const html=document.documentElement;
     const KEY='p360-theme';
     const btn=document.getElementById('rfThemeToggle');
-    const set=v=>{html.dataset.theme=v;localStorage.setItem(KEY,v);paint();};
-    const paint=()=>{btn.textContent=(html.dataset.theme==='dark')?'☀️ Modo':'🌙 Modo';};
+    const ico=document.getElementById('rfThemeIcon');
+
+    const paint=()=>{ ico.textContent = (html.dataset.theme==='dark') ? '☀️' : '🌙'; };
+    const set=v=>{ html.dataset.theme=v; localStorage.setItem(KEY,v); paint(); };
+
     set(localStorage.getItem(KEY)||'light');
     btn?.addEventListener('click',()=>set(html.dataset.theme==='dark'?'light':'dark'));
   })();

@@ -1,7 +1,7 @@
 {{-- resources/views/layouts/guest.blade.php --}}
 @php
   // Ocultar marca superior desde vistas hijas: @section('hide-brand','1')
-  $hideBrand = trim($__env->yieldContent('hide-brand')) === '1';
+  $hideBrand = true; // Forzamos NO mostrar logo arriba en ninguna vista guest
 
   // Flash
   $flashOk    = session('ok');
@@ -9,9 +9,9 @@
   $firstError = $errors->any() ? $errors->first() : null;
   $flashError = $firstError ?? session('error');
 
-  // LOGOS (con espacios -> URL encoded)
-  $logoLight = asset('assets/client/' . rawurlencode('P360 BLACK.png'));
-  $logoDark  = asset('assets/client/' . rawurlencode('P360 WHITE.png'));
+  // LOGOS (tema claro / oscuro) – ya solo los usan las tarjetas internas si quieren
+  $logoLight = asset('assets/client/p360-black.png');
+  $logoDark  = asset('assets/client/p360-white.png');
 @endphp
 <!doctype html>
 <html lang="es" data-theme="light">
@@ -63,13 +63,11 @@
     /* Shell */
     .wrap{min-height:100vh; display:grid; grid-template-rows:auto 1fr auto}
 
-    .topbar{display:flex; align-items:center; justify-content:space-between; padding:14px 18px}
-    .brand{display:flex; align-items:center; gap:10px; text-decoration:none}
-    .brand img{height:22px; object-fit:contain; display:block}
-    .brand.is-hidden{display:none}
-
-    .theme{border:1px solid var(--border); background:transparent; color:var(--text);
-           padding:8px 12px; border-radius:var(--r-pill); font-weight:700; cursor:pointer; font-size:13px}
+    .topbar{
+      display:flex; align-items:center; justify-content:flex-start;
+      padding:14px 18px;
+    }
+    /* Ya NO hay logo aquí: se deja vacío a propósito */
 
     /* CENTRADO REAL del contenido */
     .main-shell{
@@ -92,25 +90,6 @@
     .btn-primary{border:0; color:#fff; background:linear-gradient(180deg, var(--rose), var(--red))}
 
     *{transition:background .25s,color .25s,border-color .25s,box-shadow .25s,filter .25s}
-
-    /* ===== Toolbar de captura (PNG/JPG) ===== */
-    .shot-toolbar{
-      display:flex; gap:8px; align-items:center; justify-content:flex-end;
-      width:min(980px, 92vw);
-      margin: 0 auto 10px auto;
-      transform: translateY(-6px);
-      flex-wrap:wrap;
-    }
-    .btn-shot{
-      display:inline-flex; align-items:center; gap:6px;
-      border:1px solid var(--border);
-      background:transparent; color:inherit;
-      padding:6px 10px; border-radius:12px; font-weight:700; cursor:pointer;
-      user-select:none; font-size:13px;
-    }
-    .btn-shot:hover{ background:rgba(0,0,0,.05) }
-    [data-theme="dark"] .btn-shot{ border-color:rgba(255,255,255,.22) }
-    [data-theme="dark"] .btn-shot:hover{ background:rgba(255,255,255,.08) }
   </style>
 
   @stack('styles')
@@ -118,22 +97,12 @@
 <body>
 <div class="wrap">
   <header class="topbar">
-    <a class="brand {{ $hideBrand ? 'is-hidden' : '' }}" href="{{ url('/') }}" aria-label="Inicio">
-      <img id="brandLogo" src="{{ $logoLight }}" alt="Pactopia360">
-    </a>
-    <button class="theme" id="themeBtn"><span id="themeIco">🌙</span> Tema</button>
+    {{-- Sin logo aquí para evitar doble marca: los formularios pintan su propio logo --}}
   </header>
-
-  {{-- Toolbar de captura arriba del contenido centrado --}}
-  <div class="shot-toolbar" aria-label="Exportar captura del contenido">
-    <button type="button" class="btn-shot" data-shot="png" data-shot-target="#guestMain">🖼️ PNG</button>
-    <button type="button" class="btn-shot" data-shot="jpg" data-shot-target="#guestMain">JPG</button>
-  </div>
 
   <main id="guestMain" class="main-shell">@yield('content')</main>
 
   <footer class="footer">
-    {{-- Sin lema para mantener limpio --}}
     © {{ date('Y') }} Pactopia360. Todos los derechos reservados.
   </footer>
 </div>
@@ -148,27 +117,14 @@
 </div>
 
 <script>
-  // Theme + logo swap
+  // Inicializar tema desde localStorage (sin botón externo)
   (function(){
-    const root = document.documentElement;
-    const btn  = document.getElementById('themeBtn');
-    const ico  = document.getElementById('themeIco');
-    const logo = document.getElementById('brandLogo');
-    const path = { light: @json($logoLight), dark: @json($logoDark) };
-
-    function apply(mode){
-      root.setAttribute('data-theme', mode);
-      ico.textContent = mode === 'dark' ? '🌙' : '☀️';
-      if (logo) logo.src = mode === 'dark' ? path.dark : path.light;
-    }
+    const root  = document.documentElement;
     const saved = localStorage.getItem('p360-theme');
-    if (saved === 'light' || saved === 'dark') apply(saved);
-    else apply(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-
-    btn.addEventListener('click', ()=>{
-      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-      localStorage.setItem('p360-theme', next); apply(next);
-    });
+    const mode  = (saved === 'dark' || saved === 'light')
+      ? saved
+      : (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', mode);
   })();
 
   // Flash -> Toast
@@ -195,43 +151,6 @@
     if (err)  { show('error', null, err); return; }
     if (info) { show('ok', 'Info', info); return; }
     if (ok)   { show('ok', '¡Bien!', ok); return; }
-  })();
-
-  // ===== Captura (png/jpg) usando html2canvas si existe; si no, emite evento p360:capture =====
-  (function(){
-    function downloadFromCanvas(canvas, type){
-      const mime = (type==='jpg' || type==='jpeg') ? 'image/jpeg' : 'image/png';
-      const url  = canvas.toDataURL(mime, 0.92);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'p360_captura.' + (type==='jpg'?'jpg':'png');
-      a.click();
-    }
-    async function capture(el, type){
-      if (window.html2canvas && el){
-        try{
-          const canvas = await window.html2canvas(el, {
-            useCORS:true, logging:false, backgroundColor:null, scale: window.devicePixelRatio || 1
-          });
-          return downloadFromCanvas(canvas, type);
-        }catch(e){}
-      }
-      // Fallback para tu loader/orquestador global
-      try{
-        window.dispatchEvent(new CustomEvent('p360:capture', { detail:{ element: el, type } }));
-      }catch(_){}
-    }
-
-    document.addEventListener('click', (e)=>{
-      const b = e.target.closest('[data-shot]');
-      if(!b) return;
-      e.preventDefault();
-      const type = (b.getAttribute('data-shot') || 'png').toLowerCase();
-      const sel  = b.getAttribute('data-shot-target') || '#guestMain';
-      const el   = document.querySelector(sel);
-      if(!el) return;
-      capture(el, type);
-    });
   })();
 </script>
 
