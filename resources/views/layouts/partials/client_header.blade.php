@@ -1,5 +1,5 @@
 {{-- resources/views/layouts/partials/client_header.blade.php
-    v3.8 · logo proporcional + sin botón menú + plan unificado + perfil/configuración separados --}}
+    v3.9 · logo proporcional + sin botón menú + plan unificado + perfil/configuración separados + buscador centrado --}}
 @php
   use Illuminate\Support\Facades\Route;
   use App\Http\Controllers\Cliente\HomeController as ClientHome;
@@ -120,8 +120,13 @@
     </a>
   </div>
 
-  {{-- Buscador --}}
-  <form class="searchbar" role="search" action="{{ $rtSearchTo }}" method="GET" aria-label="Buscar CFDI o datos">
+  {{-- Buscador (centrado en la franja superior) --}}
+  <form class="searchbar"
+        role="search"
+        action="{{ $rtSearchTo }}"
+        method="GET"
+        aria-label="Buscar CFDI o datos"
+        style="justify-self:center;">
     <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('search') }}"/></svg>
     <input name="q" placeholder="Buscar en tu cuenta (CFDI, receptor, folio…)" autocomplete="off" />
   </form>
@@ -212,6 +217,7 @@
     border:1px solid var(--bd,#e5e7eb); border-radius:999px;
     background: var(--chip, #f8fafc);
     padding:0 12px; height:40px; max-width:620px; width:100%;
+    margin-inline:auto;              /* <-- centra el buscador en la franja */
   }
   html.theme-dark .searchbar{
     background: color-mix(in oklab, #fff 6%, transparent);

@@ -1,4 +1,4 @@
-{{-- resources/views/components/client/sidebar.blade.php (v2.6 – P360 Brand Glow + A11y/UX) --}}
+{{-- resources/views/components/client/sidebar.blade.php (v2.7 – P360 Brand Glow + A11y/UX + colapsado solo iconos) --}}
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Str;
@@ -178,8 +178,8 @@
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 2px 10px color-mix(in oklab, var(--brand) 12%, transparent);
   }
+  /* Siempre ícono hamburguesa (≡), sin flecha en modo colapsado */
   .sb-toggle::before{ content:'≡'; font-size:18px; line-height:1; font-weight:900; transform:translateY(-1px); color:var(--ink) }
-  .sidebar[data-state="collapsed"] .sb-toggle::before{ content:'➤'; transform:rotate(180deg); }
 
   .sidebar-scroll{height:calc(100% - 50px);overflow:auto;padding:14px}
   .nav{display:flex;flex-direction:column;gap:18px}
@@ -238,12 +238,13 @@
     font:600 14px/1.15 Poppins, system-ui;
   }
 
-  /* Oculta labels SOLO cuando está colapsado en desktop */
+  /* Oculta labels y títulos SOLO cuando está colapsado en desktop */
   .sidebar:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important }
   .sidebar:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center !important }
   .sidebar:not(.is-mobile)[data-state="collapsed"] .tip.active{ box-shadow:none }
+  .sidebar:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none !important; }
+  .sidebar:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
 
-  
   /* ===== Responsive (móvil) ===== */
   @media (max-width:1120px){
     .sidebar{
