@@ -1,9 +1,13 @@
 <?php
+// C:\wamp64\www\pactopia360_erp\routes\web.php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DeployController;
 use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Auth\SmartLoginController;
+
+// ✅ Tracking público (sin sesión)
+use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
 |--------------------------------------------------------------------------
@@ -46,6 +50,15 @@ Route::middleware('web')->group(function () use ($isLocal) {
             ->as('cliente.')
             ->group(base_path('routes/cliente_qa.php'));
     }
+
+    /* ===================== Tracking público Billing (OPEN/CLICK) ===================== */
+    Route::get('/t/billing/open/{emailId}.gif', [BillingStatementsHubController::class, 'trackOpen'])
+        ->where('emailId', '[A-Za-z0-9\-]+')
+        ->name('track.billing.open');
+
+    Route::get('/t/billing/click/{emailId}', [BillingStatementsHubController::class, 'trackClick'])
+        ->where('emailId', '[A-Za-z0-9\-]+')
+        ->name('track.billing.click');
 
     /* ===================== Utilidades / Infra ===================== */
     Route::get('/_deploy/finish/{signature}', [DeployController::class, 'finish'])

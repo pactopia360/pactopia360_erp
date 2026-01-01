@@ -23,14 +23,55 @@ class Kernel extends HttpKernel
      * Grupos de middleware.
      */
     protected $middlewareGroups = [
+
+        /**
+         * WEB genérico (si lo sigues usando en otros lados).
+         * OJO: aquí no metemos session.admin/session.cliente para no cruzar contextos.
+         */
         'web' => [
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
 
-            // StartSession corre después; la prioridad la forzamos abajo.
             \Illuminate\Session\Middleware\StartSession::class,
-            // \Illuminate\Session\Middleware\AuthenticateSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
 
+            \App\Http\Middleware\VerifyCsrfToken::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        ],
+
+        /**
+         * ✅ CLIENTE: config de sesión ANTES de StartSession
+         */
+        'cliente' => [
+            \App\Http\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+
+            // Config + Auth context (ok)
+            \App\Http\Middleware\ClientSessionConfig::class,
+
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+
+            \App\Http\Middleware\VerifyCsrfToken::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+
+            \App\Http\Middleware\Cliente\InjectModulesState::class,
+            \App\Http\Middleware\ShareClientModules::class,
+        ],
+
+
+
+        /**
+         * ✅ ADMIN: config de sesión ANTES de StartSession
+         */
+        'admin' => [
+            \App\Http\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+
+            // ✅ aquí va ANTES
+            \App\Http\Middleware\AdminSessionConfig::class,
+
+            \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
 
             \App\Http\Middleware\VerifyCsrfToken::class,
@@ -44,7 +85,7 @@ class Kernel extends HttpKernel
     ];
 
     /**
-     * Alias de middleware (Laravel 10/11+).
+     * Alias de middleware (Laravel 10/11/12).
      */
     protected $middlewareAliases = [
         // Core auth / seguridad
@@ -59,15 +100,16 @@ class Kernel extends HttpKernel
         'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'cache.headers'    => \Illuminate\Http\Middleware\SetCacheHeaders::class,
 
-        // Custom existentes
+        // Custom
         'auth.any'         => \App\Http\Middleware\AuthenticateAny::class,
         'account.active'   => \App\Http\Middleware\EnsureAccountIsActive::class,
+        'vault.active'     => \App\Http\Middleware\EnsureVaultIsActive::class,
 
-        // Conveniencia (mismo Authenticate; el guard lo decide la ruta/config)
+        // Conveniencia
         'auth.admin'       => \App\Http\Middleware\Authenticate::class,
         'auth.web'         => \App\Http\Middleware\Authenticate::class,
 
-        // Aislamiento de sesión por sub-plataforma
+        // Aislamiento de sesión por sub-plataforma (alias, por si los sigues usando)
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
         'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,
 
@@ -75,11 +117,9 @@ class Kernel extends HttpKernel
     ];
 
     /**
-     * Compatibilidad con versiones que aún leen $routeMiddleware.
-     * (Clonamos los aliases para evitar el error "Target class [session.cliente] does not exist")
+     * Compatibilidad con versiones/paquetes que aún leen $routeMiddleware.
      */
     protected $routeMiddleware = [
-        // Core
         'auth'             => \App\Http\Middleware\Authenticate::class,
         'auth.basic'       => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
         'auth.session'     => \Illuminate\Session\Middleware\AuthenticateSession::class,
@@ -91,15 +131,13 @@ class Kernel extends HttpKernel
         'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'cache.headers'    => \Illuminate\Http\Middleware\SetCacheHeaders::class,
 
-        // Custom
         'auth.any'         => \App\Http\Middleware\AuthenticateAny::class,
         'account.active'   => \App\Http\Middleware\EnsureAccountIsActive::class,
+        'vault.active'     => \App\Http\Middleware\EnsureVaultIsActive::class,
 
-        // Conveniencia
         'auth.admin'       => \App\Http\Middleware\Authenticate::class,
         'auth.web'         => \App\Http\Middleware\Authenticate::class,
 
-        // Aislamiento
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
         'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,
 
@@ -107,19 +145,15 @@ class Kernel extends HttpKernel
     ];
 
     /**
-     * Prioridad de ejecución de middleware.
-     * — Garantizamos que los configuradores de sesión corran ANTES de StartSession.
+     * Prioridad (ok dejarla, pero lo importante ya quedó en grupos).
      */
     protected $middlewarePriority = [
-        // 1) Config de cookie/guard por contexto
         \App\Http\Middleware\AdminSessionConfig::class,
         \App\Http\Middleware\ClientSessionConfig::class,
 
-        // 2) Lo que necesita sesión viva
         \Illuminate\Session\Middleware\StartSession::class,
         \Illuminate\View\Middleware\ShareErrorsFromSession::class,
 
-        // 3) Resto
         \App\Http\Middleware\Authenticate::class,
         \Illuminate\Routing\Middleware\ThrottleRequests::class,
         \Illuminate\Routing\Middleware\SubstituteBindings::class,

@@ -1,6 +1,8 @@
 /* =====================================================
-   PACTOPIA360 · SAT · DASHBOARD V2 (estilo mock)
+   PACTOPIA360 · SAT · DASHBOARD V2 (CLEAN)
    ===================================================== */
+
+/* ---------- ROOT / THEME TOKENS ---------- */
 
 .sat-ui{
   --bg:#f6f6f7;
@@ -15,7 +17,8 @@
   --accent-soft:#d1fae5;
   --accent-text:#15803d;
 
-  --cta:#f59e0b;           /* botón "comprar ahora" */
+  --cta:#ffa41c;           /* botón CTA / carrito */
+  --cta-hover:#FF8400;
   --cta-text:#111827;
 
   --pink:#ec4899;          /* donut */
@@ -26,8 +29,10 @@
   --pill-bg:#f9fafb;
   --shadow:0 10px 25px rgba(15,23,42,.08);
 
-  max-width:1200px;
-  margin:0 auto;
+  /* >>> CAMBIO DE ANCHO <<< */
+  width:100%;              /* que use todo el ancho del .container */
+  max-width:100%;          /* sin limitar a 1200px */
+  margin:0 auto;           /* centrado dentro del .container */
   display:flex;
   flex-direction:column;
   gap:18px;
@@ -42,7 +47,8 @@ html[data-theme="dark"] .sat-ui{
   --accent:#22c55e;
   --accent-soft:#064e3b;
   --accent-text:#bbf7d0;
-  --cta:#f59e0b;
+  --cta:#ffa41c;
+  --cta-hover:#FF8400;
   --cta-text:#111827;
   --pink:#f472b6;
   --pink-soft:#4b1120;
@@ -51,7 +57,8 @@ html[data-theme="dark"] .sat-ui{
   --shadow:0 18px 40px rgba(0,0,0,.7);
 }
 
-/* ====== Tarjetas ====== */
+
+/* ---------- TARJETAS GENERALES ---------- */
 
 .sat-card{
   background:var(--card);
@@ -61,11 +68,9 @@ html[data-theme="dark"] .sat-ui{
   padding:18px 20px;
 }
 
-/* Header general */
+.sat-card-header{padding-bottom:16px;}
 
-.sat-card-header{
-  padding-bottom:16px;
-}
+/* Header superior */
 
 .sat-header-top{
   display:flex;
@@ -110,8 +115,7 @@ html[data-theme="dark"] .sat-icon{
   color:var(--mut);
 }
 
-/* Acciones */
-
+/* Acciones de header (uso general, NO la tabla) */
 .sat-actions{
   display:flex;
   flex-wrap:wrap;
@@ -119,7 +123,59 @@ html[data-theme="dark"] .sat-icon{
   align-items:center;
 }
 
-/* Botones base */
+/* ---------- SWITCH DEMO / PROD ---------- */
+
+.mode-switch{
+  display:inline-flex;
+  align-items:center;
+  padding:2px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#fef9c3; /* DEMO base */
+  font-family:'Poppins',system-ui;
+  cursor:pointer;
+}
+
+.mode-pill{
+  padding:4px 10px;
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  border-radius:999px;
+  color:#6b7280;
+}
+
+/* Estado DEMO */
+.mode-switch.is-demo .mode-pill-demo{
+  background:#facc15;
+  color:#854d0e;
+}
+
+/* Estado PROD */
+.mode-switch.is-prod{
+  background:#dcfce7;
+}
+
+.mode-switch.is-prod .mode-pill-prod{
+  background:#22c55e;
+  color:#052e16;
+}
+
+/* Dark mode */
+html[data-theme="dark"] .mode-switch{border-color:#1f2937;}
+html[data-theme="dark"] .mode-switch.is-demo{background:#4b3b07;}
+html[data-theme="dark"] .mode-switch.is-demo .mode-pill-demo{
+  background:#facc15;
+  color:#fef9c3;
+}
+html[data-theme="dark"] .mode-switch.is-prod{background:#052e16;}
+html[data-theme="dark"] .mode-switch.is-prod .mode-pill-prod{
+  background:#16a34a;
+  color:#bbf7d0;
+}
+
+/* ---------- BOTONES BASE ---------- */
 
 .btn{
   display:inline-flex;
@@ -136,7 +192,7 @@ html[data-theme="dark"] .sat-icon{
   font-weight:600;
   font-size:12px;
   cursor:pointer;
-  transition:background .12s ease,box-shadow .12s ease,transform .12s ease,opacity .1s ease;
+  transition:background .12s ease,box-shadow .12s ease,transform .12s ease,opacity .1s ease,filter .12s ease;
 }
 
 .btn span[aria-hidden="true"]{font-size:14px;}
@@ -153,22 +209,16 @@ html[data-theme="dark"] .sat-icon{
   border-color:#111827;
 }
 
-.btn.primary:hover:not(:disabled){
-  background:#020617;
-}
+.btn.primary:hover:not(:disabled){background:#020617;}
 
-.btn.soft{
-  background:#f3f4f6;
-}
+.btn.soft{background:#f3f4f6;}
 
 html[data-theme="dark"] .btn{
   background:#020617;
   border-color:#1f2937;
 }
 
-html[data-theme="dark"] .btn.soft{
-  background:#111827;
-}
+html[data-theme="dark"] .btn.soft{background:#111827;}
 
 .btn:disabled{
   opacity:.55;
@@ -184,10 +234,23 @@ html[data-theme="dark"] .btn.soft{
 }
 
 .btn-cta:hover:not(:disabled){
-  filter:brightness(0.95);
+  background:var(--cta-hover);
+  border-color:var(--cta-hover);
+  filter:none;
 }
 
-/* Modo DEMO/PROD */
+/* Botón solo icono */
+.btn.icon-only{
+  width:34px;
+  height:34px;
+  padding:0;
+  border-radius:999px;
+  justify-content:center;
+}
+
+.btn.icon-only span[aria-hidden="true"]{font-size:17px;}
+
+/* ---------- BADGES MODO ---------- */
 
 .badge-mode{
   display:inline-flex;
@@ -226,7 +289,7 @@ html[data-theme="dark"] .badge-mode.prod{
   color:#bbf7d0;
 }
 
-/* Tooltips simples */
+/* ---------- TOOLTIPS ---------- */
 
 [data-tip]{position:relative;}
 [data-tip]::after{
@@ -261,7 +324,7 @@ html[data-theme="dark"] .badge-mode.prod{
 [data-tip]:hover::after,
 [data-tip]:hover::before{opacity:1;}
 
-/* ====== TOP GRID ====== */
+/* ---------- TOP GRID (KPIs) ---------- */
 
 .sat-top-grid{
   display:grid;
@@ -270,19 +333,13 @@ html[data-theme="dark"] .badge-mode.prod{
 }
 
 @media(max-width:1100px){
-  .sat-top-grid{
-    grid-template-columns:repeat(3,minmax(0,1fr));
-  }
+  .sat-top-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
 }
 @media(max-width:800px){
-  .sat-top-grid{
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
+  .sat-top-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
 @media(max-width:600px){
-  .sat-top-grid{
-    grid-template-columns:1fr;
-  }
+  .sat-top-grid{grid-template-columns:1fr;}
 }
 
 .top-card{
@@ -295,51 +352,43 @@ html[data-theme="dark"] .badge-mode.prod{
   justify-content:space-between;
 }
 
-.top-card-large{
-  grid-row:span 2;
-}
-
 .top-card-header{
   font-family:'Poppins',system-ui;
   font-size:12px;
   font-weight:600;
   color:var(--mut);
+  text-align:center;
 }
 
 .top-card-main{
-  margin-top:6px;
+  margin-top:10px;
   font-family:'Poppins',system-ui;
   font-weight:700;
-  font-size:26px;
+  font-size:40px;
+  line-height:1.1;
   color:var(--ink);
+  text-align:center;
 }
 
 .top-card-foot{
-  margin-top:8px;
+  margin-top:10px;
   font-size:12px;
   font-weight:600;
   color:var(--mut);
+  text-align:center;
 }
 
-.top-card-foot-success{
-  color:var(--accent-text);
-}
+.top-card-foot-success{color:var(--accent-text);}
 
 .top-card-caption{
-  margin-top:6px;
+  margin-top:8px;
   font-size:11px;
   color:var(--mut);
+  text-align:center;
 }
 
-.top-card-cta{
-  display:flex;
-  flex-direction:column;
-  justify-content:space-between;
-}
-
-.top-card-cta-foot{
-  margin-top:10px;
-}
+.top-card-cta{display:flex;flex-direction:column;justify-content:space-between;}
+.top-card-cta-foot{margin-top:12px;display:flex;justify-content:center;}
 
 .tag-inline{
   display:inline-flex;
@@ -352,69 +401,129 @@ html[data-theme="dark"] .badge-mode.prod{
   font-weight:600;
 }
 
-/* ====== Movimientos ====== */
+/* ---------- MOVIMIENTOS (GRÁFICA + DETALLE) ---------- */
 
-.movements-header{
-  margin-bottom:10px;
+.sat-movements-card{padding-top:14px;}
+
+.sat-mov-layout{
+  display:grid;
+  grid-template-columns:2.1fr 1fr;
+  gap:18px;
+  align-items:stretch;
 }
 
-.section-title{
-  font-family:'Poppins',system-ui;
+@media(max-width:900px){
+  .sat-mov-layout{grid-template-columns:1fr;}
+}
+
+.sat-mov-chart{
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:var(--card);
+  padding:10px 14px 14px;
+  display:flex;
+  flex-direction:column;
+}
+
+.sat-mov-chart-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:6px;
+  font-size:12px;
   font-weight:600;
-  font-size:14px;
   color:var(--ink);
 }
 
-.section-sub{
-  margin-top:2px;
+.sat-mov-chart-title{font-family:'Poppins',system-ui;}
+
+.sat-mov-chart-controls{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+/* select oculto */
+.sat-mov-chart-filter{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+  width:1px;
+  height:1px;
+}
+
+/* chip visible */
+.sat-mov-chip{
+  border-radius:999px;
+  padding:4px 12px;
   font-size:11px;
+  font-family:'Poppins',system-ui;
+  border:1px solid var(--line);
+  background:#f9fafb;
+  color:var(--ink);
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+
+.sat-mov-chip::after{
+  content:"▼";
+  font-size:9px;
+  transform:translateY(0.5px);
+}
+
+.sat-mov-chip:hover{background:#ffffff;}
+
+.sat-mov-chart-body{
+  flex:1 1 auto;
+  height:230px;
+}
+
+.sat-mov-detail{
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:var(--card);
+  padding:14px 16px;
+}
+
+.sat-mov-dl{
+  margin:10px 0 0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.sat-mov-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:8px;
+  font-size:12px;
+}
+
+.sat-mov-row dt{
   font-weight:500;
   color:var(--mut);
 }
 
-.movements-grid{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:10px;
-}
-
-@media(max-width:900px){
-  .movements-grid{
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-}
-@media(max-width:600px){
-  .movements-grid{
-    grid-template-columns:1fr;
-  }
-}
-
-.mov-item{
-  background:var(--pill-bg);
-  border-radius:12px;
-  border:1px solid var(--line);
-  padding:10px 12px;
-}
-
-.mov-label{
-  font-size:11px;
-  font-weight:600;
-  color:var(--mut);
-}
-
-.mov-value{
-  margin-top:4px;
-  font-family:'Poppins',system-ui;
-  font-size:18px;
+.sat-mov-row dd{
+  margin:0;
   font-weight:600;
   color:var(--ink);
 }
 
-/* ====== Almacenamiento bóveda ====== */
-
-.sat-vault-card{
-  padding-bottom:18px;
+@media(max-width:600px){
+  .sat-mov-row{
+    flex-direction:column;
+    align-items:flex-start;
+  }
 }
+
+/* ---------- BÓVEDA (clásica) ---------- */
+
+.sat-vault-card{padding-bottom:18px;}
 
 .vault-header{
   display:flex;
@@ -432,9 +541,7 @@ html[data-theme="dark"] .badge-mode.prod{
 }
 
 @media(max-width:900px){
-  .vault-grid{
-    grid-template-columns:1fr;
-  }
+  .vault-grid{grid-template-columns:1fr;}
 }
 
 .vault-chart-wrap{
@@ -516,11 +623,11 @@ html[data-theme="dark"] .badge-mode.prod{
   display:inline-block;
 }
 
-.dot-used{background:var(--pink);}
-.dot-free{background:#cbd5f5;}
-.dot-quota{background:#9ca3af;}
+.dot-used{background:#ec4899;}
+.dot-free{background:#bfdbfe;}
+.dot-quota{background:#e5e7eb;}
 
-/* ====== Gráficas de tendencias ====== */
+/* ---------- GRÁFICAS DE TENDENCIAS ---------- */
 
 .charts-header{
   display:flex;
@@ -560,9 +667,7 @@ html[data-theme="dark"] .badge-mode.prod{
 }
 
 @media(max-width:900px){
-  .chart-wrap{
-    grid-template-columns:1fr;
-  }
+  .chart-wrap{grid-template-columns:1fr;}
 }
 
 .canvas-card{
@@ -578,11 +683,9 @@ html[data-theme="dark"] .badge-mode.prod{
   color:var(--mut);
 }
 
-.charts-foot{
-  margin-top:8px;
-}
+.charts-foot{margin-top:8px;} 
 
-/* ====== Guías rápidas / pills ====== */
+/* ---------- PILLS RÁPIDAS ---------- */
 
 .pills-row{
   display:flex;
@@ -612,21 +715,26 @@ html[data-theme="dark"] .badge-mode.prod{
   border-color:#111827;
 }
 
-/* ====== RFCs y tabla genérica ====== */
+/* ---------- TABLA GENÉRICA (USO GENERAL) ---------- */
 
 .table-wrap{
   margin-top:8px;
   border-radius:14px;
   border:1px solid var(--line);
-  overflow:auto;
+  overflow-x:auto;          /* por defecto: scroll horizontal si hace falta */
+  overflow-y:hidden;
+  width:100%;
 }
 
+/* Tabla genérica */
 .table{
   width:100%;
+  min-width:900px;          /* ancho mínimo razonable para columnas */
   border-collapse:collapse;
   font-size:12px;
 }
 
+/* Head */
 .table th{
   background:#f3f4f6;
   text-align:left;
@@ -636,14 +744,13 @@ html[data-theme="dark"] .badge-mode.prod{
   color:#6b7280;
 }
 
+/* Body */
 .table td{
   padding:8px 9px;
   border-top:1px solid rgba(148,163,184,.25);
 }
 
-.table tr:hover td{
-  background:#f9fafb;
-}
+.table tr:hover td{background:#f9fafb;}
 
 .t-right{text-align:right;}
 
@@ -655,14 +762,254 @@ html[data-theme="dark"] .badge-mode.prod{
   padding:12px 8px;
 }
 
-/* ====== Listado de descargas SAT ====== */
+/* En desktop ancho: quitar scroll horizontal y permitir que la tabla se adapte */
+@media (min-width:1280px){
+  .table-wrap{
+    overflow-x:visible;
+  }
+  .table{
+    min-width:0;
+  }
+  .table th,
+  .table td{
+    min-width:0;
+    width:auto;
+  }
+}
+
+
+/* ====================================================
+   SOLICITUDES SAT · CARD + FORMULARIO
+   ==================================================== */
+
+.sat-req-dl-card{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  background:var(--card);
+  border-radius:var(--card-radius);
+  border:1px solid rgba(148,163,184,.55);
+  box-shadow:var(--shadow);
+}
+
+.sat-req-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:6px;
+}
+
+.sat-req-title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.sat-req-icon{
+  width:32px;
+  height:32px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#111827;
+  color:#f9fafb;
+  font-size:17px;
+}
+
+html[data-theme="dark"] .sat-req-icon{
+  background:#f9fafb;
+  color:#111827;
+}
+
+.sat-req-title h3{
+  margin:0;
+  font-family:'Poppins',system-ui;
+  font-size:16px;
+  font-weight:700;
+  color:var(--ink);
+}
+
+.sat-req-head-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  justify-content:flex-end;
+}
+
+.sat-req-panel{
+  margin-top:4px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#f9fafb;
+  border:1px dashed rgba(148,163,184,.7);
+}
+
+.sat-req-form{
+  display:grid;
+  grid-template-columns:140px 160px 160px minmax(0,1fr) 130px;
+  gap:10px;
+  align-items:flex-end;
+  width:100%;
+}
+
+.sat-req-row{display:contents;}
+
+.sat-req-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.sat-req-label{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--mut);
+}
+
+.sat-req-field-sm{min-width:120px;}
+.sat-req-field-flex{min-width:260px;}
+
+.sat-req-form .input,
+.sat-req-form select.input{
+  border-radius:999px;
+  min-height:34px;
+  border:1px solid var(--line);
+  padding:6px 11px;
+  background:#ffffff;
+  font-size:12px;
+  font-family:'Poppins',system-ui;
+  outline:none;
+  transition:border-color .12s, box-shadow .12s, background .12s;
+}
+
+.sat-req-form .input:focus,
+.sat-req-form select.input:focus{
+  border-color:#2563eb;
+  box-shadow:0 0 0 3px rgba(37,99,235,.16);
+  background:#ffffff;
+}
+
+/* botón solicitar */
+.sat-req-field-btn .sat-req-submit{width:100%;}
+
+@media (max-width:900px){
+  .sat-req-form{grid-template-columns:1fr 1fr;}
+  .sat-req-field-btn{grid-column:1 / -1;}
+}
+
+/* Dropdown RFCs */
+
+.sat-rfc-dropdown{
+  position:relative;
+  width:100%;
+}
+
+.sat-rfc-trigger{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  cursor:pointer;
+}
+
+.sat-rfc-trigger #satRfcSummary{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.sat-rfc-caret{
+  font-size:11px;
+  opacity:.7;
+}
+
+.sat-rfc-menu{
+  position:absolute;
+  top:calc(100% + 4px);
+  left:0;
+  right:0;
+  background:var(--card);
+  border-radius:12px;
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+  padding:4px 6px 6px;
+  max-height:220px;
+  overflow-y:auto;
+  z-index:40;
+  display:none;
+}
+
+.sat-rfc-menu.is-open{display:block;}
+
+.sat-rfc-search{
+  padding:4px 4px 6px;
+}
+
+.sat-rfc-search input{
+  width:100%;
+  border-radius:999px;
+  border:1px solid var(--line);
+  padding:5px 9px;
+  font-size:11px;
+}
+
+.sat-rfc-option{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:3px 4px;
+  font-size:12px;
+  cursor:pointer;
+}
+
+.sat-rfc-option input{margin:0;}
+
+.sat-rfc-option:hover{background:#f3f4f6;}
+
+.sat-rfc-option-all{
+  border-bottom:1px dashed var(--line);
+  margin-bottom:2px;
+  padding-bottom:4px;
+}
+
+.sat-rfc-option.is-disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+html[data-theme="dark"] .sat-rfc-menu{
+  background:#020617;
+  border-color:#1f2937;
+}
+
+html[data-theme="dark"] .sat-rfc-option:hover{
+  background:#0f172a;
+}
+
+.sat-req-note{
+  margin-top:8px;
+  font-size:.78rem;
+}
+
+/* ====================================================
+   LISTADO DE DESCARGAS SAT · CABECERA + FILTROS
+   ==================================================== */
+
+.sat-dl-section{
+  margin-top:12px;
+}
 
 .sat-dl-head{
   display:flex;
-  align-items:flex-end;
+  align-items:center;
   justify-content:space-between;
   gap:10px;
-  margin-bottom:8px;
+  margin-top:14px;
+  margin-bottom:6px;
 }
 
 .sat-dl-title h3{
@@ -683,6 +1030,8 @@ html[data-theme="dark"] .badge-mode.prod{
   display:flex;
   flex-wrap:wrap;
   gap:6px;
+  margin-top:4px;
+  margin-bottom:8px;
 }
 
 .sat-dl-filters input,
@@ -695,176 +1044,566 @@ html[data-theme="dark"] .badge-mode.prod{
   background:#f9fafb;
 }
 
-.sat-dl-table-wrap{
-  border-radius:14px;
-  border:1px solid var(--line);
-  overflow:auto;
+.sat-dl-filters input:focus,
+.sat-dl-filters select:focus{
+  outline:none;
+  border-color:#2563eb;
+  box-shadow:0 0 0 2px rgba(37,99,235,.18);
 }
 
+
+/* ====================================================
+   Barra de acciones masivas
+   ==================================================== */
+
+.sat-dl-bulk{
+  margin-top:10px;
+  margin-bottom:8px;
+  padding:6px 12px;
+  border-radius:999px;
+  border:1px solid #e5e7eb;
+  background:#f9fafb;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  font-family:'Poppins',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:12px;
+}
+
+/* Píldora solo con el número de seleccionados */
+.sat-dl-bulk-left{
+  display:flex;
+  align-items:center;
+}
+
+.sat-dl-selection-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:6px 14px;
+  min-width:46px;
+  border-radius:999px;
+  border:1px solid #e5e7eb;
+  background:#ffffff;
+  box-shadow:0 8px 20px rgba(15,23,42,.06);
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+}
+
+.sat-dl-selection-count{
+  font-weight:700;
+  color:#111827;
+}
+
+/* Contenedor de botones (sólo icono) */
+.sat-dl-bulk-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.sat-bulk-icon{
+  width:34px;
+  height:34px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.55);
+  background:#f9fafb;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  font-size:18px;
+  box-shadow:0 6px 16px rgba(15,23,42,.12);
+  transition:
+    background .14s ease,
+    box-shadow .14s ease,
+    transform .12s ease,
+    border-color .14s ease,
+    color .14s ease;
+}
+
+.sat-bulk-icon span[aria-hidden="true"]{
+  line-height:1;
+}
+
+/* Variantes */
+.sat-bulk-icon-soft{
+  background:#ffffff;
+  border-color:#e5e7eb;
+  color:#4b5563;
+}
+
+.sat-bulk-icon-cart{
+  background:linear-gradient(135deg,#f97316,#f59e0b);
+  border-color:#f97316;
+  color:#ffffff;
+  box-shadow:0 6px 16px rgba(249,115,22,.45);
+}
+
+.sat-bulk-icon-primary{
+  background:#111827;
+  border-color:#111827;
+  color:#f9fafb;
+}
+
+.sat-bulk-icon-danger{
+  background:#fee2e2;
+  border-color:#fecaca;
+  color:#b91c1c;
+}
+
+.sat-bulk-icon:hover{
+  transform:translateY(-1px);
+  box-shadow:0 8px 22px rgba(15,23,42,.18);
+}
+
+.sat-bulk-icon-primary:hover{
+  background:#020617;
+  border-color:#020617;
+}
+
+.sat-bulk-icon-cart:hover{
+  box-shadow:0 8px 22px rgba(249,115,22,.6);
+}
+
+.sat-bulk-icon-danger:hover{
+  background:#ef4444;
+  border-color:#dc2626;
+  color:#ffffff;
+  box-shadow:0 8px 22px rgba(239,68,68,.55);
+}
+
+/* Iconos SVG */
+.sat-bulk-svg{width:16px;height:16px;display:block;}
+
+/* Texto sólo para lectores de pantalla */
+.sr-only{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+
+
+/* ====================================================
+   LISTADO DE DESCARGAS SAT · TABLA (REFINADO)
+   ==================================================== */
+
+/* Contenedor tabla */
+.sat-dl-table-wrap{
+  margin-top:8px;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,.45);
+  overflow-x:auto;           /* por defecto: scroll horizontal interno si hace falta */
+  overflow-y:hidden;
+  background:#f9fafb;
+  box-shadow:0 10px 24px rgba(15,23,42,.06);
+}
+
+/* Tabla base */
 .sat-dl-table{
   width:100%;
+  min-width:0;
   border-collapse:collapse;
+  table-layout:auto;
+  font-family:'Poppins',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   font-size:12px;
-  font-family:'Poppins',system-ui;
 }
 
+/* Encabezados */
 .sat-dl-table thead{
   background:#f9fafb;
 }
 
-.sat-dl-table th,
-.sat-dl-table td{
-  padding:8px 10px;
-  text-align:left;
-  border-bottom:1px solid rgba(148,163,184,.25);
+.sat-dl-table thead th{
+  position:sticky;
+  top:0;
+  z-index:5;
+  padding:10px 14px;
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.16em;
+  color:#6b7280;
+  background:linear-gradient(180deg,#f9fafb,#edf2f7);
+  border-bottom:1px solid rgba(148,163,184,.45);
+  white-space:nowrap;
 }
 
+/* Bordes redondeados en header */
+.sat-dl-table thead th:first-child{
+  border-top-left-radius:14px;
+}
+.sat-dl-table thead th:last-child{
+  border-top-right-radius:14px;
+}
+
+/* Celdas cuerpo */
+.sat-dl-table tbody td{
+  padding:11px 14px;
+  border-bottom:1px solid #e5e7eb;
+  color:#111827;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+
+/* Zebra */
+.sat-dl-table tbody tr:nth-child(odd) td{background:#ffffff;}
+.sat-dl-table tbody tr:nth-child(even) td{background:#f9fafb;}
+
+/* Hover */
+.sat-dl-table tbody tr:hover td{background:#eef2ff;}
+
+/* 1) Columna sticky de selección */
+.sat-dl-table th:nth-child(1),
+.sat-dl-table td:nth-child(1){
+  position:sticky;
+  left:0;
+  z-index:6;
+  background:#f9fafb;
+  border-right:1px solid rgba(148,163,184,.35);
+  text-align:center;
+}
+
+/* Alineaciones básicas por columna (sin forzar ancho) */
+
+/* ID */
+.sat-dl-table th:nth-child(2),
+.sat-dl-table td:nth-child(2){
+  text-align:center;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+/* FECHA */
+.sat-dl-table th:nth-child(3),
+.sat-dl-table td:nth-child(3){
+  text-align:left;
+}
+
+/* PERIODO */
+.sat-dl-table th:nth-child(4),
+.sat-dl-table td:nth-child(4){
+  text-align:left;
+}
+
+/* RFC */
+.sat-dl-table th:nth-child(5),
+.sat-dl-table td:nth-child(5){
+  text-align:left;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+/* ALIAS */
+.sat-dl-table th:nth-child(6),
+.sat-dl-table td:nth-child(6){
+  text-align:left;
+}
+
+/* PESO */
+.sat-dl-table th:nth-child(7),
+.sat-dl-table td:nth-child(7){
+  text-align:right;
+}
+
+/* COSTO */
+.sat-dl-table th:nth-child(8),
+.sat-dl-table td:nth-child(8){
+  text-align:right;
+}
+
+/* ESTATUS SAT */
+.sat-dl-table th:nth-child(9),
+.sat-dl-table td:nth-child(9){
+  text-align:center;
+}
+
+/* DISPONIBILIDAD */
+.sat-dl-table th:nth-child(10),
+.sat-dl-table td:nth-child(10){
+  text-align:center;
+}
+
+/* CARRITO / ACCIONES */
+.sat-dl-table th:nth-child(11),
+.sat-dl-table td:nth-child(11){
+  text-align:center;
+}
+
+/* monospace util */
 .mono{
   font-family:ui-monospace,Menlo,Consolas,monospace;
   font-size:11px;
 }
 
-.sat-badge-status{
+/* ===== Desktop ancho: quitar scroll horizontal y dejar que la tabla respire ===== */
+@media (min-width:1280px){
+  .sat-dl-table-wrap{
+    overflow-x:visible;   /* ya no mostramos scrollbar horizontal */
+  }
+
+  /* Reset de widths/min-widths que se hayan definido antes */
+  .sat-dl-table th,
+  .sat-dl-table td{
+    min-width:0;
+  }
+
+  .sat-dl-table th:nth-child(1),
+  .sat-dl-table td:nth-child(1),
+  .sat-dl-table th:nth-child(2),
+  .sat-dl-table td:nth-child(2),
+  .sat-dl-table th:nth-child(3),
+  .sat-dl-table td:nth-child(3),
+  .sat-dl-table th:nth-child(4),
+  .sat-dl-table td:nth-child(4),
+  .sat-dl-table th:nth-child(5),
+  .sat-dl-table td:nth-child(5),
+  .sat-dl-table th:nth-child(6),
+  .sat-dl-table td:nth-child(6),
+  .sat-dl-table th:nth-child(7),
+  .sat-dl-table td:nth-child(7),
+  .sat-dl-table th:nth-child(8),
+  .sat-dl-table td:nth-child(8),
+  .sat-dl-table th:nth-child(9),
+  .sat-dl-table td:nth-child(9),
+  .sat-dl-table th:nth-child(10),
+  .sat-dl-table td:nth-child(10),
+  .sat-dl-table th:nth-child(11),
+  .sat-dl-table td:nth-child(11){
+    width:auto;          /* el navegador reparte el espacio según contenido */
+  }
+}
+
+/* En pantallas más pequeñas sí permitimos tabla más ancha + scroll interno */
+@media (max-width:1279.98px){
+  .sat-dl-table{
+    min-width:1100px;    /* ajusta si quieres más/menos ancho mínimo */
+  }
+}
+
+@media (max-width:900px){
+  .sat-dl-table-wrap{border-radius:10px;}
+}
+
+
+/* ====================================================
+   ESTATUS SAT (badges)
+   ==================================================== */
+
+.sat-badge,
+.sat-dl-status,
+.sat-dl-status-default{
   display:inline-flex;
   align-items:center;
   justify-content:center;
+  padding:3px 9px;
   border-radius:999px;
-  padding:3px 8px;
   font-size:10px;
   font-weight:700;
   text-transform:uppercase;
+  letter-spacing:.06em;
+  border:1px solid transparent;
 }
 
-.sat-badge-status.done{
-  background:#dcfce7;
-  color:#166534;
-}
-.sat-badge-status.pending,
-.sat-badge-status.processing{
+/* pending / requested / processing */
+.sat-badge-PENDING,
+.sat-badge-REQUESTED,
+.sat-badge-PROCESSING,
+.sat-dl-status-pending,
+.sat-dl-status-processing,
+.sat-dl-status-requested{
   background:#fef3c7;
   color:#92400e;
+  border-color:#fde68a;
 }
 
-.sat-dl-btn-download{
-  width:26px;
-  height:26px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:#f3f4f6;
-  cursor:pointer;
+/* done / ready / success */
+.sat-badge-DONE,
+.sat-badge-READY,
+.sat-badge-SUCCESS,
+.sat-dl-status-done{
+  background:#dcfce7;
+  color:#166534;
+  border-color:#bbf7d0;
 }
 
-/* ====== Panel de solicitudes / filtros ====== */
-
-.filters{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  align-items:center;
+/* pagado */
+.sat-badge-PAID{
+  background:#e0f2fe;
+  color:#0369a1;
+  border-color:#bae6fd;
 }
 
-.input,
-.select{
-  border-radius:12px;
-  border:1px solid var(--line);
-  padding:7px 9px;
-  min-height:32px;
-  font-family:'Poppins',system-ui;
-  font-size:12px;
-  background:#ffffff;
-  color:var(--ink);
+/* errores / cancelados / expirados */
+.sat-badge-EXPIRED,
+.sat-badge-CANCELED,
+.sat-badge-CANCELLED,
+.sat-badge-ERROR,
+.sat-dl-status-error,
+.sat-dl-status-canceled,
+.sat-dl-status-default{
+  background:#fee2e2;
+  color:#b91c1c;
+  border-color:#fecaca;
 }
 
-.input::placeholder{
-  color:var(--mut);
-}
 
-.chip-plan{
+/* ====================================================
+   DISPONIBILIDAD (timer)
+   ==================================================== */
+
+.sat-disp,
+.sat-dl-timer{
   display:inline-flex;
   align-items:center;
-  gap:8px;
-  padding:6px 11px;
+  justify-content:center;
+  min-width:96px;
+  padding:3px 8px;
   border-radius:999px;
-  border:1px solid var(--line);
-  background:#f9fafb;
   font-size:11px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+.sat-disp-active{
+  background:#ecfdf5;
+  color:#047857;
+}
+
+/* PAID: disponible permanente */
+.sat-disp-permanent{
+  background:#e0f2fe;
+  color:#0369a1;
   font-weight:600;
-  color:var(--ink);
 }
 
-.chip-plan span[aria-hidden="true"]{font-size:14px;}
-
-/* ====== Automatizadas ====== */
-
-.auto-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:8px;
+/* PENDIENTE / EN PROCESO (sin contador) */
+.sat-disp-pending{
+  background:#fef3c7;
+  color:#92400e;
+  font-weight:600;
 }
 
-.auto-grid{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-}
 
-.auto-btn{
-  min-width:120px;
-}
-
-.badge-plan-lock,
-.badge-plan-ok{
-  border-radius:999px;
-  padding:6px 11px;
-  font-size:11px;
-  font-weight:700;
-}
-
-.badge-plan-lock{
-  background:#fee2e2;
-  border:1px solid #fecaca;
+.sat-disp-expired,
+.sat-dl-timer.is-expired{
+  background:#fef2f2;
   color:#b91c1c;
-}
-.badge-plan-ok{
-  background:#dcfce7;
-  border:1px solid #bbf7d0;
-  color:#166534;
-}
-
-.auto-grid.is-locked .btn{
-  opacity:.5;
-  cursor:not-allowed;
-}
-
-/* ====== Bóveda mini ====== */
-
-.v-totals{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  margin-bottom:6px;
-}
-
-.v-pill{
-  padding:6px 10px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:var(--pill-bg);
-  font-size:11px;
   font-weight:600;
 }
 
-.vault-mini-header{
-  display:flex;
+
+/* ====================================================
+   ACCIONES POR FILA (descargar + carrito + eliminar)
+   ==================================================== */
+
+/* Contenedor de acciones SOLO dentro de la tabla SAT */
+.sat-dl-table .sat-actions,
+.sat-actions-cell{
+  display:inline-flex;
   align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:8px;
+  justify-content:center;
+  gap:8px;
 }
 
-/* ====== Modal RFC ====== */
+/* Botones base de acciones por fila */
+.sat-btn-download,
+.sat-btn-cart,
+.sat-btn-cancel{
+  border:0;
+  border-radius:999px;
+  width:32px;
+  height:32px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  background:transparent;
+  box-shadow:0 6px 16px rgba(15,23,42,0);
+  transition:
+    background .16s,
+    box-shadow .16s,
+    transform .12s,
+    border-color .16s,
+    color .16s;
+}
+
+/* Iconos SVG dentro de los botones */
+.sat-row-icon{
+  width:16px;
+  height:16px;
+  display:block;
+}
+
+/* Botón DESCARGA (chip azul) */
+.sat-btn-download{
+  background:rgba(59,130,246,.10);
+  color:#2563eb;
+}
+
+.sat-btn-download:hover{
+  background:rgba(59,130,246,.18);
+  box-shadow:0 8px 22px rgba(59,130,246,.35);
+  transform:translateY(-1px);
+}
+
+/* Botón CARRITO (naranja / amarillo si ya está en carrito) */
+.sat-btn-cart{
+  background:linear-gradient(135deg,#f97316,#f59e0b);
+  color:#ffffff;
+  box-shadow:0 6px 16px rgba(249,115,22,.45);
+}
+
+.sat-btn-cart:hover{
+  background:linear-gradient(135deg,#ea580c,#f97316);
+  box-shadow:0 8px 22px rgba(249,115,22,.6);
+  transform:translateY(-1px);
+}
+
+/* EN CARRITO · estilo Amazon amarillo */
+.sat-btn-cart.is-in-cart{
+  background:#ffd814;
+  color:#111827;
+  border:1px solid #fcd200;
+  box-shadow:0 0 0 4px rgba(255,216,20,.35);
+}
+
+.sat-btn-cart.is-in-cart:hover{
+  background:#f7ca00;
+  box-shadow:0 0 0 4px rgba(247,202,0,.5);
+  transform:translateY(-1px);
+}
+
+/* Botón ELIMINAR (rojo) */
+.sat-btn-cancel{
+  border:1px solid #fecaca;
+  background:#fee2e2;
+  color:#b91c1c;
+  box-shadow:0 6px 16px rgba(248,113,113,.35);
+}
+
+.sat-btn-cancel:hover{
+  background:#ef4444;
+  border-color:#dc2626;
+  color:#ffffff;
+  box-shadow:0 8px 22px rgba(239,68,68,.55);
+  transform:translateY(-1px);
+}
+
+/* Placeholder cuando no hay acciones */
+.sat-cart-placeholder{
+  font-size:12px;
+  color:#d1d5db;
+}
+
+
+/* ====================================================
+   MODAL RFC
+   ==================================================== */
 
 .sat-modal-backdrop{
   position:fixed;
@@ -918,25 +1657,27 @@ html[data-theme="dark"] .badge-mode.prod{
 }
 
 .sat-modal-close{
-  border:0;
-  background:transparent;
-  width:28px;
-  height:28px;
+  width:26px;
+  height:26px;
   border-radius:999px;
-  display:flex;
+  border:1px solid #e5e7eb;
+  background:#ffffff;
+  display:inline-flex;
   align-items:center;
   justify-content:center;
+  font-size:13px;
   cursor:pointer;
-  color:var(--mut);
+  transition:background .12s ease,border-color .12s ease;
+  color:#6b7280;
 }
 
 .sat-modal-close:hover{
-  background:#f3f4f6;
+  background:#f9fafb;
+  border-color:#d1d5db;
 }
 
 .sat-modal-body{
-  padding-top:4px;
-  padding-bottom:6px;
+  padding:14px 20px 18px;
   display:flex;
   flex-direction:column;
   gap:10px;
@@ -956,9 +1697,7 @@ html[data-theme="dark"] .badge-mode.prod{
   color:var(--mut);
 }
 
-.sat-modal .input{
-  width:100%;
-}
+.sat-modal .input{width:100%;}
 
 .sat-field-inline{
   display:grid;
@@ -968,7 +1707,7 @@ html[data-theme="dark"] .badge-mode.prod{
 
 .sat-modal-sep{
   border:0;
-  border-top:1px dashed var(--line);
+  border-top:1px dashed(var(--line));
   margin:4px 0;
 }
 
@@ -978,7 +1717,8 @@ html[data-theme="dark"] .badge-mode.prod{
 }
 
 .sat-modal-footer{
-  margin-top:8px;
+  padding:10px 20px 16px;
+  border-top:1px solid #f1f5f9;
   display:flex;
   justify-content:flex-end;
   gap:8px;
@@ -989,7 +1729,1810 @@ html[data-theme="dark"] .badge-mode.prod{
     margin:0 10px;
     padding:16px 14px 14px;
   }
-  .sat-field-inline{
+  .sat-field-inline{grid-template-columns:1fr;}
+}
+
+/* Versión grande */
+
+.sat-modal-lg{
+  max-width:760px;
+  font-family:'Poppins',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+
+/* Header simple */
+
+.sat-modal-header-simple{
+  padding:12px 20px 10px;
+  border-bottom:1px solid #f1f5f9;
+}
+
+.sat-modal-header-simple-title{
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:#9ca3af;
+}
+
+.sat-modal-header-simple-sub{
+  margin-top:4px;
+  font-size:12px;
+  color:#6b7280;
+}
+
+/* Tarjetas de pasos */
+
+.sat-step-card{
+  border-radius:18px;
+  border:1px solid #e5e7eb;
+  background:#f9fafb;
+  padding:14px 16px 16px;
+  margin-bottom:12px;
+}
+
+html[data-theme="dark"] .sat-step-card{
+  background:#020617;
+  border-color:#1e293b;
+}
+
+.sat-step-heading{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:10px;
+}
+
+.sat-step-badge{
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:#0ea5e9;
+}
+
+.sat-step-badge-optional{color:#f97316;}
+
+.sat-step-title{
+  font-size:14px;
+  font-weight:700;
+  color:#0f172a;
+}
+
+html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
+
+.sat-step-note{
+  margin-top:4px;
+  font-size:11px;
+  color:#9ca3af;
+}
+
+/* Inputs dentro del modal RFC */
+
+#modalRfc .input{
+  width:100%;
+  border-radius:999px;
+  border:1px solid #e5e7eb;
+  background:#ffffff;
+  padding:7px 12px;
+  font-size:13px;
+  font-weight:500;
+  color:#111827;
+  outline:none;
+  transition:border-color .12s ease,box-shadow .12s ease,background .12s ease;
+}
+
+#modalRfc .input[type="file"]{padding:5px 12px;}
+
+#modalRfc .input::placeholder{
+  color:#9ca3af;
+  font-weight:400;
+}
+
+#modalRfc .input:focus{
+  border-color:#0ea5e9;
+  box-shadow:0 0 0 1px rgba(14,165,233,.2);
+  background:#f9fafb;
+}
+
+#modalRfc .btn{
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+  font-weight:600;
+  border-radius:999px;
+  padding:8px 16px;
+}
+
+#modalRfc .btn.primary{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+
+/* Alturas/scroll modal RFC */
+
+#modalRfc .sat-modal{
+  max-height:92vh;
+  display:flex;
+  flex-direction:column;
+}
+
+#modalRfc .sat-modal-body{
+  flex:1 1 auto;
+  overflow-y:auto;
+  padding-bottom:12px;
+}
+
+#modalRfc{
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:13px;
+}
+
+#modalRfc .sat-step-title{font-size:13px;}
+#modalRfc .sat-field-label{font-size:10.5px;}
+#modalRfc .input{
+  font-size:12.5px;
+  padding:6px 11px;
+}
+
+@media (max-width:640px){
+  .sat-modal-lg{max-width:100%;}
+  #modalRfc .sat-modal-body{
+    padding-left:14px;
+    padding-right:14px;
+  }
+  .sat-modal-body{
+    padding:12px 14px 16px;
+  }
+  .sat-step-card{
+    padding:12px 12px 14px;
+  }
+}
+
+
+/* ====================================================
+   Separador entre secciones SAT (línea gris suave)
+   ==================================================== */
+
+.sat-ui hr{
+  border:0;
+  border-top:1px solid #e5e7eb;
+  margin:18px 0 10px;
+}
+
+
+/* ====================================================
+   Tabla "Mis RFCs" – versión simple
+   ==================================================== */
+
+.sat-rfc-table-wrap{
+  margin-top:8px;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,.45);
+  overflow-x:auto;             /* scroll horizontal solo si hace falta */
+  overflow-y:hidden;
+  background:#f9fafb;
+  box-shadow:0 10px 24px rgba(15,23,42,.06);
+  width:100%;
+}
+
+.sat-rfc-table{
+  width:100%;
+  min-width:900px;             /* ancho mínimo para pantallas angostas */
+  border-collapse:collapse;
+  table-layout:auto;
+  font-family:'Poppins',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:12px;
+}
+
+/* header */
+.sat-rfc-table thead{
+  background:#f9fafb;
+}
+
+.sat-rfc-table thead th{
+  position:sticky;
+  top:0;
+  z-index:5;
+  padding:8px 12px;
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.16em;
+  color:#6b7280;
+  background:linear-gradient(180deg,#f9fafb,#edf2f7);
+  border-bottom:1px solid rgba(148,163,184,.45);
+  white-space:nowrap;
+}
+
+.sat-rfc-table thead th:first-child{
+  border-top-left-radius:14px;
+}
+.sat-rfc-table thead th:last-child{
+  border-top-right-radius:14px;
+}
+
+/* body */
+.sat-rfc-table tbody td{
+  padding:9px 12px;
+  border-bottom:1px solid #e5e7eb;
+  color:#111827;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+
+.sat-rfc-table tbody tr:nth-child(odd) td{background:#ffffff;}
+.sat-rfc-table tbody tr:nth-child(even) td{background:#f9fafb;}
+
+.sat-rfc-table tbody tr:hover td{background:#eef2ff;}
+
+/* Columnas base */
+.sat-rfc-table th:nth-child(1),
+.sat-rfc-table td:nth-child(1){
+  text-align:center;
+}
+
+.sat-rfc-table th:nth-child(2),
+.sat-rfc-table td:nth-child(2){
+  text-align:left;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+.sat-rfc-table th:nth-child(3),
+.sat-rfc-table td:nth-child(3){
+  text-align:left;
+}
+
+.sat-rfc-table th:nth-child(4),
+.sat-rfc-table td:nth-child(4){
+  text-align:center;
+}
+
+.sat-rfc-table th:nth-child(5),
+.sat-rfc-table td:nth-child(5){
+  text-align:center;
+}
+
+/* Desktop ancho: sin scroll horizontal y adaptativo */
+@media (min-width:1280px){
+  .sat-rfc-table-wrap{
+    overflow-x:visible;
+  }
+  .sat-rfc-table{
+    min-width:0;
+  }
+  .sat-rfc-table th,
+  .sat-rfc-table td{
+    min-width:0;
+    width:auto;
+  }
+}
+
+
+/* ====================================================
+   TABLA RFCs (Mis RFCs) – versión nueva (con filtros)
+   ==================================================== */
+
+.sat-rfcs-table-wrap{
+  margin-top:8px;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,.45);
+  background:#f9fafb;
+  box-shadow:0 10px 24px rgba(15,23,42,.06);
+  padding:8px 14px 10px;
+  width:100%;
+}
+
+/* Contenedor interno: por defecto permite scroll horizontal (móvil/laptop chica) */
+.sat-rfcs-table-inner{
+  border-radius:12px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  background:#ffffff;
+  width:100%;
+}
+
+/* Tabla Mis RFCs */
+.sat-rfcs-table{
+  width:100%;
+  min-width:900px;            /* mínimo sólo para pantallas angostas */
+  border-collapse:collapse;
+  table-layout:auto;
+}
+
+/* Desktop ancho: SIN scroll horizontal y ocupando todo el ancho */
+@media (min-width:1280px){
+  .sat-rfcs-table-inner{
+    overflow-x:visible;       /* quita el scroll interno */
+  }
+  .sat-rfcs-table{
+    min-width:0;              /* deja que se adapte al contenedor */
+    table-layout:auto;
+  }
+}
+
+/* Barra de filtros arriba de la tabla */
+.sat-rfcs-filters{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:8px;
+  font-family:'Poppins',system-ui,sans-serif;
+}
+
+.sat-rfcs-filters-left{
+  flex:1 1 auto;
+}
+
+.sat-rfcs-filters-right{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.sat-rfcs-filter-input,
+.sat-rfcs-filter-select{
+  border-radius:999px;
+  border:1px solid #e5e7eb;
+  background:#f9fafb;
+  padding:6px 10px;
+  font-size:11px;
+  font-family:'Poppins',system-ui,sans-serif;
+}
+
+.sat-rfcs-filter-input{
+  width:100%;
+}
+
+.sat-rfcs-filter-input::placeholder{
+  color:#9ca3af;
+}
+
+.sat-rfcs-filter-select{
+  min-width:140px;
+}
+
+/* El header y cuerpo heredan de .sat-dl-table; sólo afinamos alturas */
+.sat-rfcs-table thead th{
+  padding:8px 12px;
+}
+
+.sat-rfcs-table tbody td{
+  padding:9px 12px;
+}
+
+/* Alineación columnas RFCs (tabla nueva) */
+.sat-rfcs-table thead th,
+.sat-rfcs-table tbody td{
+  white-space:nowrap;
+}
+
+/* ID */
+.sat-rfcs-th-idx,
+.sat-rfcs-table tbody td:nth-child(1){
+  width:70px;
+  text-align:center;
+}
+
+/* RFC ancho */
+.sat-rfcs-th-rfc,
+.sat-rfcs-table tbody td:nth-child(2){
+  width:260px;
+  min-width:260px;
+  text-align:left;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+/* Nombre / razón social */
+.sat-rfcs-th-name,
+.sat-rfcs-table tbody td:nth-child(3){
+  min-width:280px;
+  text-align:left;
+}
+
+/* Estatus */
+.sat-rfcs-th-status,
+.sat-rfcs-table tbody td:nth-child(4){
+  width:140px;
+  text-align:center;
+}
+
+/* Acciones */
+.sat-rfcs-th-actions,
+.sat-rfcs-table tbody td:nth-child(5){
+  width:150px;
+  text-align:center;
+}
+
+/* Acciones por fila */
+.sat-rfcs-actions{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+}
+
+/* Panel CSD como fila expandida */
+.sat-rfcs-panel-row td{
+  background:#f9fafb !important;
+}
+
+.sat-rfcs-panel-row .rfcs-neo-panel-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(180px,1fr));
+  gap:12px 16px;
+}
+
+.sat-rfcs-panel-row .fld span{
+  display:block;
+  font:800 11px/1 'Poppins';
+  color:#6b7280;
+  margin-bottom:4px;
+}
+
+.sat-rfcs-panel-row .rfcs-neo-panel-grid .input{
+  width:100%;
+  border-radius:999px;
+  border:1px dashed #d1d5db;
+  padding:7px 11px;
+  font:600 12px/1 'Poppins';
+  background:#ffffff;
+}
+
+.sat-rfcs-panel-row .panel-actions{
+  grid-column:1 / -1;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-top:4px;
+}
+
+.sat-rfcs-panel-row .panel-actions-left{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.sat-rfcs-panel-row .note{
+  color:#6b7280;
+  font-weight:600;
+  font-size:11px;
+}
+
+@media (max-width:900px){
+  .sat-rfcs-panel-row .rfcs-neo-panel-grid{
     grid-template-columns:1fr;
   }
+
+  .sat-rfc-table,
+  .sat-rfcs-table{
+    min-width:640px;
+  }
+}
+
+/* Separador entre secciones SAT (línea gris suave) */
+.sat-section-divider{
+  border:0;
+  border-top:1px solid #e5e7eb;
+  margin:16px 0;
+}
+
+
+/* === BÓVEDA · NUEVO DISEÑO MODERNO === */
+
+.vault-modern {
+  padding:20px 24px 22px;
+  background:linear-gradient(135deg,#fff7fb 0%,#fdfbff 40%,#ffffff 100%);
+  border-radius:22px;
+  border:1px solid rgba(248,113,166,.12);
+  box-shadow:0 18px 40px rgba(15,23,42,.04);
+}
+
+.vault-modern-header {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:18px;
+}
+
+.vault-modern-header .section-title {
+  font-size:15px;
+  font-weight:600;
+}
+
+.vault-modern-header .section-sub {
+  font-size:12px;
+  color:#6b7280;
+}
+
+.btn-vault-cta {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius:999px;
+  padding-inline:16px;
+  font-size:12px;
+  border:1px solid rgba(148,163,184,.45);
+  background:#ffffff;
+}
+
+.btn-vault-cta span:first-child {
+  font-size:14px;
+}
+
+.vault-modern-body {
+  display:grid;
+  grid-template-columns:minmax(240px,260px) minmax(0,1fr);
+  gap:24px;
+  align-items:center;
+}
+
+@media (max-width:960px) {
+  .vault-modern-body {
+    grid-template-columns:1fr;
+  }
+}
+
+/* DONUT / RING */
+
+.vault-modern-chart {
+  display:flex;
+  justify-content:center;
+}
+
+.vault-modern-ring {
+  position:relative;
+  width:240px;
+  height:240px;
+}
+
+.vault-modern-ring canvas {
+  width:100% !important;
+  height:100% !important;
+}
+
+.vault-modern-center {
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  pointer-events:none;
+}
+
+.vault-modern-center-main {
+  font-size:24px;
+  font-weight:700;
+  color:#020617;
+}
+
+.vault-modern-center-sub {
+  font-size:11px;
+  color:#9ca3af;
+  margin-top:2px;
+}
+
+/* PILLS / STATS */
+
+.vault-modern-stats {
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.vault-pill {
+  border-radius:16px;
+  padding:10px 14px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  background:#ffffff;
+  border:1px solid rgba(148,163,184,.18);
+}
+
+.vault-pill-used {
+  background:radial-gradient(circle at 0 0,#f97316 0,#fb7185 35%,#ffffff 90%);
+  color:#111827;
+}
+
+.vault-pill-used .vault-pill-chip {
+  background:rgba(15,23,42,.08);
+  color:#111827;
+}
+
+.vault-pill-free {
+  background:radial-gradient(circle at 0 0,#bfdbfe 0,#dbeafe 40%,#ffffff 90%);
+  color:#0f172a;
+}
+
+.vault-pill-free .vault-pill-chip {
+  background:rgba(15,23,42,.04);
+  color:#0f172a;
+}
+
+.vault-pill-top {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:11px;
+}
+
+.vault-pill-chip {
+  padding:2px 8px;
+  border-radius:999px;
+  font-weight:600;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.vault-pill-percent {
+  font-weight:600;
+}
+
+.vault-pill-value {
+  font-size:14px;
+  font-weight:600;
+}
+
+.vault-mini-note {
+  font-size:11px;
+  color:#6b7280;
+  line-height:1.4;
+  margin-top:4px;
+}
+
+
+/* ====================================================
+   Vista rápida · Bóveda fiscal (bloque 8)
+   ==================================================== */
+
+#block-vault-mini .vault-mini-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+#block-vault-mini .section-title {
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:14px;
+  font-weight:600;
+  color:var(--ink);
+}
+
+#block-vault-mini .section-sub {
+  font-size:11px;
+  color:var(--mut);
+  margin-top:2px;
+}
+
+/* Filtros superiores del bloque rápido */
+#block-vault-mini .filters {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+
+#block-vault-mini .filters .input,
+#block-vault-mini .filters .select {
+  border-radius:999px;
+  border:1px solid var(--line);
+  padding:6px 10px;
+  font-size:11px;
+  font-family:'Poppins',system-ui,sans-serif;
+  background:#f9fafb;
+}
+
+#block-vault-mini .filters .input:focus,
+#block-vault-mini .filters .select:focus {
+  outline:none;
+  border-color:#2563eb;
+  box-shadow:0 0 0 2px rgba(37,99,235,.18);
+  background:#ffffff;
+}
+
+/* Totales (CFDI, subtotal, IVA, total) */
+#block-vault-mini .v-totals {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:6px;
+}
+
+#block-vault-mini .v-pill {
+  display:inline-flex;
+  align-items:center;
+  padding:6px 11px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:var(--pill-bg);
+  font-size:11px;
+  font-family:'Poppins',system-ui,sans-serif;
+  color:var(--ink);
+}
+
+#block-vault-mini .v-pill b {
+  margin-left:4px;
+}
+
+/* Reaprovecha la tabla genérica pero con un poquito más de aire */
+#block-vault-mini .table-wrap {
+  margin-top:10px;
+}
+
+/* FECHA en tabla SAT – (por si se usan chips separados) */
+.sat-dl-time{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:2px 10px;
+  margin-right:8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:500;
+  background:rgba(34,197,94,.10);
+  color:#16a34a;
+}
+
+.sat-dl-date{
+  display:inline-block;
+  margin-top:0;
+  font-size:11px;
+  color:#6b7280;
+}
+
+
+/* ====================================================
+   Bloque 4 · Guías rápidas
+   ==================================================== */
+
+#block-quick-guides{
+  padding:18px 20px 16px;
+}
+
+.sat-quick-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:12px;
+}
+
+.sat-quick-title-wrap{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+
+.sat-quick-icon{
+  width:30px;
+  height:30px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(34,197,94,.14);
+  color:#16a34a;
+  font-size:16px;
+}
+
+.sat-quick-kicker{
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.16em;
+  color:var(--mut);
+  margin-bottom:2px;
+}
+
+.sat-quick-title{
+  margin:0;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:15px;
+  font-weight:700;
+  color:var(--ink);
+}
+
+.sat-quick-sub{
+  margin:4px 0 0;
+  font-size:11px;
+  color:var(--mut);
+}
+
+.sat-quick-plan{
+  display:flex;
+  align-items:flex-start;
+}
+
+.sat-quick-pills{
+  margin-top:6px;
+}
+
+/* Mejora pequeñas en pills dentro de guías rápidas */
+#block-quick-guides .pill{
+  white-space:nowrap;
+}
+#block-quick-guides .pill span[aria-hidden="true"]{
+  font-size:15px;
+}
+@media (max-width:800px){
+  .sat-quick-head{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+}
+
+
+/* ===== Toast SAT (confirmaciones) ===== */
+
+.sat-toast-host{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:20px;
+  display:flex;
+  justify-content:center;
+  pointer-events:none;
+  z-index:70;
+}
+
+.sat-toast{
+  pointer-events:auto;
+  min-width:220px;
+  max-width:360px;
+  padding:10px 16px;
+  border-radius:999px;
+  font-size:13px;
+  font-weight:600;
+  background:var(--card, #ffffff);
+  color:var(--ink, #0f172a);
+  border:1px solid var(--card-border, #e5e5ea);
+  box-shadow:0 18px 40px rgba(15,23,42,.25);
+  opacity:0;
+  transform:translateY(14px);
+  transition:opacity .22s ease-out, transform .22s ease-out;
+}
+
+.sat-toast.is-visible{
+  opacity:1;
+  transform:translateY(0);
+}
+
+.sat-toast-ok{
+  border-color:#22c55e;
+}
+
+.sat-toast-error{
+  border-color:#ef4444;
+}
+
+
+/* ====================================================
+   Ajuste de ancho: KPIs y gráficas centradas,
+   tabla de descargas full-width
+   ==================================================== */
+
+/* Bloques "visuales": KPIs, gráficas, bóveda moderna,
+   quick guides, etc. Los limitamos a un ancho cómodo
+   y los centramos dentro del área SAT. */
+.sat-ui .sat-top-grid,
+.sat-ui .sat-movements-card,
+.sat-ui .sat-mov-layout,
+.sat-ui .sat-mov-chart,
+.sat-ui .vault-modern,
+.sat-ui .chart-wrap,
+.sat-ui #block-quick-guides,
+.sat-ui #block-vault-mini {
+  width: 100%;
+  max-width: 1440px;      /* tope visual para pantallas grandes */
+  margin-inline: auto;    /* centrado */
+}
+
+/* La tabla principal de descargas SAT sí debe usar
+   todo el ancho disponible. */
+.sat-ui .sat-dl-section,
+.sat-ui .sat-dl-table-wrap {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+} 
+
+
+/* =====================================================
+   Carrito SAT · Estilo tipo Amazon (amarillo)
+   ===================================================== */
+
+/* Pill principal (3 items · $200.00) */
+.sat-cart-pill,
+.sat-cart-top-btn,
+.sat-cart-summary-pill {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+
+  padding:6px 14px;
+  border-radius:999px;
+
+  font-family:'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight:700;
+  font-size:12px;
+
+  border:1px solid #fcd200;   /* borde amarillo */
+  background:#ffd814;         /* amarillo Amazon */
+  color:#111827;              /* texto oscuro */
+  box-shadow:0 1px 0 #f0ad09; /* ligerísima sombra como Amazon */
+
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.sat-cart-pill:hover,
+.sat-cart-top-btn:hover,
+.sat-cart-summary-pill:hover {
+  background:#f7ca00;         /* hover más intenso */
+}
+
+/* Número del carrito tipo “badge” naranja */
+.sat-cart-pill-count,
+.sat-cart-badge {
+  font-weight:800;
+  color:#b12704;              /* naranja/rojo Amazon */
+}
+
+/* Icono del carrito dentro del pill */
+.sat-cart-pill-icon {
+  font-size:14px;
+  line-height:1;
+}
+
+
+/* Todos los bloques principales del módulo SAT ocupan el mismo ancho y se alinean al centro */
+.sat-ui > .sat-card,
+.sat-ui > .sat-req-dl-card,
+.sat-ui > .sat-vault-card,
+.sat-ui > #block-quick-guides,
+.sat-ui > #block-vault-mini,
+.sat-ui > .vault-modern,
+.sat-ui > .charts-wrapper,
+.sat-ui > .sat-rfcs-wrapper {
+  width:100%;
+  max-width:100%;
+  box-sizing:border-box;
+  margin-left:auto;
+  margin-right:auto;
+}
+
+
+/* ===========================
+   BÓVEDA FISCAL · ALMACENAMIENTO
+   =========================== */
+
+.vault-modern {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.vault-modern-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vault-modern-header-left {
+  flex: 1;
+}
+
+.vault-modern .section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.vault-modern .section-sub {
+  font-size: .85rem;
+  color: var(--mut);
+  margin-top: 2px;
+}
+
+/* “Carrito” de bóveda */
+.vault-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.vault-compact-label {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--mut);
+}
+
+.vault-compact-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  font-size: .8rem;
+  color: var(--ink);
+}
+
+.vault-compact-used {
+  font-weight: 600;
+}
+
+.vault-compact-free {
+  color: var(--mut);
+}
+
+.vault-compact-dot {
+  opacity: .5;
+}
+
+/* Cuerpo */
+
+.vault-modern-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+
+/* Donut */
+
+.vault-modern-chart {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.vault-modern-ring {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 20%, #f9fafb, #e5edff);
+  padding: 18px;
+}
+
+.vault-modern-ring canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.vault-modern-center {
+  position: absolute;
+  inset: 32px;
+  border-radius: 999px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-modern-center-main {
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+
+.vault-modern-center-sub {
+  font-size: .75rem;
+  color: var(--mut);
+}
+
+/* Barras */
+
+.vault-modern-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vault-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vault-bar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: .8rem;
+}
+
+.vault-bar-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.vault-bar-meta {
+  color: var(--mut);
+}
+
+.vault-bar-track {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+
+.vault-bar-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+}
+
+/* Colores similares al gradiente de descargas */
+.vault-bar-used .vault-bar-label {
+  color: #f97316;
+}
+
+.vault-bar-used .vault-bar-fill {
+  background: linear-gradient(90deg, #fb923c, #fb7185);
+}
+
+.vault-bar-free .vault-bar-label {
+  color: #0ea5e9;
+}
+
+.vault-bar-free .vault-bar-fill {
+  background: linear-gradient(90deg, #bfdbfe, #e0f2fe);
+}
+
+/* Pills */
+
+.vault-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vault-pill {
+  flex: 1;
+  min-width: 140px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.vault-pill-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: .8rem;
+}
+
+.vault-pill-chip {
+  font-size: .7rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.vault-pill-percent {
+  font-size: .8rem;
+  color: var(--mut);
+}
+
+.vault-pill-value {
+  margin-top: 4px;
+  font-weight: 600;
+  font-size: .95rem;
+  color: var(--ink);
+}
+
+.vault-pill-used .vault-pill-chip {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.vault-pill-free .vault-pill-chip {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.vault-mini-note {
+  font-size: .8rem;
+  color: var(--mut);
+  margin-top: 2px;
+}
+
+/* Responsive */
+
+@media (max-width: 900px) {
+  .vault-modern-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vault-modern-chart {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .vault-modern-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .vault-compact {
+    align-items: flex-start;
+  }
+}
+
+/* ============================
+   Botón tipo Amazon (bóveda)
+   ============================ */
+
+.btn-amazon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  padding: 0.55rem 1.5rem;
+  border-radius: 999px;
+
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+
+  background: linear-gradient(180deg, #ffd814, #f7ca00);
+  color: #111827;
+
+  border: 1px solid #f0c14b;
+  box-shadow: 0 2px 0 #d5a72a;
+  cursor: pointer;
+
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease,
+    filter 0.15s ease;
+}
+
+.btn-amazon:hover {
+  background: linear-gradient(180deg, #f7ca00, #f0b800);
+  box-shadow: 0 1px 0 #b48a1e;
+  transform: translateY(1px);
+  filter: saturate(1.05);
+}
+
+.btn-amazon:active {
+  background: linear-gradient(180deg, #f0b800, #e0a800);
+  box-shadow: 0 0 0 #b48a1e;
+  transform: translateY(2px);
+}
+
+.btn-amazon:disabled,
+.btn-amazon[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-amazon-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.btn-amazon-label {
+  line-height: 1;
+}
+
+/* ===== Modal Bóveda fiscal (descarga ZIP) ===== */
+
+.sat-vault-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, rgba(59,130,246,.14), transparent 55%),
+              rgba(15,23,42,.65);
+  backdrop-filter: blur(4px);
+}
+
+.sat-vault-modal.is-open {
+  display: flex;
+}
+
+.sat-vault-panel {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 18px;
+  padding: 20px 22px 18px;
+  background: #ffffff;
+  box-shadow:
+    0 18px 40px rgba(15,23,42,.35),
+    0 0 0 1px rgba(148,163,184,.25);
+  color: #0f172a;
+  font-family: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.sat-vault-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sat-vault-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 0 0, #22c55e, #0ea5e9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sat-vault-icon svg {
+  width: 22px;
+  height: 22px;
+  color: #eff6ff;
+}
+
+.sat-vault-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sat-vault-body {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.sat-vault-body strong {
+  color: #111827;
+}
+
+.sat-vault-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sat-vault-btn {
+  border-radius: 999px;
+  font-size: 13px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sat-vault-btn-primary {
+  background: linear-gradient(135deg, #2563eb, #22c55e);
+  color: #f9fafb;
+  border-color: rgba(37,99,235,.4);
+  box-shadow: 0 8px 18px rgba(37,99,235,.45);
+}
+
+.sat-vault-btn-primary:hover {
+  filter: brightness(1.02);
+  transform: translateY(-0.5px);
+}
+
+.sat-vault-btn-ghost {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #e5e7eb;
+}
+
+.sat-vault-btn-ghost:hover {
+  background: #e5e7eb;
+}
+
+/* =========================================
+   Ajuste columna FECHA (una sola línea, más ancha)
+   ========================================= */
+
+/* Encabezado FECHA: más ancho y sin cortes de línea */
+.sat-dl-th-fecha {
+  text-align: left;         /* ya no centrado, se lee mejor */
+  white-space: nowrap;      /* evita que FECHA se parta en 2 líneas */
+  min-width: 190px;         /* dale aire para mostrar 2025-12-08 13:45:22 completo */
+}
+
+/* Celdas FECHA (3ª columna) */
+.sat-dl-table td:nth-child(3) {
+  text-align: left;
+  white-space: nowrap;      /* fecha y hora siempre en una sola línea */
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;          /* un poco más compacta para que quepa mejor */
+}
+
+/* =========================================
+   Bóveda Fiscal con mismo estilo que
+   Solicitudes SAT
+   ========================================= */
+
+/* Sección envolvente, mismo margen que solicitudes */
+#block-vault-storage-section {
+  margin-top: 14px;
+}
+
+/* Panel superior dentro de la tarjeta (usa sat-req-panel) */
+.vault-panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+}
+
+.vault-panel-text{
+  flex:1 1 auto;
+}
+
+.vault-panel-title{
+  font-size:12px;
+  font-weight:600;
+  color:var(--ink);
+}
+
+.vault-panel-sub{
+  margin-top:3px;
+  font-size:11px;
+  color:var(--mut);
+}
+
+/* Acciones (select + botón) alineadas a la derecha como en Solicitudes */
+.vault-panel-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+}
+
+.vault-cta-select{
+  min-width:160px;
+}
+
+/* Cuerpo (donut + barras) dentro de la misma tarjeta blanca */
+.vault-body-inline{
+  margin-top:10px;
+  padding:10px 4px 4px;
+}
+
+/* Que el grid del cuerpo aproveche todo el ancho como en la tabla */
+#block-vault-storage .vault-modern-body{
+  width:100%;
+}
+
+/* Responsive: en pantallas chicas, que el bloque se apile */
+@media (max-width:900px){
+  .vault-panel-head{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .vault-panel-actions{
+    justify-content:flex-start;
+  }
+}
+
+/* ======= Filtros bóveda (layout profesional) ======= */
+
+.vault-filters-card {
+  padding: 16px 20px 18px;
+}
+
+.vault-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 18px;
+  align-items: flex-end;
+}
+
+.vf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vf-field--span2 {
+  grid-column: span 2;
+}
+
+.vf-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #9ca3af;
+}
+
+.vf-label--inline {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.vault-filters-card .select,
+.vault-filters-card .input {
+  height: 34px;
+  font-size: 13px;
+  padding-inline: 10px;
+}
+
+.vault-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.btn-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* Columna de chips ocupa 2 columnas en desktop */
+.vf-field--chips {
+  grid-column: span 3;
+}
+
+/* Botones Filtrar / Limpiar alineados a la derecha */
+.vf-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+/* Responsive: en pantallas chicas se apila todo */
+@media (max-width: 900px) {
+  .vault-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vf-field--span2,
+  .vf-field--chips {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 600px) {
+  .vault-filters-grid {
+    grid-template-columns: 1fr;
+  }
+  .vf-field--span2,
+  .vf-field--chips {
+    grid-column: span 1;
+  }
+  .vf-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ===== Vault panel: evitar traslapes / wrap correcto ===== */
+#block-vault-storage .vault-panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap; /* CLAVE: permite que acciones bajen de línea */
+}
+
+#block-vault-storage .vault-panel-text{
+  flex:1 1 420px;
+  min-width:280px;
+}
+
+#block-vault-storage .vault-panel-actions{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  flex-wrap:wrap; /* CLAVE: select y botón pueden apilarse */
+  max-width:100%;
+}
+
+#block-vault-storage .vault-cta-select{
+  min-width:220px;
+  max-width:100%;
+}
+
+#block-vault-storage #btnVaultCtaIndex{
+  white-space:nowrap;
+}
+
+#block-vault-storage .vault-panel-hint{
+  margin-top:6px;
+  font-size:12px;
+  opacity:.9;
+}
+
+/* En pantallas angostas, apilar acciones a la izquierda para no tapar */
+@media (max-width: 860px){
+  #block-vault-storage .vault-panel-actions{
+    justify-content:flex-start;
+    width:100%;
+  }
+}
+
+/* =========================
+   ACTION ICON BUTTONS (SAT)
+   ========================= */
+
+.sat-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  align-items:center;
+}
+
+.icon-btn{
+  --ib-size: 34px;
+  --ib-radius: 12px;
+  --ib-stroke: #334155;          /* slate-700 */
+  --ib-bg: #F1F5F9;              /* slate-100 */
+  --ib-bg-hover: #E2E8F0;         /* slate-200 */
+  --ib-ring: rgba(15, 23, 42, .10);
+
+  width: var(--ib-size);
+  height: var(--ib-size);
+  border-radius: var(--ib-radius);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background: var(--ib-bg);
+  border: 1px solid rgba(15, 23, 42, .08);
+  box-shadow: 0 1px 0 rgba(15,23,42,.03);
+  cursor:pointer;
+  transition: transform .12s ease, background .12s ease, box-shadow .12s ease, border-color .12s ease;
+  user-select:none;
+}
+
+.icon-btn:hover{
+  background: var(--ib-bg-hover);
+  border-color: rgba(15, 23, 42, .14);
+  box-shadow: 0 6px 18px rgba(15,23,42,.08);
+  transform: translateY(-1px);
+}
+
+.icon-btn:active{
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(15,23,42,.08);
+}
+
+.icon-btn:focus{
+  outline: none;
+  box-shadow: 0 0 0 4px var(--ib-ring), 0 6px 18px rgba(15,23,42,.08);
+}
+
+/* Icono (sirve para SVG o font-icons) */
+.icon-btn svg,
+.icon-btn i{
+  width: 18px;
+  height: 18px;
+  display:block;
+  color: var(--ib-stroke);
+}
+
+/* Variantes */
+.icon-btn--primary{
+  --ib-bg: rgba(59, 130, 246, .10);      /* blue */
+  --ib-bg-hover: rgba(59, 130, 246, .16);
+  --ib-stroke: #1D4ED8;
+  --ib-ring: rgba(59, 130, 246, .18);
+}
+
+.icon-btn--danger{
+  --ib-bg: rgba(239, 68, 68, .10);       /* red */
+  --ib-bg-hover: rgba(239, 68, 68, .16);
+  --ib-stroke: #B91C1C;
+  --ib-ring: rgba(239, 68, 68, .18);
+}
+
+.icon-btn--ghost{
+  --ib-bg: #FFFFFF;
+  --ib-bg-hover: #F8FAFC;
+  --ib-stroke: #334155;
+  --ib-ring: rgba(15, 23, 42, .10);
+}
+
+/* ===========================
+   ACCIONES SAT: UNIFICAR ICONOS
+   =========================== */
+
+/* Ajusta al selector real de tu columna si ya tienes uno.
+   Si no, aplica por clase a un wrapper (ver punto 2). */
+.sat-actions{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+}
+
+/* Unifica <a>, <button> y cualquier "icon wrapper" */
+.sat-actions a,
+.sat-actions button{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+
+  background: #F1F5F9;               /* slate-100 */
+  border: 1px solid rgba(15,23,42,.10);
+  box-shadow: 0 1px 0 rgba(15,23,42,.03);
+
+  padding: 0;
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease, box-shadow .12s ease, border-color .12s ease;
+  text-decoration: none;
+}
+
+/* Hover/Focus consistentes */
+.sat-actions a:hover,
+.sat-actions button:hover{
+  background:#E2E8F0;                /* slate-200 */
+  border-color: rgba(15,23,42,.16);
+  box-shadow: 0 8px 20px rgba(15,23,42,.10);
+  transform: translateY(-1px);
+}
+.sat-actions a:focus,
+.sat-actions button:focus{
+  outline:none;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.16), 0 8px 20px rgba(15,23,42,.10);
+}
+
+/* Tamaño de icono uniforme (Bootstrap Icons / FontAwesome / SVG) */
+.sat-actions i,
+.sat-actions svg{
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 1;
+  display:block;
+  color:#334155;                     /* slate-700 */
+}
+
+/* Variantes: SOLO cambia el color, no la forma */
+.sat-actions .act-primary{ background: rgba(59,130,246,.10); border-color: rgba(59,130,246,.22); }
+.sat-actions .act-primary i, .sat-actions .act-primary svg{ color:#1D4ED8; }
+.sat-actions .act-primary:hover{ background: rgba(59,130,246,.16); }
+
+.sat-actions .act-danger{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.22); }
+.sat-actions .act-danger i, .sat-actions .act-danger svg{ color:#B91C1C; }
+.sat-actions .act-danger:hover{ background: rgba(239,68,68,.16); }
+
+/* Elimina "burbujas" internas si tu HTML trae spans/círculos */
+.sat-actions .icon,
+.sat-actions .btn,
+.sat-actions .circle,
+.sat-actions .pill{
+  box-shadow:none !important;
 }

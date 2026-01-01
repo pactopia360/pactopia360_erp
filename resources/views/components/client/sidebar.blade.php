@@ -1,4 +1,4 @@
-{{-- resources/views/components/client/sidebar.blade.php (v2.7 – P360 Brand Glow + A11y/UX + colapsado solo iconos) --}}
+{{-- resources/views/components/client/sidebar.blade.php (v4.8 – Compacto sin huecos + acordeón opcional + respeta Admin state/visible/access) --}}
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Str;
@@ -8,109 +8,305 @@
   $ariaLabel = $ariaLabel ?? 'Menú principal';
   $inst      = $inst      ?? Str::lower(Str::ulid());
 
-  // Rutas (solo si existen)
-  $rtHome       = Route::has('cliente.home')                 ? route('cliente.home')                 : url('/cliente');
-  $rtFact       = Route::has('cliente.facturacion.index')    ? route('cliente.facturacion.index')    : null;
-  $rtFactNew    = Route::has('cliente.facturacion.nuevo')    ? route('cliente.facturacion.nuevo')    : null;
-  $rtEstado     = Route::has('cliente.estado_cuenta')        ? route('cliente.estado_cuenta')        : null;
-  $rtBilling    = Route::has('cliente.billing.statement')    ? route('cliente.billing.statement')    : null;
-  $rtPerfil     = Route::has('cliente.perfil')               ? route('cliente.perfil')               : url('cliente/perfil');
-  $rtSat        = Route::has('cliente.sat.index')            ? route('cliente.sat.index')            : null;
-  $rtDescargas  = Route::has('cliente.sat.descargas.index')  ? route('cliente.sat.descargas.index')  : null;
-  $rtLogout     = Route::has('cliente.logout')               ? route('cliente.logout')               : url('cliente/logout');
+  // =========================
+  // Helper robusto: route safe
+  // =========================
+  $try = function(string $name, array $params = []) {
+    try { return route($name, $params); } catch(\Throwable $e) {}
+    return null;
+  };
 
+  /**
+   * =========================
+   * MÓDULOS desde sesión (SOT Admin)
+   * =========================
+   * v4+: p360.modules_state[key]   = active|inactive|hidden|blocked
+   *      p360.modules_access[key]  = bool (true SOLO active)
+   *      p360.modules_visible[key] = bool (false si hidden)
+   *
+   * fallback legacy: p360.modules[key] = bool (true/false)
+   */
+  $modsState   = session('p360.modules_state', []);
+  $modsAccess  = session('p360.modules_access', []);
+  $modsVisible = session('p360.modules_visible', []);
+  $legacyMods  = session('p360.modules', []); // v3.x fallback
+
+  $stateOf = function(string $key) use ($modsState, $legacyMods): string {
+    if (is_array($modsState) && array_key_exists($key, $modsState)) {
+      $v = strtolower(trim((string)$modsState[$key]));
+      return in_array($v, ['active','inactive','hidden','blocked'], true) ? $v : 'active';
+    }
+    if (is_array($legacyMods) && array_key_exists($key, $legacyMods)) {
+      return ((bool)$legacyMods[$key]) ? 'active' : 'inactive';
+    }
+    return 'active';
+  };
+
+  $isVisible = function(string $key) use ($modsVisible, $stateOf): bool {
+    if (is_array($modsVisible) && array_key_exists($key, $modsVisible)) return (bool)$modsVisible[$key];
+    return $stateOf($key) !== 'hidden';
+  };
+
+  $canAccess = function(string $key) use ($modsAccess, $stateOf): bool {
+    if (is_array($modsAccess) && array_key_exists($key, $modsAccess)) return (bool)$modsAccess[$key];
+    return $stateOf($key) === 'active';
+  };
+
+  $lockTitle = function(string $label, string $state): string {
+    return match($state) {
+      'blocked'  => $label.' (Módulo bloqueado por el administrador)',
+      'inactive' => $label.' (Módulo deshabilitado por el administrador)',
+      'hidden'   => $label.' (Módulo oculto)',
+      default    => $label.' (No disponible)',
+    };
+  };
+
+  $routeMissingTitle = fn(string $label) => $label.' (Ruta no configurada / no existe en routes/cliente.php)';
+
+  // =========================
+  // Rutas base
+  // =========================
+  $rtHome        = $try('cliente.home') ?: url('/cliente/home');
+  $rtMiCuenta    = $try('cliente.mi_cuenta.index') ?: url('/cliente/mi-cuenta');
+  $rtPagos       = $try('cliente.mi_cuenta.pagos') ?: null;
+  $rtFacturasMC  = $try('cliente.mi_cuenta.facturas.index') ?: null;
+  $rtEstadoCta   = $try('cliente.estado_cuenta') ?: url('/cliente/estado-de-cuenta');
+  $rtLogout      = $try('cliente.logout') ?: url('/cliente/logout');
+
+  $resolveRoute = function(array $routeTry, ?string $fallback = null) use ($try) {
+    foreach ($routeTry as $rn) {
+      if (!$rn) continue;
+      $u = $try((string)$rn);
+      if ($u) return $u;
+    }
+    return $fallback;
+  };
+
+  // =========================
+  // Rutas módulos
+  // =========================
+  $rtFact        = $resolveRoute(['cliente.facturacion.index','cliente.facturacion','cliente.facturacion.home'], null);
+  $rtFactNew     = $resolveRoute(['cliente.facturacion.nuevo','cliente.facturacion.new','cliente.facturacion.create'], null);
+
+  $rtSat         = $resolveRoute(['cliente.sat.index','cliente.sat','cliente.sat.home'], null);
+  $rtDescargas   = $resolveRoute(['cliente.sat.descargas.index','cliente.sat.descargas','cliente.sat.descargas.home'], null);
+
+  $rtVault       = $resolveRoute(['cliente.vault.index','cliente.vault','cliente.boveda.index','cliente.boveda'], null);
+
+  $rtCrm         = $resolveRoute(['cliente.crm.index','cliente.crm'], null);
+  $rtNomina      = $resolveRoute(['cliente.nomina.index','cliente.nomina'], null);
+  $rtPos         = $resolveRoute(['cliente.pos.index','cliente.pos'], null);
+  $rtInv         = $resolveRoute(['cliente.inventario.index','cliente.inventario'], null);
+  $rtRep         = $resolveRoute(['cliente.reportes.index','cliente.reportes','cliente.dashboard.index','cliente.dashboard'], null);
+  $rtInt         = $resolveRoute(['cliente.integraciones.index','cliente.integraciones','cliente.api.index','cliente.api'], null);
+  $rtAlert       = $resolveRoute(['cliente.alertas.index','cliente.alertas','cliente.notificaciones.index','cliente.notificaciones'], null);
+  $rtChat        = $resolveRoute(['cliente.chat.index','cliente.chat'], null);
+  $rtMarket      = $resolveRoute(['cliente.marketplace.index','cliente.marketplace'], null);
+
+  $rtCfgAdv      = $resolveRoute(['cliente.config.avanzada','cliente.configuracion.avanzada','cliente.config.index','cliente.configuracion.index'], null);
+
+  // =========================
   // Activos
+  // =========================
   $isHome     = request()->routeIs('cliente.home');
-  $isFact     = request()->routeIs('cliente.facturacion.*');
-  $isEstado   = request()->routeIs('cliente.estado_cuenta');
-  $isBilling  = request()->routeIs('cliente.billing.*');
-  $isPerfil   = request()->routeIs('cliente.perfil') || request()->is('cliente/perfil*');
-  $isSat      = request()->routeIs('cliente.sat.*');
-  $isDown     = request()->routeIs('cliente.sat.descargas.*');
+  $isMiCuenta = request()->routeIs('cliente.mi_cuenta.*') || request()->is('cliente/mi-cuenta*');
+  $isEstado   = request()->routeIs('cliente.estado_cuenta') || request()->is('cliente/estado-de-cuenta*');
+
+  $isFact     = request()->routeIs('cliente.facturacion.*') || request()->is('cliente/facturacion*');
+  $isSat      = request()->routeIs('cliente.sat.*') || request()->is('cliente/sat*');
+  $isDown     = request()->routeIs('cliente.sat.descargas.*') || request()->is('cliente/sat/descargas*');
+  $isVault    = request()->routeIs('cliente.vault.*') || request()->is('cliente/vault*') || request()->is('cliente/boveda*');
 
   $dataState = $isOpen ? 'expanded' : 'collapsed';
+
+  // =========================
+  // SVGs
+  // =========================
+  $svgHome = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.1 2 12h3v8h6v-6h2v6h6v-8h3z"/></svg>';
+  $svgUser = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5Zm-8 9a8 8 0 1 1 16 0Z"/></svg>';
+  $svgDoc  = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2h9l3 3v17H6zM8 8h8v2H8zm0 4h8v2H8zm0 4h8v2H8z"/></svg>';
+  $svgBill = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3h14l2 3v15H4zM6 7h8v2H6zm0 4h12v2H6zm0 4h12v2H6z"/></svg>';
+  $svgPlus = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2H11v6H9v-6H5v-2h4V5z"/></svg>';
+  $svgSat  = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m21 7-6 6-4-4L3 17v2h18V7zM7 13a2 2 0 1 0-.001-4.001A2 2 0 0 0 7 13z"/></svg>';
+  $svgDown = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3v10.586l3.293-3.293l1.414 1.414L12 17.414l-4.707-4.707l1.414-1.414L12 13.586V3zM5 19h14v2H5z"/></svg>';
+  $svgBox  = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 8l-9-5-9 5v10l9 5 9-5V8Zm-9-2.8L18 8l-6 3.2L6 8l6-2.8Zm-7 4.5l6 3.2v7L5 17.2V9.7Zm14 0v7.5L13 20v-7l6-3.3Z"/></svg>';
+  $svgChart= '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 19h16v2H4zM6 10h3v7H6zM11 6h3v11h-3zM16 12h3v5h-3z"/></svg>';
+  $svgGear = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.43 7.43 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.26 7.26 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 12.9 1h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.24-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L1.71 7.48a.5.5 0 0 0 .12.64l2.03 1.58a7.43 7.43 0 0 0 0 1.88L1.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.8a.5.5 0 0 0 .49-.42l.36-2.54c.58-.24 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.56ZM11 15a3 3 0 1 1 0-6a3 3 0 0 1 0 6Z"/></svg>';
+  $svgBag  = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 7V6a5 5 0 0 1 10 0v1h3v15H4V7h3Zm2 0h6V6a3 3 0 0 0-6 0v1Z"/></svg>';
+  $svgUsers= '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 11a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm-8 2a4 4 0 1 0-4-4a4 4 0 0 0 4 4Zm8 2c-3 0-6 1.5-6 4v1h12v-1c0-2.5-3-4-6-4ZM8 15c-.7 0-1.4.1-2 .3C4.3 16 3 17.2 3 19v1h6v-1c0-1.6.7-2.9 1.9-3.8A9.2 9.2 0 0 0 8 15Z"/></svg>';
+  $svgStore= '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h16l2 6v2H2v-2l2-6Zm2 10h4v6H6v-6Zm6 0h6v6h-6v-6Z"/></svg>';
+  $svgChat = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM6 9h12v2H6V9Zm0-4h12v2H6V5Zm0 8h8v2H6v-2Z"/></svg>';
+  $svgBell = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5L4 18v1h16v-1l-2-2Z"/></svg>';
+  $svgLink = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l3.18-3.18a2 2 0 1 1 2.82 2.82l-1.06 1.06l1.41 1.41l1.06-1.06a4 4 0 0 0-5.66-5.66l-3.18 3.18a4 4 0 0 0 0 5.66l.7.7l1.41-1.41l-.68-.7ZM13.41 10.59a1.996 1.996 0 0 1 0 2.82l-3.18 3.18a2 2 0 1 1-2.82-2.82l1.06-1.06l-1.41-1.41l-1.06 1.06a4 4 0 0 0 5.66 5.66l3.18-3.18a4 4 0 0 0 0-5.66l-.7-.7l-1.41 1.41l.68.7Z"/></svg>';
+
+  // =========================
+  // Render item (respeta v3.2)
+  // =========================
+  $renderItem = function(string $key, string $label, ?string $url, bool $active, string $icon, bool $always = false) use ($stateOf, $isVisible, $canAccess, $lockTitle, $routeMissingTitle) {
+    if (!$always && !$isVisible($key)) return '';
+
+    $hasUrl = is_string($url) && trim($url) !== '';
+
+    if ($always) {
+      if ($hasUrl) {
+        return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.'<span class="tx">'.e($label).'</span></a>';
+      }
+      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+    }
+
+    $st = $stateOf($key);
+
+    if (!$canAccess($key)) {
+      return '<a class="tip is-disabled" title="'.e($lockTitle($label, $st)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+    }
+
+    if (!$hasUrl) {
+      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+    }
+
+    return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.'<span class="tx">'.e($label).'</span></a>';
+  };
+
+  // =========================
+  // Builder de grupos: SOLO renderiza si hay items (evita huecos)
+  // =========================
+  $renderGroupIfAny = function(string $title, string $htmlItems, string $titleId, bool $accordion = true) {
+    $htmlItems = trim((string)$htmlItems);
+    if ($htmlItems === '') return '';
+
+    // Acordeón (details/summary) para compactar y permitir colapsar
+    if ($accordion) {
+      return '
+        <details class="nav-acc" open>
+          <summary class="nav-title" id="'.e($titleId).'"><span class="pill">'.e($title).'</span></summary>
+          '.$htmlItems.'
+        </details>
+      ';
+    }
+
+    // Fallback sin acordeón (clásico)
+    return '
+      <div class="nav-group" aria-labelledby="'.e($titleId).'">
+        <div class="nav-title" id="'.e($titleId).'"><span class="pill">'.e($title).'</span></div>
+        '.$htmlItems.'
+      </div>
+    ';
+  };
+
+  // =========================
+  // Construimos HTML de grupos dinámicos
+  // (si todo hidden => NO se imprimen => no hay espacio)
+  // =========================
+  $htmlCuenta = '';
+  $htmlCuenta .= $renderItem('mi_cuenta','Mi cuenta',$rtMiCuenta,$isMiCuenta,$svgUser,false);
+  $htmlCuenta .= $renderItem('estado_cuenta','Estado de cuenta',$rtEstadoCta,$isEstado,$svgBill,false);
+  $htmlCuenta .= $renderItem('pagos','Pagos',$rtPagos,(request()->routeIs('cliente.mi_cuenta.pagos') || request()->is('cliente/mi-cuenta/pagos*')),$svgBag,false);
+  $htmlCuenta .= $renderItem('facturas','Facturas',$rtFacturasMC,(request()->routeIs('cliente.mi_cuenta.facturas.*') || request()->is('cliente/mi-cuenta/facturas*')),$svgDoc,false);
+
+  $htmlModulos = '';
+  $htmlModulos .= $renderItem('facturacion','Facturación',$rtFact,$isFact,$svgBill,false);
+  $htmlModulos .= $renderItem('facturacion','Nuevo CFDI',$rtFactNew,(request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),$svgPlus,false);
+
+  $htmlModulos .= $renderItem('sat_descargas','SAT (Descarga)',$rtSat,($isSat && !$isDown),$svgSat,false);
+  $htmlModulos .= $renderItem('sat_descargas','Descargas',$rtDescargas,$isDown,$svgDown,false);
+
+  $htmlModulos .= $renderItem('boveda_fiscal','Bóveda Fiscal',$rtVault,$isVault,$svgBox,false);
+
+  $htmlModulos .= $renderItem('crm','CRM',$rtCrm,(request()->routeIs('cliente.crm.*') || request()->is('cliente/crm*')),$svgUsers,false);
+  $htmlModulos .= $renderItem('nomina','Nómina',$rtNomina,(request()->routeIs('cliente.nomina.*') || request()->is('cliente/nomina*')),$svgUsers,false);
+  $htmlModulos .= $renderItem('pos','Punto de venta',$rtPos,(request()->routeIs('cliente.pos.*') || request()->is('cliente/pos*')),$svgStore,false);
+  $htmlModulos .= $renderItem('inventario','Inventario',$rtInv,(request()->routeIs('cliente.inventario.*') || request()->is('cliente/inventario*')),$svgBox,false);
+  $htmlModulos .= $renderItem('reportes','Reportes',$rtRep,(request()->routeIs('cliente.reportes.*') || request()->is('cliente/reportes*') || request()->is('cliente/dashboard*')),$svgChart,false);
+  $htmlModulos .= $renderItem('integraciones','Integraciones',$rtInt,(request()->routeIs('cliente.integraciones.*') || request()->is('cliente/integraciones*') || request()->is('cliente/api*')),$svgLink,false);
+  $htmlModulos .= $renderItem('alertas','Alertas',$rtAlert,(request()->routeIs('cliente.alertas.*') || request()->is('cliente/alertas*') || request()->is('cliente/notificaciones*')),$svgBell,false);
+  $htmlModulos .= $renderItem('chat','Chat',$rtChat,(request()->routeIs('cliente.chat.*') || request()->is('cliente/chat*')),$svgChat,false);
+  $htmlModulos .= $renderItem('marketplace','Marketplace',$rtMarket,(request()->routeIs('cliente.marketplace.*') || request()->is('cliente/marketplace*')),$svgBag,false);
+
+  // OJO: esto es “avanzada”; la dejamos dinámica para que admin pueda ocultarla
+  $htmlConfigAdv = $renderItem('configuracion_avanzada','Configuración avanzada',$rtCfgAdv,(request()->is('cliente/config*') || request()->is('cliente/configuracion*')),$svgGear,false);
 @endphp
 
-<aside class="sidebar skin-brand-rail" id="{{ $id }}" aria-label="{{ $ariaLabel }}" data-state="{{ $dataState }}">
+@once
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/sidebar.css') }}">
+  <style>
+    .sidebar .tip.is-disabled{
+      opacity:.55;
+      cursor:not-allowed;
+      pointer-events:none;
+      position:relative;
+    }
+    .sidebar .tip.is-disabled .tx{ filter:saturate(.7); }
+    .sidebar .tip.is-disabled .lock{
+      margin-left:auto;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:22px;height:22px;
+      border-radius:8px;
+      background:rgba(15,23,42,.08);
+      border:1px solid rgba(15,23,42,.12);
+      color:rgba(15,23,42,.7);
+      font-weight:950;
+      font-size:12px;
+    }
+    html[data-theme="dark"] .sidebar .tip.is-disabled .lock{
+      background:rgba(255,255,255,.08);
+      border-color:rgba(255,255,255,.12);
+      color:rgba(255,255,255,.75);
+    }
+
+    /* Acordeón: usa summary como título y no deja “huecos” si no hay items */
+    .sidebar details.nav-acc{ margin:0; padding:0; }
+    .sidebar details.nav-acc > summary{
+      list-style:none;
+      cursor:pointer;
+      user-select:none;
+    }
+    .sidebar details.nav-acc > summary::-webkit-details-marker{ display:none; }
+    .sidebar details.nav-acc[open] > summary{ opacity:1; }
+  </style>
+@endonce
+
+<aside
+  class="sidebar skin-brand-rail"
+  id="{{ $id }}"
+  aria-label="{{ $ariaLabel }}"
+  data-state="{{ $dataState }}"
+  data-component="p360-sidebar"
+>
   <div class="sidebar-head">
     <strong class="sb-title">MENÚ</strong>
     <button
-      id="sbToggle"
       class="sb-toggle"
       type="button"
       aria-label="Expandir/Colapsar"
       aria-expanded="{{ $isOpen ? 'true':'false' }}"
-      title="Expandir/Colapsar (Ctrl+B)"></button>
+      title="Expandir/Colapsar (Ctrl+B)"
+      data-sb-toggle="1"></button>
   </div>
 
   <div class="sidebar-scroll" role="navigation" aria-label="Secciones">
     <nav class="nav">
 
-      {{-- ===== Inicio ===== --}}
+      {{-- ===== Inicio (siempre) ===== --}}
       <div class="nav-group" aria-labelledby="nav-title-ini">
         <div class="nav-title" id="nav-title-ini"><span class="pill">Inicio</span></div>
-
-        <a href="{{ $rtHome }}" class="tip {{ $isHome ? 'active' : '' }}" @if($isHome) aria-current="page" @endif title="Inicio">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.1 2 12h3v8h6v-6h2v6h6v-8h3z"/></svg>
-          <span class="tx">Inicio</span>
-        </a>
+        {!! $renderItem('__always__','Inicio',$rtHome,$isHome,$svgHome,true) !!}
       </div>
 
-      {{-- ===== Módulos ===== --}}
-      <div class="nav-group" aria-labelledby="nav-title-mod">
-        <div class="nav-title" id="nav-title-mod"><span class="pill">Módulos</span></div>
+      {{-- ===== Dinámicos debajo de Inicio (solo si hay visibles) ===== --}}
+      {!! $renderGroupIfAny('Cuenta',  $htmlCuenta,  'nav-title-cta', true) !!}
+      {!! $renderGroupIfAny('Módulos', $htmlModulos, 'nav-title-mod', true) !!}
 
-        @if ($rtFact)
-          <a href="{{ $rtFact }}" class="tip {{ $isFact ? 'active' : '' }}" @if($isFact) aria-current="page" @endif title="Facturación">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3h14l2 3v15H4zM6 7h8v2H6zm0 4h12v2H6zm0 4h12v2H6z"/></svg>
-            <span class="tx">Facturación</span>
-          </a>
-        @endif
-
-        @if ($rtEstado)
-          <a href="{{ $rtEstado }}" class="tip {{ $isEstado ? 'active' : '' }}" @if($isEstado) aria-current="page" @endif title="Estado de cuenta">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3zm2 5h14v9H5z"/></svg>
-            <span class="tx">Estado de cuenta</span>
-          </a>
-        @endif
-
-        @if ($rtBilling)
-          <a href="{{ $rtBilling }}" class="tip {{ $isBilling ? 'active' : '' }}" @if($isBilling) aria-current="page" @endif title="Pagos">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 7h20v10H2zm2 2v6h16V9zM5 12h4v2H5z"/></svg>
-            <span class="tx">Pagos</span>
-          </a>
-        @endif
-
-        @if ($rtSat)
-          <a href="{{ $rtSat }}" class="tip {{ $isSat && !$isDown ? 'active' : '' }}" @if($isSat && !$isDown) aria-current="page" @endif title="SAT · Descarga">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m21 7-6 6-4-4L3 17v2h18V7zM7 13a2 2 0 1 0-.001-4.001A2 2 0 0 0 7 13z"/></svg>
-            <span class="tx">SAT (Descarga)</span>
-          </a>
-        @endif
-
-        @if ($rtDescargas)
-          <a href="{{ $rtDescargas }}" class="tip {{ $isDown ? 'active' : '' }}" @if($isDown) aria-current="page" @endif title="Descargas">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3v10.586l3.293-3.293l1.414 1.414L12 17.414l-4.707-4.707l1.414-1.414L12 13.586V3zM5 19h14v2H5z"/></svg>
-            <span class="tx">Descargas</span>
-          </a>
-        @endif
-
-        @if ($rtFactNew)
-          <a href="{{ $rtFactNew }}" class="tip" title="Nuevo CFDI">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2H11v6H9v-6H5v-2h4V5z"/></svg>
-            <span class="tx">Nuevo CFDI</span>
-          </a>
-        @endif
-      </div>
-
-      {{-- ===== Configuración ===== --}}
+      {{-- ===== Configuración (siempre al final, sin huecos) ===== --}}
       <div class="nav-group" aria-labelledby="nav-title-cfg">
         <div class="nav-title" id="nav-title-cfg"><span class="pill">Configuración</span></div>
 
-        <a href="{{ $rtPerfil }}" class="tip {{ $isPerfil ? 'active' : '' }}" @if($isPerfil) aria-current="page" @endif title="Perfil">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5Zm-8 9a8 8 0 1 1 16 0Z"/></svg>
-          <span class="tx">Perfil</span>
-        </a>
+        {{-- Configuración (engrane) -> Mi cuenta --}}
+        {!! $renderItem('__always__','Configuración',$rtMiCuenta,$isMiCuenta,$svgGear,true) !!}
+
+        {{-- Configuración avanzada (solo si admin la deja visible/activa) --}}
+        {!! $htmlConfigAdv !!}
 
         <form method="POST" action="{{ $rtLogout }}" id="logoutForm-{{ $id }}-{{ $inst }}">
           @csrf
@@ -125,300 +321,6 @@
   </div>
 </aside>
 
-<style>
-  /* ================= BRAND P360 ================= */
-  .sidebar{
-    --brand: var(--p360-brand, #E11D48);
-    --brand-600: var(--p360-brand-600, #BE123C);
-    --brand-700: #9F1239;
-    --brand-soft: color-mix(in oklab, var(--brand) 12%, transparent);
-    --ink: var(--c-fg, #0f172a);
-    --ink-weak: color-mix(in oklab, var(--ink) 45%, transparent);
-    --card: var(--card, #fff);
-    --bd: var(--bd, #e5e7eb);
-    --shadow-lg: 0 10px 30px rgba(0,0,0,.15);
-  }
-  html.theme-dark .sidebar, html[data-theme="dark"] .sidebar{
-    --ink:#e5e7eb; --ink-weak: color-mix(in oklab, #fff 55%, transparent);
-    --card: color-mix(in oklab, #0b1220 86%, transparent);
-    --bd: rgba(255,255,255,.12);
-    --brand-soft: color-mix(in oklab, var(--brand) 22%, transparent);
-  }
-
-  /* ==== Layout base ==== */
-  .sidebar{
-    --w:260px; --w-mini:68px;
-    background:
-      radial-gradient(140px 60px at -20% 0%, color-mix(in oklab, var(--brand) 10%, transparent), transparent),
-      linear-gradient(180deg, transparent, transparent);
-    border-right:1px solid var(--bd);
-    width:var(--w);min-width:var(--w);
-    /* AJUSTE CLAVE: restamos el grosor del rail (2px por defecto) */
-    top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
-    height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
-    position:sticky;
-    transition:width .18s ease;
-    display:flex; flex-direction:column;
-  }
-  .sidebar[data-state="collapsed"]{width:var(--w-mini);min-width:var(--w-mini)}
-
-  .sidebar-head{
-    display:flex; align-items:center; justify-content:space-between;
-    height:50px; padding:10px 12px; border-bottom:1px solid var(--bd);
-    background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 6%, transparent), transparent);
-    position:relative;
-  }
-  .sidebar-head::after{
-    content:''; position:absolute; left:10px; right:10px; bottom:-1px; height:1px;
-    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 40%, transparent), transparent);
-  }
-  .sb-title{font:900 12px/1 Poppins, system-ui; letter-spacing:.08em; color:var(--ink-weak)}
-  .sb-toggle{
-    width:36px; height:32px; border:1px solid var(--bd); border-radius:10px; background:var(--card); cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    box-shadow:0 2px 10px color-mix(in oklab, var(--brand) 12%, transparent);
-  }
-  /* Siempre ícono hamburguesa (≡), sin flecha en modo colapsado */
-  .sb-toggle::before{ content:'≡'; font-size:18px; line-height:1; font-weight:900; transform:translateY(-1px); color:var(--ink) }
-
-  .sidebar-scroll{height:calc(100% - 50px);overflow:auto;padding:14px}
-  .nav{display:flex;flex-direction:column;gap:18px}
-  .nav-group{display:grid;gap:8px}
-  .nav-title{font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-weak); padding:0 6px}
-  .nav-title .pill{
-    display:inline-block; padding:6px 10px; border-radius:999px;
-    background: linear-gradient(90deg, color-mix(in oklab, var(--brand) 16%, transparent), transparent);
-    border:1px solid color-mix(in oklab, var(--brand) 18%, var(--bd));
-  }
-
-  /* ==== Ítems ==== */
-  .sidebar .tip{
-    display:flex !important; align-items:center !important; gap:12px !important;
-    padding:12px 12px !important; border-radius:14px !important;
-    color:var(--ink) !important; text-decoration:none !important; border:1px solid transparent !important;
-    background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 0%, transparent), transparent) !important;
-    outline:0 !important; min-width:0; posición:relative; isolation:isolate;
-    transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
-  }
-  .sidebar .tip::before{
-    content:''; position:absolute; left:6px; top:9px; bottom:9px; width:3px; border-radius:6px;
-    background: linear-gradient(180deg, var(--brand), var(--brand-600));
-    box-shadow:0 0 0 transparent; opacity:0; transform:translateX(-4px);
-    transition:opacity .18s ease, transform .18s ease, box-shadow .18s ease;
-  }
-  .sidebar .tip:hover{
-    background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 8%, transparent), transparent) !important;
-    border-color: color-mix(in oklab, var(--brand) 22%, var(--bd)) !important;
-    box-shadow: 0 6px 18px color-mix(in oklab, var(--brand) 12%, transparent);
-    transform: translateY(-1px);
-  }
-  .sidebar .tip:hover::before{ opacity:1; transform:none; box-shadow:0 0 16px color-mix(in oklab, var(--brand) 40%, transparent) }
-
-  .sidebar .tip.active{
-    background:
-      radial-gradient(200px 60px at 0% 0%, color-mix(in oklab, var(--brand) 18%, transparent), transparent),
-      linear-gradient(180deg, color-mix(in oklab, var(--brand) 16%, transparent), transparent) !important;
-    border-color: color-mix(in oklab, var(--brand) 35%, var(--bd)) !important;
-    box-shadow: 0 10px 26px color-mix(in oklab, var(--brand) 18%, transparent);
-    font-weight:800;
-  }
-  .sidebar .tip.active .ico{ color:var(--brand) }
-  .sidebar .tip.active::before{ opacity:1; transform:none; box-shadow:0 0 18px color-mix(in oklab, var(--brand) 42%, transparent) }
-
-  .sidebar .tip.danger{ color:#b91c1c }
-  .sidebar .tip.danger:hover{ border-color: color-mix(in oklab, #b91c1c 30%, var(--bd)) }
-
-  .sidebar .ico{ width:20px; height:20px; color:currentColor; flex:0 0 20px !important; display:inline-block;
-    filter: drop-shadow(0 0 0 transparent); transition: color .18s ease, filter .18s ease, transform .18s ease; }
-  .sidebar .tip:hover .ico{ transform: translateY(-1px); filter: drop-shadow(0 4px 10px color-mix(in oklab, var(--brand) 20%, transparent)); }
-
-  .sidebar .tx{
-    display:inline-block !important; flex:1 1 auto !important; min-width:0 !important;
-    white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
-    font:600 14px/1.15 Poppins, system-ui;
-  }
-
-  /* Oculta labels y títulos SOLO cuando está colapsado en desktop */
-  .sidebar:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important }
-  .sidebar:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center !important }
-  .sidebar:not(.is-mobile)[data-state="collapsed"] .tip.active{ box-shadow:none }
-  .sidebar:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none !important; }
-  .sidebar:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
-
-  /* ===== Responsive (móvil) ===== */
-  @media (max-width:1120px){
-    .sidebar{
-      position:fixed;left:0;
-      /* AJUSTE CLAVE EN MÓVIL: mismo cálculo */
-      top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
-      height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
-      z-index:40;width:var(--w);min-width:var(--w);
-      transform:translateX(-100%);transition:transform .22s ease;
-      box-shadow:var(--shadow-lg);
-    }
-    .sidebar.open{transform:translateX(0)}
-    .sidebar[data-state="collapsed"] .tx{display:inline-block !important}
-    .sidebar[data-state="collapsed"] .tip{justify-content:flex-start !important}
-    .sidebar[data-state="collapsed"]{width:var(--w);min-width:var(--w)}
-  }
-
-  /* ===== Overrides: Sidebar Cliente (flat + active rojo) ===== */
-.sidebar{
-  background:#fff; /* sin gradientes */
-}
-.sidebar-head{
-  background:#fff;
-  border-bottom:1px solid var(--bd);
-}
-.sidebar-head::after{ content:none; }
-
-/* Tokens rojo (usa el rojo de marca si viene de core-ui) */
-.sidebar{
-  --hi: var(--brand-red, #E11D48);
-  --hi-10:  color-mix(in oklab, var(--hi) 10%, #fff);
-  --hi-16:  color-mix(in oklab, var(--hi) 16%, #fff);
-  --hi-22:  color-mix(in oklab, var(--hi) 22%, #fff);
-  --hi-30:  color-mix(in oklab, var(--hi) 30%, transparent);
-  --hi-40:  color-mix(in oklab, var(--hi) 40%, transparent);
-}
-
-/* Títulos y pills planas */
-.nav-title .pill{
-  background:#fff;
-  border:1px solid var(--bd);
-}
-
-/* Item base totalmente plano */
-.sidebar .tip{
-  background:#fff !important;
-  border:1px solid transparent !important;
-  box-shadow:none !important;
-  transform:none !important;
-}
-.sidebar .tip::before{ /* barra izquierda solo para activo */
-  content:none;
-}
-
-/* Hover sutil */
-.sidebar .tip:hover{
-  background: color-mix(in oklab, var(--hi) 6%, #fff) !important;
-  border-color: var(--bd) !important;
-}
-
-/* ACTIVO: sin rellenos llamativos, solo contorno + barrita */
-.sidebar .tip.active{
-  background:#fff !important;
-  border-color: var(--hi-30) !important;            /* borde rojo tenue */
-  box-shadow: inset 0 0 0 2px var(--hi-16) !important; /* doble realce suave */
-  font-weight:800;
-  position:relative;
-}
-.sidebar .tip.active .ico{ color: var(--hi); }
-.sidebar .tip.active::after{
-  content:''; position:absolute; left:6px; top:8px; bottom:8px; width:3px; border-radius:3px;
-  background: var(--hi);
-}
-
-/* ===== Separador lateral: hairline rojo (Opción F) ===== */
-.sidebar.skin-brand-rail{ position:relative; }
-.sidebar.skin-brand-rail::after{
-  content:""; position:absolute; top:0; right:0; bottom:0; width:2px;
-  background: url("/assets/client/img/ui/sidebar-brand-rail.svg") repeat-y right top;
-  pointer-events:none;
-}
-
-/* Dark mode: baja un poco la fuerza para no “brillar” de más */
-html.theme-dark .sidebar.skin-brand-rail::after,
-html[data-theme="dark"] .sidebar.skin-brand-rail::after{
-  filter: opacity(.8);
-}
-
-
-/* Dark mode: mantén lectura sin brillos */
-html.theme-dark .sidebar,
-html[data-theme="dark"] .sidebar{
-  background: #0b1220;
-}
-html.theme-dark .sidebar .tip,
-html[data-theme="dark"] .sidebar .tip{
-  background: transparent !important;
-}
-html.theme-dark .sidebar .tip:hover,
-html[data-theme="dark"] .sidebar .tip:hover{
-  background: color-mix(in oklab, #fff 6%, transparent) !important;
-}
-html.theme-dark .sidebar .tip.active,
-html[data-theme="dark"] .sidebar .tip.active{
-  border-color: color-mix(in oklab, var(--hi) 40%, transparent) !important;
-  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--hi) 24%, transparent) !important;
-}
-
-</style>
-
-<script>
-(function(){
-  const sb   = document.getElementById(@json($id));
-  if(!sb) return;
-  const KEY = 'p360.client.sidebar.state';
-  const mql = window.matchMedia('(max-width: 1120px)');
-
-  function setState(state, persist = true){
-    sb.setAttribute('data-state', state);
-    const btn = sb.querySelector('#sbToggle');
-    if(btn) btn.setAttribute('aria-expanded', state === 'expanded' ? 'true' : 'false');
-    if(persist && !mql.matches){
-      try{ localStorage.setItem(KEY, state); }catch(e){}
-    }
-  }
-  function applyMobileClass(){
-    if(mql.matches){
-      sb.classList.add('is-mobile');
-      // En móvil mostramos expandido para evitar labels ocultos por persistencia
-      setState('expanded', false);
-    }else{
-      sb.classList.remove('is-mobile');
-      try {
-        const saved = localStorage.getItem(KEY);
-        if(saved === 'collapsed' || saved === 'expanded'){
-          sb.setAttribute('data-state', saved);
-          const btn = sb.querySelector('#sbToggle');
-          if(btn) btn.setAttribute('aria-expanded', saved === 'expanded' ? 'true' : 'false');
-        }
-      } catch(e){}
-    }
-  }
-
-  // Init
-  applyMobileClass();
-
-  // Toggle click
-  const btn  = sb.querySelector('#sbToggle');
-  btn?.addEventListener('click', ()=>{
-    const cur = sb.getAttribute('data-state') || 'expanded';
-    setState(cur === 'collapsed' ? 'expanded' : 'collapsed');
-  });
-
-  // Hotkey: Ctrl+B
-  window.addEventListener('keydown', (e)=>{
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'b')) {
-      e.preventDefault();
-      const cur = sb.getAttribute('data-state') || 'expanded';
-      setState(cur === 'collapsed' ? 'expanded' : 'collapsed');
-    }
-  }, {passive:false});
-
-  // Viewport changes
-  mql.addEventListener?.('change', applyMobileClass);
-
-  // Gesto desde borde (opcional)
-  let touchX = null;
-  window.addEventListener('touchstart', (e)=>{ touchX = e.touches?.[0]?.clientX ?? null; }, {passive:true});
-  window.addEventListener('touchend', (e)=>{
-    if(touchX !== null && touchX < 20){
-      sb.classList.add('open');
-      setTimeout(()=> sb.classList.remove('open'), 320);
-    }
-    touchX = null;
-  }, {passive:true});
-})();
-</script>
+@once
+  <script src="{{ asset('assets/client/js/sidebar.js') }}" defer></script>
+@endonce

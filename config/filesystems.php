@@ -2,35 +2,14 @@
 
 return [
 
-    /*
-    |--------------------------------------------------------------------------
-    | Default Filesystem Disk
-    |--------------------------------------------------------------------------
-    |
-    | Here you may specify the default filesystem disk that should be used
-    | by the framework. The "local" disk, as well as a variety of cloud
-    | based disks are available to your application for file storage.
-    |
-    */
-
     'default' => env('FILESYSTEM_DISK', 'local'),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Filesystem Disks
-    |--------------------------------------------------------------------------
-    |
-    | Below you may configure as many filesystem disks as necessary, and you
-    | may even configure multiple disks for the same driver. Examples for
-    | most supported storage drivers are configured here for reference.
-    |
-    | Supported drivers: "local", "ftp", "sftp", "s3"
-    |
-    */
+    'cloud' => env('FILESYSTEM_CLOUD', 's3'),
+
+    'sat_downloads_disk' => 'sat_zip',
 
     'disks' => [
 
-        // Disco local "privado" (config base Pactopia360)
         'local' => [
             'driver' => 'local',
             'root'   => storage_path('app/private'),
@@ -39,7 +18,14 @@ return [
             'report' => false,
         ],
 
-        // Disco público estándar de Laravel (para /storage symlink)
+        'private' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/private'),
+            'visibility' => 'private',
+            'throw'      => false,
+            'report'     => false,
+        ],
+
         'public' => [
             'driver'     => 'local',
             'root'       => storage_path('app/public'),
@@ -49,7 +35,6 @@ return [
             'report'     => false,
         ],
 
-        // S3 / compatibles
         's3' => [
             'driver'                  => 's3',
             'key'                     => env('AWS_ACCESS_KEY_ID'),
@@ -63,38 +48,60 @@ return [
             'report'                  => false,
         ],
 
-        /*
-        |--------------------------------------------------------------------------
-        | SAT ZIP – Descargas CFDI
-        |--------------------------------------------------------------------------
-        |
-        | Disco dedicado a los ZIP de descargas SAT. Apunta al mismo root que
-        | "local" para que:
-        |   - SatDescargaController::downloadPackage() (disk('sat_zip'))
-        |   - SatDescargaController::downloadZip() (disk(default='local'))
-        | compartan la misma ruta física (storage/app/private/jobs/...).
-        |
-        */
+        'sat_downloads' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/sat_downloads'),
+            'visibility' => 'private',
+            'throw'      => false,
+            'report'     => false,
+        ],
 
+        // ZIPs de descargas SAT
         'sat_zip' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/sat'),
+            'visibility' => 'private',
+            'throw'      => false,
+            'report'     => false,
+        ],
+
+        // Legacy disk
+        'sat' => [
             'driver' => 'local',
             'root'   => storage_path('app/private'),
             'throw'  => false,
             'report' => false,
         ],
 
-    ],
+        /*
+        |----------------------------------------------------------
+        | SAT VAULT – Bóveda Fiscal (ZIP/XML/PDF ya ingestados)
+        |----------------------------------------------------------
+        | Este disco es para almacenamiento privado de bóveda.
+        | Root sugerido:
+        |   storage/app/sat_vault
+        */
+        'sat_vault' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/sat_vault'),
+            'visibility' => 'private',
+            'throw'      => false,
+            'report'     => false,
+        ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Symbolic Links
-    |--------------------------------------------------------------------------
-    |
-    | Here you may configure the symbolic links that will be created when the
-    | `storage:link` Artisan command is executed. The array keys should be
-    | the locations of the links and the values should be their targets.
-    |
-    */
+        /*
+        |----------------------------------------------------------
+        | Alias "vault" (por si algunos módulos usan Storage::disk('vault'))
+        |----------------------------------------------------------
+        */
+        'vault' => [
+            'driver'     => 'local',
+            'root'       => storage_path('app/sat_vault'),
+            'visibility' => 'private',
+            'throw'      => false,
+            'report'     => false,
+        ],
+    ],
 
     'links' => [
         public_path('storage') => storage_path('app/public'),

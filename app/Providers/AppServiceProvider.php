@@ -9,30 +9,39 @@ use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\AdminSessionConfig;
 use App\Http\Middleware\ClientSessionConfig;
 
+use App\Services\Sat\Providers\SatWsProvider;
+use App\Services\Sat\Providers\Provider2Stub;
+use App\Services\Sat\Providers\SatProviderRegistry;
+use App\Services\Sat\Providers\SatDownloadProviderInterface;
+use App\Services\Sat\SatDownloadBalancer;
+
+
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        // Aquí puedes vincular interfaces a implementaciones si lo necesitas.
+        $this->app->tag([SatWsProvider::class, Provider2Stub::class], 'sat.download.providers');
+
+        $this->app->singleton(SatProviderRegistry::class, function ($app) {
+            return new SatProviderRegistry($app->tagged('sat.download.providers'));
+        });
+
+        $this->app->singleton(SatDownloadBalancer::class, fn($app) => new SatDownloadBalancer($app->make(SatProviderRegistry::class)));
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
-        // Aliases de middleware (compatibilidad con rutas que aún usen strings)
-        // Nota: aliasMiddleware es idempotente; si existe, se re-mapea sin romper.
         Route::aliasMiddleware('account.active', EnsureAccountIsActive::class);
-
-        // Puentes de compatibilidad para eliminar "Target class [session.cliente] does not exist"
         Route::aliasMiddleware('session.cliente', ClientSessionConfig::class);
         Route::aliasMiddleware('session.admin',   AdminSessionConfig::class);
 
-        // Default para índices largos en MySQL/MariaDB
         Schema::defaultStringLength(191);
+
+        // ✅ Cargar migraciones separadas (admin / clientes)
+        // (Esto NO migra solo; solo registra rutas)
+        $this->loadMigrationsFrom([
+            database_path('migrations_admin'),
+            database_path('migrations_clientes'),
+        ]);
     }
 }

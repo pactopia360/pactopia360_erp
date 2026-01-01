@@ -1,0 +1,371 @@
+/* public/assets/client/css/p360-vault-theme.css */
+/* Design System base (tomado del estilo de sat-vault.css) */
+/* Objetivo: coherencia visual para TODOS los módulos (light/dark) */
+
+:root{
+  /* ====== Core tokens (LIGHT) ====== */
+  --bg: #f6f7fb;
+  --card: #ffffff;
+  --ink: #0f172a;
+  --mut: rgba(15,23,42,.55);
+
+  --line: rgba(15,23,42,.10);
+  --card-border: rgba(229,231,235,1);
+
+  --shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  --card-radius: 0.9rem;
+
+  /* Brand / accent */
+  --accent: #22c55e;
+  --accent-text: #15803d;
+
+  /* Pills */
+  --pill-bg: #f9fafb;
+
+  /* Focus */
+  --focus: #2563eb;
+
+  /* Page background used by layout */
+  --page-bg: #ffffff; /* si quieres fondo “paper” ponlo = var(--bg) */
+}
+
+/* ====== DARK tokens ====== */
+html[data-theme="dark"]{
+  --bg: #0b1220;
+  --page-bg: #0b1220;
+
+  --card: rgba(15, 23, 42, 0.85);
+  --ink: #e5e7eb;
+  --mut: rgba(229,231,235,.62);
+
+  --line: rgba(148,163,184,.22);
+  --card-border: rgba(148,163,184,.22);
+
+  --shadow: 0 16px 40px rgba(0,0,0,.35);
+  --pill-bg: rgba(148,163,184,.10);
+
+  --accent: #22c55e;
+  --accent-text: #86efac;
+
+  --focus: #60a5fa;
+}
+
+/* ====== Base page ====== */
+html, body{
+  background: var(--page-bg);
+  color: var(--ink);
+}
+
+/* Links */
+a{ color: inherit; text-decoration: none; }
+a:hover{ text-decoration: none; }
+
+/* ====== Layout helper (full width container style like Vault) ====== */
+.p360-ui{
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding-inline: 1.5rem;
+  box-sizing: border-box;
+}
+@media (max-width: 768px){
+  .p360-ui{ padding-inline: .8rem; }
+}
+
+/* ====== Card (igual a .page-sat-vault .sat-card) ====== */
+.p360-card{
+  background: var(--card);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.25rem;
+  box-sizing: border-box;
+}
+
+/* Card header pattern */
+.p360-card-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 1rem;
+}
+.p360-title{
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+.p360-subtitle{
+  margin: .15rem 0 0;
+  font-size: .85rem;
+  color: var(--mut);
+}
+
+/* Icon badge (Vault style) */
+.p360-badge-ico{
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 0% 0%, var(--accent), #16a34a 40%, rgba(15, 23, 42, 0.8));
+  color: #ecfdf5;
+}
+html[data-theme="dark"] .p360-badge-ico{
+  background: radial-gradient(circle at 0% 0%, var(--accent), #16a34a 45%, rgba(0,0,0,.35));
+}
+
+/* ====== Pills ====== */
+.p360-pill{
+  display:inline-flex;
+  align-items:center;
+  gap: .4rem;
+  padding: .3rem .7rem;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.07);
+  color: var(--accent-text);
+  font-size: .8rem;
+  border: 1px solid rgba(34,197,94,.18);
+}
+.p360-pill--off{
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--mut);
+  border-color: rgba(148,163,184,.18);
+}
+.p360-dot{
+  width:.42rem; height:.42rem; border-radius:999px;
+  background: currentColor;
+  opacity:.75;
+}
+
+/* ====== Inputs / selects ====== */
+.p360-input,
+.p360-select{
+  width: 100%;
+  background: var(--pill-bg);
+  border-radius: .55rem;
+  border: 1px solid var(--line);
+  padding: .45rem .65rem;
+  font-size: .82rem;
+  color: var(--ink);
+  outline: none;
+  min-height: 2.2rem;
+  box-sizing: border-box;
+}
+.p360-input::placeholder{ color: var(--mut); }
+.p360-input:focus,
+.p360-select:focus{
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* ====== Buttons (Vault-like) ====== */
+.p360-btn{
+  border-radius: .55rem;
+  border: 1px solid var(--line);
+  padding: .45rem .9rem;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  background: var(--pill-bg);
+  color: var(--ink);
+  transition: background .08s ease, border-color .08s ease, box-shadow .08s ease, transform .08s ease;
+  user-select: none;
+}
+.p360-btn:hover{
+  background: color-mix(in oklab, var(--pill-bg) 70%, var(--ink) 3%);
+}
+.p360-btn:active{ transform: translateY(1px); }
+.p360-btn:focus-visible{
+  outline: 2px solid color-mix(in oklab, var(--focus) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.p360-btn-primary{
+  background: var(--accent);
+  color: #022c22;
+  border-color: var(--accent);
+  box-shadow: 0 8px 18px rgba(34, 197, 94, 0.28);
+}
+.p360-btn-primary:hover{
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(34, 197, 94, 0.36);
+}
+
+.p360-btn-ghost{
+  background: transparent;
+}
+
+/* ====== “+” toggle button (para acordeón) ====== */
+.p360-plus{
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(225, 29, 72, .25);
+  background: rgba(225, 29, 72, .06);
+  color: #be123c;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .08s ease, background .08s ease, border-color .08s ease, box-shadow .08s ease;
+}
+html[data-theme="dark"] .p360-plus{
+  color: #fb7185;
+  border-color: rgba(251,113,133,.25);
+  background: rgba(251,113,133,.10);
+}
+.p360-plus:hover{ transform: translateY(-1px); box-shadow: 0 10px 22px rgba(225,29,72,.12); }
+.p360-plus:active{ transform: translateY(0); }
+
+/* ====== Accordion (details/summary) ====== */
+.p360-acc{
+  border: 1px solid rgba(15,23,42,.08);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--card) 92%, var(--bg) 8%);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+html[data-theme="dark"] .p360-acc{
+  border-color: rgba(148,163,184,.18);
+  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+}
+
+.p360-acc summary{
+  list-style: none;
+  cursor: pointer;
+  padding: 18px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 16px;
+}
+.p360-acc summary::-webkit-details-marker{ display:none; }
+
+.p360-acc-main{
+  display:flex;
+  align-items:center;
+  gap: 14px;
+  min-width: 0;
+}
+.p360-acc-ico{
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(34,197,94,.10));
+  border: 1px solid rgba(148,163,184,.22);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink: 0;
+}
+html[data-theme="dark"] .p360-acc-ico{
+  background: linear-gradient(135deg, rgba(96,165,250,.18), rgba(34,197,94,.12));
+  border-color: rgba(148,163,184,.22);
+}
+
+.p360-acc-kicker{
+  font-size: .74rem;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--mut);
+  font-weight: 800;
+}
+.p360-acc-title{
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ink);
+  margin-top: 2px;
+}
+.p360-acc-desc{
+  font-size: .82rem;
+  color: var(--mut);
+  margin-top: 3px;
+}
+
+.p360-acc[open] summary{
+  background: color-mix(in oklab, var(--card) 88%, var(--bg) 12%);
+  border-bottom: 1px solid rgba(15,23,42,.06);
+}
+html[data-theme="dark"] .p360-acc[open] summary{
+  border-bottom-color: rgba(148,163,184,.16);
+}
+
+/* Body */
+.p360-acc-body{
+  padding: 14px 18px 16px;
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Submodule links */
+.p360-subgrid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 1024px){
+  .p360-subgrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px){
+  .p360-subgrid{ grid-template-columns: 1fr; }
+}
+
+.p360-subitem{
+  border: 1px solid rgba(15,23,42,.08);
+  background: color-mix(in oklab, var(--card) 94%, var(--bg) 6%);
+  border-radius: 14px;
+  padding: 12px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+html[data-theme="dark"] .p360-subitem{
+  border-color: rgba(148,163,184,.18);
+}
+
+.p360-subleft{
+  min-width:0;
+  display:flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.p360-subtitle{
+  font-weight: 800;
+  font-size: .9rem;
+  color: var(--ink);
+}
+.p360-subhint{
+  font-size: .78rem;
+  color: var(--mut);
+}
+
+.p360-subgo{
+  border-radius: 999px;
+  border: 1px solid rgba(34,197,94,.25);
+  background: rgba(34,197,94,.10);
+  color: var(--accent-text);
+  font-size: .78rem;
+  padding: .35rem .6rem;
+  font-weight: 800;
+}
+.p360-subgo--off{
+  border-color: rgba(148,163,184,.22);
+  background: rgba(148,163,184,.12);
+  color: var(--mut);
+}
+
+/* Helper: visually disabled link */
+.p360-disabled{
+  opacity: .65;
+  pointer-events: none;
+}

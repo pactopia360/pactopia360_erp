@@ -1,12 +1,39 @@
 
-  GET|HEAD  / ............................................................................................ home.public
+  ANY       / .................................................. home.public › Illuminate\Routing › RedirectController
   GET|HEAD  _deploy/finish/{signature} ....................................... deploy.finish › DeployController@finish
   GET|HEAD  admin ......................................................................................... admin.root
   GET|HEAD  admin/_whoami ............................................................................... admin.whoami
-  GET|HEAD  admin/auditoria/accesos .................................................... admin.auditoria.accesos.index
-  GET|HEAD  admin/auditoria/cambios .................................................... admin.auditoria.cambios.index
-  GET|HEAD  admin/auditoria/integridad .............................................. admin.auditoria.integridad.index
-  GET|HEAD  admin/auditoria/robots ...................................................... admin.auditoria.robots.index
+  GET|HEAD  admin/billing/accounts ............. admin.billing.accounts.index › Admin\Billing\AccountsController@index
+  GET|HEAD  admin/billing/accounts/{id} .......... admin.billing.accounts.show › Admin\Billing\AccountsController@show
+  POST      admin/billing/accounts/{id}/license admin.billing.accounts.license › Admin\Billing\AccountsController@upd…
+  POST      admin/billing/accounts/{id}/modules admin.billing.accounts.modules › Admin\Billing\AccountsController@upd…
+  POST      admin/billing/accounts/{id}/override admin.billing.accounts.override › Admin\Billing\AccountsController@u…
+  GET|HEAD  admin/billing/invoices/requests admin.billing.invoices.requests.index › Admin\Billing\InvoiceRequestsCont…
+  POST      admin/billing/invoices/requests/{id}/email admin.billing.invoices.requests.email › Admin\Billing\InvoiceR…
+  POST      admin/billing/invoices/requests/{id}/status admin.billing.invoices.requests.status › Admin\Billing\Invoic…
+  GET|HEAD  admin/billing/licenses ...... admin.billing.licenses.index › Admin\Billing\AccountLicensesController@index
+  GET|HEAD  admin/billing/licenses/{accountId} admin.billing.licenses.show › Admin\Billing\AccountLicensesController@…
+  POST      admin/billing/licenses/{accountId}/assign-price admin.billing.licenses.assignPrice › Admin\Billing\Accoun…
+  POST      admin/billing/licenses/{accountId}/email/license admin.billing.licenses.email.license › Admin\Billing\Acc…
+  POST      admin/billing/licenses/{accountId}/modules admin.billing.licenses.modules.save › Admin\Billing\AccountLic…
+  GET|HEAD  admin/billing/payments ............. admin.billing.payments.index › Admin\Billing\PaymentsController@index
+  POST      admin/billing/payments/manual .... admin.billing.payments.manual › Admin\Billing\PaymentsController@manual
+  POST      admin/billing/payments/{id}/email admin.billing.payments.email › Admin\Billing\PaymentsController@emailRe…
+  GET|HEAD  admin/billing/prices ............. admin.billing.prices.index › Admin\Billing\PriceCatalogController@index
+  PUT       admin/billing/prices/{id} ...... admin.billing.prices.update › Admin\Billing\PriceCatalogController@update
+  GET|HEAD  admin/billing/prices/{id}/edit ..... admin.billing.prices.edit › Admin\Billing\PriceCatalogController@edit
+  POST      admin/billing/prices/{id}/toggle admin.billing.prices.toggle › Admin\Billing\PriceCatalogController@toggle
+  GET|HEAD  admin/billing/statements admin.billing.statements.index › Admin\Billing\BillingStatementsController@index
+  GET|HEAD  admin/billing/statements-hub admin.billing.statements_hub › Admin\Billing\BillingStatementsHubController@…
+  POST      admin/billing/statements-hub/create-pay-link admin.billing.hub.create_pay_link › Admin\Billing\BillingSta…
+  POST      admin/billing/statements-hub/invoice-request admin.billing.hub.invoice_request › Admin\Billing\BillingSta…
+  POST      admin/billing/statements-hub/invoice-status admin.billing.hub.invoice_status › Admin\Billing\BillingState…
+  POST      admin/billing/statements-hub/schedule admin.billing.hub.schedule › Admin\Billing\BillingStatementsHubCont…
+  POST      admin/billing/statements-hub/send-email admin.billing.hub.send_email › Admin\Billing\BillingStatementsHub…
+  GET|HEAD  admin/billing/statements/{accountId}/{period} admin.billing.statements.show › Admin\Billing\BillingStatem…
+  POST      admin/billing/statements/{accountId}/{period}/email admin.billing.statements.email › Admin\Billing\Billin…
+  POST      admin/billing/statements/{accountId}/{period}/items admin.billing.statements.items.add › Admin\Billing\Bi…
+  GET|HEAD  admin/billing/statements/{accountId}/{period}/pdf admin.billing.statements.pdf › Admin\Billing\BillingSta…
   GET|HEAD  admin/clientes ..................................... admin.clientes.index › Admin\ClientesController@index
   POST      admin/clientes/bulk .................................. admin.clientes.bulk › Admin\ClientesController@bulk
   POST      admin/clientes/impersonate/stop admin.clientes.impersonate.stop › Admin\ClientesController@impersonateStop
@@ -17,75 +44,17 @@
   POST      admin/clientes/{rfc}/impersonate ....... admin.clientes.impersonate › Admin\ClientesController@impersonate
   POST      admin/clientes/{rfc}/resend-email admin.clientes.resendEmail › Admin\ClientesController@resendEmailVerifi…
   POST      admin/clientes/{rfc}/reset-password admin.clientes.resetPassword › Admin\ClientesController@resetPassword
+  GET|HEAD  admin/clientes/{rfc}/reset-password admin.clientes.resetPassword.get › Admin\ClientesController@resetPass…
   POST      admin/clientes/{rfc}/save ............................ admin.clientes.save › Admin\ClientesController@save
   POST      admin/clientes/{rfc}/send-otp ............. admin.clientes.sendOtp › Admin\ClientesController@sendPhoneOtp
   GET|HEAD  admin/config ........................................... admin.config.index › Admin\ConfigController@index
-  GET|HEAD  admin/config/backups ................................................................ admin.config.backups
-  GET|HEAD  admin/config/int/api ................................................................ admin.config.int.api
-  GET|HEAD  admin/config/int/mail .............................................................. admin.config.int.mail
-  GET|HEAD  admin/config/int/pacs .............................................................. admin.config.int.pacs
-  GET|HEAD  admin/config/int/pay ................................................................ admin.config.int.pay
-  GET|HEAD  admin/config/int/robots .......................................................... admin.config.int.robots
-  GET|HEAD  admin/config/limpieza .............................................................. admin.config.limpieza
-  GET|HEAD  admin/config/mantenimiento .................................................... admin.config.mantenimiento
-  GET|HEAD  admin/config/param/cupones .................................................... admin.config.param.cupones
-  GET|HEAD  admin/config/param/limites .................................................... admin.config.param.limites
-  GET|HEAD  admin/config/param/precios .................................................... admin.config.param.precios
-  GET|HEAD  admin/config/param/robots ...................................................... admin.config.param.robots
-  GET|HEAD  admin/config/robots .................................................................. admin.config.robots
   GET|HEAD  admin/dashboard .......................................................................... admin.dashboard
+  POST      admin/dev/clean-otps ................................. admin.dev.clean_otps › Admin\QaController@cleanOtps
   POST      admin/dev/force-email ...................... admin.dev.force_email › Admin\QaController@forceEmailVerified
   POST      admin/dev/force-phone ...................... admin.dev.force_phone › Admin\QaController@forcePhoneVerified
   GET|HEAD  admin/dev/qa ..................................................... admin.dev.qa › Admin\QaController@index
   POST      admin/dev/resend-email ........................... admin.dev.resend_email › Admin\QaController@resendEmail
   POST      admin/dev/send-otp ....................................... admin.dev.send_otp › Admin\QaController@sendOtp
-  GET|HEAD  admin/empresas/pactopia ................................................ admin.empresas.pactopia.dashboard
-  GET|HEAD  admin/empresas/pactopia/crm/contactos ........................ admin.empresas.pactopia.crm.contactos.index
-  GET|HEAD  admin/empresas/pactopia/crm/robots .............................. admin.empresas.pactopia.crm.robots.index
-  GET|HEAD  admin/empresas/pactopia360 .......................................... admin.empresas.pactopia360.dashboard
-  GET|HEAD  admin/empresas/pactopia360/bancos/concilia .............. admin.empresas.pactopia360.bancos.concilia.index
-  GET|HEAD  admin/empresas/pactopia360/bancos/cuentas ................ admin.empresas.pactopia360.bancos.cuentas.index
-  GET|HEAD  admin/empresas/pactopia360/bancos/robots .................. admin.empresas.pactopia360.bancos.robots.index
-  GET|HEAD  admin/empresas/pactopia360/conta/robots .................... admin.empresas.pactopia360.conta.robots.index
-  GET|HEAD  admin/empresas/pactopia360/crm/carritos .................... admin.empresas.pactopia360.crm.carritos.index
-  GET|HEAD  admin/empresas/pactopia360/crm/carritos/create ............ admin.empresas.pactopia360.crm.carritos.create
-  GET|HEAD  admin/empresas/pactopia360/crm/carritos/{id} ................ admin.empresas.pactopia360.crm.carritos.show
-  GET|HEAD  admin/empresas/pactopia360/crm/carritos/{id}/edit ........... admin.empresas.pactopia360.crm.carritos.edit
-  GET|HEAD  admin/empresas/pactopia360/crm/comunicaciones ........ admin.empresas.pactopia360.crm.comunicaciones.index
-  GET|HEAD  admin/empresas/pactopia360/crm/contactos .................. admin.empresas.pactopia360.crm.contactos.index
-  GET|HEAD  admin/empresas/pactopia360/crm/contactos/create .......... admin.empresas.pactopia360.crm.contactos.create
-  GET|HEAD  admin/empresas/pactopia360/crm/contactos/{id}/edit ......... admin.empresas.pactopia360.crm.contactos.edit
-  GET|HEAD  admin/empresas/pactopia360/crm/contratos .................. admin.empresas.pactopia360.crm.contratos.index
-  GET|HEAD  admin/empresas/pactopia360/crm/correos ...................... admin.empresas.pactopia360.crm.correos.index
-  GET|HEAD  admin/empresas/pactopia360/crm/cotizaciones ............ admin.empresas.pactopia360.crm.cotizaciones.index
-  GET|HEAD  admin/empresas/pactopia360/crm/empresas .................... admin.empresas.pactopia360.crm.empresas.index
-  GET|HEAD  admin/empresas/pactopia360/crm/estados ...................... admin.empresas.pactopia360.crm.estados.index
-  GET|HEAD  admin/empresas/pactopia360/crm/facturas .................... admin.empresas.pactopia360.crm.facturas.index
-  GET|HEAD  admin/empresas/pactopia360/crm/negocios .................... admin.empresas.pactopia360.crm.negocios.index
-  GET|HEAD  admin/empresas/pactopia360/crm/notas .......................... admin.empresas.pactopia360.crm.notas.index
-  GET|HEAD  admin/empresas/pactopia360/crm/robots ........................ admin.empresas.pactopia360.crm.robots.index
-  GET|HEAD  admin/empresas/pactopia360/crm/suscripciones .......... admin.empresas.pactopia360.crm.suscripciones.index
-  GET|HEAD  admin/empresas/pactopia360/cxc/facturacion .............. admin.empresas.pactopia360.cxc.facturacion.index
-  GET|HEAD  admin/empresas/pactopia360/cxc/robots ........................ admin.empresas.pactopia360.cxc.robots.index
-  GET|HEAD  admin/empresas/pactopia360/cxc/ventas ........................ admin.empresas.pactopia360.cxc.ventas.index
-  GET|HEAD  admin/empresas/pactopia360/cxp/gastos ........................ admin.empresas.pactopia360.cxp.gastos.index
-  GET|HEAD  admin/empresas/pactopia360/cxp/proveedores .............. admin.empresas.pactopia360.cxp.proveedores.index
-  GET|HEAD  admin/empresas/pactopia360/cxp/robots ........................ admin.empresas.pactopia360.cxp.robots.index
-  GET|HEAD  admin/empresas/pactopia360/cxp/viaticos .................... admin.empresas.pactopia360.cxp.viaticos.index
-  GET|HEAD  admin/empresas/pactopia360/docs .................................... admin.empresas.pactopia360.docs.index
-  GET|HEAD  admin/empresas/pactopia360/docs/robots ...................... admin.empresas.pactopia360.docs.robots.index
-  GET|HEAD  admin/empresas/pactopia360/facturacion/cancel ........ admin.empresas.pactopia360.facturacion.cancel.index
-  GET|HEAD  admin/empresas/pactopia360/facturacion/resguardo .. admin.empresas.pactopia360.facturacion.resguardo.index
-  GET|HEAD  admin/empresas/pactopia360/facturacion/robots ........ admin.empresas.pactopia360.facturacion.robots.index
-  GET|HEAD  admin/empresas/pactopia360/facturacion/timbres ...... admin.empresas.pactopia360.facturacion.timbres.index
-  GET|HEAD  admin/empresas/pactopia360/nomina/robots .................. admin.empresas.pactopia360.nomina.robots.index
-  GET|HEAD  admin/empresas/pactopia360/pv/arqueos ........................ admin.empresas.pactopia360.pv.arqueos.index
-  GET|HEAD  admin/empresas/pactopia360/pv/cajas ............................ admin.empresas.pactopia360.pv.cajas.index
-  GET|HEAD  admin/empresas/pactopia360/pv/robots .......................... admin.empresas.pactopia360.pv.robots.index
-  GET|HEAD  admin/empresas/pactopia360/pv/tickets ........................ admin.empresas.pactopia360.pv.tickets.index
-  GET|HEAD  admin/empresas/waretek-mx ............................................ admin.empresas.waretek-mx.dashboard
-  GET|HEAD  admin/empresas/waretek-mx/crm/contactos .................... admin.empresas.waretek-mx.crm.contactos.index
-  GET|HEAD  admin/empresas/waretek-mx/crm/robots .......................... admin.empresas.waretek-mx.crm.robots.index
   GET|HEAD  admin/home ....................................................... admin.home › Admin\HomeController@index
   GET|HEAD  admin/home/income/{ym} ....................... admin.home.incomeMonth › Admin\HomeController@incomeByMonth
   GET|HEAD  admin/home/stats ........................................... admin.home.stats › Admin\HomeController@stats
@@ -101,67 +70,110 @@
   GET|HEAD  admin/perfil/edit ....................................... admin.perfil.edit › Admin\ProfileController@edit
   POST      admin/perfil/password ........................... admin.perfil.password › Admin\ProfileController@password
   GET|HEAD  admin/reportes ..................................... admin.reportes.index › Admin\ReportesController@index
-  GET|HEAD  admin/reportes/conta ................................................................ admin.reportes.conta
-  GET|HEAD  admin/reportes/crm .................................................................... admin.reportes.crm
-  GET|HEAD  admin/reportes/cxc .................................................................... admin.reportes.cxc
-  GET|HEAD  admin/reportes/cxp .................................................................... admin.reportes.cxp
-  GET|HEAD  admin/reportes/descargas ........................................................ admin.reportes.descargas
-  GET|HEAD  admin/reportes/facturacion .................................................... admin.reportes.facturacion
-  GET|HEAD  admin/reportes/nomina .............................................................. admin.reportes.nomina
-  GET|HEAD  admin/reportes/robots .............................................................. admin.reportes.robots
   GET|HEAD  admin/search ................................................. admin.search › Admin\SearchController@index
-  GET|HEAD  admin/soporte/comms ............................................................ admin.soporte.comms.index
-  GET|HEAD  admin/soporte/robots .......................................................... admin.soporte.robots.index
-  GET|HEAD  admin/soporte/sla ................................................................ admin.soporte.sla.index
-  GET|HEAD  admin/soporte/tickets ........................................................ admin.soporte.tickets.index
+  GET|HEAD  admin/soporte/reset-pass admin.soporte.reset_pass.show › Admin\Soporte\ResetClientePasswordController@sho…
+  POST      admin/soporte/reset-pass admin.soporte.reset_pass.do › Admin\Soporte\ResetClientePasswordController@reset…
   POST      admin/ui/bot-ask ............................................. admin.ui.botAsk › Admin\UiController@botAsk
   GET|HEAD  admin/ui/diag .................................................... admin.ui.diag › Admin\UiController@diag
   GET|HEAD  admin/ui/heartbeat ..................................... admin.ui.heartbeat › Admin\UiController@heartbeat
   POST|GET|HEAD admin/ui/log ................................................... admin.ui.log › Admin\UiController@log
-  GET|HEAD  admin/usuarios ...................................................................... admin.usuarios.index
-  GET|HEAD  admin/usuarios/robots ........................................................ admin.usuarios.robots.index
   GET|HEAD  admin/{fallbackPlaceholder} ....................................................................... admin.
   GET|HEAD  cliente ..................................................................................... cliente.root
-  POST      cliente/_qa/force-owner-password cliente.qa.force_owner_password › Cliente\Auth\LoginController@qaForceOw…
-  POST      cliente/_qa/hash-check .................. cliente.qa.hash_check › Cliente\Auth\LoginController@qaHashCheck
-  POST      cliente/_qa/queue-test ............................................................. cliente.qa.queue_test
-  POST      cliente/_qa/reset-pass .............. cliente.qa.reset_pass › Cliente\Auth\LoginController@qaResetPassword
-  POST      cliente/_qa/test-pass ................. cliente.qa.test_pass › Cliente\Auth\LoginController@qaTestPassword
-  GET|HEAD  cliente/_whoami ........................................................................... cliente.whoami
-  POST      cliente/billing/pay-pending ..... cliente.billing.payPending › Cliente\AccountBillingController@payPending
-  GET|HEAD  cliente/billing/statement ......... cliente.billing.statement › Cliente\AccountBillingController@statement
+  POST      cliente/_qa/reset-pass ............................................................. cliente.qa.reset_pass
+  POST      cliente/billing/profile/save cliente.billing.profile.save › Cliente\AccountBillingController@saveBillingP…
+  POST      cliente/billing/statement/factura/{period} cliente.billing.factura.request › Cliente\AccountBillingContro…
+  GET|HEAD  cliente/billing/statement/factura/{period}/download cliente.billing.factura.download › Cliente\AccountBil…
+  POST      cliente/billing/statement/pay/{period} ........ cliente.billing.pay › Cliente\AccountBillingController@pay
+  GET|HEAD  cliente/billing/statement/pay/{period} .... cliente.billing.pay.get › Cliente\AccountBillingController@pay
+  GET|HEAD  cliente/billing/statement/pdf-inline/{period} cliente.billing.pdfInline › Cliente\AccountBillingControlle…
+  GET|HEAD  cliente/billing/statement/pdf/{period} ........ cliente.billing.pdf › Cliente\AccountBillingController@pdf
+  GET|HEAD  cliente/billing/statement/public-pdf-inline/{accountId}/{period} cliente.billing.publicPdfInline › Client…
+  GET|HEAD  cliente/billing/statement/public-pdf/{accountId}/{period} cliente.billing.publicPdf › Cliente\AccountBill…
   GET|HEAD  cliente/checkout/cancel ........................ cliente.checkout.cancel › Cliente\StripeController@cancel
-  POST      cliente/checkout/pro/anual ......... cliente.checkout.pro.annual › Cliente\StripeController@checkoutAnnual
-  POST      cliente/checkout/pro/mensual ..... cliente.checkout.pro.monthly › Cliente\StripeController@checkoutMonthly
   GET|HEAD  cliente/checkout/success ..................... cliente.checkout.success › Cliente\StripeController@success
-  GET|HEAD  cliente/estado-cuenta ....................... cliente.estado_cuenta › Cliente\EstadoCuentaController@index
+  GET|HEAD  cliente/estado-de-cuenta .............. cliente.estado_cuenta › Cliente\AccountBillingController@statement
   GET|HEAD  cliente/home ................................................. cliente.home › Cliente\HomeController@index
   GET|HEAD  cliente/login ..................................... cliente.login › Cliente\Auth\LoginController@showLogin
   POST      cliente/login ...................................... cliente.login.do › Cliente\Auth\LoginController@login
   POST      cliente/logout ...................................... cliente.logout › Cliente\Auth\LoginController@logout
-  POST      cliente/password/email ............ cliente.password.email › Cliente\PasswordController@sendResetLinkEmail
-  GET|HEAD  cliente/password/first ..................... cliente.password.first › Cliente\PasswordController@showFirst
-  POST      cliente/password/first ............ cliente.password.first.update › Cliente\PasswordController@updateFirst
-  GET|HEAD  cliente/password/forgot ......... cliente.password.forgot › Cliente\PasswordController@showLinkRequestForm
-  POST      cliente/password/reset ........................ cliente.password.update › Cliente\PasswordController@reset
-  GET|HEAD  cliente/password/reset/{token} ......... cliente.password.reset › Cliente\PasswordController@showResetForm
+  GET|HEAD  cliente/mi-cuenta ............................. cliente.mi_cuenta.index › Cliente\MiCuentaController@index
+  POST      cliente/mi-cuenta/billing/update cliente.mi_cuenta.billing.update › Cliente\MiCuentaController@billingUpd…
+  POST      cliente/mi-cuenta/brand/update ... cliente.mi_cuenta.brand.update › Cliente\MiCuentaController@brandUpdate
+  GET|HEAD  cliente/mi-cuenta/contratos cliente.mi_cuenta.contratos.index › Cliente\MiCuentaController@contratosIndex
+  GET|HEAD  cliente/mi-cuenta/contratos/{contract} cliente.mi_cuenta.contratos.show › Cliente\MiCuentaController@show…
+  GET|HEAD  cliente/mi-cuenta/contratos/{contract}/pdf cliente.mi_cuenta.contratos.pdf › Cliente\MiCuentaController@d…
+  POST      cliente/mi-cuenta/contratos/{contract}/sign cliente.mi_cuenta.contratos.sign › Cliente\MiCuentaController…
+  GET|HEAD  cliente/mi-cuenta/facturas .. cliente.mi_cuenta.facturas.index › Cliente\MiCuenta\FacturasController@index
+  POST      cliente/mi-cuenta/facturas .. cliente.mi_cuenta.facturas.store › Cliente\MiCuenta\FacturasController@store
+  GET|HEAD  cliente/mi-cuenta/facturas/{id} cliente.mi_cuenta.facturas.show › Cliente\MiCuenta\FacturasController@show
+  GET|HEAD  cliente/mi-cuenta/facturas/{id}/download cliente.mi_cuenta.facturas.download › Cliente\MiCuenta\FacturasC…
+  GET|HEAD  cliente/mi-cuenta/pagos ....................... cliente.mi_cuenta.pagos › Cliente\MiCuentaController@pagos
+  POST      cliente/mi-cuenta/preferences/update cliente.mi_cuenta.preferences.update › Cliente\MiCuentaController@pr…
+  POST      cliente/mi-cuenta/profile/update cliente.mi_cuenta.profile.update › Cliente\MiCuentaController@profileUpd…
+  POST      cliente/mi-cuenta/security/update cliente.mi_cuenta.security.update › Cliente\MiCuentaController@security…
+  GET|HEAD  cliente/password/first ................ cliente.password.first › Cliente\Auth\FirstPasswordController@show
+  POST      cliente/password/first ......... cliente.password.first.store › Cliente\Auth\FirstPasswordController@store
+  POST      cliente/password/first/do ......... cliente.password.first.do › Cliente\Auth\FirstPasswordController@store
+  GET|HEAD  cliente/perfil ........................................... cliente.perfil › Cliente\PerfilController@index
+  POST|PUT  cliente/perfil/avatar ............... cliente.perfil.avatar.update › Cliente\PerfilController@uploadAvatar
+  POST|PUT  cliente/perfil/password ......... cliente.perfil.password.update › Cliente\PerfilController@updatePassword
+  POST|PUT  cliente/perfil/phone .................. cliente.perfil.phone.update › Cliente\PerfilController@updatePhone
+  GET|HEAD  cliente/perfil/settings ...................... cliente.perfil.settings › Cliente\PerfilController@settings
   GET|HEAD  cliente/registro ............................. cliente.registro.free › Cliente\RegisterController@showFree
   POST      cliente/registro ......................... cliente.registro.free.do › Cliente\RegisterController@storeFree
   GET|HEAD  cliente/registro/pro ........................... cliente.registro.pro › Cliente\RegisterController@showPro
   POST      cliente/registro/pro ....................... cliente.registro.pro.do › Cliente\RegisterController@storePro
-  GET|HEAD  cliente/terminos ........................................................................ cliente.terminos
+  GET|HEAD  cliente/sat .................................. cliente.sat.index › Cliente\Sat\SatDescargaController@index
+  GET|HEAD  cliente/sat/cart ............................ cliente.sat.cart.index › Cliente\Sat\SatCartController@index
+  POST      cliente/sat/cart/add ............................ cliente.sat.cart.add › Cliente\Sat\SatCartController@add
+  GET|HEAD  cliente/sat/cart/cancel ................... cliente.sat.cart.cancel › Cliente\Sat\SatCartController@cancel
+  POST      cliente/sat/cart/checkout ............. cliente.sat.cart.checkout › Cliente\Sat\SatCartController@checkout
+  POST      cliente/sat/cart/clear ...................... cliente.sat.cart.clear › Cliente\Sat\SatCartController@clear
+  GET|HEAD  cliente/sat/cart/list ......................... cliente.sat.cart.list › Cliente\Sat\SatCartController@list
+  POST|DELETE cliente/sat/cart/remove/{id?} ........... cliente.sat.cart.remove › Cliente\Sat\SatCartController@remove
+  GET|HEAD  cliente/sat/cart/success ................ cliente.sat.cart.success › Cliente\Sat\SatCartController@success
+  GET|HEAD  cliente/sat/charts ......................... cliente.sat.charts › Cliente\Sat\SatDescargaController@charts
+  POST      cliente/sat/credenciales/store cliente.sat.credenciales.store › Cliente\Sat\SatDescargaController@storeCr…
+  POST      cliente/sat/diot/build .................... cliente.sat.diot.build › Cliente\Sat\DiotController@buildBatch
+  POST      cliente/sat/download/cancel cliente.sat.download.cancel › Cliente\Sat\SatDescargaController@cancelDownload
+  POST      cliente/sat/excel/preview .......... cliente.sat.excel.preview › Cliente\Sat\ExcelViewerController@preview
+  POST      cliente/sat/mode ........................................................................ cliente.sat.mode
+  POST      cliente/sat/pay .................................. cliente.sat.pay › Cliente\Sat\SatDescargaController@pay
+  GET|HEAD  cliente/sat/pay/cancel .............. cliente.sat.pay.cancel › Cliente\Sat\SatDescargaController@payCancel
+  GET|HEAD  cliente/sat/pay/success ........... cliente.sat.pay.success › Cliente\Sat\SatDescargaController@paySuccess
+  POST      cliente/sat/pdf/batch .......... cliente.sat.pdf.batch › Cliente\Sat\SatDescargaController@downloadWithPdf
+  GET|HEAD  cliente/sat/reporte .......................... cliente.sat.report › Cliente\Sat\SatReporteController@index
+  POST      cliente/sat/reporte/cancelados cliente.sat.report.canceled › Cliente\Sat\SatReporteController@exportCance…
+  POST      cliente/sat/reporte/export ........... cliente.sat.report.export › Cliente\Sat\SatReporteController@export
+  POST      cliente/sat/reporte/notas cliente.sat.report.credits › Cliente\Sat\SatReporteController@exportCreditNotes
+  POST      cliente/sat/reporte/pagos .. cliente.sat.report.payments › Cliente\Sat\SatReporteController@exportPayments
+  POST      cliente/sat/request ...................... cliente.sat.request › Cliente\Sat\SatDescargaController@request
+  POST      cliente/sat/rfc/alias .................... cliente.sat.alias › Cliente\Sat\SatDescargaController@saveAlias
+  POST|DELETE cliente/sat/rfc/delete ............ cliente.sat.rfc.delete › Cliente\Sat\SatDescargaController@deleteRfc
+  POST      cliente/sat/rfc/register ........ cliente.sat.rfc.register › Cliente\Sat\SatDescargaController@registerRfc
+  GET|HEAD  cliente/sat/vault .................................. cliente.sat.vault › Cliente\Sat\VaultController@index
+  GET|HEAD  cliente/sat/vault/export ................... cliente.sat.vault.export › Cliente\Sat\VaultController@export
+  GET|HEAD  cliente/sat/vault/file/{id} ....... cliente.sat.vault.file › Cliente\Sat\VaultController@downloadVaultFile
+  POST      cliente/sat/vault/from-download/{download} cliente.sat.vault.fromDownload › Cliente\Sat\VaultController@f…
+  GET|HEAD  cliente/sat/vault/quick ...................... cliente.sat.vault.quick › Cliente\Sat\VaultController@quick
+  POST      cliente/sat/verify ......................... cliente.sat.verify › Cliente\Sat\SatDescargaController@verify
+  GET|HEAD  cliente/sat/zip/{downloadId} ............ cliente.sat.zip.download › Cliente\Sat\SatZipController@download
+  POST      cliente/stripe/webhook ......................... cliente.stripe.webhook › Cliente\StripeController@webhook
+  POST      cliente/ui/demo-mode ................................ cliente.ui.demo_mode › Cliente\UiController@demoMode
+  GET|HEAD  cliente/ui/demo-mode ......................... cliente.ui.demo_mode.get › Cliente\UiController@demoModeGet
   GET|HEAD  cliente/verificar/email/link cliente.verify.email.signed › Cliente\VerificationController@verifyEmailSign…
-  GET|HEAD  cliente/verificar/email/resend cliente.verify.email.resend › Cliente\VerificationController@showResendEma…
-  POST      cliente/verificar/email/resend cliente.verify.email.resend.do › Cliente\VerificationController@resendEmail
+  GET|HEAD  cliente/verificar/email/reenviar cliente.verify.email.resend › Cliente\VerificationController@showResendE…
+  POST      cliente/verificar/email/reenviar cliente.verify.email.resend.do › Cliente\VerificationController@resendEm…
   GET|HEAD  cliente/verificar/email/{token} .. cliente.verify.email.token › Cliente\VerificationController@verifyEmail
   GET|HEAD  cliente/verificar/telefono ................. cliente.verify.phone › Cliente\VerificationController@showOtp
-  POST      cliente/verificar/telefono ............ cliente.verify.phone.send › Cliente\VerificationController@sendOtp
+  POST      cliente/verificar/telefono ...... cliente.verify.phone.update › Cliente\VerificationController@updatePhone
   POST      cliente/verificar/telefono/check .... cliente.verify.phone.check › Cliente\VerificationController@checkOtp
-  POST      cliente/verify/phone/update ..... cliente.verify.phone.update › Cliente\VerificationController@updatePhone
-  POST      cliente/webhook/stripe ......................... cliente.webhook.stripe › Cliente\StripeController@webhook
-  ANY       login .................................................... login › Illuminate\Routing › RedirectController
+  POST      cliente/verificar/telefono/send ....... cliente.verify.phone.send › Cliente\VerificationController@sendOtp
+  GET|HEAD  login .................................................................. login › Auth\SmartLoginController
   GET|HEAD  storage/{path} ............................................................................. storage.local
+  GET|HEAD  t/billing/click/{emailId} .. track.billing.click › Admin\Billing\BillingStatementsHubController@trackClick
+  GET|HEAD  t/billing/open/{emailId}.gif . track.billing.open › Admin\Billing\BillingStatementsHubController@trackOpen
   GET|HEAD  up ....................................................................................................... 
 
-                                                                                                  Showing [163] routes
+                                                                                                  Showing [175] routes
 

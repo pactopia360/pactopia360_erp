@@ -1,5 +1,5 @@
 {{-- resources/views/layouts/partials/client_header.blade.php
-    v3.9 · logo proporcional + sin botón menú + plan unificado + perfil/configuración separados + buscador centrado --}}
+v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil” + estilos mejorados --}}
 @php
   use Illuminate\Support\Facades\Route;
   use App\Http\Controllers\Cliente\HomeController as ClientHome;
@@ -31,6 +31,7 @@
   $u      = auth('web')->user();
   $c      = $cuenta ?? ($u?->cuenta ?? null);
   $name   = $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta';
+  $email  = $u?->email ?? '';
 
   // ===== Resumen unificado de cuenta (admin.accounts) =====
   $summary = app(ClientHome::class)->buildAccountSummary();
@@ -67,6 +68,11 @@
       ? route('cliente.perfil')
       : url('cliente/perfil');
 
+  // MI CUENTA (nuevo)
+  $rtMiCuenta = Route::has('cliente.mi_cuenta')
+      ? route('cliente.mi_cuenta')
+      : url('cliente/mi-cuenta');
+
   // CONFIGURACIÓN (varios posibles nombres; NUNCA cae a perfil)
   $rtSettings = null;
   foreach ([
@@ -81,10 +87,16 @@
           break;
       }
   }
-  // Si no existe ninguna ruta nombrada, mandamos a /cliente/configuracion
   if (!$rtSettings) {
       $rtSettings = url('cliente/configuracion');
   }
+
+  // Ruta para ir al módulo SAT / carrito SAT al darle "Proceder a pago"
+  $rtSatPay = Route::has('cliente.sat.cart.index')
+      ? route('cliente.sat.cart.index')
+      : (Route::has('cliente.sat.index')
+          ? route('cliente.sat.index')
+          : url('cliente/sat'));
 
   // Badges (opcionales)
   $notifCount = (int)($notifCount ?? 0);
@@ -98,6 +110,9 @@
 
   // Inicial de avatar
   $initial = strtoupper(mb_substr(trim((string)($u?->nombre ?? $u?->email ?? '')), 0, 1));
+
+  // Nombre de cuenta mostrado
+  $acctLabel = $u?->razon_social ?? $u?->nombre ?? $u?->email ?? 'Cuenta cliente';
 @endphp
 
 
@@ -157,16 +172,24 @@
       @if($chatCount > 0)<span class="badge" aria-label="{{ $chatCount }} mensajes">{{ $chatCount }}</span>@endif
     </a>
 
-    {{-- Marketplace --}}
-    <a class="btn icon" href="{{ $rtCart }}" title="Marketplace" aria-label="Marketplace">
-      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('cart') }}"/></svg>
-      @if($cartCount > 0)<span class="badge" aria-label="{{ $cartCount }} artículos">{{ $cartCount }}</span>@endif
-    </a>
+    {{-- ===== MINI CARRITO SAT (estilo Amazon: botón amarillo + badge rojo) ===== --}}
+    <div id="satCartHeader" class="sat-cart-header" style="display:none;">
+      <a href="{{ Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : $rtSatPay }}"
+         class="sat-cart-header-btn"
+         title="Carrito SAT"
+         aria-label="Carrito SAT">
+        <svg class="sat-cart-header-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <use href="{{ asset('assets/client/icons.svg#cart') }}" />
+        </svg>
+        <span id="satCartHeaderCount" class="sat-cart-header-badge">0</span>
+      </a>
+    </div>
+    {{-- ===== / MINI CARRITO SAT ===== --}}
 
     {{-- Cuenta / Perfil --}}
     <div class="account" style="display:flex; align-items:center; gap:10px;">
       <div class="acct-meta">
-        <span class="acct-name">{{ $u?->razon_social ?? $u?->nombre ?? $u?->email ?? 'Cuenta cliente' }}</span>
+        <span class="acct-name">{{ $acctLabel }}</span>
         <span class="acct-plan" title="Plan actual: {{ $plan }}">{{ $planBadge }}</span>
       </div>
 
@@ -175,12 +198,46 @@
                 aria-controls="menuProfile" title="Cuenta">
           <span class="avatar" aria-hidden="true">{{ $initial ?: 'U' }}</span>
         </button>
-        <div id="menuProfile" class="dropdown" role="menu" aria-labelledby="btnProfile" hidden>
-          <a href="{{ $rtPerfil }}" role="menuitem">Mi perfil</a>
-          <a href="{{ $rtSettings }}" role="menuitem">Configuración</a>
+
+        {{-- Dropdown modernizado --}}
+        <div id="menuProfile" class="dropdown dd-profile" role="menu" aria-labelledby="btnProfile" hidden>
+          <div class="dd-head" role="none">
+            <div class="dd-ava" aria-hidden="true">{{ $initial ?: 'U' }}</div>
+            <div class="dd-who">
+              <div class="dd-name">{{ $name }}</div>
+              <div class="dd-mail">{{ $email ?: '—' }}</div>
+            </div>
+            <span class="dd-chip" title="Plan">{{ $planBadge }}</span>
+          </div>
+
+          <div class="dd-section" role="none">
+            <div class="dd-label" role="none">Cuenta</div>
+
+            <a class="dd-item" href="{{ $rtPerfil }}" role="menuitem">
+              <svg class="dd-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('user') }}"/></svg>
+              <span>Mi perfil</span>
+            </a>
+
+            {{-- NUEVO: Mi cuenta (debajo de Mi perfil) --}}
+            <a class="dd-item" href="{{ $rtMiCuenta }}" role="menuitem">
+              <svg class="dd-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('credit-card') }}"/></svg>
+              <span>Mi cuenta</span>
+            </a>
+
+            <a class="dd-item" href="{{ $rtSettings }}" role="menuitem">
+              <svg class="dd-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('settings') }}"/></svg>
+              <span>Configuración</span>
+            </a>
+          </div>
+
+          <div class="dd-sep" role="none"></div>
+
           <form action="{{ $rtLogout }}" method="POST" role="none">
             @csrf
-            <button type="submit" role="menuitem">Cerrar sesión</button>
+            <button type="submit" class="dd-item dd-danger" role="menuitem">
+              <svg class="dd-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('logout') }}"/></svg>
+              <span>Cerrar sesión</span>
+            </button>
           </form>
         </div>
       </div>
@@ -190,6 +247,7 @@
 
 <style>
   :root{ --header-h:64px; --header:64px; --ico:20px; }
+
   /* Tamaños adaptativos del logo (usa --logo-h del core) */
   .brand-logo{ height: var(--logo-h); width:auto; display:block }
   @media (max-width: 900px){ :root{ --logo-h:34px } }
@@ -210,14 +268,53 @@
     border-bottom-color: rgba(255,255,255,.12);
   }
 
-  .ico{ width:var(--ico); height:var(--ico); display:block; }
+ .ico{
+    width:var(--ico);
+    height:var(--ico);
+    display:block;
+    color: var(--text,#0f172a);
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+
+  /* Fuerza que el contenido referenciado por <use> también herede color */
+  .ico use,
+  .dd-ico use,
+  .sat-cart-header-ico use{
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+
+  /* Íconos del dropdown */
+  .dd-ico{
+    width:18px;
+    height:18px;
+    opacity:.85;
+    flex:0 0 auto;
+    color: inherit;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+
+  /* Ícono del carrito SAT */
+  .sat-cart-header-ico{
+    width:20px;
+    height:20px;
+    color:#111827;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+  html.theme-dark .sat-cart-header-ico{
+    color:#0b1220;
+  }
+
 
   .searchbar{
     display:flex; align-items:center; gap:8px;
     border:1px solid var(--bd,#e5e7eb); border-radius:999px;
     background: var(--chip, #f8fafc);
     padding:0 12px; height:40px; max-width:620px; width:100%;
-    margin-inline:auto;              /* <-- centra el buscador en la franja */
+    margin-inline:auto;
   }
   html.theme-dark .searchbar{
     background: color-mix(in oklab, #fff 6%, transparent);
@@ -238,7 +335,6 @@
     background: color-mix(in oklab, #fff 6%, transparent);
     border-color: rgba(255,255,255,.12);
   }
-  .btn.icon .ico{ color: var(--text,#0f172a); }
 
   .badge{
     position:absolute; top:-6px; right:-6px; min-width:18px; height:18px;
@@ -258,36 +354,165 @@
     background: var(--brand,#E11D48); color:#fff; font-weight:800; font-size:14px;
   }
 
-  .dropdown{
-    position:absolute; right:0; top:calc(100% + 8px);
-    background:var(--card,#fff); color:var(--text);
-    border:1px solid var(--bd,#e5e7eb); border-radius:12px;
-    box-shadow:0 10px 30px rgba(0,0,0,.12);
-    display:flex; flex-direction:column; min-width:200px; padding:8px; z-index:60;
-  }
-
-  .dropdown[hidden]{ display:none !important; }
-
-  html.theme-dark .dropdown{
-    background:#0b1220; border-color:#2b2f36; color:#e5e7eb;
-  }
-
-  .dropdown a, .dropdown button{
-    text-align:left; text-decoration:none; color:inherit;
-    background:transparent; border:0; cursor:pointer;
-    padding:10px 12px; border-radius:10px; font-weight:600;
-  }
-  .dropdown a:hover, .dropdown button:hover{
-    background:rgba(0,0,0,.06);
-  }
-  html.theme-dark .dropdown a:hover,
-  html.theme-dark .dropdown button:hover{
-    background:rgba(255,255,255,.08);
-  }
-
   @media (max-width: 900px){
     .acct-meta{ display:none; }
     .searchbar{ max-width:100%; }
+  }
+
+  /* ========== MINI CARRITO SAT EN HEADER (estilo Amazon) ========== */
+  .sat-cart-header{ display:flex; align-items:center; }
+  .sat-cart-header-btn{
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:40px;
+    height:40px;
+    border-radius:12px;
+    border:1px solid #facc15;
+    background:#ffd814;
+    padding:0;
+    cursor:pointer;
+    transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
+  }
+  .sat-cart-header-btn:hover{
+    filter:brightness(0.97);
+    box-shadow:0 2px 0 #f59e0b;
+    transform:translateY(-1px);
+  }
+  .sat-cart-header-btn:active{ transform:translateY(0); box-shadow:none; }
+  html.theme-dark .sat-cart-header-btn{ border-color:#eab308; background:#facc15; }
+  .sat-cart-header-ico{ width:20px; height:20px; color:#111827; }
+  .sat-cart-header-badge{
+    position:absolute; bottom:-3px; right:-3px;
+    min-width:18px; height:18px; padding:0 5px;
+    border-radius:999px;
+    background:#ef4444; color:#fff;
+    font:700 11px/18px system-ui;
+    border:2px solid #ffffff;
+  }
+
+  /* ========== Dropdown perfil modernizado ========== */
+  .dropdown.dd-profile{
+    position:absolute; right:0; top:calc(100% + 10px);
+    width: 280px;
+    background: color-mix(in oklab, var(--card,#fff) 96%, transparent);
+    color: var(--text,#0f172a);
+    border: 1px solid color-mix(in oklab, var(--bd,#e5e7eb) 90%, transparent);
+    border-radius: 16px;
+    box-shadow: 0 18px 46px rgba(2,6,23,.16);
+    padding: 10px;
+    z-index: 60;
+    transform-origin: top right;
+  }
+  .dropdown[hidden]{ display:none !important; }
+  html.theme-dark .dropdown.dd-profile{
+    background: color-mix(in oklab, #0b1220 92%, transparent);
+    border-color: rgba(255,255,255,.12);
+    color:#e5e7eb;
+    box-shadow: 0 18px 46px rgba(0,0,0,.40);
+  }
+
+  .dd-head{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 10px 12px;
+    border-radius:14px;
+    background: linear-gradient(180deg,
+      color-mix(in oklab, var(--brand,#E11D48) 10%, transparent),
+      transparent);
+    border: 1px solid color-mix(in oklab, var(--brand,#E11D48) 18%, transparent);
+  }
+  html.theme-dark .dd-head{
+    background: linear-gradient(180deg, rgba(255,255,255,.06), transparent);
+    border-color: rgba(255,255,255,.10);
+  }
+
+  .dd-ava{
+    width:40px; height:40px; border-radius:999px;
+    display:grid; place-items:center;
+    background: var(--brand,#E11D48);
+    color:#fff;
+    font-weight:900;
+    letter-spacing:.02em;
+  }
+  .dd-who{ min-width:0; flex:1; }
+  .dd-name{
+    font-weight:900;
+    font-size:13px;
+    line-height:1.1;
+    color:inherit;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .dd-mail{
+    margin-top:2px;
+    font-size:11px;
+    font-weight:700;
+    opacity:.75;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .dd-chip{
+    font-size:11px;
+    font-weight:900;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid color-mix(in oklab, var(--brand,#E11D48) 35%, transparent);
+    background: color-mix(in oklab, var(--brand,#E11D48) 14%, transparent);
+    white-space:nowrap;
+  }
+
+  .dd-section{ padding:10px 4px 6px; }
+  .dd-label{
+    font-size:11px;
+    font-weight:900;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    opacity:.7;
+    padding:0 8px 8px;
+  }
+
+  .dd-item{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    width:100%;
+    text-decoration:none;
+    color:inherit;
+    background:transparent;
+    border:0;
+    cursor:pointer;
+    padding:10px 10px;
+    border-radius:12px;
+    font-weight:800;
+    text-align:left;
+  }
+  .dd-ico{ width:18px; height:18px; opacity:.85; flex:0 0 auto; }
+  .dd-item:hover{
+    background: color-mix(in oklab, #0b1220 5%, transparent);
+  }
+  html.theme-dark .dd-item:hover{
+    background: rgba(255,255,255,.07);
+  }
+
+  .dd-sep{
+    height:1px;
+    margin:8px 6px;
+    background: color-mix(in oklab, var(--bd,#e5e7eb) 70%, transparent);
+  }
+  html.theme-dark .dd-sep{ background: rgba(255,255,255,.10); }
+
+  .dd-danger{
+    color: #b91c1c;
+  }
+  html.theme-dark .dd-danger{ color:#fca5a5; }
+  .dd-danger:hover{
+    background: color-mix(in oklab, #ef4444 12%, transparent);
+  }
+  html.theme-dark .dd-danger:hover{
+    background: rgba(239,68,68,.16);
   }
 </style>
 

@@ -1,0 +1,459 @@
+/* public/assets/client/css/perfil-vault.css */
+/* PERFIL — UI coherente con SAT Vault (tokens: --card, --ink, --mut, --line, --pill-bg, etc.) */
+
+.page-perfil .p360-ui{
+  width:100%;
+  max-width:100%;
+  margin:0 auto;
+  padding-inline: 1.5rem;
+  box-sizing:border-box;
+}
+@media (max-width: 768px){
+  .page-perfil .p360-ui{ padding-inline:.8rem; }
+}
+
+.page-perfil .pf-page{
+  width:100%;
+  max-width:100%;
+  display:flex;
+  flex-direction:column;
+  gap:1.25rem;
+}
+
+/* Card base como Vault */
+.page-perfil .sat-card{
+  background: var(--card);
+  border-radius: var(--card-radius, .75rem);
+  border: 1px solid var(--card-border, rgba(229,231,235,1));
+  box-shadow: var(--shadow, 0 10px 25px rgba(15,23,42,.08));
+  padding: 1rem 1.25rem;
+  box-sizing:border-box;
+}
+
+/* Header: 2 columnas tipo Vault */
+.page-perfil .pf-header{
+  display:grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 2.2fr);
+  align-items:stretch;
+  gap:1rem;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-header{ grid-template-columns: 1fr; }
+}
+
+.page-perfil .pf-header-left{
+  display:flex;
+  align-items:center;
+  gap:.85rem;
+  min-width:0;
+}
+
+.page-perfil .pf-title-icon{
+  width:2.7rem;height:2.7rem;border-radius:999px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background: radial-gradient(circle at 0% 0%, var(--brand, #E11D48), var(--brand-2, #BE123C) 40%, rgba(15,23,42,.85));
+  color:#fff;
+  flex-shrink:0;
+}
+.page-perfil .pf-title-main{
+  font-size:1.2rem;
+  font-weight:700;
+  color:var(--ink);
+  margin:0;
+}
+.page-perfil .pf-title-sub{
+  margin-top:.1rem;
+  font-size:.85rem;
+  color:var(--mut);
+}
+
+.page-perfil .pf-header-right{
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:.75rem;
+}
+
+.page-perfil .pf-pills{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:.45rem;
+  flex-wrap:wrap;
+}
+
+/* Pills (mismo lenguaje que Vault) */
+.page-perfil .pf-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  padding:.32rem .7rem;
+  border-radius:999px;
+  border:1px solid var(--line, #e5e7eb);
+  background: var(--pill-bg, #f9fafb);
+  color: var(--ink);
+  font-size:.78rem;
+  font-weight:700;
+}
+.page-perfil .pf-pill .dot{
+  width:.45rem;height:.45rem;border-radius:999px;
+  background: rgba(148,163,184,.9);
+  opacity:.9;
+}
+.page-perfil .pf-pill--pro{
+  background: rgba(34,197,94,.08);
+  color: var(--accent-text, #15803d);
+  border-color: rgba(34,197,94,.25);
+}
+.page-perfil .pf-pill--pro .dot{ background:#22c55e; }
+.page-perfil .pf-pill--free{
+  background: rgba(245,158,11,.10);
+  color:#92400e;
+  border-color: rgba(245,158,11,.22);
+}
+.page-perfil .pf-pill--free .dot{ background:#f59e0b; }
+.page-perfil .pf-pill--status-ok{
+  background: rgba(34,197,94,.08);
+  color: var(--accent-text, #15803d);
+  border-color: rgba(34,197,94,.25);
+}
+.page-perfil .pf-pill--status-ok .dot{ background:#22c55e; }
+.page-perfil .pf-pill--status-bad{
+  background: rgba(239,68,68,.08);
+  color:#b91c1c;
+  border-color: rgba(239,68,68,.20);
+}
+.page-perfil .pf-pill--status-bad .dot{ background:#ef4444; }
+.page-perfil .pf-pill--status-off{
+  background: rgba(148,163,184,.12);
+  color: var(--mut);
+  border-color: rgba(148,163,184,.20);
+}
+.page-perfil .pf-pill--status-off .dot{ background: rgba(148,163,184,.9); }
+
+/* Actions */
+.page-perfil .pf-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:.45rem;
+  flex-wrap:wrap;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-actions{ justify-content:flex-start; }
+}
+
+.page-perfil .pf-pillbtn{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  border-radius:999px;
+  border:1px solid var(--line, #e5e7eb);
+  padding:.42rem .85rem;
+  background: var(--pill-bg, #f9fafb);
+  color: var(--ink);
+  font-size:.82rem;
+  font-weight:700;
+  cursor:pointer;
+  text-decoration:none;
+  transition: transform .08s ease, filter .08s ease, background .08s ease;
+}
+.page-perfil .pf-pillbtn:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+}
+.page-perfil .pf-pillbtn:active{ transform: translateY(0); }
+.page-perfil .pf-pillbtn--brand{
+  background: rgba(225,29,72,.08);
+  border-color: rgba(225,29,72,.22);
+  color: var(--brand, #E11D48);
+}
+html[data-theme="dark"] .page-perfil .pf-pillbtn--brand{
+  background: rgba(251,113,133,.10);
+  border-color: rgba(251,113,133,.18);
+  color: #fb7185;
+}
+.page-perfil .pf-pillbtn[aria-disabled="true"]{
+  opacity:.55;
+  pointer-events:none;
+}
+
+/* KPI grid estilo Vault (cards compactas) */
+.page-perfil .pf-kpi-grid{
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap:.9rem;
+}
+@media (max-width: 1200px){
+  .page-perfil .pf-kpi-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px){
+  .page-perfil .pf-kpi-grid{ grid-template-columns: 1fr; }
+}
+
+.page-perfil .pf-kpi{
+  border-radius:.9rem;
+  padding:.85rem 1rem;
+  background: rgba(248, 249, 252, .9);
+  border: 1px solid rgba(230, 233, 240, .9);
+  display:flex;
+  flex-direction:column;
+  gap:.25rem;
+}
+html[data-theme="dark"] .page-perfil .pf-kpi{
+  background: rgba(148,163,184,.10);
+  border-color: rgba(148,163,184,.18);
+}
+
+.page-perfil .pf-kpi-label{
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.10em;
+  color: var(--mut);
+  font-weight:800;
+}
+.page-perfil .pf-kpi-value{
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+}
+.page-perfil .pf-kpi-sub{
+  font-size:.78rem;
+  color: var(--mut);
+}
+
+/* Grid para Usuario/Organización y Compras/Pagos */
+.page-perfil .pf-grid-2{
+  display:grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.8fr);
+  gap:1rem;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-grid-2{ grid-template-columns: 1fr; }
+}
+
+.page-perfil .pf-block-title{
+  font-size:.95rem;
+  font-weight:800;
+  color: var(--ink);
+  margin:0 0 .25rem 0;
+}
+.page-perfil .pf-block-sub{
+  margin:0 0 .75rem 0;
+  font-size:.82rem;
+  color: var(--mut);
+}
+
+.page-perfil .pf-kv{
+  display:grid;
+  grid-template-columns: 170px minmax(0,1fr);
+  row-gap:.5rem;
+  column-gap: .9rem;
+  align-items:center;
+}
+@media (max-width: 640px){
+  .page-perfil .pf-kv{ grid-template-columns: 1fr; }
+}
+.page-perfil .pf-kv .k{
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.10em;
+  color: var(--mut);
+  font-weight:800;
+}
+.page-perfil .pf-kv .v{
+  font-size:.86rem;
+  color: var(--ink);
+  font-weight:700;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* Emisores header */
+.page-perfil .pf-section-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:1rem;
+  flex-wrap:wrap;
+}
+
+/* Tabla emisores — estilo Vault (simple) */
+.page-perfil .pf-table-wrap{ width:100%; overflow:auto; }
+.page-perfil .pf-table{
+  width:100%;
+  border-collapse: collapse;
+  font-size:.78rem;
+  color: var(--ink);
+  background: var(--card);
+}
+.page-perfil .pf-table thead{
+  background: var(--pill-bg, #f9fafb);
+}
+.page-perfil .pf-table th,
+.page-perfil .pf-table td{
+  padding:.45rem .55rem;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+  white-space:nowrap;
+}
+.page-perfil .pf-table th{
+  text-align:left;
+  font-size:.72rem;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  font-weight:800;
+  color: color-mix(in oklab, var(--mut) 78%, var(--ink) 22%);
+}
+.page-perfil .pf-table tbody tr:nth-child(even){
+  background: rgba(16,24,40,.015);
+}
+.page-perfil .pf-table tbody tr:hover{
+  background: rgba(17,120,255,.06);
+}
+.page-perfil .pf-mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Action buttons (pills) */
+.page-perfil .pf-iconbtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height: 30px;
+  padding: 0 .75rem;
+  border-radius: 999px;
+  border:1px solid rgba(16,24,40,.12);
+  background: rgba(16,24,40,.02);
+  color: var(--ink);
+  font-size:.72rem;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-decoration:none;
+  cursor:pointer;
+  user-select:none;
+  margin-left:.35rem;
+}
+.page-perfil .pf-iconbtn:first-child{ margin-left:0; }
+.page-perfil .pf-iconbtn:hover{
+  background: rgba(17,120,255,.10);
+  border-color: rgba(17,120,255,.30);
+}
+.page-perfil .pf-iconbtn--danger{
+  background: rgba(239,68,68,.08);
+  border-color: rgba(239,68,68,.18);
+  color:#b91c1c;
+}
+.page-perfil .pf-iconbtn[aria-disabled="true"]{
+  opacity:.55;
+  pointer-events:none;
+}
+
+/* Empty */
+.page-perfil .pf-empty{
+  border:1px dashed rgba(148,163,184,.45);
+  border-radius:.9rem;
+  padding:.9rem 1rem;
+  color: var(--mut);
+  background: color-mix(in oklab, var(--card) 92%, var(--bg) 8%);
+}
+
+/* Modal (dialog) coherente */
+.page-perfil dialog.pf-modal{
+  border:1px solid var(--line, #e5e7eb);
+  border-radius: 16px;
+  padding:0;
+  width: 96vw;
+  max-width: 960px;
+  background: var(--card);
+  box-shadow: 0 18px 40px rgba(0,0,0,.20);
+}
+.page-perfil dialog.pf-modal::backdrop{
+  background: rgba(15,23,42,.55);
+  backdrop-filter: blur(6px);
+}
+.page-perfil .pf-modal header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding: 14px 16px;
+  border-bottom:1px solid var(--line, #e5e7eb);
+  color: var(--ink);
+  font-weight: 900;
+}
+.page-perfil .pf-modal .body{
+  padding: 16px;
+  max-height: 70vh;
+  overflow:auto;
+}
+.page-perfil .pf-field{
+  display:flex;
+  flex-direction:column;
+  gap:.35rem;
+  margin-bottom: .75rem;
+}
+.page-perfil .pf-lbl{
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.10em;
+  color: var(--mut);
+  font-weight:800;
+}
+.page-perfil .pf-input{
+  width:100%;
+  min-height: 2.1rem;
+  border-radius: .65rem;
+  border: 1px solid var(--line, #e5e7eb);
+  background: var(--pill-bg, #f9fafb);
+  padding: .45rem .65rem;
+  font-size: .85rem;
+  color: var(--ink);
+  outline:none;
+  box-sizing:border-box;
+}
+.page-perfil .pf-input:focus{
+  border-color:#2563eb;
+  box-shadow: 0 0 0 2px rgba(37,99,235,.15);
+  background:#fff;
+}
+.page-perfil .pf-hint{
+  font-size:.78rem;
+  color: var(--mut);
+}
+
+/* Avatar */
+.page-perfil .pf-avatar{
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: radial-gradient(circle at 0% 0%, var(--brand, #E11D48), var(--brand-2, #BE123C) 40%, rgba(15,23,42,.85));
+  color:#fff;
+  font-weight:900;
+  user-select:none;
+  position:relative;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.page-perfil .pf-avatar img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.page-perfil .pf-avatar-overlay{
+  position:absolute;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background: rgba(0,0,0,.35);
+  color:#fff;
+  font-size:.78rem;
+  font-weight:800;
+}
+.page-perfil .pf-avatar:hover .pf-avatar-overlay{ display:flex; }

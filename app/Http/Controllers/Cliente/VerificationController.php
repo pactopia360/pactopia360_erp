@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Cliente;
 
 use App\Http\Controllers\Controller;
@@ -49,6 +51,15 @@ class VerificationController extends Controller
     /* =========================================================
      * EMAIL con token /cliente/verificar/email/{token}
      * ========================================================= */
+
+    /**
+     * Alias por si alguna ruta/controller lo invoca con otro nombre.
+     */
+    public function verifyEmailToken(string $token)
+    {
+        return $this->verifyEmail($token);
+    }
+
     public function verifyEmail(string $token)
     {
         $row = DB::connection('mysql_admin')
@@ -87,6 +98,9 @@ class VerificationController extends Controller
         $resolvedAccountId = null;
         $resolvedPhone     = null;
 
+        // Resolver columna de teléfono REAL en accounts
+        $phoneCol = $this->adminPhoneColumn();
+
         if ($this->clientIsAuthenticated()) {
             $user       = $this->currentClientUser();
             $userCuenta = $user?->cuenta()?->first();
@@ -94,13 +108,13 @@ class VerificationController extends Controller
                 $accAdm = DB::connection('mysql_admin')
                     ->table('accounts')
                     ->whereRaw('UPPER(rfc)=?', [Str::upper($userCuenta->rfc_padre)])
-                    ->select('id', 'telefono')
+                    ->select('id', "{$phoneCol} as phone")
                     ->orderByDesc('id')
                     ->first();
 
                 if ($accAdm) {
                     $resolvedAccountId = (int) $accAdm->id;
-                    $resolvedPhone     = $accAdm->telefono ?? null;
+                    $resolvedPhone     = $accAdm->phone ?? null;
                 }
             }
         }
@@ -109,12 +123,12 @@ class VerificationController extends Controller
             $accAdmByToken = DB::connection('mysql_admin')
                 ->table('accounts')
                 ->where('id', $row->account_id)
-                ->select('id', 'telefono')
+                ->select('id', "{$phoneCol} as phone")
                 ->first();
 
             if ($accAdmByToken) {
                 $resolvedAccountId = (int) $accAdmByToken->id;
-                $resolvedPhone     = $accAdmByToken->telefono ?? null;
+                $resolvedPhone     = $accAdmByToken->phone ?? null;
             }
         }
 
@@ -127,7 +141,7 @@ class VerificationController extends Controller
 
         return view('cliente.auth.verify_email', [
             'status'       => 'ok',
-            'message'      => '¡Correo verificado! Ahora verifica tu teléfono.',
+            'message'      => 'Correo verificado. Ahora verifica tu teléfono.',
             'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
         ]);
     }
@@ -163,6 +177,9 @@ class VerificationController extends Controller
         $resolvedAccountId = null;
         $resolvedPhone     = null;
 
+        // Resolver columna de teléfono REAL en accounts
+        $phoneCol = $this->adminPhoneColumn();
+
         if ($this->clientIsAuthenticated()) {
             $user       = $this->currentClientUser();
             $userCuenta = $user?->cuenta()?->first();
@@ -170,13 +187,13 @@ class VerificationController extends Controller
                 $accAdm = DB::connection('mysql_admin')
                     ->table('accounts')
                     ->whereRaw('UPPER(rfc)=?', [Str::upper($userCuenta->rfc_padre)])
-                    ->select('id', 'telefono')
+                    ->select('id', "{$phoneCol} as phone")
                     ->orderByDesc('id')
                     ->first();
 
                 if ($accAdm) {
                     $resolvedAccountId = (int) $accAdm->id;
-                    $resolvedPhone     = $accAdm->telefono ?? null;
+                    $resolvedPhone     = $accAdm->phone ?? null;
                 }
             }
         }
@@ -185,12 +202,12 @@ class VerificationController extends Controller
             $accAdmByLink = DB::connection('mysql_admin')
                 ->table('accounts')
                 ->where('id', $accountIdFromLink)
-                ->select('id', 'telefono')
+                ->select('id', "{$phoneCol} as phone")
                 ->first();
 
             if ($accAdmByLink) {
                 $resolvedAccountId = (int) $accAdmByLink->id;
-                $resolvedPhone     = $accAdmByLink->telefono ?? null;
+                $resolvedPhone     = $accAdmByLink->phone ?? null;
             }
         }
 
@@ -203,7 +220,7 @@ class VerificationController extends Controller
 
         return view('cliente.auth.verify_email', [
             'status'       => 'ok',
-            'message'      => 'Correo verificado. Falta tu teléfono 👍',
+            'message'      => 'Correo verificado. Falta tu teléfono.',
             'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
         ]);
     }
@@ -234,6 +251,8 @@ class VerificationController extends Controller
         $account = DB::connection('mysql_admin')
             ->table('accounts')
             ->where('correo_contacto', $email)
+            ->orWhere('email', $email)
+            ->orderByDesc('id')
             ->first();
 
         if (!$account) {
@@ -246,11 +265,11 @@ class VerificationController extends Controller
             return back()->with('ok', 'Ese correo ya está verificado. Continúa con tu teléfono.');
         }
 
-        $token = $this->createEmailVerificationToken($account->id, $email);
+        $token = $this->createEmailVerificationToken((int)$account->id, $email);
         $this->sendEmailVerification($email, $token, $this->adminDisplayName($account));
 
         session([
-            'verify.account_id' => $account->id,
+            'verify.account_id' => (int)$account->id,
             'verify.email'      => $email,
         ]);
 
@@ -516,7 +535,7 @@ class VerificationController extends Controller
 
     /* =========================================================
      * POST cliente.verify.phone.send
-     * Reenviar OTP al teléfono guardado (con envío dentro de generateAndStoreOtp)
+     * Reenviar OTP
      * ========================================================= */
     public function sendOtp(Request $request)
     {
@@ -566,15 +585,12 @@ class VerificationController extends Controller
 
         return redirect()
             ->route('cliente.verify.phone')
-            ->with(
-                'ok',
-                'Reenviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo.'
-            );
+            ->with('ok', 'Reenviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo.');
     }
 
     /* =========================================================
      * POST cliente.verify.phone.check
-     * Validar OTP, activar cuenta, enviar bienvenida y registrar auditoría
+     * Validar OTP, activar cuenta, etc.
      * ========================================================= */
     public function checkOtp(Request $request)
     {
@@ -624,7 +640,6 @@ class VerificationController extends Controller
         $dbCodeB = (string)($otpRow->otp  ?? '');
 
         if ($dbCodeA !== $inputCode && $dbCodeB !== $inputCode) {
-            // incrementar attempts
             DB::connection('mysql_admin')
                 ->table('phone_otps')
                 ->where('id', $otpRow->id)
@@ -668,6 +683,7 @@ class VerificationController extends Controller
         } catch (\Throwable $e) {
             Auth::shouldUse('web');
         }
+
         if (Auth::guard('admin')->check()) {
             Auth::guard('admin')->logout();
         }
@@ -777,7 +793,7 @@ class VerificationController extends Controller
 
         return redirect()
             ->route('cliente.home')
-            ->with('ok', '✅ Teléfono verificado correctamente. Tu cuenta ya fue activada.');
+            ->with('ok', 'Teléfono verificado correctamente. Tu cuenta ya fue activada.');
     }
 
     /* =========================================================
@@ -940,7 +956,9 @@ class VerificationController extends Controller
 
     private function sendEmailVerification(string $email, string $token, string $nombre): void
     {
+        // IMPORTANTE: este nombre debe existir en routes/cliente.php -> name('verify.email.token')
         $url = route('cliente.verify.email.token', ['token' => $token]);
+
         $data = [
             'nombre'     => $nombre,
             'actionUrl'  => $url,
@@ -961,11 +979,18 @@ class VerificationController extends Controller
         }
     }
 
+    /**
+     * Columna REAL de teléfono en mysql_admin.accounts.
+     */
     private function adminPhoneColumn(): string
     {
-        foreach (['telefono', 'phone'] as $c) {
-            if (Schema::connection('mysql_admin')->hasColumn('accounts', $c)) {
-                return $c;
+        foreach (['telefono', 'phone', 'tel', 'celular'] as $c) {
+            try {
+                if (Schema::connection('mysql_admin')->hasColumn('accounts', $c)) {
+                    return $c;
+                }
+            } catch (\Throwable $e) {
+                // ignore
             }
         }
         return 'telefono';
@@ -993,11 +1018,6 @@ class VerificationController extends Controller
 
         try {
             $normalizedChannel = ($channel === 'whatsapp') ? 'whatsapp' : 'sms';
-
-            // (Opcional) invalidar/expirar OTPs anteriores del mismo account
-            // DB::connection('mysql_admin')->table('phone_otps')
-            //   ->where('account_id', $accountId)
-            //   ->update(['expires_at' => $now->copy()->subMinute(), 'updated_at' => $now]);
 
             $row = [
                 'account_id' => $accountId,

@@ -2,195 +2,141 @@
 
 namespace App\Models\Cliente;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
+
 /**
  * Cuenta de cliente (DB: mysql_clientes.cuentas_cliente)
  *
- * Columnas presentes (según tu esquema):
- * - id (char36, PK) | codigo_cliente | customer_no (bigint unsigned)
- * - rfc_padre | razon_social | plan_actual (p.ej. BASIC/PRO)
- * - modo_cobro (p.ej. mensual/anual) | estado_cuenta (activa/bloqueada/…)
- * - espacio_asignado_mb (uint) | hits_asignados (uint)
- * - created_at | updated_at
+ * Tabla espejo `cuentas_cliente` (uuid PK):
+ * - id (char(36) / uuid, PK)
+ * - rfc_padre
+ * - admin_account_id (nullable)
+ * - razon_social, nombre_comercial, email, telefono
+ * - plan, plan_actual, modo_cobro, estado_cuenta
+ * - activo, is_blocked
+ * - espacio_asignado_mb, hits_asignados, max_usuarios, max_empresas
+ * - codigo_cliente, customer_no
+ * - next_invoice_date, billing_cycle
+ * - created_at, updated_at
+ *
+ * Nota:
+ * - La tabla legacy `clientes` puede seguir existiendo, pero ESTE modelo ya no la usa.
  */
 class CuentaCliente extends BaseClienteModel
 {
-    /** Conexión y tabla */
     protected $connection = 'mysql_clientes';
     protected $table      = 'cuentas_cliente';
 
-    /** PK uuid (char36) */
+    // PK UUID
     protected $primaryKey   = 'id';
     protected $keyType      = 'string';
     public    $incrementing = false;
 
-    /** Constantes de plan/estado */
-    public const PLAN_BASIC = 'BASIC'; // equivalente a FREE
     public const PLAN_FREE  = 'FREE';
+    public const PLAN_BASIC = 'BASIC';
     public const PLAN_PRO   = 'PRO';
 
+    public const STATUS_PENDIENTE      = 'pendiente';
     public const STATUS_ACTIVA         = 'activa';
     public const STATUS_BLOQUEADA      = 'bloqueada';
     public const STATUS_SUSPENDIDA     = 'suspendida';
     public const STATUS_PAGO_PENDIENTE = 'pago_pendiente';
     public const STATUS_BLOQUEADA_PAGO = 'bloqueada_pago';
 
-    /** Asignables (solo columnas reales) */
-    protected $fillable = [
-        'id',
-        'codigo_cliente',
-        'customer_no',      // 👈 asegúrate de incluirlo
-        'rfc_padre',
-        'razon_social',
-        'plan_actual',
-        'modo_cobro',
-        'estado_cuenta',
-        'admin_account_id',
-        'espacio_asignado_mb',
-        'hits_asignados',
-        'max_usuarios',
-        'max_empresas',
-    ];
+    /**
+     * En espejo hay variaciones por entorno; usamos guarded vacío para no bloquear inserts
+     * (ya que tu RegisterController hace set dinámico con cliHas()).
+     */
+    protected $guarded = [];
 
-
-    /** Casts */
     protected $casts = [
-        'customer_no'         => 'integer',
+        'activo'           => 'boolean',
+        'is_blocked'       => 'boolean',
+        'admin_account_id' => 'integer',
         'espacio_asignado_mb' => 'integer',
         'hits_asignados'      => 'integer',
+        'max_usuarios'        => 'integer',
+        'max_empresas'        => 'integer',
+        'customer_no'         => 'integer',
+        'next_invoice_date'   => 'date',
         'created_at'          => 'datetime',
         'updated_at'          => 'datetime',
     ];
 
-    /** Genera UUID al crear */
-    protected static function booted(): void
-    {
-        static::creating(function (self $m) {
-            if (empty($m->id)) {
-                $m->id = (string) Str::uuid();
-            }
-        });
-    }
-
-    /* ==========================
+    /* =========================
      | Relaciones
-     * ========================== */
+     * ========================= */
 
-    /** 1 cuenta → N usuarios */
     public function usuarios(): HasMany
     {
+        // usuarios_cuenta.cuenta_id (uuid char36) -> cuentas_cliente.id (uuid)
         return $this->hasMany(UsuarioCuenta::class, 'cuenta_id', 'id');
     }
 
-    /**
-     * Usuario owner (acepta sinónimos en rol/tipo):
-     * - owner | admin_owner | dueño | propietario | padre (histórico)
-     */
     public function owner(): HasOne
     {
         return $this->hasOne(UsuarioCuenta::class, 'cuenta_id', 'id')
             ->where(function ($q) {
-                $q->whereIn('rol',   ['owner', 'admin_owner', 'dueño', 'propietario'])
+                $q->whereIn('rol', ['owner', 'admin_owner', 'dueño', 'propietario'])
                   ->orWhereIn('tipo', ['owner', 'admin_owner', 'dueño', 'propietario', 'padre']);
             })
-            ->where('activo', 1)
-            ->orderBy('created_at');
+            ->orderByDesc('created_at');
     }
 
-    /* ==========================
-     | Scopes / Helpers de plan/estado
-     * ========================== */
+    /* =========================
+     | Normalización / compat mínima
+     * ========================= */
 
-    public function scopeActiva($q) { return $q->where('estado_cuenta', self::STATUS_ACTIVA); }
-    public function scopePro($q)    { return $q->whereIn('plan_actual', [self::PLAN_PRO]); }
-    public function scopeFree($q)   { return $q->whereIn('plan_actual', [self::PLAN_FREE, self::PLAN_BASIC]); }
+    public function getRfcPadreAttribute(): ?string
+    {
+        $val = $this->attributes['rfc_padre'] ?? null;
+        return $val ? Str::upper(trim((string) $val)) : null;
+    }
 
-    /** Plan helpers (BASIC se trata como FREE) */
+    public function setRfcPadreAttribute(?string $v): void
+    {
+        $this->attributes['rfc_padre'] = $v ? Str::upper(trim((string) $v)) : null;
+    }
+
+    public function getPlanActualAttribute(): ?string
+    {
+        $v = $this->attributes['plan_actual'] ?? ($this->attributes['plan'] ?? null);
+        return $v ? strtoupper((string) $v) : null;
+    }
+
+    public function getEstadoCuentaAttribute(): ?string
+    {
+        $v = $this->attributes['estado_cuenta'] ?? null;
+        return $v ? strtolower((string) $v) : null;
+    }
+
+    /* =========================
+     | Helpers
+     * ========================= */
+
     public function isFree(): bool
     {
-        $p = strtoupper((string) $this->plan_actual);
-        return in_array($p, [self::PLAN_FREE, self::PLAN_BASIC], true);
+        $p = strtoupper((string) ($this->plan_actual ?? $this->attributes['plan_actual'] ?? $this->attributes['plan'] ?? ''));
+        return in_array($p, [self::PLAN_FREE, self::PLAN_BASIC, 'BASICO'], true);
     }
 
     public function isPro(): bool
     {
-        return strtoupper((string) $this->plan_actual) === self::PLAN_PRO;
+        $p = strtoupper((string) ($this->plan_actual ?? $this->attributes['plan_actual'] ?? $this->attributes['plan'] ?? ''));
+        return $p === self::PLAN_PRO;
     }
 
-    public function isActiva(): bool
-    {
-        return (string) $this->estado_cuenta === self::STATUS_ACTIVA;
-    }
-
-    public function isPagoPendiente(): bool
-    {
-        return in_array((string) $this->estado_cuenta, [self::STATUS_PAGO_PENDIENTE, self::STATUS_BLOQUEADA_PAGO], true);
-    }
-
-    /** Label de plan amigable */
     public function getPlanLabelAttribute(): string
     {
         return $this->isPro() ? 'PRO' : 'FREE';
     }
 
-    /* ==========================
-     | Normalizadores
-     * ========================== */
-
-    public function setRfcPadreAttribute(?string $v): void
+    public function satCredenciales(): HasMany
     {
-        $this->attributes['rfc_padre'] = $v ? Str::upper(trim($v)) : null;
+        return $this->hasMany(SatCredential::class, 'cuenta_id', 'id');
     }
 
-    public function setRazonSocialAttribute(?string $v): void
-    {
-        $this->attributes['razon_social'] = $v ? trim($v) : null;
-    }
-
-    /**
-     * Normaliza plan:
-     *  - 'free', 'basic', 'basico' → BASIC (equivalente FREE)
-     *  - 'pro'                     → PRO
-     */
-    public function setPlanActualAttribute(?string $v): void
-    {
-        $v = $v ? Str::upper(trim($v)) : null;
-        if ($v && in_array($v, ['FREE', 'BASIC', 'BASICO'], true)) {
-            $v = self::PLAN_BASIC;
-        }
-        if ($v === 'PRO') {
-            $v = self::PLAN_PRO;
-        }
-        $this->attributes['plan_actual'] = $v;
-    }
-
-    public function setModoCobroAttribute(?string $v): void
-    {
-        $this->attributes['modo_cobro'] = $v ? Str::lower(trim($v)) : null;
-    }
-
-    /* ==========================
-     | Reglas simples
-     * ========================== */
-
-    /** ¿Tiene asignado al menos N MB? (no llevas espacio_usado_mb en esta tabla) */
-    public function hasStorageSpaceAssigned(int $mb): bool
-    {
-        return (int) ($this->espacio_asignado_mb ?? 0) >= max(0, $mb);
-    }
-
-    /** FREE: valida contra hits asignados; PRO: sin límite por esta tabla */
-    public function canUseTimbres(int $toUse = 1): bool
-    {
-        if ($this->isFree()) {
-            $asig = (int) ($this->hits_asignados ?? 0);
-            // Sin columna de "usados" aquí; se valida que la bolsa asignada alcance.
-            return $toUse <= $asig && $asig > 0;
-        }
-        return true;
-    }
 }

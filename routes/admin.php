@@ -20,6 +20,20 @@ use App\Http\Controllers\Admin\ReportesController;
 use App\Http\Controllers\Admin\ClientesController;
 use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Admin\Soporte\ResetClientePasswordController;
+use App\Http\Controllers\Admin\StripePriceController;
+
+// Billing suite (Admin)
+use App\Http\Controllers\Admin\Billing\PriceCatalogController;
+use App\Http\Controllers\Admin\Billing\AccountLicensesController;
+use App\Http\Controllers\Admin\Billing\PaymentsController;
+use App\Http\Controllers\Admin\Billing\InvoiceRequestsController;
+use App\Http\Controllers\Admin\Billing\AccountsController as AdminBillingAccounts;
+
+// ✅ Controller estados de cuenta (legacy)
+use App\Http\Controllers\Admin\Billing\BillingStatementsController;
+
+// ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
+use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
 |--------------------------------------------------------------------------
@@ -93,6 +107,7 @@ Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
 $uiLog = Route::match(['POST','GET'], 'ui/log', [UiController::class, 'log'])
     ->middleware($thrUiLog)
     ->name('ui.log');
+
 if ($isLocal) {
     $uiLog->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
 }
@@ -106,6 +121,7 @@ Route::middleware([
     'guest:admin',
     \App\Http\Middleware\AdminSessionConfig::class,
 ])->group(function () use ($isLocal, $thrLogin) {
+
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
 
     $loginPost = Route::post('login', [LoginController::class, 'login'])
@@ -130,9 +146,6 @@ Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::cl
 |--------------------------------------------------------------------------
 | Área autenticada ADMIN (auth:admin + sesión aislada)
 |--------------------------------------------------------------------------
-|
-| 'account.active' es middleware del CLIENTE. Aquí sólo 'auth:admin' y sesión aislada.
-|
 */
 Route::middleware([
     'auth:admin',
@@ -170,8 +183,9 @@ Route::middleware([
         ]);
     })->name('whoami');
 
-    /* ---------- Home & métricas dashboard admin ---------- */
+    /* ---------- Home ---------- */
     Route::get('home', [HomeController::class, 'index'])->name('home');
+
     Route::get('home/stats', [HomeController::class, 'stats'])
         ->middleware($thrHomeStats)
         ->name('home.stats');
@@ -217,8 +231,8 @@ Route::middleware([
     /* ---------- Utilidades generales admin ---------- */
     Route::get('search', [SearchController::class, 'index'])->name('search');
 
-    Route::get('notificaciones',        [NotificationController::class, 'index'])->name('notificaciones');
-    Route::get('notificaciones/list',   [NotificationController::class, 'list'])->name('notificaciones.list');
+    Route::get('notificaciones', [NotificationController::class, 'index'])->name('notificaciones');
+    Route::get('notificaciones/list', [NotificationController::class, 'list'])->name('notificaciones.list');
     Route::post('notificaciones/read-all', [NotificationController::class, 'readAll'])->name('notificaciones.readAll');
 
     Route::get('ui/diag', [UiController::class, 'diag'])
@@ -303,6 +317,31 @@ Route::middleware([
         Route::post('clientes/bulk', [ClientesController::class, 'bulk'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.bulk');
+
+        /*
+        |--------------------------------------------------------------------------
+        | ✅ NUEVO: Destinatarios / Sembrar Edo. Cuenta (periodo)
+        |--------------------------------------------------------------------------
+        */
+        if (method_exists(ClientesController::class, 'recipientsUpsert')) {
+            Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.recipientsUpsert');
+        }
+
+        // ✅ NUEVO: Enviar credenciales (usa account_recipients + accounts.email)
+        if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
+            Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.sendCredentials');
+        }
+
+        if (method_exists(ClientesController::class, 'seedStatement')) {
+            Route::post('clientes/{rfc}/seed-statement', [ClientesController::class, 'seedStatement'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.seedStatement');
+        }
+
     } else {
         Route::get('clientes', fn () =>
             response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200)
@@ -320,254 +359,6 @@ Route::middleware([
             Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
         });
 
-    /* ---------- EMPRESAS · PACTOPIA360 ---------- */
-    Route::prefix('empresas/pactopia360')->name('empresas.pactopia360.')->group(function () {
-
-        if (view()->exists('admin.empresas.pactopia360.dashboard')) {
-            Route::view('/', 'admin.empresas.pactopia360.dashboard')->name('dashboard');
-        } else {
-            Route::get('/', fn()=>admin_placeholder_view('Pactopia360 — Dashboard'));
-        }
-
-        Route::prefix('crm')->name('crm.')->group(function () {
-
-            Route::prefix('carritos')->name('carritos.')->group(function () {
-                Route::view('/', 'admin.empresas.pactopia360.crm.carritos.index')->name('index');
-                Route::view('/create', 'admin.empresas.pactopia360.crm.carritos.create')->name('create');
-                Route::view('/{id}', 'admin.empresas.pactopia360.crm.carritos.show')
-                    ->whereNumber('id')
-                    ->name('show');
-                Route::view('/{id}/edit', 'admin.empresas.pactopia360.crm.carritos.edit')
-                    ->whereNumber('id')
-                    ->name('edit');
-            });
-
-            Route::prefix('contactos')->name('contactos.')->group(function () {
-                Route::view('/', 'admin.empresas.pactopia360.crm.contactos.index')->name('index');
-                Route::view('/create', 'admin.empresas.pactopia360.crm.contactos.create')->name('create');
-                Route::view('/{id}/edit', 'admin.empresas.pactopia360.crm.contactos.edit')
-                    ->whereNumber('id')
-                    ->name('edit');
-            });
-
-            foreach ([
-                ['comunicaciones','Comunicaciones'],
-                ['correos','Correos'],
-                ['empresas','Empresas'],
-                ['contratos','Contratos'],
-                ['cotizaciones','Cotizaciones'],
-                ['facturas','Facturas'],
-                ['estados','Estados de cuenta'],
-                ['negocios','Negocios'],
-                ['notas','Notas'],
-                ['suscripciones','Suscripciones'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-
-        Route::prefix('cxp')->name('cxp.')->group(function () {
-            foreach ([
-                ['gastos','Gastos'],
-                ['proveedores','Proveedores'],
-                ['viaticos','Viáticos'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Cuentas por pagar · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-
-        Route::prefix('cxc')->name('cxc.')->group(function () {
-            foreach ([
-                ['ventas','Ventas'],
-                ['facturacion','Facturación y cobranza'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Cuentas por cobrar · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-
-        Route::prefix('conta')->name('conta.')->group(function () {
-            Route::get('robots', fn()=>admin_placeholder_view('Contabilidad · Robots','PACTOPIA 360'))
-                ->name('robots.index');
-        });
-
-        Route::prefix('nomina')->name('nomina.')->group(function () {
-            Route::get('robots', fn()=>admin_placeholder_view('Nómina · Robots','PACTOPIA 360'))
-                ->name('robots.index');
-        });
-
-        Route::prefix('facturacion')->name('facturacion.')->group(function () {
-            foreach ([
-                ['timbres','Timbres / HITS'],
-                ['cancel','Cancelaciones'],
-                ['resguardo','Resguardo 6 meses'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Facturación · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-
-        Route::prefix('docs')->name('docs.')->group(function () {
-            Route::get('/', fn()=>admin_placeholder_view('Documentación · Gestor / Plantillas','PACTOPIA 360'))
-                ->name('index');
-            Route::get('robots', fn()=>admin_placeholder_view('Documentación · Robots','PACTOPIA 360'))
-                ->name('robots.index');
-        });
-
-        Route::prefix('pv')->name('pv.')->group(function () {
-            foreach ([
-                ['cajas','Cajas'],
-                ['tickets','Tickets'],
-                ['arqueos','Arqueos'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Punto de venta · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-
-        Route::prefix('bancos')->name('bancos.')->group(function () {
-            foreach ([
-                ['cuentas','Cuentas'],
-                ['concilia','Conciliación'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Bancos · {$label}", 'PACTOPIA 360'))
-                    ->name("{$slug}.index");
-            }
-        });
-    });
-
-    /* ---------- EMPRESAS · PACTOPIA ---------- */
-    Route::prefix('empresas/pactopia')->name('empresas.pactopia.')->group(function () {
-
-        if (view()->exists('admin.empresas.pactopia.dashboard')) {
-            Route::view('/', 'admin.empresas.pactopia.dashboard')->name('dashboard');
-        } else {
-            Route::get('/', fn()=>admin_placeholder_view('Pactopia — Dashboard', 'Pactopia'));
-        }
-
-        Route::prefix('crm')->name('crm.')->group(function () {
-            foreach ([
-                ['contactos','Contactos'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'Pactopia'))
-                    ->name("{$slug}.index");
-            }
-        });
-    });
-
-    /* ---------- EMPRESAS · WARETEK MX ---------- */
-    Route::prefix('empresas/waretek-mx')->name('empresas.waretek-mx.')->group(function () use ($isLocal) {
-
-        if (view()->exists('admin.empresas.waretek-mx.dashboard')) {
-            Route::view('/', 'admin.empresas.waretek-mx.dashboard')->name('dashboard');
-        } else {
-            Route::get('/', fn()=>admin_placeholder_view('Waretek México — Dashboard', 'Waretek México'));
-        }
-
-        Route::prefix('crm')->name('crm.')->group(function () {
-            foreach ([
-                ['contactos','Contactos'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("CRM · {$label}", 'Waretek México'))
-                    ->name("{$slug}.index");
-            }
-        });
-    });
-
-    /* ---------- Administración interna (usuarios admin) ---------- */
-    Route::prefix('usuarios')->name('usuarios.')->group(function () {
-        Route::get('/', fn() => view()->exists('admin.usuarios.index')
-            ? view('admin.usuarios.index')
-            : admin_placeholder_view('Usuarios · Administrativos'))
-            ->name('index');
-
-        Route::get('robots', fn()=>admin_placeholder_view('Usuarios · Robots'))
-            ->name('robots.index');
-    });
-
-    /* ---------- Soporte (tickets, SLA, etc.) ---------- */
-    Route::prefix('soporte')->name('soporte.')->group(function () {
-        foreach ([
-            ['tickets','Tickets'],
-            ['sla','SLA / Asignación'],
-            ['comms','Comunicaciones'],
-            ['robots','Robots'],
-        ] as [$slug,$label]) {
-            Route::get($slug, fn()=>admin_placeholder_view("Soporte · {$label}"))
-                ->name("{$slug}.index");
-        }
-    });
-
-    /* ---------- Auditoría ---------- */
-    Route::prefix('auditoria')->name('auditoria.')->group(function () {
-        foreach ([
-            ['accesos','Logs de acceso'],
-            ['cambios','Bitácora cambios'],
-            ['integridad','Integridad'],
-            ['robots','Robots'],
-        ] as [$slug,$label]) {
-            Route::get($slug, fn()=>admin_placeholder_view("Auditoría · {$label}"))
-                ->name("{$slug}.index");
-        }
-    });
-
-    /* ---------- Config (submódulos internos) ---------- */
-    Route::prefix('config')->name('config.')->group(function () {
-
-        foreach ([
-            ['mantenimiento','Mantenimiento'],
-            ['limpieza','Optimización/Limpieza demo'],
-            ['backups','Backups / Restore'],
-            ['robots','Robots'],
-        ] as [$slug,$label]) {
-            Route::get($slug, fn()=>admin_placeholder_view("Plataforma · {$label}"))
-                ->name($slug);
-        }
-
-        Route::prefix('int')->name('int.')->group(function () {
-            foreach ([
-                ['pacs','PAC(s)'],
-                ['mail','Mailgun/MailerLite'],
-                ['api','API Keys / Webhooks'],
-                ['pay','Stripe / Conekta'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Integraciones · {$label}"))
-                    ->name($slug);
-            }
-        });
-
-        Route::prefix('param')->name('param.')->group(function () {
-            foreach ([
-                ['precios','Planes & Precios'],
-                ['cupones','Descuentos / Cupones'],
-                ['limites','Límites por plan'],
-                ['robots','Robots'],
-            ] as [$slug,$label]) {
-                Route::get($slug, fn()=>admin_placeholder_view("Parámetros · {$label}"))
-                    ->name($slug);
-            }
-        });
-    });
-
-    /* ---------- Reportes (subrutas específicas) ---------- */
-    Route::prefix('reportes')->name('reportes.')->group(function () {
-        foreach (['crm','cxp','cxc','conta','nomina','facturacion','descargas','robots'] as $slug) {
-            Route::get($slug, fn()=>admin_placeholder_view('Reportes · '.Str::headline($slug)))
-                ->name($slug);
-        }
-    });
-
     /* ---------- Logout admin ---------- */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
@@ -581,15 +372,15 @@ Route::middleware([
             ->middleware($thrDevPosts)
             ->name('resend_email');
 
-        $r2 = Route::post('send-otp',     [QaController::class,'sendOtp'])
+        $r2 = Route::post('send-otp', [QaController::class,'sendOtp'])
             ->middleware($thrDevPosts)
             ->name('send_otp');
 
-        $r3 = Route::post('force-email',  [QaController::class,'forceEmailVerified'])
+        $r3 = Route::post('force-email', [QaController::class,'forceEmailVerified'])
             ->middleware($thrDevPosts)
             ->name('force_email');
 
-        $r4 = Route::post('force-phone',  [QaController::class,'forcePhoneVerified'])
+        $r4 = Route::post('force-phone', [QaController::class,'forcePhoneVerified'])
             ->middleware($thrDevPosts)
             ->name('force_phone');
 
@@ -598,6 +389,149 @@ Route::middleware([
                 $route->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
             }
         }
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | BILLING (DEBE IR ANTES DEL FALLBACK)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('billing')->name('billing.')->group(function () {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Billing SaaS · Cuentas
+        |--------------------------------------------------------------------------
+        */
+        Route::get('accounts', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'index'])
+            ->name('accounts.index');
+
+        Route::get('accounts/{id}', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'show'])
+            ->where('id', '[A-Za-z0-9\-]+')
+            ->name('accounts.show');
+
+        Route::post('accounts/{id}/license', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateLicense'])
+            ->where('id', '[A-Za-z0-9\-]+')
+            ->name('accounts.license');
+
+        Route::post('accounts/{id}/override', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateOverride'])
+            ->where('id', '[A-Za-z0-9\-]+')
+            ->name('accounts.override');
+
+        Route::post('accounts/{id}/modules', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateModules'])
+            ->where('id', '[A-Za-z0-9\-]+')
+            ->name('accounts.modules');
+
+        Route::post('invoices/requests/{id}/email-ready', [InvoiceRequestsController::class, 'emailReady'])
+            ->whereNumber('id')
+            ->name('invoices.requests.email_ready');
+
+        /*
+        |--------------------------------------------------------------------------
+        | HUB · extras (preview / resend / save invoice)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
+            ->name('statements_hub.preview_email');
+
+        Route::post('statements-hub/emails/{id}/resend', [BillingStatementsHubController::class, 'resendEmail'])
+            ->whereNumber('id')
+            ->name('statements_hub.resend');
+
+        Route::post('statements-hub/invoices/save', [BillingStatementsHubController::class, 'saveInvoice'])
+            ->name('statements_hub.save_invoice');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Estados de cuenta (ADMIN) — BillingStatementsController (legacy)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('statements', [BillingStatementsController::class, 'index'])
+            ->name('statements.index');
+
+        Route::get('statements/{accountId}/{period}', [BillingStatementsController::class, 'show'])
+            ->where([
+                'accountId' => '[A-Za-z0-9\-]+',
+                'period'    => '\d{4}-(0[1-9]|1[0-2])',
+            ])
+            ->name('statements.show');
+
+        Route::post('statements/{accountId}/{period}/items', [BillingStatementsController::class, 'addItem'])
+            ->where([
+                'accountId' => '[A-Za-z0-9\-]+',
+                'period'    => '\d{4}-(0[1-9]|1[0-2])',
+            ])
+            ->name('statements.items.add');
+
+        Route::get('statements/{accountId}/{period}/pdf', [BillingStatementsController::class, 'pdf'])
+            ->where([
+                'accountId' => '[A-Za-z0-9\-]+',
+                'period'    => '\d{4}-(0[1-9]|1[0-2])',
+            ])
+            ->name('statements.pdf');
+
+        Route::post('statements/{accountId}/{period}/email', [BillingStatementsController::class, 'email'])
+            ->where([
+                'accountId' => '[A-Za-z0-9\-]+',
+                'period'    => '\d{4}-(0[1-9]|1[0-2])',
+            ])
+            ->name('statements.email');
+
+        /*
+        |--------------------------------------------------------------------------
+        | HUB ADMIN · Estados de cuenta + Pagos + Correos + Facturas + Programación
+        |--------------------------------------------------------------------------
+        */
+        Route::get('statements-hub', [BillingStatementsHubController::class, 'index'])
+            ->name('statements_hub.index');
+
+        Route::post('statements-hub/send-email', [BillingStatementsHubController::class, 'sendEmail'])
+            ->name('statements_hub.send_email');
+
+        Route::post('statements-hub/create-pay-link', [BillingStatementsHubController::class, 'createPayLink'])
+            ->name('statements_hub.create_pay_link');
+
+        Route::post('statements-hub/invoice-request', [BillingStatementsHubController::class, 'invoiceRequest'])
+            ->name('statements_hub.invoice_request');
+
+        Route::post('statements-hub/invoice-status', [BillingStatementsHubController::class, 'invoiceStatus'])
+            ->name('statements_hub.invoice_status');
+
+        Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
+            ->name('statements_hub.schedule');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Suite existente (si la sigues usando)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('prices', [PriceCatalogController::class, 'index'])->name('prices.index');
+        Route::get('prices/{id}/edit', [PriceCatalogController::class, 'edit'])->whereNumber('id')->name('prices.edit');
+        Route::put('prices/{id}', [PriceCatalogController::class, 'update'])->whereNumber('id')->name('prices.update');
+        Route::post('prices/{id}/toggle', [PriceCatalogController::class, 'toggle'])->whereNumber('id')->name('prices.toggle');
+
+        Route::get('licenses', [AccountLicensesController::class, 'index'])->name('licenses.index');
+        Route::get('licenses/{accountId}', [AccountLicensesController::class, 'show'])->whereNumber('accountId')->name('licenses.show');
+
+        Route::post('licenses/{accountId}/assign-price', [AccountLicensesController::class, 'assignPrice'])
+            ->whereNumber('accountId')->name('licenses.assignPrice');
+
+        Route::post('licenses/{accountId}/modules', [AccountLicensesController::class, 'saveModules'])
+            ->whereNumber('accountId')->name('licenses.modules.save');
+
+        Route::post('licenses/{accountId}/email/license', [AccountLicensesController::class, 'emailLicenseSummary'])
+            ->whereNumber('accountId')->name('licenses.email.license');
+
+        Route::get('payments', [PaymentsController::class, 'index'])->name('payments.index');
+        Route::post('payments/manual', [PaymentsController::class, 'manual'])->name('payments.manual');
+        Route::post('payments/{id}/email', [PaymentsController::class, 'emailReceipt'])
+            ->whereNumber('id')->name('payments.email');
+
+        Route::get('invoices/requests', [InvoiceRequestsController::class, 'index'])->name('invoices.requests.index');
+        Route::post('invoices/requests/{id}/status', [InvoiceRequestsController::class, 'setStatus'])
+            ->whereNumber('id')->name('invoices.requests.status');
+        Route::post('invoices/requests/{id}/email', [InvoiceRequestsController::class, 'email'])
+            ->whereNumber('id')->name('invoices.requests.email');
     });
 
     /* ---------- Fallback interno admin ---------- */

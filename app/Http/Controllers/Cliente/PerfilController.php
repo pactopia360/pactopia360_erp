@@ -51,6 +51,16 @@ class PerfilController extends Controller
      |                       Pantalla Perfil
      |=========================================================*/
 
+    /**
+     * IMPORTANTE:
+     * Tu ruta apunta a PerfilController@index, así que index() debe existir.
+     * Aquí lo hacemos alias de show() para no romper nada.
+     */
+    public function index(): View
+    {
+        return $this->show();
+    }
+
     public function show(): View
     {
         $user   = Auth::guard('web')->user();
@@ -237,202 +247,7 @@ class PerfilController extends Controller
     }
 
     /* =========================================================
-     |               Endpoints opcionales (Empresas)
-     |=========================================================*/
-
-    public function storeEmisor(Request $r): RedirectResponse
-    {
-        $user   = Auth::guard('web')->user();
-        $cuenta = $user?->cuenta;
-
-        $data = $r->validate([
-            'rfc'               => 'required|string|max:13',
-            'email'             => 'required|email|max:190',
-            'razon_social'      => 'required|string|max:190',
-            'nombre_comercial'  => 'nullable|string|max:190',
-            'regimen_fiscal'    => 'required|string|max:10',
-            'grupo'             => 'nullable|string|max:60',
-
-            'direccion.cp'         => 'required|string|max:10',
-            'direccion.direccion'  => 'nullable|string|max:250',
-            'direccion.ciudad'     => 'nullable|string|max:120',
-            'direccion.estado'     => 'nullable|string|max:120',
-
-            'certificados.csd_cer'     => 'nullable|string',
-            'certificados.csd_key'     => 'nullable|string',
-            'certificados.csd_password'=> 'nullable|string|max:120',
-            'certificados.fiel_cer'    => 'nullable|string',
-            'certificados.fiel_key'    => 'nullable|string',
-            'certificados.fiel_password'=> 'nullable|string|max:120',
-
-            'series_json'        => 'nullable|string',
-        ]);
-
-        $conn = $this->pickConn('emisores','mysql_clientes');
-        if (!$this->tableExists('emisores', $conn)) {
-            return back()->with('err','No existe la tabla de emisores en la conexión esperada.');
-        }
-
-        $insert = [
-            'rfc'          => $data['rfc'],
-            'razon_social' => $data['razon_social'],
-        ];
-
-        $map = [
-            'email'            => 'email',
-            'nombre_comercial' => 'nombre_comercial',
-            'regimen_fiscal'   => 'regimen_fiscal',
-            'grupo'            => 'grupo',
-        ];
-        foreach ($map as $in => $col) {
-            if (isset($data[$in]) && $this->hasCol('emisores',$col,$conn)) {
-                $insert[$col] = $data[$in];
-            }
-        }
-
-        if ($cuenta && $this->hasCol('emisores','cuenta_id',$conn)) {
-            $insert['cuenta_id'] = $cuenta->id;
-        }
-
-        if ($this->hasCol('emisores','direccion_json',$conn)) {
-            $insert['direccion_json'] = json_encode($data['direccion'] ?? [], JSON_UNESCAPED_UNICODE);
-        } else {
-            foreach (['cp','direccion','ciudad','estado'] as $k) {
-                $col = 'dir_'.$k;
-                if (isset($data['direccion'][$k]) && $this->hasCol('emisores',$col,$conn)) {
-                    $insert[$col] = $data['direccion'][$k];
-                }
-            }
-        }
-        if ($this->hasCol('emisores','certificados_json',$conn)) {
-            $insert['certificados_json'] = json_encode($data['certificados'] ?? [], JSON_UNESCAPED_UNICODE);
-        }
-        if ($this->hasCol('emisores','series_json',$conn)) {
-            $insert['series_json'] = $data['series_json'] ?? '[]';
-        }
-
-        $id = DB::connection($conn)->table('emisores')->insertGetId($insert);
-
-        return redirect()->route('cliente.perfil')->with('ok', 'Emisor creado (#'.$id.')');
-    }
-
-    public function uploadEmisorLogo(Request $r, int $id): RedirectResponse
-    {
-        $r->validate([
-            'logo' => 'required|file|mimes:png,jpg,jpeg,webp|max:2048',
-        ]);
-
-        $conn = $this->pickConn('emisores','mysql_clientes');
-        if (!$this->tableExists('emisores',$conn)) {
-            return back()->with('err','Tabla emisores no existe.');
-        }
-
-        $emisor = DB::connection($conn)->table('emisores')->where('id',$id)->first(['id']);
-        if (!$emisor) return back()->with('err','Emisor no encontrado.');
-
-        $ext  = $r->file('logo')->getClientOriginalExtension();
-        $path = "emisores/{$id}/logo.".$ext;
-        Storage::disk('public')->put($path, file_get_contents($r->file('logo')->getRealPath()));
-
-        if ($this->hasCol('emisores','logo_path',$conn)) {
-            DB::connection($conn)->table('emisores')->where('id',$id)->update(['logo_path'=>$path]);
-        }
-
-        return back()->with('ok','Logo actualizado.');
-    }
-
-    public function importEmisores(Request $r): RedirectResponse
-    {
-        $user   = Auth::guard('web')->user();
-        $cuenta = $user?->cuenta;
-        $plan   = strtoupper($cuenta->plan_actual ?? 'FREE');
-        if ($plan !== 'PRO') {
-            return back()->with('err','La importación masiva es para plan PRO.');
-        }
-
-        $r->validate([
-            'file' => 'required|file|mimes:csv,txt,json|max:10240',
-        ]);
-
-        $conn = $this->pickConn('emisores','mysql_clientes');
-        if (!$this->tableExists('emisores',$conn)) {
-            return back()->with('err','No existe tabla emisores en la conexión.');
-        }
-
-        $path = $r->file('file')->getRealPath();
-        $ext  = strtolower($r->file('file')->getClientOriginalExtension());
-
-        $rows = collect();
-        if ($ext === 'json') {
-            $json = json_decode(file_get_contents($path), true);
-            if (is_array($json)) $rows = collect($json);
-        } else {
-            $fh = fopen($path,'r');
-            if ($fh) {
-                $headers = [];
-                while (($line = fgetcsv($fh, 0, ',')) !== false) {
-                    if (empty($headers)) { $headers = $line; continue; }
-                    $rows->push(array_combine($headers, $line));
-                }
-                fclose($fh);
-            }
-        }
-
-        $insCount = 0;
-        DB::connection($conn)->beginTransaction();
-        try {
-            foreach ($rows as $row) {
-                if (!isset($row['rfc']) || !isset($row['razon_social'])) continue;
-
-                $insert = [
-                    'rfc'          => trim((string)$row['rfc']),
-                    'razon_social' => trim((string)$row['razon_social']),
-                ];
-                foreach (['email','nombre_comercial','regimen_fiscal','grupo'] as $k) {
-                    if (isset($row[$k]) && $this->hasCol('emisores',$k,$conn)) {
-                        $insert[$k] = trim((string)$row[$k]);
-                    }
-                }
-                if ($cuenta && $this->hasCol('emisores','cuenta_id',$conn)) {
-                    $insert['cuenta_id'] = $cuenta->id;
-                }
-
-                $addr = [
-                    'cp'        => (string)($row['cp'] ?? ''),
-                    'direccion' => (string)($row['direccion'] ?? ''),
-                    'ciudad'    => (string)($row['ciudad'] ?? ''),
-                    'estado'    => (string)($row['estado'] ?? ''),
-                ];
-                if ($this->hasCol('emisores','direccion_json',$conn)) {
-                    $insert['direccion_json'] = json_encode($addr, JSON_UNESCAPED_UNICODE);
-                }
-
-                $certs = [];
-                foreach (['csd_cer','csd_key','csd_password','fiel_cer','fiel_key','fiel_password'] as $k) {
-                    if (isset($row[$k])) $certs[$k] = (string)$row[$k];
-                }
-                if ($this->hasCol('emisores','certificados_json',$conn)) {
-                    $insert['certificados_json'] = json_encode($certs, JSON_UNESCAPED_UNICODE);
-                }
-
-                if ($this->hasCol('emisores','series_json',$conn)) {
-                    $insert['series_json'] = isset($row['series_json']) ? (string)$row['series_json'] : '[]';
-                }
-
-                DB::connection($conn)->table('emisores')->insert($insert);
-                $insCount++;
-            }
-            DB::connection($conn)->commit();
-        } catch (\Throwable $e) {
-            DB::connection($conn)->rollBack();
-            return back()->with('err','Error al importar: '.$e->getMessage());
-        }
-
-        return back()->with('ok', "Importación completada: {$insCount} emisores.");
-    }
-
-    /* =========================================================
-     |                         Helpers varios
+     |                       Helpers varios
      |=========================================================*/
 
     protected function firstExisting(string $conn, array $tables): ?string
@@ -599,28 +414,6 @@ class PerfilController extends Controller
         ];
     }
 
-    /**
-     * Sube y actualiza la foto de perfil del usuario.
-     */
-    public function uploadAvatar(Request $request): RedirectResponse
-    {
-        $user = auth('web')->user();
-        if (!$user) {
-            abort(403, 'Usuario no autenticado');
-        }
-
-        $request->validate([
-            'avatar' => ['required', 'image', 'max:2048'],
-        ]);
-
-        $path = $request->file('avatar')->store('avatars', 'public');
-
-        $user->avatar_url = '/storage/'.$path;
-        $user->save();
-
-        return back()->with('ok', 'Foto de perfil actualizada correctamente.');
-    }
-
     /* =========================================================
      |             NUEVO: actualizar contraseña y teléfono
      |=========================================================*/
@@ -628,9 +421,7 @@ class PerfilController extends Controller
     public function updatePassword(Request $request): RedirectResponse
     {
         $user = auth('web')->user();
-        if (!$user) {
-            abort(403, 'Usuario no autenticado');
-        }
+        if (!$user) abort(403, 'Usuario no autenticado');
 
         $data = $request->validate([
             'current_password'      => ['required', 'string', 'min:6'],
@@ -674,9 +465,7 @@ class PerfilController extends Controller
     public function updatePhone(Request $request): RedirectResponse
     {
         $user = auth('web')->user();
-        if (!$user) {
-            abort(403, 'Usuario no autenticado');
-        }
+        if (!$user) abort(403, 'Usuario no autenticado');
 
         $data = $request->validate([
             'phone' => ['required', 'string', 'max:25'],
@@ -685,19 +474,15 @@ class PerfilController extends Controller
         $connName = $user->getConnectionName() ?: 'mysql_clientes';
         $table    = $user->getTable();
 
-        if ($this->hasCol($table, 'telefono', $connName)) {
-            $user->telefono = $data['phone'];
-        }
-        if ($this->hasCol($table, 'phone', $connName)) {
-            $user->phone = $data['phone'];
-        }
+        if ($this->hasCol($table, 'telefono', $connName)) $user->telefono = $data['phone'];
+        if ($this->hasCol($table, 'phone', $connName))    $user->phone    = $data['phone'];
 
         $user->save();
 
         return back()->with('ok', 'Teléfono actualizado correctamente.');
     }
 
-    public function settings()
+    public function settings(): View
     {
         $user   = auth('web')->user();
         $cuenta = $user?->cuenta;
@@ -707,7 +492,4 @@ class PerfilController extends Controller
             'cuenta' => $cuenta,
         ]);
     }
-
-
-
 }

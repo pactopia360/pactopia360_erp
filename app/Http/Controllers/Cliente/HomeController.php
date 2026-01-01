@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class HomeController extends Controller
@@ -25,8 +26,12 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
+        if (is_array($cuenta)) {
+            $cuenta = (object)$cuenta;
+        }
+
         // Plan / saldo / timbres (valores seguros)
-        $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));  // FREE|PRO|...
+        $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
         $planKey = strtolower($plan);
         $timbres = (int) ($cuenta->timbres_disponibles ?? ($plan === 'FREE' ? 10 : 0));
         $saldo   = (float) ($cuenta->saldo_mxn ?? 0.0);
@@ -39,7 +44,7 @@ class HomeController extends Controller
         // Período: mes corriente
         [$from, $to] = $this->resolveMonthRange(null);
 
-        // ===== Base de consulta (scoped por cuenta si aplica) =====
+        // ===== Defaults REALES (cero) =====
         $recent     = collect();
         $kpis       = [
             'total'      => 0.0,
@@ -57,7 +62,9 @@ class HomeController extends Controller
                 'bar_q'            => [0, 0, 0, 0],
             ],
         ];
-        $usedDemo   = false;
+
+        // Importante: DEMO ya NO es automático.
+        $usedDemo = false;
 
         if ($this->canQueryCfdi()) {
             try {
@@ -72,7 +79,7 @@ class HomeController extends Controller
                     $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
                 }
 
-                // Últimos CFDI (no críticos)
+                // Últimos CFDI
                 $recent = (clone $base)
                     ->orderByDesc('fecha')
                     ->limit(8)
@@ -82,18 +89,16 @@ class HomeController extends Controller
                 $kpis   = $this->calcKpisFor(clone $base, $from, $to);
                 $series = $this->buildSeriesFor(clone $base, $from, $to);
 
-                // ¿Hay datos reales?
+                // DEMO solo si está explícitamente habilitado
                 $hasRealSeries = !empty($series['series']['emitidos_total']);
-
-                // Fallback DEMO solo en local: si no hay datos reales
                 if ($this->isDemoMode() && !$hasRealSeries) {
                     [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-                    $kpis     = $kpis['total'] > 0 ? $kpis : $demoKpis;
+                    $kpis     = ($kpis['total'] > 0) ? $kpis : $demoKpis;
                     $series   = $demoSeries;
                     $usedDemo = true;
                 }
             } catch (\Throwable $e) {
-                // Si algo truena en la BD, no reventamos el home: usamos DEMO en local
+                // No reventar el home por temas de BD
                 if ($this->isDemoMode()) {
                     [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
                     $kpis     = $demoKpis;
@@ -103,7 +108,7 @@ class HomeController extends Controller
                 }
             }
         } else {
-            // No existe tabla/estructura de cfdis: usar DEMO (solo entornos locales)
+            // Sin tabla cfdis: cero real. (DEMO solo si está explícitamente habilitado)
             if ($this->isDemoMode()) {
                 [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
                 $kpis     = $demoKpis;
@@ -120,12 +125,6 @@ class HomeController extends Controller
             fn() => $this->buildAccountSummary()
         );
 
-        $pricing = [
-            'monthly' => (float) config('services.stripe.display_price_monthly', 990.00),
-            'annual'  => (float) config('services.stripe.display_price_annual', 9990.00),
-        ];
-
-        // dataSource para la vista (db|demo) y flag de entorno
         $dataSource = $usedDemo ? 'demo' : 'db';
 
         return view('cliente.home', compact(
@@ -138,7 +137,6 @@ class HomeController extends Controller
             'kpis',
             'series',
             'summary',
-            'pricing',
             'dataSource',
             'isLocal'
         ));
@@ -152,8 +150,11 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
-        // Aseguramos que lo que mandamos sea ?string (string o null)
-        $monthRaw = $request->input('month'); // viene del query o body
+        if (is_array($cuenta)) {
+            $cuenta = (object)$cuenta;
+        }
+
+        $monthRaw = $request->input('month');
         $month    = is_string($monthRaw) ? $monthRaw : null;
 
         [$from, $to] = $this->resolveMonthRange($month);
@@ -214,7 +215,6 @@ class HomeController extends Controller
         ]);
     }
 
-
     /**
      * Series (JSON). Devuelve 'source' y 'row_count'.
      */
@@ -223,10 +223,13 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
+        if (is_array($cuenta)) {
+            $cuenta = (object)$cuenta;
+        }
+
         $monthRaw = $request->input('month');
         $month    = is_string($monthRaw) ? $monthRaw : null;
         [$from, $to] = $this->resolveMonthRange($month);
-
 
         $payload = [
             'labels'    => [],
@@ -329,6 +332,10 @@ class HomeController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
+        if (is_array($cuenta)) {
+            $cuenta = (object)$cuenta;
+        }
+
         [$from, $to] = $this->resolveMonthRange($request->string('month'));
 
         $k      = [
@@ -367,7 +374,7 @@ class HomeController extends Controller
 
                 if ($this->isDemoMode() && empty($s['series']['emitidos_total'])) {
                     [$dk, $ds] = $this->buildDemoData($from, $to);
-                    $k      = $k['total'] > 0 ? $k : $dk;
+                    $k      = ($k['total'] > 0) ? $k : $dk;
                     $s      = $ds;
                     $source = 'demo';
                 }
@@ -391,6 +398,30 @@ class HomeController extends Controller
             'kpis'    => $k,
             'series'  => $s,
             'source'  => $source,
+        ]);
+    }
+
+    /**
+     * Sincroniza el modo DEMO del front (localStorage/query) hacia sesión.
+     * - Solo permitido en local/dev/testing.
+     * - Requiere auth:web.
+     */
+    public function setDemoMode(Request $request): JsonResponse
+    {
+        if (!app()->environment(['local', 'development', 'testing'])) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'DEMO mode is disabled in this environment.',
+            ], 403);
+        }
+
+        $on = filter_var($request->input('demo', false), FILTER_VALIDATE_BOOLEAN);
+
+        $request->session()->put('p360_demo_mode', $on);
+
+        return response()->json([
+            'ok'   => true,
+            'demo' => (bool) $request->session()->get('p360_demo_mode', false),
         ]);
     }
 
@@ -442,8 +473,8 @@ class HomeController extends Controller
         return [
             'labels' => $labels,
             'series' => [
-                'emitidos_total'   => $vals, // legacy / compat
-                'line_facturacion' => $vals, // nuevo nombre
+                'emitidos_total'   => $vals,
+                'line_facturacion' => $vals,
             ],
         ];
     }
@@ -484,18 +515,23 @@ class HomeController extends Controller
 
     private function canQueryCfdi(): bool
     {
-        // Si no existe tabla de cfdis, no intentamos consultar
         $table = (new Cfdi)->getTable();
         return $this->hasTable('mysql_clientes', $table);
     }
 
     /**
      * Resumen de cuenta.
+     * ✅ Incluye billing (base/override/effective) gobernado por Admin.
      */
     public function buildAccountSummary(): array
     {
         $u      = Auth::guard('web')->user();
         $cuenta = $u?->cuenta;
+
+        if (is_array($cuenta)) {
+            $cuenta = (object)$cuenta;
+        }
+
         $admConn = 'mysql_admin';
 
         $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
@@ -524,6 +560,12 @@ class HomeController extends Controller
                 'email',
                 'email_verified_at',
                 'phone_verified_at',
+                'meta',
+
+                // columnas posibles de pricing en accounts (por si existen)
+                'billing_amount_mxn','amount_mxn','precio_mxn','monto_mxn',
+                'override_amount_mxn','custom_amount_mxn','license_amount_mxn',
+                'billing_amount','amount','precio','monto',
             ] as $c) {
                 if ($this->hasCol($admConn, 'accounts', $c)) {
                     $cols[] = $c;
@@ -532,6 +574,9 @@ class HomeController extends Controller
             $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id', $adminId)->first();
         }
 
+        // ===========================
+        // Balance (tu lógica existente)
+        // ===========================
         $balance = $saldoMx;
         if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
             $linkCol = null;
@@ -577,6 +622,9 @@ class HomeController extends Controller
             }
         }
 
+        // ===========================
+        // Espacio (tu lógica existente)
+        // ===========================
         $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
         $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
         $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed / $spaceTotal) * 100, 1)) : 0;
@@ -585,6 +633,20 @@ class HomeController extends Controller
         $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
         $estado = $acc->estado_cuenta ?? ($cuenta->estado_cuenta ?? null);
         $blocked = (bool) (($acc->is_blocked ?? 0) || ($cuenta->is_blocked ?? 0));
+
+        // ===========================
+        // ✅ BILLING: precio vigente gobernado por Admin
+        // ===========================
+        $periodNow = now()->format('Y-m');
+
+        $meta = $this->decodeMeta($acc->meta ?? null);
+
+        $lastPaid = $this->resolveLastPaidPeriodForAdminAccount((int)($acc->id ?? 0), $meta, $admConn);
+        $payAllowed = $lastPaid
+            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+            : $periodNow;
+
+        $pricing = $this->resolveEffectiveMonthlyAmountFromAdmin($acc, $meta, $periodNow, $payAllowed);
 
         return [
             'razon'        => (string) ($acc->razon_social ?? $razon),
@@ -600,6 +662,12 @@ class HomeController extends Controller
             'space_pct'    => $spacePct,
             'timbres'      => $timbres,
             'admin_id'     => $adminId,
+
+            // ✅ compat / consumo directo en UI
+            'billing'      => $pricing,
+            'amount_mxn'   => (float)($pricing['effective_amount_mxn'] ?? 0), // fallback simple
+            'last_paid'    => $lastPaid,
+            'pay_allowed'  => $payAllowed,
         ];
     }
 
@@ -618,12 +686,19 @@ class HomeController extends Controller
     }
 
     /**
-     * DEMO solo en entornos locales/desarrollo/testing.
-     * En producción siempre retorna false.
+     * DEMO solo si:
+     * - Estás en local/dev/testing
+     * - Y el usuario lo habilitó explícitamente en sesión.
+     *
+     * NOTA: Con esto, una cuenta nueva SIEMPRE verá ceros reales.
      */
     private function isDemoMode(): bool
     {
-        return app()->environment(['local', 'development', 'testing']);
+        if (!app()->environment(['local', 'development', 'testing'])) {
+            return false;
+        }
+
+        return (bool) session('p360_demo_mode', false);
     }
 
     /**
@@ -634,7 +709,6 @@ class HomeController extends Controller
         $start = Carbon::parse($from)->startOfMonth();
         $end   = Carbon::parse($to)->endOfMonth();
 
-        // Semilla estable por usuario+mes
         $seed = crc32((string) (Auth::id() ?? 0) . '|' . $start->format('Y-m'));
         mt_srand($seed);
 
@@ -646,20 +720,16 @@ class HomeController extends Controller
         while ($day->lte($end)) {
             $labels[] = $day->format('Y-m-d');
 
-            // Base entre 3,000 y 18,000 al día con variación ondulante
             $base = 3000 + mt_rand(0, 15000);
             $wave = 1 + 0.25 * sin(($day->dayOfYear / 58) * 3.14159);
             $val  = round($base * $wave, 2);
 
             $emit[] = $val;
-
-            // Cancelados ~1.5% promedio
             $canc[] = round($val * (mt_rand(5, 30) / 1000), 2);
 
             $day->addDay();
         }
 
-        // Barras por cuartiles
         $q = [0, 0, 0, 0];
         foreach ($labels as $i => $d) {
             $dayNum = (int) substr($d, 8, 2);
@@ -668,14 +738,13 @@ class HomeController extends Controller
         }
         $barQ = array_map(fn ($v) => round($v, 2), $q);
 
-        // Totales demo
         $sumEmit = array_sum($emit);
         $sumCanc = array_sum($canc);
         $kpis = [
             'total'      => round($sumEmit, 2),
             'emitidos'   => round($sumEmit, 2),
             'cancelados' => round($sumCanc, 2),
-            'delta'      => mt_rand(-12, 18), // +/- variación
+            'delta'      => mt_rand(-12, 18),
             'period'     => ['from' => $from, 'to' => $to],
         ];
 
@@ -685,10 +754,187 @@ class HomeController extends Controller
                 'line_facturacion' => $emit,
                 'line_cancelados'  => $canc,
                 'bar_q'            => $barQ,
-                'emitidos_total'   => $emit, // compat
+                'emitidos_total'   => $emit,
             ],
         ];
 
         return [$kpis, $series];
+    }
+
+    // ===========================
+    // ✅ Billing helpers (Admin -> Cliente)
+    // ===========================
+
+    private function decodeMeta($meta): array
+    {
+        if (is_array($meta)) return $meta;
+        if (is_object($meta)) return (array) $meta;
+
+        if (is_string($meta) && trim($meta) !== '') {
+            $decoded = json_decode($meta, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) return $decoded;
+        }
+        return [];
+    }
+
+    private function toFloat(mixed $v): ?float
+    {
+        if ($v === null) return null;
+        if (is_float($v) || is_int($v)) return (float)$v;
+
+        if (is_string($v)) {
+            $s = trim($v);
+            if ($s === '') return null;
+            $s = str_replace(['$',',','MXN','mxn',' '], '', $s);
+            if (!is_numeric($s)) return null;
+            return (float)$s;
+        }
+
+        if (is_numeric($v)) return (float)$v;
+        return null;
+    }
+
+    private function resolveLastPaidPeriodForAdminAccount(int $adminAccountId, array $meta, string $admConn): ?string
+    {
+        if ($adminAccountId <= 0) return null;
+
+        // 1) meta
+        foreach ([
+            data_get($meta, 'stripe.last_paid_at'),
+            data_get($meta, 'stripe.lastPaidAt'),
+            data_get($meta, 'billing.last_paid_at'),
+            data_get($meta, 'billing.lastPaidAt'),
+            data_get($meta, 'last_paid_at'),
+            data_get($meta, 'lastPaidAt'),
+        ] as $v) {
+            $p = $this->parseToPeriod($v);
+            if ($p) return $p;
+        }
+
+        // 2) payments (paid/succeeded) si existe
+        if (Schema::connection($admConn)->hasTable('payments')) {
+            try {
+                $cols = Schema::connection($admConn)->getColumnListing('payments');
+                $lc   = array_map('strtolower', $cols);
+                $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+                if ($has('account_id') && $has('status') && $has('period')) {
+                    $q = DB::connection($admConn)->table('payments')
+                        ->where('account_id', $adminAccountId)
+                        ->whereIn('status', ['paid','succeeded','success','completed','complete','captured','authorized']);
+
+                    $order = $has('paid_at') ? 'paid_at' : ($has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]));
+                    $row = $q->orderByDesc($order)->first(['period']);
+
+                    if ($row && !empty($row->period) && $this->isValidPeriod((string)$row->period)) {
+                        return (string)$row->period;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveEffectiveMonthlyAmountFromAdmin(object $acc, array $meta, string $period, string $payAllowed): array
+    {
+        $billing = (array)($meta['billing'] ?? []);
+
+        // Base (prioridad: meta.billing.amount_mxn -> columnas -> 0)
+        $base = $this->toFloat($billing['amount_mxn'] ?? ($billing['amount'] ?? null));
+
+        if ($base === null || $base <= 0) {
+            foreach ([
+                'billing_amount_mxn','amount_mxn','precio_mxn','monto_mxn','license_amount_mxn',
+                'billing_amount','amount','precio','monto',
+            ] as $prop) {
+                if (isset($acc->{$prop})) {
+                    $n = $this->toFloat($acc->{$prop});
+                    if ($n !== null && $n > 0) { $base = $n; break; }
+                }
+            }
+        }
+        $base = (float)($base ?? 0.0);
+
+        // Override (prioridad: meta.billing.override.amount_mxn -> meta.billing.override_amount_mxn -> columnas override/custom)
+        $ov = (array)($billing['override'] ?? []);
+        $override = $this->toFloat($ov['amount_mxn'] ?? ($billing['override_amount_mxn'] ?? null)) ?? 0.0;
+
+        if ($override <= 0) {
+            foreach (['override_amount_mxn','custom_amount_mxn'] as $prop) {
+                if (isset($acc->{$prop})) {
+                    $n = $this->toFloat($acc->{$prop});
+                    if ($n !== null && $n > 0) { $override = $n; break; }
+                }
+            }
+        }
+
+        $eff = strtolower(trim((string)($ov['effective'] ?? ($billing['override_effective'] ?? ''))));
+        if (!in_array($eff, ['now','next'], true)) $eff = '';
+
+        $apply = false;
+        if ($override > 0) {
+            if ($eff === 'now') {
+                $apply = true;
+            } elseif ($eff === 'next') {
+                // aplica desde payAllowed en adelante
+                $apply = ($payAllowed !== '' && $this->isValidPeriod($payAllowed) && $period >= $payAllowed);
+            }
+        }
+
+        $effective = $apply ? (float)$override : (float)$base;
+
+        $label = $apply ? 'Tarifa ajustada' : 'Tarifa base';
+        $pillText = $apply
+            ? (($eff === 'next') ? 'Ajuste (próximo periodo)' : 'Ajuste (vigente)')
+            : 'Base';
+
+        return [
+            'amount_mxn'            => round((float)$base, 2),
+            'override'              => [
+                'amount_mxn' => round((float)$override, 2),
+                'effective'  => $eff ?: null,
+            ],
+            'effective_amount_mxn'  => round((float)$effective, 2),
+            'label'                 => (string)$label,
+            'pill'                  => (string)$pillText,
+        ];
+    }
+
+    private function isValidPeriod(string $period): bool
+    {
+        return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period);
+    }
+
+    private function parseToPeriod(mixed $value): ?string
+    {
+        try {
+            if ($value instanceof \DateTimeInterface) return Carbon::instance($value)->format('Y-m');
+
+            if (is_numeric($value)) {
+                $ts = (int) $value;
+                if ($ts > 0) return Carbon::createFromTimestamp($ts)->format('Y-m');
+            }
+
+            if (is_string($value)) {
+                $v = trim($value);
+                if ($v === '') return null;
+
+                $v = str_replace('/', '-', $v);
+                if ($this->isValidPeriod($v)) return $v;
+
+                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/', $v)) {
+                    return Carbon::parse($v)->format('Y-m');
+                }
+
+                return Carbon::parse($v)->format('Y-m');
+            }
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return null;
     }
 }

@@ -1,0 +1,203 @@
+.ve-shell{
+  width: 100%;
+  max-width: 560px;
+  display: grid;
+  gap: 14px;
+}
+
+/* Brand arriba (minimal) */
+.ve-brand{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.ve-logo{
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(225,29,72,.14), rgba(190,18,60,.08));
+  border: 1px solid rgba(225,29,72,.20);
+  box-shadow: 0 10px 22px rgba(225,29,72,.10);
+}
+
+.ve-mark{
+  font-weight: 900;
+  letter-spacing: .6px;
+  color: rgba(17,24,39,.88);
+  font-size: 13px;
+}
+
+.ve-brand-text{ line-height: 1.05; }
+.ve-brand-name{ font-weight: 900; font-size: 14px; }
+.ve-brand-sub{ font-size: 11px; color: rgba(17,24,39,.55); margin-top: 3px; }
+
+/* Card */
+.ve-card{
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid rgba(17,24,39,.10);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+
+/* Head */
+.ve-head{
+  padding: 18px 18px 12px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.ve-badge{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(17,24,39,.70);
+  background: rgba(17,24,39,.03);
+  border: 1px solid rgba(17,24,39,.06);
+}
+
+.ve-dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 4px rgba(22,163,74,.14);
+}
+
+.ve-icon{
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: var(--ok);
+  background: rgba(22,163,74,.10);
+  border: 1px solid rgba(22,163,74,.18);
+}
+
+.ve-title{
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -.2px;
+}
+
+.ve-sub{
+  margin: 0;
+  text-align: center;
+  font-size: 12.8px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 44ch;
+}
+
+/* Meta */
+.ve-meta{
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.55);
+  border: 1px solid rgba(17,24,39,.08);
+}
+
+.ve-meta-k{
+  font-size: 11.5px;
+  color: rgba(17,24,39,.60);
+  font-weight: 700;
+}
+
+.ve-meta-v{
+  font-size: 11.5px;
+  color: rgba(17,24,39,.88);
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+
+/* Actions */
+.ve-actions{
+  padding: 10px 18px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.ve-btn{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+  user-select: none;
+}
+
+.ve-btn-primary{
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand2));
+  box-shadow: 0 14px 30px rgba(225,29,72,.28);
+}
+
+.ve-btn-primary:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px rgba(225,29,72,.33);
+}
+
+.ve-btn-ghost{
+  color: rgba(17,24,39,.78);
+  background: rgba(255,255,255,.66);
+  border: 1px solid rgba(17,24,39,.10);
+}
+
+.ve-btn-ghost:hover{
+  transform: translateY(-1px);
+  background: rgba(17,24,39,.02);
+}
+
+.ve-arrow{
+  font-weight: 900;
+  opacity: .95;
+}
+
+/* Divider + Help */
+.ve-divider{
+  height: 1px;
+  background: rgba(17,24,39,.08);
+}
+
+.ve-help{
+  padding: 12px 18px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(17,24,39,.55);
+}
+
+.ve-help a{
+  color: var(--brand);
+  font-weight: 900;
+  text-decoration: none;
+  margin-left: 6px;
+}
+
+/* Footnote */
+.ve-footnote{
+  text-align: center;
+  font-size: 12px;
+  color: rgba(17,24,39,.55);
+}

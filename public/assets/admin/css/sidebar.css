@@ -1,430 +1,245 @@
-/* ==========================================================================
-   PACTOPIA360 · Admin · SIDEBAR — v7.0 (NeoDock / emoji-safe / pro rail)
-   - Desktop: colapsable tipo “dock” (icon-only) con magnify sutil
-   - Mobile: drawer con backdrop
-   - Scrollbar aislado: nunca invade los botones (safe gutter + fallback)
-   - Unificación con topbar vía --topbar-*
-   - 100% compatible con tu markup (.menu/.menu-item/.menu-summary)
-   ========================================================================== */
+/* public/assets/admin/css/sidebar.css (P360 Sidebar – extracted from Blade) */
 
-:root{
-  /* Layout */
-  --sidebar-w: 16rem;                     /* 256px expandido */
-  --sidebar-w-collapsed: 118px;           /* rail ancho (separado del scroll) */
-  --header-h: 56px;
-
-  /* Rail (colapsado) */
-  --scrollbar-w: 14px;                    /* ancho estimado de scrollbar */
-  --rail-gutter-right: 34px;              /* reserva junto al scrollbar */
-  --rail-safe: calc(var(--rail-gutter-right) + var(--scrollbar-w));
-  --collapsed-item-h: 46px;
-  --collapsed-gap: 10px;
-  --collapsed-ico-size: 24px;             /* un poco más grande para emoji */
-  --collapsed-pad-x: 0px;
-  --rail-shadow: inset -1px 0 0 var(--nav-border);
-
-  /* Marca */
-  --brand-red: #ff2a2a;
-  --brand-navy: #0b2a3a;
-
-  /* Fallbacks */
-  --sb-bg: #ffffff;
-  --sb-fg: #0f172a;
-  --sb-border: rgba(17,24,39,.06);
-
-  /* Unificación con TOPBAR */
-  --nav-bg: var(--topbar-bg, var(--sb-bg));
-  --nav-fg: var(--topbar-fg, var(--sb-fg));
-  --nav-border: var(--topbar-border, var(--sb-border));
-  --nav-accent: var(--topbar-accent, var(--brand-red));
-  --nav-hover: color-mix(in oklab, var(--nav-accent) 12%, transparent);
-  --nav-active-bg: color-mix(in oklab, var(--nav-accent) 22%, transparent);
-  --nav-active-fg: color-mix(in oklab, #fff 92%, var(--nav-fg));
-  --nav-shadow: 0 1px 0 rgba(0,0,0,.02), 0 0 0 1px rgba(0,0,0,.02) inset;
-
-  /* Estado */
-  --active-ring: color-mix(in oklab, var(--nav-accent) 42%, transparent);
-  --active-stripe: var(--nav-accent);
-  --active-grad: linear-gradient(135deg,
-    color-mix(in oklab, var(--brand-red) 34%, transparent) 0%,
-    color-mix(in oklab, var(--brand-navy) 26%, transparent) 100%
-  );
-
-  /* Tipografías */
-  --sb-font: 14px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-  --sb-font-sec: 600 11px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-
-  color-scheme: light dark;
+/* ================= BRAND P360 ================= */
+.sidebar{
+  --brand: var(--p360-brand, #E11D48);
+  --brand-600: var(--p360-brand-600, #BE123C);
+  --brand-700: #9F1239;
+  --brand-soft: color-mix(in oklab, var(--brand) 12%, transparent);
+  --ink: var(--c-fg, #0f172a);
+  --ink-weak: color-mix(in oklab, var(--ink) 45%, transparent);
+  --card: var(--card, #fff);
+  --bd: var(--bd, #e5e7eb);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,.15);
+}
+html.theme-dark .sidebar,
+html[data-theme="dark"] .sidebar{
+  --ink:#e5e7eb;
+  --ink-weak: color-mix(in oklab, #fff 55%, transparent);
+  --card: color-mix(in oklab, #0b1220 86%, transparent);
+  --bd: rgba(255,255,255,.12);
+  --brand-soft: color-mix(in oklab, var(--brand) 22%, transparent);
 }
 
-html.theme-dark,[data-theme="dark"]{
-  --sb-bg:#0b1220; --sb-fg:#e5e7eb; --sb-border:rgba(255,255,255,.08);
-  --nav-bg: var(--topbar-bg, var(--sb-bg));
-  --nav-fg: var(--topbar-fg, var(--sb-fg));
-  --nav-border: var(--topbar-border, var(--sb-border));
-  --nav-accent: var(--topbar-accent, var(--brand-red));
-  --nav-hover: color-mix(in oklab, var(--nav-accent) 16%, transparent);
-  --nav-active-bg: color-mix(in oklab, var(--nav-accent) 32%, transparent);
-  --nav-active-fg: #ffffff;
+/* ==== Layout base ==== */
+.sidebar{
+  --w:260px;
+  --w-mini:68px;
+  background:
+    radial-gradient(140px 60px at -20% 0%, color-mix(in oklab, var(--brand) 10%, transparent), transparent),
+    linear-gradient(180deg, transparent, transparent);
+  border-right:1px solid var(--bd);
 
-  --active-ring: color-mix(in oklab, var(--nav-accent) 55%, transparent);
-  --active-grad: linear-gradient(135deg,
-    color-mix(in oklab, var(--brand-red) 38%, transparent) 0%,
-    color-mix(in oklab, var(--brand-navy) 32%, transparent) 100%
-  );
+  width:var(--w);
+  min-width:var(--w);
+
+  top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
+  height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
+  position:sticky;
+  transition:width .18s ease;
+  display:flex;
+  flex-direction:column;
 }
-
-/* ===== Lienzo ===== */
-#sidebar{
-  position: fixed;
-  top: var(--header-h);
-  left: 0;
-  height: calc(100vh - var(--header-h));
-  width: var(--sidebar-w);
-  min-width: var(--sidebar-w);
-  background: var(--nav-bg);
-  color: var(--nav-fg);
-  border-right: 1px solid var(--nav-border);
-  box-shadow: var(--nav-shadow);
-  z-index: 1020;
-  display: flex; flex-direction: column; overflow: hidden;
-  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-  container-type: inline-size;
+.sidebar[data-state="collapsed"]{
+  width:var(--w-mini);
+  min-width:var(--w-mini);
 }
 
-/* Scroll contenido (gutter estable) */
-#sidebar .nav{
-  padding: 10px 12px 10px 10px;
-  overflow: hidden auto;
-  flex: 1 1 auto;
-  scrollbar-gutter: stable both-edges;
-  overscroll-behavior: contain;
+.sidebar-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  height:50px;
+  padding:10px 12px;
+  border-bottom:1px solid var(--bd);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 6%, transparent), transparent);
+  position:relative;
 }
-#sidebar .nav::-webkit-scrollbar{ width:10px; height:10px }
-#sidebar .nav::-webkit-scrollbar-thumb{
-  background: color-mix(in oklab, var(--nav-fg) 18%, transparent);
-  border-radius:10px
+.sidebar-head::after{
+  content:'';
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom:-1px;
+  height:1px;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 40%, transparent), transparent);
 }
-
-/* ===== Secciones ===== */
-.menu-section,.nav-section{
-  display:flex; align-items:center; gap:8px;
-  font: var(--sb-font-sec); text-transform: uppercase; letter-spacing: .04em;
-  color: color-mix(in oklab, var(--nav-fg) 55%, transparent);
-  padding: 10px 8px; margin-top: 6px; border-radius: 10px; user-select: none;
+.sb-title{
+  font:900 12px/1 Poppins, system-ui;
+  letter-spacing:.08em;
+  color:var(--ink-weak);
 }
-.nav-section .ico{ width: 22px; text-align:center; font-size:18px; line-height:1; }
-.nav-section .chev{ margin-left:auto; opacity:.7; transition: transform .2s; }
-.sb-group[open]>.nav-section .chev{ transform: rotate(180deg); }
-
-/* ===== Items ===== */
-.nav-link{
-  display:flex; align-items:center; gap:10px;
-  font: var(--sb-font); color:inherit; text-decoration:none;
-  padding:10px 12px; border-radius:12px; position:relative;
-  transition:background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .06s ease;
-  border:1px solid transparent; min-height: 40px;
-  box-sizing: border-box;
+.sb-toggle{
+  width:36px;
+  height:32px;
+  border:1px solid var(--bd);
+  border-radius:10px;
+  background:var(--card);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 10px color-mix(in oklab, var(--brand) 12%, transparent);
 }
-.nav-link .ico{
-  display: inline-grid; place-items: center;
-  width:auto; min-width:0; padding:0 4px;
-  text-align:center; font-size:18px; line-height:1; opacity:.98;
-  /* 🧩 emoji-safe cross-platform */
-  font-family: emoji,"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",
-               "Twemoji Mozilla","Segoe UI Symbol",system-ui,-apple-system,
-               Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  unicode-bidi: isolate;
-}
-.nav-link .txt{
-  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-weight:500; letter-spacing:.01em
-}
-.nav-link .badge{
-  margin-left:auto; font:700 11px/1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-  padding:4px 8px; border-radius:999px;
-  background: color-mix(in oklab, var(--nav-fg) 16%, transparent);
-  color: var(--nav-fg);
-}
-.nav-link:hover{ background: var(--nav-hover) }
-.nav-link:active{ transform: translateY(1px); filter: brightness(1.02) }
-.nav-link[aria-disabled="true"], .nav-link.disabled{ opacity:.55; pointer-events:none }
-
-/* Activo (expandido) */
-.nav-link.active,
-.nav-link[aria-current="page"],
-.nav-link[aria-current="true"],
-.nav-link[data-active="1"]{
-  background: var(--active-grad);
-  color: var(--nav-active-fg);
-  border-color: var(--active-ring);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 4px 16px color-mix(in oklab, var(--nav-accent) 22%, transparent);
-}
-.nav-link.active .badge,
-.nav-link[aria-current="page"] .badge,
-.nav-link[aria-current="true"] .badge,
-.nav-link[data-active="1"] .badge{
-  background: color-mix(in oklab, var(--nav-active-fg) 12%, var(--nav-accent));
-  color: var(--nav-active-fg);
-}
-.nav-link.active::before,
-.nav-link[aria-current="page"]::before,
-.nav-link[aria-current="true"]::before,
-.nav-link[data-active="1"]::before{
-  content:""; position:absolute; left:6px; top:10px; bottom:10px; width:3px; border-radius:3px; background: var(--active-stripe);
+.sb-toggle::before{
+  content:'≡';
+  font-size:18px;
+  line-height:1;
+  font-weight:900;
+  transform:translateY(-1px);
+  color:var(--ink);
 }
 
-/* Subgrupos */
-.sb-sub > summary.nav-link{ list-style:none; cursor:pointer }
-.sb-sub > summary::-webkit-details-marker{ display:none }
-.sb-sub > .sb-sublist{ padding-left:10px }
-
-/* Grupo con hijo activo */
-.sb-group.is-current > .nav-section{
-  background: color-mix(in oklab, var(--nav-accent) 10%, transparent);
-  color: color-mix(in oklab, var(--nav-accent) 30%, var(--nav-fg));
+.sidebar-scroll{
+  height:calc(100% - 50px);
+  overflow:auto;
+  padding:14px;
 }
-@supports(selector(:has(*))){
-  .sb-group:has(.nav-link.active) > .nav-section{
-    background: color-mix(in oklab, var(--nav-accent) 10%, transparent);
-    color: color-mix(in oklab, var(--nav-accent) 30%, var(--nav-fg));
+.nav{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+.nav-group{
+  display:grid;
+  gap:8px;
+}
+.nav-title{
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--ink-weak);
+  padding:0 6px;
+}
+.nav-title .pill{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:999px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--brand) 16%, transparent), transparent);
+  border:1px solid color-mix(in oklab, var(--brand) 18%, var(--bd));
+}
+
+/* ==== Ítems ==== */
+.sidebar .tip{
+  display:flex !important;
+  align-items:center !important;
+  gap:12px !important;
+  padding:12px 12px !important;
+  border-radius:14px !important;
+  color:var(--ink) !important;
+  text-decoration:none !important;
+  border:1px solid transparent !important;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 0%, transparent), transparent) !important;
+  outline:0 !important;
+  min-width:0;
+  position:relative;
+  isolation:isolate;
+  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+}
+.sidebar .tip::before{
+  content:'';
+  position:absolute;
+  left:6px;
+  top:9px;
+  bottom:9px;
+  width:3px;
+  border-radius:6px;
+  background: linear-gradient(180deg, var(--brand), var(--brand-600));
+  box-shadow:0 0 0 transparent;
+  opacity:0;
+  transform:translateX(-4px);
+  transition:opacity .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.sidebar .tip:hover{
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 8%, transparent), transparent) !important;
+  border-color: color-mix(in oklab, var(--brand) 22%, var(--bd)) !important;
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--brand) 12%, transparent);
+  transform: translateY(-1px);
+}
+.sidebar .tip:hover::before{
+  opacity:1;
+  transform:none;
+  box-shadow:0 0 16px color-mix(in oklab, var(--brand) 40%, transparent);
+}
+
+.sidebar .tip.active .ico{ color:var(--brand); }
+.sidebar .tip.active::before{
+  opacity:1;
+  transform:none;
+  box-shadow:0 0 18px color-mix(in oklab, var(--brand) 42%, transparent);
+}
+
+.sidebar .tip.danger{ color:#b91c1c; }
+.sidebar .tip.danger:hover{ border-color: color-mix(in oklab, #b91c1c 30%, var(--bd)); }
+
+.sidebar .ico{
+  width:20px;
+  height:20px;
+  color:currentColor;
+  flex:0 0 20px !important;
+  display:inline-block;
+  filter: drop-shadow(0 0 0 transparent);
+  transition: color .18s ease, filter .18s ease, transform .18s ease;
+}
+.sidebar .tip:hover .ico{
+  transform: translateY(-1px);
+  filter: drop-shadow(0 4px 10px color-mix(in oklab, var(--brand) 20%, transparent));
+}
+
+.sidebar .tx{
+  display:inline-block !important;
+  flex:1 1 auto !important;
+  min-width:0 !important;
+  white-space:nowrap !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  font:600 14px/1.15 Poppins, system-ui;
+}
+
+/* Oculta labels y títulos SOLO cuando está colapsado en desktop */
+.sidebar:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important; }
+.sidebar:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center !important; }
+.sidebar:not(.is-mobile)[data-state="collapsed"] .tip.active{ box-shadow:none; }
+.sidebar:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none !important; }
+.sidebar:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
+
+/* ===== Responsive (móvil) =====
+   FIX: alineado a layout cliente (1099.98px)
+*/
+@media (max-width:1099.98px){
+  .sidebar{
+    position:fixed;
+    left:0;
+    top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
+    height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
+    z-index:40;
+    width:var(--w);
+    min-width:var(--w);
+    transform:translateX(-100%);
+    transition:transform .22s ease;
+    box-shadow:var(--shadow-lg);
   }
+  .sidebar.open{ transform:translateX(0); }
+
+  .sidebar[data-state="collapsed"] .tx{ display:inline-block !important; }
+  .sidebar[data-state="collapsed"] .tip{ justify-content:flex-start !important; }
+  .sidebar[data-state="collapsed"]{ width:var(--w); min-width:var(--w); }
 }
 
-/* =======================================================================
-   MODO COLAPSADO (NeoDock)
-   ======================================================================= */
-html.sidebar-collapsed #sidebar,
-body.sidebar-collapsed #sidebar{
-  width: var(--sidebar-w-collapsed);
-  min-width: var(--sidebar-w-collapsed);
-  box-shadow: var(--rail-shadow);
+/* ===== Separador lateral ===== */
+.sidebar.skin-brand-rail{ position:relative; }
+.sidebar.skin-brand-rail::after{
+  content:"";
+  position:absolute;
+  top:0;
+  right:0;
+  bottom:0;
+  width:2px;
+  background: url("/assets/client/img/ui/sidebar-brand-rail.svg") repeat-y right top;
+  pointer-events:none;
 }
-
-html.sidebar-collapsed #sidebar .nav{
-  /* Safe gutter + fallback si el navegador ignora scrollbar-gutter */
-  padding: 12px calc(var(--rail-safe)) 12px 12px !important;
-  scrollbar-gutter: stable both-edges;
-}
-@supports not (scrollbar-gutter: stable) {
-  html.sidebar-collapsed #sidebar .nav{
-    padding-right: calc(var(--rail-safe) + 8px) !important;
-  }
-}
-
-html.sidebar-collapsed #sidebar .menu-section,
-html.sidebar-collapsed #sidebar .nav-section,
-body.sidebar-collapsed #sidebar .menu-section,
-body.sidebar-collapsed #sidebar .nav-section{ display:none !important }
-
-html.sidebar-collapsed #sidebar .txt,
-html.sidebar-collapsed #sidebar .section-label,
-html.sidebar-collapsed #sidebar .chev,
-body.sidebar-collapsed #sidebar .txt,
-body.sidebar-collapsed #sidebar .section-label,
-body.sidebar-collapsed #sidebar .chev{ display:none !important }
-
-html.sidebar-collapsed #sidebar .sb-sublist,
-body.sidebar-collapsed #sidebar .sb-sublist{ display:none !important }
-
-/* Píldoras centradas, ancho útil calculado (resta safe gutter) */
-html.sidebar-collapsed #sidebar .nav-link,
-body.sidebar-collapsed #sidebar .nav-link,
-html.sidebar-collapsed #sidebar .menu .menu-item,
-body.sidebar-collapsed #sidebar .menu .menu-item{
-  box-sizing: border-box !important;
-  justify-content: center !important;
-  padding: 0 var(--collapsed-pad-x) !important;
-  height: var(--collapsed-item-h) !important;
-  min-height: var(--collapsed-item-h) !important;
-  margin: var(--collapsed-gap) auto !important;
-  border-radius: 14px !important;
-
-  width: calc(var(--sidebar-w-collapsed) - 16px - var(--rail-safe)) !important;
-  max-width: calc(var(--sidebar-w-collapsed) - 16px - var(--rail-safe)) !important;
-
-  overflow: visible !important;     /* no cortar iconos */
-  background-clip: padding-box;
-  transition: transform .12s ease, background .15s ease, box-shadow .15s ease;
-}
-
-/* Efecto “dock” (magnify sutil) */
-@media (hover:hover){
-  html.sidebar-collapsed #sidebar .nav-link:hover,
-  body.sidebar-collapsed #sidebar .nav-link:hover,
-  html.sidebar-collapsed #sidebar .menu .menu-item:hover,
-  body.sidebar-collapsed #sidebar .menu .menu-item:hover{
-    transform: translateX(2px) scale(1.06);
-    background: color-mix(in oklab, var(--nav-fg) 10%, transparent) !important;
-    box-shadow: 0 8px 18px rgba(0,0,0,.08);
-  }
-}
-
-/* Ícono / emoji SIEMPRE completo */
-html.sidebar-collapsed #sidebar .nav-link .ico,
-body.sidebar-collapsed #sidebar .nav-link .ico,
-html.sidebar-collapsed #sidebar .menu .menu-item .ico,
-body.sidebar-collapsed #sidebar .menu .menu-item .ico{
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: auto !important;
-  min-width: 0 !important;
-  padding: 0 6px !important;
-
-  height: auto !important;
-  font-size: var(--collapsed-ico-size) !important;
-  line-height: 1 !important;
-
-  opacity: 1 !important; filter: none !important; margin: 0 !important;
-
-  font-family: emoji,"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",
-               "Twemoji Mozilla","Segoe UI Symbol",system-ui,-apple-system,
-               Segoe UI,Roboto,Helvetica,Arial,sans-serif !important;
-  unicode-bidi: isolate;
-  transform: translateZ(0);
-}
-
-/* Activo (halo + franja exterior, no tapa el icono) */
-html.sidebar-collapsed #sidebar .nav-link.active,
-body.sidebar-collapsed #sidebar .nav-link.active,
-html.sidebar-collapsed #sidebar .menu .menu-item.active,
-body.sidebar-collapsed #sidebar .menu .menu-item.active{
-  background: color-mix(in oklab, var(--nav-accent) 18%, transparent) !important;
-  color: var(--nav-active-fg) !important;
-  border-color: var(--active-ring) !important;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--nav-accent) 20%, transparent),
-    0 6px 18px color-mix(in oklab, var(--nav-accent) 18%, transparent) !important;
-}
-html.sidebar-collapsed #sidebar .nav-link.active::before,
-body.sidebar-collapsed #sidebar .nav-link.active::before,
-html.sidebar-collapsed #sidebar .menu .menu-item.active::before,
-body.sidebar-collapsed #sidebar .menu .menu-item.active::before{
-  content:""; position:absolute; left:-2px; top:8px; bottom:8px; width:3px; border-radius:3px;
-  background: var(--active-stripe);
-}
-
-/* Tooltips (custom) */
-html.sidebar-collapsed #sidebar .nav-link .tip,
-body.sidebar-collapsed #sidebar .nav-link .tip{
-  position: fixed;
-  left: calc(var(--sidebar-w-collapsed) + 10px);
-  background: #111827; color: #fff;
-  font: 500 12px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-  padding: 6px 8px; border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2);
-  opacity: 0; pointer-events: none; transform: translateY(-50%);
-  z-index: 1060; transition: opacity .15s ease; white-space: nowrap;
-}
-html.theme-dark.sidebar-collapsed #sidebar .nav-link .tip,
-[data-theme="dark"].sidebar-collapsed #sidebar .nav-link .tip{ background:#0b1220; color:#e5e7eb }
-html.sidebar-collapsed #sidebar .nav-link:hover .tip,
-body.sidebar-collapsed #sidebar .nav-link:hover .tip{ opacity:1 }
-
-/* Fallback “title” */
-html.sidebar-collapsed #sidebar .nav-link[title]{ position: relative; }
-html.sidebar-collapsed #sidebar .nav-link[title]:hover::after{
-  content: attr(title);
-  position: fixed;
-  left: calc(var(--sidebar-w-collapsed) + 10px);
-  background: #111827; color: #fff;
-  font: 500 12px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-  padding: 6px 8px; border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2);
-  z-index: 1060; white-space: nowrap; opacity:1; transform: translateY(-50%);
-}
-html.theme-dark.sidebar-collapsed #sidebar .nav-link[title]:hover::after{ background:#0b1220; color:#e5e7eb }
-
-/* ===== Drawer móvil ===== */
-@media (max-width: 1023.98px){
-  #sidebar{ transform: translateX(-100%); transition: transform .25s ease; box-shadow: 0 10px 30px rgba(0,0,0,.15) }
-  body.sidebar-open #sidebar{ transform: translateX(0) }
-  #sidebar .sidebar-backdrop{ position: fixed; left:0; right:0; top: var(--header-h); bottom: 0; background: rgba(0,0,0,.35); z-index: 1010; display: none }
-  body.sidebar-open #sidebar .sidebar-backdrop{ display: block }
-}
-
-/* ===== Accesibilidad ===== */
-.nav-link:focus-visible,.nav-section:focus-visible,
-#sidebar .menu .menu-item:focus-visible,.menu-summary:focus-visible{
-  outline: 2px solid var(--nav-accent);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--nav-accent) 35%, transparent);
-}
-
-/* ===== Compat markup antiguo ===== */
-#sidebar .menu{ padding:4px; display:flex; flex-direction:column; gap:6px }
-#sidebar .menu .menu-item{
-  display:flex; align-items:center; gap:10px;
-  font: var(--sb-font); color:inherit; text-decoration:none;
-  padding:10px 12px; border-radius:12px; position:relative;
-  transition:background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
-  min-height:40px; border:1px solid transparent; box-sizing: border-box;
-}
-#sidebar .menu .menu-item .ico{
-  display:inline-flex; align-items:center; justify-content:center;
-  width:auto; min-width:0; padding:0 4px;
-  text-align:center; font-size:18px; line-height:1; opacity:1; filter:none;
-  font-family: emoji,"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",
-               "Twemoji Mozilla","Segoe UI Symbol",system-ui,-apple-system,
-               Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-}
-#sidebar .menu .menu-item .label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; letter-spacing:.01em }
-#sidebar .menu .menu-item:hover{ background: var(--nav-hover) }
-#sidebar .menu .menu-item.active{
-  background: var(--active-grad); color: var(--nav-active-fg); border-color: var(--active-ring);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 4px 16px color-mix(in oklab, var(--nav-accent) 22%, transparent);
-}
-#sidebar .menu .menu-item.active::before{
-  content:""; position:absolute; left:6px; top:10px; bottom:10px; width:3px; border-radius:3px; background: var(--active-stripe);
-}
-
-/* Summary/children (antiguo) */
-.menu-summary{
-  display:flex; align-items:center; gap:10px; list-style:none; cursor:pointer; user-select:none;
-  padding:10px 12px; border-radius:12px; min-height:40px; text-decoration:none; color:inherit;
-  transition:background .15s ease;
-}
-.menu-summary::-webkit-details-marker{ display:none }
-.menu-summary:hover{ background: var(--nav-hover) }
-.menu-children{ padding-left:10px }
-
-/* Ocultos en colapsado (antiguo) */
-html.sidebar-collapsed #sidebar .menu-children,
-body.sidebar-collapsed #sidebar .menu-children{ display:none !important }
-html.sidebar-collapsed #sidebar .menu-summary .car,
-body.sidebar-collapsed #sidebar .menu-summary .car{ display:none !important }
-html.sidebar-collapsed #sidebar .menu .menu-item{
-  justify-content:center !important; padding:0 var(--collapsed-pad-x) !important;
-  height: var(--collapsed-item-h) !important; min-height: var(--collapsed-item-h) !important;
-  margin: var(--collapsed-gap) auto !important;
-  width: calc(var(--sidebar-w-collapsed) - 16px - var(--rail-safe)) !important;
-}
-html.sidebar-collapsed #sidebar .menu .menu-item .label{ display:none !important }
-
-/* ===== Utilidades ===== */
-.sb-separator{ height:1px; margin:6px 8px; background: var(--nav-border); border-radius:1px }
-.sb-muted{ color: color-mix(in oklab, var(--nav-fg) 55%, transparent) }
-.sb-danger{ color: #ef4444 }
-.sb-success{ color: #10b981 }
-
-/* ===== High contrast / Motion / Print ===== */
-@media (forced-colors: active){
-  #sidebar{ border-right: 1px solid CanvasText }
-  .nav-link,.nav-section,#sidebar .menu .menu-item{ border:1px solid CanvasText }
-}
-@media (prefers-reduced-motion: reduce){
-  .nav-link,.nav-section,#sidebar{ transition: none !important }
-}
-@media print{ #sidebar{ display:none !important } }
-
-/* ===== Micro-fixes ===== */
-#sidebar, #sidebar .nav-link, #sidebar .menu .menu-item {
-  color: var(--nav-fg);
-  font: var(--sb-font);
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-#sidebar .menu-section, #sidebar .nav-section {
-  color: color-mix(in oklab, var(--nav-fg) 70%, transparent);
+html.theme-dark .sidebar.skin-brand-rail::after,
+html[data-theme="dark"] .sidebar.skin-brand-rail::after{
+  filter: opacity(.8);
 }

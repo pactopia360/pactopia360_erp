@@ -1,9 +1,23 @@
-{{-- resources/views/layouts/admin.blade.php --}}
+{{-- resources/views/layouts/admin.blade.php (P360 Admin Shell · Full Width + Modal Mode) --}}
 @php
-  // ===== Título y tema =====
+  // ===== Título, tema y modo =====
   $pageTitle      = trim($__env->yieldContent('title')) ?: 'Panel Administrativo · Pactopia360';
   $bodyTheme      = session('ui.theme', 'light'); // 'light' | 'dark'
   $htmlThemeClass = $bodyTheme === 'dark' ? 'theme-dark' : 'theme-light';
+
+  // MODO MODAL: si viene ?modal=1 en URL (iframe)
+  $isModal = request()->boolean('modal');
+
+  // ===== Layout width control =====
+  // Por defecto Admin = FULL WIDTH (ocupa todo el espacio)
+  // Si una vista quiere "contenedor", puede definir: @section('contentLayout','contained')
+  $contentLayout = trim($__env->yieldContent('contentLayout')) ?: 'full'; // full | contained
+  $isContained   = ($contentLayout === 'contained');
+
+  // ===== Page class (CRÍTICO) =====
+  // Permite que las vistas hagan: @section('pageClass','mi-clase')
+  // y que el CSS por selector body.mi-clase funcione.
+  $pageClass = trim($__env->yieldContent('pageClass'));
 
   // ===== Rutas de CSS con cache-busting (si existen) =====
   $minSize   = 16; // ignora archivos vacíos
@@ -23,7 +37,10 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="es" class="h-100 {{ $htmlThemeClass }}" data-theme="{{ $bodyTheme }}">
+<html lang="es"
+      class="h-100 {{ $htmlThemeClass }} {{ $isModal ? 'p360-is-modal' : '' }}"
+      data-theme="{{ $bodyTheme }}"
+      data-layout="{{ $isContained ? 'contained' : 'full' }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -41,6 +58,10 @@
         --bg:#f6f7f9; --text:#0f172a; --muted:#6b7280;
         --card-bg:#ffffff; --card-border:rgba(0,0,0,.08); --panel-bg:#f8fafc;
 
+        /* Compat tokens (para parciales antiguos) */
+        --ink: var(--text);
+        --card: var(--card-bg);
+
         /* Acentos */
         --accent:#0e2a3b; --accent-2:#8b5cf6; --accent-3:#06b6d4;
 
@@ -50,6 +71,7 @@
         /* Topbar + Sidebar */
         --topbar-bg:#ffffff; --topbar-fg:#0f172a; --topbar-border:rgba(0,0,0,.08);
         --topbar-accent:var(--accent);
+
         --sb-bg:var(--topbar-bg); --sb-fg:var(--topbar-fg); --sb-border:var(--topbar-border);
         --sb-hover:color-mix(in oklab, var(--topbar-accent) 12%, transparent);
         --sb-active-bg:color-mix(in oklab, var(--topbar-accent) 22%, transparent);
@@ -57,12 +79,19 @@
         --sb-indicator:var(--topbar-accent);
 
         /* Layout */
-        --container-max:1280px; --header-h:56px;
+        --header-h:56px;
+
+        /* Control de ancho del contenido */
+        --content-max: 100%;
+        --footer-max: 100%;
+        --modal-max: 1280px;
+
         --radius-sm:10px; --radius-md:12px; --radius-lg:14px;
         --shadow-1:0 2px 8px rgba(0,0,0,.06); --shadow-2:0 10px 28px rgba(0,0,0,.12);
         --safe-top:  env(safe-area-inset-top, 0px);
         --safe-bottom: env(safe-area-inset-bottom, 0px);
       }
+
       [data-theme="dark"]{
         --bg:#0b1220; --text:#e5e7eb; --muted:#9ca3af;
         --card-bg:#0f172a; --card-border:rgba(255,255,255,.08); --panel-bg:#0c172b;
@@ -74,6 +103,10 @@
         --sb-hover:color-mix(in oklab, var(--topbar-accent) 16%, transparent);
         --sb-active-bg:color-mix(in oklab, var(--topbar-accent) 28%, transparent);
         --sb-active-fg:#ffffff; --sb-indicator:var(--topbar-accent);
+
+        /* Compat */
+        --ink: var(--text);
+        --card: var(--card-bg);
       }
 
       /* ===== Estructura base ===== */
@@ -85,34 +118,84 @@
         -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
       }
 
-      /* Topbar fijo (contenido real viene del partial) */
+      /* Topbar fijo */
       .p360-topbar{
-        position:fixed; inset:0 0 auto 0; height:var(--header-h);
+        position:fixed; inset:0 0 auto 0;
+        height:var(--header-h);
         background:var(--topbar-bg); color:var(--topbar-fg);
         border-bottom:1px solid var(--topbar-border);
-        z-index:1100; display:flex; align-items:center;
-        padding-top: max(0px, var(--safe-top)); /* notch safe */
+        z-index:1100; display:flex; align-items:stretch;
+        padding-top: max(0px, var(--safe-top));
       }
       .p360-topbar > *{width:100%}
 
       /* App shell */
       .admin-app{
-        flex:1 1 auto; min-height:0; display:flex; overflow:hidden; padding-top:var(--header-h);
+        flex:1 1 auto; min-height:0; display:flex; overflow:hidden;
+        padding-top:var(--header-h);
       }
+
       .admin-content{
         flex:1 1 auto; min-height:0; overflow:auto; -webkit-overflow-scrolling:touch;
         background:var(--bg);
-        display:flex; flex-direction:column; /* footer al fondo */
+        display:flex; flex-direction:column;
       }
-      .page-container{ padding: clamp(10px,2.4vw,18px); flex:1 1 auto }
-      .page-shell{ width:100%; max-width:var(--container-max); margin-inline:auto }
 
-      /* Footer fijo al fondo del contenido */
+      /* Contenido */
+      .page-container{
+        padding: clamp(10px,2.0vw,18px);
+        flex:1 1 auto;
+        width:100%;
+        min-width:0;
+      }
+
+      .page-shell{
+        width:100%;
+        max-width: var(--content-max);
+        margin-inline: 0; /* full by default */
+        min-width:0;
+      }
+
+      /* Si una vista pide contenedor */
+      html[data-layout="contained"]{
+        --content-max: 1280px;
+        --footer-max: 1280px;
+      }
+      html[data-layout="contained"] .page-shell{
+        margin-inline:auto;
+      }
+
+      /* ==========================================================================
+         HARD FULL-WIDTH OVERRIDES (anti CSS externo)
+         Si algún CSS global vuelve a meter max-width/margin auto, esto lo revienta.
+         ========================================================================== */
+      html[data-layout="full"]{
+        --content-max: 100% !important;
+        --footer-max: 100% !important;
+      }
+      html[data-layout="full"] body .admin-content .page-container{
+        width:100% !important;
+        max-width:none !important;
+        margin:0 !important;
+      }
+      html[data-layout="full"] body .admin-content .page-shell{
+        width:100% !important;
+        max-width:none !important;
+        margin-left:0 !important;
+        margin-right:0 !important;
+      }
+
+      /* Footer */
       .admin-footer{
-        margin-top:auto; border-top:1px solid var(--card-border); background:var(--bg); padding-bottom:var(--safe-bottom)
+        margin-top:auto;
+        border-top:1px solid var(--card-border);
+        background:var(--bg);
+        padding-bottom:var(--safe-bottom)
       }
       .admin-footer .footer-inner{
-        max-width:var(--container-max); margin-inline:auto; padding:14px 16px;
+        max-width: var(--footer-max);
+        margin-inline:auto;
+        padding:14px 16px;
         color:var(--muted); font-size:12px;
         display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
       }
@@ -121,7 +204,9 @@
 
       /* Page header sticky (si la vista lo define) */
       #page-header{
-        position:sticky; top:0; z-index:5;
+        position:sticky;
+        top:0;
+        z-index:5;
         background:color-mix(in oklab, var(--card-bg) 96%, transparent);
         backdrop-filter:saturate(120%) blur(6px);
         border-bottom:1px solid var(--card-border)
@@ -149,12 +234,11 @@
 
       /* Densidad compacta (opt-in) */
       html[data-density="compact"]{ --radius-sm:8px; --radius-md:10px; --radius-lg:12px }
-      html[data-density="compact"] .page-container{ padding: clamp(8px,2vw,14px) }
+      html[data-density="compact"] .page-container{ padding: clamp(8px,1.6vw,14px) }
 
       /* Si algún widget dibuja legal en TOPBAR, no lo mostramos ahí */
       .p360-topbar .topbar-copy, .p360-topbar .copyright, .p360-topbar .legal, .p360-topbar [data-copyright]{ display:none!important }
 
-      /* Responsivo mínimo del shell */
       @media (max-width: 720px){
         .admin-footer .footer-inner{ padding:12px; gap:8px }
         .admin-footer .meta a{ margin-left:8px }
@@ -163,11 +247,21 @@
       @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
       @media (forced-colors: active){ .p360-topbar{ border-bottom:1px solid CanvasText } }
       @media print{ .p360-topbar, #nebula-sidebar, #p360-alerts, #p360-progress{ display:none !important } .admin-app{ padding-top:0 } }
+
+      /* ==========================
+         MODO MODAL (iframe)
+         ========================== */
+      html.p360-is-modal body{ overflow:auto !important; }
+      html.p360-is-modal .admin-modal-page{ padding: 14px; }
+      html.p360-is-modal .admin-modal-shell{
+        max-width: var(--modal-max);
+        margin-inline:auto;
+      }
+      html.p360-is-modal .admin-modal-shell > *:first-child{ margin-top: 0; }
     </style>
 
-    {{-- Kill-switch CSS extra para el topbar (por si terceros inyectan cosas) --}}
+    {{-- Kill-switch CSS extra para el topbar --}}
     <style id="p360-legal-fix">
-      /* Nuke general en topbar */
       #p360-topbar small,
       #p360-topbar .copyright,
       #p360-topbar .legal,
@@ -179,7 +273,6 @@
       #p360-topbar #p360-copy,
       #topbar       #p360-copy { display:none!important; }
 
-      /* Enlaces comunes (por texto o ruta) si caen en el topbar */
       #p360-topbar a[href*="prefer"],
       #p360-topbar a[href*="privac"],
       #p360-topbar a[href*="/config"],
@@ -191,26 +284,77 @@
     {{-- ===== Skin / Frame globales ===== --}}
     @if ($SKIN_URL)  <link id="css-admin-skin"  rel="stylesheet" href="{{ $SKIN_URL  }}">@endif
     @if ($FRAME_URL) <link id="css-admin-frame" rel="stylesheet" href="{{ $FRAME_URL }}">@endif
+
+    {{-- IMPORTANTE: estilos de cada vista/módulo --}}
     @stack('styles')
   </head>
 
-  <body class="d-flex flex-column min-vh-100">
-    <a href="#p360-main" class="skiplink">Saltar al contenido</a>
+  {{-- FIX CRÍTICO: inyectar pageClass en el body para que funcione body.pageClass --}}
+  <body class="d-flex flex-column min-vh-100 {{ $pageClass }} {{ $isModal ? 'p360-is-modal-body' : '' }}">
+    @if(!$isModal)
+      <a href="#p360-main" class="skiplink">Saltar al contenido</a>
 
-    {{-- Header fijo (wrapper) --}}
-    <header id="p360-topbar" class="p360-topbar" role="banner" aria-label="Barra superior">
-      @includeIf('layouts.partials.header')
-    </header>
+      {{-- Header fijo --}}
+      <header id="p360-topbar" class="p360-topbar" role="banner" aria-label="Barra superior">
+        @includeIf('layouts.partials.header')
+      </header>
 
-    {{-- App Shell --}}
-    <div id="admin-app" class="admin-app">
-      @includeIf('layouts.partials.sidebar')
+      {{-- App Shell --}}
+      <div id="admin-app" class="admin-app">
+        @includeIf('layouts.partials.sidebar')
 
-      <main id="p360-main" class="admin-content" role="main" aria-live="polite">
-        @hasSection('page-header')
-          <header id="page-header" class="page-header">@yield('page-header')</header>
-        @endif
+        <main id="p360-main" class="admin-content" role="main" aria-live="polite">
+          @hasSection('page-header')
+            <header id="page-header" class="page-header">@yield('page-header')</header>
+          @endif
 
+          @if (session('status'))
+            <div class="alert alert-success" role="alert">{{ session('status') }}</div>
+          @endif
+          @if ($errors->any())
+            <div class="alert alert-danger" role="alert">
+              <ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
+            </div>
+          @endif
+
+          {{-- Contenido principal --}}
+          <div class="page-container">
+            <div class="page-shell">
+              @yield('content')
+            </div>
+          </div>
+
+          {{-- Footer --}}
+          <footer class="admin-footer">
+            <div class="footer-inner">
+              <div class="meta" id="footer-left">
+                <small class="legal" id="p360-copy">© {{ date('Y') }} Pactopia360 — Todos los derechos reservados.</small>
+                @if(config('app.version')) <small>v{{ config('app.version') }}</small> @endif
+              </div>
+              <div class="meta" id="footer-right">
+                @php $hasConfig = \Illuminate\Support\Facades\Route::has('admin.config.index'); @endphp
+                <small><a href="{{ $hasConfig ? route('admin.config.index') : '#' }}">Preferencias</a></small>
+                <small><a href="#">Privacidad</a></small>
+              </div>
+            </div>
+          </footer>
+        </main>
+      </div>
+
+      {{-- Widgets globales --}}
+      <div id="p360-progress" aria-hidden="true"></div>
+      <div id="p360-loading" role="status" aria-live="polite" aria-label="Cargando"><div class="spinner"></div></div>
+      <div id="p360-alerts" aria-live="polite"></div>
+      <div id="p360-cmd"><div class="cmd-card"><input type="search" id="p360-cmd-input" placeholder="Escribe para buscar…  (Esc para cerrar)"></div></div>
+
+      {{-- Sidebar.css (post-paint) --}}
+      @if (is_file($SB_ABS) && filesize($SB_ABS) > $minSize)
+        <link id="css-sidebar" rel="stylesheet" href="{{ asset('assets/admin/css/sidebar.css').'?v='.filemtime($SB_ABS) }}">
+      @endif
+
+    @else
+      {{-- MODO MODAL (iframe) --}}
+      <main class="admin-modal-page" role="main" aria-live="polite">
         @if (session('status'))
           <div class="alert alert-success" role="alert">{{ session('status') }}</div>
         @endif
@@ -220,47 +364,21 @@
           </div>
         @endif
 
-        {{-- Contenido principal --}}
-        <div class="page-container">
-          <div class="page-shell">
-            @yield('content')
-          </div>
+        <div class="admin-modal-shell">
+          @yield('content')
         </div>
-
-        {{-- FOOTER real al fondo --}}
-        <footer class="admin-footer">
-          <div class="footer-inner">
-            <div class="meta" id="footer-left">
-              <small class="legal" id="p360-copy">© {{ date('Y') }} Pactopia360 — Todos los derechos reservados.</small>
-              @if(config('app.version')) <small>v{{ config('app.version') }}</small> @endif
-            </div>
-            <div class="meta" id="footer-right">
-              @php $hasConfig = \Illuminate\Support\Facades\Route::has('admin.config.index'); @endphp
-              <small><a href="{{ $hasConfig ? route('admin.config.index') : '#' }}">Preferencias</a></small>
-              <small><a href="#">Privacidad</a></small>
-            </div>
-          </div>
-        </footer>
       </main>
-    </div>
-
-    {{-- Widgets globales --}}
-    <div id="p360-progress" aria-hidden="true"></div>
-    <div id="p360-loading" role="status" aria-live="polite" aria-label="Cargando"><div class="spinner"></div></div>
-    <div id="p360-alerts" aria-live="polite"></div>
-    <div id="p360-cmd"><div class="cmd-card"><input type="search" id="p360-cmd-input" placeholder="Escribe para buscar…  (Esc para cerrar)"></div></div>
-
-    {{-- Sidebar.css (post-paint) --}}
-    @if (is_file($SB_ABS) && filesize($SB_ABS) > $minSize)
-      <link id="css-sidebar" rel="stylesheet" href="{{ asset('assets/admin/css/sidebar.css').'?v='.filemtime($SB_ABS) }}">
     @endif
 
-    {{-- ===== JS utilitario global (sin dependencias) ===== --}}
+    {{-- ===== JS utilitario global ===== --}}
     <script>
     (function(){
       'use strict';
 
       const root     = document.documentElement;
+      const isModal  = root.classList.contains('p360-is-modal');
+      if (isModal) return;
+
       const main     = document.getElementById('p360-main');
       const progress = document.getElementById('p360-progress');
       const loading  = document.getElementById('p360-loading');
@@ -268,7 +386,6 @@
       const cmd      = document.getElementById('p360-cmd');
       const cmdIn    = document.getElementById('p360-cmd-input');
 
-      // ===== Guard: ejecutar solo una vez por bandera =====
       window.p360 = window.p360 || {};
       window.p360.once = function(flag, cb){
         const k = '__p360_'+flag;
@@ -278,7 +395,6 @@
         return true;
       };
 
-      // ===== API global P360 =====
       window.P360 = {
         setTheme(t){
           if(!t) return;
@@ -313,7 +429,7 @@
           done(){ if(!progress) return; progress.style.width='100%'; setTimeout(()=>{progress.style.opacity='0';progress.style.width='0%';}, 250); }
         },
         focusSearch(){
-          const el = document.querySelector('#globalSearch,#global-search, form[role="search"] input[type="search"], input[type="search"][name="q"]');
+          const el = document.querySelector('#globalSearch,#global-search, form[role="search"] input[type="search"], input[type="search"][name="q"], form[role="search"] input[name="q"]');
           if (el){ el.focus(); el.select && el.select(); }
         },
         openCmd(){ if(!cmd) return; cmd.style.display='grid'; if(cmdIn){ cmdIn.value=''; setTimeout(()=>cmdIn.focus(),10); } },
@@ -327,7 +443,6 @@
         setTimeout(tick, 180);
       }
 
-      // ===== Altura real del Topbar → CSS var (para que el contenido no “salte”) =====
       function syncHeaderHeight(){
         const tb = document.getElementById('p360-topbar') || document.getElementById('topbar');
         if(!tb) return;
@@ -338,13 +453,11 @@
       addEventListener('resize', ()=>requestAnimationFrame(syncHeaderHeight));
       setTimeout(syncHeaderHeight, 160);
 
-      // ===== Persistencia (tema / densidad) =====
       try{
         const th = localStorage.getItem('p360.theme');   if(th) P360.setTheme(th);
         const dn = localStorage.getItem('p360.density'); if(dn) P360.setDensity(dn);
       }catch(_){}
 
-      // ===== Atajos de teclado =====
       addEventListener('keydown', (e)=>{
         const ctrl = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
         if (ctrl && e.key.toLowerCase()==='k'){ e.preventDefault(); P360.focusSearch(); }
@@ -354,134 +467,14 @@
       });
       cmd && cmd.addEventListener('click', (ev)=>{ if(ev.target===cmd) P360.closeCmd(); });
 
-      // ===== Sombra en header de página =====
       main && main.addEventListener('scroll', ()=>{
         const ph = document.getElementById('page-header');
         if(!ph) return; ph.classList.toggle('affix-shadow', main.scrollTop > 6);
       }, {passive:true});
 
-      // ===== Restauración de scroll por ruta =====
       const keyScroll = ()=> 'p360.scroll.' + (location.pathname || '');
       addEventListener('beforeunload', ()=>{ try{ main && sessionStorage.setItem(keyScroll(), String(main.scrollTop||0)); }catch(_){ }});
       addEventListener('load', ()=>{ try{ const y = parseInt(sessionStorage.getItem(keyScroll())||'0',10)||0; main && main.scrollTo({top:y}); }catch(_){ }});
-
-      // ===== Limpieza de assets de vista (opt) =====
-      function cleanupViewAssets(){
-        ['css-home','css-usuarios','css-perfiles','css-crud-module'].forEach(id=>{ const el = document.getElementById(id); el && el.remove(); });
-        document.querySelectorAll('#p360-main script[data-p360-script]').forEach(s=>s.remove());
-      }
-
-      // ===== Hooks PJAX (si los usas) =====
-      addEventListener('p360:pjax:before', ()=>{
-        try{ main && sessionStorage.setItem(keyScroll(), String(main.scrollTop||0)); }catch(_){}
-        P360.progress.start();
-        P360.loading.show();
-        cleanupViewAssets();
-        document.body.classList.remove('sidebar-open');
-        main && (main.style.opacity = '.001');
-      });
-      addEventListener('p360:pjax:response', (ev)=>{
-        const d = ev && ev.detail || {};
-        if (d.status && d.status >= 400 && d.url) { location.assign(d.url); }
-      });
-      addEventListener('p360:pjax:after', ()=>{
-        requestAnimationFrame(()=>{
-          P360.loading.hide();
-          P360.progress.done();
-          syncHeaderHeight();
-          main && (main.style.opacity = '');
-        });
-        try{
-          const y = parseInt(sessionStorage.getItem(keyScroll())||'0',10)||0;
-          main && main.scrollTo({top:y});
-        }catch(_){}
-        const txt = (main && main.textContent || '').slice(0, 20000);
-        if (/Ignition|Whoops|exceptionAsMarkdown/.test(txt)) location.reload();
-      });
-
-      // ===== LEGAL ENFORCER v3 (mueve/limpia legales desde el header al footer) =====
-      (function legalEnforcerV3(){
-        const HDR_Q = ['#p360-topbar', '#topbar', 'header.header', 'header[role="banner"]'];
-        const headEls  = () => HDR_Q.flatMap(q => Array.from(document.querySelectorAll(q)));
-        const inHeader = (el) => !!el && headEls().some(h => h.contains(el));
-        const $ = (s, c=document) => c.querySelector(s);
-        const $$ = (s, c=document) => Array.from(c.querySelectorAll(s));
-
-        function ensureFooterBuckets(){
-          const inner = document.querySelector('.admin-footer .footer-inner');
-          if(!inner) return {};
-          let left  = $('#footer-left')  || ( () => { const d=document.createElement('div'); d.id='footer-left';  d.className='meta'; inner.prepend(d); return d; } )();
-          let right = $('#footer-right') || ( () => { const d=document.createElement('div'); d.id='footer-right'; d.className='meta'; inner.append(d);   return d; } )();
-          return {left, right};
-        }
-        function moveIfInHeader(el, dest){ if(el && inHeader(el) && dest){ try{ dest.appendChild(el); }catch(_){ } } }
-        function killTextNodes(container){
-          const rx=/©|Pactopia|Pactopia360|derechos\s+reservados/i;
-          const tw=document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-            acceptNode(n){ return rx.test(n.nodeValue||'') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; }
-          });
-          const rm=[]; while(tw.nextNode()) rm.push(tw.currentNode);
-          rm.forEach(n=>{ n.parentNode && n.parentNode.removeChild(n); });
-        }
-        function sanitizeHeaderRight(){
-          headEls().forEach(hdr=>{
-            $$('.header-right .meta, .header-right small, .header-right .legal, .header-right .copyright, .header-right [data-copyright]', hdr)
-              .forEach(el=>{ el.remove(); });
-            Array.from(($('.header-right', hdr)?.childNodes||[])).forEach(n=>{ if(n.nodeType===3) n.remove(); });
-            $$('.header-right a', hdr).forEach(a=>{
-              const t=(a.textContent||'').trim().toLowerCase();
-              if(t.includes('preferencias') || t.includes('privacidad')) a.remove();
-            });
-            killTextNodes(hdr);
-          });
-        }
-        function sweep(){
-          const {left, right} = ensureFooterBuckets();
-          const legal = $('#p360-copy');  if(legal){ moveIfInHeader(legal, left||document.body); }
-          headEls().forEach(hdr=>{
-            $$('a', hdr).forEach(a=>{
-              const txt=(a.textContent||'').trim().toLowerCase();
-              const href=(a.getAttribute('href')||'').toLowerCase();
-              const isPrefs = txt.includes('preferencias') || href.includes('config') || href.includes('prefer');
-              const isPriv  = txt.includes('privacidad')   || href.includes('privac');
-              if(isPrefs || isPriv){
-                if(right && href && !right.querySelector(`a[href="${href}"]`)){
-                  const wrap=document.createElement('small'); const c=a.cloneNode(true); c.removeAttribute('id'); wrap.appendChild(c); right.appendChild(wrap);
-                }
-                a.remove();
-              }
-            });
-            sanitizeHeaderRight();
-          });
-        }
-        sweep();
-        try{
-          const mo = new MutationObserver((muts)=>{
-            if(muts.some(m => headEls().some(h=>h.contains(m.target)) || Array.from(m.addedNodes||[]).some(n=> headEls().some(h=> h.contains?.(n))))){
-              sweep();
-            }
-          });
-          mo.observe(document.documentElement, {childList:true, subtree:true, characterData:true});
-          addEventListener('p360:pjax:after', sweep);
-          addEventListener('load', sweep);
-        }catch(_){}
-      })();
-
-      // ===== HUD + perf mínimos =====
-      let hud;
-      function toggleHud(){
-        if(!hud){
-          hud = document.createElement('div');
-          hud.style.cssText = 'position:fixed;right:12px;bottom:12px;background:var(--card-bg);color:var(--text);border:1px solid var(--card-border);border-radius:12px;box-shadow:var(--shadow-2);padding:10px;z-index:1500;max-width:min(92vw,560px);font:12px/1.35 ui-monospace,monospace';
-          hud.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><strong>HUD</strong><button id="hudx" style="margin-left:auto;border:0;background:transparent;cursor:pointer;font-weight:800">×</button></div><div id="hudc"></div>';
-          document.body.appendChild(hud); document.getElementById('hudx').onclick=()=>hud.remove();
-        }
-        const c = hud.querySelector('#hudc');
-        c.textContent = 'theme='+(root.dataset.theme||'light')
-          +' | density='+(root.getAttribute('data-density')||'default')
-          +' | header-h='+getComputedStyle(root).getPropertyValue('--header-h').trim();
-      }
-      addEventListener('keydown', (e)=>{ if(e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase()==='d'){ e.preventDefault(); toggleHud(); }});
 
       (function perf(){ try{
         const t = performance.timing; const tt = Math.max(0, t.domComplete - t.navigationStart);
@@ -491,6 +484,7 @@
     })();
     </script>
 
+    {{-- scripts de cada vista/módulo --}}
     @stack('scripts')
     @yield('scripts')
 
@@ -500,11 +494,12 @@
       </div>
     </noscript>
 
-    {{-- Burbujas flotantes (bots, etc.) a lugar seguro --}}
-    <style>
-      .novabot-floating, #novabot-widget, .chat-bubble, [data-novabot]{
-        position:fixed !important; right:16px !important; bottom:calc(84px + var(--safe-bottom)) !important; z-index:1200 !important;
-      }
-    </style>
+    @if(!$isModal)
+      <style>
+        .novabot-floating, #novabot-widget, .chat-bubble, [data-novabot]{
+          position:fixed !important; right:16px !important; bottom:calc(84px + var(--safe-bottom)) !important; z-index:1200 !important;
+        }
+      </style>
+    @endif
   </body>
 </html>

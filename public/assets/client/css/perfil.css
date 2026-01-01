@@ -1,0 +1,214 @@
+/* public/assets/client/css/perfil.css */
+/* Perfil de la cuenta — coherente con Vault (usa p360-vault-theme.css como base) */
+
+.page-perfil .p360-ui{
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding-inline: 1.5rem;
+  box-sizing: border-box;
+}
+@media (max-width: 768px){
+  .page-perfil .p360-ui{ padding-inline: .8rem; }
+}
+
+.page-perfil .pf-page{
+  display:flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Header card estilo Vault */
+.page-perfil .pf-header{
+  display:grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 2.3fr);
+  align-items: stretch;
+  gap: 1rem;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-header{ grid-template-columns: 1fr; }
+}
+
+.page-perfil .pf-header-left{
+  display:flex;
+  align-items:center;
+  gap: .85rem;
+}
+.page-perfil .pf-title{
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+.page-perfil .pf-sub{
+  margin-top: 2px;
+  font-size: .85rem;
+  color: var(--mut);
+}
+
+.page-perfil .pf-header-right{
+  display:flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.page-perfil .pf-pills{
+  display:flex;
+  justify-content:flex-end;
+  gap: .5rem;
+  flex-wrap:wrap;
+}
+
+/* KPIs */
+.page-perfil .pf-kpis{
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .9rem;
+}
+@media (max-width: 1200px){
+  .page-perfil .pf-kpis{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px){
+  .page-perfil .pf-kpis{ grid-template-columns: 1fr; }
+}
+
+.page-perfil .pf-kpi{
+  border-radius: .9rem;
+  padding: .85rem .95rem;
+  background: rgba(248, 249, 252, 0.9);
+  border: 1px solid rgba(230, 233, 240, 0.9);
+  display:flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+html[data-theme="dark"] .page-perfil .pf-kpi{
+  background: rgba(148, 163, 184, 0.10);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.page-perfil .pf-kpi-label{
+  font-size: .74rem;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--mut);
+  font-weight: 800;
+}
+.page-perfil .pf-kpi-value{
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+}
+.page-perfil .pf-kpi-hint{
+  font-size: .78rem;
+  color: var(--mut);
+}
+
+/* Grid inferior */
+.page-perfil .pf-grid{
+  display:grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.8fr);
+  gap: 1rem;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-grid{ grid-template-columns: 1fr; }
+}
+
+/* Bloques internos */
+.page-perfil .pf-block-title{
+  font-size: .92rem;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 .25rem 0;
+}
+.page-perfil .pf-block-sub{
+  margin: 0 0 .75rem 0;
+  font-size: .82rem;
+  color: var(--mut);
+}
+
+/* Tabla key-values simple */
+.page-perfil .pf-kv{
+  display:grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  row-gap: .5rem;
+  column-gap: .9rem;
+  align-items:center;
+}
+@media (max-width: 640px){
+  .page-perfil .pf-kv{ grid-template-columns: 1fr; }
+}
+.page-perfil .pf-kv .k{
+  font-size: .76rem;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--mut);
+  font-weight: 800;
+}
+.page-perfil .pf-kv .v{
+  font-size: .86rem;
+  color: var(--ink);
+  font-weight: 700;
+  overflow:hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Actions row */
+.page-perfil .pf-actions{
+  display:flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 1024px){
+  .page-perfil .pf-actions{ justify-content: flex-start; }
+}
+
+/* Lista emisores (placeholder bonito) */
+.page-perfil .pf-empty{
+  border: 1px dashed rgba(148,163,184,.45);
+  background: color-mix(in oklab, var(--card) 90%, var(--bg) 10%);
+  border-radius: .9rem;
+  padding: .9rem 1rem;
+  color: var(--mut);
+  font-size: .85rem;
+}
+html[data-theme="dark"] .page-perfil .pf-empty{
+  border-color: rgba(148,163,184,.25);
+}
+
+/* Botón estilo “pill” para acciones */
+.page-perfil .pf-pillbtn{
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--pill-bg);
+  color: var(--ink);
+  padding: .45rem .85rem;
+  font-size: .82rem;
+  font-weight: 800;
+  display:inline-flex;
+  align-items:center;
+  gap: .45rem;
+  cursor:pointer;
+  user-select:none;
+  transition: transform .08s ease, background .08s ease, border-color .08s ease;
+}
+.page-perfil .pf-pillbtn:hover{
+  transform: translateY(-1px);
+  background: color-mix(in oklab, var(--pill-bg) 70%, var(--ink) 3%);
+}
+.page-perfil .pf-pillbtn:active{ transform: translateY(0); }
+
+.page-perfil .pf-pillbtn--brand{
+  border-color: rgba(225,29,72,.25);
+  background: rgba(225,29,72,.08);
+  color: #be123c;
+}
+html[data-theme="dark"] .page-perfil .pf-pillbtn--brand{
+  border-color: rgba(251,113,133,.22);
+  background: rgba(251,113,133,.10);
+  color: #fb7185;
+}

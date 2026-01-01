@@ -13,10 +13,3 @@
 Thumbs.db
 *.bak
 backups_migrations/
-# Keys
-*.key
-*.pem
-*.pub
-id_*
-p360l
-p360l.pub

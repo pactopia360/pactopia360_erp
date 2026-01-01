@@ -17,3 +17,4 @@ abstract class BaseClienteAuthenticatable extends Authenticatable
      */
     protected $connection = 'mysql_clientes';
 }
+

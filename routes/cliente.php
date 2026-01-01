@@ -9,21 +9,23 @@ use App\Http\Controllers\Cliente\RegisterController;
 use App\Http\Controllers\Cliente\VerificationController;
 use App\Http\Controllers\Cliente\PasswordController;
 use App\Http\Controllers\Cliente\StripeController;
-use App\Http\Controllers\Cliente\EstadoCuentaController;
 use App\Http\Controllers\Cliente\AccountBillingController;
 use App\Http\Controllers\Cliente\Auth\FirstPasswordController;
-use App\Http\Controllers\Cliente\Auth\PasswordResetController;
 use App\Http\Controllers\Cliente\FacturacionController as ClienteFacturacion;
 
 use App\Http\Controllers\Cliente\AlertasController;
 use App\Http\Controllers\Cliente\ChatController;
 use App\Http\Controllers\Cliente\MarketplaceController;
 use App\Http\Controllers\Cliente\PerfilController;
+use App\Http\Controllers\Cliente\MiCuentaController;
+use App\Http\Controllers\Cliente\UiController;
 
+// ✅ FIX: importar FacturasController con su namespace real
+use App\Http\Controllers\Cliente\MiCuenta\FacturasController;
+
+// ✅ CSRF (solo para local)
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
-
-use App\Jobs\SendTestMailJob;
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -42,22 +44,137 @@ $throttleAlerts       = $isLocal ? 'throttle:120,1' : 'throttle:30,1';
 $throttleChat         = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 $throttleHomeData     = $isLocal ? 'throttle:120,1' : 'throttle:30,1';
 
-/* root */
+/*
+|--------------------------------------------------------------------------
+| ROOT
+|--------------------------------------------------------------------------
+*/
 Route::get('/', function () {
     return auth('web')->check()
         ? redirect()->route('cliente.home')
         : redirect()->route('cliente.login');
 })->name('root');
 
-/* Invitados (guest:web) con sesión aislada cliente */
-Route::middleware([
-    'guest:web',
-    \App\Http\Middleware\ClientSessionConfig::class,
-])->group(function () use (
-    $isLocal, $throttleLogin, $throttleRegister, $throttleCheckout,
-    $throttleVerifyResend, $throttlePassEmail, $throttlePassReset
+/*
+|---------------------------------------------------------------------------
+| ✅ PAYWALL (SIN LOGIN) — redirige a Stripe Checkout PRO
+|---------------------------------------------------------------------------
+| LoginController (cuando admin.is_blocked=1) hace:
+|   return redirect()->route('cliente.paywall');
+|
+| Aquí NO podemos mandar al "estado de cuenta" porque requiere auth:web y eso
+| provoca loop a login. Entonces redirigimos directo a Checkout PRO.
+*/
+Route::get('paywall', function (Request $request) {
+    $accountId = (int) $request->session()->get('paywall.account_id', 0);
+    $cycle     = strtolower((string) $request->session()->get('paywall.cycle', 'mensual'));
+    $email     = (string) $request->session()->get('paywall.email', '');
+
+    if ($accountId <= 0) {
+        return redirect()->route('cliente.login');
+    }
+
+    $cycle = ($cycle === 'anual' || $cycle === 'annual') ? 'anual' : 'mensual';
+
+    // ✅ Redirección inmediata (sin mensajes)
+    // Usamos rutas públicas GET para evitar CSRF y porque aún no hay auth.
+    if ($cycle === 'anual') {
+        return redirect()->route('cliente.checkout.pro.annual', [
+            'account_id' => $accountId,
+            'email'      => $email ?: null,
+        ]);
+    }
+
+    return redirect()->route('cliente.checkout.pro.monthly', [
+        'account_id' => $accountId,
+        'email'      => $email ?: null,
+    ]);
+})->name('paywall');
+
+/*
+|--------------------------------------------------------------------------
+| PDF / PAGO PÚBLICOS FIRMADOS (SIN LOGIN)
+|--------------------------------------------------------------------------
+| IMPORTANTE:
+| - Ya estás dentro del grupo "cliente" desde RouteServiceProvider,
+|   así que ClientSessionConfig ya corre antes de StartSession.
+| - Para enlaces firmados NO necesitas auth. Solo signed.
+*/
+Route::get('billing/statement/public-pdf/{accountId}/{period}', [AccountBillingController::class, 'publicPdf'])
+    ->whereNumber('accountId')
+    ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+    ->middleware(['signed'])
+    ->name('billing.publicPdf');
+
+Route::get('billing/statement/public-pdf-inline/{accountId}/{period}', [AccountBillingController::class, 'publicPdfInline'])
+    ->whereNumber('accountId')
+    ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+    ->middleware(['signed'])
+    ->name('billing.publicPdfInline');
+
+Route::get('billing/statement/public-pay/{accountId}/{period}', [AccountBillingController::class, 'publicPay'])
+    ->whereNumber('accountId')
+    ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+    ->middleware(['signed'])
+    ->name('billing.publicPay');
+
+/*
+|--------------------------------------------------------------------------
+| GUARDAR PERFIL FACTURACIÓN (legacy/aux)
+|--------------------------------------------------------------------------
+*/
+Route::post('billing/profile/save', [AccountBillingController::class, 'saveBillingProfile'])
+    ->name('billing.profile.save');
+
+/*
+|--------------------------------------------------------------------------
+| ✅ STRIPE CHECKOUT PRO (PÚBLICO) — GET
+|--------------------------------------------------------------------------
+| Paywall redirige aquí con account_id/email por query string.
+| StripeController ya valida account_id/email, funciona con GET o POST.
+*/
+Route::get('checkout/pro/mensual', [StripeController::class, 'checkoutMonthly'])
+    ->middleware($throttleCheckout)
+    ->name('checkout.pro.monthly');
+
+Route::get('checkout/pro/anual', [StripeController::class, 'checkoutAnnual'])
+    ->middleware($throttleCheckout)
+    ->name('checkout.pro.annual');
+
+/*
+|--------------------------------------------------------------------------
+| STRIPE CALLBACKS
+|--------------------------------------------------------------------------
+*/
+Route::get('checkout/success', [StripeController::class, 'success'])
+    ->name('checkout.success');
+
+Route::get('checkout/cancel', [StripeController::class, 'cancel'])
+    ->name('checkout.cancel');
+
+/*
+|--------------------------------------------------------------------------
+| INVITADOS (GUEST)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['guest:web'])->group(function () use (
+    $isLocal,
+    $throttleLogin,
+    $throttleRegister,
+    $throttleCheckout,
+    $throttleVerifyResend,
+    $throttleOtpSend,
+    $throttleOtpCheck,
+    $throttlePassEmail,
+    $throttlePassReset
 ) {
-    Route::get('login',  [ClienteLogin::class, 'showLogin'])->name('login');
+
+    /*
+    |--------------------------------------------------------------------------
+    | AUTH
+    |--------------------------------------------------------------------------
+    */
+    Route::get('login', [ClienteLogin::class, 'showLogin'])->name('login');
 
     $postLogin = Route::post('login', [ClienteLogin::class, 'login'])
         ->middleware($throttleLogin)
@@ -68,225 +185,277 @@ Route::middleware([
     }
 
     Route::get('registro', [RegisterController::class, 'showFree'])->name('registro.free');
-    Route::post('registro', [RegisterController::class, 'storeFree'])
-        ->middleware($throttleRegister)->name('registro.free.do');
+    $rFree = Route::post('registro', [RegisterController::class, 'storeFree'])
+        ->middleware($throttleRegister)
+        ->name('registro.free.do');
 
     Route::get('registro/pro', [RegisterController::class, 'showPro'])->name('registro.pro');
-    Route::post('registro/pro', [RegisterController::class, 'storePro'])
-        ->middleware($throttleRegister)->name('registro.pro.do');
+    $rPro = Route::post('registro/pro', [RegisterController::class, 'storePro'])
+        ->middleware($throttleRegister)
+        ->name('registro.pro.do');
 
-    Route::post('checkout/pro/mensual', [StripeController::class, 'checkoutMonthly'])
-        ->middleware($throttleCheckout)->name('checkout.pro.monthly');
+    if ($isLocal) {
+        foreach ([$rFree, $rPro] as $r) {
+            $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+    }
 
-    Route::post('checkout/pro/anual',   [StripeController::class, 'checkoutAnnual'])
-        ->middleware($throttleCheckout)->name('checkout.pro.annual');
-
-    Route::get('checkout/success', [StripeController::class, 'success'])->name('checkout.success');
-    Route::get('checkout/cancel',  [StripeController::class, 'cancel'])->name('checkout.cancel');
-
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFICACIÓN EMAIL (TOKEN)
+    |--------------------------------------------------------------------------
+    */
     Route::get('verificar/email/{token}', [VerificationController::class, 'verifyEmail'])
-        ->where('token', '[A-Za-z0-9\-_]{20,100}')->name('verify.email.token');
+        ->where('token', '[A-Za-z0-9\-\_\.]+')
+        ->name('verify.email.token');
 
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFICACIÓN EMAIL (SIGNED LINK)
+    |--------------------------------------------------------------------------
+    */
     Route::get('verificar/email/link', [VerificationController::class, 'verifyEmailSigned'])
-        ->middleware('signed')->name('verify.email.link');
+        ->middleware('signed')
+        ->name('verify.email.signed');
 
-    Route::get('verificar/email/resend', [VerificationController::class, 'showResendEmail'])
+    /*
+    |--------------------------------------------------------------------------
+    | REENVIAR VERIFICACIÓN EMAIL
+    |--------------------------------------------------------------------------
+    */
+    Route::get('verificar/email/reenviar', [VerificationController::class, 'showResendEmail'])
         ->name('verify.email.resend');
 
-    Route::post('verificar/email/resend', [VerificationController::class, 'resendEmail'])
-        ->middleware($throttleVerifyResend)->name('verify.email.resend.do');
+    $resendEmail = Route::post('verificar/email/reenviar', [VerificationController::class, 'resendEmail'])
+        ->middleware($throttleVerifyResend)
+        ->name('verify.email.resend.do');
 
-    Route::get('password/forgot',  [PasswordController::class, 'showLinkRequestForm'])
-        ->name('password.forgot');
-    Route::post('password/email',  [PasswordController::class, 'sendResetLinkEmail'])
-        ->middleware($throttlePassEmail)->name('password.email');
-    Route::get('password/reset/{token}', [PasswordController::class, 'showResetForm'])
-        ->where('token', '[A-Za-z0-9\-_]{20,100}')->name('password.reset');
-    Route::post('password/reset', [PasswordController::class, 'reset'])
-        ->middleware($throttlePassReset)->name('password.update');
+    if ($isLocal) {
+        $resendEmail->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
 
-    Route::get('terminos', function () {
-        $url = config('app.terms_url') ?? env('APP_TERMS_URL') ?? 'https://pactopia.com/terminos';
-        return redirect()->away($url);
-    })->name('terminos');
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFICACIÓN TELÉFONO (OTP) - flujo invitado
+    |--------------------------------------------------------------------------
+    */
+    Route::get('verificar/telefono', [VerificationController::class, 'showOtp'])
+        ->name('verify.phone');
+
+    $updPhone = Route::post('verificar/telefono', [VerificationController::class, 'updatePhone'])
+        ->middleware($throttleOtpSend)
+        ->name('verify.phone.update');
+
+    $sendOtp = Route::post('verificar/telefono/send', [VerificationController::class, 'sendOtp'])
+        ->middleware($throttleOtpSend)
+        ->name('verify.phone.send');
+
+    $checkOtp = Route::post('verificar/telefono/check', [VerificationController::class, 'checkOtp'])
+        ->middleware($throttleOtpCheck)
+        ->name('verify.phone.check');
+
+    if ($isLocal) {
+        foreach ([$updPhone, $sendOtp, $checkOtp] as $r) {
+            $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+    }
 });
 
-/* Switch Tema (aislar sesión cliente también aquí) */
-Route::post('ui/theme', function (Request $r) {
-    $data = $r->validate(['theme' => 'required|string|in:light,dark']);
-    session(['client_ui.theme' => $data['theme']]);
-    return response()->noContent();
-})->middleware([\App\Http\Middleware\ClientSessionConfig::class, $throttleUiTheme])->name('ui.theme.switch');
+/*
+|--------------------------------------------------------------------------
+| PRIMER PASSWORD (POST-LOGIN)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:web'])->group(function () use ($isLocal) {
 
-/* Verificación Teléfono (OTP) */
-Route::get('verificar/telefono', [VerificationController::class, 'showOtp'])
-    ->middleware(\App\Http\Middleware\ClientSessionConfig::class)
-    ->name('verify.phone');
-Route::post('verificar/telefono', [VerificationController::class, 'sendOtp'])
-    ->middleware([\App\Http\Middleware\ClientSessionConfig::class, $throttleOtpSend])->name('verify.phone.send');
-Route::post('verificar/telefono/check', [VerificationController::class, 'checkOtp'])
-    ->middleware([\App\Http\Middleware\ClientSessionConfig::class, $throttleOtpCheck])->name('verify.phone.check');
-Route::post('verificar/telefono/update', [VerificationController::class, 'updatePhone'])
-    ->middleware([\App\Http\Middleware\ClientSessionConfig::class, $isLocal ? 'throttle:60,1' : 'throttle:6,1'])->name('verify.phone.update');
+    Route::get('password/first', [FirstPasswordController::class, 'show'])
+        ->name('password.first');
 
-/* Área autenticada cliente (auth:web + sesión aislada + cuenta activa) */
-Route::middleware([
-    'auth:web',
-    \App\Http\Middleware\ClientSessionConfig::class,
-    'account.active'
-])->group(function () use (
-    $throttleBillingPay, $throttleAlerts, $throttleChat, $throttleHomeData
-) {
+    $firstPassStore = Route::post('password/first', [FirstPasswordController::class, 'store'])
+        ->name('password.first.store');
+
+    $firstPassDo = Route::post('password/first/do', [FirstPasswordController::class, 'store'])
+        ->name('password.first.do');
+
+    if ($isLocal) {
+        $firstPassStore->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        $firstPassDo->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| UI helpers (demo-mode, theme, etc.)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:web'])->group(function () use ($isLocal) {
+
+    $demoPost = Route::post('ui/demo-mode', [UiController::class, 'demoMode'])
+        ->name('ui.demo_mode');
+
+    Route::get('ui/demo-mode', [UiController::class, 'demoModeGet'])
+        ->name('ui.demo_mode.get');
+
+    if ($isLocal) {
+        $demoPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| ÁREA AUTENTICADA
+|--------------------------------------------------------------------------
+| ✅ FIX REAL:
+| - hidratar módulos desde admin SOT para que el cliente respete ON/OFF
+| - forzar session.cliente por consistencia (aunque ya venga del RouteServiceProvider)
+*/
+Route::middleware(['session.cliente', 'auth:web', 'account.active', 'cliente.hydrate_modules'])
+    ->group(function () use (
+        $throttleBillingPay,
+        $throttleAlerts,
+        $throttleChat,
+        $throttleHomeData,
+        $isLocal
+    ) {
+
     Route::get('home', [ClienteHome::class, 'index'])->name('home');
 
-    Route::get('home/kpis',   [ClienteHome::class, 'kpis'])->middleware($throttleHomeData)->name('home.kpis');
-    Route::get('home/series', [ClienteHome::class, 'series'])->middleware($throttleHomeData)->name('home.series');
-    Route::get('home/combo',  [ClienteHome::class, 'combo'])->middleware($throttleHomeData)->name('home.combo');
+    /*
+    |--------------------------------------------------------------------------
+    | PERFIL (Cliente)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('perfil')->name('perfil.')->group(function () use ($isLocal) {
 
-    Route::get('password/first',  [FirstPasswordController::class, 'show'])->name('password.first');
-    Route::post('password/first', [FirstPasswordController::class, 'store'])->middleware('throttle:6,1')->name('password.first.store');
+        Route::get('/', [PerfilController::class, 'index'])->name('index');
+        Route::get('/', [PerfilController::class, 'index'])->name('show');
 
-    Route::get('estado-cuenta', [EstadoCuentaController::class, 'index'])->name('estado_cuenta');
+        $pw = Route::match(['POST','PUT'], 'password', [PerfilController::class, 'updatePassword'])
+            ->name('password.update');
 
-    Route::get('billing/statement', [AccountBillingController::class, 'statement'])->name('billing.statement');
-    Route::post('billing/pay-pending', [AccountBillingController::class, 'payPending'])
-        ->middleware($throttleBillingPay)->name('billing.payPending');
+        $ph = Route::match(['POST','PUT'], 'phone', [PerfilController::class, 'updatePhone'])
+            ->name('phone.update');
 
-    Route::get('alertas', [AlertasController::class, 'index'])->name('alertas');
-    Route::patch('alertas/{id}/read', [AlertasController::class, 'markAsRead'])->middleware($throttleAlerts)->name('alertas.read');
-    Route::delete('alertas/{id}', [AlertasController::class, 'destroy'])->middleware($throttleAlerts)->name('alertas.delete');
+        $av = Route::match(['POST','PUT'], 'avatar', [PerfilController::class, 'uploadAvatar'])
+            ->name('avatar.update');
 
-    Route::get('soporte/chat', [ChatController::class, 'index'])->name('soporte.chat');
-    Route::post('soporte/chat/send', [ChatController::class, 'send'])->middleware($throttleChat)->name('soporte.chat.send');
-    Route::get('soporte', [\App\Http\Controllers\Cliente\ChatController::class, 'index'])->name('soporte');
+        Route::get('settings', [PerfilController::class, 'settings'])
+            ->name('settings');
 
-    Route::get('marketplace', [MarketplaceController::class, 'index'])->name('marketplace');
-
-        // PERFIL
-    Route::get('perfil', [PerfilController::class, 'show'])->name('perfil');
-    Route::post('perfil/avatar', [PerfilController::class, 'uploadAvatar'])->name('cliente.perfil.avatar');
-
-    // NUEVAS RUTAS PERFIL (coinciden con los form action del partial)
-    Route::put('perfil/password', [PerfilController::class, 'updatePassword'])->name('perfil.password.update');
-    Route::put('perfil/phone',    [PerfilController::class, 'updatePhone'])->name('perfil.phone.update');
-
-    // CONFIGURACIÓN DE LA CUENTA (para el menú "Configuración")
-    Route::get('configuracion', [PerfilController::class, 'settings'])->name('settings');
-
-    // EMISORES
-    Route::post('emisores', [PerfilController::class, 'storeEmisor'])->name('emisores.store');
-    Route::post('emisores/{id}/logo', [PerfilController::class, 'uploadEmisorLogo'])->name('emisores.logo');
-    Route::post('emisores/import', [PerfilController::class, 'importEmisores'])->name('emisores.import');
-
-    Route::prefix('facturacion')->as('facturacion.')->group(function () {
-        Route::get('/',         [ClienteFacturacion::class, 'index'])->name('index');
-        Route::get('export',    [ClienteFacturacion::class, 'export'])->name('export');
-        Route::get('kpis',      [ClienteFacturacion::class, 'kpis'])->name('kpis');
-        Route::get('series',    [ClienteFacturacion::class, 'series'])->name('series');
-        Route::get('nuevo',     [ClienteFacturacion::class, 'create'])->name('nuevo');
-        Route::post('/',        [ClienteFacturacion::class, 'store'])->name('store');
-        Route::post('guardar',  [ClienteFacturacion::class, 'store'])->name('guardar');
-        Route::get('{id}',      [ClienteFacturacion::class, 'show'])->name('show');
-        Route::get('{id}/editar',[ClienteFacturacion::class, 'edit'])->name('edit');
-        Route::put('{id}',      [ClienteFacturacion::class, 'update'])->name('actualizar');
-        Route::post('{id}/timbrar',   [ClienteFacturacion::class, 'timbrar'])->name('timbrar');
-        Route::post('{id}/cancelar',  [ClienteFacturacion::class, 'cancelar'])->name('cancelar');
-        Route::post('{id}/duplicar',  [ClienteFacturacion::class, 'duplicar'])->name('duplicar');
-        Route::get('{id}/pdf',  [ClienteFacturacion::class, 'verPdf'])->name('ver_pdf');
-        Route::get('{id}/xml',  [ClienteFacturacion::class, 'descargarXml'])->name('descargar_xml');
+        if ($isLocal) {
+            foreach ([$pw, $ph, $av] as $r) {
+                $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
     });
 
-    /* Logout cliente */
-    Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
+    Route::get('perfil', [PerfilController::class, 'index'])->name('perfil');
 
-    /* Debug sesión cliente actual */
-    Route::get('_whoami', function () {
-        $u = auth('web')->user();
-        return response()->json([
-            'ok'    => (bool) $u,
-            'id'    => $u?->id,
-            'name'  => $u?->name ?? $u?->nombre,
-            'email' => $u?->email,
-            'guard' => 'web',
-            'now'   => now()->toDateTimeString(),
-        ]);
-    })->name('whoami');
+    /*
+    |--------------------------------------------------------------------------
+    | MI CUENTA (Cliente)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('mi-cuenta')->name('mi_cuenta.')->group(function () {
+
+        Route::get('/', [MiCuentaController::class, 'index'])->name('index');
+
+        // ✅ MIS PAGOS
+        Route::get('pagos', [MiCuentaController::class, 'pagos'])->name('pagos');
+
+        Route::post('profile/update', [MiCuentaController::class, 'profileUpdate'])->name('profile.update');
+        Route::post('security/update', [MiCuentaController::class, 'securityUpdate'])->name('security.update');
+        Route::post('preferences/update', [MiCuentaController::class, 'preferencesUpdate'])->name('preferences.update');
+        Route::post('brand/update', [MiCuentaController::class, 'brandUpdate'])->name('brand.update');
+        Route::post('billing/update', [MiCuentaController::class, 'billingUpdate'])->name('billing.update');
+
+        // Contratos placeholders
+        Route::get('contratos', [MiCuentaController::class, 'contratosIndex'])->name('contratos.index');
+        Route::get('contratos/{contract}', [MiCuentaController::class, 'showContract'])->whereNumber('contract')->name('contratos.show');
+        Route::post('contratos/{contract}/sign', [MiCuentaController::class, 'signContract'])->whereNumber('contract')->name('contratos.sign');
+        Route::get('contratos/{contract}/pdf', [MiCuentaController::class, 'downloadSignedPdf'])->whereNumber('contract')->name('contratos.pdf');
+
+        /*
+        |--------------------------------------------------------------------------
+        | ✅ FACTURAS (Mi cuenta) — SOLICITUDES DE ESTADO DE CUENTA
+        |--------------------------------------------------------------------------
+        | OJO:
+        | Estas “facturas” son las solicitudes/ZIP de estados de cuenta (admin SOT),
+        | NO dependen del módulo “facturacion” (CFDI).
+        | Si lo dejas con cliente.module:facturacion, el iframe se redirige a Home.
+        */
+        Route::get('facturas', [FacturasController::class, 'index'])->name('facturas.index');
+        Route::post('facturas', [FacturasController::class, 'store'])->name('facturas.store');
+        Route::get('facturas/{id}', [FacturasController::class, 'show'])->whereNumber('id')->name('facturas.show');
+        Route::get('facturas/{id}/download', [FacturasController::class, 'downloadZip'])->whereNumber('id')->name('facturas.download');
+
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | ESTADO DE CUENTA
+    |--------------------------------------------------------------------------
+    */
+    Route::get('estado-de-cuenta', [AccountBillingController::class, 'statement'])
+        ->name('estado_cuenta');
+
+    Route::get('billing/statement/pdf-inline/{period}', [AccountBillingController::class, 'pdfInline'])
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.pdfInline');
+
+    Route::get('billing/statement/pdf/{period}', [AccountBillingController::class, 'pdf'])
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.pdf');
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAGO
+    |--------------------------------------------------------------------------
+    */
+    $payPost = Route::post('billing/statement/pay/{period}', [AccountBillingController::class, 'pay'])
+        ->middleware($throttleBillingPay)
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.pay');
+
+    Route::get('billing/statement/pay/{period}', [AccountBillingController::class, 'pay'])
+        ->middleware($throttleBillingPay)
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.pay.get');
+
+    if ($isLocal) {
+        $payPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FACTURAR (Solicitud y Descarga ZIP)
+    |--------------------------------------------------------------------------
+    */
+    $reqInv = Route::post('billing/statement/factura/{period}', [AccountBillingController::class, 'requestInvoice'])
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.factura.request');
+
+    Route::get('billing/statement/factura/{period}/download', [AccountBillingController::class, 'downloadInvoiceZip'])
+        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+        ->name('billing.factura.download');
+
+    if ($isLocal) {
+        $reqInv->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOGOUT
+    |--------------------------------------------------------------------------
+    */
+    Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
 });
 
-/* Webhook Stripe (no CSRF) */
-Route::post('webhook/stripe', [StripeController::class, 'webhook'])
-    ->withoutMiddleware([AppCsrf::class])
-    ->middleware('throttle:120,1')
-    ->name('webhook.stripe');
-
-/* QA Local */
-if ($isLocal) {
-    Route::prefix('_qa')->as('qa.')->group(function () use ($throttleQaSeedClean) {
-
-        if (class_exists(\App\Http\Controllers\Cliente\QaController::class)) {
-            Route::get('/', [\App\Http\Controllers\Cliente\QaController::class, 'index'])->name('index');
-
-            Route::post('seed',  [\App\Http\Controllers\Cliente\QaController::class, 'seed'])
-                ->middleware($throttleQaSeedClean)
-                ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-                ->name('seed');
-
-            Route::post('clean', [\App\Http\Controllers\Cliente\QaController::class, 'clean'])
-                ->middleware($throttleQaSeedClean)
-                ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-                ->name('clean');
-        }
-
-        Route::post('hash-check', [\App\Http\Controllers\Cliente\Auth\LoginController::class, 'qaHashCheck'])
-            ->middleware('throttle:60,1')
-            ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-            ->name('hash_check');
-
-        Route::post('force-owner-password', [\App\Http\Controllers\Cliente\Auth\LoginController::class, 'qaForceOwnerPassword'])
-            ->middleware('throttle:60,1')
-            ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-            ->name('force_owner_password');
-
-        Route::get('password/first',  [FirstPasswordController::class, 'show'])->name('password.first');
-        Route::post('password/first', [FirstPasswordController::class, 'store'])->middleware('throttle:6,1')->name('password.first.store');
-
-        Route::post('test-pass', [\App\Http\Controllers\Cliente\Auth\LoginController::class, 'qaTestPassword'])
-            ->middleware('throttle:60,1')
-            ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-            ->name('test_pass');
-
-        Route::post('reset-pass', [\App\Http\Controllers\Cliente\Auth\LoginController::class, 'qaResetPassword'])
-            ->middleware('throttle:30,1')
-            ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-            ->name('reset_pass');
-
-        Route::post('universal-check', [\App\Http\Controllers\Cliente\Auth\LoginController::class, 'qaUniversalCheck'])
-            ->middleware('throttle:60,1')
-            ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-            ->name('universal_check');
-
-        Route::post('queue-test', function (Request $r) {
-            $data = $r->validate([
-                'to'      => 'required|email',
-                'subject' => 'nullable|string|max:120',
-                'body'    => 'nullable|string|max:1000',
-            ]);
-
-            SendTestMailJob::dispatch(
-                $data['to'],
-                $data['subject'] ?? 'P360 · Cola OK',
-                $data['body']    ?? 'Prueba COLA OK vía queue'
-            );
-
-            return response()->json([
-                'ok'     => true,
-                'queued' => true,
-                'to'     => $data['to'],
-                'queue'  => config('queue.default'),
-            ]);
-        })
-        ->middleware('throttle:60,1')
-        ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
-        ->name('queue_test');
-    });
-}
+/*
+|--------------------------------------------------------------------------
+| STRIPE WEBHOOK
+|--------------------------------------------------------------------------
+*/
+Route::post('stripe/webhook', [StripeController::class, 'webhook'])
+    ->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class])
+    ->name('stripe.webhook');

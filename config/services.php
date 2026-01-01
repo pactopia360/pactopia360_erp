@@ -54,10 +54,11 @@ return [
 
     // ===== reCAPTCHA (registro/login si se desea) =====
     'recaptcha' => [
-        'enabled'    => (bool) env('RECAPTCHA_ENABLED', false),
+        'enabled'    => (bool) env('RECAPTCHA_ENABLED', true),
         'site_key'   => env('RECAPTCHA_SITE_KEY'),
         'secret_key' => env('RECAPTCHA_SECRET_KEY'),
     ],
+
 
     // OTP (WhatsApp / SMS)
     'otp' => [
@@ -92,20 +93,25 @@ return [
 
     // SAT / servicios relacionados
     'sat' => [
-        // driver legacy general (si tienes algo que use esto)
-        'driver' => env('SAT_DRIVER', 'fake'),
-
-        // si usas algún proxy tipo Facturotopia
-        'base'   => env('FT_BASE', ''),
-        'token'  => env('FT_TOKEN', ''),
-
-        // Config específico para descarga masiva vía SATWS (phpcfdi/sat-ws-descarga-masiva)
         'download' => [
-            // 'satws' = directo al SAT, 'fake' o 'database' para otros drivers
-            'driver'       => env('SAT_DOWNLOAD_DRIVER', 'satws'),
-            // timeout HTTP en segundos
+            // driver: 'satws' directo, 'multi' para balanceador
+            'driver'       => env('SAT_DOWNLOAD_DRIVER', 'multi'),
+
+            // orden de proveedores para multi
+            'providers'    => array_values(array_filter(array_map('trim', explode(',', env('SAT_DOWNLOAD_PROVIDERS', 'satws'))))),
+
+            // failover activado
+            'failover'     => (bool) env('SAT_DOWNLOAD_FAILOVER', true),
+
+            // timeouts
             'http_timeout' => (int) env('SAT_DOWNLOAD_HTTP_TIMEOUT', 60),
+
+            // precios
+            'price_per_gb' => (float) env('SAT_PRICE_PER_GB', 100),
+
+            // TTLs
+            'ttl_hours'      => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
+            'demo_ttl_hours' => (int) env('SAT_DOWNLOAD_DEMO_TTL_HOURS', 24),
         ],
     ],
-
 ];

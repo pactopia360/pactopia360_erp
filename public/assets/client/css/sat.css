@@ -959,3 +959,70 @@ html[data-theme="dark"] .storage-pill{
   font-weight:600;
   color:var(--mut);
 }
+
+
+/* === Encabezado SAT – tipografía y sticky primera columna === */
+
+/* Aseguramos Poppins en todo el encabezado */
+.sat-dl-table thead th{
+  font-family:'Poppins',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:11px;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:#6b7280;
+}
+
+/* Columna de selección congelada al hacer scroll horizontal */
+.sat-dl-col-check{
+  position:sticky;
+  left:0;
+  z-index:4;
+}
+
+/* Fondo correcto en header y filas para que no “parpadee” */
+.sat-dl-table thead .sat-dl-col-check{
+  background:#f9fafb;
+  box-shadow:2px 0 0 #e5e7eb;   /* pequeña línea a la derecha */
+}
+
+.sat-dl-table tbody .sat-dl-col-check{
+  background:#ffffff;
+}
+
+/* Cuando la fila está zebra/hover, mantenemos el mismo tono */
+.sat-dl-table tbody tr:nth-child(even) .sat-dl-col-check{
+  background:#f9fafb;
+}
+.sat-dl-table tbody tr:hover .sat-dl-col-check{
+  background:#edf2f7;
+}
+
+/* Barra de acciones masivas */
+.sat-dl-bulk{
+  margin-top:4px;
+  margin-bottom:4px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px dashed rgba(148,163,184,.7);
+  background:#f9fafb;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  font-family:'Poppins',system-ui;
+  font-size:11px;
+}
+
+.sat-dl-bulk-left{
+  font-weight:600;
+  color:#374151;
+}
+
+.sat-dl-bulk-left span{
+  font-weight:700;
+}
+
+.sat-dl-bulk-actions{
+  display:flex;
+  gap:6px;
+}

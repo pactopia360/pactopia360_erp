@@ -15,29 +15,50 @@ class RouteServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->routes(function () {
-            // Web "general"
+
+            /**
+             * =========================
+             * WEB "GENERAL"
+             * =========================
+             */
             if (file_exists(base_path('routes/web.php'))) {
                 Route::middleware('web')
                     ->group(base_path('routes/web.php'));
             }
 
-            // ===== ADMIN: prefijo /admin y nombres admin.* =====
+            /**
+             * =========================
+             * ADMIN
+             * - Usa grupo "admin" (NO "web") para que AdminSessionConfig corra antes de StartSession
+             * - Prefix /admin y nombres admin.*
+             * =========================
+             */
             if (file_exists(base_path('routes/admin.php'))) {
-                Route::middleware(['web'])
+                Route::middleware('admin')
                     ->prefix('admin')
                     ->as('admin.')
                     ->group(base_path('routes/admin.php'));
             }
 
-            // ===== CLIENTE (opcional): /cliente y nombres cliente.* =====
+            /**
+             * =========================
+             * CLIENTE
+             * - Usa grupo "cliente" (NO "web") para que ClientSessionConfig corra antes de StartSession
+             * - Prefix /cliente y nombres cliente.*
+             * =========================
+             */
             if (file_exists(base_path('routes/cliente.php'))) {
-                Route::middleware(['web'])
+                Route::middleware('cliente')
                     ->prefix('cliente')
                     ->as('cliente.')
                     ->group(base_path('routes/cliente.php'));
             }
 
-            // API (si la usas)
+            /**
+             * =========================
+             * API
+             * =========================
+             */
             if (file_exists(base_path('routes/api.php'))) {
                 Route::prefix('api')
                     ->middleware('api')

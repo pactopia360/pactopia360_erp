@@ -1,0 +1,518 @@
+/* ======================================================================
+   P360 · Estado de cuenta (Totalplay-like, premium, legible)  v3.2
+   FIX: NO depender de main.content.page-billing (a veces no existe)
+   - Background/paddings a nivel de .p360-billing
+   - Override del .container del layout para que no “encapsule” raro
+   ====================================================================== */
+
+:root{
+  --font: 'Poppins', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+
+  --brand: #E11D48;
+  --blue:  #2563EB;
+  --cyan:  #0EA5E9;
+  --ok:    #10B981;
+  --warn:  #F59E0B;
+  --bad:   #EF4444;
+
+  --max: 1240px;
+  --gap: 16px;
+  --gap2: 20px;
+
+  --r: 16px;
+  --r2: 20px;
+
+  --page: #EEF1F6;
+  --card: #FFFFFF;
+  --card2:#F7F8FB;
+
+  --text: #0F172A;
+  --mut:  #64748B;
+  --mut2: #94A3B8;
+
+  --bd:   rgba(15,23,42,.10);
+
+  --shadow: 0 16px 38px rgba(15,23,42,.10);
+  --shadow2: 0 10px 26px rgba(15,23,42,.10);
+
+  --chip: rgba(15,23,42,.05);
+  --chipBd: rgba(15,23,42,.12);
+
+  --focus: 0 0 0 4px rgba(14,165,233,.18);
+
+  --btnBg: #fff;
+  --btnTx: #0F172A;
+  --btnBd: rgba(15,23,42,.14);
+  --btnHv: rgba(15,23,42,.06);
+
+  --softBlueBg: rgba(37,99,235,.10);
+  --softBlueBd: rgba(37,99,235,.22);
+
+  --softRoseBg: rgba(225,29,72,.10);
+  --softRoseBd: rgba(225,29,72,.22);
+
+  --softOkBg: rgba(16,185,129,.10);
+  --softOkBd: rgba(16,185,129,.22);
+
+  --softWarnBg: rgba(245,158,11,.12);
+  --softWarnBd: rgba(245,158,11,.26);
+
+  --softBadBg: rgba(239,68,68,.10);
+  --softBadBd: rgba(239,68,68,.24);
+}
+
+html[data-theme="dark"]{
+  --page: #0A1220;
+  --card: #0F172A;
+  --card2:#0B1426;
+
+  --text: #E5E7EB;
+  --mut:  #A3B0C2;
+  --mut2: #7C8AA0;
+
+  --bd:   rgba(255,255,255,.12);
+
+  --shadow: 0 18px 46px rgba(0,0,0,.40);
+  --shadow2: 0 12px 30px rgba(0,0,0,.34);
+
+  --chip: rgba(255,255,255,.06);
+  --chipBd: rgba(255,255,255,.14);
+
+  --btnBg: rgba(255,255,255,.03);
+  --btnTx: #E5E7EB;
+  --btnBd: rgba(255,255,255,.14);
+  --btnHv: rgba(255,255,255,.06);
+
+  --softBlueBg: rgba(37,99,235,.14);
+  --softBlueBd: rgba(37,99,235,.28);
+
+  --softRoseBg: rgba(225,29,72,.14);
+  --softRoseBd: rgba(225,29,72,.28);
+
+  --softOkBg: rgba(16,185,129,.14);
+  --softOkBd: rgba(16,185,129,.28);
+
+  --softWarnBg: rgba(245,158,11,.16);
+  --softWarnBd: rgba(245,158,11,.30);
+
+  --softBadBg: rgba(239,68,68,.14);
+  --softBadBd: rgba(239,68,68,.28);
+}
+
+*{ box-sizing:border-box; }
+
+/* =========================
+   FIX LAYOUT WRAPPER
+   =========================
+   Tu layout de cliente suele envolver con .container / padding del template.
+   Aquí forzamos: el fondo y padding los controla .p360-billing
+*/
+.p360-billing{
+  font-family:var(--font);
+  color:var(--text);
+  background: var(--page);
+  min-height: calc(100vh - 80px);
+  padding: 18px 18px 46px;
+}
+
+/* Si tu layout mete la vista dentro de main.content .container, lo neutralizamos */
+main.content .container:has(.p360-billing),
+main.content .container .p360-billing{
+  background: transparent !important;
+}
+
+/* Hard override del container cuando el billing está dentro */
+main.content .container:has(.p360-billing){
+  max-width: none !important;
+  width: 100% !important;
+  padding: 0 !important;
+}
+
+/* En caso de que :has no aplique (algunos navegadores viejos), fallback:
+   el wrap controla ancho */
+.p360-billing-wrap{
+  max-width: var(--max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ===== Header ===== */
+.bs-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: var(--gap2);
+  margin: 6px 0 14px;
+}
+.bs-head__left{ flex:1; min-width: 260px; }
+.bs-head__right{ display:flex; justify-content:flex-end; }
+
+.bs-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  font-weight:900;
+  font-size:12px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color: var(--mut);
+}
+.bs-kicker::before{
+  content:"";
+  width:10px; height:10px; border-radius:999px;
+  background: linear-gradient(180deg, var(--brand), var(--cyan));
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--brand) 14%, transparent);
+}
+.bs-title{
+  margin: 8px 0 6px;
+  font-size: 30px;
+  line-height:1.08;
+  letter-spacing:-.02em;
+}
+.bs-sub{
+  margin:0;
+  color: var(--mut);
+  max-width: 72ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* Pills (chips) */
+.bs-pills{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+.bs-pill{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  background: var(--chip);
+  border: 1px solid var(--chipBd);
+  line-height: 1;
+  user-select:none;
+}
+.bs-pill svg{ width:16px;height:16px; opacity:.9; }
+.bs-pill.rose{ background: var(--softRoseBg); border-color: var(--softRoseBd); color: color-mix(in oklab, var(--brand) 88%, var(--text)); }
+.bs-pill.blue{ background: var(--softBlueBg); border-color: var(--softBlueBd); color: color-mix(in oklab, var(--blue) 88%, var(--text)); }
+.bs-pill.good{ background: var(--softOkBg); border-color: var(--softOkBd); color: color-mix(in oklab, var(--ok) 88%, var(--text)); }
+.bs-pill.warn{ background: var(--softWarnBg); border-color: var(--softWarnBd); color: color-mix(in oklab, var(--warn) 88%, var(--text)); }
+
+/* Alerts */
+.bs-alert{
+  border-radius: var(--r);
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  box-shadow: var(--shadow2);
+  margin: 10px 0 16px;
+}
+.bs-alert.ok{
+  background: var(--softOkBg);
+  border-color: var(--softOkBd);
+  color: color-mix(in oklab, var(--ok) 88%, var(--text));
+  font-weight:900;
+}
+.bs-alert.err{
+  background: var(--softBadBg);
+  border-color: var(--softBadBd);
+  color: color-mix(in oklab, var(--bad) 88%, var(--text));
+}
+.bs-alert.err .t{ font-weight:1000; margin-bottom:6px; }
+.bs-alert.err ul{ margin: 8px 0 0 18px; padding:0; }
+.bs-alert.err li{ margin: 4px 0; }
+
+/* Cards */
+.bs-card{
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: var(--r2);
+  box-shadow: var(--shadow2);
+  overflow:hidden;
+}
+.bs-card-hd{
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in oklab, var(--bd) 80%, transparent);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--card2) 70%, transparent), transparent);
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+}
+.bs-card-hd .ttl{
+  font-weight:1000;
+  letter-spacing:-.01em;
+  font-size: 14px;
+  margin-bottom: 2px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.bs-card-hd .ttl::before{
+  content:"";
+  width: 10px; height: 10px; border-radius: 99px;
+  background: color-mix(in oklab, var(--brand) 55%, var(--cyan));
+}
+.bs-card-hd .sub{
+  color: var(--mut);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.bs-card-bd{ padding: 14px 16px 16px; }
+
+/* Sticky */
+.bs-sticky{ position: sticky; top: calc(var(--header-h,64px) + 14px); }
+
+/* Grids */
+.bs-grid-top{
+  display:grid;
+  grid-template-columns: 1.25fr .75fr;
+  gap: var(--gap);
+  margin: 10px 0 var(--gap);
+}
+.bs-grid-mid{
+  display:grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: var(--gap);
+  margin: 0 0 var(--gap);
+}
+@media (max-width: 1024px){
+  .bs-head{ flex-direction:column; }
+  .bs-pills{ justify-content:flex-start; }
+  .bs-grid-top, .bs-grid-mid{ grid-template-columns: 1fr; }
+  .bs-sticky{ position: static; }
+}
+
+/* Mono */
+.bs-mono,
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* KV blocks */
+.bs-kv{
+  display:grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed color-mix(in oklab, var(--bd) 90%, transparent);
+}
+.bs-kv:last-child{ border-bottom:none; padding-bottom: 6px; }
+.bs-kv .k{ color: var(--mut); font-size: 12px; font-weight: 1000; }
+.bs-kv .v{ font-size: 13px; font-weight: 900; color: var(--text); }
+
+/* Total box (Resumen) */
+.bs-totalBox{
+  border: 1px solid var(--bd);
+  background: var(--card2);
+  border-radius: var(--r);
+  padding: 12px;
+}
+.bs-totalTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.bs-totalLbl{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  font-weight: 1100;
+  color: var(--mut);
+  font-size: 12px;
+}
+.bs-totalLbl svg{ width:18px;height:18px; opacity:.9; }
+.bs-periodTag{
+  font-size: 11px;
+  font-weight: 1100;
+  letter-spacing: .06em;
+  color: var(--mut);
+  text-transform: uppercase;
+}
+.bs-amount{
+  font-size: 34px;
+  font-weight: 1200;
+  letter-spacing: -.02em;
+  margin: 6px 0 0;
+}
+
+/* Select */
+.bs-form{ display:block; margin-top: 12px; }
+.bs-select{
+  width: 100%;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 11px 12px;
+  font-weight: 1000;
+  outline:none;
+}
+.bs-select:focus{
+  box-shadow: var(--focus);
+  border-color: color-mix(in oklab, var(--cyan) 55%, var(--bd));
+}
+
+/* Buttons */
+.bs-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 10px;
+  align-items:center;
+  margin-top: 12px;
+}
+.bs-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--btnBd);
+  background: var(--btnBg);
+  color: var(--btnTx);
+  font-weight: 1100;
+  font-size: 13px;
+  text-decoration:none;
+  cursor:pointer;
+  user-select:none;
+  transition: transform .06s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.bs-btn svg{ width:18px;height:18px; opacity:.9; }
+.bs-btn:hover{ background: var(--btnHv); }
+.bs-btn:active{ transform: translateY(1px); }
+.bs-btn:focus{ outline:none; box-shadow: var(--focus); }
+
+.bs-btn.primary{
+  background: var(--softBlueBg);
+  border-color: var(--softBlueBd);
+  color: color-mix(in oklab, var(--blue) 86%, var(--text));
+}
+.bs-btn.soft{
+  background: var(--chip);
+  border-color: var(--chipBd);
+}
+.bs-btn.danger{
+  background: var(--softBadBg);
+  border-color: var(--softBadBd);
+  color: color-mix(in oklab, var(--bad) 86%, var(--text));
+}
+.bs-btn[disabled], button.bs-btn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  transform:none !important;
+  filter: grayscale(.2);
+}
+
+/* Table */
+.bs-table-wrap{
+  overflow:auto;
+  border-radius: var(--r);
+  border: 1px solid var(--bd);
+  background: var(--card);
+}
+.bs-table{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 860px;
+}
+.bs-table thead th{
+  position: sticky;
+  top: 0;
+  background: color-mix(in oklab, var(--card2) 85%, var(--card));
+  color: var(--mut);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 12px;
+  border-bottom: 1px solid var(--bd);
+  text-align:left;
+  font-weight: 1100;
+}
+.bs-table tbody td{
+  padding: 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--bd) 85%, transparent);
+  font-size: 13px;
+  font-weight: 1000;
+}
+.bs-table tbody tr:hover td{
+  background: color-mix(in oklab, var(--chip) 70%, transparent);
+}
+.bs-trunc{
+  max-width: 380px;
+  overflow:hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Alignment helpers */
+.r{text-align:right;}
+.c{text-align:center;}
+.bs-spacer{ height: 18px; }
+
+/* Tooltip flotante (data-tip) */
+.bs-help{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  color: var(--mut);
+  font-weight: 1200;
+  font-size: 12px;
+  cursor: help;
+  position: relative;
+  user-select:none;
+  margin-left: 6px;
+}
+.bs-help::after{
+  content: attr(data-tip);
+  position:absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: min(340px, 74vw);
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  font-weight: 1000;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease, transform .14s ease;
+}
+.bs-help::before{
+  content:"";
+  position:absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: var(--bd);
+  opacity: 0;
+  transition: opacity .14s ease;
+}
+.bs-help:hover::after{ opacity:1; transform: translateX(-50%) translateY(-2px); }
+.bs-help:hover::before{ opacity:1; }
+
+/* Neutraliza sombras viejas del layout SOLO cuando estamos dentro de billing */
+.p360-billing .card,
+.p360-billing .kpi,
+.p360-billing .card--kpi{ box-shadow:none !important; }

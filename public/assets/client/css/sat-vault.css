@@ -1,0 +1,1478 @@
+/* public/assets/client/css/sat-vault.css */
+/* Estilos específicos de la Bóveda Fiscal (vista completa) */
+
+/* ========= LAYOUT FULL WIDTH ========= */
+
+.page-sat-vault .sat-ui {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding-inline: 1.5rem;
+  box-sizing: border-box;
+}
+
+.page-sat-vault .vault-page {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.page-sat-vault .sat-card {
+  background: var(--card);
+  border-radius: var(--card-radius, 0.75rem);
+  border: 1px solid var(--card-border, rgba(229, 231, 235, 1));
+  box-shadow: var(
+    --shadow,
+    0 10px 25px rgba(15, 23, 42, 0.08)
+  );
+  padding: 1rem 1.25rem;
+  box-sizing: border-box;
+}
+
+/* ========= HEADER / RESUMEN BÓVEDA ========= */
+
+.vault-header-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 2.2fr);
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.vault-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.vault-title-icon {
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    circle at 0% 0%,
+    var(--accent, #22c55e),
+    #16a34a 40%,
+    rgba(15, 23, 42, 0.8)
+  );
+  color: #ecfdf5;
+  flex-shrink: 0;
+}
+
+.vault-ico {
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+.vault-title-main {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.vault-title-sub {
+  font-size: 0.85rem;
+  color: var(--mut);
+}
+
+.vault-header-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+/* Resumen bóveda */
+
+.vault-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.vault-summary-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
+
+.vault-summary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.07);
+  color: var(--accent-text, #15803d);
+  font-size: 0.8rem;
+}
+
+.vault-summary-pill--off {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--mut);
+}
+
+.vault-summary-dot {
+  opacity: 0.75;
+}
+
+.vault-summary-bar,
+.vault-summary-bar-bg,
+.vault-summary-bar-fill {
+  box-sizing: border-box;
+}
+
+.vault-summary-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.vault-summary-bar-bg {
+  width: 100%;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--bg, #f6f6f7);
+  position: relative;
+  overflow: hidden;
+}
+
+.vault-summary-bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.vault-summary-bar-info {
+  font-size: 0.78rem;
+  color: var(--mut);
+}
+
+.vault-summary-bar-info--hint {
+  margin-top: 0.3rem;
+}
+
+/* Cart + botón Amazon (activar bóveda) */
+
+.vault-cart-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sat-cart-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--pill-bg, #f9fafb);
+  border: 1px solid var(--line, #e5e7eb);
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.sat-cart-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}
+
+.sat-cart-pill {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* Botón estilo Amazon */
+
+.btn-amazon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #f0c14b;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: linear-gradient(180deg, #ffd814, #f7ca00);
+  color: #111827;
+  box-shadow: 0 2px 0 #d5a72a;
+  transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.08s ease;
+}
+
+.btn-amazon--active {
+  background: rgba(34, 197, 94, 0.08);
+  color: var(--accent-text, #15803d);
+  box-shadow: none;
+  cursor: default;
+}
+
+.btn-amazon:not(.btn-amazon--active):hover {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 #b48a1e;
+  filter: brightness(1.03);
+}
+
+.btn-amazon:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.btn-amazon-icon {
+  font-size: 1rem;
+}
+
+/* ========= FILTROS ========= */
+
+.vault-filters-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.vault-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem 0.9rem;
+}
+
+.vf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vf-field--span2 {
+  grid-column: span 2;
+}
+
+.vf-field--chips {
+  grid-column: span 3;
+}
+
+.vf-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--mut);
+}
+
+.vf-label--inline {
+  margin-right: 0.5rem;
+}
+
+.vault-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.vf-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Inputs */
+
+.page-sat-vault .input,
+.page-sat-vault .select {
+  background: var(--pill-bg, #f9fafb);
+  border-radius: 0.55rem;
+  border: 1px solid var(--line, #e5e7eb);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+  outline: none;
+  min-height: 2.1rem;
+  box-sizing: border-box;
+}
+
+.page-sat-vault .input::placeholder {
+  color: var(--mut);
+}
+
+.page-sat-vault .input:focus,
+.page-sat-vault .select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  background: #ffffff;
+}
+
+/* Botones genéricos */
+
+.page-sat-vault .btn {
+  border-radius: 0.55rem;
+  border: 1px solid var(--line, #e5e7eb);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--pill-bg, #f9fafb);
+  color: var(--ink);
+  transition: background 0.08s ease, border-color 0.08s ease,
+    box-shadow 0.08s ease, transform 0.08s ease;
+}
+
+.page-sat-vault .btn.soft {
+  background: #f3f4f6;
+  color: var(--ink);
+}
+
+.page-sat-vault .btn.soft:hover {
+  background: #e5e7eb;
+}
+
+.page-sat-vault .btn-primary {
+  background: var(--accent, #22c55e);
+  color: #022c22;
+  border-color: var(--accent, #22c55e);
+  box-shadow: 0 8px 18px rgba(34, 197, 94, 0.28);
+}
+
+.page-sat-vault .btn-primary:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(34, 197, 94, 0.36);
+}
+
+.page-sat-vault .btn-secondary {
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line, #e5e7eb);
+}
+
+.btn-chip {
+  font-size: 0.78rem;
+  padding-inline: 0.6rem;
+}
+
+/* ========= MÉTRICAS ========= */
+
+.vault-metrics-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.vm-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-radius: 0.65rem;
+  background: radial-gradient(
+    circle at 0% 0%,
+    rgba(34, 197, 94, 0.09),
+    var(--card)
+  );
+  padding: 0.7rem 0.8rem;
+}
+
+.vm-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
+
+.vm-main {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.vm-sub {
+  font-size: 0.78rem;
+  color: var(--mut);
+}
+
+.vm-bar-wrapper {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.vm-bar-bg {
+  width: 100%;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--bg, #f6f6f7);
+  overflow: hidden;
+}
+
+.vm-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.vm-bar-recibidos {
+  background: linear-gradient(90deg, #60a5fa, #38bdf8);
+}
+
+.vm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--mut);
+  margin-right: 0.55rem;
+}
+
+.vm-tag-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.vm-tag-dot--blue {
+  background: #38bdf8;
+}
+
+/* ========= GRÁFICAS ========= */
+
+/* Contenedor: 3 columnas iguales, pero todo muy compacto */
+.vault-charts-card {
+  display: flex;
+  gap: 0.85rem;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+  align-items: stretch;
+}
+
+/* Cada tarjeta de gráfica – baja de altura y padding mínimo */
+.vault-chart-box {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: 0.8rem;
+  border: 1px solid var(--line, #e5e7eb);
+  padding: 0.55rem 0.7rem 0.5rem;
+  box-sizing: border-box;
+}
+
+/* Header pequeño */
+.vault-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.2rem;
+}
+
+.vault-chart-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--sat-text-primary, #111827);
+}
+
+html[data-theme="dark"] .vault-chart-title {
+  color: var(--sat-text-primary-dark, #e5e7eb);
+}
+
+.vault-chart-caption {
+  margin-top: 0.08rem;
+  font-size: 0.68rem;
+  color: var(--sat-text-muted, #6b7280);
+}
+
+html[data-theme="dark"] .vault-chart-caption {
+  color: var(--sat-text-muted-dark, #9ca3af);
+}
+
+/* Área del canvas: MUY baja */
+.vault-chart-canvas-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;  /* antes 170–190, ahora mucho más bajo */
+  max-height: 140px;
+}
+
+/* El canvas llena el contenedor => todas las gráficas mismo alto */
+.vault-chart-box canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* En pantallas muy anchas apenas subimos un poco */
+@media (min-width: 1440px) {
+  .vault-chart-canvas-wrap {
+    min-height: 130px;
+    max-height: 150px;
+  }
+}
+
+/* Footer pequeño pegado abajo */
+.vault-chart-footer {
+  margin-top: 0.3rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.66rem;
+  color: var(--sat-text-muted, #9ca3af);
+}
+
+html[data-theme="dark"] .vault-chart-footer {
+  color: var(--sat-text-muted-dark, #9ca3af);
+}
+
+.vault-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.legend-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #d1d5db;
+}
+
+.legend-dot--em {
+  background: #22c55e;
+}
+
+.legend-dot--rec {
+  background: #0ea5e9;
+}
+
+.vault-chart-hint {
+  margin-left: auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* RESPONSIVE: tablet / móvil (una debajo de otra, pero igual de compactas) */
+
+@media (max-width: 1024px) {
+  .vault-charts-card {
+    flex-direction: column;
+  }
+
+  .vault-chart-box {
+    min-height: 140px;
+  }
+
+  .vault-chart-canvas-wrap {
+    min-height: 120px;
+    max-height: 140px;
+  }
+}
+
+
+/* ========= TOTALES + TABLA ========= */
+
+.vault-table-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 12px;
+}
+
+/* ====== RESUMEN SUPERIOR DE LA TABLA (CFDI + TOTALES) ====== */
+
+.vault-table-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto; /* 4 métricas + botón */
+  align-items: center;
+  gap: 1.75rem;
+  padding: 0.9rem 1.6rem;
+  margin-bottom: 0.8rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(90deg, #f9fafb, #f3f4ff);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+/* Cada “box” interno */
+
+.vts-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.vts-box--count {
+  align-items: flex-start;
+}
+
+/* Etiquetas y valores */
+
+.vts-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #94a3b8;
+  margin-bottom: 0.12rem;
+}
+
+.vts-value {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #1e293b;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+.vts-value-count {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.vts-value-strong {
+  font-weight: 700;
+}
+
+/* Columna de acción (botón) */
+
+.vts-box--action {
+  align-items: flex-end;
+  text-align: right;
+  gap: 0.25rem;
+}
+
+.vts-export-btn {
+  white-space: nowrap;
+}
+
+.vts-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+/* RESPONSIVE: acomodar para pantallas más pequeñas */
+
+@media (max-width: 1024px) {
+  .vault-table-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 0.8rem;
+  }
+
+  .vts-box--action {
+    grid-column: span 3;
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 640px) {
+  .vault-table-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.8rem 1.1rem;
+  }
+
+  .vts-box--action {
+    grid-column: span 2;
+  }
+
+  .vts-value-count {
+    font-size: 1.15rem;
+  }
+}
+
+
+/* ===== TABLA BASE ===== */
+
+.vault-table-wrap {
+  margin-top: 4px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.page-sat-vault .table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: var(--card);
+  table-layout: auto; /* que reparta el ancho de forma natural */
+}
+
+/* Cabecera */
+
+.page-sat-vault .table thead {
+  background: var(--pill-bg, #f9fafb);
+}
+
+.page-sat-vault .table th,
+.page-sat-vault .table td {
+  padding: 0.35rem 0.55rem;  /* filas delgadas pero legibles */
+  border-bottom: 1px solid var(--line, #e5e7eb);
+  white-space: nowrap;
+}
+
+/* Estilo general cabecera */
+.vault-table thead th {
+  text-align: left;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f9fafb;
+  border-bottom: 1px solid rgba(209, 213, 219, 0.9);
+}
+
+/* Cuerpo */
+.vault-table tbody tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+
+.vault-table tbody tr:hover {
+  background-color: #eef2ff;
+}
+
+.vault-table td {
+  font-size: 0.76rem;
+}
+
+/* Alineaciones por tipo de dato */
+
+/* Texto (fecha, tipo, RFC, razón social, UUID) alineado a la izquierda */
+.vault-table th:nth-child(1),
+.vault-table th:nth-child(2),
+.vault-table th:nth-child(3),
+.vault-table th:nth-child(4),
+.vault-table th:nth-child(5),
+.vault-table td:nth-child(1),
+.vault-table td:nth-child(2),
+.vault-table td:nth-child(3),
+.vault-table td:nth-child(4),
+.vault-table td:nth-child(5) {
+  text-align: left;
+}
+
+/* Subtotal, IVA, Total: NUMÉRICOS, derecha y monoespaciado */
+.vault-table th:nth-child(6),
+.vault-table th:nth-child(7),
+.vault-table th:nth-child(8),
+.vault-table td:nth-child(6),
+.vault-table td:nth-child(7),
+.vault-table td:nth-child(8) {
+  text-align: right !important;
+  padding-right: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* Acciones centradas */
+.vault-table th:nth-child(9),
+.vault-table td:nth-child(9) {
+  text-align: center;
+}
+
+/* Clases genéricas */
+
+.t-right {
+  text-align: right;
+}
+
+.t-center {
+  text-align: center;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 0.9rem 0.5rem;
+  color: var(--mut);
+}
+
+/* Botones acciones */
+
+.t-actions {
+  text-align: center;
+}
+
+.icon-btn {
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  margin-inline: 0.1rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  background: var(--pill-bg, #f9fafb);
+  color: var(--ink);
+  transition: background 0.08s ease, border-color 0.08s ease,
+    transform 0.08s ease;
+}
+
+.icon-btn:hover {
+  background: #e5e7eb;
+  border-color: var(--accent, #22c55e);
+  transform: translateY(-1px);
+}
+
+/* Monto numérico con números tabulares para que “cuadren” verticalmente */
+.vault-amount {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+
+
+/* ========= MODAL ========= */
+
+.vault-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 50;
+}
+
+.vault-modal[aria-hidden="false"] {
+  display: block;
+}
+
+.vault-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(5px);
+}
+
+.vault-modal__dialog {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 420px;
+  width: 90%;
+  background: var(--card, #ffffff);
+  border-radius: 0.9rem;
+  border: 1px solid var(--card-border, #e5e5ea);
+  padding: 1.1rem 1.2rem 0.9rem;
+  box-shadow: var(--shadow, 0 18px 40px rgba(0, 0, 0, 0.4));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vault-modal__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: radial-gradient(circle at 0% 0%, #22c55e, #16a34a 45%, #0ea5e9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ecfdf5;
+  margin-bottom: 0.2rem;
+}
+
+.vault-modal__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+.vault-modal__lead {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.vault-modal__text {
+  margin: 0.25rem 0 0.15rem;
+  font-size: 0.82rem;
+  color: var(--mut);
+}
+
+.vault-modal__note {
+  margin-top: 0.2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--mut);
+}
+
+.vault-modal__note .dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--accent, #22c55e);
+}
+
+.vault-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+/* ========= RESUMEN RÁPIDO ========= */
+
+.vault-quick-card {
+  margin-top: 1.5rem;
+  padding: 1.5rem 1.75rem;
+}
+
+.vqs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.vqs-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.vqs-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--sat-text-muted, #7b7b88);
+}
+
+.vqs-period-chip {
+  align-self: flex-start;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(0, 180, 120, 0.08);
+  color: #00a173;
+}
+
+.vqs-main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 1.5rem;
+}
+
+.vqs-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.vqs-kpi {
+  border-radius: 0.9rem;
+  padding: 0.9rem 1rem;
+  background: rgba(248, 249, 252, 0.9);
+  border: 1px solid rgba(230, 233, 240, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vqs-kpi-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--sat-text-muted, #7b7b88);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.vqs-kpi-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.vqs-kpi-number {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.vqs-kpi-tag {
+  font-size: 0.75rem;
+  color: var(--sat-text-muted, #7b7b88);
+}
+
+.vqs-kpi-footer {
+  font-size: 0.78rem;
+  color: var(--sat-text-muted, #7b7b88);
+}
+
+.vqs-kpi-money {
+  font-weight: 600;
+}
+
+.vqs-top-card {
+  border-radius: 0.9rem;
+  padding: 0.9rem 1rem 0.75rem;
+  background: linear-gradient(135deg, #f6f8ff, #fdfefe);
+  border: 1px solid rgba(220, 225, 240, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vqs-top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.vqs-top-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.vqs-top-subtitle {
+  font-size: 0.75rem;
+  color: var(--sat-text-muted, #7b7b88);
+}
+
+.vq-table-wrapper {
+  margin-top: 0.25rem;
+  overflow-x: auto;
+}
+
+.vq-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.vq-table thead th {
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  font-weight: 600;
+  color: #656575;
+  border-bottom: 1px solid rgba(220, 225, 240, 0.9);
+}
+
+.vq-table tbody td {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid rgba(235, 238, 245, 0.7);
+}
+
+.vq-table .t-center {
+  text-align: center;
+}
+
+.vq-table .t-right {
+  text-align: right;
+}
+
+.vq-empty {
+  text-align: center;
+  color: var(--sat-text-muted, #9a9aad);
+}
+
+.vqs-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.vqs-dot--em {
+  background: #00b894;
+}
+
+.vqs-dot--rec {
+  background: #0984e3;
+}
+
+/* ========= RESPONSIVE ========= */
+
+@media (max-width: 1024px) {
+  .vault-header-card {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-cart-wrap {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .vault-metrics-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vault-charts-card {
+    flex-direction: column;
+  }
+
+  .vqs-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vault-table-summary {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.7fr);
+  }
+
+  .vts-item--action {
+    grid-column: span 2;
+    justify-content: flex-start;
+    margin-top: 0.25rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .vault-table-header {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 6px;
+  }
+
+  .vt-actions {
+    grid-column: span 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-sat-vault .sat-ui {
+    padding-inline: 0.8rem;
+  }
+
+  .vault-metrics-card {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-header-left {
+    align-items: flex-start;
+  }
+
+  .vault-header-card {
+    gap: 0.75rem;
+  }
+
+  .vault-cart-wrap {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .vault-filters-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vf-field--span2,
+  .vf-field--chips {
+    grid-column: span 1;
+  }
+
+  .v-pag {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .vqs-kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vault-table-summary {
+    grid-template-columns: 1fr;
+    row-gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .vts-item--totals {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .vts-item--action {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .vault-table-header {
+    grid-template-columns: 1fr;
+  }
+
+  .vt-actions {
+    grid-column: span 1;
+  }
+}
+
+/* ===== BOTÓN EXPORTAR EXCEL (RESUMEN BÓVEDA) ===== */
+
+.vts-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(22, 163, 74, 0.9);
+  background: linear-gradient(120deg, #22c55e, #16a34a);
+  box-shadow: 0 8px 18px rgba(22, 163, 74, 0.28);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+.vts-export-btn .vts-export-label {
+  position: relative;
+  top: 1px; /* ajusta ligero verticalmente el texto */
+}
+
+/* Icono dentro de pastilla blanca */
+
+.vts-export-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #16a34a;
+  font-size: 1rem;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.12);
+}
+
+/* Hover / focus */
+
+.vts-export-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(22, 163, 74, 0.35);
+  filter: brightness(1.03);
+}
+
+.vts-export-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 5px 12px rgba(22, 163, 74, 0.3);
+}
+
+.vts-export-btn:focus-visible {
+  outline: 2px solid #bbf7d0;
+  outline-offset: 2px;
+}
+
+/* Deshabilitado (por si en algún momento lo usas) */
+
+.vts-export-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+  box-shadow: none;
+  filter: none;
+}
+
+/* =========================================================
+   VAULT TABLE PRO (Rediseño)
+   ========================================================= */
+
+.vault-table-shell{
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(16,24,40,.08);
+  box-shadow: 0 12px 30px rgba(16,24,40,.06);
+  overflow: hidden;
+}
+
+.vault-table-top{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap: 16px;
+  padding: 16px 16px 12px 16px;
+  border-bottom: 1px solid rgba(16,24,40,.06);
+  background: linear-gradient(180deg, rgba(250,250,252,1) 0%, rgba(255,255,255,1) 100%);
+}
+
+.vault-table-title-main{
+  font-weight: 800;
+  letter-spacing: .2px;
+  font-size: 14px;
+  color: #101828;
+}
+.vault-table-title-sub{
+  font-size: 12px;
+  color: rgba(16,24,40,.62);
+  margin-top: 2px;
+}
+
+.vault-table-tools{
+  display:flex;
+  align-items:center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vault-table-chip{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(16,24,40,.10);
+  background: rgba(16,24,40,.02);
+  font-size: 12px;
+}
+.vault-table-chip-label{ color: rgba(16,24,40,.60); }
+.vault-table-chip-value{ color: #101828; font-weight: 700; }
+
+.vault-table-size{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(16,24,40,.60);
+}
+.vault-table-size .select{
+  height: 36px;
+  border-radius: 10px;
+}
+
+.vault-table-scroll{
+  overflow:auto;
+  max-height: 680px;
+}
+
+.vault-table-pro{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 1100px; /* fuerza layout decente y scroll si es necesario */
+}
+
+.vault-table-pro thead th{
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #fff;
+  border-bottom: 1px solid rgba(16,24,40,.10);
+  color: rgba(16,24,40,.70);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 12px 12px;
+  white-space: nowrap;
+}
+
+.vault-table-pro tbody td{
+  padding: 12px 12px;
+  border-bottom: 1px solid rgba(16,24,40,.06);
+  font-size: 12px;
+  color: #101828;
+  vertical-align: middle;
+  background: #fff;
+}
+
+.vault-table-pro tbody tr:nth-child(even) td{
+  background: rgba(16,24,40,.015);
+}
+
+.vault-table-pro tbody tr:hover td{
+  background: rgba(17, 120, 255, .06);
+}
+
+.vault-table-pro .t-right{ text-align: right; }
+.vault-table-pro .t-center{ text-align: center; }
+
+/* Column sizing (suave) */
+.vault-table-pro .th-date{ width: 110px; }
+.vault-table-pro .th-tipo{ width: 110px; }
+.vault-table-pro .th-rfc{ width: 150px; }
+.vault-table-pro .th-razon{ min-width: 220px; }
+.vault-table-pro .th-uuid{ min-width: 290px; }
+.vault-table-pro .th-actions{ width: 170px; }
+
+/* UUID mono + truncado visual */
+.vault-table-pro tbody td:nth-child(5){
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  color: rgba(16,24,40,.82);
+  max-width: 320px;
+}
+.vault-table-pro tbody td:nth-child(5){
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tipo: pill */
+.vault-table-pro tbody td:nth-child(2){
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.vault-table-pro tbody td:nth-child(2)::before{
+  content: "";
+  display:inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: rgba(16,24,40,.25);
+}
+.vault-table-pro tbody td:nth-child(2){
+  white-space: nowrap;
+}
+.vault-table-pro tbody tr td:nth-child(2){
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+/* Acciones: pills */
+.vault-table-pro .t-actions{
+  white-space: nowrap;
+}
+.vault-table-pro .icon-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(16,24,40,.12);
+  background: rgba(16,24,40,.02);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  cursor: pointer;
+  user-select: none;
+  margin-left: 6px;
+}
+.vault-table-pro .icon-btn:first-child{ margin-left: 0; }
+.vault-table-pro .icon-btn:hover{
+  background: rgba(17, 120, 255, .10);
+  border-color: rgba(17, 120, 255, .30);
+}
+
+/* Footer/paginación nueva */
+.vault-table-bottom{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(16,24,40,.06);
+  background: #fff;
+}
+.vault-pag-right{
+  color: rgba(16,24,40,.65);
+  font-size: 12px;
+}

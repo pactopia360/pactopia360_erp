@@ -4,28 +4,48 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
+    protected $connection = 'mysql_clientes';
+
     public function up(): void
     {
-        Schema::table('sat_credentials', function (Blueprint $t) {
-            if (!Schema::hasColumn('sat_credentials','auto_download')) {
-                $t->boolean('auto_download')->default(true)->index()->after('validated_at');
+        $conn = $this->connection;
+
+        if (!Schema::connection($conn)->hasTable('sat_credentials')) {
+            return;
+        }
+
+        Schema::connection($conn)->table('sat_credentials', function (Blueprint $table) use ($conn) {
+
+            // ✅ Si tu esquema NO trae validated_at, lo agregamos (sin romper)
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'validated_at')) {
+                $table->timestamp('validated_at')->nullable();
             }
-            if (!Schema::hasColumn('sat_credentials','alert_canceled')) {
-                $t->boolean('alert_canceled')->default(true)->after('auto_download');
+
+            // ✅ Ya NO usamos after('validated_at') para evitar este error en cualquier BD
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'auto_download')) {
+                $table->boolean('auto_download')->default(true);
             }
-            if (!Schema::hasColumn('sat_credentials','alert_email')) {
-                $t->string('alert_email', 190)->nullable()->after('alert_canceled');
+
+            // (Opcional pero recomendado si tu app usa alertas)
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'alert_email')) {
+                $table->boolean('alert_email')->default(true);
+            }
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'alert_whatsapp')) {
+                $table->boolean('alert_whatsapp')->default(false);
+            }
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'alert_inapp')) {
+                $table->boolean('alert_inapp')->default(true);
+            }
+            if (!Schema::connection($conn)->hasColumn('sat_credentials', 'last_alert_at')) {
+                $table->timestamp('last_alert_at')->nullable();
             }
         });
     }
 
     public function down(): void
     {
-        Schema::table('sat_credentials', function (Blueprint $t) {
-            if (Schema::hasColumn('sat_credentials','auto_download')) $t->dropColumn('auto_download');
-            if (Schema::hasColumn('sat_credentials','alert_canceled')) $t->dropColumn('alert_canceled');
-            if (Schema::hasColumn('sat_credentials','alert_email')) $t->dropColumn('alert_email');
-        });
+        // No revertimos en este proyecto (migración safe). Si quieres, lo hacemos luego.
     }
 };

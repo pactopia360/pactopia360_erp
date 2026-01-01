@@ -1,0 +1,55 @@
+:root{
+  --ink: #111827;
+  --muted: rgba(17,24,39,.62);
+  --line: rgba(17,24,39,.10);
+  --card: rgba(255,255,255,.86);
+
+  --brand: #e11d48;      /* rose */
+  --brand2:#be123c;      /* darker */
+  --ok: #16a34a;
+
+  --radius: 18px;
+  --shadow: 0 22px 60px rgba(17,24,39,.12), 0 10px 26px rgba(17,24,39,.08);
+}
+
+*{ box-sizing: border-box; }
+html,body{ height: 100%; }
+body{
+  margin: 0;
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  color: var(--ink);
+  background: #fff;
+}
+
+.auth-stage{
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 34px 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Fondo premium suave */
+.auth-stage::before{
+  content:"";
+  position:absolute;
+  inset:-80px;
+  background:
+    radial-gradient(1000px 700px at 25% 20%, rgba(255, 228, 236, .70), transparent 60%),
+    radial-gradient(900px 650px at 80% 55%, rgba(223, 240, 255, .75), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,1), rgba(250,250,252,1));
+  filter: saturate(1.05);
+  z-index: 0;
+}
+
+.auth-stage::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(800px 500px at 50% 110%, rgba(17,24,39,.06), transparent 55%);
+  z-index: 0;
+}
+
+.auth-stage > *{ position: relative; z-index: 1; }

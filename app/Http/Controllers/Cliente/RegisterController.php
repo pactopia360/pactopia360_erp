@@ -47,7 +47,6 @@ class RegisterController extends Controller
         $tel   = $this->normalizePhone($req->telefono);
         $name  = trim((string) $req->nombre);
 
-        // Duplicados
         if ($this->rfcExiste($rfc)) {
             return back()->withErrors(['rfc' => 'Este RFC ya fue registrado.'])->withInput();
         }
@@ -55,13 +54,15 @@ class RegisterController extends Controller
             return back()->withErrors(['email' => 'Este correo ya está en uso.'])->withInput();
         }
 
-        // Contraseña temporal inicial
         $tempPassword = $this->generateTempPassword(12);
 
         DB::connection('mysql_admin')->beginTransaction();
         DB::connection('mysql_clientes')->beginTransaction();
 
         try {
+            // Generar customer_no una sola vez y mantenerlo consistente
+            $customerNo = $this->nextCustomerNo();
+
             // --- 1) ADMIN (accounts) ---
             $adminAccountId = DB::connection('mysql_admin')
                 ->table('accounts')
@@ -79,14 +80,15 @@ class RegisterController extends Controller
                     'phone_verified_at' => null,
                     'created_at'        => now(),
                     'updated_at'        => now(),
+                    // NUEVO: si existe customer_no en accounts, guardarlo también
+                    'customer_no'       => $customerNo,
                 ]));
 
             // --- 2) CLIENTES: cuenta_cliente ---
             $cuenta = new CuentaCliente();
             $cuenta->id             = (string) Str::uuid();
             $cuenta->codigo_cliente = $this->makeCodigoCliente();
-            // Asignar SIEMPRE customer_no para evitar "doesn't have a default value"
-            $cuenta->customer_no    = $this->nextCustomerNo();   // 👈 FIX CLAVE
+            $cuenta->customer_no    = $customerNo; // consistente
             $cuenta->rfc_padre      = $rfc;
             $cuenta->razon_social   = $name;
             $cuenta->plan_actual    = 'FREE';
@@ -111,7 +113,8 @@ class RegisterController extends Controller
             $usuario->nombre    = $name;
             $usuario->email     = $email;
             $usuario->password  = Hash::make($tempPassword);
-            $usuario->activo    = 0; // inactivo hasta verificación email+tel
+            $usuario->activo    = 0;
+
             if ($this->cliHas('usuarios_cuenta', 'must_change_password')) {
                 $usuario->must_change_password = 1;
             }
@@ -121,12 +124,11 @@ class RegisterController extends Controller
             DB::connection('mysql_clientes')->commit();
             DB::connection('mysql_admin')->commit();
 
-            // --- 4) Correo de verificación + credenciales iniciales ---
+            // --- 4) Correo verificación + credenciales ---
             $token = $this->createEmailVerificationToken($adminAccountId, $email);
             $this->sendEmailVerification($email, $token, $name);
             $this->sendCredentialsEmail($email, $name, $rfc, $tempPassword, false);
 
-            // Redirigir a login cliente
             return redirect()
                 ->route('cliente.login')
                 ->with('ok', "Tu cuenta fue creada. Revisa tu correo y verifica tu teléfono para activarla.")
@@ -152,9 +154,9 @@ class RegisterController extends Controller
         $rfc   = $this->normalizeRfc($req->rfc);
         $tel   = $this->normalizePhone($req->telefono);
         $name  = trim((string) $req->nombre);
+
         $modo  = ($req->plan === 'anual') ? 'anual' : 'mensual';
 
-        // Duplicados
         if ($this->rfcExiste($rfc)) {
             return back()->withErrors(['rfc' => 'Este RFC ya fue registrado.'])->withInput();
         }
@@ -168,6 +170,29 @@ class RegisterController extends Controller
         DB::connection('mysql_clientes')->beginTransaction();
 
         try {
+            // customer_no consistente
+            $customerNo = $this->nextCustomerNo();
+
+            [$priceKey, $cycle, $amountMxn, $stripePriceId] = $this->resolveProLicense($modo);
+
+            $meta = [];
+            if ($this->adminHas('meta')) {
+                $meta = [
+                    'billing' => [
+                        'price_key'       => $priceKey,
+                        'billing_cycle'   => $cycle,
+                        'amount_mxn'      => (int) $amountMxn,
+                        'stripe_price_id' => $stripePriceId ?: null,
+                        'assigned_at'     => now()->toISOString(),
+                        'assigned_by'     => 'system.register.pro',
+                    ],
+                ];
+            } else {
+                Log::warning('Register.PRO.no_meta_column_on_admin.accounts', [
+                    'msg' => 'No existe columna meta en mysql_admin.accounts; no se pudo guardar billing base.',
+                ]);
+            }
+
             // --- 1) ADMIN (accounts) ---
             $adminAccountId = DB::connection('mysql_admin')
                 ->table('accounts')
@@ -185,13 +210,27 @@ class RegisterController extends Controller
                     'phone_verified_at' => null,
                     'created_at'        => now(),
                     'updated_at'        => now(),
+                    'meta'              => $meta,
+                    'billing_cycle'     => $cycle,
+                    // NUEVO: si existe customer_no en accounts, guardarlo también
+                    'customer_no'       => $customerNo,
                 ]));
+
+            Log::info('Register.PRO.license_assigned_on_create', [
+                'admin_account_id' => (int) $adminAccountId,
+                'price_key' => $priceKey,
+                'cycle' => $cycle,
+                'amount_mxn' => (int) $amountMxn,
+                'stripe_price_id' => $stripePriceId,
+                'modo' => $modo,
+                'customer_no' => $customerNo,
+            ]);
 
             // --- 2) CLIENTES: cuenta_cliente ---
             $cuenta = new CuentaCliente();
             $cuenta->id             = (string) Str::uuid();
             $cuenta->codigo_cliente = $this->makeCodigoCliente();
-            $cuenta->customer_no    = $this->nextCustomerNo(); // 👈 FIX CLAVE
+            $cuenta->customer_no    = $customerNo;
             $cuenta->rfc_padre      = $rfc;
             $cuenta->razon_social   = $name;
             $cuenta->plan_actual    = 'PRO';
@@ -199,8 +238,11 @@ class RegisterController extends Controller
             $cuenta->estado_cuenta  = 'bloqueada_pago';
 
             if ($this->cliHas('cuentas_cliente', 'admin_account_id'))    $cuenta->admin_account_id     = $adminAccountId;
-            if ($this->cliHas('cuentas_cliente', 'espacio_asignado_mb')) $cuenta->espacio_asignado_mb  = 15360; // 15GB
+            if ($this->cliHas('cuentas_cliente', 'espacio_asignado_mb')) $cuenta->espacio_asignado_mb  = 15360;
             if ($this->cliHas('cuentas_cliente', 'max_usuarios'))        $cuenta->max_usuarios         = 10;
+
+            if ($this->cliHas('cuentas_cliente', 'plan'))          $cuenta->plan = 'PRO';
+            if ($this->cliHas('cuentas_cliente', 'billing_cycle')) $cuenta->billing_cycle = $cycle;
 
             $cuenta->setConnection('mysql_clientes');
             $cuenta->save();
@@ -214,10 +256,12 @@ class RegisterController extends Controller
             $usuario->nombre    = $name;
             $usuario->email     = $email;
             $usuario->password  = Hash::make($tempPassword);
-            $usuario->activo    = 0; // inactivo hasta verificación + pago
+            $usuario->activo    = 0;
+
             if ($this->cliHas('usuarios_cuenta', 'must_change_password')) {
                 $usuario->must_change_password = 1;
             }
+
             $usuario->setConnection('mysql_clientes');
             $usuario->save();
 
@@ -229,11 +273,19 @@ class RegisterController extends Controller
             $this->sendEmailVerification($email, $token, $name);
             $this->sendCredentialsEmail($email, $name, $rfc, $tempPassword, true);
 
-            return redirect()
-                ->route('cliente.login')
-                ->with('ok', 'Tu cuenta PRO fue creada. Te enviamos tus credenciales y los pasos de pago.')
-                ->with('need_verify', true)
-                ->with('checkout_ready', true);
+            // --- 5) Checkout ---
+            session([
+                'checkout_plan'     => $modo,
+                'verify.account_id' => (int) $adminAccountId,
+                'verify.email'      => $email,
+                'verify.rfc'        => $rfc,
+            ]);
+
+            return view('cliente.auth.redirect_checkout', [
+                'plan'      => $modo,
+                'accountId' => (string) $adminAccountId,
+                'email'     => $email,
+            ]);
 
         } catch (\Throwable $e) {
             DB::connection('mysql_clientes')->rollBack();
@@ -244,9 +296,37 @@ class RegisterController extends Controller
         }
     }
 
-    /* ========================================================
-     * Correos (HTML + fallback texto)
-     * ======================================================== */
+    private function resolveProLicense(string $modo): array
+    {
+        $priceKey = ($modo === 'anual') ? 'pro_anual' : 'pro_mensual';
+        $cycle    = ($modo === 'anual') ? 'yearly' : 'monthly';
+
+        $catalog = config('p360.billing.prices');
+        if (!is_array($catalog)) $catalog = [];
+
+        $amount = 0;
+        $stripePriceId = null;
+
+        if (isset($catalog[$priceKey]) && is_array($catalog[$priceKey])) {
+            $p = $catalog[$priceKey];
+            $amount = (int) ($p['amount_mxn'] ?? 0);
+            $cycle  = (string) ($p['billing_cycle'] ?? $cycle);
+            $stripePriceId = $p['stripe_price_id'] ?? null;
+        } else {
+            if ($modo === 'anual') {
+                $amount = (int) round((float) config('services.stripe.display_price_annual', 9990.00), 0);
+            } else {
+                $amount = (int) round((float) config('services.stripe.display_price_monthly', 990.00), 0);
+            }
+        }
+
+        if ($amount <= 0) {
+            $amount = ($modo === 'anual') ? 8990 : 899;
+        }
+
+        return [$priceKey, $cycle, $amount, is_string($stripePriceId) ? $stripePriceId : null];
+    }
+
     private function sendEmailVerification(string $email, string $token, string $nombre): void
     {
         $url = route('cliente.verify.email.token', ['token' => $token]);
@@ -257,7 +337,6 @@ class RegisterController extends Controller
         ];
 
         try {
-            // En local: log; en productivo: enviar
             if (app()->environment('production')) {
                 Mail::send(
                     ['html' => 'emails.cliente.verify_email', 'text' => 'emails.cliente.verify_email_text'],
@@ -272,13 +351,8 @@ class RegisterController extends Controller
         }
     }
 
-    private function sendCredentialsEmail(
-        string $email,
-        string $nombre,
-        string $rfc,
-        string $plainPassword,
-        bool $isPro
-    ): void {
+    private function sendCredentialsEmail(string $email, string $nombre, string $rfc, string $plainPassword, bool $isPro): void
+    {
         $data = [
             'nombre'       => $nombre,
             'email'        => $email,
@@ -300,9 +374,6 @@ class RegisterController extends Controller
         }
     }
 
-    /* ========================================================
-     * Validaciones input
-     * ======================================================== */
     private function validateFree(Request $req): void
     {
         $captchaRule = $this->captchaRule();
@@ -355,9 +426,6 @@ class RegisterController extends Controller
         ]);
     }
 
-    /* ========================================================
-     * Utilidades de normalización / captcha
-     * ======================================================== */
     private function normalizeRfc(string $rfc): string
     {
         $rfc = strtoupper(trim($rfc));
@@ -378,9 +446,6 @@ class RegisterController extends Controller
         return $enabled ? ['required'] : ['nullable'];
     }
 
-    /* ========================================================
-     * Checadores de duplicado
-     * ======================================================== */
     private function rfcExiste(string $rfc): bool
     {
         $existsAdmin = DB::connection('mysql_admin')
@@ -388,10 +453,13 @@ class RegisterController extends Controller
             ->whereRaw('UPPER(COALESCE(rfc,"")) = ?', [strtoupper($rfc)])
             ->exists();
 
-        $existsCliente = DB::connection('mysql_clientes')
-            ->table('cuentas_cliente')
-            ->whereRaw('UPPER(COALESCE(rfc_padre,"")) = ?', [strtoupper($rfc)])
-            ->exists();
+        $existsCliente = false;
+        if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+            $existsCliente = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->whereRaw('UPPER(COALESCE(rfc_padre,"")) = ?', [strtoupper($rfc)])
+                ->exists();
+        }
 
         return $existsAdmin || $existsCliente;
     }
@@ -413,76 +481,6 @@ class RegisterController extends Controller
         return $existsAdmin || $existsCliente;
     }
 
-    /* ========================================================
-     * CRM carrito (opcional)
-     * ======================================================== */
-    private function insertCarrito(
-        string $estado,
-        string $titulo,
-        float $total,
-        string $cliente,
-        string $email,
-        string $telefono
-    ): void {
-        $table = 'crm_carritos';
-        try {
-            if (!Schema::connection('mysql_admin')->hasTable($table)) return;
-        } catch (\Throwable $e) { return; }
-
-        try {
-            $columns = Schema::connection('mysql_admin')->getColumnListing($table);
-        } catch (\Throwable $e) { return; }
-
-        $map = [
-            'titulo'     => $this->firstColumn($columns, ['titulo','title','subject','name','descripcion','detalle']),
-            'estado'     => $this->firstColumn($columns, ['estado','status','state','fase']),
-            'total'      => $this->firstColumn($columns, ['total','monto','amount','importe']),
-            'moneda'     => $this->firstColumn($columns, ['moneda','currency','divisa']),
-            'cliente'    => $this->firstColumn($columns, ['cliente','customer','razon_social','nombre_cliente','contacto']),
-            'email'      => $this->firstColumn($columns, ['email','correo','correo_contacto']),
-            'telefono'   => $this->firstColumn($columns, ['telefono','phone','telefono_contacto']),
-            'origen'     => $this->firstColumn($columns, ['origen','source','canal']),
-            'created_at' => $this->firstColumn($columns, ['created_at','creado_en','fecha_creacion']),
-            'updated_at' => $this->firstColumn($columns, ['updated_at','actualizado_en','fecha_actualizacion']),
-        ];
-
-        $row = [];
-        if ($map['titulo'])   $row[$map['titulo']]   = $titulo;
-        if ($map['estado'])   $row[$map['estado']]   = $estado;
-        if ($map['total'])    $row[$map['total']]    = $total;
-        if ($map['moneda'])   $row[$map['moneda']]   = 'MXN';
-        if ($map['cliente'])  $row[$map['cliente']]  = $cliente;
-        if ($map['email'])    $row[$map['email']]    = $email;
-        if ($map['telefono']) $row[$map['telefono']] = $telefono;
-        if ($map['origen'])   $row[$map['origen']]   = 'registro_web';
-
-        $now = now();
-        if ($map['created_at']) $row[$map['created_at']] = $now;
-        if ($map['updated_at']) $row[$map['updated_at']] = $now;
-
-        if (($map['titulo'] && isset($row[$map['titulo']])) || ($map['estado'] && isset($row[$map['estado']]))) {
-            try {
-                DB::connection('mysql_admin')->table($table)->insert($row);
-            } catch (\Throwable $e) {
-                Log::error('No se pudo insertar en crm_carritos', ['e' => $e->getMessage(), 'row' => $row]);
-            }
-        }
-    }
-
-    private function firstColumn(array $columns, array $options): ?string
-    {
-        $lc = array_map('strtolower', $columns);
-        foreach ($options as $opt) {
-            if (in_array(strtolower($opt), $lc, true)) {
-                return $opt;
-            }
-        }
-        return null;
-    }
-
-    /* ========================================================
-     * Tokens de verificación de email
-     * ======================================================== */
     private function createEmailVerificationToken(int $accountId, string $email): string
     {
         $token = Str::random(40);
@@ -499,24 +497,13 @@ class RegisterController extends Controller
         return $token;
     }
 
-    /* ========================================================
-     * Generadores varios
-     * ======================================================== */
     private function makeCodigoCliente(): string
     {
         return 'C' . strtoupper(Str::random(6));
     }
 
-    /**
-     * Genera un número de cliente incremental y seguro para evitar
-     * el error de "Field 'customer_no' doesn't have a default value".
-     *
-     * - Usa una fila de secuencia en admin (si existiera)
-     * - Si no, bloquea la tabla clientes y usa MAX+1 atómico
-     */
     private function nextCustomerNo(): int
     {
-        // 1) Intentar secuencia en admin (si existe) — igual que hoy
         try {
             if (Schema::connection('mysql_admin')->hasTable('sequences')) {
                 $row = DB::connection('mysql_admin')
@@ -534,36 +521,28 @@ class RegisterController extends Controller
                     return $next;
                 }
             }
-        } catch (\Throwable $e) {
-            // seguimos al plan B
-        }
+        } catch (\Throwable $e) {}
 
-        // 2) Plan B: usar MUTEX con GET_LOCK en mysql_clientes (NO usa LOCK TABLES)
         $conn = DB::connection('mysql_clientes');
         $lockName = 'p360_next_customer_no';
-        $timeout  = 5; // segundos
+        $timeout  = 5;
 
         try {
-            // Adquirir lock. Devuelve 1 si lo obtuvo.
-            $got = (int) $conn->selectOne('SELECT GET_LOCK(?, ? ) AS l', [$lockName, $timeout])->l ?? 0;
+            $got = (int) ($conn->selectOne('SELECT GET_LOCK(?, ? ) AS l', [$lockName, $timeout])->l ?? 0);
 
-            // Si no se pudo adquirir, usar cálculo simple como fallback
             if ($got !== 1) {
                 $max  = (int) $conn->table('cuentas_cliente')->max('customer_no');
                 return max(1, $max + 1);
             }
 
-            // Con lock: calcular MAX+1 de forma segura
             $max  = (int) $conn->table('cuentas_cliente')->max('customer_no');
             $next = max(1, $max + 1);
 
             return $next;
         } finally {
-            // Liberar lock si lo teníamos
             try { $conn->select('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $e) {}
         }
     }
-
 
     private function generateTempPassword(int $length = 12): string
     {
@@ -590,9 +569,6 @@ class RegisterController extends Controller
         return str_shuffle($pwd);
     }
 
-    /* ========================================================
-     * Helpers de esquema (admin / clientes)
-     * ======================================================== */
     private function adminHas(string $col): bool
     {
         try {
@@ -605,9 +581,7 @@ class RegisterController extends Controller
     private function adminEmailColumn(): string
     {
         foreach (['correo_contacto', 'email'] as $c) {
-            if ($this->adminHas($c)) {
-                return $c;
-            }
+            if ($this->adminHas($c)) return $c;
         }
         return 'email';
     }
@@ -615,9 +589,7 @@ class RegisterController extends Controller
     private function adminPhoneColumn(): string
     {
         foreach (['telefono', 'phone'] as $c) {
-            if ($this->adminHas($c)) {
-                return $c;
-            }
+            if ($this->adminHas($c)) return $c;
         }
         return 'telefono';
     }
@@ -625,9 +597,7 @@ class RegisterController extends Controller
     private function adminNameColumn(): string
     {
         foreach (['name', 'razon_social', 'nombre', 'nombre_cuenta'] as $c) {
-            if ($this->adminHas($c)) {
-                return $c;
-            }
+            if ($this->adminHas($c)) return $c;
         }
         return 'name';
     }
@@ -660,6 +630,19 @@ class RegisterController extends Controller
         if ($this->adminHas('phone_verified_at')) $insert['phone_verified_at'] = $data['phone_verified_at'];
         if ($this->adminHas('created_at'))        $insert['created_at']        = $data['created_at'];
         if ($this->adminHas('updated_at'))        $insert['updated_at']        = $data['updated_at'];
+
+        // NUEVO: customer_no si existe en accounts
+        if ($this->adminHas('customer_no') && array_key_exists('customer_no', $data)) {
+            $insert['customer_no'] = (int) $data['customer_no'];
+        }
+
+        if ($this->adminHas('meta') && array_key_exists('meta', $data) && is_array($data['meta'])) {
+            $insert['meta'] = json_encode($data['meta'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        if ($this->adminHas('billing_cycle') && array_key_exists('billing_cycle', $data) && is_string($data['billing_cycle'])) {
+            $insert['billing_cycle'] = $data['billing_cycle'];
+        }
 
         return $insert;
     }
