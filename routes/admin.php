@@ -1,13 +1,13 @@
 <?php
+// C:\wamp64\www\pactopia360_erp\routes\admin.php
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Controladores ADMIN
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\HomeController;
@@ -20,33 +20,32 @@ use App\Http\Controllers\Admin\ReportesController;
 use App\Http\Controllers\Admin\ClientesController;
 use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Admin\Soporte\ResetClientePasswordController;
-use App\Http\Controllers\Admin\StripePriceController;
 
 // Billing suite (Admin)
 use App\Http\Controllers\Admin\Billing\PriceCatalogController;
 use App\Http\Controllers\Admin\Billing\AccountLicensesController;
 use App\Http\Controllers\Admin\Billing\PaymentsController;
 use App\Http\Controllers\Admin\Billing\InvoiceRequestsController;
-use App\Http\Controllers\Admin\Billing\AccountsController as AdminBillingAccounts;
+use App\Http\Controllers\Admin\Billing\AccountsController;
 
-// ✅ Controller estados de cuenta (legacy)
+// ✅ Estados de cuenta (legacy)
 use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 
 // ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | CSRF middlewares (para quitar en local en algunos POST)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | ENV + throttles
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 $isLocal = app()->environment(['local','development','testing']);
 
@@ -61,23 +60,23 @@ $thrDevPosts     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
 $thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Helper permisos → middleware 'can:perm,<clave>'
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
         if (app()->environment(['local','development','testing'])) return [];
         $perms = is_array($perm) ? $perm : [$perm];
-        return array_map(fn($p) => 'can:perm,'.$p, $perms);
+        return array_map(fn($p) => 'can:perm,' . $p, $perms);
     }
 }
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Placeholder rápido (si falta una vista admin)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 if (!function_exists('admin_placeholder_view')) {
     function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360') {
@@ -96,9 +95,9 @@ if (!function_exists('admin_placeholder_view')) {
 }
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | UI (heartbeat, log)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware($thrUiHeartbeat)
@@ -113,9 +112,9 @@ if ($isLocal) {
 }
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Auth admin (guest:admin + sesión aislada)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 Route::middleware([
     'guest:admin',
@@ -134,18 +133,18 @@ Route::middleware([
 });
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Notificaciones públicas (contador)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
     ->middleware('throttle:60,1')
     ->name('notificaciones.count');
 
 /*
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 | Área autenticada ADMIN (auth:admin + sesión aislada)
-|--------------------------------------------------------------------------
+|--------------------------------------------------------------------------|
 */
 Route::middleware([
     'auth:admin',
@@ -284,7 +283,7 @@ Route::middleware([
 
         Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
-            ->name('clientes.forcePhone');
+            ->name('clientes.forcePhoneVerified');
 
         $rp = Route::post('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -319,9 +318,9 @@ Route::middleware([
             ->name('clientes.bulk');
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | ✅ NUEVO: Destinatarios / Sembrar Edo. Cuenta (periodo)
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
             Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
@@ -329,7 +328,6 @@ Route::middleware([
                 ->name('clientes.recipientsUpsert');
         }
 
-        // ✅ NUEVO: Enviar credenciales (usa account_recipients + accounts.email)
         if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
             Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -392,33 +390,33 @@ Route::middleware([
     });
 
     /*
-    |--------------------------------------------------------------------------
+    |--------------------------------------------------------------------------|
     | BILLING (DEBE IR ANTES DEL FALLBACK)
-    |--------------------------------------------------------------------------
+    |--------------------------------------------------------------------------|
     */
     Route::prefix('billing')->name('billing.')->group(function () {
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | Billing SaaS · Cuentas
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
-        Route::get('accounts', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'index'])
+        Route::get('accounts', [AccountsController::class, 'index'])
             ->name('accounts.index');
 
-        Route::get('accounts/{id}', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'show'])
+        Route::get('accounts/{id}', [AccountsController::class, 'show'])
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('accounts.show');
 
-        Route::post('accounts/{id}/license', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateLicense'])
+        Route::post('accounts/{id}/license', [AccountsController::class, 'updateLicense'])
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('accounts.license');
 
-        Route::post('accounts/{id}/override', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateOverride'])
+        Route::post('accounts/{id}/override', [AccountsController::class, 'updateOverride'])
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('accounts.override');
 
-        Route::post('accounts/{id}/modules', [\App\Http\Controllers\Admin\Billing\AccountsController::class, 'updateModules'])
+        Route::post('accounts/{id}/modules', [AccountsController::class, 'updateModules'])
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('accounts.modules');
 
@@ -427,9 +425,9 @@ Route::middleware([
             ->name('invoices.requests.email_ready');
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | HUB · extras (preview / resend / save invoice)
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
         Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
             ->name('statements_hub.preview_email');
@@ -442,9 +440,9 @@ Route::middleware([
             ->name('statements_hub.save_invoice');
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | Estados de cuenta (ADMIN) — BillingStatementsController (legacy)
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
         Route::get('statements', [BillingStatementsController::class, 'index'])
             ->name('statements.index');
@@ -478,9 +476,9 @@ Route::middleware([
             ->name('statements.email');
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | HUB ADMIN · Estados de cuenta + Pagos + Correos + Facturas + Programación
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
         Route::get('statements-hub', [BillingStatementsHubController::class, 'index'])
             ->name('statements_hub.index');
@@ -501,9 +499,9 @@ Route::middleware([
             ->name('statements_hub.schedule');
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         | Suite existente (si la sigues usando)
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------------------------------|
         */
         Route::get('prices', [PriceCatalogController::class, 'index'])->name('prices.index');
         Route::get('prices/{id}/edit', [PriceCatalogController::class, 'edit'])->whereNumber('id')->name('prices.edit');
