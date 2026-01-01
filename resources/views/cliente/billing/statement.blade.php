@@ -31,7 +31,12 @@
   }
   $rows = $final;
 
-  $pdfEnabledGlobal     = \Illuminate\Support\Facades\Route::has('cliente.billing.pdf');
+  // ✅ IMPORTANTE:
+  // Visualizar (iframe/modal) debe apuntar a la ruta AUTH `billing.pdfInline`
+  // que a su vez genera la signed URL y redirige a `billing.publicPdfInline`.
+  $pdfInlineRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdfInline');
+  $pdfDownloadRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdf');
+
   $payRouteExists       = \Illuminate\Support\Facades\Route::has('cliente.billing.pay.get');
 
   // Routes de factura (Cliente) — internamente el controller ya apunta a billing_invoice_requests
@@ -133,8 +138,9 @@
             $statusText  = $isPaid ? 'PAGADO' : 'PENDIENTE';
             $statusClass = $isPaid ? 'paid' : 'pending';
 
-            $pdfEnabled = $pdfEnabledGlobal && $period !== '';
-            $payEnabled = (!$isPaid) && $canPay && $payRouteExists && $period !== '';
+            // ✅ Visualizar: apunta a la ruta AUTH que redirige a signed (evita INVALID SIGNATURE)
+            $pdfEnabled  = $pdfInlineRouteExists && $period !== '';
+            $payEnabled  = (!$isPaid) && $canPay && $payRouteExists && $period !== '';
 
             // Solo el último periodo pagado puede facturar
             $isLastPaid = ($lastPaid && $period === $lastPaid);
@@ -153,13 +159,15 @@
             $invoiceEnabled    = $isPaid && $isLastPaid && $invoiceRequestRoute && $period !== '';
             $invoiceZipEnabled = $isPaid && $isLastPaid && $invoiceDownloadRoute && $invHasZip;
 
-            $pdfViewUrl = $pdfEnabled ? \Illuminate\Support\Facades\URL::temporarySignedRoute(
-              'cliente.billing.publicPdfInline',
-              now()->addMinutes(30),
-              ['accountId' => $accountId, 'period' => $period]
-            ) : '#';
+            // ✅ View URL robusta (AUTH -> redirect signed)
+            $pdfViewUrl = $pdfEnabled
+              ? route('cliente.billing.pdfInline', ['period' => $period])
+              : '#';
 
-            $pdfDownloadUrl = $pdfEnabled ? route('cliente.billing.pdf', ['period' => $period]) : '#';
+            // ✅ Descargar: también pasa por AUTH -> signed
+            $pdfDownloadUrl = ($pdfDownloadRouteExists && $period !== '')
+              ? route('cliente.billing.pdf', ['period' => $period])
+              : '#';
           @endphp
 
           <div class="p360-row" data-period="{{ $period }}">
