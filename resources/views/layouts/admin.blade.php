@@ -167,8 +167,7 @@
 
       /* ==========================================================================
          HARD FULL-WIDTH OVERRIDES (anti CSS externo)
-         Si algún CSS global vuelve a meter max-width/margin auto, esto lo revienta.
-         ========================================================================== */
+         ========================================================================= */
       html[data-layout="full"]{
         --content-max: 100% !important;
         --footer-max: 100% !important;
@@ -370,6 +369,45 @@
       </main>
     @endif
 
+    {{-- ===== Bootstrap CSRF global (forms + fetch) ===== --}}
+    <script>
+    (function(){
+      'use strict';
+
+      // CSRF token (meta)
+      const meta = document.querySelector('meta[name="csrf-token"]');
+      const token = meta ? meta.getAttribute('content') : '';
+
+      // Patch fetch para incluir CSRF automáticamente (POST/PUT/PATCH/DELETE)
+      // Ayuda cuando alguna acción termina siendo AJAX o se dispara por JS.
+      if (token && typeof window.fetch === 'function' && !window.__p360_fetch_csrf__) {
+        window.__p360_fetch_csrf__ = 1;
+        const _fetch = window.fetch.bind(window);
+
+        window.fetch = function(input, init){
+          init = init || {};
+          const method = ((init.method || 'GET') + '').toUpperCase();
+
+          // Normaliza headers
+          const headers = new Headers(init.headers || {});
+          headers.set('X-Requested-With', 'XMLHttpRequest');
+
+          if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+            if (!headers.has('X-CSRF-TOKEN')) headers.set('X-CSRF-TOKEN', token);
+            if (!headers.has('X-XSRF-TOKEN')) headers.set('X-XSRF-TOKEN', token);
+          }
+
+          init.headers = headers;
+
+          // Importante: cookies en same-origin (para sesiones)
+          if (!init.credentials) init.credentials = 'same-origin';
+
+          return _fetch(input, init);
+        };
+      }
+    })();
+    </script>
+
     {{-- ===== JS utilitario global ===== --}}
     <script>
     (function(){
@@ -469,7 +507,8 @@
 
       main && main.addEventListener('scroll', ()=>{
         const ph = document.getElementById('page-header');
-        if(!ph) return; ph.classList.toggle('affix-shadow', main.scrollTop > 6);
+        if(!ph) return;
+        ph.classList.toggle('affix-shadow', main.scrollTop > 6);
       }, {passive:true});
 
       const keyScroll = ()=> 'p360.scroll.' + (location.pathname || '');
@@ -477,7 +516,8 @@
       addEventListener('load', ()=>{ try{ const y = parseInt(sessionStorage.getItem(keyScroll())||'0',10)||0; main && main.scrollTo({top:y}); }catch(_){ }});
 
       (function perf(){ try{
-        const t = performance.timing; const tt = Math.max(0, t.domComplete - t.navigationStart);
+        const t = performance.timing;
+        const tt = Math.max(0, t.domComplete - t.navigationStart);
         if(tt) console.log('%cP360','background:#111;color:#fff;padding:2px 6px;border-radius:6px','domComplete='+tt+'ms');
       }catch(_){}})();
 
