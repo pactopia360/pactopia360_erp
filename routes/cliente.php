@@ -1,4 +1,5 @@
 <?php
+// C:\wamp64\www\pactopia360_erp\routes\cliente.php
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
@@ -56,9 +57,9 @@ Route::get('/', function () {
 })->name('root');
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | ✅ PAYWALL (SIN LOGIN) — redirige a Stripe Checkout PRO
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | LoginController (cuando admin.is_blocked=1) hace:
 |   return redirect()->route('cliente.paywall');
 |
@@ -93,29 +94,26 @@ Route::get('paywall', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
-| PDF / PAGO PÚBLICOS FIRMADOS (SIN LOGIN)
+| PDF / PAGO PÚBLICOS (SIN LOGIN) — CONTROLADOS EN CONTROLLER
 |--------------------------------------------------------------------------
-| IMPORTANTE:
-| - Ya estás dentro del grupo "cliente" desde RouteServiceProvider,
-|   así que ClientSessionConfig ya corre antes de StartSession.
-| - Para enlaces firmados NO necesitas auth. Solo signed.
+| ✅ FIX:
+| - NO usar middleware 'signed' aquí, porque en tu UI hay flujos donde el
+|   iframe abre sin query (?expires&signature) y eso dispara 403 INVALID SIGNATURE.
+| - La validación se hace en el Controller: si no hay sesión, exige firma.
 */
 Route::get('billing/statement/public-pdf/{accountId}/{period}', [AccountBillingController::class, 'publicPdf'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-    ->middleware(['signed'])
     ->name('billing.publicPdf');
 
 Route::get('billing/statement/public-pdf-inline/{accountId}/{period}', [AccountBillingController::class, 'publicPdfInline'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-    ->middleware(['signed'])
     ->name('billing.publicPdfInline');
 
 Route::get('billing/statement/public-pay/{accountId}/{period}', [AccountBillingController::class, 'publicPay'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-    ->middleware(['signed'])
     ->name('billing.publicPay');
 
 /*
@@ -307,7 +305,6 @@ Route::middleware(['auth:web'])->group(function () use ($isLocal) {
 |--------------------------------------------------------------------------
 */
 Route::view('terminos', 'legal.terminos')->name('terminos');
-
 
 /*
 |--------------------------------------------------------------------------
