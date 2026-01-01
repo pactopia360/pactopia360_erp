@@ -285,6 +285,16 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
+        /*
+        | Alias legacy/compat:
+        | Algunas vistas referencian "clientes.forcePhone"
+        | (o "admin.clientes.forcePhone" si hay prefix admin en RouteServiceProvider)
+        */
+        Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.forcePhone');
+
+
         $rp = Route::post('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
