@@ -1379,7 +1379,7 @@ final class AccountBillingController extends Controller
                 ->with('warning', 'Este periodo no está habilitado para pago.');
         }
 
-        // Resuelve monto
+        // Resuelve monto (monto lógico del sistema / UI)
         $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
         if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
         if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
@@ -1396,7 +1396,18 @@ final class AccountBillingController extends Controller
                 ->with('warning', 'No se pudo determinar el monto a pagar. Contacta soporte.');
         }
 
-        $amountMxn = round($monthlyCents / 100, 2);
+        // ==========================================================
+        // ✅ STRIPE MINIMUM (MXN)
+        // Stripe no permite Checkout por debajo de $10.00 MXN (1000 cents).
+        // Si tu sistema quiere mostrar $1.00, aquí seguimos guardando ambos:
+        // - ui/original: $monthlyCents (ej. 100)
+        // - cobro real en Stripe: $stripeCents (mínimo 1000)
+        // ==========================================================
+        $originalCents = (int) $monthlyCents;
+        $stripeCents   = (int) max($originalCents, 1000);
+
+        $amountMxnOriginal = round($originalCents / 100, 2);
+        $amountMxnStripe   = round($stripeCents / 100, 2);
 
         // Email del cliente (si está logueado) / fallback admin.accounts.email
         $customerEmail = Auth::guard('web')->user()?->email;
@@ -1431,35 +1442,51 @@ final class AccountBillingController extends Controller
                     'quantity' => 1,
                     'price_data' => [
                         'currency' => 'mxn',
-                        'unit_amount' => (int) $monthlyCents,
+                        'unit_amount' => (int) $stripeCents, // ✅ COBRO REAL
                         'product_data' => [
                             'name' => 'Pactopia360 · Licencia · '.$period,
-                            'description' => 'Pago de licencia (periodo '.$period.')',
+                            'description' => ($originalCents < 1000)
+                                ? ('Stripe requiere mínimo $10.00 MXN. Cobro aplicado: $'.number_format($amountMxnStripe, 2).' MXN (monto sistema: $'.number_format($amountMxnOriginal, 2).' MXN).')
+                                : ('Pago de licencia (periodo '.$period.').'),
                         ],
                     ],
                 ]],
 
                 // ✅ metadata.type debe empezar con "billing_"
                 'metadata' => [
-                    'type'       => 'billing_statement_public',
-                    'account_id' => (string)$accountId,
-                    'period'     => $period,
-                    'amount_mxn' => (string)$amountMxn,
-                    'source'     => 'cliente_publicPay',
+                    'type'                => 'billing_statement_public',
+                    'account_id'          => (string)$accountId,
+                    'period'              => $period,
+
+                    // monto del sistema
+                    'amount_mxn'          => (string)$amountMxnOriginal,
+                    'amount_cents'        => (string)$originalCents,
+
+                    // monto real cobrado en Stripe (por mínimo)
+                    'stripe_amount_mxn'   => (string)$amountMxnStripe,
+                    'stripe_amount_cents' => (string)$stripeCents,
+
+                    'source'              => 'cliente_publicPay',
                 ],
             ], [
                 'idempotency_key' => $idempotencyKey,
             ]);
 
+            // Guardamos en admin.payments el COBRO REAL (stripeCents) y en meta dejamos el original
             $this->upsertPendingPaymentForStatementPublicPay(
                 (string)$accountId,
                 $period,
-                (int)$monthlyCents,
+                (int)$stripeCents,
                 (string)($session->id ?? ''),
-                (float)$amountMxn
+                (float)$amountMxnOriginal,
+                (int)$originalCents
             );
 
             if (!empty($session->url)) {
+                // Nota: si hubo “mínimo Stripe”, avisamos al usuario antes de mandarlo al checkout
+                if ($originalCents < 1000) {
+                    $r->session()->flash('warning', 'Stripe requiere un mínimo de $10.00 MXN; se enviará a pago por $'.number_format($amountMxnStripe, 2).' MXN.');
+                }
                 return redirect()->away((string) $session->url);
             }
 
@@ -1467,10 +1494,11 @@ final class AccountBillingController extends Controller
                 ->with('warning', 'No se pudo iniciar el checkout. Intenta nuevamente.');
         } catch (\Throwable $e) {
             Log::error('[BILLING] publicPay checkout failed', [
-                'account_id'   => $accountId,
-                'period'       => $period,
-                'amount_cents' => $monthlyCents,
-                'err'          => $e->getMessage(),
+                'account_id'        => $accountId,
+                'period'            => $period,
+                'amount_cents_ui'   => $originalCents,
+                'amount_cents_stripe'=> $stripeCents,
+                'err'               => $e->getMessage(),
             ]);
 
             return redirect()->route('cliente.estado_cuenta', ['period' => $period])
@@ -1484,9 +1512,10 @@ final class AccountBillingController extends Controller
     private function upsertPendingPaymentForStatementPublicPay(
         string $accountId,
         string $period,
-        int $amountCents,
+        int $amountCentsStripe,
         string $sessionId,
-        float $uiTotalMxn
+        float $uiTotalMxn,
+        int $amountCentsOriginal = 0
     ): void {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
@@ -1517,7 +1546,10 @@ final class AccountBillingController extends Controller
 
         $row = [];
         if ($has('account_id')) $row['account_id'] = $accountId;
-        if ($has('amount'))     $row['amount']     = $amountCents;
+
+        // ✅ amount = COBRO REAL (Stripe)
+        if ($has('amount'))     $row['amount']     = (int) $amountCentsStripe;
+
         if ($has('currency'))   $row['currency']   = 'MXN';
         if ($has('status'))     $row['status']     = 'pending';
         if ($has('due_date'))   $row['due_date']   = now();
@@ -1532,10 +1564,15 @@ final class AccountBillingController extends Controller
 
         if ($has('meta')) {
             $row['meta'] = json_encode([
-                'type'           => 'billing_statement_public',
-                'period'         => $period,
-                'ui_total_mxn'   => round($uiTotalMxn, 2),
-                'source'         => 'cliente_publicPay',
+                'type'               => 'billing_statement_public',
+                'period'             => $period,
+                'ui_total_mxn'       => round($uiTotalMxn, 2),
+
+                // ✅ trazabilidad: original vs cobrado
+                'ui_amount_cents'    => $amountCentsOriginal > 0 ? (int)$amountCentsOriginal : null,
+                'stripe_amount_cents'=> (int)$amountCentsStripe,
+
+                'source'             => 'cliente_publicPay',
             ], JSON_UNESCAPED_UNICODE);
         }
 
