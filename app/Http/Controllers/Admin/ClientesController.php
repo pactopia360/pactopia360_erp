@@ -647,8 +647,11 @@ class ClientesController extends \App\Http\Controllers\Controller
         // 2) Generar credenciales (resetea password del OWNER y devuelve usuario/pass)
         $res = ClientCredentials::resetOwnerByRfc((string) $acc->id);
         if (empty($res['ok'])) {
-            Log::warning('emailCredentials: resetOwnerByRfc failed', ['account_id' => (string)$acc->id, 'error' => $res['error'] ?? null]);
-            return back()->with('error', 'No se pudo generar la contraseña temporal del OWNER. Revisa logs.');
+            Log::warning('emailCredentials: resetOwnerByRfc failed', [
+                'account_id' => (string) $acc->id,
+                'error'      => $res['error'] ?? null,
+            ]);
+            return back()->with('error', 'No se pudo generar la contraseña temporal del OWNER: ' . ($res['error'] ?? 'desconocido'));
         }
 
         $usuario   = (string) ($res['email'] ?? '');
@@ -670,13 +673,13 @@ class ClientesController extends \App\Http\Controllers\Controller
                 'logo_url' => $this->brandLogoUrl(),
             ],
             'account' => [
-                'rfc'         => (string) $acc->id,
-                'razon_social'=> (string) ($acc->razon_social ?? 'Cliente'),
+                'rfc'          => (string) $acc->id,
+                'razon_social' => (string) ($acc->razon_social ?? 'Cliente'),
             ],
             'credentials' => [
-                'usuario'     => $usuario,
-                'password'    => $password,
-                'access_url'  => $accessUrl,
+                'usuario'    => $usuario,
+                'password'   => $password,
+                'access_url' => $accessUrl,
             ],
         ];
 
@@ -736,13 +739,13 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function brandLogoUrl(): string
     {
         try {
-            // Ajusta aquí si tienes un logo público fijo.
-            // Nota: asset() requiere contexto HTTP; en CLI puede no resolver bien, pero en web sí.
             $p = public_path('assets/client/logop360dark.png');
             if (is_file($p)) {
                 return asset('assets/client/logop360dark.png');
             }
-        } catch (\Throwable $e) { /* ignore */ }
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
         return '';
     }
@@ -1191,7 +1194,6 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         if ($plan === 'free' || $plan === '') return 0.00;
 
-        // Por ahora: Pro toma display_price_monthly/annual configurado
         if ($plan === 'pro') {
             $monthly = $this->displayPriceMonthly();
             $annual  = $this->displayPriceAnnual($monthly);
@@ -1233,23 +1235,16 @@ class ClientesController extends \App\Http\Controllers\Controller
         return 0.00;
     }
 
-    /**
-     * ✅ Toma primero config('services.stripe.display_price_monthly') o env STRIPE_DISPLAY_PRICE_MONTHLY
-     */
     private function displayPriceMonthly(): float
     {
         $v = config('services.stripe.display_price_monthly');
         if ($v === null || $v === '') $v = env('STRIPE_DISPLAY_PRICE_MONTHLY', null);
 
         $n = is_numeric($v) ? (float)$v : (float) preg_replace('/[^0-9.\-]/', '', (string)$v);
-        if ($n <= 0) $n = 990.00; // fallback razonable
+        if ($n <= 0) $n = 990.00;
         return round($n, 2);
     }
 
-    /**
-     * ✅ Toma config('services.stripe.display_price_annual') o env STRIPE_DISPLAY_PRICE_ANNUAL,
-     * y si no existe, usa monthly*12.
-     */
     private function displayPriceAnnual(float $monthly): float
     {
         $v = config('services.stripe.display_price_annual');
@@ -1360,25 +1355,55 @@ class ClientesController extends \App\Http\Controllers\Controller
         return $out;
     }
 
+    /**
+     * ✅ MEJORA CRÍTICA: si mysql_clientes falla (credenciales, grants, etc),
+     * el admin NO se cae; regresa estructura base.
+     */
     private function collectCredsForRfcs(array $rfcs): array
     {
         if (empty($rfcs)) return [];
 
-        $schemaCliHasTipo = Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'tipo');
+        $blank = [];
+        foreach ($rfcs as $rfc) {
+            $blank[$rfc] = ['owner_email' => null, 'temp_pass' => null];
+        }
 
-        $ownersQ = DB::connection('mysql_clientes')
-            ->table('cuentas_cliente as c')
-            ->join('usuarios_cuenta as u', 'u.cuenta_id', '=', 'c.id')
-            ->whereIn('c.rfc_padre', $rfcs)
-            ->where(function ($q) use ($schemaCliHasTipo) {
-                $q->where('u.rol', 'owner');
-                if ($schemaCliHasTipo) $q->orWhere('u.tipo', 'owner');
-            })
-            ->select('c.rfc_padre as rfc', 'u.email')
-            ->orderBy('u.created_at', 'asc');
+        try {
+            $schemaCli = Schema::connection('mysql_clientes');
 
-        $owners = $ownersQ->get()->groupBy('rfc')->map(fn($g) => $g->first());
-        $last   = session('tmp_last');
+            if (!$schemaCli->hasTable('cuentas_cliente') || !$schemaCli->hasTable('usuarios_cuenta')) {
+                return $blank;
+            }
+
+            $schemaCliHasTipo = false;
+            try {
+                $schemaCliHasTipo = $schemaCli->hasColumn('usuarios_cuenta', 'tipo');
+            } catch (\Throwable $e) {
+                $schemaCliHasTipo = false;
+            }
+
+            $owners = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente as c')
+                ->join('usuarios_cuenta as u', 'u.cuenta_id', '=', 'c.id')
+                ->whereIn('c.rfc_padre', $rfcs)
+                ->where(function ($q) use ($schemaCliHasTipo) {
+                    $q->where('u.rol', 'owner');
+                    if ($schemaCliHasTipo) $q->orWhere('u.tipo', 'owner');
+                })
+                ->select('c.rfc_padre as rfc', 'u.email')
+                ->orderBy('u.created_at', 'asc')
+                ->get()
+                ->groupBy('rfc')
+                ->map(fn($g) => $g->first());
+
+        } catch (\Throwable $e) {
+            Log::warning('collectCredsForRfcs: mysql_clientes unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+            return $blank;
+        }
+
+        $last = session('tmp_last');
 
         $out = [];
         foreach ($rfcs as $rfc) {
