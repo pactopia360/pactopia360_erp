@@ -1,5 +1,7 @@
 /* public/assets/admin/js/admin-clientes.js
-   Admin · Clientes — UI v13 (lista + drawer + modales) — Fix botones + lock + robustez
+   Admin · Clientes — UI v13.2.x (lista + drawer + modales)
+   FIX: usar rutas reales (email_credentials usa {rfc}), no hardcode por {id}
+   + Robustez: action de forms desde payload (email_creds_url / recip_url / seed_url / stmt_*)
 */
 (function () {
   'use strict';
@@ -59,17 +61,10 @@
     el.textContent = t || '—';
   };
 
-  const setHTML = (id, html) => {
-    const el = typeof id === 'string' ? $(id) : id;
-    if (!el) return;
-    el.innerHTML = html || '';
-  };
-
   const setHref = (id, href) => {
     const el = typeof id === 'string' ? $(id) : id;
     if (!el) return;
 
-    // si no es <a>, no forzamos href
     const isAnchor = (el.tagName || '').toLowerCase() === 'a';
 
     if (!href) {
@@ -94,7 +89,6 @@
     if (!el) return;
     el.classList.remove('ok', 'warn', 'bad', 'primary', 'neutral');
     el.classList.add(tone || 'neutral');
-    // label llega de nuestro propio código
     el.innerHTML = `<span class="dot"></span>${label || '—'}`;
   };
 
@@ -117,6 +111,20 @@
     } catch (e) {
       return null;
     }
+  };
+
+  // helpers urls: el backend usa {rfc} en varias routes
+  const enc = (v) => encodeURIComponent((v ?? '').toString());
+  const guessRfcKey = (client) => {
+    // preferimos rfc, luego id
+    return (client && (client.rfc || client.id)) ? (client.rfc || client.id) : '';
+  };
+
+  const buildFallbackUrl = (client, suffix) => {
+    // /admin/clientes/{rfc}/{suffix}
+    const key = guessRfcKey(client);
+    if (!key) return '';
+    return `/admin/clientes/${enc(key)}/${suffix}`;
   };
 
   // ===== Drawer
@@ -154,9 +162,14 @@
     setText('#dr_stmt_list', stmtCount ? `${stmtList}${stmtCount ? ` (${stmtCount})` : ''}` : 'Sin destinatarios configurados');
 
     // Forms del drawer
-    setAction('#drFormImpersonate', `/admin/clientes/${encodeURIComponent(client.id)}/impersonate`);
-    setAction('#drFormResetPass', `/admin/clientes/${encodeURIComponent(client.id)}/reset-password`);
-    setAction('#drFormEmailCreds', `/admin/clientes/${encodeURIComponent(client.id)}/email-credentials`);
+    // Nota: impersonate/reset siguen usando {id} en tu backend (si es así). Si en tu backend también es {rfc}, cámbialo aquí.
+    // Como en tu Blade usas rutas por {rfc}, preferimos usar rfc para clientes.
+    setAction('#drFormImpersonate', buildFallbackUrl(client, 'impersonate'));      // /admin/clientes/{rfc}/impersonate
+    setAction('#drFormResetPass', buildFallbackUrl(client, 'reset-password'));     // /admin/clientes/{rfc}/reset-password
+
+    // ✅ FIX CLAVE: enviar credenciales debe usar email_creds_url desde payload (route real: admin.clientes.emailCredentials)
+    const credsUrl = (client.email_creds_url || '').toString().trim();
+    setAction('#drFormEmailCreds', credsUrl || buildFallbackUrl(client, 'email-credentials'));
 
     // stash
     drawer._client = client;
@@ -198,16 +211,11 @@
     Lock.off();
   };
 
-  const closeAnyOpenModal = () => {
-    const m = $('.ac-modal.open');
-    if (m) closeModal(m);
-  };
-
   // ===== Poblar modales
   const fillEditModal = (client) => {
     if (!client) return;
     setText('#mEdit_sub', `${client.rfc} · ${client.razon_social || '—'}`);
-    setAction('#mEdit_form', `/admin/clientes/${encodeURIComponent(client.id)}/save`);
+    setAction('#mEdit_form', buildFallbackUrl(client, 'save')); // /admin/clientes/{rfc}/save
 
     const rs = $('#mEdit_rs'); if (rs) rs.value = client.razon_social || '';
     const em = $('#mEdit_email'); if (em) em.value = client.email || '';
@@ -224,12 +232,13 @@
     setText('#mRec_sub', `${client.rfc} · ${client.razon_social || '—'}`);
 
     const missing = $('#mRec_missing');
-    const hasRoute = !!client.recip_url;
+    const hasRoute = !!(client.recip_url && String(client.recip_url).trim());
     if (missing) missing.hidden = hasRoute;
 
-    setAction('#mRec_form_statement', client.recip_url || '#');
-    setAction('#mRec_form_invoice', client.recip_url || '#');
-    setAction('#mRec_form_general', client.recip_url || '#');
+    const recipUrl = hasRoute ? String(client.recip_url).trim() : '';
+    setAction('#mRec_form_statement', recipUrl || '#');
+    setAction('#mRec_form_invoice', recipUrl || '#');
+    setAction('#mRec_form_general', recipUrl || '#');
 
     const st = $('#mRec_stmt_list'); if (st) st.value = client.recips_statement || '';
     const sp = $('#mRec_stmt_primary'); if (sp) sp.value = client.primary_statement || '';
@@ -246,6 +255,8 @@
 
     setText('#mCred_sub', `${client.rfc} · ${client.razon_social || '—'}`);
     setText('#mCred_rfc', client.rfc);
+    setText('#mCred_owner', client.owner_email || client.email || '—');
+    setText('#mCred_pass', client.temp_pass || '—');
 
     const otp = client.otp_code ? `${client.otp_code} (${(client.otp_channel || '—').toUpperCase()})` : '—';
     setText('#mCred_otp', otp);
@@ -260,13 +271,20 @@
       const a = $('#mCred_tok_open');
       if (a) a.setAttribute('href', tok);
     } else {
-      setText('#mCred_tok', 'Sin token vigente.');
-      setText('#mCred_tok_exp', '—');
-      if (tokActions) tokActions.hidden = true;
+      setText('#mCred_tok', client.email_token ? client.email_token : 'Sin token vigente.');
+      setText('#mCred_tok_exp', client.token_expires ? `Expira: ${client.token_expires}` : '—');
+      if (tokActions) tokActions.hidden = !tok;
+      // si solo hay token (no url), dejamos ocultas acciones
+      if (!tok && tokActions) tokActions.hidden = true;
     }
 
-    setAction('#mCred_form_force_email', `/admin/clientes/${encodeURIComponent(client.id)}/force-email`);
-    setAction('#mCred_form_force_phone', `/admin/clientes/${encodeURIComponent(client.id)}/force-phone`);
+    // force email / phone: en tus rutas existe force-email. phone puede existir o no.
+    setAction('#mCred_form_force_email', buildFallbackUrl(client, 'force-email'));
+
+    // si tu backend NO tiene force-phone, dejar disabled.
+    // En tu blade traes "mCred_force_phone_missing" y en el hook inline también; aquí lo respetamos.
+    const forcePhoneUrl = buildFallbackUrl(client, 'force-phone');
+    setAction('#mCred_form_force_phone', forcePhoneUrl);
 
     const missing = $('#mCred_force_phone_missing');
     if (missing) missing.hidden = true;
@@ -336,30 +354,6 @@
     }
   };
 
-  // ===== Plan presets
-  const applyPlanPreset = (btn, rootForm) => {
-    const plan = btn.getAttribute('data-plan-preset') || '';
-    const cycle = btn.getAttribute('data-cycle') || '';
-    const days = parseInt(btn.getAttribute('data-days') || '0', 10);
-
-    const planField = rootForm.querySelector('select[name="plan"], input[name="plan"]');
-    if (planField) planField.value = plan;
-
-    const cycleSel = rootForm.querySelector('select[name="billing_cycle"]');
-    if (cycleSel) cycleSel.value = cycle;
-
-    const nextInput = rootForm.querySelector('input[name="next_invoice_date"]');
-    if (nextInput) {
-      if (days > 0) {
-        const d = new Date();
-        d.setDate(d.getDate() + days);
-        nextInput.value = d.toISOString().slice(0, 10);
-      } else {
-        nextInput.value = '';
-      }
-    }
-  };
-
   // ===== Clipboard (fallback)
   const copyText = async (text) => {
     const t = (text || '').trim();
@@ -372,7 +366,6 @@
       }
     } catch (e) {}
 
-    // fallback
     try {
       const ta = document.createElement('textarea');
       ta.value = t;
@@ -475,16 +468,7 @@
       return;
     }
 
-    // 5) Presets plan
-    const preset = t.closest('[data-plan-preset]');
-    if (preset) {
-      e.preventDefault();
-      const form = preset.closest('form');
-      if (form) applyPlanPreset(preset, form);
-      return;
-    }
-
-    // 6) Abrir modales desde drawer
+    // 5) Abrir modales desde drawer
     const c = drawer && drawer.classList.contains('open') ? (drawer._client || null) : null;
 
     if (t.closest('#btnOpenEdit')) {
@@ -512,7 +496,7 @@
       return;
     }
 
-    // 7) Cerrar modales (botón o backdrop)
+    // 6) Cerrar modales (botón o backdrop)
     if (t.closest('[data-close-modal]')) {
       const m = t.closest('.ac-modal');
       closeModal(m);
@@ -535,8 +519,7 @@
     }
   });
 
-  // ===== Safety: si por alguna razón el DOM trae open sin contar lock
-  // (ej: hot reload / back-forward cache), normalizamos al cargar.
+  // ===== Safety: normalizar lock
   (function normalizeInitialState(){
     const anyModalOpen = !!$('.ac-modal.open');
     const drawerOpen = !!(drawer && drawer.classList.contains('open'));

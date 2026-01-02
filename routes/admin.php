@@ -5,9 +5,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Controladores ADMIN
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\HomeController;
@@ -36,17 +36,17 @@ use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | CSRF middlewares (para quitar en local en algunos POST)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | ENV + throttles
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 $isLocal = app()->environment(['local','development','testing']);
 
@@ -61,9 +61,9 @@ $thrDevPosts     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
 $thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Helper permisos → middleware 'can:perm,<clave>'
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
@@ -75,9 +75,9 @@ if (!function_exists('perm_mw')) {
 }
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Placeholder rápido (si falta una vista admin)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 if (!function_exists('admin_placeholder_view')) {
     function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360') {
@@ -96,9 +96,9 @@ if (!function_exists('admin_placeholder_view')) {
 }
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | UI (heartbeat, log)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware($thrUiHeartbeat)
@@ -113,9 +113,9 @@ if ($isLocal) {
 }
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Auth admin (guest:admin + sesión aislada)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::middleware([
     'guest:admin',
@@ -134,18 +134,18 @@ Route::middleware([
 });
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Notificaciones públicas (contador)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
     ->middleware('throttle:60,1')
     ->name('notificaciones.count');
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Área autenticada ADMIN (auth:admin + sesión aislada)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::middleware([
     'auth:admin',
@@ -325,9 +325,19 @@ Route::middleware([
             $rp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
+        /*
+        |--------------------------------------------------------------------------|
+        | ✅ Enviar credenciales por correo (MODAL credenciales)
+        |--------------------------------------------------------------------------|
+        */
+        $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.emailCredentials');
+
+        // En local, evita 419 si el modal envía por fetch/axios sin token
+        if ($isLocal) {
+            $emailCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
 
         Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver','clientes.impersonate'])])

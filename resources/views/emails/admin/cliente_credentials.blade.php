@@ -1,4 +1,4 @@
-{{-- resources/views/emails/admin/cliente_credentials.blade.php --}}
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\emails\admin\cliente_credentials.blade.php --}}
 @php
   $brandName = (string) data_get($p, 'brand.name', 'Pactopia360');
   $logoUrl   = (string) data_get($p, 'brand.logo_url', '');

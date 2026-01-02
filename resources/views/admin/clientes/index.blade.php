@@ -4,7 +4,7 @@
 @section('title','Clientes (accounts)')
 
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=13.2.0">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=13.2.2">
 @endpush
 
 @section('content')
@@ -95,6 +95,13 @@
     return $raw;
   };
 
+  $dtLabel = function($raw){
+    $raw = trim((string)$raw);
+    if ($raw === '') return '—';
+    try { return Carbon::parse($raw)->format('Y-m-d H:i'); } catch(\Throwable $e) {}
+    return $raw;
+  };
+
   $money = function($n){
     if ($n === null || $n === '' || !is_numeric($n)) return '—';
     return '$' . number_format((float)$n, 2);
@@ -107,7 +114,7 @@
     return count($arr);
   };
 
-  $stmtIdx = $try('admin.billing.statements.index');
+  $stmtIdx = $try('admin.billing.statements.index') ?: $try('admin.billing.statementsHub.index');
 
   // Billing statuses (para filtros y badges)
   $billingStatuses = $billingStatuses ?? [
@@ -132,6 +139,13 @@
 
   // ✅ Logo (para correo de credenciales)
   $brandLogoUrl = asset('assets/brand/pactopia-logo.png');
+
+  // ✅ Resolver URL de verificación por token si existe la route
+  $tokenRoute = $try('cliente.verify.email.token', ['token' => '___TOKEN___']);
+  $hasTokenRoute = is_string($tokenRoute) && str_contains($tokenRoute, '___TOKEN___');
+
+  // ✅ Rutas generales (seguras)
+  $syncLegacyUrl = $try('admin.clientes.syncToClientes') ?: route('admin.clientes.syncToClientes'); // esta sí debe existir
 @endphp
 
 <div id="adminClientesPage"
@@ -170,7 +184,7 @@
       </div>
 
       <div class="ac-topbar-right">
-        <form method="POST" action="{{ route('admin.clientes.syncToClientes') }}" onsubmit="return confirm('¿Sincronizar accounts → clientes (legacy)?')">
+        <form method="POST" action="{{ $syncLegacyUrl }}" onsubmit="return confirm('¿Sincronizar accounts → clientes (legacy)?')">
           @csrf
           <button class="ac-btn" type="submit">Sincronizar</button>
         </form>
@@ -341,25 +355,16 @@
       @forelse($rows as $r)
         @php
           $RFC_FULL = strtoupper(trim((string) (data_get($r,'rfc') ?: data_get($r,'tax_id') ?: data_get($r,'id'))));
-          $created  = optional($r->created_at)->format('Y-m-d H:i') ?? '—';
+          $created  = $dtLabel($r->created_at ?? '');
           $idStr    = (string)($r->id ?? '');
 
           $info     = $extras[$r->id] ?? null;
+          $cred     = $creds[$r->id] ?? null;
 
           $planVal  = strtolower((string)($r->plan ?? ''));
           $bcRaw    = (string)($r->billing_cycle ?? '');
           $nextRaw  = (string)($r->next_invoice_date ?? '');
           $bsRaw    = (string)($r->billing_status ?? '');
-
-          if (($bcRaw === '' || $bcRaw === null) && is_array($info) && !empty($info['billing_cycle'])) {
-            $bcRaw = (string)$info['billing_cycle'];
-          }
-          if (($nextRaw === '' || $nextRaw === null) && is_array($info) && !empty($info['next_invoice_date'])) {
-            $nextRaw = (string)$info['next_invoice_date'];
-          }
-          if (($bsRaw === '' || $bsRaw === null) && is_array($info) && !empty($info['billing_status'])) {
-            $bsRaw = (string)$info['billing_status'];
-          }
 
           $bcLabel   = $cycleLabel($bcRaw);
           $nextLabel = $dateLabel($nextRaw);
@@ -371,18 +376,31 @@
           $hasCustom = ($customAmount !== null && $customAmount !== '' && is_numeric($customAmount));
           $effective = is_array($info) ? ($info['license_amount_mxn_effective'] ?? null) : null;
 
-          $isBlocked = ((int)$r->is_blocked===1);
+          $isBlocked = ((int)($r->is_blocked ?? 0) === 1);
           $mailOk = !empty($r->email_verified_at);
           $phoneOk = !empty($r->phone_verified_at);
 
-          $seedUrl   = $try('admin.clientes.seedStatement', ['rfc'=>$r->id]);
-          $recipUrl  = $try('admin.clientes.recipientsUpsert', ['rfc'=>$r->id]);
+          // ✅ Rutas seguras por fila (evita errores si cambia el nombre)
+          $seedUrl   = $try('admin.clientes.seedStatement', ['rfc'=>$r->id]) ?: $try('admin.clientes.seedStatement', ['accountId'=>$r->id]);
+          $recipUrl  = $try('admin.clientes.recipientsUpsert', ['rfc'=>$r->id]) ?: $try('admin.clientes.recipients.upsert', ['rfc'=>$r->id]);
 
-          $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
-          $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
+          $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.show',  ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
+          $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.email', ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
 
           // ✅ URL para enviar credenciales
-          $emailCredsUrl = $try('admin.clientes.emailCreds', ['rfc'=>$r->id]) ?: $try('admin.clientes.emailCredentials', ['rfc'=>$r->id]);
+          $emailCredsUrl = $try('admin.clientes.emailCreds', ['rfc'=>$r->id])
+                        ?: $try('admin.clientes.emailCredentials', ['rfc'=>$r->id]);
+
+          // ✅ Acciones (reenvío verificación / OTP) sin romper si no existen
+          $resendVerifyUrl = $try('admin.clientes.resendEmailVerification', ['rfc'=>$r->id])
+                          ?: $try('admin.clientes.resendEmail', ['id'=>$r->id])
+                          ?: $try('admin.clientes.resendEmail', ['rfc'=>$r->id])
+                          ?: '';
+
+          $sendOtpUrl = $try('admin.clientes.sendPhoneOtp', ['rfc'=>$r->id])
+                     ?: $try('admin.clientes.sendOtp', ['id'=>$r->id])
+                     ?: $try('admin.clientes.sendOtp', ['rfc'=>$r->id])
+                     ?: '';
 
           $rRecips = $recipients[$r->id] ?? [];
           $recipsStatement = $recipsToString($rRecips, 'statement');
@@ -399,12 +417,33 @@
 
           $stmtMain = $stmtCount ? ($primaryStatement ?: trim(explode(',', $recipsStatement)[0] ?? '')) : 'Sin correos';
 
+          // ✅ extras
           $estadoCuenta = is_array($info) ? (string)($info['estado_cuenta'] ?? $info['account_status'] ?? '') : '';
           $modoCobro    = is_array($info) ? (string)($info['modo_cobro'] ?? $info['billing_mode'] ?? '') : '';
           $stripeCust   = is_array($info) ? (string)($info['stripe_customer_id'] ?? '') : '';
           $stripeSub    = is_array($info) ? (string)($info['stripe_subscription_id'] ?? '') : '';
           $periodStart  = is_array($info) ? (string)($info['current_period_start'] ?? '') : '';
           $periodEnd    = is_array($info) ? (string)($info['current_period_end'] ?? '') : '';
+
+          // ✅ email verify token/exp
+          $emailToken = is_array($info) ? (string)($info['email_token'] ?? '') : '';
+          $emailTokenExp = is_array($info) ? (string)($info['email_expires_at'] ?? '') : '';
+          $tokenUrl = '';
+          if ($emailToken !== '' && $hasTokenRoute) {
+            $tokenUrl = str_replace('___TOKEN___', $emailToken, (string)$tokenRoute);
+          }
+
+          // ✅ OTP
+          $otpCode    = is_array($info) ? (string)($info['otp_code'] ?? '') : '';
+          $otpChannel = is_array($info) ? (string)($info['otp_channel'] ?? '') : '';
+          $otpExp     = is_array($info) ? (string)($info['otp_expires_at'] ?? '') : '';
+
+          // ✅ credenciales
+          $ownerEmail = is_array($cred) ? (string)($cred['owner_email'] ?? '') : '';
+          $tempPass   = is_array($cred) ? (string)($cred['temp_pass'] ?? '') : '';
+
+          $fallbackAccessUrl = rtrim((string)config('app.url'), '/') . '/cliente';
+          $accessUrl = $fallbackAccessUrl;
 
           $amtShow = '—';
           $amtMeta = '—';
@@ -413,14 +452,6 @@
 
           $amtCustomShow = $hasCustom ? $money($customAmount) : '—';
           $amtEffShow    = (is_numeric($effective) && (float)$effective >= 0) ? $money($effective) : '—';
-
-          $otpCode    = is_array($info) ? (string)($info['otp_code'] ?? '') : '';
-          $otpChannel = is_array($info) ? (string)($info['otp_channel'] ?? '') : '';
-          $tokenUrl   = is_array($info) ? (string)($info['token_url'] ?? '') : '';
-          $tokenExp   = is_array($info) ? (string)($info['token_expires'] ?? '') : '';
-
-          $fallbackAccessUrl = rtrim((string)config('app.url'), '/') . '/cliente';
-          $accessUrl = $tokenUrl !== '' ? $tokenUrl : $fallbackAccessUrl;
 
           $exportPayload = [
             "ID" => $idStr,
@@ -444,6 +475,13 @@
             "ModoCobro" => $modoCobro,
             "StripeCustomer" => $stripeCust,
             "StripeSubscription" => $stripeSub,
+            "EmailToken" => $emailToken,
+            "EmailTokenExpires" => $emailTokenExp,
+            "OtpCode" => $otpCode,
+            "OtpChannel" => $otpChannel,
+            "OtpExpires" => $otpExp,
+            "OwnerEmail" => $ownerEmail,
+            "TempPass" => $tempPass,
             "CreatedAt" => $created,
           ];
           $exportJson = e(json_encode($exportPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -493,10 +531,16 @@
             "primary_invoice" => $primaryInvoice,
             "primary_general" => $primaryGeneral,
 
+            "email_token" => $emailToken,
+            "token_url" => $tokenUrl,
+            "token_expires" => $emailTokenExp,
+
             "otp_code" => $otpCode,
             "otp_channel" => $otpChannel,
-            "token_url" => $tokenUrl,
-            "token_expires" => $tokenExp,
+            "otp_expires" => $otpExp,
+
+            "owner_email" => $ownerEmail,
+            "temp_pass" => $tempPass,
 
             "email_creds_url" => $emailCredsUrl ?: '',
             "access_url" => $accessUrl,
@@ -557,6 +601,9 @@
               <div class="k">Tel</div>
               <div class="v"><span class="mono">{{ $r->phone ?: '—' }}</span></div>
 
+              <div class="k">Owner</div>
+              <div class="v"><span class="mono">{{ $ownerEmail ?: '—' }}</span></div>
+
               <div class="k">Primary</div>
               <div class="v"><span class="mono">{{ $primaryStatement ?: '—' }}</span></div>
             </div>
@@ -579,6 +626,21 @@
               Suscripción: <strong>{{ $r->plan ? strtoupper((string)$r->plan) : '—' }}</strong>
               · <strong>{{ $bcLabel ?: '—' }}</strong>
             </div>
+
+            @if($emailToken)
+              <div class="meta" style="margin-top:8px">
+                Token email: <span class="ac-mono">{{ \Illuminate\Support\Str::limit($emailToken, 18, '…') }}</span>
+                @if($emailTokenExp) · Exp: <strong>{{ $emailTokenExp }}</strong>@endif
+              </div>
+            @endif
+
+            @if($otpCode)
+              <div class="meta" style="margin-top:6px">
+                OTP: <span class="ac-mono">{{ $otpCode }}</span>
+                @if($otpChannel) · <strong>{{ strtoupper($otpChannel) }}</strong>@endif
+                @if($otpExp) · Exp: <strong>{{ $otpExp }}</strong>@endif
+              </div>
+            @endif
           </div>
 
           {{-- Plan --}}
@@ -647,16 +709,24 @@
 
           {{-- Acciones --}}
           <div class="cell actions" data-label="Acciones">
-            <form method="POST" action="{{ route('admin.clientes.resendEmail',$r->id) }}" class="inline">
-              @csrf
-              <button class="ac-btn small" type="submit" title="Reenviar verificación de correo">Reenviar</button>
-            </form>
+            @if($resendVerifyUrl)
+              <form method="POST" action="{{ $resendVerifyUrl }}" class="inline">
+                @csrf
+                <button class="ac-btn small" type="submit" title="Reenviar verificación de correo">Reenviar</button>
+              </form>
+            @else
+              <button class="ac-btn small" type="button" disabled title="No existe route de reenvío">Reenviar</button>
+            @endif
 
-            <form method="POST" action="{{ route('admin.clientes.sendOtp',$r->id) }}" class="inline">
-              @csrf
-              <input type="hidden" name="channel" value="sms">
-              <button class="ac-btn small" type="submit" title="Enviar OTP">OTP</button>
-            </form>
+            @if($sendOtpUrl)
+              <form method="POST" action="{{ $sendOtpUrl }}" class="inline">
+                @csrf
+                <input type="hidden" name="channel" value="sms">
+                <button class="ac-btn small" type="submit" title="Enviar OTP">OTP</button>
+              </form>
+            @else
+              <button class="ac-btn small" type="button" disabled title="No existe route de OTP">OTP</button>
+            @endif
 
             <button class="ac-btn small primary" type="button" data-open-drawer title="Abrir panel del cliente (drawer)">
               Ver
@@ -978,6 +1048,16 @@
         </div>
 
         <div class="ac-cred">
+          <div class="k">OWNER</div>
+          <div class="v"><span class="ac-mono" id="mCred_owner">—</span></div>
+        </div>
+
+        <div class="ac-cred">
+          <div class="k">Temp pass</div>
+          <div class="v"><span class="ac-mono" id="mCred_pass">—</span></div>
+        </div>
+
+        <div class="ac-cred">
           <div class="k">OTP</div>
           <div class="v"><span class="ac-mono" id="mCred_otp">—</span></div>
         </div>
@@ -998,7 +1078,7 @@
         <div class="ac-cred ac-cred-wide">
           <div class="k">Enviar credenciales por correo</div>
           <div class="v">
-            Envía <strong>usuario (RFC)</strong>, <strong>contraseña</strong> y <strong>liga de acceso</strong> a uno o varios correos.
+            Envía <strong>usuario (OWNER email)</strong>, <strong>contraseña temporal</strong> y <strong>liga de acceso</strong> a uno o varios correos.
           </div>
 
           <div class="ac-note" style="margin-top:10px">
@@ -1127,7 +1207,7 @@
 @endsection
 
 @push('scripts')
-  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v=13.2.0"></script>
+  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v=13.2.2"></script>
 
   {{-- ✅ Hook para: setear action del envío de credenciales + defaults + abrir modal desde botón del drawer --}}
   <script>
@@ -1135,11 +1215,6 @@
     'use strict';
 
     const $ = (s, sc) => (sc || document).querySelector(s);
-
-    function txt(id){
-      const el = $(id);
-      return (el && (el.textContent || el.innerText) || '').trim();
-    }
 
     function ensureActionAndPayload(){
       const drawer = $('#clientDrawer');
@@ -1166,23 +1241,22 @@
         if (!to.value.trim()) to.value = (csv || fallback || '').trim();
       }
 
-      // payload para backend
-      const user = txt('#mCred_rfc') || (c && c.rfc) || '';
-      const pass = txt('#mCred_otp') || (c && c.otp_code) || '';
+      // payload para backend: usuario = owner_email si existe; password = temp_pass si existe
+      const user = (c && c.owner_email ? String(c.owner_email) : '') || (c && c.email ? String(c.email) : '') || (c && c.rfc ? String(c.rfc) : '') || '';
+      const pass = (c && c.temp_pass ? String(c.temp_pass) : '') || (c && c.otp_code ? String(c.otp_code) : '') || '';
       const access = (c && c.access_url ? String(c.access_url) : '') || (c && c.token_url ? String(c.token_url) : '') || '';
 
       const hu = $('#mCred_hidden_user'); if (hu) hu.value = user;
       const hp = $('#mCred_hidden_pass'); if (hp) hp.value = pass;
       const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
-      const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : user);
-      const hrs= $('#mCred_hidden_rs'); if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : txt('#mCred_sub'));
+      const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : '');
+      const hrs= $('#mCred_hidden_rs'); if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : '');
     }
 
     // Cuando se abre el modal de credenciales desde tu UI
     document.addEventListener('click', function (e) {
       const btnCreds = e.target.closest('#btnOpenCreds');
       if (!btnCreds) return;
-
       setTimeout(ensureActionAndPayload, 80);
     });
 
@@ -1193,18 +1267,14 @@
 
       e.preventDefault();
 
-      // click “Credenciales” para mantener el flujo/JS existente
       const openCreds = $('#btnOpenCreds');
       if (openCreds) openCreds.click();
 
       setTimeout(ensureActionAndPayload, 120);
     });
 
-    // si el modal ya estaba abierto y editas campos, mantener hidden sync (seguro)
     ['input','change','keyup'].forEach(evt => {
-      document.addEventListener(evt, function (e) {
-        if (!e.target) return;
-        if (e.target.id === 'mCred_to') return; // no afecta payload
+      document.addEventListener(evt, function () {
         const modal = $('#modalCreds');
         if (modal && modal.getAttribute('aria-hidden') === 'false') {
           ensureActionAndPayload();

@@ -1,4 +1,4 @@
-{{-- resources/views/emails/cliente/credentials.blade.php --}}
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\emails\cliente\credentials.blade.php --}}
 @php
   $login = $login ?? ( \Illuminate\Support\Facades\Route::has('cliente.login') ? route('cliente.login') : url('/cliente/login') );
   $email = $email ?? '—';

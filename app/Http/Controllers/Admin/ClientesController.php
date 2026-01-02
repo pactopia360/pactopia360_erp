@@ -1,4 +1,5 @@
 <?php
+// C:\wamp64\www\pactopia360_erp\app\Http\Controllers\Admin\ClientesController.php
 
 declare(strict_types=1);
 
@@ -30,6 +31,12 @@ class ClientesController extends \App\Http\Controllers\Controller
      * Legacy (tabla clientes). En tu error aparece Connection: mysql.
      */
     protected string $legacyConn = 'mysql';
+
+    /**
+     * Cache simple de checks de schema por request.
+     * @var array<string,bool>
+     */
+    private array $schemaHas = [];
 
     // ======================= LISTADO =======================
     public function index(Request $request): View
@@ -73,15 +80,15 @@ class ClientesController extends \App\Http\Controllers\Controller
             });
         }
 
-        if ($planFilter !== '' && Schema::connection($this->adminConn)->hasColumn('accounts', 'plan')) {
+        if ($planFilter !== '' && $this->hasCol($this->adminConn, 'accounts', 'plan')) {
             $query->where('plan', $planFilter);
         }
 
-        if (($blocked === '0' || $blocked === '1') && Schema::connection($this->adminConn)->hasColumn('accounts', 'is_blocked')) {
+        if (($blocked === '0' || $blocked === '1') && $this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
             $query->where('is_blocked', (int) $blocked);
         }
 
-        if ($billingStatus !== null && $billingStatus !== '' && Schema::connection($this->adminConn)->hasColumn('accounts', 'billing_status')) {
+        if ($billingStatus !== null && $billingStatus !== '' && $this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
             $query->where('billing_status', $billingStatus);
         }
 
@@ -102,8 +109,11 @@ class ClientesController extends \App\Http\Controllers\Controller
             'id',
             DB::raw("$rfcCol as rfc"),
             'razon_social',
+
+            // ✅ normalizamos siempre a alias "email" y "phone"
             $emailCol . ' as email',
             $phoneCol . ' as phone',
+
             DB::raw($schemaA->hasColumn('accounts', 'plan') ? 'plan' : "'' as plan"),
             DB::raw($schemaA->hasColumn('accounts', 'billing_cycle') ? 'billing_cycle' : "NULL as billing_cycle"),
             DB::raw($schemaA->hasColumn('accounts', 'billing_status') ? 'billing_status' : "NULL as billing_status"),
@@ -142,7 +152,9 @@ class ClientesController extends \App\Http\Controllers\Controller
         foreach ($rows as $r) {
             $id = (string) $r->id;
 
-            if (!isset($extras[$id])) $extras[$id] = [];
+            if (!isset($extras[$id])) {
+                $extras[$id] = [];
+            }
 
             // recipients statement
             $recList = $recipients[$id]['statement'] ?? [];
@@ -153,7 +165,9 @@ class ClientesController extends \App\Http\Controllers\Controller
                 $e = strtolower(trim((string)($rr['email'] ?? '')));
                 if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
                     $emails[] = $e;
-                    if ((int)($rr['is_primary'] ?? 0) === 1) $primary = $e;
+                    if ((int)($rr['is_primary'] ?? 0) === 1) {
+                        $primary = $e;
+                    }
                 }
             }
             $emails = array_values(array_unique($emails));
@@ -207,19 +221,19 @@ class ClientesController extends \App\Http\Controllers\Controller
             'updated_at'   => now(),
         ];
 
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'plan')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'plan')) {
             $payload['plan'] = $data['plan'] ?? null;
         }
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'billing_cycle')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_cycle')) {
             $payload['billing_cycle'] = $data['billing_cycle'] ?? null;
         }
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'billing_status')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
             $payload['billing_status'] = $data['billing_status'] ?? null;
         }
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'next_invoice_date')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'next_invoice_date')) {
             $payload['next_invoice_date'] = $data['next_invoice_date'] ?? null;
         }
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'is_blocked')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
             $payload['is_blocked'] = (int) ($data['is_blocked'] ?? 0);
         }
 
@@ -233,12 +247,12 @@ class ClientesController extends \App\Http\Controllers\Controller
             data_set($meta, 'billing.override.amount_mxn', $custom);
             data_set($meta, 'billing.override.enabled', true);
 
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', 'meta')) {
+            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
                 $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
             }
 
             foreach (['custom_amount_mxn', 'override_amount_mxn', 'billing_amount_mxn', 'amount_mxn', 'license_amount_mxn'] as $col) {
-                if (Schema::connection($this->adminConn)->hasColumn('accounts', $col)) {
+                if ($this->hasCol($this->adminConn, 'accounts', $col)) {
                     $payload[$col] = $custom;
                     break;
                 }
@@ -270,7 +284,6 @@ class ClientesController extends \App\Http\Controllers\Controller
             if (class_exists($hubClass)) {
                 $hub = app($hubClass);
 
-                // si algún método existe, lo usamos
                 foreach (['seedStatement', 'seedForAccount', 'ensureStatementForPeriod', 'seedPeriod'] as $m) {
                     if (method_exists($hub, $m)) {
                         $hub->{$m}($rfc, $period);
@@ -286,7 +299,6 @@ class ClientesController extends \App\Http\Controllers\Controller
         try {
             $schema = Schema::connection($this->adminConn);
 
-            // candidatos de tablas
             $tblStatements = null;
             foreach (['billing_statements', 'statements', 'account_statements'] as $t) {
                 if ($schema->hasTable($t)) { $tblStatements = $t; break; }
@@ -302,7 +314,6 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
 
             DB::connection($this->adminConn)->transaction(function () use ($rfc, $period, $tblStatements, $tblItems, $schema) {
-                // 1) Statement master
                 $stmt = DB::connection($this->adminConn)->table($tblStatements)
                     ->where('account_id', $rfc)
                     ->where('period', $period)
@@ -316,19 +327,16 @@ class ClientesController extends \App\Http\Controllers\Controller
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
-                    // limpia nulls si la tabla no soporta
                     $ins = array_filter($ins, fn($v) => $v !== null);
                     DB::connection($this->adminConn)->table($tblStatements)->insert($ins);
                     $stmt = DB::connection($this->adminConn)->table($tblStatements)
                         ->where('account_id', $rfc)->where('period', $period)->first();
                 }
 
-                // 2) Item base: "Servicio mensual" (evitar duplicados)
                 $descCol = $schema->hasColumn($tblItems, 'description') ? 'description' : ($schema->hasColumn($tblItems, 'concept') ? 'concept' : null);
                 $amtCol  = $schema->hasColumn($tblItems, 'amount_mxn') ? 'amount_mxn' : ($schema->hasColumn($tblItems, 'amount') ? 'amount' : null);
 
                 if (!$descCol || !$amtCol) {
-                    // tabla existe pero no tiene columnas esperadas
                     return;
                 }
 
@@ -350,7 +358,6 @@ class ClientesController extends \App\Http\Controllers\Controller
                         'updated_at' => now(),
                     ];
 
-                    // si hay statement_id, linkear
                     if ($stmt && $schema->hasColumn($tblItems, 'statement_id') && isset($stmt->id)) {
                         $payload['statement_id'] = (int) $stmt->id;
                     }
@@ -486,7 +493,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     public function forceEmailVerified(string $rfc): RedirectResponse
     {
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'email_verified_at')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'email_verified_at')) {
             DB::connection($this->adminConn)->table('accounts')
                 ->where('id', $rfc)->update(['email_verified_at' => now(), 'updated_at' => now()]);
         }
@@ -495,7 +502,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     public function forcePhoneVerified(string $rfc): RedirectResponse
     {
-        if (Schema::connection($this->adminConn)->hasColumn('accounts', 'phone_verified_at')) {
+        if ($this->hasCol($this->adminConn, 'accounts', 'phone_verified_at')) {
             DB::connection($this->adminConn)->table('accounts')
                 ->where('id', $rfc)->update(['phone_verified_at' => now(), 'updated_at' => now()]);
         }
@@ -607,41 +614,137 @@ class ClientesController extends \App\Http\Controllers\Controller
         return back()->withErrors([$key => $data[$key] ?? 'Operación no completada.']);
     }
 
-    public function emailCredentials(string $rfc): RedirectResponse
+    /**
+     * ✅ FIX: Enviar credenciales (incluyendo usuario+password) a:
+     *  - emails capturados en textarea ("to"/"recipients")
+     *  - o destinatarios guardados (account_recipients kind=statement)
+     *  - con fallback al email de la cuenta
+     *
+     * Además, usa tu plantilla admin moderna:
+     *   resources/views/emails/admin/cliente_credentials.blade.php (espera variable $p)
+     * y deja fallback a la plantilla cliente existente si no existe.
+     */
+    public function emailCredentials(string $rfc, Request $request): RedirectResponse
     {
-        $emailCol = $this->colEmail();
-        $acc = $this->getAccount($rfc, ['id', DB::raw("$emailCol as email")]);
-        abort_if(!$acc || !$acc->email, 404, 'Cuenta sin correo');
+        $rfc = Str::of($rfc)->upper()->trim()->value();
 
+        $emailCol = $this->colEmail();
+        $acc = $this->getAccount($rfc, ['id', 'razon_social', DB::raw("$emailCol as email")]);
+        abort_if(!$acc, 404, 'Cuenta no encontrada');
+
+        // 1) Resolver destinatarios
+        $input = $request->input('to', $request->input('recipients', ''));
+        $to = $this->normalizeEmails($input);
+
+        if (empty($to)) {
+            $to = $this->resolveRecipientsForAccountAdminSide((string) $acc->id);
+        }
+
+        if (empty($to)) {
+            return back()->with('error', 'No hay correos destinatarios válidos para enviar credenciales.');
+        }
+
+        // 2) Generar credenciales (resetea password del OWNER y devuelve usuario/pass)
+        $res = ClientCredentials::resetOwnerByRfc((string) $acc->id);
+        if (empty($res['ok'])) {
+            Log::warning('emailCredentials: resetOwnerByRfc failed', ['account_id' => (string)$acc->id, 'error' => $res['error'] ?? null]);
+            return back()->with('error', 'No se pudo generar la contraseña temporal del OWNER. Revisa logs.');
+        }
+
+        $usuario   = (string) ($res['email'] ?? '');
+        $password  = (string) ($res['pass'] ?? '');
+        $accessUrl = \Illuminate\Support\Facades\Route::has('cliente.login') ? route('cliente.login') : url('/cliente/login');
+
+        // Persistir para que en el listado se vea al instante (tmp_user/tmp_pass)
+        foreach ([(string)$acc->id, strtolower((string)$acc->id)] as $key) {
+            session()->flash("tmp_pass.$key", $password);
+            session()->flash("tmp_user.$key", $usuario);
+            Cache::put("tmp_pass.$key", $password, now()->addMinutes(15));
+            Cache::put("tmp_user.$key", $usuario, now()->addMinutes(15));
+        }
+
+        // 3) Payload para plantilla admin ($p)
+        $p = [
+            'brand' => [
+                'name'     => config('app.name', 'Pactopia360'),
+                'logo_url' => $this->brandLogoUrl(),
+            ],
+            'account' => [
+                'rfc'         => (string) $acc->id,
+                'razon_social'=> (string) ($acc->razon_social ?? 'Cliente'),
+            ],
+            'credentials' => [
+                'usuario'     => $usuario,
+                'password'    => $password,
+                'access_url'  => $accessUrl,
+            ],
+        ];
+
+        // 4) Enviar (admin template preferido, fallback a cliente)
         try {
-            if (view()->exists('emails.cliente.credentials')) {
-                Mail::send('emails.cliente.credentials', ['email' => $acc->email], function ($m) use ($acc) {
-                    $m->to($acc->email)->subject('Acceso · Pactopia360');
+            if (view()->exists('emails.admin.cliente_credentials')) {
+                Mail::send('emails.admin.cliente_credentials', ['p' => $p], function ($m) use ($to) {
+                    $m->to($to)->subject('Acceso · Pactopia360');
+                });
+            } elseif (view()->exists('emails.cliente.credentials')) {
+                // fallback a tu template cliente (usa variables sueltas)
+                Mail::send('emails.cliente.credentials', [
+                    'login'    => $accessUrl,
+                    'email'    => $usuario,
+                    'rfc'      => (string) $acc->id,
+                    'password' => $password,
+                ], function ($m) use ($to) {
+                    $m->to($to)->subject('Acceso · Pactopia360');
                 });
             } else {
+                // fallback ultra simple
+                $list = implode(', ', $to);
                 Mail::raw(
-                    "Hola.\n\nTu acceso a Pactopia360 está listo.\nCorreo: {$acc->email}\n\nSi no recuerdas tu contraseña, usa “Olvidé mi contraseña”.\n\n— Equipo Pactopia360",
-                    function ($m) use ($acc) {
-                        $m->to($acc->email)->subject('Acceso · Pactopia360');
+                    "Hola.\n\nTu acceso a Pactopia360 está listo.\n\nUsuario: {$usuario}\nContraseña temporal: {$password}\n\nLogin: {$accessUrl}\n\nDestinatarios: {$list}\n\nPor seguridad, cambia tu contraseña después del primer acceso.\n\n— Equipo Pactopia360",
+                    function ($m) use ($to) {
+                        $m->to($to)->subject('Acceso · Pactopia360');
                     }
                 );
             }
         } catch (\Throwable $e) {
-            Log::warning('emailCredentials: ' . $e->getMessage());
+            Log::error('emailCredentials failed', [
+                'account_id' => (string) $acc->id,
+                'to'         => $to,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'No se pudo enviar el correo. Revisa logs y configuración MAIL.');
         }
 
         if (Schema::connection($this->adminConn)->hasTable('credential_logs')) {
             DB::connection($this->adminConn)->table('credential_logs')->insert([
                 'account_id'  => $acc->id,
                 'action'      => 'email',
-                'meta'        => json_encode(['by' => auth('admin')->id()]),
+                'meta'        => json_encode(['by' => auth('admin')->id(), 'to' => $to], JSON_UNESCAPED_UNICODE),
                 'sent_at'     => now(),
                 'created_at'  => now(),
                 'updated_at'  => now(),
             ]);
         }
 
-        return back()->with('ok', 'Credenciales enviadas por correo.');
+        return back()->with('ok', 'Credenciales enviadas por correo a: ' . implode(', ', $to));
+    }
+
+    /**
+     * Logo “seguro” para emails: intenta URL pública; si no, vacío (la plantilla hace fallback a texto).
+     */
+    private function brandLogoUrl(): string
+    {
+        try {
+            // Ajusta aquí si tienes un logo público fijo.
+            // Nota: asset() requiere contexto HTTP; en CLI puede no resolver bien, pero en web sí.
+            $p = public_path('assets/client/logop360dark.png');
+            if (is_file($p)) {
+                return asset('assets/client/logop360dark.png');
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        return '';
     }
 
     // ====== IMPERSONATE ======
@@ -752,7 +855,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         $phoneCol = $this->colPhone();
         $otpCol   = $this->colOtp();
 
-        $hasBlockedCol = Schema::connection($this->adminConn)->hasColumn('accounts', 'is_blocked');
+        $hasBlockedCol = $this->hasCol($this->adminConn, 'accounts', 'is_blocked');
         $hasEmailVer   = Schema::connection($this->adminConn)->hasTable('email_verifications');
         $hasPhoneOtps  = Schema::connection($this->adminConn)->hasTable('phone_otps');
 
@@ -885,7 +988,6 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         abort_unless(Schema::connection($this->adminConn)->hasTable('account_recipients'), 500, 'No existe tabla account_recipients');
 
-        // ✅ aceptar "recipients" y también "to" por compatibilidad
         $inputRecipients = $request->input('recipients', $request->input('to', null));
 
         $data = validator(
@@ -996,7 +1098,6 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $rows = $q->get();
 
-        // estructura: [account_id => ['statement'=>[...], 'invoice'=>[...], ...]]
         $out = [];
         foreach ($rows as $r) {
             $aid = (string)($r->account_id ?? '');
@@ -1060,7 +1161,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     // ======================= ✅ MONTO EFECTIVO LICENCIA =======================
     private function computeEffectiveLicenseAmountMxn(object $accRow): ?float
     {
-        // 1) columnas conocidas
+        // 1) columnas conocidas (si vienen en SELECT)
         foreach ([
             'custom_amount_mxn',
             'override_amount_mxn',
@@ -1084,15 +1185,19 @@ class ClientesController extends \App\Http\Controllers\Controller
             return round((float)$amt, 2);
         }
 
-        // 3) default por plan/ciclo
-        $plan = strtolower(trim((string)($accRow->plan ?? '')));
+        // 3) default por plan/ciclo (✅ alineado a STRIPE_DISPLAY_PRICE_* / services.stripe.*)
+        $plan  = strtolower(trim((string)($accRow->plan ?? '')));
         $cycle = strtolower(trim((string)($accRow->billing_cycle ?? '')));
 
         if ($plan === 'free' || $plan === '') return 0.00;
+
+        // Por ahora: Pro toma display_price_monthly/annual configurado
         if ($plan === 'pro') {
-            $m = 999.00;
-            if ($cycle === 'yearly') return round($m * 12, 2);
-            return round($m, 2);
+            $monthly = $this->displayPriceMonthly();
+            $annual  = $this->displayPriceAnnual($monthly);
+
+            if ($cycle === 'yearly') return round($annual, 2);
+            return round($monthly, 2);
         }
 
         return null;
@@ -1118,18 +1223,48 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         if ($plan === 'free' || $plan === '') return 0.00;
+
         if ($plan === 'pro') {
-            $m = 999.00;
-            return $cycle === 'yearly' ? ($m * 12) : $m;
+            $monthly = $this->displayPriceMonthly();
+            $annual  = $this->displayPriceAnnual($monthly);
+            return $cycle === 'yearly' ? $annual : $monthly;
         }
+
         return 0.00;
+    }
+
+    /**
+     * ✅ Toma primero config('services.stripe.display_price_monthly') o env STRIPE_DISPLAY_PRICE_MONTHLY
+     */
+    private function displayPriceMonthly(): float
+    {
+        $v = config('services.stripe.display_price_monthly');
+        if ($v === null || $v === '') $v = env('STRIPE_DISPLAY_PRICE_MONTHLY', null);
+
+        $n = is_numeric($v) ? (float)$v : (float) preg_replace('/[^0-9.\-]/', '', (string)$v);
+        if ($n <= 0) $n = 990.00; // fallback razonable
+        return round($n, 2);
+    }
+
+    /**
+     * ✅ Toma config('services.stripe.display_price_annual') o env STRIPE_DISPLAY_PRICE_ANNUAL,
+     * y si no existe, usa monthly*12.
+     */
+    private function displayPriceAnnual(float $monthly): float
+    {
+        $v = config('services.stripe.display_price_annual');
+        if ($v === null || $v === '') $v = env('STRIPE_DISPLAY_PRICE_ANNUAL', null);
+
+        $n = is_numeric($v) ? (float)$v : (float) preg_replace('/[^0-9.\-]/', '', (string)$v);
+        if ($n <= 0) $n = $monthly * 12;
+        return round($n, 2);
     }
 
     // ======================= HELPERS =======================
     private function colEmail(): string
     {
         foreach (['correo_contacto', 'email'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if ($this->hasCol($this->adminConn, 'accounts', $c)) return $c;
         }
         return 'email';
     }
@@ -1137,15 +1272,15 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function colPhone(): string
     {
         foreach (['telefono', 'phone', 'tel', 'celular'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if ($this->hasCol($this->adminConn, 'accounts', $c)) return $c;
         }
         return 'phone';
     }
 
     private function colOtp(): string
     {
-        if (Schema::connection($this->adminConn)->hasColumn('phone_otps', 'otp'))  return 'otp';
-        if (Schema::connection($this->adminConn)->hasColumn('phone_otps', 'code')) return 'code';
+        if ($this->hasCol($this->adminConn, 'phone_otps', 'otp'))  return 'otp';
+        if ($this->hasCol($this->adminConn, 'phone_otps', 'code')) return 'code';
         return 'otp';
     }
 
@@ -1470,7 +1605,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function colRfcAdmin(): string
     {
         foreach (['rfc', 'rfc_padre', 'tax_id', 'rfc_cliente'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if ($this->hasCol($this->adminConn, 'accounts', $c)) return $c;
         }
         return 'id';
     }
@@ -1603,6 +1738,20 @@ class ClientesController extends \App\Http\Controllers\Controller
             return Schema::connection($this->legacyConn)->hasColumn($table, $col);
         } catch (\Throwable $e) {
             return false;
+        }
+    }
+
+    /**
+     * Cache para hasColumn: reduce overhead de Schema en listados grandes.
+     */
+    private function hasCol(string $conn, string $table, string $col): bool
+    {
+        $k = "{$conn}.{$table}.{$col}";
+        if (array_key_exists($k, $this->schemaHas)) return $this->schemaHas[$k];
+        try {
+            return $this->schemaHas[$k] = Schema::connection($conn)->hasColumn($table, $col);
+        } catch (\Throwable $e) {
+            return $this->schemaHas[$k] = false;
         }
     }
 }
