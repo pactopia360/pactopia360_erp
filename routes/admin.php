@@ -20,6 +20,7 @@ use App\Http\Controllers\Admin\ReportesController;
 use App\Http\Controllers\Admin\ClientesController;
 use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Admin\Soporte\ResetClientePasswordController;
+use App\Http\Controllers\Admin\Soporte\EmailClienteCredentialsController;
 
 // Billing suite (Admin)
 use App\Http\Controllers\Admin\Billing\PriceCatalogController;
@@ -394,9 +395,19 @@ Route::middleware([
     Route::prefix('soporte')
         ->as('soporte.')
         ->middleware(['auth:admin', \App\Http\Middleware\AdminSessionConfig::class])
-        ->group(function () {
+        ->group(function () use ($thrAdminPosts, $isLocal) {
+
             Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
             Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
+
+            // ✅ Enviar credenciales por correo (nuevo controller)
+            $sendCreds = Route::post('email-credentials/{accountId}', [EmailClienteCredentialsController::class, 'send'])
+                ->middleware($thrAdminPosts)
+                ->name('email_credentials.send');
+
+            if ($isLocal) {
+                $sendCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
         });
 
     /* ---------- Logout admin ---------- */
