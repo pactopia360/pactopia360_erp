@@ -53,12 +53,13 @@ return [
     ],
 
     // ===== reCAPTCHA (registro/login si se desea) =====
+    // IMPORTANTE: tus vistas renderizan reCAPTCHA v2 (checkbox).
+    // Si RECAPTCHA_ENABLED no está en .env, se mantiene apagado por defecto.
     'recaptcha' => [
-        'enabled'    => (bool) env('RECAPTCHA_ENABLED', true),
-        'site_key'   => env('RECAPTCHA_SITE_KEY'),
-        'secret_key' => env('RECAPTCHA_SECRET_KEY'),
+        'enabled'    => (bool) env('RECAPTCHA_ENABLED', false),
+        'site_key'   => (string) env('RECAPTCHA_SITE_KEY', ''),
+        'secret_key' => (string) env('RECAPTCHA_SECRET_KEY', ''),
     ],
-
 
     // OTP (WhatsApp / SMS)
     'otp' => [

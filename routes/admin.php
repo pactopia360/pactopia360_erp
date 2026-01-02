@@ -269,6 +269,32 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.save');
 
+        /*
+        |--------------------------------------------------------------------------|
+        | ✅ Nombres CANÓNICOS (coinciden con el controller y la vista nueva)
+        |--------------------------------------------------------------------------|
+        */
+        Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.resendEmailVerification');
+
+        Route::post('clientes/{rfc}/send-phone-otp', [ClientesController::class, 'sendPhoneOtp'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.sendPhoneOtp');
+
+        Route::post('clientes/{rfc}/force-email-verified', [ClientesController::class, 'forceEmailVerified'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.forceEmailVerified');
+
+        Route::post('clientes/{rfc}/force-phone-verified', [ClientesController::class, 'forcePhoneVerified'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.forcePhoneVerified');
+
+        /*
+        |--------------------------------------------------------------------------|
+        | ✅ Aliases legacy/compat (para no romper vistas viejas)
+        |--------------------------------------------------------------------------|
+        */
         Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
@@ -283,28 +309,19 @@ Route::middleware([
 
         Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
-            ->name('clientes.forcePhoneVerified');
-
-        /*
-        | Alias legacy/compat:
-        | Algunas vistas referencian "clientes.forcePhone"
-        | (o "admin.clientes.forcePhone" si hay prefix admin en RouteServiceProvider)
-        */
-        Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
-            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhone');
 
-
-        $rp = Route::post('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
+        /*
+        |--------------------------------------------------------------------------|
+        | ✅ Reset password (OWNER) — soporte RFC o ID (en controller acepta rfcOrId)
+        |--------------------------------------------------------------------------|
+        */
+        $rp = Route::match(['GET','POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
 
         if ($isLocal) {
             $rp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-
-            Route::get('clientes/{rfc}/reset-password', [ClientesController::class, 'resetPassword'])
-                ->middleware($thrAdminPosts)
-                ->name('clientes.resetPassword.get');
         }
 
         Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
@@ -314,6 +331,15 @@ Route::middleware([
         Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver','clientes.impersonate'])])
             ->name('clientes.impersonate');
+
+        /*
+        |--------------------------------------------------------------------------|
+        | ✅ Stop impersonate — nombre canónico + alias legacy
+        |--------------------------------------------------------------------------|
+        */
+        Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
+            ->middleware($thrAdminPosts)
+            ->name('clientes.impersonateStop');
 
         Route::post('clientes/impersonate/stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
@@ -329,25 +355,31 @@ Route::middleware([
 
         /*
         |--------------------------------------------------------------------------|
-        | ✅ NUEVO: Destinatarios / Sembrar Edo. Cuenta (periodo)
+        | ✅ Destinatarios / Sembrar Edo. Cuenta (periodo)
         |--------------------------------------------------------------------------|
         */
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
-            Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
+            Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipientsUpsert');
-        }
 
-        if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
-            Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+            // alias legacy si alguna vista usaba /clientes/{rfc}/recipients
+            Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
-                ->name('clientes.sendCredentials');
+                ->name('clientes.recipients');
         }
 
         if (method_exists(ClientesController::class, 'seedStatement')) {
             Route::post('clientes/{rfc}/seed-statement', [ClientesController::class, 'seedStatement'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.seedStatement');
+        }
+
+        // Nota: sendCredentialsAndMaybeStatement NO existe en tu controller actual; se deja solo si existe
+        if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
+            Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.sendCredentials');
         }
 
     } else {

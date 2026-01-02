@@ -4,26 +4,29 @@
 @section('title','Clientes (accounts)')
 
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=11.1.0">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=13.1.0">
 @endpush
 
 @section('content')
 @php
   use Illuminate\Support\Facades\Route;
-  use Illuminate\Support\Str;
   use Illuminate\Support\Carbon;
 
   $q = request('q'); $plan = request('plan'); $blocked = request('blocked');
   $s = request('sort','created_at'); $d = strtolower(request('dir','desc'))==='asc'?'asc':'desc';
   $pp = (int) request('per_page', 25);
-  $toggleDir = fn($col) => ($s===$col && $d==='asc') ? 'desc' : 'asc';
-  $sortUrl = fn($col) => request()->fullUrlWithQuery(['sort'=>$col,'dir'=>$toggleDir($col)]);
   $total = method_exists($rows,'total') ? $rows->total() : (is_countable($rows) ? count($rows) : null);
 
-  $verMail = 0; $verPhone = 0;
-  foreach ($rows as $x) { if(!empty($x->email_verified_at)) $verMail++; if(!empty($x->phone_verified_at)) $verPhone++; }
+  $verMail = 0; $verPhone = 0; $cntPro = 0; $cntFree = 0; $cntBlocked = 0;
+  foreach ($rows as $x) {
+    if(!empty($x->email_verified_at)) $verMail++;
+    if(!empty($x->phone_verified_at)) $verPhone++;
+    $p = strtolower((string)($x->plan ?? ''));
+    if($p==='pro') $cntPro++;
+    if($p==='free') $cntFree++;
+    if((int)($x->is_blocked ?? 0)===1) $cntBlocked++;
+  }
 
-  // Periodo sugerido para sembrado / envío
   $defaultPeriod = now()->addMonthNoOverflow()->format('Y-m');
 
   $try = function(string $name, array $params = []) {
@@ -33,7 +36,6 @@
 
   $is = fn($k,$v)=> (string)request($k, '')===(string)$v;
 
-  // helper recipients → string
   $recipsToString = function($recipsArr, string $kind='statement') {
     if (!is_array($recipsArr)) return '';
     $list = $recipsArr[$kind] ?? [];
@@ -46,12 +48,10 @@
     return implode(", ", array_values(array_unique($emails)));
   };
 
-  // helper primary detect (compatible con is_primary o primary)
   $recipsPrimary = function($recipsArr, string $kind='statement') {
     if (!is_array($recipsArr)) return '';
     $list = $recipsArr[$kind] ?? [];
     if (!is_array($list)) return '';
-
     foreach ($list as $it) {
       $flag = (int)($it['is_primary'] ?? ($it['primary'] ?? 0));
       if ($flag === 1) {
@@ -62,56 +62,67 @@
     return '';
   };
 
-  // helper: primer correo del listado
-  $recipsFirst = function(string $csv) {
-    $csv = trim($csv);
-    if ($csv === '') return '';
-    $parts = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $csv))));
-    return $parts[0] ?? '';
-  };
-
-  // helper: label ciclo
   $cycleLabel = function($raw){
     $raw = strtolower(trim((string)$raw));
     if ($raw === 'monthly' || $raw === 'mensual') return 'Mensual';
     if ($raw === 'yearly'  || $raw === 'anual'   || $raw === 'annual') return 'Anual';
-    return $raw !== '' ? $raw : '—';
+    return $raw !== '' ? strtoupper($raw) : '—';
   };
 
-  // helper: fecha
   $dateLabel = function($raw){
     $raw = trim((string)$raw);
     if ($raw === '') return '—';
     try { return Carbon::parse($raw)->format('Y-m-d'); } catch(\Throwable $e) {}
     return $raw;
   };
+
+  $money = function($n){
+    if ($n === null || $n === '' || !is_numeric($n)) return '—';
+    return '$' . number_format((float)$n, 2);
+  };
+
+  $countEmails = function(string $csv){
+    $csv = trim($csv);
+    if ($csv === '') return 0;
+    $arr = array_filter(array_map('trim', explode(',', $csv)));
+    return count($arr);
+  };
+
+  $stmtIdx = $try('admin.billing.statements.index');
 @endphp
 
-<div id="adminClientesPage" class="page-admin-clientes v-cards">
-  <div class="ac-container">
+<div id="adminClientesPage"
+     class="ac-page"
+     data-default-period="{{ $defaultPeriod }}">
 
-    {{-- Topbar sticky --}}
+  <div class="ac-shell">
+
+    {{-- Topbar --}}
     <div class="ac-topbar">
       <div class="ac-topbar-left">
         <div class="ac-title">
           <h1>Clientes</h1>
-          <p class="sub">Administración de cuentas (SOT: <strong>admin.accounts</strong>)</p>
+          <div class="ac-sub">Administración de cuentas (SOT: <strong>admin.accounts</strong>)</div>
         </div>
 
-        <div class="ac-search">
-          <form method="GET" id="quickSearchForm">
-            <input class="ac-input ac-input-search" name="q" value="{{ $q }}" placeholder="Buscar RFC, razón social, correo o teléfono…" aria-label="Buscar">
-            <input type="hidden" name="plan" value="{{ $plan }}">
-            <input type="hidden" name="blocked" value="{{ $blocked }}">
-            <input type="hidden" name="sort" value="{{ $s }}">
-            <input type="hidden" name="dir" value="{{ $d }}">
-            <input type="hidden" name="per_page" value="{{ $pp }}">
-            <button class="ac-btn primary" type="submit" title="Buscar">Buscar</button>
-            @if($q)
-              <a class="ac-btn ghost" href="{{ request()->fullUrlWithQuery(['q'=>'']) }}" title="Limpiar búsqueda">Limpiar</a>
-            @endif
-          </form>
-        </div>
+        <form method="GET" id="quickSearchForm" class="ac-search" autocomplete="off">
+          <input class="ac-input"
+                 name="q"
+                 value="{{ $q }}"
+                 placeholder="Buscar RFC, razón social, correo o teléfono…"
+                 aria-label="Buscar">
+
+          <input type="hidden" name="plan" value="{{ $plan }}">
+          <input type="hidden" name="blocked" value="{{ $blocked }}">
+          <input type="hidden" name="sort" value="{{ $s }}">
+          <input type="hidden" name="dir" value="{{ $d }}">
+          <input type="hidden" name="per_page" value="{{ $pp }}">
+
+          <button class="ac-btn primary" type="submit">Buscar</button>
+          @if($q)
+            <a class="ac-btn ghost" href="{{ request()->fullUrlWithQuery(['q'=>'']) }}">Limpiar</a>
+          @endif
+        </form>
       </div>
 
       <div class="ac-topbar-right">
@@ -120,25 +131,27 @@
           <button class="ac-btn" type="submit">Sincronizar</button>
         </form>
 
-        <button class="ac-btn" id="btnExportCsv" type="button" title="Exportar CSV (vista actual)">Exportar CSV</button>
+        <button class="ac-btn" id="btnExportCsv" type="button">Exportar CSV</button>
 
-        @php $stmtIdx = $try('admin.billing.statements.index'); @endphp
         @if($stmtIdx)
-          <a class="ac-btn primary" href="{{ $stmtIdx }}" title="Abrir módulo Estados de cuenta">Estados de cuenta</a>
+          <a class="ac-btn primary" href="{{ $stmtIdx }}">Estados de cuenta</a>
         @endif
       </div>
     </div>
 
-    {{-- KPIs compact --}}
+    {{-- KPIs --}}
     <div class="ac-kpis">
-      <div class="ac-kpi"><strong>{{ $total ?? '—' }}</strong><span>Total</span></div>
-      <div class="ac-kpi"><strong>{{ $verMail }}</strong><span>Correo verificado</span></div>
-      <div class="ac-kpi"><strong>{{ $verPhone }}</strong><span>Tel verificado</span></div>
-      <div class="ac-kpi"><strong>{{ now()->format('Y-m-d H:i') }}</strong><span>Corte</span></div>
-      <div class="ac-kpi ac-kpi-ghost"><strong>{{ $defaultPeriod }}</strong><span>Periodo sugerido</span></div>
+      <div class="ac-kpi"><div class="v">{{ $total ?? '—' }}</div><div class="k">Total</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntPro }}</div><div class="k">PRO</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntFree }}</div><div class="k">FREE</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntBlocked }}</div><div class="k">Bloqueados</div></div>
+      <div class="ac-kpi"><div class="v">{{ $verMail }}</div><div class="k">Correo verificado</div></div>
+      <div class="ac-kpi"><div class="v">{{ $verPhone }}</div><div class="k">Tel verificado</div></div>
+      <div class="ac-kpi ghost"><div class="v">{{ $defaultPeriod }}</div><div class="k">Periodo sugerido</div></div>
+      <div class="ac-kpi ghost"><div class="v">{{ now()->format('Y-m-d H:i') }}</div><div class="k">Corte</div></div>
     </div>
 
-    {{-- Chips + filtros colapsables --}}
+    {{-- Toolbar --}}
     <div class="ac-toolbar">
       <div class="ac-chips">
         <a class="ac-chip {{ $is('blocked','0')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'0']) }}">Operando</a>
@@ -237,28 +250,34 @@
       @endif
     </div>
 
-    {{-- Listado en Cards --}}
-    <div class="ac-list" id="clientesList" role="region" aria-label="Listado de clientes">
+    {{-- Lista --}}
+    <div class="ac-list" role="region" aria-label="Listado de clientes">
+      <div class="ac-list-head">
+        <div class="hcol">Cliente</div>
+        <div class="hcol">Contacto</div>
+        <div class="hcol">Estado</div>
+        <div class="hcol">Plan</div>
+        <div class="hcol">Ciclo</div>
+        <div class="hcol">Próx. factura</div>
+        <div class="hcol">Monto</div>
+        <div class="hcol">Edo. cuenta</div>
+        <div class="hcol actions">Acciones</div>
+      </div>
+
       @forelse($rows as $r)
         @php
           $RFC_FULL = strtoupper(trim((string) (data_get($r,'rfc') ?: data_get($r,'tax_id') ?: data_get($r,'id'))));
-          $RFC_SLUG = Str::slug($RFC_FULL, '-');
           $created  = optional($r->created_at)->format('Y-m-d H:i') ?? '—';
+          $idStr    = (string)($r->id ?? '');
 
           $info     = $extras[$r->id] ?? null;
-          $c        = $creds[$r->id] ?? ['owner_email'=>null,'temp_pass'=>null];
 
           $planVal  = strtolower((string)($r->plan ?? ''));
           $bcRaw    = (string)($r->billing_cycle ?? '');
           $nextRaw  = (string)($r->next_invoice_date ?? '');
 
-          // Fallbacks por si vienen en extras
-          if (($bcRaw === '' || $bcRaw === null) && is_array($info) && !empty($info['billing_cycle'])) {
-            $bcRaw = (string)$info['billing_cycle'];
-          }
-          if (($nextRaw === '' || $nextRaw === null) && is_array($info) && !empty($info['next_invoice_date'])) {
-            $nextRaw = (string)$info['next_invoice_date'];
-          }
+          if (($bcRaw === '' || $bcRaw === null) && is_array($info) && !empty($info['billing_cycle'])) $bcRaw = (string)$info['billing_cycle'];
+          if (($nextRaw === '' || $nextRaw === null) && is_array($info) && !empty($info['next_invoice_date'])) $nextRaw = (string)$info['next_invoice_date'];
 
           $bcLabel   = $cycleLabel($bcRaw);
           $nextLabel = $dateLabel($nextRaw);
@@ -268,12 +287,17 @@
             if (isset($r->{$p}) && $r->{$p} !== null && $r->{$p} !== '') { $customAmount = $r->{$p}; break; }
           }
           $hasCustom = ($customAmount !== null && $customAmount !== '' && is_numeric($customAmount));
+          $effective = is_array($info) ? ($info['license_amount_mxn_effective'] ?? null) : null;
 
-          $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
-          $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
+          $isBlocked = ((int)$r->is_blocked===1);
+          $mailOk = !empty($r->email_verified_at);
+          $phoneOk = !empty($r->phone_verified_at);
 
           $seedUrl   = $try('admin.clientes.seedStatement', ['rfc'=>$r->id]);
           $recipUrl  = $try('admin.clientes.recipientsUpsert', ['rfc'=>$r->id]);
+
+          $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
+          $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
 
           $rRecips = $recipients[$r->id] ?? [];
           $recipsStatement = $recipsToString($rRecips, 'statement');
@@ -284,520 +308,256 @@
           $primaryInvoice   = $recipsPrimary($rRecips, 'invoice');
           $primaryGeneral   = $recipsPrimary($rRecips, 'general');
 
-          $stmtCount = $recipsStatement !== '' ? count(explode(',', $recipsStatement)) : 0;
+          $stmtCount = $countEmails($recipsStatement);
+          $invCount  = $countEmails($recipsInvoice);
+          $genCount  = $countEmails($recipsGeneral);
 
-          // Mostrar en resumen: primary → primer correo → Sin correos
-          $stmtMain = 'Sin correos';
-          if ($stmtCount > 0) {
-            $stmtMain = $primaryStatement ?: ($recipsFirst($recipsStatement) ?: '—');
-          }
-          $stmtPreview = $stmtCount > 0 ? Str::limit($recipsStatement, 46) : 'Sin correos';
-          $stmtTitle = $stmtCount > 0 ? $recipsStatement : 'Sin correos configurados';
+          $stmtMain = $stmtCount ? ($primaryStatement ?: trim(explode(',', $recipsStatement)[0] ?? '')) : 'Sin correos';
 
-          $effective = $info['license_amount_mxn_effective'] ?? null;
+          $estadoCuenta = is_array($info) ? (string)($info['estado_cuenta'] ?? $info['account_status'] ?? '') : '';
+          $modoCobro    = is_array($info) ? (string)($info['modo_cobro'] ?? $info['billing_mode'] ?? '') : '';
+          $stripeCust   = is_array($info) ? (string)($info['stripe_customer_id'] ?? '') : '';
+          $stripeSub    = is_array($info) ? (string)($info['stripe_subscription_id'] ?? '') : '';
+          $periodStart  = is_array($info) ? (string)($info['current_period_start'] ?? '') : '';
+          $periodEnd    = is_array($info) ? (string)($info['current_period_end'] ?? '') : '';
 
-          $isBlocked = ((int)$r->is_blocked===1);
-          $mailOk = !empty($r->email_verified_at);
-          $phoneOk = !empty($r->phone_verified_at);
+          $amtShow = '—';
+          $amtMeta = '—';
+          if (is_numeric($effective) && (float)$effective > 0) { $amtShow = $money($effective); $amtMeta='licencia efectiva'; }
+          elseif ($hasCustom) { $amtShow = $money($customAmount); $amtMeta='precio personalizado'; }
 
-          $exportEmail  = (string)($r->email ?? '');
-          $exportPhone  = (string)($r->phone ?? '');
-          $exportPlan   = (string)($r->plan ?? '');
-          $exportCycle  = (string)($r->billing_cycle ?? '');
-          $exportNext   = (string)($r->next_invoice_date ?? '');
-          $exportCustom = $hasCustom ? (string)$customAmount : '';
+          $amtCustomShow = $hasCustom ? $money($customAmount) : '—';
+          $amtEffShow    = (is_numeric($effective) && (float)$effective > 0) ? $money($effective) : '—';
 
-          // ✅ FIX: no usar @json dentro de atributo con comillas.
           $exportPayload = [
+            "ID" => $idStr,
             "RFC" => $RFC_FULL,
             "RazonSocial" => (string)($r->razon_social ?? ''),
-            "Email" => $exportEmail,
-            "Phone" => $exportPhone,
-            "Plan" => $exportPlan,
-            "BillingCycle" => $exportCycle,
-            "NextInvoice" => $exportNext,
-            "CustomAmountMxn" => $exportCustom,
+            "Email" => (string)($r->email ?? ''),
+            "Phone" => (string)($r->phone ?? ''),
+            "Plan" => (string)($r->plan ?? ''),
+            "BillingCycle" => (string)($bcRaw ?? ''),
+            "NextInvoice" => (string)($nextRaw ?? ''),
+            "CustomAmountMxn" => $hasCustom ? (string)$customAmount : '',
+            "EffectiveAmountMxn" => (is_numeric($effective) && (float)$effective > 0) ? (string)$effective : '',
+            "StatementRecipients" => $recipsStatement,
+            "InvoiceRecipients" => $recipsInvoice,
+            "GeneralRecipients" => $recipsGeneral,
             "EmailVerif" => $mailOk ? "1" : "0",
             "PhoneVerif" => $phoneOk ? "1" : "0",
             "Blocked" => $isBlocked ? "1" : "0",
+            "EstadoCuenta" => $estadoCuenta,
+            "ModoCobro" => $modoCobro,
+            "StripeCustomer" => $stripeCust,
+            "StripeSubscription" => $stripeSub,
             "CreatedAt" => $created,
           ];
           $exportJson = e(json_encode($exportPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+          $clientPayload = [
+            "id" => $idStr,
+            "rfc" => $RFC_FULL,
+            "razon_social" => (string)($r->razon_social ?? ''),
+            "created" => $created,
+            "email" => (string)($r->email ?? ''),
+            "phone" => (string)($r->phone ?? ''),
+
+            "plan" => (string)($r->plan ?? ''),
+            "billing_cycle" => (string)($bcRaw ?? ''),
+            "billing_cycle_label" => $bcLabel,
+            "next_invoice_date" => (string)($nextRaw ?? ''),
+            "next_invoice_label" => $nextLabel,
+
+            "custom_amount_mxn" => $hasCustom ? (string)$customAmount : '',
+            "effective_amount_mxn" => (is_numeric($effective) && (float)$effective > 0) ? (string)$effective : '',
+
+            "blocked" => $isBlocked ? 1 : 0,
+            "mail_ok" => $mailOk ? 1 : 0,
+            "phone_ok" => $phoneOk ? 1 : 0,
+
+            "estado_cuenta" => $estadoCuenta,
+            "modo_cobro" => $modoCobro,
+            "stripe_customer_id" => $stripeCust,
+            "stripe_subscription_id" => $stripeSub,
+            "current_period_start" => $periodStart,
+            "current_period_end" => $periodEnd,
+
+            "default_period" => $defaultPeriod,
+
+            "recip_url" => $recipUrl ?: '',
+            "seed_url" => $seedUrl ?: '',
+            "stmt_show_url" => $stmtShow ?: '',
+            "stmt_email_url" => $stmtEmail ?: '',
+
+            "recips_statement" => $recipsStatement,
+            "recips_invoice" => $recipsInvoice,
+            "recips_general" => $recipsGeneral,
+
+            "primary_statement" => $primaryStatement,
+            "primary_invoice" => $primaryInvoice,
+            "primary_general" => $primaryGeneral,
+
+            "otp_code" => is_array($info) ? (string)($info['otp_code'] ?? '') : '',
+            "otp_channel" => is_array($info) ? (string)($info['otp_channel'] ?? '') : '',
+            "token_url" => is_array($info) ? (string)($info['token_url'] ?? '') : '',
+            "token_expires" => is_array($info) ? (string)($info['token_expires'] ?? '') : '',
+
+          ];
+          $clientJson = e(json_encode($clientPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         @endphp
 
-        <article class="ac-cardrow"
-                 id="row-{{ $r->id }}"
-                 data-export="{{ $exportJson }}">
+        <div class="ac-row"
+             data-client="{{ $clientJson }}"
+             data-export="{{ $exportJson }}">
 
-          {{-- Head: resumen --}}
-          <header class="ac-cardrow-head">
-            <div class="ac-cardrow-main">
-              <div class="ac-ident">
-                <div class="ac-rfc">{{ $RFC_FULL }}</div>
-                <div class="ac-subline">
-                  <span class="ac-meta">Creado: <strong>{{ $created }}</strong></span>
-                  <span class="ac-dotsep">·</span>
-                  <span class="ac-meta">Razón social: <strong>{{ $r->razon_social ?: '—' }}</strong></span>
-                </div>
-              </div>
+          {{-- Cliente --}}
+          <div class="cell client" data-label="Cliente">
+            <div class="rfc">{{ $RFC_FULL }}</div>
+            <div class="rs">{{ $r->razon_social ?: '—' }}</div>
 
-              <div class="ac-badges">
-                <span class="ac-badge {{ $mailOk ? 'ok':'warn' }}"><span class="dot"></span>Correo {{ $mailOk?'✔':'pendiente' }}</span>
-                <span class="ac-badge {{ $phoneOk ? 'ok':'warn' }}"><span class="dot"></span>Tel {{ $phoneOk?'✔':'pendiente' }}</span>
-                <span class="ac-badge {{ $isBlocked ? 'bad':'ok' }}"><span class="dot"></span>{{ $isBlocked ? 'Bloqueado' : 'Operando' }}</span>
-                @if($r->plan)
-                  <span class="ac-badge {{ $planVal==='pro' ? 'primary' : 'warn' }}"><span class="dot"></span>Plan: {{ strtoupper($r->plan) }}</span>
-                @else
-                  <span class="ac-badge warn"><span class="dot"></span>Plan: —</span>
-                @endif
-              </div>
+            <div class="meta">
+              ID: <strong class="ac-mono">{{ $idStr ?: '—' }}</strong>
+              · Creado: <strong>{{ $created }}</strong>
             </div>
 
-            <div class="ac-cardrow-side">
-              <div class="ac-mini">
-                <div class="ac-mini-item">
-                  <span class="k">Ciclo</span>
-                  <span class="v">{{ $bcLabel }}</span>
-                </div>
-                <div class="ac-mini-item">
-                  <span class="k">Próx. factura</span>
-                  <span class="v">{{ $nextLabel }}</span>
-                </div>
-
-                <div class="ac-mini-item">
-                  <span class="k">Edo. cuenta</span>
-                  <span class="v" title="{{ $stmtTitle }}">{{ $stmtMain }}</span>
-                  <div style="margin-top:2px;font-size:12px;color:var(--mut,#64748b);line-height:1.15" title="{{ $stmtTitle }}">
-                    {{ $stmtPreview }}
-                    @if($stmtCount>0)
-                      <span style="opacity:.85">({{ $stmtCount }})</span>
-                    @endif
-                  </div>
-                </div>
-
-                @if($effective !== null && is_numeric($effective) && (float)$effective > 0)
-                  <div class="ac-mini-item">
-                    <span class="k">Licencia efectiva</span>
-                    <span class="v">${{ number_format((float)$effective, 2) }}</span>
-                  </div>
-                @elseif($hasCustom)
-                  <div class="ac-mini-item">
-                    <span class="k">Precio personalizado</span>
-                    <span class="v">${{ number_format((float)$customAmount, 2) }}</span>
-                  </div>
-                @else
-                  <div class="ac-mini-item">
-                    <span class="k">Monto</span>
-                    <span class="v">—</span>
-                  </div>
-                @endif
-              </div>
-
-              <div class="ac-quickactions">
-                <form method="POST" action="{{ route('admin.clientes.resendEmail',$r->id) }}">
-                  @csrf
-                  <button class="ac-btn small" type="submit" title="Reenviar verificación de correo">Reenviar correo</button>
-                </form>
-
-                <form method="POST" action="{{ route('admin.clientes.sendOtp',$r->id) }}">
-                  @csrf
-                  <input type="hidden" name="channel" value="sms">
-                  <button class="ac-btn small" type="submit" title="Enviar OTP">Enviar OTP</button>
-                </form>
-
-                <button class="ac-btn small primary" type="button"
-                        data-toggle="details"
-                        data-target="#det-{{ $r->id }}"
-                        aria-expanded="false">
-                  Ver detalles
-                </button>
-              </div>
+            <div class="meta" style="margin-top:6px">
+              Estado cuenta: <strong>{{ $estadoCuenta ?: '—' }}</strong>
+              @if($modoCobro)
+                · Modo cobro: <strong>{{ strtoupper($modoCobro) }}</strong>
+              @endif
             </div>
-          </header>
 
-          {{-- Body: secciones --}}
-          <section class="ac-cardrow-body" id="det-{{ $r->id }}" hidden>
-            <div class="ac-sections">
-
-              {{-- A) Edición rápida --}}
-              <div class="ac-section">
-                <div class="ac-section-head">
-                  <h3>Edición rápida</h3>
-                  <div class="ac-section-meta">Actualiza datos base + plan/ciclo + bloqueo</div>
-                </div>
-
-                <form method="POST" action="{{ route('admin.clientes.save',$r->id) }}" class="ac-form">
-                  @csrf
-
-                  <div class="ac-grid">
-                    <div class="ac-field">
-                      <label>Razón social</label>
-                      <input class="ac-input" name="razon_social" value="{{ $r->razon_social }}" placeholder="Razón social">
-                    </div>
-
-                    <div class="ac-field">
-                      <label>Correo</label>
-                      <input class="ac-input" name="email" value="{{ $r->email }}" placeholder="correo@cliente.com">
-                    </div>
-
-                    <div class="ac-field">
-                      <label>Teléfono</label>
-                      <input class="ac-input" name="phone" value="{{ $r->phone }}" placeholder="+52…">
-                    </div>
-
-                    <div class="ac-field">
-                      <label>Plan</label>
-                      <select class="ac-select" name="plan">
-                        <option value="">— Plan —</option>
-                        <option value="free" {{ $planVal==='free'?'selected':'' }}>Free</option>
-                        <option value="pro"  {{ $planVal==='pro'?'selected':'' }}>Pro</option>
-                      </select>
-
-                      <div class="ac-planchips">
-                        <button type="button" class="ac-btn tiny" data-plan-preset="free" data-cycle="" data-days="0">Free</button>
-                        <button type="button" class="ac-btn tiny primary" data-plan-preset="pro" data-cycle="monthly" data-days="30">Pro mensual</button>
-                        <button type="button" class="ac-btn tiny primary" data-plan-preset="pro" data-cycle="yearly" data-days="365">Pro anual</button>
-                      </div>
-                    </div>
-
-                    <div class="ac-field">
-                      <label>Ciclo de cobro</label>
-                      <select name="billing_cycle" class="ac-select">
-                        <option value="">— Ciclo —</option>
-                        <option value="monthly" {{ strtolower((string)($r->billing_cycle ?? ''))==='monthly'?'selected':'' }}>Mensual</option>
-                        <option value="yearly"  {{ strtolower((string)($r->billing_cycle ?? ''))==='yearly'?'selected':'' }}>Anual</option>
-                      </select>
-                    </div>
-
-                    <div class="ac-field">
-                      <label>Próxima factura</label>
-                      <input class="ac-input" type="date" name="next_invoice_date" value="{{ (string)($r->next_invoice_date ?? '') }}">
-                    </div>
-
-                    <div class="ac-field ac-field-wide">
-                      <label>Precio personalizado (MXN)</label>
-                      <input class="ac-input" name="custom_amount_mxn" inputmode="decimal"
-                             value="{{ $customAmount ?? '' }}"
-                             placeholder="Ej. 999.00">
-                      <div class="ac-hint">Si lo capturas aquí, el backend debe persistirlo (meta/override) para que el Edo. Cuenta use este monto.</div>
-                    </div>
-
-                    <div class="ac-field ac-field-wide">
-                      <label class="ac-check">
-                        <input type="checkbox" name="is_blocked" value="1" {{ $isBlocked ? 'checked':'' }}>
-                        Bloqueado (redirige a Stripe al login según tu regla PRO)
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="ac-form-actions">
-                    <button class="ac-btn primary" type="submit">Guardar cambios</button>
-                  </div>
-                </form>
+            @if(!empty($stripeCust) || !empty($stripeSub))
+              <div class="meta" style="margin-top:6px">
+                Stripe:
+                <span class="ac-mono" title="Customer">{{ $stripeCust ?: '—' }}</span>
+                · <span class="ac-mono" title="Subscription">{{ $stripeSub ?: '—' }}</span>
               </div>
+            @endif
 
-              {{-- B) Destinatarios --}}
-              <div class="ac-section">
-                <div class="ac-section-head">
-                  <h3>Destinatarios</h3>
-                  <div class="ac-section-meta">account_recipients: Edo. cuenta / Facturas / General</div>
-                </div>
-
-                @if($recipUrl)
-                  <div class="ac-tabs" data-tabs>
-                    <div class="ac-tabbar" role="tablist" aria-label="Destinatarios">
-                      <button class="ac-tab active" type="button" role="tab" aria-selected="true" data-tab="statement-{{ $r->id }}">Edo. cuenta</button>
-                      <button class="ac-tab" type="button" role="tab" aria-selected="false" data-tab="invoice-{{ $r->id }}">Facturas</button>
-                      <button class="ac-tab" type="button" role="tab" aria-selected="false" data-tab="general-{{ $r->id }}">General</button>
-                    </div>
-
-                    <div class="ac-tabpanes">
-                      {{-- statement --}}
-                      <div class="ac-tabpane show" id="statement-{{ $r->id }}" role="tabpanel">
-                        <form method="POST" action="{{ $recipUrl }}" class="ac-form">
-                          @csrf
-                          <input type="hidden" name="kind" value="statement">
-
-                          <div class="ac-grid">
-                            <div class="ac-field ac-field-wide">
-                              <label>Correos (separa por coma, ; o salto de línea)</label>
-                              <textarea name="recipients" class="ac-textarea" placeholder="pagos@cliente.com, admin@cliente.com">{{ $recipsStatement }}</textarea>
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Primary (opcional)</label>
-                              <input class="ac-input" name="primary" value="{{ $primaryStatement }}" placeholder="primary@cliente.com">
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Activo</label>
-                              <select class="ac-select" name="active">
-                                <option value="1" selected>Activo</option>
-                                <option value="0">Inactivo</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div class="ac-form-actions">
-                            <button class="ac-btn primary" type="submit">Guardar Edo. cuenta</button>
-                          </div>
-                        </form>
-                      </div>
-
-                      {{-- invoice --}}
-                      <div class="ac-tabpane" id="invoice-{{ $r->id }}" role="tabpanel" hidden>
-                        <form method="POST" action="{{ $recipUrl }}" class="ac-form">
-                          @csrf
-                          <input type="hidden" name="kind" value="invoice">
-
-                          <div class="ac-grid">
-                            <div class="ac-field ac-field-wide">
-                              <label>Correos</label>
-                              <textarea name="recipients" class="ac-textarea" placeholder="facturas@cliente.com">{{ $recipsInvoice }}</textarea>
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Primary (opcional)</label>
-                              <input class="ac-input" name="primary" value="{{ $primaryInvoice }}" placeholder="primary@cliente.com">
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Activo</label>
-                              <select class="ac-select" name="active">
-                                <option value="1" selected>Activo</option>
-                                <option value="0">Inactivo</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div class="ac-form-actions">
-                            <button class="ac-btn primary" type="submit">Guardar Facturas</button>
-                          </div>
-                        </form>
-                      </div>
-
-                      {{-- general --}}
-                      <div class="ac-tabpane" id="general-{{ $r->id }}" role="tabpanel" hidden>
-                        <form method="POST" action="{{ $recipUrl }}" class="ac-form">
-                          @csrf
-                          <input type="hidden" name="kind" value="general">
-
-                          <div class="ac-grid">
-                            <div class="ac-field ac-field-wide">
-                              <label>Correos</label>
-                              <textarea name="recipients" class="ac-textarea" placeholder="admin@cliente.com">{{ $recipsGeneral }}</textarea>
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Primary (opcional)</label>
-                              <input class="ac-input" name="primary" value="{{ $primaryGeneral }}" placeholder="primary@cliente.com">
-                            </div>
-
-                            <div class="ac-field">
-                              <label>Activo</label>
-                              <select class="ac-select" name="active">
-                                <option value="1" selected>Activo</option>
-                                <option value="0">Inactivo</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div class="ac-form-actions">
-                            <button class="ac-btn primary" type="submit">Guardar General</button>
-                          </div>
-                        </form>
-                      </div>
-                    </div>
-                  </div>
-                @else
-                  <div class="ac-missing">
-                    <strong>Falta ruta:</strong> <code class="ac-mono">admin.clientes.recipientsUpsert</code>
-                  </div>
-                @endif
+            @if(!empty($periodStart) || !empty($periodEnd))
+              <div class="meta" style="margin-top:6px">
+                Periodo:
+                <span class="ac-mono">{{ $periodStart ? $dateLabel($periodStart) : '—' }}</span>
+                →
+                <span class="ac-mono">{{ $periodEnd ? $dateLabel($periodEnd) : '—' }}</span>
               </div>
+            @endif
+          </div>
 
-              {{-- C) Credenciales + Verificación --}}
-              <div class="ac-section">
-                <div class="ac-section-head">
-                  <h3>Credenciales & Verificaciones</h3>
-                  <div class="ac-section-meta">Token email / OTP / password temporal</div>
-                </div>
+          {{-- Contacto --}}
+          <div class="cell" data-label="Contacto">
+            <div class="ac-kv">
+              <div class="k">Email</div>
+              <div class="v"><span class="mono">{{ $r->email ?: '—' }}</span></div>
 
-                @php
-                  $tokenUrl = $info && !empty($info['email_token'])
-                    ? route('cliente.verify.email.token', ['token'=>$info['email_token']])
-                    : null;
+              <div class="k">Tel</div>
+              <div class="v"><span class="mono">{{ $r->phone ?: '—' }}</span></div>
 
-                  $RFC_KEY_U = strtoupper($RFC_FULL);
-                  $RFC_KEY_L = strtolower($RFC_FULL);
-
-                  $ownerEmail = session("tmp_user.$RFC_KEY_U")
-                                ?? session("tmp_user.$RFC_KEY_L")
-                                ?? ($c['owner_email'] ?? $r->email ?? null);
-
-                  $tempPass   = session("tmp_pass.$RFC_KEY_U")
-                                ?? session("tmp_pass.$RFC_KEY_L")
-                                ?? cache()->get("tmp_pass.$RFC_KEY_U")
-                                ?? cache()->get("tmp_pass.$RFC_KEY_L")
-                                ?? ($c['temp_pass'] ?? null);
-
-                  if (empty($tempPass)) {
-                    $tl2 = session('tmp_last');
-                    if (is_array($tl2) && !empty($tl2['pass']) && strcasecmp($tl2['key'] ?? '', $RFC_KEY_U) === 0) {
-                      $tempPass   = $tl2['pass'];
-                      $ownerEmail = $ownerEmail ?: ($tl2['user'] ?? null);
-                    }
-                  }
-                @endphp
-
-                <div class="ac-credgrid">
-                  <div class="ac-cred">
-                    <div class="k">RFC</div>
-                    <div class="v"><code class="ac-mono" id="rfc-{{ $RFC_SLUG }}">{{ $RFC_FULL }}</code></div>
-                    <div class="a">
-                      <button class="ac-btn tiny" type="button" data-copy="#rfc-{{ $RFC_SLUG }}">Copiar</button>
-                    </div>
-                  </div>
-
-                  <div class="ac-cred">
-                    <div class="k">Usuario</div>
-                    <div class="v"><code class="ac-mono" id="user-{{ $RFC_SLUG }}">{{ $ownerEmail ?: '—' }}</code></div>
-                    <div class="a">
-                      <button class="ac-btn tiny" type="button" data-copy="#user-{{ $RFC_SLUG }}">Copiar</button>
-                    </div>
-                  </div>
-
-                  <div class="ac-cred">
-                    <div class="k">Contraseña temporal</div>
-                    <div class="v">
-                      @if(!empty($tempPass))
-                        <code class="ac-mono" id="pass-{{ $RFC_SLUG }}">{{ $tempPass }}</code>
-                      @else
-                        <span class="ac-meta">—</span>
-                      @endif
-                    </div>
-                    <div class="a">
-                      @if(!empty($tempPass))
-                        <button class="ac-btn tiny" type="button" data-copy="#pass-{{ $RFC_SLUG }}">Copiar</button>
-                      @endif
-                      <a class="ac-btn tiny ghost" href="{{ route('cliente.login') }}" target="_blank" rel="noopener">Probar login</a>
-                    </div>
-                  </div>
-
-                  <div class="ac-cred ac-cred-wide">
-                    <div class="k">Enlace de validación de correo</div>
-                    <div class="v">
-                      @if($tokenUrl)
-                        <code class="ac-mono" id="tok-{{ $r->id }}">{{ $tokenUrl }}</code>
-                        <div class="ac-meta" style="margin-top:6px">Expira: {{ $info['email_expires_at'] ?? '—' }}</div>
-                      @else
-                        <span class="ac-meta">Sin token vigente.</span>
-                      @endif
-                    </div>
-                    <div class="a">
-                      @if($tokenUrl)
-                        <button class="ac-btn tiny" type="button" data-copy="#tok-{{ $r->id }}">Copiar</button>
-                        <a class="ac-btn tiny primary" href="{{ $tokenUrl }}" target="_blank" rel="noopener">Abrir</a>
-                      @endif
-                    </div>
-                  </div>
-                </div>
-
-                <div class="ac-divider"></div>
-
-                <div class="ac-row-actions">
-                  <form method="POST" action="{{ route('admin.clientes.resetPassword',$r->id) }}" onsubmit="return confirm('¿Generar contraseña temporal para el OWNER?')">
-                    @csrf
-                    <button class="ac-btn" type="submit">Resetear contraseña</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.clientes.emailCredentials',$r->id) }}" onsubmit="return confirm('¿Enviar credenciales por correo?')">
-                    @csrf
-                    <button class="ac-btn primary" type="submit">Enviar credenciales</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.clientes.forceEmail',$r->id) }}" onsubmit="return confirm('¿Marcar correo como verificado?')">
-                    @csrf
-                    <button class="ac-btn" type="submit">Forzar correo ✔</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.clientes.forcePhone',$r->id) }}" onsubmit="return confirm('¿Marcar teléfono como verificado?')">
-                    @csrf
-                    <button class="ac-btn" type="submit">Forzar tel ✔</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.clientes.impersonate',$r->id) }}" onsubmit="return confirm('Vas a iniciar sesión como el cliente. ¿Continuar?')">
-                    @csrf
-                    <button class="ac-btn" type="submit">Entrar como cliente</button>
-                  </form>
-                </div>
-
-                <div class="ac-meta" style="margin-top:10px">
-                  Último envío credenciales: <strong>{{ $info['cred_last_sent_at'] ?? '—' }}</strong>
-                  · OTP: <strong>{{ !empty($info['otp_code']) ? ($info['otp_code'].' ('.strtoupper($info['otp_channel'] ?? '—').')') : '—' }}</strong>
-                </div>
-              </div>
-
-              {{-- D) Billing / Estado de cuenta --}}
-              <div class="ac-section">
-                <div class="ac-section-head">
-                  <h3>Billing / Estado de cuenta</h3>
-                  <div class="ac-section-meta">Periodo: <strong>{{ $defaultPeriod }}</strong></div>
-                </div>
-
-                <div class="ac-note">
-                  Checklist: (1) destinatarios, (2) sembrado, (3) show, (4) email.
-                </div>
-
-                <div class="ac-grid">
-                  <div class="ac-field">
-                    <label>Sembrar Edo. cuenta</label>
-                    @if($seedUrl)
-                      <form method="POST" action="{{ $seedUrl }}" onsubmit="return confirm('¿Sembrar/asegurar estado de cuenta {{ $defaultPeriod }} para este cliente?')">
-                        @csrf
-                        <input type="hidden" name="period" value="{{ $defaultPeriod }}">
-                        <button class="ac-btn" type="submit">Sembrar</button>
-                      </form>
-                    @else
-                      <div class="ac-missing"><strong>Falta ruta:</strong> <code class="ac-mono">admin.clientes.seedStatement</code></div>
-                    @endif
-                  </div>
-
-                  <div class="ac-field">
-                    <label>Abrir Edo. cuenta (Admin)</label>
-                    @if($stmtShow)
-                      <a class="ac-btn primary" href="{{ $stmtShow }}" target="_blank" rel="noopener">Abrir</a>
-                    @else
-                      <div class="ac-missing"><strong>Falta ruta:</strong> <code class="ac-mono">admin.billing.statements.show</code></div>
-                    @endif
-                  </div>
-
-                  <div class="ac-field ac-field-wide">
-                    <label>Enviar Edo. cuenta por correo</label>
-                    @if($stmtEmail)
-                      <form method="POST" action="{{ $stmtEmail }}">
-                        @csrf
-                        <div class="ac-inline">
-                          <input class="ac-input" name="to" placeholder="a@a.com,b@b.com (opcional)">
-                          <button class="ac-btn primary" type="submit" onclick="return confirm('¿Enviar estado de cuenta {{ $defaultPeriod }} por correo?')">Enviar</button>
-                        </div>
-                        <div class="ac-hint">Si “to” va vacío, el backend debe resolver con recipients configurados.</div>
-                      </form>
-                    @else
-                      <div class="ac-missing"><strong>Falta ruta:</strong> <code class="ac-mono">admin.billing.statements.email</code></div>
-                    @endif
-                  </div>
-                </div>
-              </div>
-
+              <div class="k">Primary</div>
+              <div class="v"><span class="mono">{{ $primaryStatement ?: '—' }}</span></div>
             </div>
-          </section>
 
-        </article>
-      @empty
-        <div class="ac-empty">
-          Sin resultados. Ajusta filtros o limpia búsqueda.
+            <div class="meta" style="margin-top:10px">
+              Edo. cuenta: <strong>{{ $stmtCount ? ($stmtCount.' destinatarios') : 'Sin destinatarios' }}</strong>
+            </div>
+          </div>
+
+          {{-- Estado --}}
+          <div class="cell" data-label="Estado">
+            <div class="mini" style="margin-top:0">
+              <span class="badge {{ $isBlocked ? 'bad':'ok' }}"><span class="dot"></span>{{ $isBlocked ? 'Bloqueado' : 'Operando' }}</span>
+              <span class="badge {{ $mailOk ? 'ok':'warn' }}"><span class="dot"></span>Correo {{ $mailOk?'✔':'pendiente' }}</span>
+              <span class="badge {{ $phoneOk ? 'ok':'warn' }}"><span class="dot"></span>Tel {{ $phoneOk?'✔':'pendiente' }}</span>
+            </div>
+
+            <div class="meta" style="margin-top:10px">
+              Suscripción: <strong>{{ $r->plan ? strtoupper((string)$r->plan) : '—' }}</strong>
+              · <strong>{{ $bcLabel ?: '—' }}</strong>
+            </div>
+          </div>
+
+          {{-- Plan --}}
+          <div class="cell" data-label="Plan">
+            @if($r->plan)
+              <span class="badge {{ $planVal==='pro' ? 'primary' : 'warn' }}"><span class="dot"></span>{{ strtoupper($r->plan) }}</span>
+            @else
+              <span class="badge neutral"><span class="dot"></span>—</span>
+            @endif
+
+            <div class="meta" style="margin-top:10px">
+              Modo cobro: <strong>{{ $modoCobro ? strtoupper($modoCobro) : '—' }}</strong>
+            </div>
+          </div>
+
+          {{-- Ciclo --}}
+          <div class="cell" data-label="Ciclo">
+            <div class="mono">{{ $bcLabel }}</div>
+
+            <div class="meta" style="margin-top:8px">
+              Próx periodo:
+              <div class="mono">{{ $periodEnd ? $dateLabel($periodEnd) : '—' }}</div>
+            </div>
+          </div>
+
+          {{-- Próx factura --}}
+          <div class="cell" data-label="Próx. factura">
+            <div class="mono">{{ $nextLabel }}</div>
+            <div class="meta" style="margin-top:6px">Periodo: <strong>{{ $defaultPeriod }}</strong></div>
+          </div>
+
+          {{-- Monto --}}
+          <div class="cell" data-label="Monto">
+            <div class="mono">{{ $amtShow }}</div>
+            <div class="meta">{{ $amtMeta }}</div>
+
+            <div class="meta" style="margin-top:10px">
+              Efectivo: <strong class="mono">{{ $amtEffShow }}</strong><br>
+              Custom: <strong class="mono">{{ $amtCustomShow }}</strong>
+            </div>
+          </div>
+
+          {{-- Edo cuenta --}}
+          <div class="cell" data-label="Edo. cuenta">
+            <div class="mono" style="white-space:normal; word-break:break-word;" title="{{ $stmtMain ?: '' }}">
+              {{ $stmtMain ?: '—' }}
+            </div>
+
+            <div class="meta" style="margin-top:8px">
+              <strong>Statement:</strong> {{ $stmtCount ?: 0 }}
+              @if($primaryStatement) · <span class="ac-ellipsis" title="{{ $primaryStatement }}">Primary ✔</span> @endif
+            </div>
+            <div class="meta">
+              <strong>Invoice:</strong> {{ $invCount ?: 0 }}
+              @if($primaryInvoice) · <span class="ac-ellipsis" title="{{ $primaryInvoice }}">Primary ✔</span> @endif
+            </div>
+            <div class="meta">
+              <strong>General:</strong> {{ $genCount ?: 0 }}
+              @if($primaryGeneral) · <span class="ac-ellipsis" title="{{ $primaryGeneral }}">Primary ✔</span> @endif
+            </div>
+          </div>
+
+          {{-- Acciones --}}
+          <div class="cell actions" data-label="Acciones">
+            <form method="POST" action="{{ route('admin.clientes.resendEmail',$r->id) }}" class="inline">
+              @csrf
+              <button class="ac-btn small" type="submit" title="Reenviar verificación de correo">Reenviar</button>
+            </form>
+
+            <form method="POST" action="{{ route('admin.clientes.sendOtp',$r->id) }}" class="inline">
+              @csrf
+              <input type="hidden" name="channel" value="sms">
+              <button class="ac-btn small" type="submit" title="Enviar OTP">OTP</button>
+            </form>
+
+            <button class="ac-btn small primary" type="button" data-open-drawer title="Abrir panel del cliente (drawer)">
+              Ver
+            </button>
+          </div>
+
         </div>
+      @empty
+        <div class="ac-empty">Sin resultados. Ajusta filtros o limpia búsqueda.</div>
       @endforelse
     </div>
 
@@ -816,158 +576,401 @@
     </div>
 
   </div>
+
+  {{-- =========================
+      Drawer Cliente (Admin)
+     ========================= --}}
+  <div class="ac-drawer" id="clientDrawer" aria-hidden="true">
+    <div class="ac-drawer-backdrop" data-close-drawer></div>
+
+    <div class="ac-drawer-panel" role="dialog" aria-modal="true" aria-label="Detalle de cliente">
+      <div class="ac-drawer-head">
+        <div>
+          <div class="rfc" id="dr_rfc">—</div>
+          <div class="rs" id="dr_rs">—</div>
+          <div class="meta" id="dr_meta">—</div>
+        </div>
+        <button class="x" type="button" data-close-drawer aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="ac-drawer-body">
+        <div class="ac-drawer-kpis">
+          <div class="kpi"><div class="v" id="dr_plan">—</div><div class="k">Plan</div></div>
+          <div class="kpi"><div class="v" id="dr_cycle">—</div><div class="k">Ciclo</div></div>
+          <div class="kpi"><div class="v" id="dr_next">—</div><div class="k">Próx. factura</div></div>
+          <div class="kpi"><div class="v" id="dr_amount">—</div><div class="k">Monto</div></div>
+        </div>
+
+        <div class="ac-drawer-badges">
+          <span class="badge neutral" id="dr_badge_block"><span class="dot"></span>—</span>
+          <span class="badge neutral" id="dr_badge_mail"><span class="dot"></span>—</span>
+          <span class="badge neutral" id="dr_badge_phone"><span class="dot"></span>—</span>
+        </div>
+
+        <div class="ac-drawer-contact">
+          <div class="tt">Contacto</div>
+          <div class="grid">
+            <div class="item">
+              <div class="label">Correo</div>
+              <div class="value"><code class="ac-ellipsis" id="dr_email">—</code></div>
+            </div>
+            <div class="item">
+              <div class="label">Teléfono</div>
+              <div class="value"><code class="ac-ellipsis" id="dr_phone">—</code></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ac-drawer-block">
+          <div class="tt">Estado de cuenta (destinatarios)</div>
+          <div class="mono" id="dr_stmt_main">—</div>
+          <div class="mut" id="dr_stmt_list">—</div>
+        </div>
+
+        <div class="ac-drawer-actions">
+          <button class="ac-btn small" type="button" id="btnOpenEdit">Editar</button>
+          <button class="ac-btn small" type="button" id="btnOpenRecipients">Destinatarios</button>
+          <button class="ac-btn small" type="button" id="btnOpenCreds">Credenciales</button>
+          <button class="ac-btn small primary" type="button" id="btnOpenBilling">Billing</button>
+        </div>
+
+        <div class="ac-divider"></div>
+
+        <div class="ac-drawer-foot">
+          <form method="POST" id="drFormImpersonate" action="#" onsubmit="return confirm('Vas a iniciar sesión como el cliente. ¿Continuar?')">
+            @csrf
+            <button class="ac-btn" type="submit">Entrar como cliente</button>
+          </form>
+
+          <form method="POST" id="drFormResetPass" action="#" onsubmit="return confirm('¿Generar contraseña temporal para el OWNER?')">
+            @csrf
+            <button class="ac-btn" type="submit">Resetear contraseña</button>
+          </form>
+
+          <form method="POST" id="drFormEmailCreds" action="#" onsubmit="return confirm('¿Enviar credenciales por correo?')">
+            @csrf
+            <button class="ac-btn primary" type="submit">Enviar credenciales</button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  {{-- =========================
+      MODAL: Editar
+     ========================= --}}
+  <div class="ac-modal" id="modalEdit" aria-hidden="true">
+    <div class="ac-modal-backdrop" data-close-modal></div>
+
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Editar cliente">
+      <div class="ac-modal-head">
+        <div>
+          <div class="ttl">Editar cliente</div>
+          <div class="sub" id="mEdit_sub">—</div>
+        </div>
+        <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
+      </div>
+
+      <form method="POST" id="mEdit_form" action="#" class="ac-form">
+        @csrf
+        <div class="ac-grid">
+          <div class="ac-field ac-field-wide">
+            <label>Razón social</label>
+            <input class="ac-input" id="mEdit_rs" name="razon_social" value="" placeholder="Razón social">
+          </div>
+
+          <div class="ac-field">
+            <label>Email</label>
+            <input class="ac-input" id="mEdit_email" name="email" value="" placeholder="correo@dominio.com">
+          </div>
+
+          <div class="ac-field">
+            <label>Teléfono</label>
+            <input class="ac-input" id="mEdit_phone" name="phone" value="" placeholder="+52...">
+          </div>
+
+          <div class="ac-field">
+            <label>Plan</label>
+            <select class="ac-select" id="mEdit_plan" name="plan">
+              <option value="">—</option>
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+
+          <div class="ac-field">
+            <label>Ciclo</label>
+            <select class="ac-select" id="mEdit_cycle" name="billing_cycle">
+              <option value="">—</option>
+              <option value="monthly">Mensual</option>
+              <option value="yearly">Anual</option>
+            </select>
+          </div>
+
+          <div class="ac-field">
+            <label>Próx. factura (YYYY-MM-DD)</label>
+            <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
+          </div>
+
+          <div class="ac-field">
+            <label>Monto personalizado (MXN)</label>
+            <input class="ac-input" id="mEdit_custom" name="custom_amount_mxn" inputmode="decimal" placeholder="0.00">
+            <div class="ac-hint">Si se deja vacío, se usa el monto calculado del plan.</div>
+          </div>
+
+          <div class="ac-field">
+            <label>Bloqueo</label>
+            <div class="ac-check">
+              <input type="checkbox" id="mEdit_blocked" name="is_blocked" value="1">
+              <span>Cuenta bloqueada (redirige a Stripe)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ac-note">
+          Nota: este formulario depende de tu endpoint <code class="ac-mono">/admin/clientes/{id}/save</code>.
+          Si no existe aún, el modal seguirá abriendo pero el submit no funcionará.
+        </div>
+
+        <div class="ac-form-actions">
+          <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+          <button class="ac-btn primary" type="submit">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {{-- =========================
+      MODAL: Destinatarios
+     ========================= --}}
+  <div class="ac-modal" id="modalRecipients" aria-hidden="true">
+    <div class="ac-modal-backdrop" data-close-modal></div>
+
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Destinatarios">
+      <div class="ac-modal-head">
+        <div>
+          <div class="ttl">Destinatarios</div>
+          <div class="sub" id="mRec_sub">—</div>
+        </div>
+        <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="ac-note" id="mRec_missing" hidden>
+        No se detectó ruta para guardar destinatarios (recip_url). Revisa que exista la route
+        <code class="ac-mono">admin.clientes.recipientsUpsert</code>.
+      </div>
+
+      <div class="ac-tabs" data-tabs>
+        <div class="ac-tabbar">
+          <button type="button" class="ac-tab active" aria-selected="true" data-tab="tabRecStmt">Estado de cuenta</button>
+          <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecInv">Factura</button>
+          <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecGen">General</button>
+        </div>
+
+        {{-- Estado de cuenta --}}
+        <div class="ac-tabpane show" id="tabRecStmt">
+          <form method="POST" id="mRec_form_statement" action="#" class="ac-form">
+            @csrf
+            <div class="ac-grid">
+              <div class="ac-field ac-field-wide">
+                <label>Destinatarios (CSV)</label>
+                <textarea class="ac-textarea" id="mRec_stmt_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
+              </div>
+              <div class="ac-field ac-field-wide">
+                <label>Primary</label>
+                <input class="ac-input" id="mRec_stmt_primary" name="primary" placeholder="correo@dominio.com">
+              </div>
+              <input type="hidden" name="kind" value="statement">
+            </div>
+
+            <div class="ac-form-actions">
+              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+              <button class="ac-btn primary" type="submit">Guardar</button>
+            </div>
+          </form>
+        </div>
+
+        {{-- Factura --}}
+        <div class="ac-tabpane" id="tabRecInv" hidden>
+          <form method="POST" id="mRec_form_invoice" action="#" class="ac-form">
+            @csrf
+            <div class="ac-grid">
+              <div class="ac-field ac-field-wide">
+                <label>Destinatarios (CSV)</label>
+                <textarea class="ac-textarea" id="mRec_inv_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+              </div>
+              <div class="ac-field ac-field-wide">
+                <label>Primary</label>
+                <input class="ac-input" id="mRec_inv_primary" name="primary" placeholder="correo@dominio.com">
+              </div>
+              <input type="hidden" name="kind" value="invoice">
+            </div>
+
+            <div class="ac-form-actions">
+              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+              <button class="ac-btn primary" type="submit">Guardar</button>
+            </div>
+          </form>
+        </div>
+
+        {{-- General --}}
+        <div class="ac-tabpane" id="tabRecGen" hidden>
+          <form method="POST" id="mRec_form_general" action="#" class="ac-form">
+            @csrf
+            <div class="ac-grid">
+              <div class="ac-field ac-field-wide">
+                <label>Destinatarios (CSV)</label>
+                <textarea class="ac-textarea" id="mRec_gen_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+              </div>
+              <div class="ac-field ac-field-wide">
+                <label>Primary</label>
+                <input class="ac-input" id="mRec_gen_primary" name="primary" placeholder="correo@dominio.com">
+              </div>
+              <input type="hidden" name="kind" value="general">
+            </div>
+
+            <div class="ac-form-actions">
+              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+              <button class="ac-btn primary" type="submit">Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{-- =========================
+      MODAL: Credenciales
+     ========================= --}}
+  <div class="ac-modal" id="modalCreds" aria-hidden="true">
+    <div class="ac-modal-backdrop" data-close-modal></div>
+
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Credenciales">
+      <div class="ac-modal-head">
+        <div>
+          <div class="ttl">Credenciales</div>
+          <div class="sub" id="mCred_sub">—</div>
+        </div>
+        <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="ac-credgrid">
+        <div class="ac-cred">
+          <div class="k">RFC</div>
+          <div class="v"><span class="ac-mono" id="mCred_rfc">—</span></div>
+        </div>
+
+        <div class="ac-cred">
+          <div class="k">OTP</div>
+          <div class="v"><span class="ac-mono" id="mCred_otp">—</span></div>
+        </div>
+
+        <div class="ac-cred ac-cred-wide">
+          <div class="k">Token / URL</div>
+          <div class="v">
+            <span class="ac-mono" id="mCred_tok">—</span>
+            <div class="meta" id="mCred_tok_exp" style="margin-top:6px">—</div>
+          </div>
+          <div class="a" id="mCred_tok_actions" hidden>
+            <a class="ac-btn small" id="mCred_tok_open" href="#" target="_blank" rel="noopener">Abrir</a>
+            <button class="ac-btn small" type="button" data-copy="#mCred_tok">Copiar</button>
+          </div>
+        </div>
+
+        <div class="ac-cred ac-cred-wide">
+          <div class="k">Forzar verificaciones</div>
+          <div class="v">Útil para soporte cuando el cliente ya confirmó por otro canal.</div>
+          <div class="a">
+            <form method="POST" id="mCred_form_force_email" action="#" class="inline" onsubmit="return confirm('¿Forzar verificación de correo?')">
+              @csrf
+              <button class="ac-btn small" type="submit">Forzar correo</button>
+            </form>
+
+            <form method="POST" id="mCred_form_force_phone" action="#" class="inline" onsubmit="return confirm('¿Forzar verificación de teléfono?')">
+              @csrf
+              <button class="ac-btn small" type="submit">Forzar teléfono</button>
+            </form>
+          </div>
+
+          <div class="ac-note" id="mCred_force_phone_missing" hidden>
+            No existe endpoint para force-phone.
+          </div>
+        </div>
+      </div>
+
+      <div class="ac-form-actions">
+        <button class="ac-btn" type="button" data-close-modal>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  {{-- =========================
+      MODAL: Billing
+     ========================= --}}
+  <div class="ac-modal" id="modalBilling" aria-hidden="true">
+    <div class="ac-modal-backdrop" data-close-modal></div>
+
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Billing">
+      <div class="ac-modal-head">
+        <div>
+          <div class="ttl">Billing</div>
+          <div class="sub" id="mBill_sub">—</div>
+        </div>
+        <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="ac-form">
+        <div class="ac-grid">
+          <div class="ac-field">
+            <label>Periodo</label>
+            <input class="ac-input" id="mBill_period" value="{{ $defaultPeriod }}" readonly>
+          </div>
+
+          <div class="ac-field">
+            <label>Sembrar estado de cuenta</label>
+            <form method="POST" id="mBill_form_seed" action="#" onsubmit="return confirm('¿Sembrar/regen del statement?')">
+              @csrf
+              <input type="hidden" id="mBill_seed_period" name="period" value="{{ $defaultPeriod }}">
+              <button class="ac-btn" type="submit">Seed</button>
+            </form>
+            <div class="ac-hint" id="mBill_seed_missing" hidden>Falta route <code class="ac-mono">admin.clientes.seedStatement</code></div>
+          </div>
+
+          <div class="ac-field">
+            <label>Ver PDF / Pantalla</label>
+            <a class="ac-btn" id="mBill_btn_show" href="#" target="_blank" rel="noopener">Abrir</a>
+            <div class="ac-hint" id="mBill_show_missing" hidden>Falta route <code class="ac-mono">admin.billing.statements.show</code></div>
+          </div>
+
+          <div class="ac-field">
+            <label>Enviar por correo</label>
+            <form method="POST" id="mBill_form_email" action="#" onsubmit="return confirm('¿Enviar estado de cuenta por correo?')">
+              @csrf
+              <button class="ac-btn primary" type="submit">Enviar</button>
+            </form>
+            <div class="ac-hint" id="mBill_email_missing" hidden>Falta route <code class="ac-mono">admin.billing.statements.email</code></div>
+          </div>
+
+          <div class="ac-field ac-field-wide">
+            <div class="ac-note">
+              Si “Enviar” no hace nada, revisa: (1) destinatarios <strong>statement</strong> configurados,
+              (2) mailer env en local/prod, (3) logs <code class="ac-mono">storage/logs/laravel.log</code>.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ac-form-actions">
+        <button class="ac-btn" type="button" data-close-modal>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 @endsection
 
 @push('scripts')
-<script>
-(function(){
-  const $ = (s,sc)=> (sc||document).querySelector(s);
-  const $$ = (s,sc)=> Array.from((sc||document).querySelectorAll(s));
-
-  // QuickSearch: ESC limpia
-  const qf = $('#quickSearchForm');
-  if(qf){
-    const q = qf.querySelector('input[name="q"]');
-    if(q){
-      q.addEventListener('keydown', e=>{
-        if(e.key==='Escape'){
-          q.value='';
-          qf.submit();
-        }
-      });
-    }
-  }
-
-  // Filtros: autosubmit selects
-  const form = $('#filtersForm');
-  if(form){
-    form.querySelectorAll('select').forEach(sel=> sel.addEventListener('change', ()=> form.submit()));
-  }
-
-  // Toggle details + copiar + presets plan + tabs
-  document.addEventListener('click', (e)=>{
-    const tgl = e.target.closest('[data-toggle="details"]');
-    if(tgl){
-      const sel = tgl.getAttribute('data-target');
-      const panel = sel ? document.querySelector(sel) : null;
-      if(!panel) return;
-
-      const isHidden = panel.hasAttribute('hidden');
-
-      // Cierra otros
-      $$('.ac-cardrow-body:not([hidden])').forEach(p=>{
-        if(p!==panel){
-          p.setAttribute('hidden','hidden');
-          const btn = document.querySelector(`[data-toggle="details"][data-target="#${p.id}"]`);
-          if(btn) btn.setAttribute('aria-expanded','false');
-        }
-      });
-
-      if(isHidden){
-        panel.removeAttribute('hidden');
-        tgl.setAttribute('aria-expanded','true');
-        setTimeout(()=> panel.scrollIntoView({behavior:'smooth', block:'nearest'}), 40);
-      }else{
-        panel.setAttribute('hidden','hidden');
-        tgl.setAttribute('aria-expanded','false');
-      }
-    }
-
-    // Copiar
-    const copyBtn = e.target.closest('[data-copy]');
-    if (copyBtn) {
-      const sel = copyBtn.getAttribute('data-copy');
-      const node = document.querySelector(sel);
-      if (!node) return;
-      const text = (node.innerText || node.textContent || '').trim();
-      navigator.clipboard.writeText(text).then(()=>{
-        const prev = copyBtn.textContent;
-        copyBtn.textContent = 'Copiado';
-        copyBtn.disabled = true;
-        setTimeout(()=>{ copyBtn.disabled=false; copyBtn.textContent=prev; }, 700);
-      });
-    }
-
-    // Presets de plan
-    const presetBtn = e.target.closest('[data-plan-preset]');
-    if (presetBtn) {
-      e.preventDefault();
-      const plan  = presetBtn.getAttribute('data-plan-preset') || '';
-      const cycle = presetBtn.getAttribute('data-cycle') || '';
-      const days  = parseInt(presetBtn.getAttribute('data-days') || '0', 10);
-
-      const card = presetBtn.closest('.ac-cardrow');
-      if (!card) return;
-      const formRow = card.querySelector('form.ac-form');
-      if (!formRow) return;
-
-      const planField = formRow.querySelector('select[name="plan"], input[name="plan"]');
-      if (planField) planField.value = plan;
-
-      const cycleSel = formRow.querySelector('select[name="billing_cycle"]');
-      if (cycleSel) cycleSel.value = cycle;
-
-      const nextInput = formRow.querySelector('input[name="next_invoice_date"]');
-      if (nextInput) {
-        if (days > 0) {
-          const d = new Date();
-          d.setDate(d.getDate() + days);
-          nextInput.value = d.toISOString().slice(0,10);
-        } else {
-          nextInput.value = '';
-        }
-      }
-    }
-
-    // Tabs
-    const tabBtn = e.target.closest('.ac-tab[data-tab]');
-    if(tabBtn){
-      const tabs = tabBtn.closest('[data-tabs]');
-      if(!tabs) return;
-
-      tabs.querySelectorAll('.ac-tab').forEach(b=>{
-        b.classList.remove('active');
-        b.setAttribute('aria-selected','false');
-      });
-      tabBtn.classList.add('active');
-      tabBtn.setAttribute('aria-selected','true');
-
-      const targetId = tabBtn.getAttribute('data-tab');
-      tabs.querySelectorAll('.ac-tabpane').forEach(p=>{
-        p.classList.remove('show');
-        p.setAttribute('hidden','hidden');
-      });
-      const pane = targetId ? document.getElementById(targetId) : null;
-      if(pane){
-        pane.classList.add('show');
-        pane.removeAttribute('hidden');
-      }
-    }
-  });
-
-  // Export CSV desde data-export
-  $('#btnExportCsv')?.addEventListener('click', ()=>{
-    const head = ['RFC','RazonSocial','Email','Phone','Plan','BillingCycle','NextInvoice','CustomAmountMxn','EmailVerif','PhoneVerif','Blocked','CreatedAt'];
-    const lines = [];
-    lines.push(head.join(','));
-
-    $$('.ac-cardrow[data-export]').forEach(card=>{
-      let obj = {};
-      try { obj = JSON.parse(card.getAttribute('data-export') || '{}'); } catch(e) {}
-      const row = head.map(k => (obj[k] ?? '').toString());
-      lines.push(row.map(t=>{
-        return /[",\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t;
-      }).join(','));
-    });
-
-    const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'clientes_export.csv';
-    document.body.appendChild(a); a.click();
-    a.remove(); URL.revokeObjectURL(url);
-  });
-})();
-</script>
+  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v=12.2.0"></script>
 @endpush
