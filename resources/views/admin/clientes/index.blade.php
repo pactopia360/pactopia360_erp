@@ -4,7 +4,7 @@
 @section('title','Clientes (accounts)')
 
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=13.1.0">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.css') }}?v=13.2.0">
 @endpush
 
 @section('content')
@@ -12,19 +12,37 @@
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Carbon;
 
-  $q = request('q'); $plan = request('plan'); $blocked = request('blocked');
-  $s = request('sort','created_at'); $d = strtolower(request('dir','desc'))==='asc'?'asc':'desc';
+  $q             = request('q');
+  $plan          = request('plan');
+  $blocked       = request('blocked');
+  $billingStatus = request('billing_status');
+
+  $s  = request('sort','created_at');
+  $d  = strtolower(request('dir','desc'))==='asc'?'asc':'desc';
   $pp = (int) request('per_page', 25);
+
   $total = method_exists($rows,'total') ? $rows->total() : (is_countable($rows) ? count($rows) : null);
 
+  // KPIs rápidos (sobre $rows ya filtrado/paginado en backend)
   $verMail = 0; $verPhone = 0; $cntPro = 0; $cntFree = 0; $cntBlocked = 0;
+  $cntActive=0; $cntTrial=0; $cntOverdue=0; $cntSuspended=0; $cntCancelled=0;
+
   foreach ($rows as $x) {
     if(!empty($x->email_verified_at)) $verMail++;
     if(!empty($x->phone_verified_at)) $verPhone++;
+
     $p = strtolower((string)($x->plan ?? ''));
-    if($p==='pro') $cntPro++;
+    if($p==='pro')  $cntPro++;
     if($p==='free') $cntFree++;
+
     if((int)($x->is_blocked ?? 0)===1) $cntBlocked++;
+
+    $bs = strtolower((string)($x->billing_status ?? ''));
+    if($bs==='active') $cntActive++;
+    if($bs==='trial') $cntTrial++;
+    if($bs==='overdue') $cntOverdue++;
+    if($bs==='suspended') $cntSuspended++;
+    if($bs==='cancelled') $cntCancelled++;
   }
 
   $defaultPeriod = now()->addMonthNoOverflow()->format('Y-m');
@@ -36,6 +54,7 @@
 
   $is = fn($k,$v)=> (string)request($k, '')===(string)$v;
 
+  // Recipients helpers
   $recipsToString = function($recipsArr, string $kind='statement') {
     if (!is_array($recipsArr)) return '';
     $list = $recipsArr[$kind] ?? [];
@@ -89,6 +108,30 @@
   };
 
   $stmtIdx = $try('admin.billing.statements.index');
+
+  // Billing statuses (para filtros y badges)
+  $billingStatuses = $billingStatuses ?? [
+    'active'    => 'Activa',
+    'trial'     => 'Prueba',
+    'grace'     => 'Gracia',
+    'overdue'   => 'Falta de pago',
+    'suspended' => 'Suspendida',
+    'cancelled' => 'Cancelada',
+    'demo'      => 'Demo/QA',
+  ];
+
+  $bsTone = function($bs){
+    $bs = strtolower((string)$bs);
+    if ($bs==='active') return 'ok';
+    if ($bs==='trial' || $bs==='grace') return 'warn';
+    if ($bs==='overdue') return 'bad';
+    if ($bs==='suspended' || $bs==='cancelled') return 'bad';
+    if ($bs==='demo') return 'neutral';
+    return 'neutral';
+  };
+
+  // ✅ Logo (para correo de credenciales)
+  $brandLogoUrl = asset('assets/brand/pactopia-logo.png');
 @endphp
 
 <div id="adminClientesPage"
@@ -114,13 +157,14 @@
 
           <input type="hidden" name="plan" value="{{ $plan }}">
           <input type="hidden" name="blocked" value="{{ $blocked }}">
+          <input type="hidden" name="billing_status" value="{{ $billingStatus }}">
           <input type="hidden" name="sort" value="{{ $s }}">
           <input type="hidden" name="dir" value="{{ $d }}">
           <input type="hidden" name="per_page" value="{{ $pp }}">
 
           <button class="ac-btn primary" type="submit">Buscar</button>
           @if($q)
-            <a class="ac-btn ghost" href="{{ request()->fullUrlWithQuery(['q'=>'']) }}">Limpiar</a>
+            <a class="ac-btn ghost" href="{{ request()->fullUrlWithQuery(['q'=>'','page'=>null]) }}">Limpiar</a>
           @endif
         </form>
       </div>
@@ -145,6 +189,12 @@
       <div class="ac-kpi"><div class="v">{{ $cntPro }}</div><div class="k">PRO</div></div>
       <div class="ac-kpi"><div class="v">{{ $cntFree }}</div><div class="k">FREE</div></div>
       <div class="ac-kpi"><div class="v">{{ $cntBlocked }}</div><div class="k">Bloqueados</div></div>
+
+      <div class="ac-kpi"><div class="v">{{ $cntActive }}</div><div class="k">Activas</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntTrial }}</div><div class="k">Prueba</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntOverdue }}</div><div class="k">Overdue</div></div>
+      <div class="ac-kpi"><div class="v">{{ $cntSuspended + $cntCancelled }}</div><div class="k">Suspend/Cancel</div></div>
+
       <div class="ac-kpi"><div class="v">{{ $verMail }}</div><div class="k">Correo verificado</div></div>
       <div class="ac-kpi"><div class="v">{{ $verPhone }}</div><div class="k">Tel verificado</div></div>
       <div class="ac-kpi ghost"><div class="v">{{ $defaultPeriod }}</div><div class="k">Periodo sugerido</div></div>
@@ -154,17 +204,25 @@
     {{-- Toolbar --}}
     <div class="ac-toolbar">
       <div class="ac-chips">
-        <a class="ac-chip {{ $is('blocked','0')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'0']) }}">Operando</a>
-        <a class="ac-chip {{ $is('blocked','1')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'1']) }}">Bloqueados</a>
-        <a class="ac-chip {{ $is('plan','free')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'free']) }}">Free</a>
-        <a class="ac-chip {{ $is('plan','pro')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'pro']) }}">Pro</a>
+        <a class="ac-chip {{ $is('blocked','0')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'0','page'=>null]) }}">Operando</a>
+        <a class="ac-chip {{ $is('blocked','1')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}">Bloqueados</a>
+        <a class="ac-chip {{ $is('plan','free')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">Free</a>
+        <a class="ac-chip {{ $is('plan','pro')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}">Pro</a>
+
+        <a class="ac-chip {{ $is('billing_status','active')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}">Activas</a>
+        <a class="ac-chip {{ $is('billing_status','trial')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">Prueba</a>
+        <a class="ac-chip {{ $is('billing_status','overdue')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">Falta pago</a>
+
         <a class="ac-chip ghost" href="{{ route('admin.clientes.index') }}">Limpiar</a>
       </div>
 
-      <details class="ac-filters" id="filtersBox" {{ ($plan||$blocked||$s!=='created_at'||$d!=='desc'||$pp!==25) ? 'open' : '' }}>
+      <details class="ac-filters" id="filtersBox" {{ ($plan||$blocked||$billingStatus||$s!=='created_at'||$d!=='desc'||$pp!==25||$q) ? 'open' : '' }}>
         <summary class="ac-filters-summary">
           <span>Filtros avanzados</span>
-          <span class="ac-meta">Orden: <strong>{{ $s }}</strong> · <strong>{{ $d }}</strong> · {{ $pp }}/pág</span>
+          <span class="ac-meta">
+            Orden: <strong>{{ $s }}</strong> · <strong>{{ $d }}</strong> · {{ $pp }}/pág
+            @if($billingStatus) · Billing: <strong>{{ $billingStatus }}</strong>@endif
+          </span>
         </summary>
 
         <form method="GET" id="filtersForm" class="ac-filters-form">
@@ -176,7 +234,11 @@
 
             <div class="ac-field">
               <label>Plan</label>
-              <input class="ac-input" name="plan" value="{{ $plan }}" placeholder="free, pro">
+              <select name="plan" class="ac-select">
+                <option value="">Todos</option>
+                <option value="free" {{ (string)$plan==='free'?'selected':'' }}>Free</option>
+                <option value="pro"  {{ (string)$plan==='pro'?'selected':'' }}>Pro</option>
+              </select>
             </div>
 
             <div class="ac-field">
@@ -189,11 +251,23 @@
             </div>
 
             <div class="ac-field">
+              <label>Billing status</label>
+              <select name="billing_status" class="ac-select">
+                <option value="">Todos</option>
+                @foreach($billingStatuses as $k=>$lbl)
+                  <option value="{{ $k }}" {{ (string)$billingStatus===(string)$k ? 'selected':'' }}>{{ $lbl }}</option>
+                @endforeach
+              </select>
+            </div>
+
+            <div class="ac-field">
               <label>Orden</label>
               <select name="sort" class="ac-select">
                 <option value="created_at" {{ $s==='created_at'?'selected':'' }}>Creado</option>
                 <option value="razon_social" {{ $s==='razon_social'?'selected':'' }}>Razón social</option>
                 <option value="plan" {{ $s==='plan'?'selected':'' }}>Plan</option>
+                <option value="billing_cycle" {{ $s==='billing_cycle'?'selected':'' }}>Ciclo</option>
+                <option value="billing_status" {{ $s==='billing_status'?'selected':'' }}>Billing status</option>
                 <option value="email_verified_at" {{ $s==='email_verified_at'?'selected':'' }}>Correo verificado</option>
                 <option value="phone_verified_at" {{ $s==='phone_verified_at'?'selected':'' }}>Tel verificado</option>
                 <option value="is_blocked" {{ $s==='is_blocked'?'selected':'' }}>Bloqueo</option>
@@ -275,9 +349,17 @@
           $planVal  = strtolower((string)($r->plan ?? ''));
           $bcRaw    = (string)($r->billing_cycle ?? '');
           $nextRaw  = (string)($r->next_invoice_date ?? '');
+          $bsRaw    = (string)($r->billing_status ?? '');
 
-          if (($bcRaw === '' || $bcRaw === null) && is_array($info) && !empty($info['billing_cycle'])) $bcRaw = (string)$info['billing_cycle'];
-          if (($nextRaw === '' || $nextRaw === null) && is_array($info) && !empty($info['next_invoice_date'])) $nextRaw = (string)$info['next_invoice_date'];
+          if (($bcRaw === '' || $bcRaw === null) && is_array($info) && !empty($info['billing_cycle'])) {
+            $bcRaw = (string)$info['billing_cycle'];
+          }
+          if (($nextRaw === '' || $nextRaw === null) && is_array($info) && !empty($info['next_invoice_date'])) {
+            $nextRaw = (string)$info['next_invoice_date'];
+          }
+          if (($bsRaw === '' || $bsRaw === null) && is_array($info) && !empty($info['billing_status'])) {
+            $bsRaw = (string)$info['billing_status'];
+          }
 
           $bcLabel   = $cycleLabel($bcRaw);
           $nextLabel = $dateLabel($nextRaw);
@@ -298,6 +380,9 @@
 
           $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
           $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]);
+
+          // ✅ URL para enviar credenciales
+          $emailCredsUrl = $try('admin.clientes.emailCreds', ['rfc'=>$r->id]) ?: $try('admin.clientes.emailCredentials', ['rfc'=>$r->id]);
 
           $rRecips = $recipients[$r->id] ?? [];
           $recipsStatement = $recipsToString($rRecips, 'statement');
@@ -323,11 +408,19 @@
 
           $amtShow = '—';
           $amtMeta = '—';
-          if (is_numeric($effective) && (float)$effective > 0) { $amtShow = $money($effective); $amtMeta='licencia efectiva'; }
+          if (is_numeric($effective) && (float)$effective >= 0) { $amtShow = $money($effective); $amtMeta='licencia efectiva'; }
           elseif ($hasCustom) { $amtShow = $money($customAmount); $amtMeta='precio personalizado'; }
 
           $amtCustomShow = $hasCustom ? $money($customAmount) : '—';
-          $amtEffShow    = (is_numeric($effective) && (float)$effective > 0) ? $money($effective) : '—';
+          $amtEffShow    = (is_numeric($effective) && (float)$effective >= 0) ? $money($effective) : '—';
+
+          $otpCode    = is_array($info) ? (string)($info['otp_code'] ?? '') : '';
+          $otpChannel = is_array($info) ? (string)($info['otp_channel'] ?? '') : '';
+          $tokenUrl   = is_array($info) ? (string)($info['token_url'] ?? '') : '';
+          $tokenExp   = is_array($info) ? (string)($info['token_expires'] ?? '') : '';
+
+          $fallbackAccessUrl = rtrim((string)config('app.url'), '/') . '/cliente';
+          $accessUrl = $tokenUrl !== '' ? $tokenUrl : $fallbackAccessUrl;
 
           $exportPayload = [
             "ID" => $idStr,
@@ -337,9 +430,10 @@
             "Phone" => (string)($r->phone ?? ''),
             "Plan" => (string)($r->plan ?? ''),
             "BillingCycle" => (string)($bcRaw ?? ''),
+            "BillingStatus" => (string)($bsRaw ?? ''),
             "NextInvoice" => (string)($nextRaw ?? ''),
             "CustomAmountMxn" => $hasCustom ? (string)$customAmount : '',
-            "EffectiveAmountMxn" => (is_numeric($effective) && (float)$effective > 0) ? (string)$effective : '',
+            "EffectiveAmountMxn" => (is_numeric($effective) && (float)$effective >= 0) ? (string)$effective : '',
             "StatementRecipients" => $recipsStatement,
             "InvoiceRecipients" => $recipsInvoice,
             "GeneralRecipients" => $recipsGeneral,
@@ -365,11 +459,13 @@
             "plan" => (string)($r->plan ?? ''),
             "billing_cycle" => (string)($bcRaw ?? ''),
             "billing_cycle_label" => $bcLabel,
+            "billing_status" => (string)($bsRaw ?? ''),
+            "billing_status_label" => (string)($billingStatuses[strtolower((string)$bsRaw)] ?? ($bsRaw ?: '—')),
             "next_invoice_date" => (string)($nextRaw ?? ''),
             "next_invoice_label" => $nextLabel,
 
             "custom_amount_mxn" => $hasCustom ? (string)$customAmount : '',
-            "effective_amount_mxn" => (is_numeric($effective) && (float)$effective > 0) ? (string)$effective : '',
+            "effective_amount_mxn" => (is_numeric($effective) && (float)$effective >= 0) ? (string)$effective : '',
 
             "blocked" => $isBlocked ? 1 : 0,
             "mail_ok" => $mailOk ? 1 : 0,
@@ -397,13 +493,20 @@
             "primary_invoice" => $primaryInvoice,
             "primary_general" => $primaryGeneral,
 
-            "otp_code" => is_array($info) ? (string)($info['otp_code'] ?? '') : '',
-            "otp_channel" => is_array($info) ? (string)($info['otp_channel'] ?? '') : '',
-            "token_url" => is_array($info) ? (string)($info['token_url'] ?? '') : '',
-            "token_expires" => is_array($info) ? (string)($info['token_expires'] ?? '') : '',
+            "otp_code" => $otpCode,
+            "otp_channel" => $otpChannel,
+            "token_url" => $tokenUrl,
+            "token_expires" => $tokenExp,
 
+            "email_creds_url" => $emailCredsUrl ?: '',
+            "access_url" => $accessUrl,
           ];
           $clientJson = e(json_encode($clientPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+          $bsLbl = (string)($billingStatuses[strtolower((string)$bsRaw)] ?? ($bsRaw ?: '—'));
+          $bsCls = $bsTone($bsRaw);
+
+          $nextPeriodEndLbl = $periodEnd ? $dateLabel($periodEnd) : '—';
         @endphp
 
         <div class="ac-row"
@@ -469,6 +572,7 @@
               <span class="badge {{ $isBlocked ? 'bad':'ok' }}"><span class="dot"></span>{{ $isBlocked ? 'Bloqueado' : 'Operando' }}</span>
               <span class="badge {{ $mailOk ? 'ok':'warn' }}"><span class="dot"></span>Correo {{ $mailOk?'✔':'pendiente' }}</span>
               <span class="badge {{ $phoneOk ? 'ok':'warn' }}"><span class="dot"></span>Tel {{ $phoneOk?'✔':'pendiente' }}</span>
+              <span class="badge {{ $bsCls }}"><span class="dot"></span>{{ $bsLbl }}</span>
             </div>
 
             <div class="meta" style="margin-top:10px">
@@ -486,6 +590,10 @@
             @endif
 
             <div class="meta" style="margin-top:10px">
+              Billing: <strong>{{ $bsLbl }}</strong>
+            </div>
+
+            <div class="meta" style="margin-top:6px">
               Modo cobro: <strong>{{ $modoCobro ? strtoupper($modoCobro) : '—' }}</strong>
             </div>
           </div>
@@ -496,7 +604,7 @@
 
             <div class="meta" style="margin-top:8px">
               Próx periodo:
-              <div class="mono">{{ $periodEnd ? $dateLabel($periodEnd) : '—' }}</div>
+              <div class="mono">{{ $nextPeriodEndLbl }}</div>
             </div>
           </div>
 
@@ -647,7 +755,8 @@
             <button class="ac-btn" type="submit">Resetear contraseña</button>
           </form>
 
-          <form method="POST" id="drFormEmailCreds" action="#" onsubmit="return confirm('¿Enviar credenciales por correo?')">
+          {{-- ✅ Este submit abre el modal de credenciales y permite enviar correo --}}
+          <form method="POST" id="drFormEmailCreds" action="#" onsubmit="return false;">
             @csrf
             <button class="ac-btn primary" type="submit">Enviar credenciales</button>
           </form>
@@ -775,14 +884,16 @@
             <div class="ac-grid">
               <div class="ac-field ac-field-wide">
                 <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_stmt_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <textarea class="ac-textarea" id="mRec_stmt_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
                 <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
               </div>
               <div class="ac-field ac-field-wide">
                 <label>Primary</label>
                 <input class="ac-input" id="mRec_stmt_primary" name="primary" placeholder="correo@dominio.com">
               </div>
+
               <input type="hidden" name="kind" value="statement">
+              <input type="hidden" name="active" value="1">
             </div>
 
             <div class="ac-form-actions">
@@ -799,13 +910,15 @@
             <div class="ac-grid">
               <div class="ac-field ac-field-wide">
                 <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_inv_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <textarea class="ac-textarea" id="mRec_inv_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
               </div>
               <div class="ac-field ac-field-wide">
                 <label>Primary</label>
                 <input class="ac-input" id="mRec_inv_primary" name="primary" placeholder="correo@dominio.com">
               </div>
+
               <input type="hidden" name="kind" value="invoice">
+              <input type="hidden" name="active" value="1">
             </div>
 
             <div class="ac-form-actions">
@@ -822,13 +935,15 @@
             <div class="ac-grid">
               <div class="ac-field ac-field-wide">
                 <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_gen_list" name="list" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <textarea class="ac-textarea" id="mRec_gen_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
               </div>
               <div class="ac-field ac-field-wide">
                 <label>Primary</label>
                 <input class="ac-input" id="mRec_gen_primary" name="primary" placeholder="correo@dominio.com">
               </div>
+
               <input type="hidden" name="kind" value="general">
+              <input type="hidden" name="active" value="1">
             </div>
 
             <div class="ac-form-actions">
@@ -876,6 +991,46 @@
           <div class="a" id="mCred_tok_actions" hidden>
             <a class="ac-btn small" id="mCred_tok_open" href="#" target="_blank" rel="noopener">Abrir</a>
             <button class="ac-btn small" type="button" data-copy="#mCred_tok">Copiar</button>
+          </div>
+        </div>
+
+        {{-- ✅ Enviar credenciales por correo --}}
+        <div class="ac-cred ac-cred-wide">
+          <div class="k">Enviar credenciales por correo</div>
+          <div class="v">
+            Envía <strong>usuario (RFC)</strong>, <strong>contraseña</strong> y <strong>liga de acceso</strong> a uno o varios correos.
+          </div>
+
+          <div class="ac-note" style="margin-top:10px">
+            Logo usado en la plantilla: <code class="ac-mono">{{ $brandLogoUrl }}</code>
+          </div>
+
+          <form method="POST" id="mCred_form_email_creds" action="#" class="ac-form" style="margin-top:10px">
+            @csrf
+            <div class="ac-grid">
+              <div class="ac-field ac-field-wide">
+                <label>Para (CSV)</label>
+                <textarea class="ac-textarea" id="mCred_to" name="to" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
+              </div>
+
+              {{-- payload hidden --}}
+              <input type="hidden" name="usuario" id="mCred_hidden_user" value="">
+              <input type="hidden" name="password" id="mCred_hidden_pass" value="">
+              <input type="hidden" name="access_url" id="mCred_hidden_access" value="">
+              <input type="hidden" name="rfc" id="mCred_hidden_rfc" value="">
+              <input type="hidden" name="rs" id="mCred_hidden_rs" value="">
+              <input type="hidden" name="logo_url" value="{{ $brandLogoUrl }}">
+
+              <div class="ac-form-actions" style="margin-top:0">
+                <button class="ac-btn primary" type="submit" onclick="return confirm('¿Enviar credenciales por correo?')">Enviar</button>
+              </div>
+            </div>
+          </form>
+
+          <div class="ac-note" id="mCred_email_creds_missing" hidden style="margin-top:10px">
+            No se detectó ruta para enviar credenciales. Se esperaba:
+            <code class="ac-mono">admin.clientes.emailCreds</code> o <code class="ac-mono">admin.clientes.emailCredentials</code>.
           </div>
         </div>
 
@@ -972,5 +1127,90 @@
 @endsection
 
 @push('scripts')
-  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v=12.2.0"></script>
+  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v=13.2.0"></script>
+
+  {{-- ✅ Hook para: setear action del envío de credenciales + defaults + abrir modal desde botón del drawer --}}
+  <script>
+  (function () {
+    'use strict';
+
+    const $ = (s, sc) => (sc || document).querySelector(s);
+
+    function txt(id){
+      const el = $(id);
+      return (el && (el.textContent || el.innerText) || '').trim();
+    }
+
+    function ensureActionAndPayload(){
+      const drawer = $('#clientDrawer');
+      const c = drawer && drawer._client ? drawer._client : null;
+
+      const form = $('#mCred_form_email_creds');
+      const missing = $('#mCred_email_creds_missing');
+      if (!form) return;
+
+      const url = c && c.email_creds_url ? String(c.email_creds_url) : '';
+      if (!url || url === '#') {
+        form.setAttribute('action', '#');
+        if (missing) missing.hidden = false;
+      } else {
+        form.setAttribute('action', url);
+        if (missing) missing.hidden = true;
+      }
+
+      // defaults destinatarios: statement recipients → email principal → vacío
+      const to = $('#mCred_to');
+      if (to) {
+        const csv = c && c.recips_statement ? String(c.recips_statement || '') : '';
+        const fallback = c && c.email ? String(c.email || '') : '';
+        if (!to.value.trim()) to.value = (csv || fallback || '').trim();
+      }
+
+      // payload para backend
+      const user = txt('#mCred_rfc') || (c && c.rfc) || '';
+      const pass = txt('#mCred_otp') || (c && c.otp_code) || '';
+      const access = (c && c.access_url ? String(c.access_url) : '') || (c && c.token_url ? String(c.token_url) : '') || '';
+
+      const hu = $('#mCred_hidden_user'); if (hu) hu.value = user;
+      const hp = $('#mCred_hidden_pass'); if (hp) hp.value = pass;
+      const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
+      const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : user);
+      const hrs= $('#mCred_hidden_rs'); if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : txt('#mCred_sub'));
+    }
+
+    // Cuando se abre el modal de credenciales desde tu UI
+    document.addEventListener('click', function (e) {
+      const btnCreds = e.target.closest('#btnOpenCreds');
+      if (!btnCreds) return;
+
+      setTimeout(ensureActionAndPayload, 80);
+    });
+
+    // “Enviar credenciales” del drawer: abre el modal Credenciales (sin depender del submit)
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('#drFormEmailCreds button');
+      if (!btn) return;
+
+      e.preventDefault();
+
+      // click “Credenciales” para mantener el flujo/JS existente
+      const openCreds = $('#btnOpenCreds');
+      if (openCreds) openCreds.click();
+
+      setTimeout(ensureActionAndPayload, 120);
+    });
+
+    // si el modal ya estaba abierto y editas campos, mantener hidden sync (seguro)
+    ['input','change','keyup'].forEach(evt => {
+      document.addEventListener(evt, function (e) {
+        if (!e.target) return;
+        if (e.target.id === 'mCred_to') return; // no afecta payload
+        const modal = $('#modalCreds');
+        if (modal && modal.getAttribute('aria-hidden') === 'false') {
+          ensureActionAndPayload();
+        }
+      }, true);
+    });
+  })();
+  </script>
 @endpush
