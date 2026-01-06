@@ -1,6 +1,8 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\admin.php
 
+declare(strict_types=1);
+
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
 
@@ -48,7 +50,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 | ENV + throttles
 |--------------------------------------------------------------------------
 */
-$isLocal = app()->environment(['local','development','testing']);
+$isLocal = app()->environment(['local', 'development', 'testing']);
 
 $thrLogin        = $isLocal ? 'throttle:60,1'  : 'throttle:5,1';
 $thrUiHeartbeat  = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
@@ -68,9 +70,13 @@ $thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
-        if (app()->environment(['local','development','testing'])) return [];
+        // En local: no forzamos permisos para poder trabajar rápido.
+        if (app()->environment(['local', 'development', 'testing'])) {
+            return [];
+        }
+
         $perms = is_array($perm) ? $perm : [$perm];
-        return array_map(fn($p) => 'can:perm,' . $p, $perms);
+        return array_map(static fn ($p) => 'can:perm,' . $p, $perms);
     }
 }
 
@@ -80,9 +86,10 @@ if (!function_exists('perm_mw')) {
 |--------------------------------------------------------------------------
 */
 if (!function_exists('admin_placeholder_view')) {
-    function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360') {
+    function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360')
+    {
         if (view()->exists('admin.generic.placeholder')) {
-            return view('admin.generic.placeholder', compact('title','company'));
+            return view('admin.generic.placeholder', compact('title', 'company'));
         }
 
         $html = "<!doctype html><meta charset='utf-8'><title>{$title}</title>
@@ -91,6 +98,7 @@ if (!function_exists('admin_placeholder_view')) {
                    <p style='color:#64748b'>Empresa: {$company}</p>
                    <p style='margin-top:14px'>Vista placeholder. Implementación pendiente.</p>
                  </div>";
+
         return response($html, 200);
     }
 }
@@ -100,11 +108,11 @@ if (!function_exists('admin_placeholder_view')) {
 | UI (heartbeat, log)
 |--------------------------------------------------------------------------
 */
-Route::match(['GET','HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
+Route::match(['GET', 'HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware($thrUiHeartbeat)
     ->name('ui.heartbeat');
 
-$uiLog = Route::match(['POST','GET'], 'ui/log', [UiController::class, 'log'])
+$uiLog = Route::match(['POST', 'GET'], 'ui/log', [UiController::class, 'log'])
     ->middleware($thrUiLog)
     ->name('ui.log');
 
@@ -138,7 +146,7 @@ Route::middleware([
 | Notificaciones públicas (contador)
 |--------------------------------------------------------------------------
 */
-Route::match(['GET','HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
+Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
     ->middleware('throttle:60,1')
     ->name('notificaciones.count');
 
@@ -161,12 +169,19 @@ Route::middleware([
 ) {
 
     /* ---------- Aliases raíz ---------- */
-    Route::get('/', fn() => redirect()->route('admin.home'))->name('root');
-    Route::get('dashboard', fn() => redirect()->route('admin.home'))->name('dashboard');
+    Route::get('/', fn () => redirect()->route('admin.home'))->name('root');
+    Route::get('dashboard', fn () => redirect()->route('admin.home'))->name('dashboard');
 
     /* ---------- WhoAmI admin ---------- */
     Route::get('_whoami', function () {
         $u = auth('admin')->user();
+
+        $canAccessAdmin = false;
+        if ($u) {
+            // Evita pasar null a Gate::forUser()
+            $canAccessAdmin = Gate::forUser($u)->allows('access-admin');
+        }
+
         return response()->json([
             'ok'     => (bool) $u,
             'id'     => $u?->id,
@@ -175,9 +190,9 @@ Route::middleware([
             'guard'  => 'admin',
             'now'    => now()->toDateTimeString(),
             'canAny' => [
-                'access-admin' => Gate::forUser($u)->allows('access-admin'),
+                'access-admin' => $canAccessAdmin,
             ],
-            'super'  => method_exists($u, 'isSuperAdmin')
+            'super'  => ($u && method_exists($u, 'isSuperAdmin'))
                 ? (bool) $u->isSuperAdmin()
                 : false,
         ]);
@@ -208,19 +223,19 @@ Route::middleware([
 
     if (method_exists(HomeController::class, 'hitsHeatmap')) {
         Route::get('home/hits-heatmap/{weeks?}', [HomeController::class, 'hitsHeatmap'])
-            ->where(['weeks'=>'\d+'])
+            ->where(['weeks' => '\d+'])
             ->name('home.hitsHeatmap');
     }
 
     if (method_exists(HomeController::class, 'modulesTop')) {
         Route::get('home/modules-top/{months?}', [HomeController::class, 'modulesTop'])
-            ->where(['months'=>'\d+'])
+            ->where(['months' => '\d+'])
             ->name('home.modulesTop');
     }
 
     if (method_exists(HomeController::class, 'plansBreakdown')) {
         Route::get('home/plans-breakdown/{months?}', [HomeController::class, 'plansBreakdown'])
-            ->where(['months'=>'\d+'])
+            ->where(['months' => '\d+'])
             ->name('home.plansBreakdown');
     }
 
@@ -271,9 +286,9 @@ Route::middleware([
             ->name('clientes.save');
 
         /*
-        |--------------------------------------------------------------------------|
-        | ✅ Nombres CANÓNICOS (coinciden con el controller y la vista nueva)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Nombres CANÓNICOS
+        |--------------------------------------------------------------------------
         */
         Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -292,9 +307,9 @@ Route::middleware([
             ->name('clientes.forcePhoneVerified');
 
         /*
-        |--------------------------------------------------------------------------|
-        | ✅ Aliases legacy/compat (para no romper vistas viejas)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Aliases legacy/compat
+        |--------------------------------------------------------------------------
         */
         Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -313,11 +328,11 @@ Route::middleware([
             ->name('clientes.forcePhone');
 
         /*
-        |--------------------------------------------------------------------------|
-        | ✅ Reset password (OWNER) — soporte RFC o ID (en controller acepta rfcOrId)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Reset password (OWNER)
+        |--------------------------------------------------------------------------
         */
-        $rp = Route::match(['GET','POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
+        $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
 
@@ -326,27 +341,26 @@ Route::middleware([
         }
 
         /*
-        |--------------------------------------------------------------------------|
-        | ✅ Enviar credenciales por correo (MODAL credenciales)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Enviar credenciales por correo
+        |--------------------------------------------------------------------------
         */
         $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.emailCredentials');
 
-        // En local, evita 419 si el modal envía por fetch/axios sin token
         if ($isLocal) {
             $emailCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
-            ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver','clientes.impersonate'])])
+            ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
 
         /*
-        |--------------------------------------------------------------------------|
-        | ✅ Stop impersonate — nombre canónico + alias legacy
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Stop impersonate
+        |--------------------------------------------------------------------------
         */
         Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
@@ -365,16 +379,15 @@ Route::middleware([
             ->name('clientes.bulk');
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         | ✅ Destinatarios / Sembrar Edo. Cuenta (periodo)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
             Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipientsUpsert');
 
-            // alias legacy si alguna vista usaba /clientes/{rfc}/recipients
             Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipients');
@@ -386,31 +399,25 @@ Route::middleware([
                 ->name('clientes.seedStatement');
         }
 
-        // Nota: sendCredentialsAndMaybeStatement NO existe en tu controller actual; se deja solo si existe
         if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
             Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.sendCredentials');
         }
-
     } else {
-        Route::get('clientes', fn () =>
-            response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200)
-        )
-        ->middleware(perm_mw('clientes.ver'))
-        ->name('clientes.index');
+        Route::get('clientes', fn () => response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200))
+            ->middleware(perm_mw('clientes.ver'))
+            ->name('clientes.index');
     }
 
     /* ---------- Soporte interno admin ---------- */
     Route::prefix('soporte')
         ->as('soporte.')
-        ->middleware(['auth:admin', \App\Http\Middleware\AdminSessionConfig::class])
         ->group(function () use ($thrAdminPosts, $isLocal) {
 
             Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
             Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
 
-            // ✅ Enviar credenciales por correo (nuevo controller)
             $sendCreds = Route::post('email-credentials/{accountId}', [EmailClienteCredentialsController::class, 'send'])
                 ->middleware($thrAdminPosts)
                 ->name('email_credentials.send');
@@ -425,44 +432,44 @@ Route::middleware([
 
     /* ---------- DEV / QA interno ---------- */
     Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
-        Route::get('qa', [QaController::class,'index'])
+        Route::get('qa', [QaController::class, 'index'])
             ->middleware($thrDevQa)
             ->name('qa');
 
-        $r1 = Route::post('resend-email', [QaController::class,'resendEmail'])
+        $r1 = Route::post('resend-email', [QaController::class, 'resendEmail'])
             ->middleware($thrDevPosts)
             ->name('resend_email');
 
-        $r2 = Route::post('send-otp', [QaController::class,'sendOtp'])
+        $r2 = Route::post('send-otp', [QaController::class, 'sendOtp'])
             ->middleware($thrDevPosts)
             ->name('send_otp');
 
-        $r3 = Route::post('force-email', [QaController::class,'forceEmailVerified'])
+        $r3 = Route::post('force-email', [QaController::class, 'forceEmailVerified'])
             ->middleware($thrDevPosts)
             ->name('force_email');
 
-        $r4 = Route::post('force-phone', [QaController::class,'forcePhoneVerified'])
+        $r4 = Route::post('force-phone', [QaController::class, 'forcePhoneVerified'])
             ->middleware($thrDevPosts)
             ->name('force_phone');
 
         if ($isLocal) {
-            foreach ([$r1,$r2,$r3,$r4] as $route) {
+            foreach ([$r1, $r2, $r3, $r4] as $route) {
                 $route->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
             }
         }
     });
 
     /*
-    |--------------------------------------------------------------------------|
+    |--------------------------------------------------------------------------
     | BILLING (DEBE IR ANTES DEL FALLBACK)
-    |--------------------------------------------------------------------------|
+    |--------------------------------------------------------------------------
     */
-    Route::prefix('billing')->name('billing.')->group(function () {
+    Route::prefix('billing')->name('billing.')->group(function () use ($thrAdminPosts, $isLocal) {
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         | Billing SaaS · Cuentas
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         Route::get('accounts', [AccountsController::class, 'index'])
             ->name('accounts.index');
@@ -488,9 +495,9 @@ Route::middleware([
             ->name('invoices.requests.email_ready');
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         | HUB · extras (preview / resend / save invoice)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
             ->name('statements_hub.preview_email');
@@ -503,9 +510,27 @@ Route::middleware([
             ->name('statements_hub.save_invoice');
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ HUB · ACCIONES MASIVAS (bulk bar)
+        |--------------------------------------------------------------------------
+        */
+        $bulkSend = Route::post('statements-hub/bulk/send', [BillingStatementsHubController::class, 'bulkSend'])
+            ->middleware($thrAdminPosts)
+            ->name('statements_hub.bulk_send');
+
+        $bulkPay = Route::post('statements-hub/bulk/paylinks', [BillingStatementsHubController::class, 'bulkPayLinks'])
+            ->middleware($thrAdminPosts)
+            ->name('statements_hub.bulk_paylinks');
+
+        if ($isLocal) {
+            $bulkSend->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            $bulkPay->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | Estados de cuenta (ADMIN) — BillingStatementsController (legacy)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         Route::get('statements', [BillingStatementsController::class, 'index'])
             ->name('statements.index');
@@ -539,9 +564,9 @@ Route::middleware([
             ->name('statements.email');
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         | HUB ADMIN · Estados de cuenta + Pagos + Correos + Facturas + Programación
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         Route::get('statements-hub', [BillingStatementsHubController::class, 'index'])
             ->name('statements_hub.index');
@@ -562,9 +587,47 @@ Route::middleware([
             ->name('statements_hub.schedule');
 
         /*
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
+        | ✅ Estado de cuenta · CRUD de líneas + guardar configuración
+        |--------------------------------------------------------------------------
+        | Paths:
+        | - POST   /admin/billing/statements/lines
+        | - PUT    /admin/billing/statements/lines
+        | - DELETE /admin/billing/statements/lines
+        | - POST   /admin/billing/statements/save
+        |
+        | Route names:
+        | - admin.billing.statements.lines.store
+        | - admin.billing.statements.lines.update
+        | - admin.billing.statements.lines.delete
+        | - admin.billing.statements.save
+        */
+        $stLinesStore = Route::post('statements/lines', [BillingStatementsController::class, 'lineStore'])
+            ->middleware($thrAdminPosts)
+            ->name('statements.lines.store');
+
+        $stLinesUpdate = Route::put('statements/lines', [BillingStatementsController::class, 'lineUpdate'])
+            ->middleware($thrAdminPosts)
+            ->name('statements.lines.update');
+
+        $stLinesDelete = Route::delete('statements/lines', [BillingStatementsController::class, 'lineDelete'])
+            ->middleware($thrAdminPosts)
+            ->name('statements.lines.delete');
+
+        $stSave = Route::post('statements/save', [BillingStatementsController::class, 'saveStatement'])
+            ->middleware($thrAdminPosts)
+            ->name('statements.save');
+
+        if ($isLocal) {
+            foreach ([$stLinesStore, $stLinesUpdate, $stLinesDelete, $stSave] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | Suite existente (si la sigues usando)
-        |--------------------------------------------------------------------------|
+        |--------------------------------------------------------------------------
         */
         Route::get('prices', [PriceCatalogController::class, 'index'])->name('prices.index');
         Route::get('prices/{id}/edit', [PriceCatalogController::class, 'edit'])->whereNumber('id')->name('prices.edit');

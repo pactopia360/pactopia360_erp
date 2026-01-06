@@ -7,14 +7,17 @@ use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Auth\Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use App\Support\Auth\WithoutRememberToken;
 
 /**
  * Usuario administrativo (Admin)
- * Tabla real: usuarios_admin (PK bigint autoincrement)
+ *
+ * Compatibilidad:
+ * - LOCAL:  usuario_administrativos (UUID string, no AI)
+ * - PROD:   usuarios_admin (bigint AI)
+ *
  * Conexión: mysql_admin
  * SIN remember_token (se anula con WithoutRememberToken)
  */
@@ -33,27 +36,29 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
         Authenticatable::getRememberTokenName as protected __authGetRememberTokenName;
     }
 
-    /** Conexión recomendada */
+    /** Conexión ADMIN */
     protected $connection = 'mysql_admin';
 
     /**
-     * Tabla real (PROD): usuarios_admin
-     * Columnas: id(bigint AI), nombre, email, password, rol, activo, remember_token, created_at, updated_at
+     * Tabla default (PROD). En constructor se ajusta si existe la tabla LOCAL.
      */
     protected $table = 'usuarios_admin';
 
-    /** PK bigint autoincrement */
+    /** PK default (PROD) */
     public $incrementing  = true;
     protected $keyType    = 'int';
     protected $primaryKey = 'id';
 
-    /** Atributos asignables */
+    /** Atributos asignables (conjunto amplio para ambos esquemas) */
     protected $fillable = [
+        'id',
         'nombre',
         'email',
         'password',
         'rol',
+        'perfil_id',
         'activo',
+        'es_superadmin',
         'remember_token',
         'created_at',
         'updated_at',
@@ -66,10 +71,43 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
 
     /** Casts */
     protected $casts = [
-        'activo'     => 'boolean',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'activo'        => 'integer',
+        'es_superadmin' => 'integer',
+        'created_at'    => 'datetime',
+        'updated_at'    => 'datetime',
     ];
+
+    public function __construct(array $attributes = [])
+    {
+        parent::__construct($attributes);
+
+        // Elegir tabla según exista en el esquema real de la conexión admin
+        $conn = $this->getConnectionName();
+
+        try {
+            $schema = Schema::connection($conn);
+
+            // Preferir tabla LOCAL si existe
+            if ($schema->hasTable('usuario_administrativos')) {
+                $this->setTable('usuario_administrativos');
+
+                // En tu local es UUID (string)
+                $this->incrementing = false;
+                $this->keyType = 'string';
+                $this->primaryKey = 'id';
+            } else {
+                // Fallback PROD
+                $this->setTable('usuarios_admin');
+
+                // En prod es bigint AI
+                $this->incrementing = true;
+                $this->keyType = 'int';
+                $this->primaryKey = 'id';
+            }
+        } catch (\Throwable $e) {
+            // Si falla Schema por cualquier razón, no rompas el modelo: se queda en default PROD
+        }
+    }
 
     /** Fallback si no existe conexión mysql_admin */
     public function getConnectionName()
@@ -114,17 +152,19 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
     {
         $schema = Schema::connection($this->getConnectionName());
         if (!$schema->hasColumn($this->getTable(), 'activo')) return true;
-        return (bool) $this->activo;
+        return (int) $this->activo === 1;
     }
 
     public function markLastLogin(?string $ip = null): void
     {
-        // En usuarios_admin no existen columnas last_login_*; no hacemos nada.
-        // Si en el futuro las agregas, aquí se puede extender.
+        // En ambos esquemas actuales no dependemos de columnas last_login_*.
     }
 
     public function isSuperAdmin(): bool
     {
+        // Flag primero (local tiene es_superadmin)
+        if ((int)($this->es_superadmin ?? 0) === 1) return true;
+
         $rol = strtolower((string)($this->rol ?? ''));
         if ($rol === 'superadmin') return true;
 
@@ -150,7 +190,6 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
 
     public function hasPerm(string $clave): bool
     {
-        // Mantengo tu lógica, pero con PK bigint funciona igual
         if ($this->isSuperAdmin()) return true;
 
         $key = mb_strtolower(trim($clave));
@@ -169,7 +208,6 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
 
         $hasClave  = $schema->hasColumn('permisos', 'clave');
         $hasNombre = $schema->hasColumn('permisos', 'nombre');
-
         if (!$hasClave && !$hasNombre) return false;
 
         $q = DB::connection($conn)

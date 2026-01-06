@@ -838,11 +838,29 @@ class HomeController extends Controller
         return null;
     }
 
-    private function resolveEffectiveMonthlyAmountFromAdmin(object $acc, array $meta, string $period, string $payAllowed): array
+    private function resolveEffectiveMonthlyAmountFromAdmin(?object $acc, array $meta, string $period, string $payAllowed): array
     {
+        // =========================================================
+        // FIX CRÍTICO: primer acceso sin cuenta admin asociada
+        // =========================================================
+        if (!$acc) {
+            return [
+                'amount_mxn'            => 0.0,
+                'override'              => [
+                    'amount_mxn' => 0.0,
+                    'effective'  => null,
+                ],
+                'effective_amount_mxn'  => 0.0,
+                'label'                 => 'Sin tarifa',
+                'pill'                  => 'Base',
+            ];
+        }
+
         $billing = (array)($meta['billing'] ?? []);
 
+        // =========================================================
         // Base (prioridad: meta.billing.amount_mxn -> columnas -> 0)
+        // =========================================================
         $base = $this->toFloat($billing['amount_mxn'] ?? ($billing['amount'] ?? null));
 
         if ($base === null || $base <= 0) {
@@ -852,13 +870,20 @@ class HomeController extends Controller
             ] as $prop) {
                 if (isset($acc->{$prop})) {
                     $n = $this->toFloat($acc->{$prop});
-                    if ($n !== null && $n > 0) { $base = $n; break; }
+                    if ($n !== null && $n > 0) {
+                        $base = $n;
+                        break;
+                    }
                 }
             }
         }
+
         $base = (float)($base ?? 0.0);
 
-        // Override (prioridad: meta.billing.override.amount_mxn -> meta.billing.override_amount_mxn -> columnas override/custom)
+        // =========================================================
+        // Override (prioridad: meta.billing.override.amount_mxn
+        // -> meta.billing.override_amount_mxn -> columnas override)
+        // =========================================================
         $ov = (array)($billing['override'] ?? []);
         $override = $this->toFloat($ov['amount_mxn'] ?? ($billing['override_amount_mxn'] ?? null)) ?? 0.0;
 
@@ -866,20 +891,28 @@ class HomeController extends Controller
             foreach (['override_amount_mxn','custom_amount_mxn'] as $prop) {
                 if (isset($acc->{$prop})) {
                     $n = $this->toFloat($acc->{$prop});
-                    if ($n !== null && $n > 0) { $override = $n; break; }
+                    if ($n !== null && $n > 0) {
+                        $override = $n;
+                        break;
+                    }
                 }
             }
         }
 
+        // =========================================================
+        // Aplicación del override (now | next)
+        // =========================================================
         $eff = strtolower(trim((string)($ov['effective'] ?? ($billing['override_effective'] ?? ''))));
-        if (!in_array($eff, ['now','next'], true)) $eff = '';
+        if (!in_array($eff, ['now','next'], true)) {
+            $eff = '';
+        }
 
         $apply = false;
         if ($override > 0) {
             if ($eff === 'now') {
                 $apply = true;
             } elseif ($eff === 'next') {
-                // aplica desde payAllowed en adelante
+                // Aplica desde payAllowed en adelante
                 $apply = ($payAllowed !== '' && $this->isValidPeriod($payAllowed) && $period >= $payAllowed);
             }
         }
@@ -902,6 +935,7 @@ class HomeController extends Controller
             'pill'                  => (string)$pillText,
         ];
     }
+
 
     private function isValidPeriod(string $period): bool
     {

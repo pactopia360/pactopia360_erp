@@ -3,7 +3,7 @@
   --sidebar-w: 16rem;
   --sidebar-w-collapsed: 72px;
   --header-h: 56px;
-  --page-max: 1280px;         /* << tamaño máximo del contenido */
+  --page-max: 1280px;         /* tamaño máximo del contenido */
   --gap: 12px;
   --gap-lg: 16px;
 }
@@ -32,6 +32,33 @@ body{
 .admin-footer{border-top:1px solid rgba(0,0,0,.05);margin-top:1rem}
 [data-theme="dark"] .admin-footer{border-top-color:rgba(255,255,255,.1)}
 
-/* CENTRADO universal de páginas */
-.page-container{padding:var(--gap-lg);display:flex;justify-content:center}
-.page-shell{width:100%;max-width:var(--page-max);margin-inline:auto;padding:var(--gap-lg)}
+/* ========================================================================
+   CENTRADO universal de páginas (DEFAULT)
+   ======================================================================== */
+.page-container{
+  padding:var(--gap-lg);
+  display:flex;
+  justify-content:center;
+}
+.page-shell{
+  width:100%;
+  max-width:var(--page-max);
+  margin-inline:auto;
+  padding:var(--gap-lg);
+}
+
+/* ========================================================================
+   OVERRIDES por pantalla (NO romper todo el Admin)
+   - Esta pantalla requiere full-width real y que "se vea todo".
+   - Se activa con: @section('pageClass','page-admin-statement-show')
+   ======================================================================== */
+body.page-admin-statement-show .page-container{
+  padding:0 !important;
+  display:block !important;
+  justify-content:unset !important;
+}
+body.page-admin-statement-show .page-shell{
+  max-width:none !important;
+  margin:0 !important;
+  padding:0 !important;
+}

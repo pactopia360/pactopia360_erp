@@ -49,6 +49,24 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         /**
+         * ✅ DEFINIR GROUPS (CRÍTICO)
+         * Tu RouteServiceProvider usa Route::middleware('admin') y ('cliente'),
+         * así que estos grupos deben existir.
+         *
+         * OJO: aquí "componemos" sobre el grupo 'web' estándar, y añadimos tu session config.
+         * La prioridad real de ejecución la controla $middleware->priority(...) más abajo.
+         */
+        $middleware->group('admin', [
+            'web',
+            'session.admin',
+        ]);
+
+        $middleware->group('cliente', [
+            'web',
+            'session.cliente',
+        ]);
+
+        /**
          * Prioridad
          * CRÍTICO:
          * - StartSession DEBE correr antes de cualquier middleware que use $request->session()

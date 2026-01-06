@@ -58,6 +58,85 @@ Route::get('/', function () {
 
 /*
 |--------------------------------------------------------------------------
+| DEBUG (TEMP, SIN AUTH) — VALIDAR COOKIE/GUARD/SESSION EN /cliente
+|--------------------------------------------------------------------------
+*/
+Route::get('__debug', function (Request $request) {
+
+    $inCookie = $request->cookie(config('session.cookie'));
+
+    return response()->json([
+        'path'   => $request->path(),
+        'host'   => $request->getHost(),
+        'method' => $request->method(),
+
+        'config' => [
+            'session_driver' => config('session.driver'),
+            'session_cookie' => config('session.cookie'),
+            'session_table'  => config('session.table'),
+            'session_conn'   => config('session.connection'),
+            'default_guard'  => config('auth.defaults.guard'),
+            'web_provider'   => config('auth.guards.web.provider'),
+            'provider_model_clientes' => config('auth.providers.clientes.model'),
+        ],
+
+        'session_runtime' => [
+            'has_session' => $request->hasSession(),
+            'session_id'  => $request->hasSession() ? $request->session()->getId() : null,
+            'csrf_token'  => $request->hasSession() ? $request->session()->token() : null,
+        ],
+
+        'cookies' => [
+            'expected_cookie_name' => config('session.cookie'),
+            'has_expected_cookie'  => $inCookie !== null,
+        ],
+
+        'auth' => [
+            'auth_web_check' => auth('web')->check(),
+            'user_id'        => auth('web')->id(),
+        ],
+    ]);
+})->middleware(['web'])->name('debug.public');
+
+
+/*
+|--------------------------------------------------------------------------
+| DEBUG SESSION (TEMP) — VALIDAR COOKIE/GUARD/SESSION EN CONTEXTO /cliente
+|--------------------------------------------------------------------------
+| IMPORTANTE:
+| - Se ejecuta bajo /cliente/* para que PortalSessionBootstrap aplique
+|   session.cookie = p360_client_session y auth.defaults.guard = web.
+| - Protegida con auth:web para verla ya logueado.
+*/
+Route::get('__session', function () {
+    return response()->json([
+        'auth_web' => auth('web')->check(),
+        'user_id'  => auth('web')->id(),
+        'session'  => [
+            'cliente.cuenta_id'   => session('cliente.cuenta_id'),
+            'cliente.account_id'  => session('cliente.account_id'),
+            'client.cuenta_id'    => session('client.cuenta_id'),
+            'client.account_id'   => session('client.account_id'),
+            'cuenta_id'           => session('cuenta_id'),
+            'account_id'          => session('account_id'),
+            'client_cuenta_id'    => session('client_cuenta_id'),
+            'client_account_id'   => session('client_account_id'),
+        ],
+        'config' => [
+            'session_driver' => config('session.driver'),
+            'session_cookie' => config('session.cookie'),
+            'session_table'  => config('session.table'),
+            'session_conn'   => config('session.connection'),
+            'default_guard'  => config('auth.defaults.guard'),
+            'web_provider'   => config('auth.guards.web.provider'),
+            'provider_model' => config('auth.providers.clientes.model'),
+        ],
+    ]);
+})->middleware(['web','auth:web'])->name('debug.session');
+
+
+/*
+|--------------------------------------------------------------------------
 | ✅ PAYWALL (SIN LOGIN) — redirige a Stripe Checkout PRO
 |--------------------------------------------------------------------------
 | LoginController (cuando admin.is_blocked=1) hace:
