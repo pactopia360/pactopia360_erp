@@ -2362,51 +2362,50 @@ final class AccountBillingController extends Controller
     }
 
     private function qrToDataUri(string $text, int $size = 150): ?string
-    {
-        $text = trim($text);
-        if ($text === '') {
-            Log::warning('[BILLING] qrToDataUri empty payload');
+{
+    try {
+        // bacon/bacon-qr-code requerido
+        if (!class_exists(\BaconQrCode\Writer::class) || !class_exists(\BaconQrCode\Renderer\ImageRenderer::class)) {
             return null;
         }
 
-        try {
+        $size = max(80, min(600, $size));
+
+        // 1) Intentar PNG con GD si el backend existe (bacon v3)
+        if (extension_loaded('gd') && class_exists(\BaconQrCode\Renderer\Image\GdImageBackEnd::class)) {
             $renderer = new \BaconQrCode\Renderer\ImageRenderer(
                 new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
                 new \BaconQrCode\Renderer\Image\GdImageBackEnd()
             );
-
             $writer = new \BaconQrCode\Writer($renderer);
-            $pngBin = $writer->writeString($text);
 
-            if (is_string($pngBin) && $pngBin !== '') {
-                return 'data:image/png;base64,'.base64_encode($pngBin);
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] qrToDataUri PNG failed', [
-                'err' => $e->getMessage(),
-                'gd'  => extension_loaded('gd'),
-            ]);
+            $png = $writer->writeString($text);
+            return 'data:image/png;base64,' . base64_encode($png);
         }
 
-        try {
-            $svgBackEnd = new \BaconQrCode\Renderer\Image\SvgImageBackEnd();
+        // 2) Fallback SVG (según versión puede existir)
+        if (class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)) {
             $renderer = new \BaconQrCode\Renderer\ImageRenderer(
                 new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
-                $svgBackEnd
+                new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
             );
-
             $writer = new \BaconQrCode\Writer($renderer);
-            $svg = $writer->writeString($text);
 
-            if (is_string($svg) && $svg !== '') {
-                return 'data:image/svg+xml;base64,'.base64_encode($svg);
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] qrToDataUri SVG failed', ['err' => $e->getMessage()]);
+            $svg = $writer->writeString($text);
+            return 'data:image/svg+xml;base64,' . base64_encode($svg);
         }
 
+        // Sin backend compatible
+        return null;
+    } catch (\Throwable $e) {
+        \Log::warning('[BILLING] qrToDataUri failed', [
+            'err' => $e->getMessage(),
+            'gd'  => extension_loaded('gd'),
+        ]);
         return null;
     }
+}
+
 
     private function renderSimplePdfHtml(array $d): string
     {

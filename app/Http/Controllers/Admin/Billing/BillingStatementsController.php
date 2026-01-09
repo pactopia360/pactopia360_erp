@@ -832,10 +832,7 @@ final class BillingStatementsController extends Controller
 
         $data = $this->buildStatementData($accountId, $period);
 
-        $data['pdf_url'] = route('cliente.billing.publicPdfInline', [
-            'accountId' => $accountId,
-            'period'    => $period,
-        ]);
+        $data['pdf_url'] = URL::signedRoute('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period]);
 
         $data['portal_url'] = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
 

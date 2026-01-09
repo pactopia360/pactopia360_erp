@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -1235,7 +1236,7 @@ final class BillingStatementsHubController extends Controller
         $saldo = max(0, $totalShown - $abono);
 
         $pdfUrl = Route::has('cliente.billing.publicPdfInline')
-            ? route('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period])
+            ? URL::signedRoute('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period])
             : '';
 
         $portalUrl = Route::has('cliente.estado_cuenta')

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Schema;
 
 final class BillingProcessScheduledEmails extends Command
@@ -247,7 +248,7 @@ final class BillingProcessScheduledEmails extends Command
         $portalUrl = '';
 
         if (Route::has('cliente.billing.publicPdfInline')) {
-            $pdfUrl = route('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period]);
+            $pdfUrl = URL::signedRoute('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period]);
         }
 
         if (Route::has('cliente.estado_cuenta')) {
