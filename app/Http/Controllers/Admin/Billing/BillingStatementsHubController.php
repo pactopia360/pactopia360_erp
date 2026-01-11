@@ -778,7 +778,7 @@ final class BillingStatementsHubController extends Controller
 
 
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        if (!$acc) { return response('Cuenta no encontrada.', 404); }
+        if (!$acc) { return response('Cuenta no encontrada.', 404)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache'); }
 
         $items = DB::connection($this->adm)->table('estados_cuenta')
             ->where('account_id', $accountId)
@@ -805,7 +805,7 @@ final class BillingStatementsHubController extends Controller
         $saldo = max(0.0, $totalShown - $abono);
 
         if ($saldo <= 0.00001) {
-            return response('No hay saldo pendiente para ese periodo.', 200);
+            return response('No hay saldo pendiente para ese periodo.', 200)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache');
         }
 
         try {
@@ -1799,7 +1799,7 @@ final class BillingStatementsHubController extends Controller
         return (int) DB::connection($this->adm)->table('billing_email_logs')->insertGetId($ins);
     } 
 
-    public function payLink(Request $req): \Symfony\Component\HttpFoundation\Response
+    public function payLink(Request $req)
 {
     $data = $req->validate([
         'account_id' => 'required|string|max:64',
@@ -1810,7 +1810,7 @@ final class BillingStatementsHubController extends Controller
     $period    = (string) $data['period'];
 
     $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-    if (!$acc) { return response('Cuenta no encontrada.', 404); }
+    if (!$acc) { return response('Cuenta no encontrada.', 404)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache'); }
 
     $items = collect();
     if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
@@ -1839,12 +1839,12 @@ final class BillingStatementsHubController extends Controller
     $saldo = max(0.0, $totalShown - $abono);
 
     if ($saldo <= 0.00001) {
-        return response('No hay saldo pendiente para ese periodo.', 200);
+        return response('No hay saldo pendiente para ese periodo.', 200)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache');
     }
 
     try {
         [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
-        return redirect()->away($url);
+        return redirect()->away((string) $url)->withHeaders(['Cache-Control' => 'no-store, max-age=0, public', 'Pragma' => 'no-cache']);
     } catch (\Throwable $e) {
         return response('No se pudo generar liga: ' . $e->getMessage(), 500);
     }
