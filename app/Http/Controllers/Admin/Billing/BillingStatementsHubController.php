@@ -778,7 +778,7 @@ final class BillingStatementsHubController extends Controller
 
 
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        if (!$acc) return back()->withErrors(['pay' => 'Cuenta no encontrada.']);
+        if (!$acc) { return response('Cuenta no encontrada.', 404); }
 
         $items = DB::connection($this->adm)->table('estados_cuenta')
             ->where('account_id', $accountId)
@@ -805,14 +805,14 @@ final class BillingStatementsHubController extends Controller
         $saldo = max(0.0, $totalShown - $abono);
 
         if ($saldo <= 0.00001) {
-            return back()->with('ok', 'No hay saldo pendiente para ese periodo.');
+            return response('No hay saldo pendiente para ese periodo.', 200);
         }
 
         try {
             [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
             return back()->with('ok', 'Liga de pago (Stripe): ' . $url . ' (session=' . $sessionId . ')');
         } catch (\Throwable $e) {
-            return back()->withErrors(['pay' => 'No se pudo generar liga: ' . $e->getMessage()]);
+            return response('No se pudo generar liga: ' . $e->getMessage(), 500);
         }
     }
 
@@ -1799,7 +1799,7 @@ final class BillingStatementsHubController extends Controller
         return (int) DB::connection($this->adm)->table('billing_email_logs')->insertGetId($ins);
     } 
 
-    public function payLink(Request $req): RedirectResponse
+    public function payLink(Request $req): \Symfony\Component\HttpFoundation\Response
 {
     $data = $req->validate([
         'account_id' => 'required|string|max:64',
@@ -1810,7 +1810,7 @@ final class BillingStatementsHubController extends Controller
     $period    = (string) $data['period'];
 
     $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-    if (!$acc) return back()->withErrors(['pay' => 'Cuenta no encontrada.']);
+    if (!$acc) { return response('Cuenta no encontrada.', 404); }
 
     $items = collect();
     if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
@@ -1839,14 +1839,14 @@ final class BillingStatementsHubController extends Controller
     $saldo = max(0.0, $totalShown - $abono);
 
     if ($saldo <= 0.00001) {
-        return back()->with('ok', 'No hay saldo pendiente para ese periodo.');
+        return response('No hay saldo pendiente para ese periodo.', 200);
     }
 
     try {
         [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
         return redirect()->away($url);
     } catch (\Throwable $e) {
-        return back()->withErrors(['pay' => 'No se pudo generar liga: ' . $e->getMessage()]);
+        return response('No se pudo generar liga: ' . $e->getMessage(), 500);
     }
 }
 

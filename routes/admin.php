@@ -123,19 +123,23 @@ if (!function_exists('admin_placeholder_view')) {
 | - Debe ir FUERA del grupo auth:admin.
 | - Para que NO aparezca ningún Set-Cookie, quitamos cookies+sesión del stack web.
 */
+
+
+
+$noCookies = [
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \App\Http\Middleware\VerifyCsrfToken::class,
+    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+];
+
 Route::prefix('t/billing')
     ->name('track.billing.')
     ->middleware('throttle:240,1')
-    ->group(function () {
+    ->group(function () use ($noCookies) {
 
-        $noCookies = [
-            \Illuminate\Cookie\Middleware\EncryptCookies::class,
-            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-            \Illuminate\Session\Middleware\StartSession::class,
-            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-            \App\Http\Middleware\VerifyCsrfToken::class,
-            \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
-        ];
 
         // OPEN pixel (sin .gif) ← recomendado (evita que nginx lo trate como asset estático)
         Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
@@ -167,7 +171,7 @@ Route::prefix('t/billing')
 | - La URL final queda: /admin/billing/statements-hub/paylink
 | - El nombre de ruta queda: admin.billing.statements_hub.paylink
 */
-Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
+Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])->middleware('throttle:240,1')->withoutMiddleware($noCookies)
     ->name('billing.statements_hub.paylink');
 
 /*
