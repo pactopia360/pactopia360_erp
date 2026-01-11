@@ -1,5 +1,6 @@
 <?php
-// C:\wamp64\www\pactopia360_erp\routes\admin.php
+// /var/www/pactopia360_erp/routes/admin.php
+// (equivalente a C:\wamp64\www\pactopia360_erp\routes\admin.php)
 
 declare(strict_types=1);
 
@@ -105,6 +106,72 @@ if (!function_exists('admin_placeholder_view')) {
 
 /*
 |--------------------------------------------------------------------------
+| ✅ Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
+|--------------------------------------------------------------------------
+| IMPORTANTE:
+| - Este archivo admin.php se monta bajo prefix('/admin') desde web.php,
+|   por lo que las URLs finales serán:
+|   - /admin/t/billing/open/{emailId}
+|   - /admin/t/billing/open/{emailId}.gif   (compat, puede chocar con nginx static si no se enruta a PHP)
+|   - /admin/t/billing/click/{emailId}?u=...
+|
+| - Los nombres de ruta quedan:
+|   - admin.track.billing.open
+|   - admin.track.billing.open_gif
+|   - admin.track.billing.click
+|
+| - Debe ir FUERA del grupo auth:admin.
+| - Para que NO aparezca ningún Set-Cookie, quitamos cookies+sesión del stack web.
+*/
+Route::prefix('t/billing')
+    ->name('track.billing.')
+    ->middleware('throttle:240,1')
+    ->group(function () {
+
+        $noCookies = [
+            \Illuminate\Cookie\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \App\Http\Middleware\VerifyCsrfToken::class,
+            \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+        ];
+
+        // OPEN pixel (sin .gif) ← recomendado (evita que nginx lo trate como asset estático)
+        Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
+            ->where('emailId', '[A-Za-z0-9\-]+')
+            ->withoutMiddleware($noCookies)
+            ->name('open');
+
+        // OPEN pixel (con .gif) para compatibilidad (puede requerir ajuste nginx)
+        Route::get('open/{emailId}.gif', [BillingStatementsHubController::class, 'trackOpen'])
+            ->where('emailId', '[A-Za-z0-9\-]+')
+            ->withoutMiddleware($noCookies)
+            ->name('open_gif');
+
+        // CLICK wrapper
+        Route::get('click/{emailId}', [BillingStatementsHubController::class, 'trackClick'])
+            ->where('emailId', '[A-Za-z0-9\-]+')
+            ->withoutMiddleware($noCookies)
+            ->name('click');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| ✅ PayLink público (GET) para Estados de Cuenta (HUB)
+|--------------------------------------------------------------------------
+| Debe ir FUERA de auth:admin para permitir que el cliente (o correo) lo abra.
+|
+| OJO:
+| - Este archivo ya vive bajo prefix('/admin'), así que aquí NO debes repetir "admin/".
+| - La URL final queda: /admin/billing/statements-hub/paylink
+| - El nombre de ruta queda: admin.billing.statements_hub.paylink
+*/
+Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
+    ->name('billing.statements_hub.paylink');
+
+/*
+|--------------------------------------------------------------------------
 | UI (heartbeat, log)
 |--------------------------------------------------------------------------
 */
@@ -178,7 +245,6 @@ Route::middleware([
 
         $canAccessAdmin = false;
         if ($u) {
-            // Evita pasar null a Gate::forUser()
             $canAccessAdmin = Gate::forUser($u)->allows('access-admin');
         }
 
@@ -285,11 +351,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.save');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Nombres CANÓNICOS
-        |--------------------------------------------------------------------------
-        */
         Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmailVerification');
@@ -306,11 +367,7 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Aliases legacy/compat
-        |--------------------------------------------------------------------------
-        */
+        // Aliases
         Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
@@ -327,11 +384,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhone');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Reset password (OWNER)
-        |--------------------------------------------------------------------------
-        */
         $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
@@ -340,11 +392,6 @@ Route::middleware([
             $rp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Enviar credenciales por correo
-        |--------------------------------------------------------------------------
-        */
         $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.emailCredentials');
@@ -357,11 +404,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Stop impersonate
-        |--------------------------------------------------------------------------
-        */
         Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
             ->name('clientes.impersonateStop');
@@ -378,11 +420,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.bulk');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Destinatarios / Sembrar Edo. Cuenta (periodo)
-        |--------------------------------------------------------------------------
-        */
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
             Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -466,11 +503,6 @@ Route::middleware([
     */
     Route::prefix('billing')->name('billing.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        /*
-        |--------------------------------------------------------------------------
-        | Billing SaaS · Cuentas
-        |--------------------------------------------------------------------------
-        */
         Route::get('accounts', [AccountsController::class, 'index'])
             ->name('accounts.index');
 
@@ -494,11 +526,6 @@ Route::middleware([
             ->whereNumber('id')
             ->name('invoices.requests.email_ready');
 
-        /*
-        |--------------------------------------------------------------------------
-        | HUB · extras (preview / resend / save invoice)
-        |--------------------------------------------------------------------------
-        */
         Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
             ->name('statements_hub.preview_email');
 
@@ -509,11 +536,6 @@ Route::middleware([
         Route::post('statements-hub/invoices/save', [BillingStatementsHubController::class, 'saveInvoice'])
             ->name('statements_hub.save_invoice');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ HUB · ACCIONES MASIVAS (bulk bar)
-        |--------------------------------------------------------------------------
-        */
         $bulkSend = Route::post('statements-hub/bulk/send', [BillingStatementsHubController::class, 'bulkSend'])
             ->middleware($thrAdminPosts)
             ->name('statements_hub.bulk_send');
@@ -527,11 +549,6 @@ Route::middleware([
             $bulkPay->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Estados de cuenta (ADMIN) — BillingStatementsController (legacy)
-        |--------------------------------------------------------------------------
-        */
         Route::get('statements', [BillingStatementsController::class, 'index'])
             ->name('statements.index');
 
@@ -563,11 +580,6 @@ Route::middleware([
             ])
             ->name('statements.email');
 
-        /*
-        |--------------------------------------------------------------------------
-        | HUB ADMIN · Estados de cuenta + Pagos + Correos + Facturas + Programación
-        |--------------------------------------------------------------------------
-        */
         Route::get('statements-hub', [BillingStatementsHubController::class, 'index'])
             ->name('statements_hub.index');
 
@@ -586,22 +598,6 @@ Route::middleware([
         Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
             ->name('statements_hub.schedule');
 
-        /*
-        |--------------------------------------------------------------------------
-        | ✅ Estado de cuenta · CRUD de líneas + guardar configuración
-        |--------------------------------------------------------------------------
-        | Paths:
-        | - POST   /admin/billing/statements/lines
-        | - PUT    /admin/billing/statements/lines
-        | - DELETE /admin/billing/statements/lines
-        | - POST   /admin/billing/statements/save
-        |
-        | Route names:
-        | - admin.billing.statements.lines.store
-        | - admin.billing.statements.lines.update
-        | - admin.billing.statements.lines.delete
-        | - admin.billing.statements.save
-        */
         $stLinesStore = Route::post('statements/lines', [BillingStatementsController::class, 'lineStore'])
             ->middleware($thrAdminPosts)
             ->name('statements.lines.store');
@@ -624,11 +620,6 @@ Route::middleware([
             }
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Suite existente (si la sigues usando)
-        |--------------------------------------------------------------------------
-        */
         Route::get('prices', [PriceCatalogController::class, 'index'])->name('prices.index');
         Route::get('prices/{id}/edit', [PriceCatalogController::class, 'edit'])->whereNumber('id')->name('prices.edit');
         Route::put('prices/{id}', [PriceCatalogController::class, 'update'])->whereNumber('id')->name('prices.update');

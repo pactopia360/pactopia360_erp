@@ -1,4 +1,4 @@
-{{-- resources/views/cliente/billing/pdf/statement.blade.php (P360 · PDF Estado de cuenta · match mock) --}}
+{{-- resources/views/cliente/billing/pdf/statement.blade.php (P360 · PDF Estado de cuenta) --}}
 <!doctype html>
 <html lang="es">
 <head>
@@ -22,6 +22,8 @@
     .b{ font-weight:900; }
     .sb{ font-weight:700; }
     .mono{ font-family: DejaVu Sans Mono, ui-monospace, monospace; }
+    .r{ text-align:right; }
+    .c{ text-align:center; }
 
     .sp6{ height:6px; }
     .sp8{ height:8px; }
@@ -71,6 +73,29 @@
       color:#111827;
     }
 
+    /* Key/Value table */
+    .kv{ width:100%; border-collapse:collapse; }
+    .kv td{ padding:2px 0; vertical-align:top; }
+    .kv .k{ color:#6b7280; width:44%; }
+    .kv .v{ font-weight:700; }
+
+    /* Chip */
+    .chip{
+      display:inline-block;
+      padding:3px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:900;
+      background:#e5e7eb;
+      color:#111827;
+      vertical-align:middle;
+    }
+    .chip.dim{ background:#e5e7eb; color:#111827; }
+    .chip.info{ background:#dbeafe; color:#1e40af; }
+    .chip.ok{ background:#dcfce7; color:#166534; }
+    .chip.warn{ background:#fef9c3; color:#854d0e; }
+    .chip.bad{ background:#fee2e2; color:#991b1b; }
+
     /* Table */
     .tblWrap{
       background:#efefef;
@@ -99,29 +124,19 @@
     }
     .tbl tr:nth-child(even) td{ background:#f3f3f3; }
 
-    .r{ text-align:right; }
-    .c{ text-align:center; }
-
     /* Bottom blocks */
     .payTitle{ font-size:13px; font-weight:900; margin-bottom:10px; }
-    .smallNote{ font-size:11px; color:#374151; }
+    .smallNote{ font-size:10.5px; color:#374151; word-break:break-all; }
 
     /* Payment logos row */
-    .payRow{
-      width:100%;
-      border-collapse:collapse;
-    }
+    .payRow{ width:100%; border-collapse:collapse; }
     .payRow td{ vertical-align:middle; padding-right:10px; }
-    .payLogo{
-      height:24px;
-      display:inline-block;
-      vertical-align:middle;
-    }
+    .payLogo{ height:22px; display:inline-block; vertical-align:middle; }
 
     /* Social icons */
     .socialRow{ width:100%; border-collapse:collapse; margin-top:8px; }
     .socialRow td{ padding-right:10px; vertical-align:middle; }
-    .socialIco{ height:30px; display:inline-block; vertical-align:middle; }
+    .socialIco{ height:26px; display:inline-block; vertical-align:middle; }
 
     /* QR */
     .qrBox{
@@ -139,6 +154,9 @@
       height:170px;
       display:block;
     }
+
+    /* Divider */
+    .hr{ height:1px; background:#e5e7eb; margin:10px 0; }
   </style>
 </head>
 <body>
@@ -147,28 +165,50 @@
   use Illuminate\Support\Carbon;
   use Illuminate\Support\Str;
 
+  // ---------- Core ----------
   $periodSafe = $period ?? '—';
 
-  // ✅ En este PDF: $total es "Total a pagar" (saldo)
+  // En este PDF: mostramos "Total a pagar" como SALDO mostrado
   $total = (float)($total ?? 0);
   $cargo = (float)($cargo ?? 0);
   $abono = (float)($abono ?? 0);
+
+  // Totales alternos si vienen (por consistencia)
+  $expectedTotal = (float)($expected_total ?? 0); // total esperado por licencia
+  $tarifaLabel   = (string)($tarifa_label ?? 'Tarifa base');
+  $tarifaPill    = (string)($tarifa_pill ?? 'dim');
+
+  if (!in_array($tarifaPill, ['info','warn','ok','dim','bad'], true)) $tarifaPill = 'dim';
 
   $ivaRate  = 0.16;
   $subtotal = $total > 0 ? round($total/(1+$ivaRate), 2) : 0.0;
   $iva      = $total > 0 ? round($total - $subtotal, 2) : 0.0;
 
-  $accountId   = (int)($account_id ?? 0);
+  $accountObj = $account ?? null;
 
-  // En la maqueta el ID se ve con 6 dígitos (ej: 011234)
+  // ID cuenta
+  $accountId = (int)($account_id ?? ($accountObj->id ?? 0));
   $idCuentaTxt = $accountId > 0 ? str_pad((string)$accountId, 6, '0', STR_PAD_LEFT) : '—';
 
+  // Fechas
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
 
-  $clienteRazon = $razon_social ?? ($account->razon_social ?? '—');
-  $clienteRfc   = $rfc ?? ($account->rfc ?? '—');
+  // Period label (Enero 2026)
+  $periodLabel = $periodSafe;
+  try {
+    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
+      $periodLabel = Carbon::parse($periodSafe.'-01')->translatedFormat('F Y');
+      $periodLabel = Str::ucfirst($periodLabel);
+    }
+  } catch (\Throwable $e) {}
 
+  // ---------- Cliente ----------
+  $clienteRazon = (string)($razon_social ?? ($accountObj->razon_social ?? $accountObj->name ?? '—'));
+  $clienteRfc   = (string)($rfc ?? ($accountObj->rfc ?? '—'));
+  $clienteEmail = (string)($email ?? ($accountObj->email ?? ''));
+
+  // Dirección (si existe)
   $dir = (array)($cliente_dir ?? []);
   $dirCalle = trim((string)($dir['calle'] ?? ''));
   $dirExt   = trim((string)($dir['num_ext'] ?? ''));
@@ -184,11 +224,33 @@
   $line3 = trim(($dirMun ?: '').($dirEdo ? ', '.$dirEdo : ''));
   $line4 = $dirCp ? ('C.P. '.$dirCp) : null;
 
-  // === Assets embebidos (data uris) ===
+  // ---------- Plan / Cobro (esto debe venir bien desde backend) ----------
+  // Si no vienen, intentamos inferir sin romper
+  $rawPlan = (string)($plan ?? ($accountObj->plan_actual ?? $accountObj->plan ?? ''));
+  $rawModo = (string)($modo_cobro ?? ($accountObj->modo_cobro ?? $accountObj->billing_cycle ?? ''));
+
+  $planTxt = $rawPlan !== '' ? $rawPlan : '—';
+  $modoTxt = $rawModo !== '' ? $rawModo : '—';
+
+  // Normalización visual (solo presentación)
+  $planPretty = strtoupper(str_replace(['-', ' '], '_', $planTxt));
+  $planPretty = str_replace('_', ' ', $planPretty);
+
+  $modoPretty = strtolower(trim($modoTxt));
+  $modoPretty = $modoPretty === 'anual' || $modoPretty === 'annual' ? 'Anual' :
+                ($modoPretty === 'mensual' || $modoPretty === 'monthly' ? 'Mensual' :
+                ($modoPretty !== '' ? $modoTxt : '—'));
+
+  // ---------- URLs ----------
+  $pdfUrl    = $pdf_url ?? null;
+  $portalUrl = $portal_url ?? null;
+  $payUrl    = $pay_url ?? null;
+
+  // ---------- Assets embebidos (data uris) ----------
   $logoDataUri = $logo_data_uri ?? null;
 
   $qrDataUri   = $qr_data_uri ?? null;
-  $qrUrl       = $qr_url ?? null; // fallback si decides usar remoto (opcional)
+  $qrUrl       = $qr_url ?? null;
 
   $payPaypal = $pay_paypal_data_uri ?? null;
   $payVisa   = $pay_visa_data_uri ?? null;
@@ -201,28 +263,37 @@
   $socYt = $social_yt_data_uri ?? null;
   $socIg = $social_ig_data_uri ?? null;
 
-  // Total en letras (si te lo pasan desde backend lo respeta)
+  // Total en letras
   $cent = (int) round(($total - floor($total)) * 100);
   $totalLetras = $total_letras ?? (number_format(floor($total), 0, '.', ',').' pesos '.str_pad((string)$cent, 2, '0', STR_PAD_LEFT).'/100 MN');
 
-  // Periodo label (ej: Septiembre 2025)
-  $periodLabel = $periodSafe;
-  try {
-    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
-      $periodLabel = Carbon::parse($periodSafe.'-01')->translatedFormat('F Y');
-      $periodLabel = Str::ucfirst($periodLabel);
-    }
-  } catch (\Throwable $e) {}
-
-  // =========================================================
-  // ✅ DETALLE DE CONSUMOS (desde backend: $consumos)
-  // Siempre debe incluir "Servicio mensual"
-  // =========================================================
+  // ---------- Consumos ----------
   $serviceItems = $consumos ?? ($service_items ?? []);
   if ($serviceItems instanceof \Illuminate\Support\Collection) $serviceItems = $serviceItems->all();
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  $minRows   = 8; // maqueta trae espacio visual
+  // Regla: si no viene "Servicio mensual/anual", lo inyectamos basado en modo/ciclo y expectedTotal
+  $hasBaseService = false;
+  foreach ($serviceItems as $it) {
+    $row = is_array($it) ? (object)$it : $it;
+    $name = strtolower((string)($row->service ?? $row->name ?? $row->servicio ?? $row->concepto ?? ''));
+    if (str_contains($name, 'servicio') && (str_contains($name, 'mensual') || str_contains($name, 'anual'))) {
+      $hasBaseService = true;
+      break;
+    }
+  }
+
+  if (!$hasBaseService && $expectedTotal > 0.00001) {
+    $baseLabel = (stripos((string)$modoPretty, 'anual') !== false) ? 'Servicio anual' : 'Servicio mensual';
+    array_unshift($serviceItems, [
+      'service'   => $baseLabel,
+      'unit_cost' => $expectedTotal,
+      'qty'       => 1,
+      'subtotal'  => $expectedTotal,
+    ]);
+  }
+
+  $minRows   = 10;
   $rowsCount = count($serviceItems);
   $padRows   = max(0, $minRows - $rowsCount);
 @endphp
@@ -232,9 +303,9 @@
   <tr>
     <td width="52%" style="vertical-align:top; padding-right:12px;">
       @if($logoDataUri)
-        <img src="{{ $logoDataUri }}" class="brandLogo" alt="PACTOPIA">
+        <img src="{{ $logoDataUri }}" class="brandLogo" alt="PACTOPIA360">
       @else
-        <div class="b" style="font-size:24px;">PACTOPIA</div>
+        <div class="b" style="font-size:24px;">PACTOPIA360</div>
       @endif
 
       <div class="sp10"></div>
@@ -243,11 +314,26 @@
       <div class="brandBlock">
         Fresno 195 Int 2<br>
         Santa María la Ribera<br>
-        Cuauhtémoc, CP 06400<br>
+        Cuauhtémoc, C.P. 06400<br>
         México<br>
         <span class="b">RFC</span> PACA151025NJ5
       </div>
       <div class="brandSite">Pactopia.com</div>
+
+      <div class="sp12"></div>
+      <div class="brandBlock">
+        <div><span class="b">Email:</span> {{ $clienteEmail !== '' ? $clienteEmail : '—' }}</div>
+        <div><span class="b">Plan:</span> {{ $planPretty }}</div>
+        <div><span class="b">Modo de cobro:</span> {{ $modoPretty }}</div>
+
+        <div class="sp8"></div>
+        <div>
+          <span class="b">Tarifa:</span>
+          <span class="chip {{ $tarifaPill }}">{{ $tarifaLabel }}</span>
+        </div>
+        <div class="sp6"></div>
+        <div><span class="b">Total esperado:</span> $ {{ number_format($expectedTotal, 2) }}</div>
+      </div>
     </td>
 
     <td width="48%" style="vertical-align:top; padding-left:12px;">
@@ -266,6 +352,14 @@
           </tr>
         </table>
         <div class="totalWords">{{ $totalLetras }}</div>
+
+        <div class="hr"></div>
+
+        <table class="kv" cellpadding="0" cellspacing="0">
+          <tr><td class="k">Cargo del periodo</td><td class="v r">$ {{ number_format($cargo, 2) }}</td></tr>
+          <tr><td class="k">Pagos / abonos</td><td class="v r">$ {{ number_format($abono, 2) }}</td></tr>
+          <tr><td class="k">Saldo</td><td class="v r">$ {{ number_format($total, 2) }}</td></tr>
+        </table>
       </div>
 
       <div class="sp12"></div>
@@ -296,10 +390,11 @@
         @if($line2)<div>{{ $line2 }}</div>@endif
         @if($line3)<div>{{ $line3 }}</div>@endif
         @if($line4)<div>{{ $line4 }}</div>@endif
-        <div>{{ $dirPais ?: 'México' }}</div>
+        <div>{{ $dirPais !== '' ? $dirPais : 'México' }}</div>
 
         <div class="sp10"></div>
         <div><span class="b">RFC:</span> {{ $clienteRfc }}</div>
+        <div><span class="b">Email:</span> {{ $clienteEmail !== '' ? $clienteEmail : '—' }}</div>
       </div>
     </td>
 
@@ -320,10 +415,23 @@
             <td class="r b">{{ $printedAt->translatedFormat('d \\d\\e F Y') }}</td>
           </tr>
           <tr>
-            <td class="mut">Límite de pago:</td>
+            <td class="mut">Límite de pago</td>
             <td class="r b">{{ $dueAt->translatedFormat('d \\d\\e F Y') }}</td>
           </tr>
         </table>
+
+        <div class="sp12"></div>
+
+        @if(is_string($payUrl) && $payUrl !== '')
+          <div class="mut b">Enlace de pago:</div>
+          <div class="smallNote">{{ $payUrl }}</div>
+        @elseif(is_string($portalUrl) && $portalUrl !== '')
+          <div class="mut b">Portal:</div>
+          <div class="smallNote">{{ $portalUrl }}</div>
+        @elseif(is_string($pdfUrl) && $pdfUrl !== '')
+          <div class="mut b">PDF:</div>
+          <div class="smallNote">{{ $pdfUrl }}</div>
+        @endif
       </div>
     </td>
   </tr>
@@ -338,16 +446,15 @@
   <table class="tbl" cellpadding="0" cellspacing="0">
     <thead>
       <tr>
-        <th width="40%">Servicio</th>
-        <th width="20%" class="r">Costo Unit</th>
-        <th width="20%" class="c">Cantidad</th>
+        <th width="46%">Servicio / Concepto</th>
+        <th width="18%" class="r">Costo Unit</th>
+        <th width="16%" class="c">Cantidad</th>
         <th width="20%" class="r">Subtotal</th>
       </tr>
     </thead>
     <tbody>
       @foreach($serviceItems as $it)
         @php
-          // $consumos viene como array: ['service','unit_cost','qty','subtotal']
           $row = is_array($it) ? (object)$it : $it;
 
           $name = (string)($row->service ?? $row->name ?? $row->servicio ?? $row->concepto ?? 'Servicio');
@@ -365,10 +472,7 @@
 
       @for($i=0; $i<$padRows; $i++)
         <tr>
-          <td>&nbsp;</td>
-          <td class="r">&nbsp;</td>
-          <td class="c">&nbsp;</td>
-          <td class="r">&nbsp;</td>
+          <td>&nbsp;</td><td class="r">&nbsp;</td><td class="c">&nbsp;</td><td class="r">&nbsp;</td>
         </tr>
       @endfor
     </tbody>
@@ -387,21 +491,11 @@
 
         <table class="payRow" cellpadding="0" cellspacing="0">
           <tr>
-            <td>
-              @if($payPaypal)<img class="payLogo" src="{{ $payPaypal }}" alt="PayPal">@else <span class="b">PayPal</span> @endif
-            </td>
-            <td>
-              @if($payVisa)<img class="payLogo" src="{{ $payVisa }}" alt="VISA">@else <span class="b">VISA</span> @endif
-            </td>
-            <td>
-              @if($payAmex)<img class="payLogo" src="{{ $payAmex }}" alt="AMEX">@else <span class="b">AMEX</span> @endif
-            </td>
-            <td>
-              @if($payMc)<img class="payLogo" src="{{ $payMc }}" alt="Mastercard">@else <span class="b">MC</span> @endif
-            </td>
-            <td style="padding-right:0;">
-              @if($payOxxo)<img class="payLogo" src="{{ $payOxxo }}" alt="OXXO">@else <span class="b">OXXO</span> @endif
-            </td>
+            <td>@if($payPaypal)<img class="payLogo" src="{{ $payPaypal }}" alt="PayPal">@else <span class="b">PayPal</span> @endif</td>
+            <td>@if($payVisa)<img class="payLogo" src="{{ $payVisa }}" alt="VISA">@else <span class="b">VISA</span> @endif</td>
+            <td>@if($payAmex)<img class="payLogo" src="{{ $payAmex }}" alt="AMEX">@else <span class="b">AMEX</span> @endif</td>
+            <td>@if($payMc)<img class="payLogo" src="{{ $payMc }}" alt="Mastercard">@else <span class="b">MC</span> @endif</td>
+            <td style="padding-right:0;">@if($payOxxo)<img class="payLogo" src="{{ $payOxxo }}" alt="OXXO">@else <span class="b">OXXO</span> @endif</td>
           </tr>
         </table>
 
@@ -410,20 +504,17 @@
         <div class="payTitle" style="margin-bottom:8px;">Síguenos en</div>
         <table class="socialRow" cellpadding="0" cellspacing="0">
           <tr>
-            <td>
-              @if($socFb)<img class="socialIco" src="{{ $socFb }}" alt="Facebook">@else <span class="b">f</span> @endif
-            </td>
-            <td>
-              @if($socIn)<img class="socialIco" src="{{ $socIn }}" alt="LinkedIn">@else <span class="b">in</span> @endif
-            </td>
-            <td>
-              @if($socYt)<img class="socialIco" src="{{ $socYt }}" alt="YouTube">@else <span class="b">▶</span> @endif
-            </td>
-            <td style="padding-right:0;">
-              @if($socIg)<img class="socialIco" src="{{ $socIg }}" alt="Instagram">@else <span class="b">◎</span> @endif
-            </td>
+            <td>@if($socFb)<img class="socialIco" src="{{ $socFb }}" alt="Facebook">@else <span class="b">f</span> @endif</td>
+            <td>@if($socIn)<img class="socialIco" src="{{ $socIn }}" alt="LinkedIn">@else <span class="b">in</span> @endif</td>
+            <td>@if($socYt)<img class="socialIco" src="{{ $socYt }}" alt="YouTube">@else <span class="b">▶</span> @endif</td>
+            <td style="padding-right:0;">@if($socIg)<img class="socialIco" src="{{ $socIg }}" alt="Instagram">@else <span class="b">◎</span> @endif</td>
           </tr>
         </table>
+
+        <div class="sp10"></div>
+        <div class="smallNote">
+          Si algún logo no aparece, el backend debe enviarlo como <span class="b">data URI</span> (base64), no URL remota.
+        </div>
       </div>
     </td>
 
@@ -443,13 +534,18 @@
             <div style="padding-top:78px;" class="mut b">QR no disponible</div>
           @endif
         </div>
+
+        <div class="sp10"></div>
+        @if(is_string($payUrl) && $payUrl !== '')
+          <div class="smallNote">{{ $payUrl }}</div>
+        @endif
       </div>
     </td>
 
     {{-- Derecha: desglose --}}
     <td width="32%" style="vertical-align:top; padding-left:10px;">
       <div class="card">
-        <div class="payTitle">Desglose del importa a pagar</div>
+        <div class="payTitle">Desglose del importe a pagar</div>
         <div class="sp10"></div>
 
         <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
@@ -465,6 +561,14 @@
             <td class="sb">Total:</td>
             <td class="r b">$ {{ number_format($total, 2) }}</td>
           </tr>
+        </table>
+
+        <div class="hr"></div>
+
+        <table class="kv" cellpadding="0" cellspacing="0">
+          <tr><td class="k">Cargo</td><td class="v r">$ {{ number_format($cargo, 2) }}</td></tr>
+          <tr><td class="k">Abono</td><td class="v r">$ {{ number_format($abono, 2) }}</td></tr>
+          <tr><td class="k">Saldo</td><td class="v r">$ {{ number_format($total, 2) }}</td></tr>
         </table>
       </div>
     </td>

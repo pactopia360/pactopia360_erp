@@ -222,7 +222,7 @@ class AuthServiceProvider extends ServiceProvider
         /**
          * AFTER (log de denegación en /admin/* si AUDIT_GATES=true).
          */
-        Gate::after(function ($user = null, string $ability, bool $result, array $arguments = []) use ($auditGates) {
+        Gate::after(function ($user, string $ability, bool $result, array $arguments = []) use ($auditGates) {
             if (!$auditGates) return;
 
             // Evitar depender de request() en CLI/jobs

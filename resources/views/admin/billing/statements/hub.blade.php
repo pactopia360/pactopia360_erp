@@ -1,8 +1,8 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\hub.blade.php --}}
-{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0 · HUB moderno + rutas seguras + bulk completo + más datos visibles) --}}
+{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0 Ã‚Â· HUB moderno + rutas seguras + bulk completo + mÃƒÂ¡s datos visibles) --}}
 @extends('layouts.admin')
 
-@section('title', 'Facturación · HUB')
+@section('title', 'FacturaciÃƒÂ³n Ã‚Â· HUB')
 @section('layout', 'full')
 
 @php
@@ -374,9 +374,9 @@
     {{-- HEAD --}}
     <div class="head">
       <div>
-        <div class="ttl">Facturación · HUB</div>
+        <div class="ttl">FacturaciÃƒÂ³n Ã‚Â· HUB</div>
         <div class="sub">
-          Panel operativo: estados de cuenta, pagos, correos (open/click + reenvío), solicitudes de factura y facturas emitidas.
+          Panel operativo: estados de cuenta, pagos, correos (open/click + reenvÃƒÂ­o), solicitudes de factura y facturas emitidas.
         </div>
       </div>
 
@@ -400,7 +400,7 @@
         </div>
 
         <div class="ctl">
-          <label>Por página</label>
+          <label>Por pÃƒÂ¡gina</label>
           <select class="in" name="per_page">
             @foreach([10,25,50,100,200] as $n)
               <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
@@ -533,12 +533,12 @@
         </div>
 
         <div class="ctl">
-          <label>Saldo mín</label>
+          <label>Saldo mÃƒÂ­n</label>
           <input class="in" name="saldo_min" value="{{ $saldoMin }}" placeholder="ej. 1">
         </div>
 
         <div class="ctl">
-          <label>Saldo máx</label>
+          <label>Saldo mÃƒÂ¡x</label>
           <input class="in" name="saldo_max" value="{{ $saldoMax }}" placeholder="ej. 5000">
         </div>
 
@@ -557,13 +557,13 @@
         </div>
 
         <div class="ctl">
-          <label>Envío</label>
+          <label>EnvÃƒÂ­o</label>
           <select class="in" name="sent">
             <option value="" {{ $sent===''?'selected':'' }}>Cualquiera</option>
             <option value="never" {{ $sent==='never'?'selected':'' }}>Nunca</option>
             <option value="today" {{ $sent==='today'?'selected':'' }}>Hoy</option>
-            <option value="7d" {{ $sent==='7d'?'selected':'' }}>Últimos 7 días</option>
-            <option value="30d" {{ $sent==='30d'?'selected':'' }}>Últimos 30 días</option>
+            <option value="7d" {{ $sent==='7d'?'selected':'' }}>ÃƒÅ¡ltimos 7 dÃƒÂ­as</option>
+            <option value="30d" {{ $sent==='30d'?'selected':'' }}>ÃƒÅ¡ltimos 30 dÃƒÂ­as</option>
           </select>
         </div>
 
@@ -591,7 +591,7 @@
         <div class="kpi"><div class="k">Cuentas</div><div class="v">{{ (int)($kpis['accounts'] ?? 0) }}</div></div>
 
         <div class="kpi">
-          <div class="k">Operación</div>
+          <div class="k">OperaciÃƒÂ³n</div>
           <div class="v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=emails&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Logs correos</a>
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=payments&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Pagos</a>
@@ -608,7 +608,7 @@
 
           <div class="bulk-ctl" style="margin-left:6px;">
             <input class="mini" id="bulkTo" type="text" placeholder="to (opcional) ej: a@x.com,b@y.com">
-            <select class="miniSel" id="bulkMode" title="Modo de envío (bulk)">
+            <select class="miniSel" id="bulkMode" title="Modo de envÃƒÂ­o (bulk)">
               <option value="now" selected>Enviar ahora</option>
               <option value="queue">Solo encolar</option>
             </select>
@@ -667,7 +667,9 @@
                   <th>Cliente</th>
                   <th style="width:160px">Plan / Cobro</th>
                   <th>Email</th>
+                  <th style="width:170px">Tracking</th>
                   <th class="tright" style="width:140px">Total</th>
+
                   <th class="tright" style="width:140px">Pagado</th>
                   <th class="tright" style="width:140px">Saldo</th>
                   <th style="width:140px">Estatus</th>
@@ -679,13 +681,13 @@
                 @forelse($rows as $r)
                   @php
                     $aid  = (string)($r->id ?? '');
-                    $mail = (string)($r->email ?? '—');
+                    $mail = (string)($r->email ?? 'Ã¢â‚¬â€');
                     $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
-                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: '—')));
+                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: 'Ã¢â‚¬â€')));
 
                     // Plan / cobro
-                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? '—');
-                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? '—');
+                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? 'Ã¢â‚¬â€');
+                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? 'Ã¢â‚¬â€');
 
                     // licencia visible (si existiera)
                     $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
@@ -708,7 +710,7 @@
                     else{ $pill='pill-dim'; }
 
                     $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
-                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : '—'));
+                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : 'Ã¢â‚¬â€'));
 
                     $rowAccountUrl = ($hasAccountsShow && $aid) ? route('admin.billing.accounts.show', ['id'=>$aid]) : null;
 
@@ -735,26 +737,55 @@
                       <div class="mut" style="margin-top:6px;">
                         @if($rfc)
                           RFC: <span class="mono">{{ $rfc }}</span>
-                          <span style="opacity:.55;">·</span>
+                          <span style="opacity:.55;">Ã‚Â·</span>
                         @endif
                         Tarifa: <span class="pill {{ $tarPill }}">{{ $tarLbl }}</span>
                       </div>
                     </td>
 
                     <td>
-                      <div style="font-weight:950;">{{ strtoupper(trim($planLbl ?: '—')) }}</div>
+                      <div style="font-weight:950;">{{ strtoupper(trim($planLbl ?: 'Ã¢â‚¬â€')) }}</div>
                       <div class="mut" style="margin-top:6px;">
-                        Cobro: <span class="mono">{{ $modoLbl ?: '—' }}</span>
+                        Cobro: <span class="mono">{{ $modoLbl ?: 'Ã¢â‚¬â€' }}</span>
                         @if($licShown)
-                          <span style="opacity:.55;">·</span> <span class="mono">{{ $licShown }}</span>
+                          <span style="opacity:.55;">Ã‚Â·</span> <span class="mono">{{ $licShown }}</span>
                         @endif
                       </div>
                     </td>
 
                     <td class="mono">{{ $mail }}</td>
 
-                    <td class="tright mono">{{ $fmtMoney($totalShown) }}</td>
-                    <td class="tright mono">{{ $fmtMoney($paid) }}</td>
+                      @php
+                            $oc = (int)($r->open_count ?? 0);
+                            $cc = (int)($r->click_count ?? 0);
+                            $lo = !empty($r->last_open_at)  ? (string)$r->last_open_at  : '';
+                            $lc = !empty($r->last_click_at) ? (string)$r->last_click_at : '';
+                          @endphp
+
+                          <td>
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                              <span class="pill {{ $oc>0 ? 'pill-info' : 'pill-dim' }}">Open: <span class="mono">{{ $oc }}</span></span>
+                              <span class="pill {{ $cc>0 ? 'pill-info' : 'pill-dim' }}">Click: <span class="mono">{{ $cc }}</span></span>
+                            </div>
+
+                            @if($lo || $lc)
+                              <div class="mut" style="margin-top:6px; line-height:1.35;">
+                                @if($lo)
+                                  last open: <span class="mono">{{ $lo }}</span>
+                                @endif
+                                @if($lc)
+                                  @if($lo) <span style="opacity:.55;">·</span> @endif
+                                  last click: <span class="mono">{{ $lc }}</span>
+                                @endif
+                              </div>
+                            @else
+                              <div class="mut" style="margin-top:6px;">sin interacción</div>
+                            @endif
+                          </td>
+
+
+                      <td class="tright mono">{{ $fmtMoney($totalShown) }}</td>
+                      <td class="tright mono">{{ $fmtMoney($paid) }}</td>
 
                     <td class="tright">
                       <span class="pill {{ $saldo>0 ? 'pill-warn' : 'pill-ok' }} mono">{{ $fmtMoney($saldo) }}</span>
@@ -775,12 +806,12 @@
                           <form method="POST" action="{{ route('admin.billing.statements_hub.send_email') }}">
                             @csrf
                             <input type="hidden" name="account_id" value="{{ $aid }}">
-                            <input type="hidden" name="period" value="{{ $period }}">
-                            <button class="btn btn-dark" type="submit">Enviar</button>
+        ar</button>
                           </form>
                         @else
                           <button class="btn btn-dark" type="button" disabled title="Falta ruta send_email">Enviar</button>
                         @endif
+
 
                         {{-- Liga Stripe --}}
                         @if($hasPayLink)
@@ -814,13 +845,13 @@
                   </tr>
 
                 @empty
-                  <tr><td colspan="10" class="mut" style="padding:14px;">Sin cuentas o faltan tablas/datos para el filtro.</td></tr>
+                  <tr><td colspan="11" class="mut" style="padding:14px;">Sin cuentas o faltan tablas/datos para el filtro.</td></tr>
                 @endforelse
               </tbody>
             </table>
 
             <div class="mut" style="margin-top:12px;">
-              Selección masiva: marca filas y usa la barra superior (bulk). El envío masivo y ligas se habilitan cuando existan rutas bulk.
+              SelecciÃƒÂ³n masiva: marca filas y usa la barra superior (bulk). El envÃƒÂ­o masivo y ligas se habilitan cuando existan rutas bulk.
             </div>
           </div>
 
@@ -828,9 +859,9 @@
           <div class="box">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
               <div>
-                <div style="font-weight:950;">Operaciones (correo / programación / liga / factura)</div>
+                <div style="font-weight:950;">Operaciones (correo / programaciÃƒÂ³n / liga / factura)</div>
                 <div class="mut" style="margin-top:4px;">
-                  Trabaja por <b>account_id + periodo</b>. “to” acepta múltiples correos separados por coma.
+                  Trabaja por <b>account_id + periodo</b>. Ã¢â‚¬Å“toÃ¢â‚¬Â acepta mÃƒÂºltiples correos separados por coma.
                 </div>
               </div>
               <button class="btn btn-ghost" type="button" onclick="p360ClearOps()">Limpiar</button>
@@ -912,7 +943,7 @@
 
             @if(!$hasBulkSend && !$hasBulkPayLinks)
               <div class="mut" style="margin-top:14px;">
-                Nota: el HUB ya está listo para selección y acciones masivas, pero faltan rutas:
+                Nota: el HUB ya estÃƒÂ¡ listo para selecciÃƒÂ³n y acciones masivas, pero faltan rutas:
                 <span class="mono">admin.billing.statements_hub.bulk_send</span> /
                 <span class="mono">admin.billing.statements_hub.bulk_paylinks</span>.
               </div>
@@ -1033,7 +1064,7 @@
             opsIds.forEach(i => i.value = aid);
 
             opsTo.forEach(i => {
-              if (!i.value && mail && mail !== '—') i.value = mail;
+              if (!i.value && mail && mail !== 'Ã¢â‚¬â€') i.value = mail;
             });
           }
 
@@ -1052,7 +1083,7 @@
         <div class="box" style="margin:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <div style="font-weight:950;">Correos (billing_email_logs)</div>
-            <div class="mut">Tracking open/click + reenvío</div>
+            <div class="mut">Tracking open/click + reenvÃƒÂ­o</div>
           </div>
 
           <div style="height:10px;"></div>
@@ -1081,19 +1112,19 @@
                   <td class="mono">#{{ (int)($e->id ?? 0) }}</td>
                   <td>
                     <div style="font-weight:950;">
-                      {{ (string)($e->to_list ?? $e->email ?? '—') }}
+                      {{ (string)($e->to_list ?? $e->email ?? 'Ã¢â‚¬â€') }}
                     </div>
-                    <div class="mut">account: <span class="mono">{{ $aid ?: '—' }}</span> · email_id: <span class="mono">{{ (string)($e->email_id ?? '—') }}</span></div>
-                    <div class="mut">subject: {{ (string)($e->subject ?? '—') }}</div>
+                    <div class="mut">account: <span class="mono">{{ $aid ?: 'Ã¢â‚¬â€' }}</span> Ã‚Â· email_id: <span class="mono">{{ (string)($e->email_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                    <div class="mut">subject: {{ (string)($e->subject ?? 'Ã¢â‚¬â€') }}</div>
                   </td>
-                  <td class="mono">{{ $p ?: '—' }}</td>
+                  <td class="mono">{{ $p ?: 'Ã¢â‚¬â€' }}</td>
                   <td><span class="pill {{ $pill }}">{{ strtoupper($st) }}</span></td>
                   <td class="mono">{{ (int)($e->open_count ?? 0) }}</td>
                   <td class="mono">{{ (int)($e->click_count ?? 0) }}</td>
                   <td class="mut">
-                    queued: {{ $e->queued_at ?? '—' }}<br>
-                    sent: {{ $e->sent_at ?? '—' }}<br>
-                    failed: {{ $e->failed_at ?? '—' }}
+                    queued: {{ $e->queued_at ?? 'Ã¢â‚¬â€' }}<br>
+                    sent: {{ $e->sent_at ?? 'Ã¢â‚¬â€' }}<br>
+                    failed: {{ $e->failed_at ?? 'Ã¢â‚¬â€' }}
                   </td>
                   <td class="tright">
                     <div class="actions">
@@ -1147,7 +1178,7 @@
             <tbody>
               @forelse($payments as $p)
                 @php
-                  $stRaw = strtolower((string)($p->status ?? '—'));
+                  $stRaw = strtolower((string)($p->status ?? 'Ã¢â‚¬â€'));
                   $st = strtoupper($stRaw);
                   $pill = in_array($stRaw, ['paid','succeeded','success','completed'], true) ? 'pill-ok'
                         : ($stRaw==='pending' ? 'pill-warn' : ($stRaw==='failed' ? 'pill-bad' : 'pill-dim'));
@@ -1162,13 +1193,13 @@
                 @endphp
                 <tr>
                   <td class="mono">#{{ (int)($p->id ?? 0) }}</td>
-                  <td class="mono">{{ (string)($p->account_id ?? '—') }}</td>
-                  <td class="mono">{{ (string)($p->period ?? '—') }}</td>
+                  <td class="mono">{{ (string)($p->account_id ?? 'Ã¢â‚¬â€') }}</td>
+                  <td class="mono">{{ (string)($p->period ?? 'Ã¢â‚¬â€') }}</td>
                   <td class="mono">{{ $fmtMoney($amountMxn) }} MXN</td>
                   <td><span class="pill {{ $pill }}">{{ $st }}</span></td>
                   <td class="mut">
-                    provider: <span class="mono">{{ (string)($p->provider ?? '—') }}</span><br>
-                    ref: <span class="mono">{{ (string)($p->reference ?? $p->stripe_session_id ?? '—') }}</span>
+                    provider: <span class="mono">{{ (string)($p->provider ?? 'Ã¢â‚¬â€') }}</span><br>
+                    ref: <span class="mono">{{ (string)($p->reference ?? $p->stripe_session_id ?? 'Ã¢â‚¬â€') }}</span>
                   </td>
                 </tr>
               @empty
@@ -1208,12 +1239,12 @@
                 <tr>
                   <td class="mono">#{{ (int)($ir->id ?? 0) }}</td>
                   <td class="mut">
-                    <div>account: <span class="mono">{{ (string)($ir->account_id ?? '—') }}</span></div>
-                    <div>period: <span class="mono">{{ (string)($ir->period ?? '—') }}</span></div>
+                    <div>account: <span class="mono">{{ (string)($ir->account_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                    <div>period: <span class="mono">{{ (string)($ir->period ?? 'Ã¢â‚¬â€') }}</span></div>
                   </td>
                   <td><span class="pill {{ $pill }}">{{ strtoupper((string)($ir->status ?? 'REQUESTED')) }}</span></td>
                   <td class="mut">
-                    uuid: <span class="mono">{{ (string)($ir->cfdi_uuid ?? '—') }}</span><br>
+                    uuid: <span class="mono">{{ (string)($ir->cfdi_uuid ?? 'Ã¢â‚¬â€') }}</span><br>
                     {{ (string)($ir->notes ?? '') }}
                   </td>
                   <td class="tright">
@@ -1270,12 +1301,12 @@
                   <tr>
                     <td class="mono">#{{ (int)($inv->id ?? 0) }}</td>
                     <td class="mut">
-                      <div>account: <span class="mono">{{ (string)($inv->account_id ?? '—') }}</span></div>
-                      <div>period: <span class="mono">{{ (string)($inv->period ?? '—') }}</span></div>
+                      <div>account: <span class="mono">{{ (string)($inv->account_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                      <div>period: <span class="mono">{{ (string)($inv->period ?? 'Ã¢â‚¬â€') }}</span></div>
                     </td>
                     <td class="mono">{{ (string)($inv->serie ?? '') }}{{ (string)($inv->folio ?? '') ? '-'.(string)$inv->folio : '' }}</td>
-                    <td class="mono">{{ (string)($inv->cfdi_uuid ?? '—') }}</td>
-                    <td class="mono">{{ (string)($inv->issued_date ?? '—') }}</td>
+                    <td class="mono">{{ (string)($inv->cfdi_uuid ?? 'Ã¢â‚¬â€') }}</td>
+                    <td class="mono">{{ (string)($inv->issued_date ?? 'Ã¢â‚¬â€') }}</td>
                     <td class="tright mono">{{ $fmtMoney($amtM) }} MXN</td>
                   </tr>
                 @empty
@@ -1303,7 +1334,7 @@
                 </div>
 
                 <input class="in" name="cfdi_uuid" placeholder="UUID (opcional)">
-                <input class="in" name="issued_date" placeholder="Fecha emisión (YYYY-MM-DD)">
+                <input class="in" name="issued_date" placeholder="Fecha emisiÃƒÂ³n (YYYY-MM-DD)">
 
                 <input class="in" name="amount_mxn" placeholder="Monto MXN (ej. 999.00)">
                 <textarea class="in" name="notes" rows="3" placeholder="Notas (opcional)" style="resize:vertical;"></textarea>

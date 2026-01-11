@@ -1,14 +1,13 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\web.php
 
+declare(strict_types=1);
+
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\DeployController;
 use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Auth\SmartLoginController;
-
-// ✅ Tracking público (sin sesión)
-use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
 |--------------------------------------------------------------------------|
@@ -49,23 +48,6 @@ if ($isLocal) {
         ->as('cliente.')
         ->group(base_path('routes/cliente_qa.php'));
 }
-
-/*
-|--------------------------------------------------------------------------|
-| Tracking público Billing (OPEN/CLICK) — SIN sesión/cookies innecesarias
-|--------------------------------------------------------------------------|
-| Nota: web.php ya corre bajo middleware "web" por defecto, pero estos endpoints
-| deben ser lo más “ligeros” posible (clientes de correo).
-*/
-Route::get('/t/billing/open/{emailId}.gif', [BillingStatementsHubController::class, 'trackOpen'])
-    ->where('emailId', '[A-Za-z0-9\-]+')
-    ->middleware('throttle:240,1')
-    ->name('track.billing.open');
-
-Route::get('/t/billing/click/{emailId}', [BillingStatementsHubController::class, 'trackClick'])
-    ->where('emailId', '[A-Za-z0-9\-]+')
-    ->middleware('throttle:240,1')
-    ->name('track.billing.click');
 
 /*
 |--------------------------------------------------------------------------|
