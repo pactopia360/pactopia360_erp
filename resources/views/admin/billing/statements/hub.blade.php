@@ -367,7 +367,13 @@
 </style>
 @endpush
 
-@section('content')
+@section('content') 
+
+<div style="position:fixed;bottom:14px;left:14px;z-index:99999;background:#111827;color:#fff;padding:8px 10px;border-radius:10px;font-weight:900;">
+  HUB BLADE NUEVO · {{ now() }}
+</div>
+
+
 <div class="hub">
   <div class="card">
 
@@ -450,7 +456,8 @@
     @if(session('warn'))
       <div class="msg err" style="border-color:#fde68a;background:#fffbeb;color:#92400e;">{{ session('warn') }}</div>
     @endif
-    @if($errors->any())
+
+    @if(($errors ?? null) && $errors->any())
       <div class="msg err">{{ $errors->first() }}</div>
     @endif
 

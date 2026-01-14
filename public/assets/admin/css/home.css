@@ -125,7 +125,21 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb{ background: rgba(255,255,255
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
-.page-shell{ width:100%; max-width:var(--container-max); margin-inline:auto; }
+/* OJO: .page-shell es del LAYOUT. En Home NO lo encajonamos. */
+body.p360-admin-home .admin-content .page-container > .page-shell{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+/* Si en algún punto vuelves a usar un wrapper interno, usa esta clase nueva */
+.p360-home-shell{
+  width:100%;
+  max-width:var(--container-max);
+  margin-inline:auto;
+}
+
 
 .page-card{
   background:var(--card-bg);
@@ -788,3 +802,79 @@ html.theme-dark .alert, html[data-theme="dark"] .alert{ background:#0b1220 }
 .p-0{ padding:0 } .p-2{ padding:8px } .p-3{ padding:12px } .p-4{ padding:16px }
 .mt-1{ margin-top:4px } .mt-2{ margin-top:8px } .mt-3{ margin-top:12px } .mt-4{ margin-top:16px }
 .mb-1{ margin-bottom:4px } .mb-2{ margin-bottom:8px } .mb-3{ margin-bottom:12px } .mb-4{ margin-bottom:16px }
+
+
+/* ======================================================================
+   P360 · Admin Home · HARD FULL WIDTH FIX (solo Home)
+   Objetivo: eliminar cualquier max-width / centrado que "encajone" el módulo
+   ====================================================================== */
+
+html[data-layout="full"] body.p360-admin-home .page-container,
+html[data-layout="full"] body.p360-admin-home .page-shell{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+html[data-layout="full"] body.p360-admin-home .page{
+  width:100% !important;
+  max-width:none !important;
+  margin:0 !important;
+}
+
+html[data-layout="full"] body.p360-admin-home .page-card,
+html[data-layout="full"] body.p360-admin-home .chart-card,
+html[data-layout="full"] body.p360-admin-home .table-card{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+/* Si tu grid de charts fue pensado para ancho grande, esto ayuda a que respire */
+html[data-layout="full"] body.p360-admin-home .charts-grid{
+  width:100% !important;
+  max-width:none !important;
+}
+
+/* Por si existe un wrapper interno que fuerza centrado */
+html[data-layout="full"] body.p360-admin-home .page > *{
+  max-width:none !important;
+}
+
+
+/* ======================================================================
+   P360 · Admin Home · ULTIMATE FULL WIDTH (anti-cualquier max-width)
+   Pegar AL FINAL del home.css
+   ====================================================================== */
+
+body.p360-admin-home .admin-content,
+body.p360-admin-home .admin-content .page-container,
+body.p360-admin-home .admin-content .page-container > .page-shell,
+body.p360-admin-home .admin-content .page-shell,
+body.p360-admin-home .admin-content .page{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+/* Si alguna hoja externa mete centrado con margin-inline:auto */
+body.p360-admin-home .admin-content .page-shell,
+body.p360-admin-home .admin-content .page{
+  margin-inline:0 !important;
+}
+
+/* Por si existe un wrapper “container” o “wrapper” heredado */
+body.p360-admin-home .admin-content .container,
+body.p360-admin-home .admin-content .container-fluid,
+body.p360-admin-home .admin-content .wrapper,
+body.p360-admin-home .admin-content .content,
+body.p360-admin-home .admin-content .content-wrapper{
+  width:100% !important;
+  max-width:none !important;
+  margin:0 !important;
+  padding-left:0 !important;
+  padding-right:0 !important;
+}

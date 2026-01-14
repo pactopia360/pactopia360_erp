@@ -327,3 +327,28 @@ details.dropdown[open] .dropdown-card{ display:block; }
 @media (max-width: 700px){
   .admin-content .page-container{ padding-inline: 12px; }
 }
+
+/* =========================================================
+   FULL-WIDTH OPT-OUT (por pageClass en <body>)
+   - Evita que layout.css "encajone" pantallas especiales
+   - Úsalo con: @section('pageClass','page-admin-statement-show')
+     o cualquier pageClass que incluya "page-fullwidth"
+   ========================================================= */
+body.page-fullwidth .admin-content .page-container,
+body.page-admin-statement-show .admin-content .page-container{
+  max-width: none !important;
+  margin-inline: 0 !important;
+  width: 100% !important;
+
+  /* quita el padding lateral que hace ver "recortado" */
+  padding-inline: 0 !important;
+
+  /* evita colchón superior extra de layout.css */
+  padding-top: 0 !important;
+}
+
+/* Si tu layout mete "justify-content:center" en algún wrapper, lo neutralizamos */
+body.page-fullwidth .page-container,
+body.page-admin-statement-show .page-container{
+  justify-content: unset !important;
+}

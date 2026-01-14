@@ -1,10 +1,12 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\home.blade.php --}}
 @extends('layouts.admin')
 @section('title','Panel Administrativo')
+@section('pageClass','p360-admin-home')
+
 
 {{-- Encabezado de la página (sólo UNO) --}}
 @section('page-header')
-  <div class="d-flex align-items-center gap-2 page-shell">
+  <div class="d-flex align-items-center gap-2">
     <span style="font-size:22px">📊</span>
     <div>
       <h1 class="m-0" style="font:700 18px/1.2 system-ui">Panel de Administración</h1>
@@ -24,9 +26,11 @@
 @section('content')
   <i hidden data-require-css="{{ $HOME_CSS_URL }}"></i>
 
-  <div class="page page-shell"
-       data-stats-url="{{ route('admin.home.stats') }}"
-       data-income-url="{{ route('admin.home.incomeMonth', ['ym'=>'__YM__']) }}">
+ <div class="page"
+     style="width:100%;max-width:none"
+     data-stats-url="{{ route('admin.home.stats') }}"
+     data-income-url="{{ route('admin.home.incomeMonth', ['ym'=>'__YM__']) }}">
+
 
     <div id="alerts"></div>
     <div id="loadingOverlay" aria-hidden="true">
@@ -165,7 +169,8 @@
     </section>
 
     {{-- Tabla: Clientes Activos --}}
-    <section class="table-card page-shell" aria-labelledby="tblClientsTitle">
+    <section class="table-card" style="width:100%;max-width:none" aria-labelledby="tblClientsTitle">
+
       <div class="table-head">
         <div class="widget-title" id="tblClientsTitle"><span aria-hidden="true">👥</span> Clientes Activos</div>
         <div class="table-actions">

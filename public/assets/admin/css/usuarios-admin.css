@@ -1,0 +1,202 @@
+/* public/assets/admin/css/usuarios-admin.css */
+
+.p360-admin-usuarios-admin .page-container{
+  padding: 16px;
+}
+
+/* 🔥 Full width real del módulo */
+.p360-admin-usuarios-admin .p360-card-wide{
+  width: 100%;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+/* Card base */
+.p360-card{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-1);
+}
+
+/* Page header */
+.p360-ph{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+}
+.p360-ph-kicker{
+  font: 700 11px/1.2 system-ui;
+  letter-spacing: .12em;
+  color: var(--muted);
+}
+.p360-ph-title{
+  font: 800 26px/1.1 system-ui;
+  margin-top: 4px;
+}
+.p360-ph-sub{
+  margin-top: 6px;
+  color: var(--muted);
+  font: 500 13px/1.3 system-ui;
+}
+.p360-ph-right .btnx{
+  white-space:nowrap;
+}
+
+/* Debug chips */
+.p360-debug{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top: 10px;
+}
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: rgba(0,0,0,.04);
+  font: 700 12px/1 system-ui;
+}
+html.theme-dark .chip{ background: rgba(255,255,255,.06); }
+.chip.ok{ border-color: rgba(16,185,129,.45); }
+
+/* Toolbar */
+.p360-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+.p360-toolbar .field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.p360-toolbar label{
+  color: var(--muted);
+  font: 800 11px/1 system-ui;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.p360-toolbar input,
+.p360-toolbar select{
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  outline: none;
+}
+.p360-toolbar .actions{
+  margin-left:auto;
+  display:flex;
+  align-items:flex-end;
+  gap:10px;
+}
+
+/* Buttons */
+.btnx{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--text);
+  text-decoration:none;
+  font: 800 13px/1 system-ui;
+  cursor:pointer;
+}
+.btnx.primary{
+  background: #e11d48;
+  border-color: #e11d48;
+  color: #fff;
+}
+.btnx.ghost{
+  background: transparent;
+}
+.btnx.sm{
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font: 800 12px/1 system-ui;
+}
+.btnx.warn{ border-color: rgba(245,158,11,.55); }
+.btnx.danger{ border-color: rgba(239,68,68,.55); }
+
+/* Table */
+.p360-table-wrap{
+  overflow:auto;
+}
+.p360-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width: 980px;
+}
+.p360-table thead th{
+  position: sticky;
+  top: 0;
+  background: var(--card-bg);
+  z-index: 1;
+  text-align:left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--muted);
+  font: 900 11px/1 system-ui;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+}
+.p360-table tbody td{
+  padding: 14px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+  vertical-align: top;
+}
+html.theme-dark .p360-table tbody td{ border-bottom-color: rgba(255,255,255,.08); }
+
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.muted{ color: var(--muted); font: 600 12px/1.2 system-ui; margin-top: 4px; }
+.title{ font: 900 14px/1.2 system-ui; }
+
+.empty{
+  text-align:center;
+  color: var(--muted);
+  padding: 20px !important;
+  font: 700 13px/1.2 system-ui;
+}
+
+.row-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+/* Footer */
+.p360-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding: 14px;
+}
+.p360-foot .pagination{
+  margin:0;
+}
+
+
+/* Force full width aunque otro CSS meta container */
+.p360-admin-usuarios-admin .page-container,
+.p360-admin-usuarios-admin .p360-card-wide{
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}

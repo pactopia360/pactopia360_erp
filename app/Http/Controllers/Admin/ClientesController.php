@@ -144,8 +144,17 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $rows = $query->paginate($perPage)->appends($request->query());
 
+<<<<<<< HEAD
         // ? IMPORTANTE: aquí son IDs (accounts.id)
         $accountIds = $rows->pluck('id')->all();
+=======
+        // âœ… IMPORTANTE: aquÃ­ son IDs (accounts.id)
+        $accountIds = $rows->pluck('id')->all();
+
+        $extras     = $this->collectExtrasForAccountIds($accountIds);
+        $creds      = $this->collectCredsForAccountIds($accountIds);
+        $recipients = $this->collectRecipientsForAccountIds($accountIds);
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
         $extras     = $this->collectExtrasForAccountIds($accountIds);
         $creds      = $this->collectCredsForAccountIds($accountIds);
@@ -198,7 +207,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     // ======================= GUARDAR (accounts) =======================
     public function save(string $key, Request $request): RedirectResponse
     {
+<<<<<<< HEAD
         // ? key puede ser accounts.id (numérico) o accounts.rfc
+=======
+        // âœ… key puede ser accounts.id (numÃ©rico) o accounts.rfc
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'meta']);
         $accountId = (string) $acc->id;
         $rfcReal   = strtoupper(trim((string)($acc->{$this->colRfcAdmin()} ?? '')));
@@ -266,18 +279,30 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->update($payload);
 
+<<<<<<< HEAD
         // ? Legacy "clientes" debe ir por RFC real (no por id)
+=======
+        // âœ… Legacy "clientes" debe ir por RFC real (no por id)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($rfcReal !== '') {
             $this->upsertClienteLegacy($rfcReal, $payload);
         }
 
+<<<<<<< HEAD
         // ? Espejo mysql_clientes usa rfc_padre = accounts.id (por tu implementación actual)
+=======
+        // âœ… Espejo mysql_clientes usa rfc_padre = accounts.id (por tu implementaciÃ³n actual)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $this->syncPlanToMirror($accountId, $payload);
 
         return back()->with('ok', 'Datos guardados.');
     }
 
+<<<<<<< HEAD
     // ======================= ? SEED STATEMENT (para que exista la ruta) =======================
+=======
+    // ======================= âœ… SEED STATEMENT (para que exista la ruta) =======================
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     public function seedStatement(string $key, Request $request): RedirectResponse
     {
         $acc = $this->requireAccount($key, ['id']);
@@ -388,7 +413,11 @@ class ClientesController extends \App\Http\Controllers\Controller
                 // Monto por defecto desde tu plan (lo que ya usabas)
                 $amount = (float) $this->defaultLicenseAmountFromPlan($rfc);
 
+<<<<<<< HEAD
                 // Si es anual, intentar tomar monto anual explícito desde meta (sin *12 arbitrario)
+=======
+                // Si es anual, intentar tomar monto anual explÃ­cito desde meta (sin *12 arbitrario)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
                 if ($mode === 'anual') {
                     $annualCandidates = [
                         data_get($meta, 'billing.annual_amount_mxn'),
@@ -434,7 +463,11 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
     }
 
+<<<<<<< HEAD
     // ======================= VERIFICACIÓN / OTP =======================
+=======
+    // ======================= VERIFICACIÃ“N / OTP =======================
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     public function resendEmailVerification(string $key): RedirectResponse
     {
         $emailCol = $this->colEmail();
@@ -570,7 +603,11 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->where('id', $acc->id)->update(['phone_verified_at' => now(), 'updated_at' => now()]);
         }
 
+<<<<<<< HEAD
         // Intento de activación final (si tu controlador cliente trabaja por RFC real)
+=======
+        // Intento de activaciÃ³n final (si tu controlador cliente trabaja por RFC real)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         try {
             if ($rfcReal !== '' && class_exists(\App\Http\Controllers\Cliente\VerificationController::class)) {
                 app(\App\Http\Controllers\Cliente\VerificationController::class)
@@ -585,7 +622,11 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     public function resetPassword(Request $request, string $rfcOrId)
     {
+<<<<<<< HEAD
         // ? Acepta ID o RFC; resetOwnerByRfc requiere RFC real
+=======
+        // âœ… Acepta ID o RFC; resetOwnerByRfc requiere RFC real
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $acc = $this->resolveAccount(trim((string)$rfcOrId), ['id', $this->colRfcAdmin()]);
         if (!$acc) {
             $payload = ['ok' => false, 'error' => 'No pude resolver la cuenta.'];
@@ -657,7 +698,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
+<<<<<<< HEAD
      * ? Enviar credenciales (incluyendo usuario+password) a:
+=======
+     * âœ… Enviar credenciales (incluyendo usuario+password) a:
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *  - emails capturados en textarea ("to"/"recipients")
      *  - o destinatarios guardados (account_recipients)
      *  - con fallback al email de la cuenta
@@ -895,7 +940,11 @@ class ClientesController extends \App\Http\Controllers\Controller
         $action  = $request->string('action')->toString();
         $channel = $request->string('channel')->toString() ?: 'sms';
 
+<<<<<<< HEAD
         // ? puede venir una lista mixta: ids o rfcs
+=======
+        // âœ… puede venir una lista mixta: ids o rfcs
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $keys = collect(explode(',', (string) $request->string('ids')))
             ->map(fn($x) => trim((string) $x))
             ->filter()
@@ -903,7 +952,11 @@ class ClientesController extends \App\Http\Controllers\Controller
             ->values();
 
         if ($keys->isEmpty()) {
+<<<<<<< HEAD
             return back()->with('error', 'No hay IDs/RFCs válidos para procesar.');
+=======
+            return back()->with('error', 'No hay IDs/RFCs vÃ¡lidos para procesar.');
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         $emailCol = $this->colEmail();
@@ -982,7 +1035,11 @@ class ClientesController extends \App\Http\Controllers\Controller
 
                     case 'otp_sms':
                         if (!$hasPhoneOtps) { $skip++; $skips[] = "$key: tabla phone_otps no existe"; break; }
+<<<<<<< HEAD
                         if (empty($acc->phone)) { $skip++; $skips[] = "$key: sin teléfono"; break; }
+=======
+                        if (empty($acc->phone)) { $skip++; $skips[] = "$key: sin telÃ©fono"; break; }
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
                         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
@@ -1035,12 +1092,20 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     // =========================================================
+<<<<<<< HEAD
     // ? DESTINATARIOS (account_recipients) — FIX ROBUSTO (account_id = accounts.id)
+=======
+    // âœ… DESTINATARIOS (account_recipients) â€” FIX ROBUSTO (account_id = accounts.id)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     // =========================================================
 
     public function recipientsUpsert(string $key, Request $request): RedirectResponse
     {
+<<<<<<< HEAD
         // ? key puede ser RFC o ID, pero guardamos SIEMPRE por accounts.id
+=======
+        // âœ… key puede ser RFC o ID, pero guardamos SIEMPRE por accounts.id
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $acc = $this->requireAccount($key, ['id']);
         $accountId = (string) $acc->id;
 
@@ -1048,7 +1113,11 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $schema = Schema::connection($this->adminConn);
 
+<<<<<<< HEAD
         // En tu DB real: NO existe "kind" (según DESCRIBE que pegaste)
+=======
+        // En tu DB real: NO existe "kind" (segÃºn DESCRIBE que pegaste)
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $hasKind    = $schema->hasColumn('account_recipients', 'kind');
         $hasActive  = $schema->hasColumn('account_recipients', 'is_active');
         $hasPrimary = $schema->hasColumn('account_recipients', 'is_primary');
@@ -1125,7 +1194,11 @@ class ClientesController extends \App\Http\Controllers\Controller
                 }
             }
 
+<<<<<<< HEAD
             // Si hay primary, apagar los demás
+=======
+            // Si hay primary, apagar los demÃ¡s
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             if ($hasPrimary && $primary !== '') {
                 $q = DB::connection($this->adminConn)->table('account_recipients')
                     ->where('account_id', $accountId);
@@ -1143,7 +1216,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
+<<<<<<< HEAD
      * ? FIX: para el listado (index) — NO pedir columnas que no existen
+=======
+     * âœ… FIX: para el listado (index) â€” NO pedir columnas que no existen
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *      y operar por accounts.id
      */
     private function collectRecipientsForAccountIds(array $accountIds): array
@@ -1270,13 +1347,22 @@ class ClientesController extends \App\Http\Controllers\Controller
             return round((float)$amt, 2);
         }
 
+<<<<<<< HEAD
         // 3) default por plan/ciclo con inferencia cuando plan viene vacío
+=======
+        // 3) default por plan/ciclo con inferencia cuando plan viene vacÃ­o
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $plan  = strtolower(trim((string)($accRow->plan ?? '')));
         $cycle = strtolower(trim((string)($accRow->billing_cycle ?? '')));
         $bs    = strtolower(trim((string)($accRow->billing_status ?? '')));
 
+<<<<<<< HEAD
         // ? Si plan viene vacío, inferimos PRO cuando hay señales de suscripción/billing
         if ($plan === '' || $plan === '—') {
+=======
+        // âœ… Si plan viene vacÃ­o, inferimos PRO cuando hay seÃ±ales de suscripciÃ³n/billing
+        if ($plan === '' || $plan === 'â€”') {
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             $looksPaid =
                 in_array($bs, ['active', 'trial', 'grace', 'overdue', 'suspended'], true)
                 || in_array($cycle, ['monthly', 'yearly', 'annual', 'mensual', 'anual'], true);
@@ -1286,7 +1372,11 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
         }
 
+<<<<<<< HEAD
         // Free explícito => 0
+=======
+        // Free explÃ­cito => 0
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($plan === 'free') return 0.00;
 
         if ($plan === 'pro') {
@@ -1366,7 +1456,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
+<<<<<<< HEAD
      * ? En tu schema real, accounts.rfc existe y es UNIQUE.
+=======
+     * âœ… En tu schema real, accounts.rfc existe y es UNIQUE.
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     private function colRfcAdmin(): string
     {
@@ -1378,7 +1472,11 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     /**
      * Resolver cuenta por:
+<<<<<<< HEAD
      *  - accounts.id (numérico) o
+=======
+     *  - accounts.id (numÃ©rico) o
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *  - accounts.rfc (string, unique)
      *
      * Regresa registro de accounts.
@@ -1391,7 +1489,11 @@ class ClientesController extends \App\Http\Controllers\Controller
         $rfcCol = $this->colRfcAdmin();
         $q = DB::connection($this->adminConn)->table('accounts')->select($select);
 
+<<<<<<< HEAD
         // 1) por ID si es numérico
+=======
+        // 1) por ID si es numÃ©rico
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if (ctype_digit($key)) {
             $acc = $q->where('id', (int)$key)->first();
             if ($acc) return $acc;
@@ -1410,7 +1512,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function requireAccount(string $key, array $select = ['*'])
     {
         $acc = $this->resolveAccount($key, $select);
+<<<<<<< HEAD
         abort_if(!$acc, 404, 'Cuenta no encontrada (id/rfc inválido).');
+=======
+        abort_if(!$acc, 404, 'Cuenta no encontrada (id/rfc invÃ¡lido).');
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         return $acc;
     }
 
@@ -1493,7 +1599,11 @@ class ClientesController extends \App\Http\Controllers\Controller
      * ? MEJORA CRÍTICA: si mysql_clientes falla (credenciales, grants, etc),
      * el admin NO se cae; regresa estructura base.
      *
+<<<<<<< HEAD
      * ?? Por tu diseño actual, cuentas_cliente.rfc_padre guarda accounts.id (numérico string).
+=======
+     * âš ï¸ Por tu diseÃ±o actual, cuentas_cliente.rfc_padre guarda accounts.id (numÃ©rico string).
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     private function collectCredsForAccountIds(array $accountIds): array
     {
@@ -1768,7 +1878,11 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
+<<<<<<< HEAD
      * ? Asegura mirror por accounts.id (rfc_padre) y owner.
+=======
+     * âœ… Asegura mirror por accounts.id (rfc_padre) y owner.
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *    $accountId: accounts.id
      *    $rfcReal: accounts.rfc (real)
      */

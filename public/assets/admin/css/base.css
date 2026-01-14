@@ -1,8 +1,17 @@
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\base.css */
 /* ===== P360 · Admin · BASE =====  (se carga SIEMPRE antes de los módulos) */
+
 :root{
   --header-h:56px;              /* ajusta si tu header mide diferente */
+
+  /* ✅ Sidebar widths (source of truth) */
   --sidebar-w:260px;            /* ancho sidebar abierto */
   --sidebar-w-collapsed:72px;   /* ancho sidebar cerrado */
+
+  /* ✅ Offset que usa el layout para empujar el contenido.
+     Se actualiza por JS (sidebar.blade.php) al colapsar/expandir. */
+  --sidebar-offset: var(--sidebar-w);
+
   /* colores/vars mínimas por si aún no carga el CSS del módulo */
   --text:#111827; --muted:#6b7280;
   --bg:#f6f7f9; --card-bg:#fff; --card-border:#e5e7eb;
@@ -25,16 +34,26 @@ html.theme-dark, html[data-theme="dark"]{
    Estructura y scroll “contenidos”, no body
    ————————————————————— */
 html,body{height:100%}
-body{overflow:hidden;background:var(--bg);color:var(--text)}
+body{
+  overflow:hidden;
+  background:var(--bg);
+  color:var(--text);
+}
 
 /* Header */
-#topbar{min-height:var(--header-h)}
+#topbar, #p360-topbar{ min-height:var(--header-h) }
 
 /* App frame */
-.admin-app{height:calc(100vh - var(--header-h)); overflow:hidden;}
+.admin-app{
+  height:calc(100vh - var(--header-h));
+  overflow:hidden;
+}
 
-/* Sidebar: que scrollee SOLO su interior */
-#sidebar{height:100%; overflow:auto}
+/* Sidebar: compat (si existiera un #sidebar viejo) */
+#sidebar{ height:100%; overflow:auto }
+
+/* ✅ Nebula sidebar id real */
+#nebula-sidebar{ height:calc(100vh - var(--header-h)); overflow:auto }
 
 /* Contenido principal: único scroll del contenido */
 .admin-content{
@@ -45,14 +64,36 @@ body{overflow:hidden;background:var(--bg);color:var(--text)}
 }
 
 /* Contenedor de página (márgenes internos) */
-.page-container{padding:.75rem}
+.page-container{ padding:.75rem }
 
 /* Evita “brincos” visuales al cambiar tema/densidad */
-*{scrollbar-gutter: stable both-edges}
+*{ scrollbar-gutter: stable both-edges }
 
 /* Mini guard para FOUC: si falta CSS del módulo, que al menos se vea decente */
 .page-card{
-  background:var(--card-bg); border:1px solid var(--card-border);
-  border-radius:12px; padding:12px; box-shadow:var(--shadow-1)
+  background:var(--card-bg);
+  border:1px solid var(--card-border);
+  border-radius:12px;
+  padding:12px;
+  box-shadow:var(--shadow-1);
 }
 
+/* ==========================================================================
+   ✅ LAYOUT OFFSET (CRÍTICO)
+   Empuja el contenido a la derecha del sidebar fijo.
+   Evita el “corte”/solape que se ve en tu screenshot.
+   ========================================================================== */
+.admin-app{
+  /* sidebar fijo a la izquierda */
+  padding-left: var(--sidebar-offset);
+}
+
+/* Si el sidebar está colapsado (lo pone JS en <html>) */
+html.sidebar-collapsed{
+  --sidebar-offset: var(--sidebar-w-collapsed);
+}
+
+/* En móvil NO empujamos (sidebar es overlay) */
+@media (max-width:1023.98px){
+  .admin-app{ padding-left: 0 !important; }
+}

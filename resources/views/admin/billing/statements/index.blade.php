@@ -1,7 +1,11 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\index.blade.php --}}
+<<<<<<< HEAD
+=======
+{{-- UI v6.0 Â· Estados de cuenta (Admin) â€” rediseÃ±o completo: header/filters pro, KPI modernos, bulk actions, tabla premium, responsive --}}
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 @extends('layouts.admin')
 
-@section('title','Facturación · Estados de cuenta')
+@section('title','FacturaciÃ³n Â· Estados de cuenta')
 @section('layout','full')
 
 @php
@@ -36,9 +40,17 @@
   $routeIndex = route('admin.billing.statements.index');
 
   // rutas (alineadas a routes/admin.php)
+<<<<<<< HEAD
   $hasShow   = Route::has('admin.billing.statements.show');
   $hasPdf    = Route::has('admin.billing.statements.pdf');
   $hasSendLegacy = Route::has('admin.billing.statements.email');
+=======
+  $hasShow   = Route::has('admin.billing.statements.show');   // GET /billing/statements/{accountId}/{period}
+  $hasPdf    = Route::has('admin.billing.statements.pdf');    // GET /billing/statements/{accountId}/{period}/pdf
+
+  // âœ… EnvÃ­o legacy (por fila)
+  $hasSendLegacy = Route::has('admin.billing.statements.email'); // POST /billing/statements/{accountId}/{period}/email
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
   // HUB
   $hasHub       = Route::has('admin.billing.statements_hub.index');
@@ -413,11 +425,16 @@
     {{-- HEADER --}}
     <div class="sx-head">
       <div>
-        <div class="sx-title">Facturación · Estados de cuenta</div>
+        <div class="sx-title">FacturaciÃ³n Â· Estados de cuenta</div>
         <div class="sx-sub">
+<<<<<<< HEAD
           Periodo <span class="sx-mono">{{ $period }}</span>.
           “Total” = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
           Usa selección masiva para enviar correos o preparar la operación.
+=======
+          Periodo <span class="sx-mono">{{ $period }}</span>. â€œTotalâ€ = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
+          Usa selecciÃ³n masiva para enviar correos o preparar la operaciÃ³n.
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
       </div>
 
@@ -447,7 +464,11 @@
       <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
         <div class="sx-ctl">
           <label>Buscar</label>
+<<<<<<< HEAD
           <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social...">
+=======
+          <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razÃ³n social, UUID...">
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
 
         <div class="sx-ctl">
@@ -473,10 +494,17 @@
         </div>
 
         <div class="sx-ctl">
+<<<<<<< HEAD
           <label>Por página</label>
           <select class="sx-sel" name="perPage">
             @foreach([25,50,100,250,500,1000] as $n)
               <option value="{{ $n }}" {{ (int)$perPage===(int)$n?'selected':'' }}>{{ $n }}</option>
+=======
+          <label>Por pÃ¡gina</label>
+          <select class="sx-sel" name="per_page">
+            @foreach([10,25,50,100,200] as $n)
+              <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             @endforeach
           </select>
         </div>
@@ -513,8 +541,16 @@
         <div class="sx-k">Pagado</div>
         <div class="sx-v">{{ $fmtMoney($kpis['abono'] ?? 0) }}</div>
         <div class="sx-mini">
+<<<<<<< HEAD
           EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['paid_edo'] ?? 0) }}</span>
           · Payments: <span class="sx-mono">{{ $fmtMoney($kpis['paid_pay'] ?? 0) }}</span>
+=======
+          @if(isset($kpis['edocta']) || isset($kpis['payments']))
+            EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span> Â· Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
+          @else
+            Total abonado acumulado del periodo.
+          @endif
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
       </div>
 
@@ -531,7 +567,7 @@
       </div>
 
       <div class="sx-kpi">
-        <div class="sx-k">Operación</div>
+        <div class="sx-k">OperaciÃ³n</div>
         <div class="sx-v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(true)">Todo</button>
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(false)">Nada</button>
@@ -539,9 +575,13 @@
         </div>
         <div class="sx-mini">
           @if($hasBulkSend)
+<<<<<<< HEAD
             Envío masivo vía HUB.
+=======
+            EnvÃ­o masivo vÃ­a HUB: <span class="sx-mono">billing/statements-hub/bulk/send</span>.
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
           @else
-            Tip: activa el endpoint HUB para habilitar envío masivo real.
+            Tip: activa el endpoint HUB para habilitar envÃ­o masivo real.
           @endif
         </div>
       </div>
@@ -570,11 +610,13 @@
                 style="display:none;">
             @csrf
             <input type="hidden" name="period" value="{{ $period }}">
-            {{-- account_ids[] se inyecta por JS --}}
+            {{-- âœ… account_ids se envÃ­a como STRING (CSV) para compatibilidad con validaciÃ³n string en HUB --}}
+            <input type="hidden" name="account_ids" value="">
           </form>
         </div>
 
         {{-- TABLE --}}
+<<<<<<< HEAD
         <div class="sx-table-wrap">
           <table class="sx-table">
             <thead>
@@ -590,6 +632,131 @@
                 <th class="sx-right" style="width:130px">Saldo</th>
                 <th style="width:150px">Estatus</th>
                 <th class="sx-right" style="width:260px">Acciones</th>
+=======
+        <table class="sx-table">
+          <thead>
+            <tr>
+              <th class="sx-selcol">
+                <input class="sx-ck" type="checkbox" id="sxCkAll" onclick="sxToggleAll(this)">
+              </th>
+              <th style="width:110px">Cuenta</th>
+              <th>Cliente</th>
+              <th style="width:260px">Email / Meta</th>
+              <th class="sx-right" style="width:140px">Total</th>
+              <th class="sx-right" style="width:140px">Pagado</th>
+              <th class="sx-right" style="width:140px">Saldo</th>
+              <th style="width:140px">Estatus</th>
+              <th class="sx-right" style="width:280px">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse($rows as $r)
+              @php
+                $aid   = (string)($r->id ?? $r->account_id ?? '');
+                $rfc   = (string)($r->rfc ?? $r->codigo ?? '');
+                $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: 'â€”'));
+                $mail  = (string)($r->email ?? $r->correo ?? 'â€”');
+
+                $plan  = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? 'â€”');
+                $modo  = (string)($r->modo_cobro ?? $r->billing_mode ?? $r->modo ?? 'â€”');
+
+                $cargo = (float)($r->cargo ?? 0);
+                $expected = (float)($r->expected_total ?? 0);
+                $total = $cargo > 0 ? $cargo : $expected;
+
+                $abono = (float)($r->abono ?? 0);
+                $saldo = max(0, $total - $abono);
+
+                $st = (string)($r->status_pago ?? $r->status ?? '');
+                $st = strtolower(trim($st));
+                if($st==='paid' || $st==='succeeded') $st = 'pagado';
+
+                $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
+
+                $pillCls = 'sx-dim';
+                if($st==='pagado') $pillCls='sx-ok';
+                elseif($st==='vencido') $pillCls='sx-bad';
+                elseif(in_array($st, ['pendiente','parcial'], true)) $pillCls='sx-warn';
+
+                $saldoCls = $saldo > 0 ? 'sx-warn' : 'sx-ok';
+
+                $showUrl = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
+                $pdfUrl  = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
+
+                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$period]) : null;
+              @endphp
+
+              <tr>
+                <td onclick="event.stopPropagation();">
+                  <input class="sx-ck sx-row" type="checkbox" value="{{ e($aid) }}" onclick="sxSync()">
+                </td>
+
+                <td class="sx-mono">
+                  #{{ $aid }}
+                  @if($rfc)
+                    <div class="sx-subrow">RFC: <span class="sx-mono">{{ $rfc }}</span></div>
+                  @endif
+                </td>
+
+                <td>
+                  <div class="sx-name">{{ $name }}</div>
+                  <div class="sx-subrow">
+                    <span class="sx-pill sx-dim"><span class="dot"></span> {{ strtoupper(trim($plan ?: 'â€”')) }}</span>
+                    <span class="sx-pill sx-dim" style="margin-left:6px;"><span class="dot"></span> {{ $modo ?: 'â€”' }}</span>
+                  </div>
+                </td>
+
+                <td>
+                  <div class="sx-mono">{{ $mail }}</div>
+                  <div class="sx-subrow">
+                    Periodo: <span class="sx-mono">{{ (string)($r->period ?? $period) }}</span>
+                    @if(!empty($r->pago_metodo))
+                      <span style="opacity:.55;">Â·</span> Pago: <span class="sx-mono">{{ (string)$r->pago_metodo }}</span>
+                    @endif
+                    @if(!empty($r->last_paid_at))
+                      <br>Ãšlt. pago: <span class="sx-mono">{{ (string)$r->last_paid_at }}</span>
+                    @endif
+                  </div>
+                </td>
+
+                <td class="sx-right sx-mono">{{ $fmtMoney($total) }}</td>
+                <td class="sx-right sx-mono">{{ $fmtMoney($abono) }}</td>
+
+                <td class="sx-right">
+                  <span class="sx-pill {{ $saldoCls }}"><span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldo) }}</span></span>
+                </td>
+
+                <td>
+                  <span class="sx-pill {{ $pillCls }}"><span class="dot"></span>{{ $lbl }}</span>
+                </td>
+
+                <td class="sx-right">
+                  <div class="sx-actions">
+                    @if($showUrl)
+                      <a class="sx-btn sx-btn-primary" href="{{ $showUrl }}">Ver detalle</a>
+                    @else
+                      <button class="sx-btn sx-btn-primary" type="button" disabled title="Falta ruta show">Ver detalle</button>
+                    @endif
+
+                    @if($pdfUrl)
+                      <a class="sx-btn sx-btn-soft" target="_blank" href="{{ $pdfUrl }}">PDF</a>
+                    @else
+                      <button class="sx-btn sx-btn-soft" type="button" disabled title="Falta ruta pdf">PDF</button>
+                    @endif
+
+                    @if($emailUrl)
+                      <form method="POST" action="{{ $emailUrl }}">
+                        @csrf
+                        {{-- opcional: si tu controller admite 'to', aquÃ­ lo mandamos por defecto --}}
+                        <input type="hidden" name="to" value="{{ $mail !== 'â€”' ? $mail : '' }}">
+                        <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
+                      </form>
+                    @else
+                      <button class="sx-btn sx-btn-soft" type="button" disabled title="Falta ruta statements.email">Enviar</button>
+                    @endif
+                  </div>
+                </td>
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
               </tr>
             </thead>
             <tbody>
@@ -821,6 +988,7 @@
 
     function bindBulkForm(ids){
       if(!bulkForm) return false;
+<<<<<<< HEAD
       bulkForm.querySelectorAll('input[name="account_ids[]"]').forEach(n => n.remove());
       ids.forEach(id => {
         const inp = document.createElement('input');
@@ -829,6 +997,13 @@
         inp.value = String(id);
         bulkForm.appendChild(inp);
       });
+=======
+
+      // âœ… HUB espera string -> enviamos CSV en account_ids
+      const inp = bulkForm.querySelector('input[name="account_ids"]');
+      if (inp) inp.value = ids.join(',');
+
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
       return true;
     }
 
@@ -845,6 +1020,7 @@
         return;
       }
 
+<<<<<<< HEAD
       const payload = { period: @json($period), account_ids: ids };
       try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
 
@@ -852,6 +1028,13 @@
         'Cuentas seleccionadas: ' + ids.length +
         '\\n\\nSe copió al portapapeles (period + account_ids).\\nActiva el endpoint HUB bulk_send para envío masivo real.'
       );
+=======
+      // Fallback: copiar al portapapeles (sin backend)
+      const payload = { period: @json($period), account_ids: ids.join(',') };
+      try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
+
+      alert('Cuentas seleccionadas: ' + ids.length + '\n\nSe copiÃ³ al portapapeles (period + account_ids CSV).\nActiva el endpoint HUB bulk_send para envÃ­o masivo real.');
+>>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     };
 
     update();

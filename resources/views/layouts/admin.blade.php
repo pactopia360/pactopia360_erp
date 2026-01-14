@@ -81,6 +81,12 @@
         /* Layout */
         --header-h:56px;
 
+        /* ✅ SIDEBAR WIDTHS (fix de alineación contenido vs sidebar) */
+        --sidebar-w:260px;              /* default abierto */
+        --sidebar-w-collapsed:72px;     /* colapsado */
+        /* Ancho efectivo que usa el contenido. JS/CSS puede cambiarlo. */
+        --sidebar-offset: var(--sidebar-w);
+
         /* Control de ancho del contenido */
         --content-max: 100%;
         --footer-max: 100%;
@@ -109,6 +115,9 @@
         --card: var(--card-bg);
       }
 
+      /* ✅ Hook opcional: si tu JS setea data-sidebar="collapsed" en <html>, el offset baja automáticamente */
+      html[data-sidebar="collapsed"]{ --sidebar-offset: var(--sidebar-w-collapsed); }
+
       /* ===== Estructura base ===== */
       html,body{height:100%}
       *,*::before,*::after{ box-sizing:border-box }
@@ -129,16 +138,48 @@
       }
       .p360-topbar > *{width:100%}
 
-      /* App shell */
+      /* ✅ App shell (ya no dependemos de flex para alinear con sidebar).
+         El layout correcto es: sidebar fijo + main con margin-left. */
       .admin-app{
-        flex:1 1 auto; min-height:0; display:flex; overflow:hidden;
+        position:relative;
+        flex:1 1 auto;
+        min-height:0;
+        overflow:hidden;
         padding-top:var(--header-h);
       }
 
+      /* ✅ Sidebar: forzamos posición/medidas SIN romper tu partial.
+         Funciona para IDs/clases comunes. */
+      #nebula-sidebar,
+      #p360-sidebar,
+      .admin-sidebar,
+      .p360-sidebar,
+      aside.sidebar{
+        position:fixed;
+        top:var(--header-h);
+        left:0;
+        width:var(--sidebar-offset);
+        height:calc(100vh - var(--header-h));
+        background:var(--sb-bg);
+        color:var(--sb-fg);
+        border-right:1px solid var(--sb-border);
+        overflow:auto;
+        z-index:1000;
+        -webkit-overflow-scrolling:touch;
+      }
+
+      /* ✅ Main content: empieza EXACTO después del sidebar */
       .admin-content{
-        flex:1 1 auto; min-height:0; overflow:auto; -webkit-overflow-scrolling:touch;
+        position:relative;
+        margin-left:var(--sidebar-offset);
+        width:calc(100% - var(--sidebar-offset));
+        height:calc(100vh - var(--header-h));
+        overflow:auto;
+        -webkit-overflow-scrolling:touch;
         background:var(--bg);
-        display:flex; flex-direction:column;
+        display:flex;
+        flex-direction:column;
+        min-width:0;
       }
 
       /* Contenido */
@@ -161,9 +202,7 @@
         --content-max: 1280px;
         --footer-max: 1280px;
       }
-      html[data-layout="contained"] .page-shell{
-        margin-inline:auto;
-      }
+      html[data-layout="contained"] .page-shell{ margin-inline:auto; }
 
       /* ==========================================================================
          HARD FULL-WIDTH OVERRIDES (anti CSS externo)
@@ -238,6 +277,22 @@
       /* Si algún widget dibuja legal en TOPBAR, no lo mostramos ahí */
       .p360-topbar .topbar-copy, .p360-topbar .copyright, .p360-topbar .legal, .p360-topbar [data-copyright]{ display:none!important }
 
+      /* ✅ Responsive: en móvil el contenido NO debe tener margen izquierdo */
+      @media (max-width: 980px){
+        .admin-content{
+          margin-left:0;
+          width:100%;
+        }
+        #nebula-sidebar,
+        #p360-sidebar,
+        .admin-sidebar,
+        .p360-sidebar,
+        aside.sidebar{
+          /* deja que tu CSS/JS maneje overlay/transform si ya existe */
+          width: min(86vw, var(--sidebar-w));
+        }
+      }
+
       @media (max-width: 720px){
         .admin-footer .footer-inner{ padding:12px; gap:8px }
         .admin-footer .meta a{ margin-left:8px }
@@ -245,7 +300,11 @@
 
       @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
       @media (forced-colors: active){ .p360-topbar{ border-bottom:1px solid CanvasText } }
-      @media print{ .p360-topbar, #nebula-sidebar, #p360-alerts, #p360-progress{ display:none !important } .admin-app{ padding-top:0 } }
+      @media print{
+        .p360-topbar, #nebula-sidebar, #p360-sidebar, .admin-sidebar, .p360-sidebar, #p360-alerts, #p360-progress{ display:none !important }
+        .admin-app{ padding-top:0 }
+        .admin-content{ margin-left:0 !important; width:100% !important; height:auto !important; overflow:visible !important; }
+      }
 
       /* ==========================
          MODO MODAL (iframe)
@@ -490,6 +549,12 @@
       addEventListener('load', ()=>requestAnimationFrame(syncHeaderHeight), {once:true});
       addEventListener('resize', ()=>requestAnimationFrame(syncHeaderHeight));
       setTimeout(syncHeaderHeight, 160);
+
+      /* ✅ Sync del sidebar-offset:
+         - Si tu sidebar real cambia (colapsado/expandido) vía CSS/JS, puedes setear:
+           document.documentElement.style.setProperty('--sidebar-offset','72px');
+         - o html.dataset.sidebar='collapsed' (ya soportado por CSS arriba).
+      */
 
       try{
         const th = localStorage.getItem('p360.theme');   if(th) P360.setTheme(th);

@@ -62,3 +62,48 @@ body.page-admin-statement-show .page-shell{
   margin:0 !important;
   padding:0 !important;
 }
+
+
+/* =========================================================
+   P360 · FORCE FULL WIDTH (Admin)
+   Blindaje contra wrappers internos (container/wrapper/etc.)
+   ========================================================= */
+
+html[data-layout="full"] .admin-content .page-container{
+  width:100% !important;
+  max-width:none !important;
+  margin:0 !important;
+}
+
+html[data-layout="full"] .admin-content .page-container .page-shell{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+/* Si alguna vista usa Bootstrap container o wrappers similares */
+html[data-layout="full"] .admin-content .page-container .container,
+html[data-layout="full"] .admin-content .page-container .container-sm,
+html[data-layout="full"] .admin-content .page-container .container-md,
+html[data-layout="full"] .admin-content .page-container .container-lg,
+html[data-layout="full"] .admin-content .page-container .container-xl,
+html[data-layout="full"] .admin-content .page-container .container-xxl{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+  padding-left:0 !important;   /* opcional: quita “margen” visual */
+  padding-right:0 !important;  /* opcional: quita “margen” visual */
+}
+
+/* Wrappers frecuentes en dashboards */
+html[data-layout="full"] .admin-content .page-container .wrap,
+html[data-layout="full"] .admin-content .page-container .wrapper,
+html[data-layout="full"] .admin-content .page-container .dashboard-wrap,
+html[data-layout="full"] .admin-content .page-container .dashboard-container{
+  width:100% !important;
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}

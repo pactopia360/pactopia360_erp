@@ -1,21 +1,20 @@
-{{-- P360-SIDEBAR-MARKER: layouts/partials/sidebar.blade.php :: {{ now()->format('Y-m-d H:i:s') }} --}}
-<style>
-  /* DEBUG: si esto aparece (un borde rojo), este sidebar SÍ se está cargando */
-  #nebula-sidebar { outline: 4px solid red !important; }
-</style>
- 
-
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\layouts\partials\sidebar.blade.php --}}
-{{-- resources/views/layouts/partials/sidebar.blade.php — Nebula Sidebar v6.2 (Modern aligned + Active groups + Clean hierarchy) --}}
+{{-- resources/views/layouts/partials/sidebar.blade.php — Nebula Sidebar v6.3 (Synced widths + Perfect content offset) --}}
+
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Str;
 
-  /** ================== OPCIONES ================== */
+  /** ================== OPCIONES ==================
+   *  ⚠️ IMPORTANTE: estos anchos DEBEN coincidir con el layout admin.blade.php
+   *  (vars: --sidebar-w / --sidebar-w-collapsed)
+   */
   $FAVORITES_ENABLED   = true;
   $RECENTS_ENABLED     = true;
-  $COLLAPSED_WIDTH_PX  = 84;   // ancho colapsado
-  $EXPANDED_WIDTH_PX   = 296;  // ancho expandido
+
+  // ✅ Sync con el layout (lo que corregimos): 260 / 72
+  $COLLAPSED_WIDTH_PX  = 72;   // ancho colapsado
+  $EXPANDED_WIDTH_PX   = 260;  // ancho expandido
   $MOBILE_MAX_WVW      = 80;   // % ancho en móvil
 
   /** ================== RESOLVER ROBUSTO ================== */
@@ -143,9 +142,11 @@
       'section'=>'Administración',
       'items'=>[
         ['text'=>'Usuarios','icon'=>'👥','children'=>[
-          ['text'=>'Administrativos','route'=>'admin.usuarios.index'],
-          ['text'=>'Clientes','route'=>'admin.clientes.index'],
-          ['text'=>'Robots','route'=>'admin.usuarios.robots.index'],
+          // ✅ rutas reales
+          ['text'=>'Administrativos','route'=>'admin.usuarios.administrativos.index','active_when'=>['admin.usuarios.administrativos.*']],
+          ['text'=>'Clientes','route'=>'admin.usuarios.clientes.index','active_when'=>['admin.usuarios.clientes.*']],
+          // ⚠️ este no lo vimos en tu route:list; lo dejo como placeholder seguro
+          ['text'=>'Robots','route'=>'#'],
         ]],
 
         [
@@ -169,6 +170,7 @@
         ]],
       ],
     ],
+
     [
       'section'=>'Auditoría',
       'items'=>[
@@ -387,8 +389,13 @@
 
 <style>
   :root{
-    --ns-w: {{ $EXPANDED_WIDTH_PX }}px;
-    --ns-wc: {{ $COLLAPSED_WIDTH_PX }}px;
+    /* ✅ Sincronía con el layout (admin.blade.php) */
+    --sidebar-w: {{ (int)$EXPANDED_WIDTH_PX }}px;
+    --sidebar-w-collapsed: {{ (int)$COLLAPSED_WIDTH_PX }}px;
+
+    /* Nebula widths consumen lo global */
+    --ns-w: var(--sidebar-w);
+    --ns-wc: var(--sidebar-w-collapsed);
 
     /* superficie */
     --ns-fg: var(--ink,#0f172a);
@@ -413,7 +420,7 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  html.theme-dark :root{
+  html.theme-dark{
     --ns-fg:#e5e7eb;
     --ns-bg: rgba(17,24,39,.72);
     --ns-bd: rgba(255,255,255,.12);
@@ -424,9 +431,11 @@
   }
 
   #nebula-sidebar{
-    position:fixed; left:0;
+    position:fixed;
+    left:0;
     top: calc(var(--header-h) - var(--p360-rail-h, 2px));
-    bottom:0; width:var(--ns-w);
+    bottom:0;
+    width:var(--ns-w);
     background:var(--ns-bg);
     color:var(--ns-fg);
     border-right:1px solid var(--ns-bd);
@@ -506,7 +515,6 @@
     letter-spacing:.10em;
   }
 
-  /* ===== FILAS: alineación perfecta ===== */
   .ns-item{display:flex; align-items:center; gap:6px; padding:2px}
 
   .ns-link, .ns-summary{
@@ -522,7 +530,6 @@
     position:relative;
   }
 
-  /* columna fija de icono */
   .ico{
     width:24px;
     min-width:24px;
@@ -544,7 +551,6 @@
 
   .ns-link:hover, .ns-summary:hover{ background:var(--ns-hover); }
 
-  /* caret consistente */
   .car{
     margin-left:auto;
     opacity:.75;
@@ -553,14 +559,11 @@
   }
   .ns-group[open] .car{ transform:rotate(90deg); opacity:1; }
 
-  /* ===== NIVELES: sangría uniforme ===== */
-  .level-0{ }
   .level-1{ padding-left: calc(var(--ns-pad-x) + 10px) !important; }
   .level-2{ padding-left: calc(var(--ns-pad-x) + 22px) !important; }
   .level-3{ padding-left: calc(var(--ns-pad-x) + 34px) !important; }
   .level-4{ padding-left: calc(var(--ns-pad-x) + 46px) !important; }
 
-  /* contenedor de children con guía */
   .ns-children{
     margin:4px 0 6px;
     padding-left:10px;
@@ -580,7 +583,6 @@
     background: color-mix(in oklab, #fff 18%, transparent);
   }
 
-  /* ===== ACTIVO: limpio, moderno, sin “desacoplar” ===== */
   .ns-link.active{
     background: var(--ns-active-bg);
     border: 1px solid var(--ns-active-br);
@@ -595,7 +597,6 @@
     background: var(--ns-accent);
   }
 
-  /* grupo activo (summary) cuando un child está activo */
   .ns-summary.is-active{
     background: color-mix(in oklab, var(--ns-accent) 8%, transparent);
     border: 1px solid color-mix(in oklab, var(--ns-accent) 14%, transparent);
@@ -639,32 +640,13 @@
     html.sidebar-collapsed #nebula-sidebar .ns-link,
     html.sidebar-collapsed #nebula-sidebar .ns-summary{ justify-content:center; padding-inline:10px }
     html.sidebar-collapsed #nebula-sidebar .ico{ width:26px; min-width:26px; font-size:19px }
-
-    html.sidebar-collapsed #nebula-sidebar .ns-link:hover::after,
-    html.sidebar-collapsed #nebula-sidebar .ns-summary:hover::after{
-      content: attr(data-title);
-      position: fixed;
-      left: calc(var(--ns-wc) + 8px);
-      padding:6px 10px;
-      background:var(--ns-bg);
-      color:var(--ns-fg);
-      border:1px solid var(--ns-bd);
-      border-radius:10px;
-      box-shadow: 0 10px 28px rgba(0,0,0,.12);
-      white-space:nowrap;
-      z-index:10;
-      transform: translateY(-6px);
-      max-width: 60vw;
-      text-overflow:ellipsis;
-      overflow:hidden;
-    }
   }
 
   @media (max-width:1023.98px){
     #nebula-sidebar{
       transform:translateX(-100%);
       transition: transform .22s ease;
-      width:{{ $MOBILE_MAX_WVW }}vw;
+      width:{{ (int)$MOBILE_MAX_WVW }}vw;
       max-width:340px;
     }
     body.sidebar-open #nebula-sidebar{ transform:translateX(0) }
@@ -678,17 +660,6 @@
     body.sidebar-open .ns-backdrop{ display:block }
     .ns-input, button, .ns-btn, .ns-chip{ font-size:16px }
   }
-
-  .ns-link:focus-visible, .ns-summary:focus-visible, .ns-tab:focus-visible{
-    outline:none;
-    box-shadow: var(--ns-focus);
-  }
-
-  #nebula-sidebar *::-webkit-scrollbar{ width:10px; height:10px }
-  #nebula-sidebar *::-webkit-scrollbar-thumb{ background:color-mix(in oklab, var(--ns-fg) 20%, transparent); border-radius:10px }
-  #nebula-sidebar *::-webkit-scrollbar-track{ background:transparent }
-
-  @media (prefers-reduced-motion: reduce){ .car{ transition:none } }
 </style>
 
 <script>
@@ -702,9 +673,9 @@
 
   const KEY_MODE   = 'p360.sidebar.mode';
   const KEY_OPEN   = 'p360.sidebar.open';
-  const KEY_GROUPS = 'p360.sidebar.groups.v6.2';
-  const KEY_PINS   = 'p360.sidebar.pins.v6.2';
-  const KEY_TAB    = 'p360.sidebar.tab.v6.2';
+  const KEY_GROUPS = 'p360.sidebar.groups.v6.3';
+  const KEY_PINS   = 'p360.sidebar.pins.v6.3';
+  const KEY_TAB    = 'p360.sidebar.tab.v6.3';
 
   const isDesktop = ()=> w.matchMedia('(min-width:1024px)').matches;
   const getMode = ()=> { try{return localStorage.getItem(KEY_MODE)||'expanded'}catch{return'expanded'} };
@@ -712,10 +683,21 @@
   const getOpen = ()=> { try{return localStorage.getItem(KEY_OPEN)==='1'}catch{return false} };
   const setOpen = v => { try{localStorage.setItem(KEY_OPEN, v?'1':'0')}catch{} };
 
+  function syncOffset(){
+    const html = d.documentElement;
+    const collapsed = html.classList.contains('sidebar-collapsed') && isDesktop();
+    const cs = getComputedStyle(html);
+    const expanded = (cs.getPropertyValue('--sidebar-w') || '{{ (int)$EXPANDED_WIDTH_PX }}px').trim();
+    const colw     = (cs.getPropertyValue('--sidebar-w-collapsed') || '{{ (int)$COLLAPSED_WIDTH_PX }}px').trim();
+    html.style.setProperty('--sidebar-offset', collapsed ? colw : expanded);
+  }
+
   function reflect(){
     const html=d.documentElement, body=d.body;
+
     html.classList.remove('sidebar-collapsed');
     body.classList.remove('sidebar-collapsed','sidebar-open');
+
     if(isDesktop()){
       const col=(getMode()==='collapsed');
       body.classList.toggle('sidebar-collapsed', col);
@@ -723,6 +705,8 @@
     } else {
       body.classList.toggle('sidebar-open', getOpen());
     }
+
+    syncOffset();
   }
 
   w.P360.sidebar = {
@@ -740,7 +724,7 @@
 
   // Tabs
   const tabs = d.querySelectorAll('.ns-tab');
-  let currentTab = localStorage.getItem(KEY_TAB) || 'curated';
+  let currentTab = (function(){ try{return localStorage.getItem(KEY_TAB)||'curated'}catch{return'curated'} })();
   function showTab(tab){
     currentTab = tab; try{ localStorage.setItem(KEY_TAB, tab); }catch(_){}
     tabs.forEach(t=> t.classList.toggle('active', t.dataset.tab===tab));
@@ -750,7 +734,7 @@
   tabs.forEach(t=> t.addEventListener('click', ()=> showTab(t.dataset.tab)));
   showTab(currentTab);
 
-  // Persistencia de <details> por tab y aria-expanded
+  // Persistencia de <details>
   const menus = [M1,M2];
   let groups={}; try{groups=JSON.parse(localStorage.getItem(KEY_GROUPS)||'{}')||{}}catch{ groups={} }
   menus.forEach(menu=>{
@@ -829,7 +813,7 @@
     applyFilter(search?.value||'');
   });
 
-  // Expandir/Colapsar todo (tab visible)
+  // Expandir/Colapsar todo
   d.getElementById('nsExpandAll')?.addEventListener('click', ()=>{
     const activeMenu = (currentTab==='auto') ? M2 : M1;
     activeMenu.querySelectorAll('.ns-group').forEach(det=>{
@@ -894,5 +878,7 @@
       }
     });
   });
+
+  w.addEventListener('load', ()=>{ try{ syncOffset(); }catch(_){ } }, {once:true});
 })(window,document);
 </script>
