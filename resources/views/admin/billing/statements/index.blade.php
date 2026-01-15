@@ -1,8 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\index.blade.php --}}
-<<<<<<< HEAD
-=======
 {{-- UI v6.0 Â· Estados de cuenta (Admin) â€” rediseÃ±o completo: header/filters pro, KPI modernos, bulk actions, tabla premium, responsive --}}
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 @extends('layouts.admin')
 
 @section('title','FacturaciÃ³n Â· Estados de cuenta')
@@ -40,17 +37,11 @@
   $routeIndex = route('admin.billing.statements.index');
 
   // rutas (alineadas a routes/admin.php)
-<<<<<<< HEAD
-  $hasShow   = Route::has('admin.billing.statements.show');
-  $hasPdf    = Route::has('admin.billing.statements.pdf');
-  $hasSendLegacy = Route::has('admin.billing.statements.email');
-=======
   $hasShow   = Route::has('admin.billing.statements.show');   // GET /billing/statements/{accountId}/{period}
   $hasPdf    = Route::has('admin.billing.statements.pdf');    // GET /billing/statements/{accountId}/{period}/pdf
 
   // âœ… EnvÃ­o legacy (por fila)
   $hasSendLegacy = Route::has('admin.billing.statements.email'); // POST /billing/statements/{accountId}/{period}/email
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
   // HUB
   $hasHub       = Route::has('admin.billing.statements_hub.index');
@@ -427,14 +418,8 @@
       <div>
         <div class="sx-title">FacturaciÃ³n Â· Estados de cuenta</div>
         <div class="sx-sub">
-<<<<<<< HEAD
-          Periodo <span class="sx-mono">{{ $period }}</span>.
-          “Total” = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
-          Usa selección masiva para enviar correos o preparar la operación.
-=======
           Periodo <span class="sx-mono">{{ $period }}</span>. â€œTotalâ€ = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
           Usa selecciÃ³n masiva para enviar correos o preparar la operaciÃ³n.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
       </div>
 
@@ -464,11 +449,7 @@
       <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
         <div class="sx-ctl">
           <label>Buscar</label>
-<<<<<<< HEAD
-          <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social...">
-=======
           <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razÃ³n social, UUID...">
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
 
         <div class="sx-ctl">
@@ -494,17 +475,10 @@
         </div>
 
         <div class="sx-ctl">
-<<<<<<< HEAD
-          <label>Por página</label>
-          <select class="sx-sel" name="perPage">
-            @foreach([25,50,100,250,500,1000] as $n)
-              <option value="{{ $n }}" {{ (int)$perPage===(int)$n?'selected':'' }}>{{ $n }}</option>
-=======
           <label>Por pÃ¡gina</label>
           <select class="sx-sel" name="per_page">
             @foreach([10,25,50,100,200] as $n)
               <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             @endforeach
           </select>
         </div>
@@ -541,16 +515,11 @@
         <div class="sx-k">Pagado</div>
         <div class="sx-v">{{ $fmtMoney($kpis['abono'] ?? 0) }}</div>
         <div class="sx-mini">
-<<<<<<< HEAD
-          EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['paid_edo'] ?? 0) }}</span>
-          · Payments: <span class="sx-mono">{{ $fmtMoney($kpis['paid_pay'] ?? 0) }}</span>
-=======
           @if(isset($kpis['edocta']) || isset($kpis['payments']))
             EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span> Â· Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
           @else
             Total abonado acumulado del periodo.
           @endif
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         </div>
       </div>
 
@@ -575,11 +544,7 @@
         </div>
         <div class="sx-mini">
           @if($hasBulkSend)
-<<<<<<< HEAD
-            Envío masivo vía HUB.
-=======
             EnvÃ­o masivo vÃ­a HUB: <span class="sx-mono">billing/statements-hub/bulk/send</span>.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
           @else
             Tip: activa el endpoint HUB para habilitar envÃ­o masivo real.
           @endif
@@ -616,23 +581,6 @@
         </div>
 
         {{-- TABLE --}}
-<<<<<<< HEAD
-        <div class="sx-table-wrap">
-          <table class="sx-table">
-            <thead>
-              <tr>
-                <th class="sx-selcol">
-                  <input class="sx-ck" type="checkbox" id="sxCkAll" onclick="sxToggleAll(this)">
-                </th>
-                <th style="width:90px">Cuenta</th>
-                <th style="min-width:360px">Cliente</th>
-                <th style="width:340px">Contacto / Cobranza</th>
-                <th class="sx-right" style="width:130px">Total</th>
-                <th class="sx-right" style="width:150px">Pagado</th>
-                <th class="sx-right" style="width:130px">Saldo</th>
-                <th style="width:150px">Estatus</th>
-                <th class="sx-right" style="width:260px">Acciones</th>
-=======
         <table class="sx-table">
           <thead>
             <tr>
@@ -756,7 +704,6 @@
                     @endif
                   </div>
                 </td>
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
               </tr>
             </thead>
             <tbody>
@@ -988,22 +935,11 @@
 
     function bindBulkForm(ids){
       if(!bulkForm) return false;
-<<<<<<< HEAD
-      bulkForm.querySelectorAll('input[name="account_ids[]"]').forEach(n => n.remove());
-      ids.forEach(id => {
-        const inp = document.createElement('input');
-        inp.type = 'hidden';
-        inp.name = 'account_ids[]';
-        inp.value = String(id);
-        bulkForm.appendChild(inp);
-      });
-=======
 
       // âœ… HUB espera string -> enviamos CSV en account_ids
       const inp = bulkForm.querySelector('input[name="account_ids"]');
       if (inp) inp.value = ids.join(',');
 
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
       return true;
     }
 
@@ -1020,21 +956,11 @@
         return;
       }
 
-<<<<<<< HEAD
-      const payload = { period: @json($period), account_ids: ids };
-      try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
-
-      alert(
-        'Cuentas seleccionadas: ' + ids.length +
-        '\\n\\nSe copió al portapapeles (period + account_ids).\\nActiva el endpoint HUB bulk_send para envío masivo real.'
-      );
-=======
       // Fallback: copiar al portapapeles (sin backend)
       const payload = { period: @json($period), account_ids: ids.join(',') };
       try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
 
       alert('Cuentas seleccionadas: ' + ids.length + '\n\nSe copiÃ³ al portapapeles (period + account_ids CSV).\nActiva el endpoint HUB bulk_send para envÃ­o masivo real.');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     };
 
     update();
