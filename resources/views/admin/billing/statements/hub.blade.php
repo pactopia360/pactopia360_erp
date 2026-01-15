@@ -688,13 +688,13 @@
                 @forelse($rows as $r)
                   @php
                     $aid  = (string)($r->id ?? '');
-                    $mail = (string)($r->email ?? 'Ã¢â‚¬”');
+                    $mail = (string)($r->email ?? 'Ã¢â‚¬â€');
                     $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
-                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: 'Ã¢â‚¬”')));
+                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: 'Ã¢â‚¬â€')));
 
                     // Plan / cobro
-                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? 'Ã¢â‚¬”');
-                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? 'Ã¢â‚¬”');
+                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? 'Ã¢â‚¬â€');
+                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? 'Ã¢â‚¬â€');
 
                     // licencia visible (si existiera)
                     $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
@@ -717,7 +717,7 @@
                     else{ $pill='pill-dim'; }
 
                     $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
-                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : 'Ã¢â‚¬”'));
+                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : 'Ã¢â‚¬â€'));
 
                     $rowAccountUrl = ($hasAccountsShow && $aid) ? route('admin.billing.accounts.show', ['id'=>$aid]) : null;
 
@@ -751,9 +751,9 @@
                     </td>
 
                     <td>
-                      <div style="font-weight:950;">{{ strtoupper(trim($planLbl ?: 'Ã¢â‚¬”')) }}</div>
+                      <div style="font-weight:950;">{{ strtoupper(trim($planLbl ?: 'Ã¢â‚¬â€')) }}</div>
                       <div class="mut" style="margin-top:6px;">
-                        Cobro: <span class="mono">{{ $modoLbl ?: 'Ã¢â‚¬”' }}</span>
+                        Cobro: <span class="mono">{{ $modoLbl ?: 'Ã¢â‚¬â€' }}</span>
                         @if($licShown)
                           <span style="opacity:.55;">Ã‚·</span> <span class="mono">{{ $licShown }}</span>
                         @endif
@@ -786,7 +786,7 @@
                                 @endif
                               </div>
                             @else
-                              <div class="mut" style="margin-top:6px;">sin interacción</div>
+                              <div class="mut" style="margin-top:6px;">sin interacci�n</div>
                             @endif
                           </td>
 
@@ -1071,7 +1071,7 @@
             opsIds.forEach(i => i.value = aid);
 
             opsTo.forEach(i => {
-              if (!i.value && mail && mail !== 'Ã¢â‚¬”') i.value = mail;
+              if (!i.value && mail && mail !== 'Ã¢â‚¬â€') i.value = mail;
             });
           }
 
@@ -1119,19 +1119,19 @@
                   <td class="mono">#{{ (int)($e->id ?? 0) }}</td>
                   <td>
                     <div style="font-weight:950;">
-                      {{ (string)($e->to_list ?? $e->email ?? 'Ã¢â‚¬”') }}
+                      {{ (string)($e->to_list ?? $e->email ?? 'Ã¢â‚¬â€') }}
                     </div>
-                    <div class="mut">account: <span class="mono">{{ $aid ?: 'Ã¢â‚¬”' }}</span> Ã‚· email_id: <span class="mono">{{ (string)($e->email_id ?? 'Ã¢â‚¬”') }}</span></div>
-                    <div class="mut">subject: {{ (string)($e->subject ?? 'Ã¢â‚¬”') }}</div>
+                    <div class="mut">account: <span class="mono">{{ $aid ?: 'Ã¢â‚¬â€' }}</span> Ã‚· email_id: <span class="mono">{{ (string)($e->email_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                    <div class="mut">subject: {{ (string)($e->subject ?? 'Ã¢â‚¬â€') }}</div>
                   </td>
-                  <td class="mono">{{ $p ?: 'Ã¢â‚¬”' }}</td>
+                  <td class="mono">{{ $p ?: 'Ã¢â‚¬â€' }}</td>
                   <td><span class="pill {{ $pill }}">{{ strtoupper($st) }}</span></td>
                   <td class="mono">{{ (int)($e->open_count ?? 0) }}</td>
                   <td class="mono">{{ (int)($e->click_count ?? 0) }}</td>
                   <td class="mut">
-                    queued: {{ $e->queued_at ?? 'Ã¢â‚¬”' }}<br>
-                    sent: {{ $e->sent_at ?? 'Ã¢â‚¬”' }}<br>
-                    failed: {{ $e->failed_at ?? 'Ã¢â‚¬”' }}
+                    queued: {{ $e->queued_at ?? 'Ã¢â‚¬â€' }}<br>
+                    sent: {{ $e->sent_at ?? 'Ã¢â‚¬â€' }}<br>
+                    failed: {{ $e->failed_at ?? 'Ã¢â‚¬â€' }}
                   </td>
                   <td class="tright">
                     <div class="actions">
@@ -1185,7 +1185,7 @@
             <tbody>
               @forelse($payments as $p)
                 @php
-                  $stRaw = strtolower((string)($p->status ?? 'Ã¢â‚¬”'));
+                  $stRaw = strtolower((string)($p->status ?? 'Ã¢â‚¬â€'));
                   $st = strtoupper($stRaw);
                   $pill = in_array($stRaw, ['paid','succeeded','success','completed'], true) ? 'pill-ok'
                         : ($stRaw==='pending' ? 'pill-warn' : ($stRaw==='failed' ? 'pill-bad' : 'pill-dim'));
@@ -1200,13 +1200,13 @@
                 @endphp
                 <tr>
                   <td class="mono">#{{ (int)($p->id ?? 0) }}</td>
-                  <td class="mono">{{ (string)($p->account_id ?? 'Ã¢â‚¬”') }}</td>
-                  <td class="mono">{{ (string)($p->period ?? 'Ã¢â‚¬”') }}</td>
+                  <td class="mono">{{ (string)($p->account_id ?? 'Ã¢â‚¬â€') }}</td>
+                  <td class="mono">{{ (string)($p->period ?? 'Ã¢â‚¬â€') }}</td>
                   <td class="mono">{{ $fmtMoney($amountMxn) }} MXN</td>
                   <td><span class="pill {{ $pill }}">{{ $st }}</span></td>
                   <td class="mut">
-                    provider: <span class="mono">{{ (string)($p->provider ?? 'Ã¢â‚¬”') }}</span><br>
-                    ref: <span class="mono">{{ (string)($p->reference ?? $p->stripe_session_id ?? 'Ã¢â‚¬”') }}</span>
+                    provider: <span class="mono">{{ (string)($p->provider ?? 'Ã¢â‚¬â€') }}</span><br>
+                    ref: <span class="mono">{{ (string)($p->reference ?? $p->stripe_session_id ?? 'Ã¢â‚¬â€') }}</span>
                   </td>
                 </tr>
               @empty
@@ -1246,12 +1246,12 @@
                 <tr>
                   <td class="mono">#{{ (int)($ir->id ?? 0) }}</td>
                   <td class="mut">
-                    <div>account: <span class="mono">{{ (string)($ir->account_id ?? 'Ã¢â‚¬”') }}</span></div>
-                    <div>period: <span class="mono">{{ (string)($ir->period ?? 'Ã¢â‚¬”') }}</span></div>
+                    <div>account: <span class="mono">{{ (string)($ir->account_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                    <div>period: <span class="mono">{{ (string)($ir->period ?? 'Ã¢â‚¬â€') }}</span></div>
                   </td>
                   <td><span class="pill {{ $pill }}">{{ strtoupper((string)($ir->status ?? 'REQUESTED')) }}</span></td>
                   <td class="mut">
-                    uuid: <span class="mono">{{ (string)($ir->cfdi_uuid ?? 'Ã¢â‚¬”') }}</span><br>
+                    uuid: <span class="mono">{{ (string)($ir->cfdi_uuid ?? 'Ã¢â‚¬â€') }}</span><br>
                     {{ (string)($ir->notes ?? '') }}
                   </td>
                   <td class="tright">
@@ -1308,12 +1308,12 @@
                   <tr>
                     <td class="mono">#{{ (int)($inv->id ?? 0) }}</td>
                     <td class="mut">
-                      <div>account: <span class="mono">{{ (string)($inv->account_id ?? 'Ã¢â‚¬”') }}</span></div>
-                      <div>period: <span class="mono">{{ (string)($inv->period ?? 'Ã¢â‚¬”') }}</span></div>
+                      <div>account: <span class="mono">{{ (string)($inv->account_id ?? 'Ã¢â‚¬â€') }}</span></div>
+                      <div>period: <span class="mono">{{ (string)($inv->period ?? 'Ã¢â‚¬â€') }}</span></div>
                     </td>
                     <td class="mono">{{ (string)($inv->serie ?? '') }}{{ (string)($inv->folio ?? '') ? '-'.(string)$inv->folio : '' }}</td>
-                    <td class="mono">{{ (string)($inv->cfdi_uuid ?? 'Ã¢â‚¬”') }}</td>
-                    <td class="mono">{{ (string)($inv->issued_date ?? 'Ã¢â‚¬”') }}</td>
+                    <td class="mono">{{ (string)($inv->cfdi_uuid ?? 'Ã¢â‚¬â€') }}</td>
+                    <td class="mono">{{ (string)($inv->issued_date ?? 'Ã¢â‚¬â€') }}</td>
                     <td class="tright mono">{{ $fmtMoney($amtM) }} MXN</td>
                   </tr>
                 @empty
