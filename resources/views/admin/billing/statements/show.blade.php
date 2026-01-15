@@ -1,11 +1,11 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\show.blade.php --}}
-{{-- UI v8.2 ¬∑ Admin Estado de cuenta ‚Äî layout nuevo + CSS externo + FIX para admin shell (page-container padding + sticky en scroll container) --}}
+{{-- UI v8.2 √Ç¬∑ Admin Estado de cuenta √¢‚Ç¨‚Äù layout nuevo + CSS externo + FIX para admin shell (page-container padding + sticky en scroll container) --}}
 @extends('layouts.admin')
 
-@section('title', 'Estado de cuenta ∑ ' . ($period ?? request('period','')))
+@section('title', 'Estado de cuenta ¬∑ ' . ($period ?? request('period','')))
 @section('layout','full')
 
-{{-- CRÕTICO: esta clase permite overrides solo para esta pantalla --}}
+{{-- CR√çTICO: esta clase permite overrides solo para esta pantalla --}}
 @section('pageClass','page-admin-statement-show')
 
 @php
@@ -120,14 +120,14 @@
     <div class="sx-header">
       <div class="sx-header__left">
         <div class="sx-h1">
-          Estado de cuenta <span class="sx-dot">∑</span>
+          Estado de cuenta <span class="sx-dot">¬∑</span>
           <span class="sx-mono">{{ $period }}</span>
         </div>
 
         <div class="sx-hsub">
           <span class="sx-strong">{{ $razon }}</span>
-          @if($rfc) <span class="sx-dot">∑</span> RFC: <span class="sx-mono">{{ $rfc }}</span>@endif
-          @if($email) <span class="sx-dot">∑</span> Correo: <span class="sx-mono">{{ $email }}</span>@endif
+          @if($rfc) <span class="sx-dot">¬∑</span> RFC: <span class="sx-mono">{{ $rfc }}</span>@endif
+          @if($email) <span class="sx-dot">¬∑</span> Correo: <span class="sx-mono">{{ $email }}</span>@endif
         </div>
 
         <div class="sx-badges">
@@ -172,11 +172,11 @@
     {{-- GRID --}}
     <div class="sx-grid">
 
-      {{-- MAIN: LÕNEAS --}}
+      {{-- MAIN: L√çNEAS --}}
       <div class="sx-card">
         <div class="sx-card__head">
           <div>
-            <div class="sx-card__title">LÌneas del estado de cuenta</div>
+            <div class="sx-card__title">L√≠neas del estado de cuenta</div>
             <div class="sx-card__desc">
               Administra cargos/abonos. Referencias largas no rompen el layout.
             </div>
@@ -189,7 +189,7 @@
         <div class="sx-card__body">
           @if(!$hasLineStore || !$hasLineUpdate || !$hasLineDelete)
             <div class="sx-alert">
-              <b>Nota:</b> CRUD se muestra, pero quedar· <b>deshabilitado</b> si faltan rutas:
+              <b>Nota:</b> CRUD se muestra, pero quedar√° <b>deshabilitado</b> si faltan rutas:
               <span class="sx-mono">lines.store / lines.update / lines.delete</span>.
             </div>
           @endif
@@ -197,8 +197,8 @@
           {{-- Add line --}}
           <div class="sx-panel">
             <div class="sx-panel__head">
-              <div class="sx-panel__title">Agregar lÌnea</div>
-              <div class="sx-panel__hint">Captura r·pida.</div>
+              <div class="sx-panel__title">Agregar l√≠nea</div>
+              <div class="sx-panel__hint">Captura r√°pida.</div>
             </div>
 
             <form class="sx-form"
@@ -231,13 +231,13 @@
 
               <div class="sx-ctl">
                 <label>Detalle / referencia</label>
-                <input class="sx-in" name="detalle" placeholder="Opcional: sesiÛn Stripe, nota interna, etc.">
+                <input class="sx-in" name="detalle" placeholder="Opcional: sesi√≥n Stripe, nota interna, etc.">
               </div>
 
               <div class="sx-form__actions">
                 <button class="sx-btn sx-btn--primary" type="submit"
                         @if(!$hasLineStore) disabled title="Falta implementar lines.store" @endif>
-                  Agregar lÌnea
+                  Agregar l√≠nea
                 </button>
               </div>
             </form>
@@ -247,7 +247,7 @@
           <div class="sx-lines">
             <div class="sx-lines__head">
               <div class="sx-lines__title">Movimientos</div>
-              <div class="sx-lines__hint">Desktop = tabla; mÛvil = tarjetas.</div>
+              <div class="sx-lines__hint">Desktop = tabla; m√≥vil = tarjetas.</div>
             </div>
 
             <div class="sx-tablewrap" role="region" aria-label="Tabla de movimientos" tabindex="0">
@@ -265,7 +265,7 @@
                   @forelse($rows as $r)
                     @php
                       $id = (string)($r->id ?? '');
-                      $concepto = (string)($r->concepto ?? $r->concept ?? $r->title ?? 'ó');
+                      $concepto = (string)($r->concepto ?? $r->concept ?? $r->title ?? '‚Äî');
                       $detalle  = (string)($r->detalle ?? $r->detail ?? $r->descripcion ?? '');
                       $cargoIt  = (float)($r->cargo ?? 0);
                       $abonoIt  = (float)($r->abono ?? 0);
@@ -282,7 +282,7 @@
                       </td>
 
                       <td data-label="Detalle / Ref">
-                        <div class="sx-tdBody">{{ $detalle ?: 'ó' }}</div>
+                        <div class="sx-tdBody">{{ $detalle ?: '‚Äî' }}</div>
                         <div class="sx-tdSub">
                           @if($ref) Ref: <span class="sx-mono sx-break">{{ $ref }}</span>@endif
                         </div>
@@ -313,7 +313,7 @@
                             <input type="hidden" name="period" value="{{ $period }}">
                             <button class="sx-btn sx-btn--danger sx-btn--sm" type="submit"
                                     @if(!$hasLineDelete) disabled title="Falta implementar lines.delete" @endif
-                                    onclick="return confirm('øEliminar esta lÌnea?');">
+                                    onclick="return confirm('¬øEliminar esta l√≠nea?');">
                               Eliminar
                             </button>
                           </form>
@@ -339,7 +339,7 @@
           <div class="sx-card__head">
             <div>
               <div class="sx-card__title">Acciones</div>
-              <div class="sx-card__desc">Configura modo, guarda y envÌa por correo.</div>
+              <div class="sx-card__desc">Configura modo, guarda y env√≠a por correo.</div>
             </div>
           </div>
 
@@ -348,7 +348,7 @@
             {{-- Config --}}
             <div class="sx-box">
               <div class="sx-box__head">
-                <div class="sx-box__title">ConfiguraciÛn</div>
+                <div class="sx-box__title">Configuraci√≥n</div>
                 <div class="sx-box__desc">Define comportamiento del estado.</div>
               </div>
 
@@ -366,7 +366,7 @@
                   <label>Tipo de estado</label>
                   <select class="sx-in" name="mode">
                     <option value="mensual" {{ $statementMode==='mensual'?'selected':'' }}>Mensual (se agrega por periodo)</option>
-                    <option value="unica" {{ $statementMode==='unica'?'selected':'' }}>⁄nica (no recurrente)</option>
+                    <option value="unica" {{ $statementMode==='unica'?'selected':'' }}>√önica (no recurrente)</option>
                   </select>
                 </div>
 
@@ -435,7 +435,7 @@
 
                   <button class="sx-btn sx-btn--soft w-100" type="submit"
                           @if(!$hasSchedule) disabled title="Falta implementar statements_hub.schedule" @endif>
-                    Programar envÌo
+                    Programar env√≠o
                   </button>
 
                   <div class="sx-tip">
@@ -463,7 +463,7 @@
             <div class="sx-box">
               <div class="sx-box__head">
                 <div class="sx-box__title">Datos de cuenta</div>
-                <div class="sx-box__desc">Referencia r·pida.</div>
+                <div class="sx-box__desc">Referencia r√°pida.</div>
               </div>
 
               <div class="sx-box__body">
@@ -487,9 +487,9 @@
 
 {{-- MODAL EDIT --}}
 <div id="sxModal" class="sx-modal" aria-hidden="true">
-  <div class="sx-modal__card" role="dialog" aria-modal="true" aria-label="Editar lÌnea">
+  <div class="sx-modal__card" role="dialog" aria-modal="true" aria-label="Editar l√≠nea">
     <div class="sx-modal__head">
-      <div class="t">Editar lÌnea</div>
+      <div class="t">Editar l√≠nea</div>
       <button class="sx-btn sx-btn--soft sx-btn--sm" type="button" onclick="sxCloseEdit()">Cerrar</button>
     </div>
 
