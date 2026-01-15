@@ -1,8 +1,8 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\hub.blade.php --}}
-{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0 · HUB moderno + rutas seguras + bulk completo + mÃƒ¡s datos visibles) --}}
+{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0  HUB moderno + rutas seguras + bulk completo + más datos visibles) --}}
 @extends('layouts.admin')
 
-@section('title', 'FacturaciÃƒ³n · HUB')
+@section('title', 'Facturación  HUB')
 @section('layout', 'full')
 
 @php
@@ -380,9 +380,9 @@
     {{-- HEAD --}}
     <div class="head">
       <div>
-        <div class="ttl">FacturaciÃƒ³n · HUB</div>
+        <div class="ttl">Facturación  HUB</div>
         <div class="sub">
-          Panel operativo: estados de cuenta, pagos, correos (open/click + reenvÃƒ­o), solicitudes de factura y facturas emitidas.
+          Panel operativo: estados de cuenta, pagos, correos (open/click + reenvío), solicitudes de factura y facturas emitidas.
         </div>
       </div>
 
@@ -406,7 +406,7 @@
         </div>
 
         <div class="ctl">
-          <label>Por pÃƒ¡gina</label>
+          <label>Por página</label>
           <select class="in" name="per_page">
             @foreach([10,25,50,100,200] as $n)
               <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
@@ -540,12 +540,12 @@
         </div>
 
         <div class="ctl">
-          <label>Saldo mÃƒ­n</label>
+          <label>Saldo mín</label>
           <input class="in" name="saldo_min" value="{{ $saldoMin }}" placeholder="ej. 1">
         </div>
 
         <div class="ctl">
-          <label>Saldo mÃƒ¡x</label>
+          <label>Saldo máx</label>
           <input class="in" name="saldo_max" value="{{ $saldoMax }}" placeholder="ej. 5000">
         </div>
 
@@ -564,13 +564,13 @@
         </div>
 
         <div class="ctl">
-          <label>EnvÃƒ­o</label>
+          <label>Envío</label>
           <select class="in" name="sent">
             <option value="" {{ $sent===''?'selected':'' }}>Cualquiera</option>
             <option value="never" {{ $sent==='never'?'selected':'' }}>Nunca</option>
             <option value="today" {{ $sent==='today'?'selected':'' }}>Hoy</option>
-            <option value="7d" {{ $sent==='7d'?'selected':'' }}>ÃƒÅ¡ltimos 7 dÃƒ­as</option>
-            <option value="30d" {{ $sent==='30d'?'selected':'' }}>ÃƒÅ¡ltimos 30 dÃƒ­as</option>
+            <option value="7d" {{ $sent==='7d'?'selected':'' }}>šltimos 7 días</option>
+            <option value="30d" {{ $sent==='30d'?'selected':'' }}>šltimos 30 días</option>
           </select>
         </div>
 
@@ -598,7 +598,7 @@
         <div class="kpi"><div class="k">Cuentas</div><div class="v">{{ (int)($kpis['accounts'] ?? 0) }}</div></div>
 
         <div class="kpi">
-          <div class="k">OperaciÃƒ³n</div>
+          <div class="k">Operación</div>
           <div class="v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=emails&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Logs correos</a>
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=payments&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Pagos</a>
@@ -615,7 +615,7 @@
 
           <div class="bulk-ctl" style="margin-left:6px;">
             <input class="mini" id="bulkTo" type="text" placeholder="to (opcional) ej: a@x.com,b@y.com">
-            <select class="miniSel" id="bulkMode" title="Modo de envÃƒ­o (bulk)">
+            <select class="miniSel" id="bulkMode" title="Modo de envío (bulk)">
               <option value="now" selected>Enviar ahora</option>
               <option value="queue">Solo encolar</option>
             </select>
@@ -786,7 +786,7 @@
                                 @endif
                               </div>
                             @else
-                              <div class="mut" style="margin-top:6px;">sin interacci�n</div>
+                              <div class="mut" style="margin-top:6px;">sin interacci�n</div>
                             @endif
                           </td>
 
@@ -858,7 +858,7 @@
             </table>
 
             <div class="mut" style="margin-top:12px;">
-              SelecciÃƒ³n masiva: marca filas y usa la barra superior (bulk). El envÃƒ­o masivo y ligas se habilitan cuando existan rutas bulk.
+              Selección masiva: marca filas y usa la barra superior (bulk). El envío masivo y ligas se habilitan cuando existan rutas bulk.
             </div>
           </div>
 
@@ -866,9 +866,9 @@
           <div class="box">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
               <div>
-                <div style="font-weight:950;">Operaciones (correo / programaciÃƒ³n / liga / factura)</div>
+                <div style="font-weight:950;">Operaciones (correo / programación / liga / factura)</div>
                 <div class="mut" style="margin-top:4px;">
-                  Trabaja por <b>account_id + periodo</b>. “toÃ¢â‚¬ acepta mÃƒºltiples correos separados por coma.
+                  Trabaja por <b>account_id + periodo</b>. toâ⬝ acepta múltiples correos separados por coma.
                 </div>
               </div>
               <button class="btn btn-ghost" type="button" onclick="p360ClearOps()">Limpiar</button>
@@ -950,7 +950,7 @@
 
             @if(!$hasBulkSend && !$hasBulkPayLinks)
               <div class="mut" style="margin-top:14px;">
-                Nota: el HUB ya estÃƒ¡ listo para selecciÃƒ³n y acciones masivas, pero faltan rutas:
+                Nota: el HUB ya está listo para selección y acciones masivas, pero faltan rutas:
                 <span class="mono">admin.billing.statements_hub.bulk_send</span> /
                 <span class="mono">admin.billing.statements_hub.bulk_paylinks</span>.
               </div>
@@ -1090,7 +1090,7 @@
         <div class="box" style="margin:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <div style="font-weight:950;">Correos (billing_email_logs)</div>
-            <div class="mut">Tracking open/click + reenvÃƒ­o</div>
+            <div class="mut">Tracking open/click + reenvío</div>
           </div>
 
           <div style="height:10px;"></div>
@@ -1341,7 +1341,7 @@
                 </div>
 
                 <input class="in" name="cfdi_uuid" placeholder="UUID (opcional)">
-                <input class="in" name="issued_date" placeholder="Fecha emisiÃƒ³n (YYYY-MM-DD)">
+                <input class="in" name="issued_date" placeholder="Fecha emisión (YYYY-MM-DD)">
 
                 <input class="in" name="amount_mxn" placeholder="Monto MXN (ej. 999.00)">
                 <textarea class="in" name="notes" rows="3" placeholder="Notas (opcional)" style="resize:vertical;"></textarea>
