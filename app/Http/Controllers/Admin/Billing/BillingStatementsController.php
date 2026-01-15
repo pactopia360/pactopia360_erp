@@ -20,11 +20,7 @@ use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Stripe\StripeClient;
 
-<<<<<<< HEAD
 // Ã¢Å“â€¦ QR local con bacon/bacon-qr-code v3
-=======
-// ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ QR local con bacon/bacon-qr-code v3
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\Image\GdImageBackEnd;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
@@ -60,22 +56,14 @@ final class BillingStatementsController extends Controller
         $accountId = trim((string) $req->get('accountId', ''));
         $accountId = $accountId !== '' ? $accountId : null;
 
-<<<<<<< HEAD
         // Ã¢Å“â€¦ perPage configurable
-=======
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ perPage configurable
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $perPage = (int) $req->get('perPage', 25);
         $allowedPerPage = [25, 50, 100, 250, 500, 1000];
         if (!in_array($perPage, $allowedPerPage, true)) {
             $perPage = 25;
         }
 
-<<<<<<< HEAD
         // Ã¢Å“â€¦ filtro estatus: all|pendiente|pagado|parcial|vencido|sin_mov
-=======
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ filtro estatus: all|pendiente|pagado|parcial|vencido|sin_mov
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $status = strtolower(trim((string) $req->get('status', 'all')));
         $allowedStatus = ['all', 'pendiente', 'pagado', 'parcial', 'vencido', 'sin_mov'];
         if (!in_array($status, $allowedStatus, true)) {
@@ -112,11 +100,7 @@ final class BillingStatementsController extends Controller
 
         $select = ['accounts.id', 'accounts.email'];
 
-<<<<<<< HEAD
         // datos bÃƒÂ¡sicos
-=======
-        // datos bÃƒÆ’Ã‚Â¡sicos
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         foreach ([
             'name', 'razon_social', 'rfc',
             'plan', 'plan_actual', 'modo_cobro', 'billing_cycle',
@@ -129,11 +113,7 @@ final class BillingStatementsController extends Controller
             }
         }
 
-<<<<<<< HEAD
         // columnas tÃƒÂ­picas donde a veces se guarda "personalizado" fuera de meta
-=======
-        // columnas tÃƒÆ’Ã‚Â­picas donde a veces se guarda "personalizado" fuera de meta
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         foreach ([
             'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
             'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
@@ -177,11 +157,7 @@ final class BillingStatementsController extends Controller
         // ====== pagos por periodo (SUM payments paid/succeeded/etc) ======
         $payAgg = $this->sumPaymentsForAccountsPeriod($ids, $period);
 
-<<<<<<< HEAD
         // ====== pagos meta (ÃƒÂºltimo pago, due_date, mÃƒÂ©todo/provider/status) ======
-=======
-        // ====== pagos meta (ÃƒÆ’Ã‚Âºltimo pago, due_date, mÃƒÆ’Ã‚Â©todo/provider/status) ======
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $payMeta = $this->fetchPaymentsMetaForAccountsPeriod($ids, $period);
 
         // ====== Transform ======
@@ -195,11 +171,7 @@ final class BillingStatementsController extends Controller
 
             $paidPayments = (float) ($payAgg[(string) $r->id] ?? 0);
 
-<<<<<<< HEAD
             // Ã¢Å“â€¦ abono total = abonos de estados_cuenta + pagos registrados (payments)
-=======
-            // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ abono total = abonos de estados_cuenta + pagos registrados (payments)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             $abonoTotal = $abonoEdo + $paidPayments;
 
             $r->cargo = round($cargoEdo, 2);
@@ -368,7 +340,6 @@ final class BillingStatementsController extends Controller
         elseif ($abono > 0.00001 && $abono < ($totalShown - 0.00001)) $statusPago = 'parcial';
         else $statusPago = 'pendiente';
 
-<<<<<<< HEAD
         // Ã¢Å“â€¦ Carga config guardada (modo/notas) si existe
         $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
 
@@ -376,15 +347,6 @@ final class BillingStatementsController extends Controller
         $recipients = $this->resolveRecipientsForAccount((string)$accountId, (string)($acc->email ?? ''));
 
         // Ã¢Å“â€¦ Aliases para UI nueva (sin romper legacy)
-=======
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Carga config guardada (modo/notas) si existe
-        $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
-
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Destinatarios activos si existe tabla
-        $recipients = $this->resolveRecipientsForAccount((string)$accountId, (string)($acc->email ?? ''));
-
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Aliases para UI nueva (sin romper legacy)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $rows = $items; // alias
         $summary = [
             'cargo_real'     => round($cargoReal, 2),
@@ -424,19 +386,11 @@ final class BillingStatementsController extends Controller
 
             'status_pago'    => $statusPago,
 
-<<<<<<< HEAD
             // Ã¢Å“â€¦ nuevo
             'statement_cfg'  => $stmtCfg,
             'recipients'     => $recipients,
 
             // Ã¢Å“â€¦ FIX: asegurar $meta para la vista legacy/nueva
-=======
-            // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ nuevo
-            'statement_cfg'  => $stmtCfg,
-            'recipients'     => $recipients,
-
-            // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ FIX: asegurar $meta para la vista legacy/nueva
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             'meta'           => $meta,
 
             'isModal'        => $req->boolean('modal'),
@@ -447,11 +401,7 @@ final class BillingStatementsController extends Controller
     {
         abort_if(!$this->isValidPeriod($period), 422);
 
-<<<<<<< HEAD
         // Ã¢Å“â€¦ soporta legacy (cargo/abono) y UI nueva (tipo/monto)
-=======
-        // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ soporta legacy (cargo/abono) y UI nueva (tipo/monto)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $data = $req->validate([
             'concepto'    => 'required|string|max:255',
             'detalle'     => 'nullable|string|max:2000',
@@ -499,11 +449,7 @@ final class BillingStatementsController extends Controller
     }
 
     /**
-<<<<<<< HEAD
      * Ã¢Å“â€¦ NUEVO: CRUD de lÃƒÂ­neas (para tu UI nueva)
-=======
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NUEVO: CRUD de lÃƒÆ’Ã‚Â­neas (para tu UI nueva)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      * POST /admin/billing/statements/lines
      */
     public function lineStore(Request $req): RedirectResponse
@@ -550,19 +496,11 @@ final class BillingStatementsController extends Controller
             $this->recalcStatementSaldoIfPossible($accountId, $period);
         });
 
-<<<<<<< HEAD
         return back()->with('ok', 'LÃƒÂ­nea agregada.');
     }
 
     /**
      * Ã¢Å“â€¦ NUEVO: CRUD de lÃƒÂ­neas
-=======
-        return back()->with('ok', 'LÃƒÆ’Ã‚Â­nea agregada.');
-    }
-
-    /**
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NUEVO: CRUD de lÃƒÆ’Ã‚Â­neas
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      * PUT /admin/billing/statements/lines
      */
     public function lineUpdate(Request $req): RedirectResponse
@@ -610,29 +548,17 @@ final class BillingStatementsController extends Controller
             ]);
 
             if (!$updated) {
-<<<<<<< HEAD
                 throw new \RuntimeException('No se encontrÃƒÂ³ la lÃƒÂ­nea para actualizar (id/account/period).');
-=======
-                throw new \RuntimeException('No se encontrÃƒÆ’Ã‚Â³ la lÃƒÆ’Ã‚Â­nea para actualizar (id/account/period).');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             }
 
             $this->recalcStatementSaldoIfPossible($accountId, $period);
         });
 
-<<<<<<< HEAD
         return back()->with('ok', 'LÃƒÂ­nea actualizada.');
     }
 
     /**
      * Ã¢Å“â€¦ NUEVO: CRUD de lÃƒÂ­neas
-=======
-        return back()->with('ok', 'LÃƒÆ’Ã‚Â­nea actualizada.');
-    }
-
-    /**
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NUEVO: CRUD de lÃƒÆ’Ã‚Â­neas
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      * DELETE /admin/billing/statements/lines
      */
     public function lineDelete(Request $req): RedirectResponse
@@ -656,29 +582,17 @@ final class BillingStatementsController extends Controller
             $deleted = $q->delete();
 
             if (!$deleted) {
-<<<<<<< HEAD
                 throw new \RuntimeException('No se encontrÃƒÂ³ la lÃƒÂ­nea para eliminar (id/account/period).');
-=======
-                throw new \RuntimeException('No se encontrÃƒÆ’Ã‚Â³ la lÃƒÆ’Ã‚Â­nea para eliminar (id/account/period).');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             }
 
             $this->recalcStatementSaldoIfPossible($accountId, $period);
         });
 
-<<<<<<< HEAD
         return back()->with('ok', 'LÃƒÂ­nea eliminada.');
     }
 
     /**
      * Ã¢Å“â€¦ NUEVO: Guardar configuraciÃƒÂ³n del estado (modo ÃƒÂºnica/mensual, notas) y destinatarios.
-=======
-        return back()->with('ok', 'LÃƒÆ’Ã‚Â­nea eliminada.');
-    }
-
-    /**
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NUEVO: Guardar configuraciÃƒÆ’Ã‚Â³n del estado (modo ÃƒÆ’Ã‚Âºnica/mensual, notas) y destinatarios.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      * POST /admin/billing/statements/save
      */
     public function saveStatement(Request $req): RedirectResponse
@@ -731,11 +645,7 @@ final class BillingStatementsController extends Controller
             }
 
             $meta['billing']['statements'][$period] = [
-<<<<<<< HEAD
                 'mode'       => $mode, // unique|monthly (canÃƒÂ³nico)
-=======
-                'mode'       => $mode, // unique|monthly (canÃƒÆ’Ã‚Â³nico)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
                 'notes'      => $notes !== '' ? $notes : null,
                 'updated_at' => now()->toDateTimeString(),
                 'by'         => auth('admin')->id() ?: null,
@@ -756,11 +666,7 @@ final class BillingStatementsController extends Controller
         }
 
         if (Schema::connection($this->adm)->hasTable('account_recipients')) {
-<<<<<<< HEAD
             // Si viene vacÃƒÂ­o, NO tocamos recipients (para no desactivar todo por accidente)
-=======
-            // Si viene vacÃƒÆ’Ã‚Â­o, NO tocamos recipients (para no desactivar todo por accidente)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             if ($rawRecipients !== '') {
                 $emails = $this->normalizeRecipientList($rawRecipients);
 
@@ -848,11 +754,7 @@ final class BillingStatementsController extends Controller
     }
 
     /**
-<<<<<<< HEAD
      * Ã¢Å“â€¦ NUEVO: envÃƒÂ­o masivo por periodo
-=======
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NUEVO: envÃƒÆ’Ã‚Â­o masivo por periodo
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     public function bulkEmail(Request $req)
     {
@@ -865,11 +767,7 @@ final class BillingStatementsController extends Controller
 
         $period = (string) $data['period'];
         if (!$this->isValidPeriod($period)) {
-<<<<<<< HEAD
             return back()->withErrors(['period' => 'Periodo invÃƒÂ¡lido. Formato YYYY-MM.']);
-=======
-            return back()->withErrors(['period' => 'Periodo invÃƒÆ’Ã‚Â¡lido. Formato YYYY-MM.']);
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         abort_unless(Schema::connection($this->adm)->hasTable('accounts'), 404);
@@ -930,15 +828,11 @@ final class BillingStatementsController extends Controller
             return response()->json(['ok' => true, 'sent' => $ok, 'failed' => $fail]);
         }
 
-<<<<<<< HEAD
         return back()->with('ok', "EnvÃƒÂ­o masivo disparado. Enviados: {$ok}. Fallidos: {$fail}.");
-=======
-        return back()->with('ok', "EnvÃƒÆ’Ã‚Â­o masivo disparado. Enviados: {$ok}. Fallidos: {$fail}.");
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     }
 
     /**
-     * âœ… EnvÃ­o con PayLink/QR
+     * ✅ Envío con PayLink/QR
      */
     private function sendStatementEmailWithPayLink(string $accountId, string $period, ?string $to = null): void
     {
@@ -961,11 +855,7 @@ final class BillingStatementsController extends Controller
         // 2) Armar data del estado de cuenta
         $data = $this->buildStatementData($accountId, $period);
 
-<<<<<<< HEAD
         // PDF público inline (firmado)
-=======
-        // PDF pÃºblico inline (firmado)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         try {
             $data['pdf_url'] = URL::signedRoute('cliente.billing.publicPdfInline', [
                 'accountId' => $accountId,
@@ -1011,11 +901,7 @@ final class BillingStatementsController extends Controller
 
         $data['stripe_session_id'] = $sessionId;
 
-<<<<<<< HEAD
         // 5) Envío
-=======
-        // 5) EnvÃ­o
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         foreach ($recipients as $dest) {
             try {
                 Mail::to($dest)->send(new StatementAccountPeriodMail($accountId, $period, $data));
@@ -1044,11 +930,7 @@ final class BillingStatementsController extends Controller
     }
 
     /**
-<<<<<<< HEAD
      * Ã¢Å“â€¦ Destinatarios por cuenta:
-=======
-     * ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Destinatarios por cuenta:
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      * - account_recipients (activos) + accounts.email
      *
      * @return array<int, string>
@@ -1115,11 +997,7 @@ final class BillingStatementsController extends Controller
     {
         $secret = (string) config('services.stripe.secret');
         if (trim($secret) === '') {
-<<<<<<< HEAD
             throw new \RuntimeException('Stripe secret vacÃƒÂ­o en config(services.stripe.secret).');
-=======
-            throw new \RuntimeException('Stripe secret vacÃƒÆ’Ã‚Â­o en config(services.stripe.secret).');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         $unitAmountCents = (int) round($totalPesos * 100);
@@ -1144,11 +1022,7 @@ final class BillingStatementsController extends Controller
                     'currency'     => 'mxn',
                     'unit_amount'  => $unitAmountCents,
                     'product_data' => [
-<<<<<<< HEAD
                         'name' => 'Pactopia360 Ã‚Â· Estado de cuenta ' . $period,
-=======
-                        'name' => 'Pactopia360 Ãƒâ€šÃ‚Â· Estado de cuenta ' . $period,
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
                     ],
                 ],
                 'quantity' => 1,
@@ -1217,11 +1091,7 @@ final class BillingStatementsController extends Controller
         if ($has('period'))     $row['period']     = $period;
         if ($has('method'))     $row['method']     = 'card';
         if ($has('provider'))   $row['provider']   = 'stripe';
-<<<<<<< HEAD
         if ($has('concept'))    $row['concept']    = 'Pactopia360 Ã‚Â· Estado de cuenta ' . $period;
-=======
-        if ($has('concept'))    $row['concept']    = 'Pactopia360 Ãƒâ€šÃ‚Â· Estado de cuenta ' . $period;
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($has('reference'))  $row['reference']  = $sessionId ?: ('admin_stmt:' . $accountId . ':' . $period);
 
         if ($has('stripe_session_id')) $row['stripe_session_id'] = $sessionId;
@@ -1282,11 +1152,7 @@ final class BillingStatementsController extends Controller
         // CONSUMOS (Servicio base + extras)
         // - Respeta modo mensual/anual
         // - NO hardcodea "Servicio mensual"
-<<<<<<< HEAD
         // - Busca servicio mensual/anual/licencia/suscripciÃƒÂ³n en items
-=======
-        // - Busca servicio mensual/anual/licencia/suscripciÃƒÆ’Ã‚Â³n en items
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         // - Si no existe item servicio, inyecta servicio usando tarifa esperada (expectedTotal)
         // =====================
         $consumos = [];
@@ -1300,11 +1166,7 @@ final class BillingStatementsController extends Controller
 
         $planStr = strtolower(trim((string) ($acc->plan_actual ?? $acc->plan ?? '')));
 
-<<<<<<< HEAD
         // NormalizaciÃƒÂ³n del modo
-=======
-        // NormalizaciÃƒÆ’Ã‚Â³n del modo
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if (!in_array($mode, ['mensual', 'anual'], true)) {
             if (str_contains($planStr, 'anual') || str_contains($planStr, 'annual')) $mode = 'anual';
             if (str_contains($planStr, 'mensual') || str_contains($planStr, 'monthly')) $mode = 'mensual';
@@ -1314,11 +1176,7 @@ final class BillingStatementsController extends Controller
         // Etiqueta correcta para el servicio
         $serviceLabelDefault = ($mode === 'anual') ? 'Servicio anual' : 'Servicio mensual';
 
-<<<<<<< HEAD
         // Si el modo es anual, intentar tomar un monto anual explÃƒÂ­cito desde meta
-=======
-        // Si el modo es anual, intentar tomar un monto anual explÃƒÆ’Ã‚Â­cito desde meta
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $serviceExpected = (float) $expectedTotal;
 
         if ($mode === 'anual') {
@@ -1341,11 +1199,7 @@ final class BillingStatementsController extends Controller
             }
         }
 
-<<<<<<< HEAD
         // 1) Detectar si ya existe un item de servicio (mensual/anual/licencia/suscripciÃƒÂ³n)
-=======
-        // 1) Detectar si ya existe un item de servicio (mensual/anual/licencia/suscripciÃƒÆ’Ã‚Â³n)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $serviceCandidates = [];
         foreach ($items as $it) {
             $concepto = (string) ($it->concepto ?? '');
@@ -1366,11 +1220,7 @@ final class BillingStatementsController extends Controller
 
         $serviceItem = !empty($serviceCandidates) ? $serviceCandidates[0] : null;
 
-<<<<<<< HEAD
         // 2) Subtotal servicio (si hay item, usa su cargo; si no, usa expected Ã¢â‚¬Å“correctoÃ¢â‚¬Â)
-=======
-        // 2) Subtotal servicio (si hay item, usa su cargo; si no, usa expected ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œcorrectoÃƒÂ¢Ã¢â€šÂ¬Ã‚Â)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $serviceSubtotal = 0.0;
         if ($serviceItem) {
             $serviceSubtotal = is_numeric($serviceItem->cargo ?? null) ? (float) $serviceItem->cargo : 0.0;
@@ -1399,11 +1249,7 @@ final class BillingStatementsController extends Controller
             $cargoIt = is_numeric($it->cargo ?? null) ? (float) $it->cargo : 0.0;
             if ($cargoIt <= 0) continue;
 
-<<<<<<< HEAD
             // Ã¢Å“â€¦ si detectamos item de servicio, no lo duplicamos como extra
-=======
-            // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ si detectamos item de servicio, no lo duplicamos como extra
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             if ($serviceItem && isset($it->id) && isset($serviceItem->id) && (string)$it->id === (string)$serviceItem->id) {
                 continue;
             }
@@ -1451,11 +1297,7 @@ final class BillingStatementsController extends Controller
             'abono_pay'      => round((float) $abonoPay, 2),
             'saldo'          => $saldo,
 
-<<<<<<< HEAD
             // Ã¢Å“â€¦ Para email/checkout (tu flujo usa total como "lo a pagar")
-=======
-            // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Para email/checkout (tu flujo usa total como "lo a pagar")
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             'total_due'      => $saldo,
             'total'          => $saldo,
 
@@ -1471,11 +1313,7 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
-<<<<<<< HEAD
     // Ã¢Å“â€¦ HELPERS internos para lÃƒÂ­neas/config
-=======
-    // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ HELPERS internos para lÃƒÆ’Ã‚Â­neas/config
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     // =========================================================
 
     private function normalizeStatementMode(string $modeRaw): string
@@ -1483,11 +1321,7 @@ final class BillingStatementsController extends Controller
         $m = strtolower(trim($modeRaw));
 
         if (in_array($m, ['mensual', 'monthly'], true)) return 'monthly';
-<<<<<<< HEAD
         if (in_array($m, ['unica', 'ÃƒÂºnica', 'unique'], true)) return 'unique';
-=======
-        if (in_array($m, ['unica', 'ÃƒÆ’Ã‚Âºnica', 'unique'], true)) return 'unique';
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
         return 'monthly';
     }
@@ -1501,11 +1335,7 @@ final class BillingStatementsController extends Controller
         $cargo = (float) ($data['cargo'] ?? 0);
         $abono = (float) ($data['abono'] ?? 0);
 
-<<<<<<< HEAD
         // UI nueva (tiene prioridad si estÃƒÂ¡ presente)
-=======
-        // UI nueva (tiene prioridad si estÃƒÆ’Ã‚Â¡ presente)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $tipo  = isset($data['tipo']) ? strtolower(trim((string)$data['tipo'])) : '';
         $monto = isset($data['monto']) && is_numeric($data['monto']) ? (float)$data['monto'] : 0.0;
 
