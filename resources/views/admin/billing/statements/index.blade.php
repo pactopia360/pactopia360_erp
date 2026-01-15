@@ -1,8 +1,8 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\index.blade.php --}}
-{{-- UI v6.0 Â· Estados de cuenta (Admin) â€” rediseÃ±o completo: header/filters pro, KPI modernos, bulk actions, tabla premium, responsive --}}
+{{-- UI v6.0 · Estados de cuenta (Admin) — rediseño completo: header/filters pro, KPI modernos, bulk actions, tabla premium, responsive --}}
 @extends('layouts.admin')
 
-@section('title','FacturaciÃ³n Â· Estados de cuenta')
+@section('title','Facturación · Estados de cuenta')
 @section('layout','full')
 
 @php
@@ -40,7 +40,7 @@
   $hasShow   = Route::has('admin.billing.statements.show');   // GET /billing/statements/{accountId}/{period}
   $hasPdf    = Route::has('admin.billing.statements.pdf');    // GET /billing/statements/{accountId}/{period}/pdf
 
-  // âœ… EnvÃ­o legacy (por fila)
+  // âœ… Envío legacy (por fila)
   $hasSendLegacy = Route::has('admin.billing.statements.email'); // POST /billing/statements/{accountId}/{period}/email
 
   // HUB
@@ -416,10 +416,10 @@
     {{-- HEADER --}}
     <div class="sx-head">
       <div>
-        <div class="sx-title">FacturaciÃ³n Â· Estados de cuenta</div>
+        <div class="sx-title">Facturación · Estados de cuenta</div>
         <div class="sx-sub">
-          Periodo <span class="sx-mono">{{ $period }}</span>. â€œTotalâ€ = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
-          Usa selecciÃ³n masiva para enviar correos o preparar la operaciÃ³n.
+          Periodo <span class="sx-mono">{{ $period }}</span>. “Total” = cargo del periodo (si no hay movimientos, se muestra el total esperado por licencia).
+          Usa selección masiva para enviar correos o preparar la operación.
         </div>
       </div>
 
@@ -449,7 +449,7 @@
       <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
         <div class="sx-ctl">
           <label>Buscar</label>
-          <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razÃ³n social, UUID...">
+          <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social, UUID...">
         </div>
 
         <div class="sx-ctl">
@@ -475,7 +475,7 @@
         </div>
 
         <div class="sx-ctl">
-          <label>Por pÃ¡gina</label>
+          <label>Por página</label>
           <select class="sx-sel" name="per_page">
             @foreach([10,25,50,100,200] as $n)
               <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
@@ -516,7 +516,7 @@
         <div class="sx-v">{{ $fmtMoney($kpis['abono'] ?? 0) }}</div>
         <div class="sx-mini">
           @if(isset($kpis['edocta']) || isset($kpis['payments']))
-            EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span> Â· Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
+            EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span> · Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
           @else
             Total abonado acumulado del periodo.
           @endif
@@ -536,7 +536,7 @@
       </div>
 
       <div class="sx-kpi">
-        <div class="sx-k">OperaciÃ³n</div>
+        <div class="sx-k">Operación</div>
         <div class="sx-v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(true)">Todo</button>
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(false)">Nada</button>
@@ -544,9 +544,9 @@
         </div>
         <div class="sx-mini">
           @if($hasBulkSend)
-            EnvÃ­o masivo vÃ­a HUB: <span class="sx-mono">billing/statements-hub/bulk/send</span>.
+            Envío masivo vía HUB: <span class="sx-mono">billing/statements-hub/bulk/send</span>.
           @else
-            Tip: activa el endpoint HUB para habilitar envÃ­o masivo real.
+            Tip: activa el endpoint HUB para habilitar envío masivo real.
           @endif
         </div>
       </div>
@@ -575,7 +575,7 @@
                 style="display:none;">
             @csrf
             <input type="hidden" name="period" value="{{ $period }}">
-            {{-- âœ… account_ids se envÃ­a como STRING (CSV) para compatibilidad con validaciÃ³n string en HUB --}}
+            {{-- âœ… account_ids se envía como STRING (CSV) para compatibilidad con validación string en HUB --}}
             <input type="hidden" name="account_ids" value="">
           </form>
         </div>
@@ -602,11 +602,11 @@
               @php
                 $aid   = (string)($r->id ?? $r->account_id ?? '');
                 $rfc   = (string)($r->rfc ?? $r->codigo ?? '');
-                $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: 'â€”'));
-                $mail  = (string)($r->email ?? $r->correo ?? 'â€”');
+                $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: '—'));
+                $mail  = (string)($r->email ?? $r->correo ?? '—');
 
-                $plan  = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? 'â€”');
-                $modo  = (string)($r->modo_cobro ?? $r->billing_mode ?? $r->modo ?? 'â€”');
+                $plan  = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? '—');
+                $modo  = (string)($r->modo_cobro ?? $r->billing_mode ?? $r->modo ?? '—');
 
                 $cargo = (float)($r->cargo ?? 0);
                 $expected = (float)($r->expected_total ?? 0);
@@ -649,8 +649,8 @@
                 <td>
                   <div class="sx-name">{{ $name }}</div>
                   <div class="sx-subrow">
-                    <span class="sx-pill sx-dim"><span class="dot"></span> {{ strtoupper(trim($plan ?: 'â€”')) }}</span>
-                    <span class="sx-pill sx-dim" style="margin-left:6px;"><span class="dot"></span> {{ $modo ?: 'â€”' }}</span>
+                    <span class="sx-pill sx-dim"><span class="dot"></span> {{ strtoupper(trim($plan ?: '—')) }}</span>
+                    <span class="sx-pill sx-dim" style="margin-left:6px;"><span class="dot"></span> {{ $modo ?: '—' }}</span>
                   </div>
                 </td>
 
@@ -659,10 +659,10 @@
                   <div class="sx-subrow">
                     Periodo: <span class="sx-mono">{{ (string)($r->period ?? $period) }}</span>
                     @if(!empty($r->pago_metodo))
-                      <span style="opacity:.55;">Â·</span> Pago: <span class="sx-mono">{{ (string)$r->pago_metodo }}</span>
+                      <span style="opacity:.55;">·</span> Pago: <span class="sx-mono">{{ (string)$r->pago_metodo }}</span>
                     @endif
                     @if(!empty($r->last_paid_at))
-                      <br>Ãšlt. pago: <span class="sx-mono">{{ (string)$r->last_paid_at }}</span>
+                      <br>Últ. pago: <span class="sx-mono">{{ (string)$r->last_paid_at }}</span>
                     @endif
                   </div>
                 </td>
@@ -695,8 +695,8 @@
                     @if($emailUrl)
                       <form method="POST" action="{{ $emailUrl }}">
                         @csrf
-                        {{-- opcional: si tu controller admite 'to', aquÃ­ lo mandamos por defecto --}}
-                        <input type="hidden" name="to" value="{{ $mail !== 'â€”' ? $mail : '' }}">
+                        {{-- opcional: si tu controller admite 'to', aquí lo mandamos por defecto --}}
+                        <input type="hidden" name="to" value="{{ $mail !== '—' ? $mail : '' }}">
                         <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
                       </form>
                     @else
@@ -960,7 +960,7 @@
       const payload = { period: @json($period), account_ids: ids.join(',') };
       try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
 
-      alert('Cuentas seleccionadas: ' + ids.length + '\n\nSe copiÃ³ al portapapeles (period + account_ids CSV).\nActiva el endpoint HUB bulk_send para envÃ­o masivo real.');
+      alert('Cuentas seleccionadas: ' + ids.length + '\n\nSe copió al portapapeles (period + account_ids CSV).\nActiva el endpoint HUB bulk_send para envío masivo real.');
     };
 
     update();

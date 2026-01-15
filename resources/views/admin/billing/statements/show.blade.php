@@ -1,5 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\show.blade.php --}}
-{{-- UI v8.2 Â· Admin Estado de cuenta â€” layout nuevo + CSS externo + FIX para admin shell (page-container padding + sticky en scroll container) --}}
+{{-- UI v8.2 · Admin Estado de cuenta — layout nuevo + CSS externo + FIX para admin shell (page-container padding + sticky en scroll container) --}}
 @extends('layouts.admin')
 
 @section('title', 'Estado de cuenta · ' . ($period ?? request('period','')))
