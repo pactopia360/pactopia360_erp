@@ -1,8 +1,8 @@
 {{-- resources/views/admin/billing/statements/show_v10.blade.php --}}
-{{-- UI v10+ Â· Admin Â· Estado de cuenta (Detalle) Â· DATA-SAFE: usa $rows/$total/$abono/$saldo del controller. Fallback legacy si no hay items nuevos. --}}
+{{-- UI v10+ · Admin · Estado de cuenta (Detalle) · DATA-SAFE: usa $rows/$total/$abono/$saldo del controller. Fallback legacy si no hay items nuevos. --}}
 @extends('layouts.admin')
 
-@section('title', 'Estado de cuenta Â· ' . ($period ?? request('period','')))
+@section('title', 'Estado de cuenta · ' . ($period ?? request('period','')))
 @section('layout','full')
 
 @php
@@ -35,7 +35,7 @@
   $indexUrl = $hasIndex ? route('admin.billing.statements.index', ['period'=>$period]) : url()->previous();
   $pdfUrl   = ($hasPdf && $accountId) ? route('admin.billing.statements.pdf', ['accountId'=>$accountId,'period'=>$period]) : null;
 
-  // âœ… Endpoints existentes (fallback URL si el name no existe)
+  //  Endpoints existentes (fallback URL si el name no existe)
   $addItemUrl = Route::has('admin.billing.statements.items')
     ? route('admin.billing.statements.items', ['accountId'=>$accountId,'period'=>$period])
     : (url('/admin/billing/statements/'.$accountId.'/'.$period.'/items'));
@@ -64,7 +64,7 @@
   $rfc   = trim((string)($acc->rfc ?? ''));
   $email = trim((string)($acc->email ?? ''));
 
-  // âœ… recipients sugeridos por backend
+  //  recipients sugeridos por backend
   $recipients = $recipients ?? [];
   if (is_string($recipients)) {
     $recipients = preg_split('/[,\s;]+/', $recipients, -1, PREG_SPLIT_NO_EMPTY) ?: [];
@@ -351,7 +351,7 @@
     {{-- Header --}}
     <div class="v10-head">
       <div>
-        <div class="v10-title">Estado de cuenta Â· <span class="mono">{{ $period }}</span></div>
+        <div class="v10-title">Estado de cuenta · <span class="mono">{{ $period }}</span></div>
         <div class="v10-sub">
           <strong style="color:var(--v10-ink)">{{ $razon }}</strong>
           @if($rfc) <span class="mono" style="margin-left:8px;">RFC: {{ $rfc }}</span>@endif
@@ -361,7 +361,7 @@
         <div class="v10-badges">
           <span class="sx-badge"><span class="k">Periodo</span> <span class="v">{{ $periodLabel }}</span></span>
           <span class="sx-badge"><span class="k">Cuenta</span> <span class="v mono">#{{ $accountId }}</span></span>
-          <span class="sx-badge"><span class="k">Statement</span> <span class="v mono">{{ $statementId ?: 'â€”' }}</span></span>
+          <span class="sx-badge"><span class="k">Statement</span> <span class="v mono">{{ $statementId ?: '' }}</span></span>
           <span class="{{ $statusCls }}"><span class="dot"></span>{{ $statusLbl }}</span>
           <span class="sx-badge"><span class="k">Fuente</span> <span class="v mono">{{ strtoupper($source) }}</span></span>
           <span class="sx-badge"><span class="k">Movs</span> <span class="v mono">{{ $rows->count() }}</span></span>
@@ -395,7 +395,7 @@
       <div class="v10-kpi">
         <div class="k">Pagado</div>
         <div class="v">{{ $fmtMoney($abono) }}</div>
-        <div class="s">Abonos mov: <span class="mono">{{ $fmtMoney($abonoEdo) }}</span> Â· Payments: <span class="mono">{{ $fmtMoney($abonoPay) }}</span></div>
+        <div class="s">Abonos mov: <span class="mono">{{ $fmtMoney($abonoEdo) }}</span> · Payments: <span class="mono">{{ $fmtMoney($abonoPay) }}</span></div>
       </div>
       <div class="v10-kpi">
         <div class="k">Saldo</div>
@@ -415,9 +415,9 @@
               <div class="v10-panelTitle">Movimientos</div>
               <div class="v10-panelDesc">
                 @if($source === 'legacy')
-                  EstÃ¡s viendo fallback legacy de <span class="mono">estados_cuenta</span>. Al agregar un movimiento, el sistema empezarÃ¡ a poblar <span class="mono">billing_statement_items</span>.
+                  Estás viendo fallback legacy de <span class="mono">estados_cuenta</span>. Al agregar un movimiento, el sistema empezará a poblar <span class="mono">billing_statement_items</span>.
                 @else
-                  EstÃ¡s operando sobre <span class="mono">billing_statement_items</span> (nuevo).
+                  Estás operando sobre <span class="mono">billing_statement_items</span> (nuevo).
                 @endif
               </div>
             </div>
@@ -445,7 +445,7 @@
                 <tbody>
                   @foreach($rows as $r)
                     @php
-                      $concepto = (string)($r->concepto ?? 'â€”');
+                      $concepto = (string)($r->concepto ?? '');
                       $detalle  = (string)($r->detalle ?? '');
                       $cargoIt  = (float)($r->cargo ?? 0);
                       $abonoIt  = (float)($r->abono ?? 0);
@@ -458,9 +458,9 @@
                           <div class="mut">{{ $detalle }}</div>
                         @endif
                       </td>
-                      <td class="mono">{{ $created ?: 'â€”' }}</td>
-                      <td class="ta-r mono">{{ $cargoIt > 0 ? $fmtMoney($cargoIt) : 'â€”' }}</td>
-                      <td class="ta-r mono">{{ $abonoIt > 0 ? $fmtMoney($abonoIt) : 'â€”' }}</td>
+                      <td class="mono">{{ $created ?: '' }}</td>
+                      <td class="ta-r mono">{{ $cargoIt > 0 ? $fmtMoney($cargoIt) : '' }}</td>
+                      <td class="ta-r mono">{{ $abonoIt > 0 ? $fmtMoney($abonoIt) : '' }}</td>
                     </tr>
                   @endforeach
                 </tbody>
@@ -481,7 +481,7 @@
             <div class="v10-panelHead">
               <div>
                 <div class="v10-panelTitle">Enviar por correo</div>
-                <div class="v10-panelDesc">Acepta mÃºltiples destinatarios. Separador: coma, espacio o salto de lÃ­nea.</div>
+                <div class="v10-panelDesc">Acepta múltiples destinatarios. Separador: coma, espacio o salto de línea.</div>
               </div>
             </div>
             <div class="v10-panelBody">
@@ -492,7 +492,7 @@
                   <div class="sx-label">Para</div>
                   <textarea class="sx-textarea" name="to" placeholder="correo1@dominio.com, correo2@dominio.com">{{ old('to', $toDefault) }}</textarea>
                   <div class="sx-help">
-                    Si lo dejas vacÃ­o, enviarÃ¡ a los destinatarios configurados de la cuenta (meta) y/o al email principal.
+                    Si lo dejas vacío, enviará a los destinatarios configurados de la cuenta (meta) y/o al email principal.
                   </div>
                 </div>
 
@@ -510,19 +510,19 @@
             </div>
           </div>
 
-          {{-- Resumen tÃ©cnico --}}
+          {{-- Resumen técnico --}}
           <div class="v10-panel">
             <div class="v10-panelHead">
               <div>
-                <div class="v10-panelTitle">Resumen tÃ©cnico</div>
-                <div class="v10-panelDesc">Para soporte y auditorÃ­a.</div>
+                <div class="v10-panelTitle">Resumen técnico</div>
+                <div class="v10-panelDesc">Para soporte y auditoría.</div>
               </div>
             </div>
             <div class="v10-panelBody">
               <div class="v10-kv">
                 <div class="v10-kvRow"><span class="k">Cuenta</span><span class="v mono">#{{ $accountId }}</span></div>
                 <div class="v10-kvRow"><span class="k">Periodo</span><span class="v mono">{{ $period }}</span></div>
-                <div class="v10-kvRow"><span class="k">Statement ID</span><span class="v mono">{{ $statementId ?: 'â€”' }}</span></div>
+                <div class="v10-kvRow"><span class="k">Statement ID</span><span class="v mono">{{ $statementId ?: '' }}</span></div>
                 <div class="v10-kvRow"><span class="k">Fuente</span><span class="v mono">{{ strtoupper($source) }}</span></div>
                 <div class="v10-kvRow"><span class="k">Movimientos</span><span class="v mono">{{ $rows->count() }}</span></div>
               </div>
@@ -534,14 +534,14 @@
             <div class="v10-panelHead">
               <div>
                 <div class="v10-panelTitle">Importante</div>
-                <div class="v10-panelDesc">CÃ³mo queda el sistema a partir de hoy.</div>
+                <div class="v10-panelDesc">Cómo queda el sistema a partir de hoy.</div>
               </div>
             </div>
             <div class="v10-panelBody">
               <div class="v10-note" style="margin-top:0;">
                 - Hoy tu INDEX suma desde <span class="mono">estados_cuenta</span> (legacy).<br>
                 - Tu SHOW opera NEW si existen items; si no, muestra legacy como fallback.<br>
-                - Al agregar movimientos aquÃ­, empiezas a poblar NEW y ya podrÃ¡s controlar todo desde <span class="mono">billing_statement_items</span>.
+                - Al agregar movimientos aquí, empiezas a poblar NEW y ya podrás controlar todo desde <span class="mono">billing_statement_items</span>.
               </div>
             </div>
           </div>
@@ -574,7 +574,7 @@
               <option value="cargo">Cargo</option>
               <option value="abono">Abono</option>
             </select>
-            <div class="sx-help">â€œAbonoâ€ crea un amount negativo en items (como ya lo manejas en el controller).</div>
+            <div class="sx-help">Abono crea un amount negativo en items (como ya lo manejas en el controller).</div>
           </div>
 
           <div class="sx-field">
@@ -585,7 +585,7 @@
 
         <div class="sx-field">
           <div class="sx-label">Concepto</div>
-          <input class="sx-input" type="text" name="concepto" maxlength="255" required placeholder="Licencia, Ajuste, BonificaciÃ³n, etc.">
+          <input class="sx-input" type="text" name="concepto" maxlength="255" required placeholder="Licencia, Ajuste, Bonificación, etc.">
         </div>
 
         <div class="sx-field">
@@ -598,15 +598,15 @@
             <div class="sx-label">Enviar correo al guardar</div>
             <select class="sx-select" name="send_email">
               <option value="0" selected>No</option>
-              <option value="1">SÃ­</option>
+              <option value="1">Sí</option>
             </select>
-            <div class="sx-help">Si eliges â€œSÃ­â€, se dispara tu envÃ­o existente con PayLink/QR.</div>
+            <div class="sx-help">Si eliges Sí, se dispara tu envío existente con PayLink/QR.</div>
           </div>
 
           <div class="sx-field">
             <div class="sx-label">Destinatarios (opcional)</div>
             <textarea class="sx-textarea" name="to" placeholder="correo1@dominio.com, correo2@dominio.com">{{ $toDefault }}</textarea>
-            <div class="sx-help">Si lo dejas vacÃ­o, usa los destinatarios configurados para la cuenta.</div>
+            <div class="sx-help">Si lo dejas vacío, usa los destinatarios configurados para la cuenta.</div>
           </div>
         </div>
       </div>

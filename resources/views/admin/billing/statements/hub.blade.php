@@ -1,8 +1,8 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\hub.blade.php --}}
-{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0  HUB moderno + rutas seguras + bulk completo + más datos visibles) --}}
+{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0 · HUB moderno + rutas seguras + bulk completo + más datos visibles) --}}
 @extends('layouts.admin')
 
-@section('title', 'Facturación  HUB')
+@section('title', 'Facturación · HUB')
 @section('layout', 'full')
 
 @php
@@ -380,7 +380,7 @@
     {{-- HEAD --}}
     <div class="head">
       <div>
-        <div class="ttl">Facturación  HUB</div>
+        <div class="ttl">Facturación · HUB</div>
         <div class="sub">
           Panel operativo: estados de cuenta, pagos, correos (open/click + reenvío), solicitudes de factura y facturas emitidas.
         </div>
@@ -868,7 +868,7 @@
               <div>
                 <div style="font-weight:950;">Operaciones (correo / programación / liga / factura)</div>
                 <div class="mut" style="margin-top:4px;">
-                  Trabaja por <b>account_id + periodo</b>. toâ⬝ acepta múltiples correos separados por coma.
+                  Trabaja por <b>account_id + periodo</b>. “to” acepta múltiples correos separados por coma.
                 </div>
               </div>
               <button class="btn btn-ghost" type="button" onclick="p360ClearOps()">Limpiar</button>
