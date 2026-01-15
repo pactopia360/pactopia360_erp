@@ -58,11 +58,7 @@ final class BillingStatementsHubController extends Controller
         if ($perPage <= 0) $perPage = 25;
         if ($perPage > 250) $perPage = 250;
 
-<<<<<<< HEAD
         // rango (placeholder, aún no se usa)
-=======
-        // rango (placeholder, aÃƒÂºn no se usa)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $from = trim((string) $req->get('from', ''));
         $to   = trim((string) $req->get('to', ''));
 
@@ -132,11 +128,7 @@ final class BillingStatementsHubController extends Controller
             // 2) pagos pagados por cuenta
             $paidByAcc = $this->sumPaymentsPaidByAccountForPeriod($ids, $period);
 
-<<<<<<< HEAD
             // 3) último enviado por cuenta/periodo
-=======
-            // 3) ÃƒÂºltimo enviado por cuenta/periodo
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             $sentMap = $this->lastSentAtByAccountForPeriod($ids, $period);
 
             // 4) tracking open/click por cuenta/periodo (incluye first/last + last_sent_at)
@@ -204,7 +196,7 @@ final class BillingStatementsHubController extends Controller
                     // ignore
                 }
 
-                // para filtros de envÃƒÂ­o
+                // para filtros de envío
                 $r->last_sent_at = $sentMap[(string) $r->id] ?? null;
                 if (empty($r->last_sent_at) && !empty($t['last_sent_at'])) {
                     $r->last_sent_at = (string) $t['last_sent_at'];
@@ -279,7 +271,7 @@ final class BillingStatementsHubController extends Controller
                 })->values();
             }
 
-            // paginaciÃƒÂ³n simple (UI per_page)
+            // paginación simple (UI per_page)
             $rows = $rows->slice(0, $perPage)->values();
 
             // KPIs con lo mostrado
@@ -577,10 +569,6 @@ final class BillingStatementsHubController extends Controller
         return back()->with('ok', $msg);
     }
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     // =========================================================
     // EMAIL: enviar / reenviar / preview
     // =========================================================
@@ -685,10 +673,6 @@ final class BillingStatementsHubController extends Controller
         }
     }
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     public function resendEmail(Request $req, int $id): RedirectResponse
     {
         if (!Schema::connection($this->adm)->hasTable('billing_email_logs')) {
@@ -737,7 +721,7 @@ final class BillingStatementsHubController extends Controller
                 'updated_at'  => now(),
             ]);
 
-            return back()->with('ok', 'ReenvÃƒÂ­o OK. Nuevo email_id=' . $emailId);
+            return back()->with('ok', 'Reenvío OK. Nuevo email_id=' . $emailId);
         } catch (\Throwable $e) {
             DB::connection($this->adm)->table('billing_email_logs')->where('id', $id)->update([
                 'status'     => 'failed',
@@ -746,7 +730,7 @@ final class BillingStatementsHubController extends Controller
                 'meta'       => json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE),
             ]);
 
-            return back()->withErrors(['email' => 'ReenvÃƒÂ­o fallÃƒÂ³: ' . $e->getMessage()]);
+            return back()->withErrors(['email' => 'Reenvío falló: ' . $e->getMessage()]);
         }
     }
 
@@ -836,11 +820,7 @@ final class BillingStatementsHubController extends Controller
     {
         $secret = (string) config('services.stripe.secret');
         if (trim($secret) === '') {
-<<<<<<< HEAD
             throw new \RuntimeException('Stripe secret vacío.');
-=======
-            throw new \RuntimeException('Stripe secret vacÃƒÂ­o.');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         $unitAmountCents = (int) round($totalPesos * 100);
@@ -863,7 +843,7 @@ final class BillingStatementsHubController extends Controller
                     'currency'     => 'mxn',
                     'unit_amount'  => $unitAmountCents,
                     'product_data' => [
-                        'name' => 'Pactopia360 Ã‚Â· Estado de cuenta ' . $period,
+                        'name' => 'Pactopia360 · Estado de cuenta ' . $period,
                     ],
                 ],
                 'quantity' => 1,
@@ -935,11 +915,7 @@ final class BillingStatementsHubController extends Controller
         if ($has('provider'))   $row['provider'] = 'stripe';
 
         if ($has('concept')) {
-<<<<<<< HEAD
             $row['concept'] = 'Pactopia360 · Estado de cuenta ' . $period;
-=======
-            $row['concept'] = 'Pactopia360 Ã‚Â· Estado de cuenta ' . $period;
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         if ($has('reference')) {
@@ -1345,11 +1321,7 @@ final class BillingStatementsHubController extends Controller
             return url('/admin/billing/hub/track/click/' . urlencode($emailId)) . '?u=' . $u;
         };
 
-<<<<<<< HEAD
         // PDF / Estado de cuenta (si tienes ruta real, cámbiala aquí)
-=======
-        // PDF / Estado de cuenta (si tienes ruta real, cÃƒÂ¡mbiala aquÃƒÂ­)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $pdfUrl = Route::has('cliente.estado_cuenta')
             ? route('cliente.estado_cuenta') . '?period=' . urlencode($period)
             : url('/cliente/estado-de-cuenta') . '?period=' . urlencode($period);
@@ -1357,22 +1329,14 @@ final class BillingStatementsHubController extends Controller
         // Pay URL: en preview no generar checkout
         $payUrl = '';
         if (!$isPreview && $saldo > 0.00001) {
-<<<<<<< HEAD
             // Esto solo construye link al HUB action (no crea checkout aquí)
-=======
-            // Esto solo construye link al HUB action (no crea checkout aquÃƒÂ­)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             // (el checkout se crea con createPayLink en el HUB)
             $payUrl = Route::has('admin.billing.hub.paylink')
                 ? route('admin.billing.hub.paylink') . '?account_id=' . urlencode($accountId) . '&period=' . urlencode($period)
                 : url('/admin/billing/hub/paylink') . '?account_id=' . urlencode($accountId) . '&period=' . urlencode($period);
         }
 
-<<<<<<< HEAD
         $subject = 'Pactopia360 · Estado de cuenta ' . $period . ' · ' . $rs;
-=======
-        $subject = 'Pactopia360 Ã‚Â· Estado de cuenta ' . $period . ' Ã‚Â· ' . $rs;
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
         return [
             'brand' => [
@@ -1533,83 +1497,10 @@ final class BillingStatementsHubController extends Controller
         }
 
         return $out;
-    } 
-
-/**
- * Devuelve el último pago "pagado" por cuenta/periodo para pintarlo en UI
- * (fecha + método + proveedor + referencia + monto).
- *
- * @return array<string,array{paid_at:?string,method:string,provider:string,reference:string,amount:float}>
- */
-private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $period): array
-{
-    $out = [];
-
-    if (empty($accountIds)) return $out;
-    if (!Schema::connection($this->adm)->hasTable('payments')) return $out;
-
-    $cols = Schema::connection($this->adm)->getColumnListing('payments');
-    $lc   = array_map('strtolower', $cols);
-    $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
-
-    if (!$has('account_id') || !$has('period')) return $out;
-
-    // status "pagado"
-    $paidStatuses = ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized'];
-
-    // NOTA: amounts en payments están en centavos (MXN) en tu data real.
-    // Vamos a normalizar a pesos.
-    $rows = DB::connection($this->adm)->table('payments')
-        ->select([
-            'account_id',
-            $has('paid_at')   ? 'paid_at'   : DB::raw('NULL as paid_at'),
-            $has('method')    ? 'method'    : DB::raw("'' as method"),
-            $has('provider')  ? 'provider'  : DB::raw("'' as provider"),
-            $has('reference') ? 'reference' : DB::raw("'' as reference"),
-            $has('amount')    ? 'amount'    : DB::raw('0 as amount'),
-            $has('currency')  ? 'currency'  : DB::raw("'' as currency"),
-            'id',
-        ])
-        ->whereIn('account_id', $accountIds)
-        ->where('period', $period);
-
-    if ($has('status')) {
-        $rows->whereIn('status', $paidStatuses);
     }
-
-    // preferimos paid_at, si existe; si no, por id desc
-    if ($has('paid_at')) {
-        $rows->orderByDesc('paid_at');
-    }
-    $rows->orderByDesc('id');
-
-    $all = $rows->get();
-
-    foreach ($all as $p) {
-        $aid = (string) ($p->account_id ?? '');
-        if ($aid === '' || isset($out[$aid])) continue;
-
-        $rawAmount = (float) ($p->amount ?? 0);
-
-        // Normaliza a pesos (centavos -> pesos). En tu BD: 5800000 => 58000.00
-        $amountMxn = $rawAmount / 100.0;
-
-        $out[$aid] = [
-            'paid_at'   => !empty($p->paid_at) ? (string) $p->paid_at : null,
-            'method'    => trim((string) ($p->method ?? '')),
-            'provider'  => trim((string) ($p->provider ?? '')),
-            'reference' => trim((string) ($p->reference ?? '')),
-            'amount'    => round($amountMxn, 2),
-        ];
-    }
-
-    return $out;
-}
-
-
 
     // =========================================================
-    // Email logs helper (ÃƒÂºltimo enviado por cuenta/periodo)
+    // Email logs helper (último enviado por cuenta/periodo)
     // =========================================================
 
     /**
@@ -1736,13 +1627,8 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
         return array_slice($out, 0, 10);
     }
 
-<<<<<<< HEAD
     /**
      * @return arrayng>
-=======
-   /**
-     * @return array<int,string>
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     private function parseIdCsv(string $raw): array
 
@@ -1764,10 +1650,6 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
         return array_slice($out, 0, 300);
     }
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     /**
      * @return array<string,mixed>
      */
@@ -1788,11 +1670,7 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
     {
         $raw = strtolower(trim($raw));
         if (str_contains($raw, 'vigente')) return 'pill-info';
-<<<<<<< HEAD
         if (str_contains($raw, 'proximo') || str_contains($raw, 'próximo') || str_contains($raw, 'next')) return 'pill-warn';
-=======
-        if (str_contains($raw, 'proximo') || str_contains($raw, 'prÃƒÂ³ximo') || str_contains($raw, 'next')) return 'pill-warn';
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($raw === 'base') return 'pill-dim';
         return 'pill-dim';
     }
@@ -1813,9 +1691,7 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
         ) ?? 0.0;
 
         $eff = strtolower(trim((string) ($ov['effective'] ?? ($billing['override_effective'] ?? ''))));
-        if (!in_array($eff, ['now', 'next'], true)) {
-            $eff = '';
-        }
+        if (!in_array($eff, ['now', 'next'], true)) $eff = '';
 
         $apply = false;
         if ($override > 0) {
@@ -1834,7 +1710,6 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
 
         return [round((float) $effective, 2), (string) $label, (string) $pillText];
     }
-
 
     private function toFloat(mixed $v): ?float
     {
@@ -1924,11 +1799,7 @@ private function lastPaidPaymentByAccountForPeriod(array $accountIds, string $pe
         return (int) DB::connection($this->adm)->table('billing_email_logs')->insertGetId($ins);
     } 
 
-<<<<<<< HEAD
     public function payLink(Request $req)
-=======
-public function payLink(Request $req): RedirectResponse
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 {
     $data = $req->validate([
         'account_id' => 'required|string|max:64',
@@ -1939,14 +1810,7 @@ public function payLink(Request $req): RedirectResponse
     $period    = (string) $data['period'];
 
     $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-<<<<<<< HEAD
     if (!$acc) { return response('Cuenta no encontrada.', 404)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache'); }
-=======
-    if (!$acc) {
-        return redirect()->to('/admin/login')
-            ->withErrors(['pay' => 'Cuenta no encontrada.']);
-    }
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
     $items = collect();
     if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
@@ -1959,18 +1823,10 @@ public function payLink(Request $req): RedirectResponse
     $cargoReal = (float) $items->sum('cargo');
     $abonoEc   = (float) $items->sum('abono');
 
-<<<<<<< HEAD
     $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
     $abono     = $abonoEc + $abonoPay;
 
     $meta = $this->decodeMeta($acc->meta ?? null);
-=======
-    // FIX: sumar payments pagados
-    $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
-    $abono     = $abonoEc + $abonoPay;
-
-    $meta   = $this->decodeMeta($acc->meta ?? null);
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     $custom = $this->extractCustomAmountMxn($acc, $meta);
 
     if ($custom !== null && $custom > 0.00001) {
@@ -1980,7 +1836,6 @@ public function payLink(Request $req): RedirectResponse
     }
 
     $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
-<<<<<<< HEAD
     $saldo = max(0.0, $totalShown - $abono);
 
     if ($saldo <= 0.00001) {
@@ -1995,236 +1850,4 @@ public function payLink(Request $req): RedirectResponse
     }
 }
 
-=======
-    $saldo      = max(0.0, $totalShown - $abono);
-
-    if ($saldo <= 0.00001) {
-        return redirect()->to('/admin/login')
-            ->with('ok', 'No hay saldo pendiente para ese periodo.');
-    }
-
-    try {
-        [$url] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
-        return redirect()->away((string) $url)->withHeaders([
-            'Cache-Control' => 'no-store, max-age=0, public',
-            'Pragma'        => 'no-cache',
-        ]);
-    } catch (\Throwable $e) {
-        return redirect()->to('/admin/login')
-            ->withErrors(['pay' => 'No se pudo generar liga: ' . $e->getMessage()]);
-    }
-}
-
-/**
- * Registrar pago MANUAL (transferencia/efectivo/otro) con fecha de pago.
- * Esto impacta el HUB porque el status se calcula por suma de pagos pagados.
- *
- * Reglas:
- * - Si viene amount_mxn vacÃ­o o 0 y viene liquidate=1 => paga el saldo restante del periodo.
- * - Si amount_mxn > 0 => registra ese monto (pagado o parcial).
- */
-public function manualPayment(Request $req): RedirectResponse
-{
-    $data = $req->validate([
-        'account_id' => 'required|string|max:64',
-        'period'     => ['required', 'regex:/^\d{4}\-(0[1-9]|1[0-2])$/'],
-
-        // monto puede venir vacÃ­o si liquidate=1
-        'amount_mxn' => 'nullable|numeric|min:0|max:999999999',
-
-        // fecha de pago (si no viene, usa ahora)
-        'paid_at'    => 'nullable|date',
-
-        // transferencia|efectivo|otro|stripe(card) (para consistencia)
-        'method'     => 'nullable|string|max:30',
-
-        // referencia bancaria / folio
-        'reference'  => 'nullable|string|max:120',
-
-        // notas internas
-        'notes'      => 'nullable|string|max:5000',
-
-        // si 1: auto-calcula saldo restante y lo paga completo
-        'liquidate'  => 'nullable|in:0,1',
-    ]);
-
-    $accountId = (string) $data['account_id'];
-    $period    = (string) $data['period'];
-
-    if (!Schema::connection($this->adm)->hasTable('payments')) {
-        return back()->withErrors(['manual_payment' => 'No existe la tabla payments.']);
-    }
-    if (!Schema::connection($this->adm)->hasTable('accounts')) {
-        return back()->withErrors(['manual_payment' => 'No existe la tabla accounts.']);
-    }
-
-    $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-    if (!$acc) return back()->withErrors(['manual_payment' => 'Cuenta no encontrada.']);
-
-    $paidAt = !empty($data['paid_at'])
-        ? Carbon::parse((string) $data['paid_at'])
-        : now();
-
-    $method = strtolower(trim((string) ($data['method'] ?? 'transfer')));
-    if ($method === '') $method = 'transfer';
-    if (!in_array($method, ['transfer','transferencia','cash','efectivo','other','otro','card','stripe'], true)) {
-        $method = 'transfer';
-    }
-    // normaliza
-    if ($method === 'transferencia') $method = 'transfer';
-    if ($method === 'efectivo') $method = 'cash';
-    if ($method === 'otro') $method = 'other';
-
-    $amount = (float) ($data['amount_mxn'] ?? 0);
-    $liquidate = (string) ($data['liquidate'] ?? '0') === '1';
-
-    // si piden liquidar y monto viene 0 => calcular saldo y pagarlo completo
-    if ($amount <= 0.00001 && $liquidate) {
-        $saldo = $this->computeSaldoForAccountPeriod($accountId, $period, $acc);
-        if ($saldo <= 0.00001) {
-            return back()->with('ok', 'No hay saldo pendiente; no se registrÃ³ pago.');
-        }
-        $amount = $saldo;
-    }
-
-    if ($amount <= 0.00001) {
-        return back()->withErrors(['manual_payment' => 'Monto invÃ¡lido. Usa un monto > 0 o marca "Liquidar".']);
-    }
-
-    $reference = trim((string) ($data['reference'] ?? ''));
-    $notes     = trim((string) ($data['notes'] ?? ''));
-
-    // Insertar en payments como paid + provider manual
-    $id = $this->insertManualPaidPayment([
-        'account_id' => $accountId,
-        'period'     => $period,
-        'amount_mxn' => round($amount, 2),
-        'paid_at'    => $paidAt,
-        'method'     => $method,
-        'reference'  => $reference !== '' ? $reference : null,
-        'notes'      => $notes !== '' ? $notes : null,
-    ]);
-
-    return back()->with('ok', 'Pago manual registrado (#' . $id . '). Se reflejarÃ¡ en el HUB automÃ¡ticamente.');
-}
-
-/**
- * Calcula saldo restante para account/period (misma lÃ³gica que hub).
- */
-private function computeSaldoForAccountPeriod(string $accountId, string $period, object $acc): float
-{
-    $items = collect();
-    if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-        $items = DB::connection($this->adm)->table('estados_cuenta')
-            ->where('account_id', $accountId)
-            ->where('periodo', $period)
-            ->get();
-    }
-
-    $cargoReal = (float) $items->sum('cargo');
-    $abonoEc   = (float) $items->sum('abono');
-
-    $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
-    $abono     = $abonoEc + $abonoPay;
-
-    $meta = $this->decodeMeta($acc->meta ?? null);
-    $custom = $this->extractCustomAmountMxn($acc, $meta);
-
-    if ($custom !== null && $custom > 0.00001) {
-        $expected = $custom;
-    } else {
-        [$expected] = $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
-    }
-
-    $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
-    $saldo = max(0.0, $totalShown - $abono);
-
-    return round($saldo, 2);
-}
-
-/**
- * Inserta un pago manual en payments (robusto a columnas distintas).
- * Retorna ID si existe autoincrement; si no, retorna 0.
- *
- * @param array<string,mixed> $payload
- */
-private function insertManualPaidPayment(array $payload): int
-{
-    $conn = $this->adm;
-
-    $cols = Schema::connection($conn)->getColumnListing('payments');
-    $lc   = array_map('strtolower', $cols);
-    $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
-
-    $row = [];
-    $now = now();
-
-    if ($has('account_id')) $row['account_id'] = (string) ($payload['account_id'] ?? '');
-    if ($has('period'))     $row['period']     = (string) ($payload['period'] ?? '');
-
-    $mxn = (float) ($payload['amount_mxn'] ?? 0);
-
-    // monto (preferencia: amount_mxn/monto_mxn; fallback: cents)
-    if ($has('amount_mxn')) $row['amount_mxn'] = round($mxn, 2);
-    if ($has('monto_mxn'))  $row['monto_mxn']  = round($mxn, 2);
-
-    $cents = (int) round($mxn * 100);
-    if ($has('amount'))       $row['amount']       = $cents;
-    if ($has('amount_cents')) $row['amount_cents'] = $cents;
-
-    if ($has('currency')) $row['currency'] = 'MXN';
-
-    if ($has('status'))   $row['status']   = 'paid';
-    if ($has('provider')) $row['provider'] = 'manual';
-
-    // mÃ©todo
-    if ($has('method')) $row['method'] = (string) ($payload['method'] ?? 'transfer');
-
-    // referencia
-    if ($has('reference')) $row['reference'] = $payload['reference'] ?? null;
-
-    // fechas
-    $paidAt = $payload['paid_at'] ?? $now;
-    if ($has('paid_at')) $row['paid_at'] = $paidAt;
-    if ($has('payment_date')) $row['payment_date'] = $paidAt;
-    if ($has('fecha_pago')) $row['fecha_pago'] = $paidAt;
-
-    // notas / concepto / meta
-    if ($has('concept')) {
-        $row['concept'] = 'Pago manual Â· Estado de cuenta ' . (string) ($payload['period'] ?? '');
-    }
-    if ($has('notes')) {
-        $row['notes'] = $payload['notes'] ?? null;
-    }
-    if ($has('meta')) {
-        $row['meta'] = json_encode([
-            'type'      => 'billing_statement_manual',
-            'period'    => (string) ($payload['period'] ?? ''),
-            'source'    => 'admin_hub',
-            'notes'     => $payload['notes'] ?? null,
-        ], JSON_UNESCAPED_UNICODE);
-    }
-
-    // timestamps
-    if ($has('created_at')) $row['created_at'] = $now;
-    if ($has('updated_at')) $row['updated_at'] = $now;
-
-    // inserciÃ³n (retorna id si existe)
-    try {
-        if ($has('id')) {
-            return (int) DB::connection($conn)->table('payments')->insertGetId($row);
-        }
-        DB::connection($conn)->table('payments')->insert($row);
-        return 0;
-    } catch (\Throwable $e) {
-        Log::error('[BILLING_HUB][manualPayment] insert failed', [
-            'e' => $e->getMessage(),
-            'row' => $row,
-        ]);
-        throw $e;
-    }
-}
-
-
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 }
