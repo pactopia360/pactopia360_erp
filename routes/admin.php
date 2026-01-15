@@ -1,5 +1,5 @@
 <?php
-// /var/www/pactopia360_erp/routes/admin.php
+// routes/admin.php
 // (equivalente a C:\wamp64\www\pactopia360_erp\routes\admin.php)
 
 declare(strict_types=1);
@@ -31,12 +31,14 @@ use App\Http\Controllers\Admin\Billing\AccountLicensesController;
 use App\Http\Controllers\Admin\Billing\PaymentsController;
 use App\Http\Controllers\Admin\Billing\InvoiceRequestsController;
 use App\Http\Controllers\Admin\Billing\AccountsController;
+
+// Usuarios admin (nuevo módulo)
 use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
 
-// âœ… Estados de cuenta (legacy)
+// ✅ Estados de cuenta (legacy)
 use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 
-// âœ… HUB nuevo (estados + pagos + emails + facturas + tracking)
+// ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
 /*
@@ -66,13 +68,13 @@ $thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
 |--------------------------------------------------------------------------
-| Helper permisos â†’ middleware 'can:perm,<clave>'
+| Helper permisos → middleware 'can:perm,<clave>'
 |--------------------------------------------------------------------------
 */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
-        // En local: no forzamos permisos para poder trabajar rÃ¡pido.
+        // En local: no forzamos permisos para poder trabajar rápido.
         if (app()->environment(['local', 'development', 'testing'])) {
             return [];
         }
@@ -84,7 +86,7 @@ if (!function_exists('perm_mw')) {
 
 /*
 |--------------------------------------------------------------------------
-| Placeholder rÃ¡pido (si falta una vista admin)
+| Placeholder rápido (si falta una vista admin)
 |--------------------------------------------------------------------------
 */
 if (!function_exists('admin_placeholder_view')) {
@@ -98,7 +100,7 @@ if (!function_exists('admin_placeholder_view')) {
                  <div style='font:16px system-ui;padding:20px'>
                    <h1 style='margin:0 0 8px'>{$title}</h1>
                    <p style='color:#64748b'>Empresa: {$company}</p>
-                   <p style='margin-top:14px'>Vista placeholder. ImplementaciÃ³n pendiente.</p>
+                   <p style='margin-top:14px'>Vista placeholder. Implementación pendiente.</p>
                  </div>";
 
         return response($html, 200);
@@ -107,19 +109,11 @@ if (!function_exists('admin_placeholder_view')) {
 
 /*
 |--------------------------------------------------------------------------
-<<<<<<< HEAD
 | ✅ Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
 |--------------------------------------------------------------------------
 | IMPORTANTE:
 | - Este archivo admin.php se monta bajo prefix('/admin') desde web.php,
 |   por lo que las URLs finales serán:
-=======
-| âœ… Tracking pÃºblico Billing (OPEN/CLICK) â€” SIN auth y SIN cookies/sesiÃ³n
-|--------------------------------------------------------------------------
-| IMPORTANTE:
-| - Este archivo admin.php se monta bajo prefix('/admin') desde web.php,
-|   por lo que las URLs finales serÃ¡n:
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 |   - /admin/t/billing/open/{emailId}
 |   - /admin/t/billing/open/{emailId}.gif   (compat, puede chocar con nginx static si no se enruta a PHP)
 |   - /admin/t/billing/click/{emailId}?u=...
@@ -130,15 +124,9 @@ if (!function_exists('admin_placeholder_view')) {
 |   - admin.track.billing.click
 |
 | - Debe ir FUERA del grupo auth:admin.
-<<<<<<< HEAD
 | - Para que NO aparezca ningún Set-Cookie, quitamos cookies+sesión del stack web.
-=======
-| - Para que NO aparezca ningÃºn Set-Cookie, quitamos cookies+sesiÃ³n del stack web.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
+|--------------------------------------------------------------------------
 */
-
-
-
 $noCookies = [
     \Illuminate\Cookie\Middleware\EncryptCookies::class,
     \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
@@ -153,12 +141,7 @@ Route::prefix('t/billing')
     ->middleware('throttle:240,1')
     ->group(function () use ($noCookies) {
 
-
-<<<<<<< HEAD
         // OPEN pixel (sin .gif) ← recomendado (evita que nginx lo trate como asset estático)
-=======
-        // OPEN pixel (sin .gif) â† recomendado (evita que nginx lo trate como asset estÃ¡tico)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
@@ -179,24 +162,19 @@ Route::prefix('t/billing')
 
 /*
 |--------------------------------------------------------------------------
-<<<<<<< HEAD
 | ✅ PayLink público (GET) para Estados de Cuenta (HUB)
-=======
-| âœ… PayLink pÃºblico (GET) para Estados de Cuenta (HUB)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 |--------------------------------------------------------------------------
 | Debe ir FUERA de auth:admin para permitir que el cliente (o correo) lo abra.
 |
 | OJO:
-<<<<<<< HEAD
 | - Este archivo ya vive bajo prefix('/admin'), así que aquí NO debes repetir "admin/".
-=======
-| - Este archivo ya vive bajo prefix('/admin'), asÃ­ que aquÃ­ NO debes repetir "admin/".
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 | - La URL final queda: /admin/billing/statements-hub/paylink
 | - El nombre de ruta queda: admin.billing.statements_hub.paylink
+|--------------------------------------------------------------------------
 */
-Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])->middleware('throttle:240,1')->withoutMiddleware($noCookies)
+Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
+    ->middleware('throttle:240,1')
+    ->withoutMiddleware($noCookies)
     ->name('billing.statements_hub.paylink');
 
 /*
@@ -218,7 +196,7 @@ if ($isLocal) {
 
 /*
 |--------------------------------------------------------------------------
-| Auth admin (guest:admin + sesiÃ³n aislada)
+| Auth admin (guest:admin + sesión aislada)
 |--------------------------------------------------------------------------
 */
 Route::middleware([
@@ -239,7 +217,7 @@ Route::middleware([
 
 /*
 |--------------------------------------------------------------------------
-| Notificaciones pÃºblicas (contador)
+| Notificaciones públicas (contador)
 |--------------------------------------------------------------------------
 */
 Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
@@ -248,7 +226,7 @@ Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::c
 
 /*
 |--------------------------------------------------------------------------
-| Ãrea autenticada ADMIN (auth:admin + sesiÃ³n aislada)
+| Área autenticada ADMIN (auth:admin + sesión aislada)
 |--------------------------------------------------------------------------
 */
 Route::middleware([
@@ -264,7 +242,7 @@ Route::middleware([
     $isLocal
 ) {
 
-    /* ---------- Aliases raÃ­z ---------- */
+    /* ---------- Aliases raíz ---------- */
     Route::get('/', fn () => redirect()->route('admin.home'))->name('root');
     Route::get('dashboard', fn () => redirect()->route('admin.home'))->name('dashboard');
 
@@ -364,7 +342,7 @@ Route::middleware([
         ->middleware(perm_mw('admin.config'))
         ->name('config.index');
 
-    /* ---------- Reportes raÃ­z ---------- */
+    /* ---------- Reportes raíz ---------- */
     Route::get('reportes', [ReportesController::class, 'index'])
         ->middleware(perm_mw('reportes.ver'))
         ->name('reportes.index');
@@ -626,7 +604,6 @@ Route::middleware([
             $manualPayment->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-
         Route::post('statements-hub/invoice-request', [BillingStatementsHubController::class, 'invoiceRequest'])
             ->name('statements_hub.invoice_request');
 
@@ -685,7 +662,6 @@ Route::middleware([
             ->whereNumber('id')->name('invoices.requests.status');
         Route::post('invoices/requests/{id}/email', [InvoiceRequestsController::class, 'email'])
             ->whereNumber('id')->name('invoices.requests.email');
-
     });
 
     /*
@@ -694,38 +670,31 @@ Route::middleware([
     |--------------------------------------------------------------------------
     */
     Route::prefix('usuarios')->name('usuarios.')->group(function () {
-
         // Usuarios Administrativos (CRUD completo)
-        Route::get('administrativos', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'index'])
-            ->name('administrativos.index');
+        Route::get('administrativos', [AdministrativosController::class, 'index'])->name('administrativos.index');
+        Route::get('administrativos/create', [AdministrativosController::class, 'create'])->name('administrativos.create');
+        Route::post('administrativos', [AdministrativosController::class, 'store'])->name('administrativos.store');
 
-        Route::get('administrativos/create', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'create'])
-            ->name('administrativos.create');
-
-        Route::post('administrativos', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'store'])
-            ->name('administrativos.store');
-
-        Route::get('administrativos/{id}/edit', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'edit'])
+        Route::get('administrativos/{id}/edit', [AdministrativosController::class, 'edit'])
             ->whereNumber('id')
             ->name('administrativos.edit');
 
-        Route::put('administrativos/{id}', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'update'])
+        Route::put('administrativos/{id}', [AdministrativosController::class, 'update'])
             ->whereNumber('id')
             ->name('administrativos.update');
 
-        Route::post('administrativos/{id}/toggle', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'toggle'])
+        Route::post('administrativos/{id}/toggle', [AdministrativosController::class, 'toggle'])
             ->whereNumber('id')
             ->name('administrativos.toggle');
 
-        Route::post('administrativos/{id}/reset-password', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'resetPassword'])
+        Route::post('administrativos/{id}/reset-password', [AdministrativosController::class, 'resetPassword'])
             ->whereNumber('id')
             ->name('administrativos.reset_password');
 
-        Route::delete('administrativos/{id}', [\App\Http\Controllers\Admin\Usuarios\AdministrativosController::class, 'destroy'])
+        Route::delete('administrativos/{id}', [AdministrativosController::class, 'destroy'])
             ->whereNumber('id')
             ->name('administrativos.destroy');
     });
-
 
     /* ---------- Fallback interno admin ---------- */
     Route::fallback(fn () => redirect()->route('admin.home'));

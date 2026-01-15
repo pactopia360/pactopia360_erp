@@ -111,7 +111,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             DB::raw("$rfcCol as rfc"),
             'razon_social',
 
-            // ? normalizamos siempre a alias "email" y "phone"
+            // normalizamos siempre a alias "email" y "phone"
             $emailCol . ' as email',
             $phoneCol . ' as phone',
 
@@ -144,23 +144,14 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $rows = $query->paginate($perPage)->appends($request->query());
 
-<<<<<<< HEAD
-        // ? IMPORTANTE: aquÌ son IDs (accounts.id)
-        $accountIds = $rows->pluck('id')->all();
-=======
         // ‚úÖ IMPORTANTE: aqu√≠ son IDs (accounts.id)
         $accountIds = $rows->pluck('id')->all();
 
         $extras     = $this->collectExtrasForAccountIds($accountIds);
         $creds      = $this->collectCredsForAccountIds($accountIds);
         $recipients = $this->collectRecipientsForAccountIds($accountIds);
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
-        $extras     = $this->collectExtrasForAccountIds($accountIds);
-        $creds      = $this->collectCredsForAccountIds($accountIds);
-        $recipients = $this->collectRecipientsForAccountIds($accountIds);
-
-        // ? Inyectar en $extras: recipients + monto efectivo (pagando)
+        // Inyectar en $extras: recipients + monto efectivo (pagando)
         foreach ($rows as $r) {
             $id = (string) $r->id;
 
@@ -174,10 +165,10 @@ class ClientesController extends \App\Http\Controllers\Controller
             $primary = null;
 
             foreach ($recList as $rr) {
-                $e = strtolower(trim((string)($rr['email'] ?? '')));
+                $e = strtolower(trim((string) ($rr['email'] ?? '')));
                 if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
                     $emails[] = $e;
-                    if ((int)($rr['is_primary'] ?? 0) === 1) {
+                    if ((int) ($rr['is_primary'] ?? 0) === 1) {
                         $primary = $e;
                     }
                 }
@@ -207,14 +198,10 @@ class ClientesController extends \App\Http\Controllers\Controller
     // ======================= GUARDAR (accounts) =======================
     public function save(string $key, Request $request): RedirectResponse
     {
-<<<<<<< HEAD
-        // ? key puede ser accounts.id (numÈrico) o accounts.rfc
-=======
         // ‚úÖ key puede ser accounts.id (num√©rico) o accounts.rfc
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'meta']);
         $accountId = (string) $acc->id;
-        $rfcReal   = strtoupper(trim((string)($acc->{$this->colRfcAdmin()} ?? '')));
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
         $emailCol = $this->colEmail();
         $phoneCol = $this->colPhone();
@@ -279,30 +266,18 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->update($payload);
 
-<<<<<<< HEAD
-        // ? Legacy "clientes" debe ir por RFC real (no por id)
-=======
         // ‚úÖ Legacy "clientes" debe ir por RFC real (no por id)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($rfcReal !== '') {
             $this->upsertClienteLegacy($rfcReal, $payload);
         }
 
-<<<<<<< HEAD
-        // ? Espejo mysql_clientes usa rfc_padre = accounts.id (por tu implementaciÛn actual)
-=======
         // ‚úÖ Espejo mysql_clientes usa rfc_padre = accounts.id (por tu implementaci√≥n actual)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $this->syncPlanToMirror($accountId, $payload);
 
         return back()->with('ok', 'Datos guardados.');
     }
 
-<<<<<<< HEAD
-    // ======================= ? SEED STATEMENT (para que exista la ruta) =======================
-=======
     // ======================= ‚úÖ SEED STATEMENT (para que exista la ruta) =======================
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     public function seedStatement(string $key, Request $request): RedirectResponse
     {
         $acc = $this->requireAccount($key, ['id']);
@@ -313,7 +288,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             $period = now()->format('Y-m');
         }
 
-        // Intento 1: si existe un HUB con mÈtodo utilizable, ˙salo
+        // Intento 1: si existe un HUB con m√©todo utilizable, √∫salo
         try {
             $hubClass = \App\Http\Controllers\Admin\Billing\BillingStatementsHubController::class;
             if (class_exists($hubClass)) {
@@ -330,7 +305,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             Log::warning('seedStatement hub: ' . $e->getMessage(), ['account_id' => $accountId, 'period' => $period]);
         }
 
-        // Intento 2 (fallback): crear item base "Servicio mensual" si existen tablas tÌpicas
+        // Intento 2 (fallback): crear item base "Servicio mensual/anual" si existen tablas t√≠picas
         try {
             $schema = Schema::connection($this->adminConn);
 
@@ -345,7 +320,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
 
             if (!$tblStatements || !$tblItems) {
-                return back()->with('error', "No pude sembrar: no existen tablas de estados de cuenta (fallback). Ya quedÛ la ruta, pero falta conectar el backend del billing.");
+                return back()->with('error', "No pude sembrar: no existen tablas de estados de cuenta (fallback). Ya qued√≥ la ruta, pero falta conectar el backend del billing.");
             }
 
             DB::connection($this->adminConn)->transaction(function () use ($accountId, $period, $tblStatements, $tblItems, $schema) {
@@ -362,8 +337,9 @@ class ClientesController extends \App\Http\Controllers\Controller
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
-                    $ins = array_filter($ins, fn($v) => $v !== null);
+                    $ins = array_filter($ins, fn ($v) => $v !== null);
                     DB::connection($this->adminConn)->table($tblStatements)->insert($ins);
+
                     $stmt = DB::connection($this->adminConn)->table($tblStatements)
                         ->where('account_id', $accountId)->where('period', $period)->first();
                 }
@@ -381,16 +357,19 @@ class ClientesController extends \App\Http\Controllers\Controller
                     ->where($descCol, 'like', '%Servicio%')
                     ->exists();
 
-                if (!$exists) {
+                if ($exists) {
+                    return;
+                }
+
                 // Resolver modo desde accounts.meta o plan (mensual/anual)
                 $accRow = DB::connection($this->adminConn)->table('accounts')
-                    ->select(['id', 'meta', 'plan', 'plan_actual'])
-                    ->where('id', $rfc)
+                    ->select(['id', 'meta', 'plan', 'plan_actual', 'billing_cycle', 'billing_status'])
+                    ->where('id', $accountId)
                     ->first();
 
                 $meta = [];
-                if ($accRow && is_string($accRow->meta ?? null) && trim((string)$accRow->meta) !== '') {
-                    $decoded = json_decode((string)$accRow->meta, true);
+                if ($accRow && is_string($accRow->meta ?? null) && trim((string) $accRow->meta) !== '') {
+                    $decoded = json_decode((string) $accRow->meta, true);
                     if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) $meta = $decoded;
                 }
 
@@ -401,23 +380,20 @@ class ClientesController extends \App\Http\Controllers\Controller
                 )));
 
                 $planStr = strtolower(trim((string) (($accRow->plan_actual ?? null) ?: ($accRow->plan ?? ''))));
+                $cycle   = strtolower(trim((string) ($accRow->billing_cycle ?? '')));
 
                 if (!in_array($mode, ['mensual', 'anual'], true)) {
-                    if (str_contains($planStr, 'anual') || str_contains($planStr, 'annual')) $mode = 'anual';
-                    if (str_contains($planStr, 'mensual') || str_contains($planStr, 'monthly')) $mode = 'mensual';
+                    if (str_contains($planStr, 'anual') || str_contains($planStr, 'annual') || in_array($cycle, ['yearly','annual','anual'], true)) $mode = 'anual';
+                    if (str_contains($planStr, 'mensual') || str_contains($planStr, 'monthly') || in_array($cycle, ['monthly','mensual'], true)) $mode = 'mensual';
                 }
                 if (!in_array($mode, ['mensual', 'anual'], true)) $mode = 'mensual';
 
                 $serviceLabel = ($mode === 'anual') ? 'Servicio anual' : 'Servicio mensual';
 
-                // Monto por defecto desde tu plan (lo que ya usabas)
-                $amount = (float) $this->defaultLicenseAmountFromPlan($rfc);
+                // Monto por defecto desde tu l√≥gica de plan/ciclo/meta
+                $amount = (float) $this->defaultLicenseAmountFromPlan($accountId);
 
-<<<<<<< HEAD
-                // Si es anual, intentar tomar monto anual explÌcito desde meta (sin *12 arbitrario)
-=======
                 // Si es anual, intentar tomar monto anual expl√≠cito desde meta (sin *12 arbitrario)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
                 if ($mode === 'anual') {
                     $annualCandidates = [
                         data_get($meta, 'billing.annual_amount_mxn'),
@@ -439,7 +415,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 }
 
                 $payload = [
-                    'account_id' => $rfc,
+                    'account_id' => $accountId,
                     'period'     => $period,
                     $descCol     => $serviceLabel,
                     $amtCol      => round($amount, 2),
@@ -452,8 +428,6 @@ class ClientesController extends \App\Http\Controllers\Controller
                 }
 
                 DB::connection($this->adminConn)->table($tblItems)->insert($payload);
-            }
-
             });
 
             return back()->with('ok', "Edo. cuenta {$period} sembrado/asegurado (fallback).");
@@ -463,11 +437,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
     }
 
-<<<<<<< HEAD
-    // ======================= VERIFICACI”N / OTP =======================
-=======
     // ======================= VERIFICACI√ìN / OTP =======================
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     public function resendEmailVerification(string $key): RedirectResponse
     {
         $emailCol = $this->colEmail();
@@ -497,7 +467,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             Log::warning('resendEmailVerification: ' . $e->getMessage());
         }
 
-        return back()->with('ok', 'Enlace de verificaciÛn regenerado.');
+        return back()->with('ok', 'Enlace de verificaci√≥n regenerado.');
     }
 
     public function sendPhoneOtp(string $key, Request $request): RedirectResponse
@@ -534,7 +504,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         if ($clean === '' || strlen($clean) < 10) {
             return back()->withErrors([
-                'phone' => 'No hay telÈfono registrado (o es inv·lido). Captura un n˙mero para poder enviar OTP.',
+                'phone' => 'No hay tel√©fono registrado (o es inv√°lido). Captura un n√∫mero para poder enviar OTP.',
             ]);
         }
 
@@ -571,7 +541,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                     'emails.cliente.verify_phone',
                     ['code' => $code, 'minutes' => 10],
                     function ($m) use ($acc) {
-                        $m->to($acc->email)->subject('Tu cÛdigo de verificaciÛn - Pactopia360');
+                        $m->to($acc->email)->subject('Tu c√≥digo de verificaci√≥n - Pactopia360');
                     }
                 );
             }
@@ -579,7 +549,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             Log::warning('sendPhoneOtp: ' . $e->getMessage());
         }
 
-        return back()->with('ok', 'OTP enviado. (QA) CÛdigo: ' . $code);
+        return back()->with('ok', 'OTP enviado. (QA) C√≥digo: ' . $code);
     }
 
     public function forceEmailVerified(string $key): RedirectResponse
@@ -596,18 +566,14 @@ class ClientesController extends \App\Http\Controllers\Controller
     public function forcePhoneVerified(string $key): RedirectResponse
     {
         $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
-        $rfcReal = strtoupper(trim((string)($acc->{$this->colRfcAdmin()} ?? '')));
+        $rfcReal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
         if ($this->hasCol($this->adminConn, 'accounts', 'phone_verified_at')) {
             DB::connection($this->adminConn)->table('accounts')
                 ->where('id', $acc->id)->update(['phone_verified_at' => now(), 'updated_at' => now()]);
         }
 
-<<<<<<< HEAD
-        // Intento de activaciÛn final (si tu controlador cliente trabaja por RFC real)
-=======
         // Intento de activaci√≥n final (si tu controlador cliente trabaja por RFC real)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         try {
             if ($rfcReal !== '' && class_exists(\App\Http\Controllers\Cliente\VerificationController::class)) {
                 app(\App\Http\Controllers\Cliente\VerificationController::class)
@@ -617,23 +583,19 @@ class ClientesController extends \App\Http\Controllers\Controller
             Log::warning('finalizeActivation: ' . $e->getMessage());
         }
 
-        return back()->with('ok', 'TelÈfono verificado. ActivaciÛn final intentada.');
+        return back()->with('ok', 'Tel√©fono verificado. Activaci√≥n final intentada.');
     }
 
     public function resetPassword(Request $request, string $rfcOrId)
     {
-<<<<<<< HEAD
-        // ? Acepta ID o RFC; resetOwnerByRfc requiere RFC real
-=======
         // ‚úÖ Acepta ID o RFC; resetOwnerByRfc requiere RFC real
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
-        $acc = $this->resolveAccount(trim((string)$rfcOrId), ['id', $this->colRfcAdmin()]);
+        $acc = $this->resolveAccount(trim((string) $rfcOrId), ['id', $this->colRfcAdmin()]);
         if (!$acc) {
             $payload = ['ok' => false, 'error' => 'No pude resolver la cuenta.'];
             return $this->backOrJson($request, $payload, 404);
         }
 
-        $rfcReal = strtoupper(trim((string)($acc->{$this->colRfcAdmin()} ?? '')));
+        $rfcReal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
         if ($rfcReal === '') {
             $payload = ['ok' => false, 'error' => 'No pude resolver el RFC de la cuenta.'];
             return $this->backOrJson($request, $payload, 404);
@@ -655,15 +617,15 @@ class ClientesController extends \App\Http\Controllers\Controller
 
             return response("
                 <!doctype html><meta charset='utf-8'>
-                <title>P360 ∑ Reset password</title>
+                <title>P360 ¬∑ Reset password</title>
                 <style>
                 body{font:14px system-ui,Segoe UI,Roboto,sans-serif;padding:16px;background:#f8fafc;color:#111827}
                 pre{background:#0b1020;color:#e5e7eb;padding:12px;border-radius:8px;overflow:auto}
                 .tip{margin:10px 0 14px;color:#475569}
                 .pill{display:inline-block;border:1px solid #94a3b8;border-radius:999px;padding:2px 8px;font-size:12px}
                 </style>
-                <h1 style='margin:0 0 6px'>Reset de contraseÒa (OWNER)</h1>
-                <div class='tip'>Formato: <span class='pill'>pretty</span> ∑ Cambia a <code>?format=json</code> si quieres JSON puro.</div>
+                <h1 style='margin:0 0 6px'>Reset de contrase√±a (OWNER)</h1>
+                <div class='tip'>Formato: <span class='pill'>pretty</span> ¬∑ Cambia a <code>?format=json</code> si quieres JSON puro.</div>
                 <pre>{$pretty}</pre>
             ", $code)->header('Content-Type', 'text/html; charset=utf-8');
         }
@@ -673,17 +635,17 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         // Guardar tmp por RFC real y por accountId para que el listado lo vea en ambos casos
-        foreach ([$rfcReal, strtolower($rfcReal), (string)$acc->id, strtolower((string)$acc->id)] as $key) {
-            session()->flash("tmp_pass.$key", $res['pass']);
-            session()->flash("tmp_user.$key", $res['email']);
-            Cache::put("tmp_pass.$key", $res['pass'], now()->addMinutes(15));
-            Cache::put("tmp_user.$key", $res['email'], now()->addMinutes(15));
-            cookie()->queue(cookie()->make("p360_tmp_pass_{$key}", $res['pass'], 10, null, null, false, false, false, 'Lax'));
-            cookie()->queue(cookie()->make("p360_tmp_user_{$key}", $res['email'], 10, null, null, false, false, false, 'Lax'));
+        foreach ([$rfcReal, strtolower($rfcReal), (string) $acc->id, strtolower((string) $acc->id)] as $k) {
+            session()->flash("tmp_pass.$k", $res['pass']);
+            session()->flash("tmp_user.$k", $res['email']);
+            Cache::put("tmp_pass.$k", $res['pass'], now()->addMinutes(15));
+            Cache::put("tmp_user.$k", $res['email'], now()->addMinutes(15));
+            cookie()->queue(cookie()->make("p360_tmp_pass_{$k}", $res['pass'], 10, null, null, false, false, false, 'Lax'));
+            cookie()->queue(cookie()->make("p360_tmp_user_{$k}", $res['email'], 10, null, null, false, false, false, 'Lax'));
         }
 
         return back()
-            ->with('ok', 'ContraseÒa temporal generada para el OWNER.')
+            ->with('ok', 'Contrase√±a temporal generada para el OWNER.')
             ->with('tmp_password', $res['pass'])
             ->with('tmp_user_email', $res['email']);
     }
@@ -694,15 +656,11 @@ class ClientesController extends \App\Http\Controllers\Controller
             return response()->json($data + ['ok' => false], $status);
         }
         $key = isset($data['error']) ? 'error' : 'info';
-        return back()->withErrors([$key => $data[$key] ?? 'OperaciÛn no completada.']);
+        return back()->withErrors([$key => $data[$key] ?? 'Operaci√≥n no completada.']);
     }
 
     /**
-<<<<<<< HEAD
-     * ? Enviar credenciales (incluyendo usuario+password) a:
-=======
      * ‚úÖ Enviar credenciales (incluyendo usuario+password) a:
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *  - emails capturados en textarea ("to"/"recipients")
      *  - o destinatarios guardados (account_recipients)
      *  - con fallback al email de la cuenta
@@ -718,7 +676,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $acc = $this->requireAccount($key, ['id', $rfcCol, 'razon_social', DB::raw("$emailCol as email")]);
         $accountId = (string) $acc->id;
-        $rfcReal   = strtoupper(trim((string)($acc->{$rfcCol} ?? '')));
+        $rfcReal   = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
 
         abort_if($rfcReal === '', 422, 'RFC no disponible en la cuenta.');
 
@@ -731,7 +689,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         if (empty($to)) {
-            return back()->with('error', 'No hay correos destinatarios v·lidos para enviar credenciales.');
+            return back()->with('error', 'No hay correos destinatarios v√°lidos para enviar credenciales.');
         }
 
         // 2) Generar credenciales (reset password del OWNER por RFC REAL)
@@ -742,7 +700,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 'rfc'        => $rfcReal,
                 'error'      => $res['error'] ?? null,
             ]);
-            return back()->with('error', 'No se pudo generar la contraseÒa temporal del OWNER: ' . ($res['error'] ?? 'desconocido'));
+            return back()->with('error', 'No se pudo generar la contrase√±a temporal del OWNER: ' . ($res['error'] ?? 'desconocido'));
         }
 
         $usuario   = (string) ($res['email'] ?? '');
@@ -778,7 +736,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         try {
             if (view()->exists('emails.admin.cliente_credentials')) {
                 Mail::send('emails.admin.cliente_credentials', ['p' => $p], function ($m) use ($to) {
-                    $m->to($to)->subject('Acceso ∑ Pactopia360');
+                    $m->to($to)->subject('Acceso ¬∑ Pactopia360');
                 });
             } elseif (view()->exists('emails.cliente.credentials')) {
                 Mail::send('emails.cliente.credentials', [
@@ -787,14 +745,14 @@ class ClientesController extends \App\Http\Controllers\Controller
                     'rfc'      => $rfcReal,
                     'password' => $password,
                 ], function ($m) use ($to) {
-                    $m->to($to)->subject('Acceso ∑ Pactopia360');
+                    $m->to($to)->subject('Acceso ¬∑ Pactopia360');
                 });
             } else {
                 $list = implode(', ', $to);
                 Mail::raw(
-                    "Hola.\n\nTu acceso a Pactopia360 est· listo.\n\nUsuario: {$usuario}\nContraseÒa temporal: {$password}\n\nLogin: {$accessUrl}\n\nDestinatarios: {$list}\n\nPor seguridad, cambia tu contraseÒa despuÈs del primer acceso.\n\nó Equipo Pactopia360",
+                    "Hola.\n\nTu acceso a Pactopia360 est√° listo.\n\nUsuario: {$usuario}\nContrase√±a temporal: {$password}\n\nLogin: {$accessUrl}\n\nDestinatarios: {$list}\n\nPor seguridad, cambia tu contrase√±a despu√©s del primer acceso.\n\n‚Äî Equipo Pactopia360",
                     function ($m) use ($to) {
-                        $m->to($to)->subject('Acceso ∑ Pactopia360');
+                        $m->to($to)->subject('Acceso ¬∑ Pactopia360');
                     }
                 );
             }
@@ -805,7 +763,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 'error'      => $e->getMessage(),
             ]);
 
-            return back()->with('error', 'No se pudo enviar el correo. Revisa logs y configuraciÛn MAIL.');
+            return back()->with('error', 'No se pudo enviar el correo. Revisa logs y configuraci√≥n MAIL.');
         }
 
         if (Schema::connection($this->adminConn)->hasTable('credential_logs')) {
@@ -823,7 +781,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Logo ìseguroî para emails: intenta URL p˙blica; si no, vacÌo (la plantilla hace fallback a texto).
+     * Logo ‚Äúseguro‚Äù para emails: intenta URL p√∫blica; si no, vac√≠o (la plantilla hace fallback a texto).
      */
     private function brandLogoUrl(): string
     {
@@ -844,7 +802,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     {
         $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
         $accountId = (string) $acc->id;
-        $rfcReal   = strtoupper(trim((string)($acc->{$this->colRfcAdmin()} ?? '')));
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
         $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
 
@@ -867,10 +825,10 @@ class ClientesController extends \App\Http\Controllers\Controller
     {
         try { Auth::guard('web')->logout(); } catch (\Throwable $e) {}
         session()->forget(['impersonated_by_admin', 'impersonated_rfc']);
-        return redirect()->route('admin.clientes.index')->with('ok', 'SesiÛn de cliente finalizada.');
+        return redirect()->route('admin.clientes.index')->with('ok', 'Sesi√≥n de cliente finalizada.');
     }
 
-    // ======================= SYNC accounts ? clientes =======================
+    // ======================= SYNC accounts -> clientes =======================
     public function syncToClientes(): RedirectResponse
     {
         if (!$this->legacyHasTable('clientes')) {
@@ -940,23 +898,15 @@ class ClientesController extends \App\Http\Controllers\Controller
         $action  = $request->string('action')->toString();
         $channel = $request->string('channel')->toString() ?: 'sms';
 
-<<<<<<< HEAD
-        // ? puede venir una lista mixta: ids o rfcs
-=======
         // ‚úÖ puede venir una lista mixta: ids o rfcs
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $keys = collect(explode(',', (string) $request->string('ids')))
-            ->map(fn($x) => trim((string) $x))
+            ->map(fn ($x) => trim((string) $x))
             ->filter()
             ->unique()
             ->values();
 
         if ($keys->isEmpty()) {
-<<<<<<< HEAD
-            return back()->with('error', 'No hay IDs/RFCs v·lidos para procesar.');
-=======
             return back()->with('error', 'No hay IDs/RFCs v√°lidos para procesar.');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         }
 
         $emailCol = $this->colEmail();
@@ -973,7 +923,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         foreach ($keys as $key) {
             try {
-                $acc = $this->resolveAccount((string)$key, [
+                $acc = $this->resolveAccount((string) $key, [
                     'id',
                     $rfcCol,
                     'razon_social',
@@ -1035,11 +985,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
                     case 'otp_sms':
                         if (!$hasPhoneOtps) { $skip++; $skips[] = "$key: tabla phone_otps no existe"; break; }
-<<<<<<< HEAD
-                        if (empty($acc->phone)) { $skip++; $skips[] = "$key: sin telÈfono"; break; }
-=======
                         if (empty($acc->phone)) { $skip++; $skips[] = "$key: sin tel√©fono"; break; }
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
 
                         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
@@ -1067,7 +1013,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                         try {
                             if (!empty($acc->email) && view()->exists('emails.cliente.verify_phone')) {
                                 Mail::send('emails.cliente.verify_phone', ['code' => $code, 'minutes' => 10], function ($m) use ($acc) {
-                                    $m->to($acc->email)->subject('Tu cÛdigo de verificaciÛn - Pactopia360');
+                                    $m->to($acc->email)->subject('Tu c√≥digo de verificaci√≥n - Pactopia360');
                                 });
                             }
                         } catch (\Throwable $e) {
@@ -1080,11 +1026,11 @@ class ClientesController extends \App\Http\Controllers\Controller
             } catch (\Throwable $e) {
                 $err++;
                 $errs[] = "$key: " . $e->getMessage();
-                Log::warning('bulk: ' . $e->getMessage(), ['key' => $key, 'action' => $action]);
+                Log::warning('bulk: ' . $e->getMessage(), ['key' => (string) $key, 'action' => $action]);
             }
         }
 
-        $msg = "Bulk '{$action}': OK {$ok}" . ($skip ? " ∑ Saltados {$skip}" : "") . ($err ? " ∑ Errores {$err}" : "");
+        $msg = "Bulk '{$action}': OK {$ok}" . ($skip ? " ¬∑ Saltados {$skip}" : "") . ($err ? " ¬∑ Errores {$err}" : "");
         if ($skip) $msg .= "\nSaltos: " . implode('; ', array_slice($skips, 0, 5)) . ($skip > 5 ? '...' : '');
         if ($err)  $msg .= "\nErrores: " . implode('; ', array_slice($errs, 0, 5)) . ($err > 5 ? '...' : '');
 
@@ -1092,20 +1038,12 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     // =========================================================
-<<<<<<< HEAD
-    // ? DESTINATARIOS (account_recipients) ó FIX ROBUSTO (account_id = accounts.id)
-=======
     // ‚úÖ DESTINATARIOS (account_recipients) ‚Äî FIX ROBUSTO (account_id = accounts.id)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
     // =========================================================
 
     public function recipientsUpsert(string $key, Request $request): RedirectResponse
     {
-<<<<<<< HEAD
-        // ? key puede ser RFC o ID, pero guardamos SIEMPRE por accounts.id
-=======
         // ‚úÖ key puede ser RFC o ID, pero guardamos SIEMPRE por accounts.id
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         $acc = $this->requireAccount($key, ['id']);
         $accountId = (string) $acc->id;
 
@@ -1113,11 +1051,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $schema = Schema::connection($this->adminConn);
 
-<<<<<<< HEAD
-        // En tu DB real: NO existe "kind" (seg˙n DESCRIBE que pegaste)
-=======
-        // En tu DB real: NO existe "kind" (seg√∫n DESCRIBE que pegaste)
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
+        // En tu DB real: puede NO existir "kind"
         $hasKind    = $schema->hasColumn('account_recipients', 'kind');
         $hasActive  = $schema->hasColumn('account_recipients', 'is_active');
         $hasPrimary = $schema->hasColumn('account_recipients', 'is_primary');
@@ -1138,15 +1072,15 @@ class ClientesController extends \App\Http\Controllers\Controller
             $rules
         )->validate();
 
-        $kind   = $hasKind ? (string)($data['kind'] ?? 'statement') : null;
-        $active = (int)($data['active'] ?? 1);
+        $kind   = $hasKind ? (string) ($data['kind'] ?? 'statement') : null;
+        $active = (int) ($data['active'] ?? 1);
 
         $emails = $this->normalizeEmails($data['recipients']);
         if (empty($emails)) {
-            return back()->withErrors(['recipients' => 'No hay emails v·lidos.']);
+            return back()->withErrors(['recipients' => 'No hay emails v√°lidos.']);
         }
 
-        $primary = strtolower(trim((string)($data['primary'] ?? '')));
+        $primary = strtolower(trim((string) ($data['primary'] ?? '')));
         if ($primary !== '' && !filter_var($primary, FILTER_VALIDATE_EMAIL)) {
             $primary = '';
         }
@@ -1189,16 +1123,12 @@ class ClientesController extends \App\Http\Controllers\Controller
                     DB::connection($this->adminConn)->table('account_recipients')->insert($payload);
                 } else {
                     DB::connection($this->adminConn)->table('account_recipients')
-                        ->where('id', (int)$row->id)
+                        ->where('id', (int) $row->id)
                         ->update($payload);
                 }
             }
 
-<<<<<<< HEAD
-            // Si hay primary, apagar los dem·s
-=======
             // Si hay primary, apagar los dem√°s
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             if ($hasPrimary && $primary !== '') {
                 $q = DB::connection($this->adminConn)->table('account_recipients')
                     ->where('account_id', $accountId);
@@ -1216,11 +1146,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
-<<<<<<< HEAD
-     * ? FIX: para el listado (index) ó NO pedir columnas que no existen
-=======
      * ‚úÖ FIX: para el listado (index) ‚Äî NO pedir columnas que no existen
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *      y operar por accounts.id
      */
     private function collectRecipientsForAccountIds(array $accountIds): array
@@ -1260,22 +1186,22 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $out = [];
         foreach ($rows as $r) {
-            $aid = (string)($r->account_id ?? '');
+            $aid = (string) ($r->account_id ?? '');
             if ($aid === '') continue;
 
-            $email = strtolower(trim((string)($r->email ?? '')));
+            $email = strtolower(trim((string) ($r->email ?? '')));
             if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
 
             // Si no hay kind en la tabla, todo cae a "statement"
-            $kind = $hasKind ? (string)($r->kind ?? 'statement') : 'statement';
+            $kind = $hasKind ? (string) ($r->kind ?? 'statement') : 'statement';
 
             if (!isset($out[$aid])) $out[$aid] = [];
             if (!isset($out[$aid][$kind])) $out[$aid][$kind] = [];
 
             $out[$aid][$kind][] = [
                 'email'      => $email,
-                'is_active'  => $hasActive ? (int)($r->is_active ?? 1) : 1,
-                'is_primary' => $hasPrimary ? (int)($r->is_primary ?? 0) : 0,
+                'is_active'  => $hasActive ? (int) ($r->is_active ?? 1) : 1,
+                'is_primary' => $hasPrimary ? (int) ($r->is_primary ?? 0) : 0,
             ];
         }
 
@@ -1288,7 +1214,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $emailCol = $this->colEmail();
         $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$emailCol]);
-        $fallback = strtolower(trim((string)($acc->{$emailCol} ?? '')));
+        $fallback = strtolower(trim((string) ($acc->{$emailCol} ?? '')));
         if ($fallback !== '' && filter_var($fallback, FILTER_VALIDATE_EMAIL)) $emails[] = $fallback;
 
         if (Schema::connection($this->adminConn)->hasTable('account_recipients')) {
@@ -1312,7 +1238,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             $rows = $q->get(['email']);
 
             foreach ($rows as $r) {
-                $e = strtolower(trim((string)($r->email ?? '')));
+                $e = strtolower(trim((string) ($r->email ?? '')));
                 if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) $emails[] = $e;
             }
         }
@@ -1320,7 +1246,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         return array_values(array_unique($emails));
     }
 
-    // ======================= ? MONTO EFECTIVO LICENCIA =======================
+    // ======================= MONTO EFECTIVO LICENCIA =======================
     private function computeEffectiveLicenseAmountMxn(object $accRow): ?float
     {
         // 1) columnas conocidas (si vienen en SELECT)
@@ -1343,26 +1269,17 @@ class ClientesController extends \App\Http\Controllers\Controller
         $meta = $this->decodeMeta($accRow->meta ?? null);
         $enabled = (bool) data_get($meta, 'billing.override.enabled', false);
         $amt = data_get($meta, 'billing.override.amount_mxn', null);
-        if ($enabled && $amt !== null && (float)$amt > 0) {
-            return round((float)$amt, 2);
+        if ($enabled && $amt !== null && (float) $amt > 0) {
+            return round((float) $amt, 2);
         }
 
-<<<<<<< HEAD
-        // 3) default por plan/ciclo con inferencia cuando plan viene vacÌo
-=======
         // 3) default por plan/ciclo con inferencia cuando plan viene vac√≠o
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
-        $plan  = strtolower(trim((string)($accRow->plan ?? '')));
-        $cycle = strtolower(trim((string)($accRow->billing_cycle ?? '')));
-        $bs    = strtolower(trim((string)($accRow->billing_status ?? '')));
+        $plan  = strtolower(trim((string) ($accRow->plan ?? '')));
+        $cycle = strtolower(trim((string) ($accRow->billing_cycle ?? '')));
+        $bs    = strtolower(trim((string) ($accRow->billing_status ?? '')));
 
-<<<<<<< HEAD
-        // ? Si plan viene vacÌo, inferimos PRO cuando hay seÒales de suscripciÛn/billing
-        if ($plan === '' || $plan === 'ó') {
-=======
         // ‚úÖ Si plan viene vac√≠o, inferimos PRO cuando hay se√±ales de suscripci√≥n/billing
         if ($plan === '' || $plan === '‚Äî') {
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
             $looksPaid =
                 in_array($bs, ['active', 'trial', 'grace', 'overdue', 'suspended'], true)
                 || in_array($cycle, ['monthly', 'yearly', 'annual', 'mensual', 'anual'], true);
@@ -1372,11 +1289,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
         }
 
-<<<<<<< HEAD
-        // Free explÌcito => 0
-=======
         // Free expl√≠cito => 0
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if ($plan === 'free') return 0.00;
 
         if ($plan === 'pro') {
@@ -1416,7 +1329,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         $v = config('services.stripe.display_price_monthly');
         if ($v === null || $v === '') $v = env('STRIPE_DISPLAY_PRICE_MONTHLY', null);
 
-        $n = is_numeric($v) ? (float)$v : (float) preg_replace('/[^0-9.\-]/', '', (string)$v);
+        $n = is_numeric($v) ? (float) $v : (float) preg_replace('/[^0-9.\-]/', '', (string) $v);
         if ($n <= 0) $n = 990.00;
         return round($n, 2);
     }
@@ -1426,7 +1339,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         $v = config('services.stripe.display_price_annual');
         if ($v === null || $v === '') $v = env('STRIPE_DISPLAY_PRICE_ANNUAL', null);
 
-        $n = is_numeric($v) ? (float)$v : (float) preg_replace('/[^0-9.\-]/', '', (string)$v);
+        $n = is_numeric($v) ? (float) $v : (float) preg_replace('/[^0-9.\-]/', '', (string) $v);
         if ($n <= 0) $n = $monthly * 12;
         return round($n, 2);
     }
@@ -1456,11 +1369,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
-<<<<<<< HEAD
-     * ? En tu schema real, accounts.rfc existe y es UNIQUE.
-=======
      * ‚úÖ En tu schema real, accounts.rfc existe y es UNIQUE.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     private function colRfcAdmin(): string
     {
@@ -1472,30 +1381,22 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     /**
      * Resolver cuenta por:
-<<<<<<< HEAD
-     *  - accounts.id (numÈrico) o
-=======
      *  - accounts.id (num√©rico) o
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *  - accounts.rfc (string, unique)
      *
      * Regresa registro de accounts.
      */
     private function resolveAccount(string $key, array $select = ['*'])
     {
-        $key = trim((string)$key);
+        $key = trim((string) $key);
         if ($key === '') return null;
 
         $rfcCol = $this->colRfcAdmin();
         $q = DB::connection($this->adminConn)->table('accounts')->select($select);
 
-<<<<<<< HEAD
-        // 1) por ID si es numÈrico
-=======
         // 1) por ID si es num√©rico
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         if (ctype_digit($key)) {
-            $acc = $q->where('id', (int)$key)->first();
+            $acc = $q->where('id', (int) $key)->first();
             if ($acc) return $acc;
         }
 
@@ -1512,23 +1413,8 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function requireAccount(string $key, array $select = ['*'])
     {
         $acc = $this->resolveAccount($key, $select);
-<<<<<<< HEAD
-        abort_if(!$acc, 404, 'Cuenta no encontrada (id/rfc inv·lido).');
-=======
         abort_if(!$acc, 404, 'Cuenta no encontrada (id/rfc inv√°lido).');
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
         return $acc;
-    }
-
-    private function getAccount(string $key, array $select = ['*'])
-    {
-        return $this->resolveAccount($key, $select);
-    }
-
-    private function assertExists(string $key): void
-    {
-        $acc = $this->resolveAccount($key, ['id']);
-        abort_if(!$acc, 404, 'Cuenta no encontrada');
     }
 
     private function collectExtrasForAccountIds(array $accountIds): array
@@ -1551,7 +1437,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->orderBy('id', 'desc')
                 ->get()
                 ->groupBy('id')
-                ->map(fn($g) => $g->first());
+                ->map(fn ($g) => $g->first());
         }
 
         $otps = collect();
@@ -1562,7 +1448,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->orderBy('id', 'desc')
                 ->get()
                 ->groupBy('id')
-                ->map(fn($g) => $g->first());
+                ->map(fn ($g) => $g->first());
         }
 
         $logs = collect();
@@ -1573,7 +1459,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->orderBy('id', 'desc')
                 ->get()
                 ->groupBy('id')
-                ->map(fn($g) => $g->first());
+                ->map(fn ($g) => $g->first());
         }
 
         $out = [];
@@ -1582,7 +1468,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             $otp = $otps->get($id);
             $log = $logs->get($id);
 
-            $out[(string)$id] = [
+            $out[(string) $id] = [
                 'email_token'       => $tok->token ?? null,
                 'email_expires_at'  => $fmt($tok->expires_at ?? null),
                 'otp_code'          => $otp->code ?? null,
@@ -1596,14 +1482,10 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * ? MEJORA CRÕTICA: si mysql_clientes falla (credenciales, grants, etc),
+     * MEJORA CR√çTICA: si mysql_clientes falla (credenciales, grants, etc),
      * el admin NO se cae; regresa estructura base.
      *
-<<<<<<< HEAD
-     * ?? Por tu diseÒo actual, cuentas_cliente.rfc_padre guarda accounts.id (numÈrico string).
-=======
      * ‚ö†Ô∏è Por tu dise√±o actual, cuentas_cliente.rfc_padre guarda accounts.id (num√©rico string).
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      */
     private function collectCredsForAccountIds(array $accountIds): array
     {
@@ -1611,7 +1493,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $blank = [];
         foreach ($accountIds as $id) {
-            $blank[(string)$id] = ['owner_email' => null, 'temp_pass' => null];
+            $blank[(string) $id] = ['owner_email' => null, 'temp_pass' => null];
         }
 
         try {
@@ -1640,7 +1522,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->orderBy('u.created_at', 'asc')
                 ->get()
                 ->groupBy('account_id')
-                ->map(fn($g) => $g->first());
+                ->map(fn ($g) => $g->first());
 
         } catch (\Throwable $e) {
             Log::warning('collectCredsForAccountIds: mysql_clientes unavailable', [
@@ -1653,7 +1535,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $out = [];
         foreach ($accountIds as $id) {
-            $idStr = (string)$id;
+            $idStr = (string) $id;
             $idL   = strtolower($idStr);
 
             $emailOwner = optional($owners->get($idStr))->email;
@@ -1685,7 +1567,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     {
         if (!$this->legacyHasTable('clientes')) return;
 
-        $rfc = strtoupper(trim((string)$rfc));
+        $rfc = strtoupper(trim((string) $rfc));
         if ($rfc === '') return;
 
         $rs = trim((string) ($payload['razon_social'] ?? ''));
@@ -1853,7 +1735,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             'id'         => $uid,
             'cuenta_id'  => $cuenta->id,
             'rol'        => 'owner',
-            'nombre'     => 'Owner ' . (string)($acc->id ?? ''),
+            'nombre'     => 'Owner ' . (string) ($acc->id ?? ''),
             'email'      => $email,
             'password'   => $hash,
             'activo'     => 1,
@@ -1878,11 +1760,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
-<<<<<<< HEAD
-     * ? Asegura mirror por accounts.id (rfc_padre) y owner.
-=======
      * ‚úÖ Asegura mirror por accounts.id (rfc_padre) y owner.
->>>>>>> 3e7910d (Fix: admin usuarios administrativos + UI full width + debug safe)
      *    $accountId: accounts.id
      *    $rfcReal: accounts.rfc (real)
      */
@@ -1916,8 +1794,8 @@ class ClientesController extends \App\Http\Controllers\Controller
 
             $payload = [
                 'id'           => $cid,
-                'rfc_padre'    => (string)$acc->id,
-                'razon_social' => $acc->razon_social ?: ('Cuenta ' . (string)$acc->id),
+                'rfc_padre'    => (string) $acc->id,
+                'razon_social' => $acc->razon_social ?: ('Cuenta ' . (string) $acc->id),
                 'created_at'   => now(),
                 'updated_at'   => now(),
             ];
@@ -1936,10 +1814,10 @@ class ClientesController extends \App\Http\Controllers\Controller
             if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) $payload['next_invoice_date'] = null;
 
             DB::connection('mysql_clientes')->table('cuentas_cliente')->insert($payload);
-            $cuenta = (object) ['id' => $cid, 'rfc_padre' => (string)$acc->id];
+            $cuenta = (object) ['id' => $cid, 'rfc_padre' => (string) $acc->id];
         }
 
-        $ownerObj = $this->upsertOwnerForCuenta($acc, $cuenta, $rfcReal !== '' ? $rfcReal : (string)$acc->id);
+        $ownerObj = $this->upsertOwnerForCuenta($acc, $cuenta, $rfcReal !== '' ? $rfcReal : (string) $acc->id);
 
         return ['cuenta' => $cuenta, 'owner' => $ownerObj];
     }
@@ -1974,7 +1852,7 @@ class ClientesController extends \App\Http\Controllers\Controller
     private function decodeMeta(mixed $meta): array
     {
         if (is_array($meta)) return $meta;
-        if (is_object($meta)) return (array)$meta;
+        if (is_object($meta)) return (array) $meta;
         if (!is_string($meta)) return [];
         $s = trim($meta);
         if ($s === '') return [];
@@ -1991,7 +1869,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         if (is_array($input)) {
             $parts = $input;
         } else {
-            $s = trim((string)$input);
+            $s = trim((string) $input);
             if ($s === '') return [];
             $s = str_replace([';', "\n", "\r", "\t"], [',', ',', ',', ' '], $s);
             $parts = array_filter(array_map('trim', explode(',', $s)));
@@ -1999,7 +1877,7 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $out = [];
         foreach ($parts as $p) {
-            $e = strtolower(trim((string)$p));
+            $e = strtolower(trim((string) $p));
             if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) $out[] = $e;
         }
         return array_values(array_unique($out));
