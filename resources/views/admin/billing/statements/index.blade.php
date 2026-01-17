@@ -580,132 +580,25 @@
           </form>
         </div>
 
-        {{-- TABLE --}}
-        <table class="sx-table">
-          <thead>
-            <tr>
-              <th class="sx-selcol">
-                <input class="sx-ck" type="checkbox" id="sxCkAll" onclick="sxToggleAll(this)">
-              </th>
-              <th style="width:110px">Cuenta</th>
-              <th>Cliente</th>
-              <th style="width:260px">Email / Meta</th>
-              <th class="sx-right" style="width:140px">Total</th>
-              <th class="sx-right" style="width:140px">Pagado</th>
-              <th class="sx-right" style="width:140px">Saldo</th>
-              <th style="width:140px">Estatus</th>
-              <th class="sx-right" style="width:280px">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            @forelse($rows as $r)
-              @php
-                $aid   = (string)($r->id ?? $r->account_id ?? '');
-                $rfc   = (string)($r->rfc ?? $r->codigo ?? '');
-                $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: '—'));
-                $mail  = (string)($r->email ?? $r->correo ?? '—');
-
-                $plan  = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? '—');
-                $modo  = (string)($r->modo_cobro ?? $r->billing_mode ?? $r->modo ?? '—');
-
-                $cargo = (float)($r->cargo ?? 0);
-                $expected = (float)($r->expected_total ?? 0);
-                $total = $cargo > 0 ? $cargo : $expected;
-
-                $abono = (float)($r->abono ?? 0);
-                $saldo = max(0, $total - $abono);
-
-                $st = (string)($r->status_pago ?? $r->status ?? '');
-                $st = strtolower(trim($st));
-                if($st==='paid' || $st==='succeeded') $st = 'pagado';
-
-                $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
-
-                $pillCls = 'sx-dim';
-                if($st==='pagado') $pillCls='sx-ok';
-                elseif($st==='vencido') $pillCls='sx-bad';
-                elseif(in_array($st, ['pendiente','parcial'], true)) $pillCls='sx-warn';
-
-                $saldoCls = $saldo > 0 ? 'sx-warn' : 'sx-ok';
-
-                $showUrl = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
-                $pdfUrl  = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
-
-                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$period]) : null;
-              @endphp
-
+                {{-- TABLE --}}
+        <div class="sx-table-wrap">
+          <table class="sx-table">
+            <thead>
               <tr>
-                <td onclick="event.stopPropagation();">
-                  <input class="sx-ck sx-row" type="checkbox" value="{{ e($aid) }}" onclick="sxSync()">
-                </td>
-
-                <td class="sx-mono">
-                  #{{ $aid }}
-                  @if($rfc)
-                    <div class="sx-subrow">RFC: <span class="sx-mono">{{ $rfc }}</span></div>
-                  @endif
-                </td>
-
-                <td>
-                  <div class="sx-name">{{ $name }}</div>
-                  <div class="sx-subrow">
-                    <span class="sx-pill sx-dim"><span class="dot"></span> {{ strtoupper(trim($plan ?: '—')) }}</span>
-                    <span class="sx-pill sx-dim" style="margin-left:6px;"><span class="dot"></span> {{ $modo ?: '—' }}</span>
-                  </div>
-                </td>
-
-                <td>
-                  <div class="sx-mono">{{ $mail }}</div>
-                  <div class="sx-subrow">
-                    Periodo: <span class="sx-mono">{{ (string)($r->period ?? $period) }}</span>
-                    @if(!empty($r->pago_metodo))
-                      <span style="opacity:.55;">·</span> Pago: <span class="sx-mono">{{ (string)$r->pago_metodo }}</span>
-                    @endif
-                    @if(!empty($r->last_paid_at))
-                      <br>Últ. pago: <span class="sx-mono">{{ (string)$r->last_paid_at }}</span>
-                    @endif
-                  </div>
-                </td>
-
-                <td class="sx-right sx-mono">{{ $fmtMoney($total) }}</td>
-                <td class="sx-right sx-mono">{{ $fmtMoney($abono) }}</td>
-
-                <td class="sx-right">
-                  <span class="sx-pill {{ $saldoCls }}"><span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldo) }}</span></span>
-                </td>
-
-                <td>
-                  <span class="sx-pill {{ $pillCls }}"><span class="dot"></span>{{ $lbl }}</span>
-                </td>
-
-                <td class="sx-right">
-                  <div class="sx-actions">
-                    @if($showUrl)
-                      <a class="sx-btn sx-btn-primary" href="{{ $showUrl }}">Ver detalle</a>
-                    @else
-                      <button class="sx-btn sx-btn-primary" type="button" disabled title="Falta ruta show">Ver detalle</button>
-                    @endif
-
-                    @if($pdfUrl)
-                      <a class="sx-btn sx-btn-soft" target="_blank" href="{{ $pdfUrl }}">PDF</a>
-                    @else
-                      <button class="sx-btn sx-btn-soft" type="button" disabled title="Falta ruta pdf">PDF</button>
-                    @endif
-
-                    @if($emailUrl)
-                      <form method="POST" action="{{ $emailUrl }}">
-                        @csrf
-                        {{-- opcional: si tu controller admite 'to', aquí lo mandamos por defecto --}}
-                        <input type="hidden" name="to" value="{{ $mail !== '—' ? $mail : '' }}">
-                        <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
-                      </form>
-                    @else
-                      <button class="sx-btn sx-btn-soft" type="button" disabled title="Falta ruta statements.email">Enviar</button>
-                    @endif
-                  </div>
-                </td>
+                <th class="sx-selcol">
+                  <input class="sx-ck" type="checkbox" id="sxCkAll" onclick="sxToggleAll(this)">
+                </th>
+                <th style="width:110px">Cuenta</th>
+                <th>Cliente</th>
+                <th style="width:260px">Email / Meta</th>
+                <th class="sx-right" style="width:140px">Total</th>
+                <th class="sx-right" style="width:140px">Pagado</th>
+                <th class="sx-right" style="width:140px">Saldo</th>
+                <th style="width:140px">Estatus</th>
+                <th class="sx-right" style="width:280px">Acciones</th>
               </tr>
             </thead>
+
             <tbody>
               @forelse($rows as $r)
                 @php
@@ -753,11 +646,11 @@
                   $tarifaCls   = $tarifaPillClass($tarifaPill);
 
                   // Pago meta (Controller)
-                  $payMethod = (string)($r->pay_method ?? '');
+                  $payMethod   = (string)($r->pay_method ?? '');
                   $payProvider = (string)($r->pay_provider ?? '');
-                  $payStatus = (string)($r->pay_status ?? '');
-                  $payDue   = (string)($r->pay_due_date ?? '');
-                  $payLast  = (string)($r->pay_last_paid_at ?? '');
+                  $payStatus   = (string)($r->pay_status ?? '');
+                  $payDue      = (string)($r->pay_due_date ?? '');
+                  $payLast     = (string)($r->pay_last_paid_at ?? '');
 
                   $showUrl = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
                   $pdfUrl  = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
@@ -872,11 +765,16 @@
                   </td>
                 </tr>
               @empty
-                <tr><td colspan="9" style="padding:16px; color:var(--sx-mut); font-weight:900;">Sin resultados para el filtro actual.</td></tr>
+                <tr>
+                  <td colspan="9" style="padding:16px; color:var(--sx-mut); font-weight:900;">
+                    Sin resultados para el filtro actual.
+                  </td>
+                </tr>
               @endforelse
             </tbody>
           </table>
         </div>
+
 
       </div>
     </div>
