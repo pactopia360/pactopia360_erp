@@ -1,9 +1,12 @@
-/* public/assets/admin/css/frame.css */
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\frame.css */
+/* ===== P360 Admin Frame (v2.2 · Layout-safe) =====
+   - NO define offsets del sidebar (eso es admin.blade.php + base.css)
+   - FULL width default; contained opt-in
+*/
+
 :root{
-  --sidebar-w: 16rem;
-  --sidebar-w-collapsed: 72px;
   --header-h: 56px;
-  --page-max: 1280px;         /* tamaño máximo del contenido */
+  --page-max: 1280px;
   --gap: 12px;
   --gap-lg: 16px;
 }
@@ -13,49 +16,56 @@ body{
   min-height:100vh;
   display:flex;
   flex-direction:column;
-  overflow:hidden; /* el scroll vive en el contenido principal */
+  overflow:hidden;
 }
 
 /* Contenedor de app */
-.admin-app{flex:1 1 auto;min-height:0;display:flex;overflow:hidden}
-.admin-content{flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
-
-/* Espacio para el sidebar en desktop */
-@media (min-width:1024px){
-  main,#p360-main,.admin-content{margin-left:var(--sidebar-w)}
-  html.sidebar-collapsed main,
-  html.sidebar-collapsed #p360-main,
-  html.sidebar-collapsed .admin-content{margin-left:var(--sidebar-w-collapsed)}
+.admin-app{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
 }
 
-/* Footer */
-.admin-footer{border-top:1px solid rgba(0,0,0,.05);margin-top:1rem}
-[data-theme="dark"] .admin-footer{border-top-color:rgba(255,255,255,.1)}
+/* ⚠️ IMPORTANTE:
+   No redefinimos .admin-content aquí para no pisar layout (margin-left/width/height).
+   El scroll y el layout del main viven en base.css / admin.blade.php.
+*/
 
 /* ========================================================================
-   CENTRADO universal de páginas (DEFAULT)
+   DEFAULT = FULL WIDTH (Admin)
    ======================================================================== */
 .page-container{
-  padding:var(--gap-lg);
+  padding: var(--gap-lg);
+  display:block;
+  width:100%;
+  max-width:none;
+}
+
+.page-shell{
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:0;
+}
+
+/* ========================================================================
+   MODO CONTAINED (opt-in)
+   ======================================================================== */
+html[data-layout="contained"] .page-container{
   display:flex;
   justify-content:center;
 }
-.page-shell{
-  width:100%;
-  max-width:var(--page-max);
+
+html[data-layout="contained"] .page-shell{
+  max-width: var(--page-max);
   margin-inline:auto;
-  padding:var(--gap-lg);
+  padding: var(--gap-lg);
 }
 
-/* ========================================================================
-   OVERRIDES por pantalla (NO romper todo el Admin)
-   - Esta pantalla requiere full-width real y que "se vea todo".
-   - Se activa con: @section('pageClass','page-admin-statement-show')
-   ======================================================================== */
+/* Overrides por pantalla */
 body.page-admin-statement-show .page-container{
   padding:0 !important;
   display:block !important;
-  justify-content:unset !important;
 }
 body.page-admin-statement-show .page-shell{
   max-width:none !important;
@@ -63,26 +73,15 @@ body.page-admin-statement-show .page-shell{
   padding:0 !important;
 }
 
-
-/* =========================================================
-   P360 · FORCE FULL WIDTH (Admin)
-   Blindaje contra wrappers internos (container/wrapper/etc.)
-   ========================================================= */
-
-html[data-layout="full"] .admin-content .page-container{
+/* Blindaje FULL WIDTH */
+html[data-layout="full"] .admin-content .page-container,
+html[data-layout="full"] .admin-content .page-shell{
   width:100% !important;
   max-width:none !important;
   margin:0 !important;
 }
 
-html[data-layout="full"] .admin-content .page-container .page-shell{
-  width:100% !important;
-  max-width:none !important;
-  margin-left:0 !important;
-  margin-right:0 !important;
-}
-
-/* Si alguna vista usa Bootstrap container o wrappers similares */
+/* Si alguna vista usa Bootstrap containers */
 html[data-layout="full"] .admin-content .page-container .container,
 html[data-layout="full"] .admin-content .page-container .container-sm,
 html[data-layout="full"] .admin-content .page-container .container-md,
@@ -91,19 +90,11 @@ html[data-layout="full"] .admin-content .page-container .container-xl,
 html[data-layout="full"] .admin-content .page-container .container-xxl{
   width:100% !important;
   max-width:none !important;
-  margin-left:0 !important;
-  margin-right:0 !important;
-  padding-left:0 !important;   /* opcional: quita “margen” visual */
-  padding-right:0 !important;  /* opcional: quita “margen” visual */
+  margin:0 !important;
+  padding-left:0 !important;
+  padding-right:0 !important;
 }
 
-/* Wrappers frecuentes en dashboards */
-html[data-layout="full"] .admin-content .page-container .wrap,
-html[data-layout="full"] .admin-content .page-container .wrapper,
-html[data-layout="full"] .admin-content .page-container .dashboard-wrap,
-html[data-layout="full"] .admin-content .page-container .dashboard-container{
-  width:100% !important;
-  max-width:none !important;
-  margin-left:0 !important;
-  margin-right:0 !important;
-}
+/* Footer */
+.admin-footer{border-top:1px solid rgba(0,0,0,.05);margin-top:auto}
+[data-theme="dark"] .admin-footer{border-top-color:rgba(255,255,255,.1)}

@@ -559,6 +559,16 @@ Route::middleware([
         Route::get('statements', [BillingStatementsController::class, 'index'])
             ->name('statements.index');
 
+        // ✅ AJAX: actualizar estatus override + pay_method override (por cuenta+periodo)
+        $stStatus = Route::post('statements/status', [BillingStatementsController::class, 'statusAjax'])
+            ->middleware($thrAdminPosts)
+            ->name('statements.status');
+
+        if ($isLocal) {
+            $stStatus->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+
         Route::get('statements/{accountId}/{period}', [BillingStatementsController::class, 'show'])
             ->where([
                 'accountId' => '[A-Za-z0-9\-]+',
@@ -696,6 +706,15 @@ Route::middleware([
             ->name('administrativos.destroy');
     });
 
-    /* ---------- Fallback interno admin ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | ✅ Fallback interno admin (SIEMPRE AL FINAL)
+    |--------------------------------------------------------------------------
+    | NOTA:
+    | - Aquí eliminamos cualquier ruta duplicada "clientes" que apunte a un
+    |   controller inexistente (ej. UsuariosClientesController).
+    | - El listado de clientes ya existe arriba como: admin.clientes.index
+    |--------------------------------------------------------------------------
+    */
     Route::fallback(fn () => redirect()->route('admin.home'));
 });

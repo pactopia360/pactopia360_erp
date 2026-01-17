@@ -206,6 +206,7 @@ class AccountsController extends Controller
 
     /**
      * Completa meta.billing.* si está incompleto.
+     * - Respeta 'custom' (no lo pisa).
      * @return bool true si guardó cambios
      */
     private function ensureBillingMetaIntegrityInPlace(object $account): bool
@@ -216,6 +217,9 @@ class AccountsController extends Controller
         $meta = $this->decodeMeta($account->{$this->metaCol} ?? null);
 
         $pk = (string) data_get($meta, 'billing.price_key', '');
+
+        // ✅ Si es licencia personalizada, no forzamos catálogo.
+        if ($pk === 'custom') return false;
 
         $planHint = (string)($account->plan ?? '');
         if ($pk === '' && $planHint !== '' && isset($catalog[$planHint])) {
@@ -251,6 +255,7 @@ class AccountsController extends Controller
             $needSave = true;
         }
 
+        // NOTA: solo rellena si está vacío/0 y catálogo trae >0
         if ($amt <= 0 && $catAmt > 0) {
             data_set($meta, 'billing.amount_mxn', $catAmt);
             $needSave = true;
@@ -337,9 +342,12 @@ class AccountsController extends Controller
 
         if ($filter === 'override') {
             if ($hasMeta) {
+                // ✅ Busca override legacy (mensual) o por ciclo (monthly/yearly)
                 $qb->where(function($w) use ($metaCol){
                     $w->whereRaw("JSON_EXTRACT(`{$metaCol}`,'$.billing.override.amount_mxn') IS NOT NULL")
-                      ->orWhereRaw("JSON_EXTRACT(`{$metaCol}`,'$.billing.override_amount_mxn') IS NOT NULL");
+                      ->orWhereRaw("JSON_EXTRACT(`{$metaCol}`,'$.billing.override_amount_mxn') IS NOT NULL")
+                      ->orWhereRaw("JSON_EXTRACT(`{$metaCol}`,'$.billing.override.monthly.amount_mxn') IS NOT NULL")
+                      ->orWhereRaw("JSON_EXTRACT(`{$metaCol}`,'$.billing.override.yearly.amount_mxn') IS NOT NULL");
                 });
             } else {
                 $qb->whereRaw('1=0');
@@ -407,16 +415,34 @@ class AccountsController extends Controller
         $catalog = $this->priceCatalog();
 
         $pk = (string) data_get($meta, 'billing.price_key', '');
-        $cycle = (string) data_get($meta, 'billing.billing_cycle', '');
+        $cycle = (string) data_get($meta, 'billing.billing_cycle', 'monthly');
         $stripePriceId = (string) data_get($meta, 'billing.stripe_price_id', '');
         $baseAmount = (int) data_get($meta, 'billing.amount_mxn', 0);
 
-        $overrideAmountNew = data_get($meta, 'billing.override.amount_mxn');
-        $overrideAmountOld = data_get($meta, 'billing.override_amount_mxn');
-        $overrideAmount = is_numeric($overrideAmountNew) ? (int)$overrideAmountNew : (is_numeric($overrideAmountOld) ? (int)$overrideAmountOld : null);
+        // ✅ Override por ciclo + compat legacy
+        $overrideByCycle = data_get($meta, "billing.override.$cycle.amount_mxn");
 
-        $overrideEffective = (string) data_get($meta, 'billing.override.effective', data_get($meta, 'billing.override_effective', 'next'));
-        $overrideAt = (string) data_get($meta, 'billing.override.updated_at', data_get($meta, 'billing.override_updated_at', ''));
+        $legacyMonthly = data_get($meta, 'billing.override.amount_mxn')
+            ?? data_get($meta, 'billing.override_amount_mxn');
+
+        $overrideAmount = is_numeric($overrideByCycle)
+            ? (int)$overrideByCycle
+            : (is_numeric($legacyMonthly) ? (int)$legacyMonthly : null);
+
+        // ✅ effective/updated_at por ciclo + compat legacy
+        $overrideEffective = (string) (
+            data_get($meta, "billing.override.$cycle.effective")
+            ?? data_get($meta, 'billing.override.effective')
+            ?? data_get($meta, 'billing.override_effective')
+            ?? 'next'
+        );
+
+        $overrideAt = (string) (
+            data_get($meta, "billing.override.$cycle.updated_at")
+            ?? data_get($meta, 'billing.override.updated_at')
+            ?? data_get($meta, 'billing.override_updated_at')
+            ?? ''
+        );
 
         $currentAmount = ($overrideAmount !== null) ? $overrideAmount : $baseAmount;
 
@@ -449,10 +475,8 @@ class AccountsController extends Controller
             'has_meta' => $hasMeta,
         ];
 
-        // Render
         $resp = response()->view('admin.billing.accounts.show', $payload);
 
-        // ✅ Si lo cargas en iframe (modal=1), asegúrate de permitir framing same-origin
         if ($request->boolean('modal')) {
             $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
             $resp->headers->set('Content-Security-Policy', "frame-ancestors 'self'");
@@ -464,20 +488,71 @@ class AccountsController extends Controller
     // ======================= UPDATE LICENSE =======================
     public function updateLicense(Request $request, string $id): RedirectResponse
     {
-        abort_if(!$this->hasMetaColumn(), 422, "No existe columna '{$this->metaCol}' en {$this->conn}.{$this->table}. Ejecuta la migración.");
+        abort_if(!$this->hasMetaColumn(), 422, "No existe columna '{$this->metaCol}'.");
 
         $account = $this->getAccountOrFail($id);
         $meta = $this->decodeMeta($account->{$this->metaCol} ?? null);
 
-        $catalog = $this->priceCatalog();
+        $priceKey = trim((string) $request->input('price_key', ''));
 
-        $priceKey = (string) $request->input('price_key', '');
+        // ================= CUSTOM LICENSE =================
+        if ($priceKey === 'custom') {
+            $cycle  = trim((string) $request->input('billing_cycle', 'monthly'));
+            $amount = $request->input('amount_mxn');
+
+            abort_if(!in_array($cycle, ['monthly','yearly'], true), 422, 'Ciclo inválido');
+            abort_if(!is_numeric($amount), 422, 'Monto inválido');
+
+            $amount = (int) $amount;
+            abort_if($amount < 0, 422, 'Monto inválido');
+
+            data_set($meta, 'billing.price_key', 'custom');
+            data_set($meta, 'billing.billing_cycle', $cycle);
+            data_set($meta, 'billing.amount_mxn', $amount);
+            data_set($meta, 'billing.stripe_price_id', null);
+
+            data_set($meta, 'billing.custom.label', (string) $request->input('custom_label', 'Licencia personalizada'));
+            data_set($meta, 'billing.custom.defined_by', 'admin');
+            data_set($meta, 'billing.custom.updated_at', now()->toISOString());
+
+            data_set($meta, 'billing.assigned_at', now()->toISOString());
+            data_set($meta, 'billing.assigned_by', 'admin.custom');
+
+            DB::connection($this->conn)->table($this->table)->where('id', (string)$account->id)->update([
+                $this->metaCol => $this->encodeMeta($meta),
+                'updated_at'   => now(),
+            ]);
+
+            // SOT mínimo (plan/billing_cycle) si existen
+            $updSot = [];
+            if (Schema::connection($this->conn)->hasColumn($this->table, 'plan')) $updSot['plan'] = 'custom';
+            if (Schema::connection($this->conn)->hasColumn($this->table, 'billing_cycle')) $updSot['billing_cycle'] = $cycle;
+            if (!empty($updSot)) {
+                $updSot['updated_at'] = now();
+                DB::connection($this->conn)->table($this->table)->where('id', (string)$account->id)->update($updSot);
+            }
+
+            Log::info('AdminBilling.updateLicense.custom', [
+                'conn' => $this->conn,
+                'account_id' => (string)$account->id,
+                'cycle' => $cycle,
+                'amount_mxn' => $amount,
+            ]);
+
+            return back()->with('ok', 'Licencia personalizada guardada.');
+        }
+
+        // ================= CATÁLOGO NORMAL =================
+        $catalog = $this->priceCatalog();
         abort_if($priceKey === '' || !isset($catalog[$priceKey]), 422, 'price_key inválido');
 
         $p = $catalog[$priceKey];
         $cycle = (string) ($p['billing_cycle'] ?? 'monthly');
         $amount = (int) ($p['amount_mxn'] ?? 0);
         $stripePriceId = $p['stripe_price_id'] ?? null;
+
+        // Limpia custom si venía de antes
+        data_forget($meta, 'billing.custom');
 
         data_set($meta, 'billing.price_key', $priceKey);
         data_set($meta, 'billing.billing_cycle', $cycle);
@@ -488,7 +563,7 @@ class AccountsController extends Controller
 
         DB::connection($this->conn)->table($this->table)->where('id', (string)$account->id)->update([
             $this->metaCol => $this->encodeMeta($meta),
-            'updated_at' => now(),
+            'updated_at'   => now(),
         ]);
 
         $updSot = [];
@@ -514,54 +589,78 @@ class AccountsController extends Controller
     // ======================= UPDATE OVERRIDE =======================
     public function updateOverride(Request $request, string $id): RedirectResponse
     {
-        abort_if(!$this->hasMetaColumn(), 422, "No existe columna '{$this->metaCol}' en {$this->conn}.{$this->table}. Ejecuta la migración.");
+        abort_if(!$this->hasMetaColumn(), 422, "No existe columna '{$this->metaCol}'.");
 
         $account = $this->getAccountOrFail($id);
         $meta = $this->decodeMeta($account->{$this->metaCol} ?? null);
 
-        $mode = (string) $request->input('override_mode', 'none');
-        $effective = (string) $request->input('override_effective', 'next');
+        $mode      = (string) $request->input('override_mode', 'none');
+        $cycle     = (string) $request->input('override_cycle', 'monthly'); // monthly|yearly
+        $effective = (string) $request->input('override_effective', 'next'); // now|next
+
+        $cycle = in_array($cycle, ['monthly','yearly'], true) ? $cycle : 'monthly';
         $effective = in_array($effective, ['now','next'], true) ? $effective : 'next';
 
         if ($mode === 'none') {
-            data_forget($meta, 'billing.override');
-            data_forget($meta, 'billing.override_amount_mxn');
+            // ✅ Borra override por ciclo
+            data_forget($meta, "billing.override.$cycle");
+
+            // Compat: si borra mensual, borra legacy mensual
+            if ($cycle === 'monthly') {
+                data_forget($meta, 'billing.override.amount_mxn');
+                data_forget($meta, 'billing.override_amount_mxn');
+            }
 
             DB::connection($this->conn)->table($this->table)->where('id', (string)$account->id)->update([
                 $this->metaCol => $this->encodeMeta($meta),
-                'updated_at' => now(),
+                'updated_at'   => now(),
             ]);
 
-            Log::info('AdminBilling.overrideCleared', ['conn'=>$this->conn, 'account_id'=>(string)$account->id]);
+            Log::info('AdminBilling.overrideCleared', [
+                'conn' => $this->conn,
+                'account_id' => (string)$account->id,
+                'cycle' => $cycle,
+            ]);
 
-            return back()->with('ok', 'Override removido. Se usará el precio asignado.');
+            return back()->with('ok', "Override {$cycle} removido. Se usará el precio asignado.");
         }
 
         $amount = $request->input('override_amount_mxn');
         abort_if(!is_numeric($amount), 422, 'Monto inválido');
+
         $amount = (int) $amount;
         abort_if($amount < 0, 422, 'Monto inválido');
 
-        data_set($meta, 'billing.override.amount_mxn', $amount);
-        data_set($meta, 'billing.override.effective', $effective);
-        data_set($meta, 'billing.override.updated_at', now()->toISOString());
-        data_set($meta, 'billing.override.updated_by', 'admin');
+        // ✅ Override por ciclo
+        data_set($meta, "billing.override.$cycle.amount_mxn", $amount);
+        data_set($meta, "billing.override.$cycle.effective", $effective);
+        data_set($meta, "billing.override.$cycle.updated_at", now()->toISOString());
+        data_set($meta, "billing.override.$cycle.updated_by", 'admin');
 
-        data_set($meta, 'billing.override_amount_mxn', $amount);
+        // Compat legacy (mensual) para no romper módulos viejos
+        if ($cycle === 'monthly') {
+            data_set($meta, 'billing.override.amount_mxn', $amount);
+            data_set($meta, 'billing.override.effective', $effective);
+            data_set($meta, 'billing.override.updated_at', now()->toISOString());
+            data_set($meta, 'billing.override.updated_by', 'admin.compat');
+
+            data_set($meta, 'billing.override_amount_mxn', $amount);
+        }
 
         DB::connection($this->conn)->table($this->table)->where('id', (string)$account->id)->update([
             $this->metaCol => $this->encodeMeta($meta),
-            'updated_at' => now(),
+            'updated_at'   => now(),
         ]);
 
         Log::info('AdminBilling.overrideSaved', [
             'conn' => $this->conn,
             'account_id' => (string)$account->id,
+            'cycle' => $cycle,
             'override_amount_mxn' => $amount,
             'effective' => $effective,
         ]);
 
-        return back()->with('ok', 'Override mensual guardado (SOT).');
+        return back()->with('ok', "Override {$cycle} guardado (SOT).");
     }
 
     // ======================= UPDATE MODULES (VISIBLE/ACTIVE/BLOCKED) =======================
@@ -598,7 +697,6 @@ class AccountsController extends Controller
             'updated_at' => now(),
         ]);
 
-        // ✅ FIX: NO castear a int si id es UUID/string
         Cache::forget('p360:mods:acct:' . (string)$account->id);
 
         Log::info('AdminBilling.modulesStateSaved', [

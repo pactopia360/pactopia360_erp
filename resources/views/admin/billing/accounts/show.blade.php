@@ -1,8 +1,7 @@
 {{-- resources/views/admin/billing/accounts/show.blade.php
-     P360 Admin Billing · Account Admin v6.2
-     FIX REAL (SOT): usa meta.modules_state (active|inactive|hidden|blocked)
-     - UI completa: 4 estados por módulo + acciones masivas + búsqueda + contadores
-     - Catálogo UI base (incluye Cuenta + Módulos)
+     P360 Admin Billing · Account Admin v6.3
+     ✅ FIX REAL (SOT): usa meta.modules_state (active|inactive|hidden|blocked)
+     ✅ NUEVO: Licencia personalizada (price_key=custom) + Override por ciclo (monthly/yearly) + compat legacy mensual
      - Lee: $modules_state (controller) -> fallback a meta.modules_state -> fallback legacy meta.modules
      - Guarda: modules_state[key]=...
      FIX CRÍTICO:
@@ -20,33 +19,88 @@
   $rfc   = $account->rfc ?: '—';
   $email = $account->email ?: '—';
 
+  // =========================
+  // Billing meta base
+  // =========================
   $pk    = (string)($price_key ?? data_get($meta ?? [], 'billing.price_key', ''));
-  $cycle = (string)($billing_cycle ?? data_get($meta ?? [], 'billing.billing_cycle', ''));
+  $cycle = (string)($billing_cycle ?? data_get($meta ?? [], 'billing.billing_cycle', 'monthly'));
+  if (!in_array($cycle, ['monthly','yearly','none'], true)) $cycle = 'monthly';
 
+  $catalog = is_array($catalog ?? null) ? $catalog : [];
+
+  // Base amount (para catálogo o custom)
   $base = (int)($base_amount_mxn ?? data_get($meta ?? [], 'billing.amount_mxn', 0));
-
-  // Override: nuevo + legacy
-  $overrideLegacy = data_get($meta ?? [], 'billing.override_amount_mxn', null);
-  $overrideNew    = data_get($meta ?? [], 'billing.override.amount_mxn', null);
-
-  $override = null;
-  if (isset($override_amount_mxn)) {
-    $override = is_null($override_amount_mxn) ? null : (int)$override_amount_mxn;
-  } else {
-    $raw = $overrideNew ?? $overrideLegacy;
-    $override = is_null($raw) ? null : (is_numeric($raw) ? (int)$raw : null);
-  }
-
-  $isCustom = ($override !== null);
-  $current = (int)($current_amount_mxn ?? ($isCustom ? $override : $base));
-
-  $override_effective  = (string)($override_effective ?? data_get($meta ?? [], 'billing.override.effective', data_get($meta ?? [], 'billing.override_effective', 'next')));
-  $override_updated_at = (string)($override_updated_at ?? data_get($meta ?? [], 'billing.override.updated_at', data_get($meta ?? [], 'billing.override_updated_at', '')));
 
   $stripe_price_id = (string)($stripe_price_id ?? data_get($meta ?? [], 'billing.stripe_price_id', ''));
 
+  // =========================
+  // Licencia personalizada (custom)
+  // =========================
+  $isCustomLicense = ($pk === 'custom');
+  $customLabel     = (string) data_get($meta ?? [], 'billing.custom.label', 'Licencia personalizada');
+  $customCycle     = (string) data_get($meta ?? [], 'billing.billing_cycle', $cycle);
+  if (!in_array($customCycle, ['monthly','yearly'], true)) $customCycle = 'monthly';
+  $customAmount    = (int) data_get($meta ?? [], 'billing.amount_mxn', $base);
+
+  // =========================
+  // Override por ciclo + legacy
+  // =========================
+  $ovMonthlyNew = data_get($meta ?? [], 'billing.override.monthly.amount_mxn', null);
+  $ovYearlyNew  = data_get($meta ?? [], 'billing.override.yearly.amount_mxn', null);
+
+  // Legacy mensual
+  $ovLegacyMonthlyA = data_get($meta ?? [], 'billing.override.amount_mxn', null);
+  $ovLegacyMonthlyB = data_get($meta ?? [], 'billing.override_amount_mxn', null);
+
+  $overrideMonthly = null;
+  if (is_numeric($ovMonthlyNew)) $overrideMonthly = (int)$ovMonthlyNew;
+  elseif (is_numeric($ovLegacyMonthlyA)) $overrideMonthly = (int)$ovLegacyMonthlyA;
+  elseif (is_numeric($ovLegacyMonthlyB)) $overrideMonthly = (int)$ovLegacyMonthlyB;
+
+  $overrideYearly = is_numeric($ovYearlyNew) ? (int)$ovYearlyNew : null;
+
+  // Effective / updated_at por ciclo (con compat legacy mensual)
+  $overrideEffMonthly = (string)(
+    data_get($meta ?? [], 'billing.override.monthly.effective')
+    ?? data_get($meta ?? [], 'billing.override.effective')
+    ?? data_get($meta ?? [], 'billing.override_effective')
+    ?? 'next'
+  );
+  $overrideEffMonthly = in_array($overrideEffMonthly, ['now','next'], true) ? $overrideEffMonthly : 'next';
+
+  $overrideAtMonthly = (string)(
+    data_get($meta ?? [], 'billing.override.monthly.updated_at')
+    ?? data_get($meta ?? [], 'billing.override.updated_at')
+    ?? data_get($meta ?? [], 'billing.override_updated_at')
+    ?? ''
+  );
+
+  $overrideEffYearly = (string)(data_get($meta ?? [], 'billing.override.yearly.effective') ?? 'next');
+  $overrideEffYearly = in_array($overrideEffYearly, ['now','next'], true) ? $overrideEffYearly : 'next';
+
+  $overrideAtYearly  = (string)(data_get($meta ?? [], 'billing.override.yearly.updated_at') ?? '');
+
+  // UI: ciclo override seleccionado (default = ciclo de la licencia)
+  $overrideCycle = in_array($cycle, ['monthly','yearly'], true) ? $cycle : 'monthly';
+
+  // Monto mostrado según ciclo override
+  $overrideShown = ($overrideCycle === 'yearly') ? $overrideYearly : $overrideMonthly;
+  $hasOverrideShown = ($overrideShown !== null);
+
+  // Variables “legacy” que usa la UI antigua
+  $isCustom = $hasOverrideShown; // (antes era: override mensual activo)
+
+  // Effective mostrado en pantalla según ciclo seleccionado
+  $override_effective  = ($overrideCycle === 'yearly') ? $overrideEffYearly : $overrideEffMonthly;
+  $override_updated_at = ($overrideCycle === 'yearly') ? $overrideAtYearly  : $overrideAtMonthly;
+
+  // “Current” mostrado
+  $current = (int)($current_amount_mxn ?? (($overrideShown !== null) ? $overrideShown : $base));
+
+  // =========================
+  // Misc
+  // =========================
   $periodNow = (string)($periodNow ?? now()->format('Y-m'));
-  $catalog = is_array($catalog ?? null) ? $catalog : [];
 
   $fmt = function($n){
     $n = (int)$n;
@@ -580,6 +634,8 @@
   .flash.bad{ background:#fef2f2; border-color:#fecaca; color:#7f1d1d; }
   .flash .mini{ margin-top:4px; font-size:12px; font-weight:800; color:var(--mut); }
 
+  .hide{ display:none !important; }
+
   @media (max-width: 1100px){
     .grid{ grid-template-columns: 1fr; }
     .kpis{ grid-template-columns: 1fr; }
@@ -639,8 +695,12 @@
           @endif
           <a class="btn primary" href="{{ $stateUrl }}">Ver estado ({{ $periodNow }})</a>
 
-          @if($isCustom)
-            <span class="pill custom">PERSONALIZADO</span>
+          @if($isCustomLicense)
+            <span class="pill custom">LICENCIA CUSTOM</span>
+          @endif
+
+          @if($hasOverrideShown)
+            <span class="pill custom">OVERRIDE {{ strtoupper($overrideCycle) }}</span>
           @endif
 
           @if($isBlocked)
@@ -672,8 +732,13 @@
             @else
               <span class="pill warn">SIN LICENCIA</span>
             @endif
-            @if($isCustom)
-              <span class="pill custom">PERSONALIZADO: {{ $fmt($override) }}</span>
+
+            @if($isCustomLicense)
+              <span class="pill custom">{{ $customLabel }} · {{ $fmt($customAmount) }} · {{ $customCycle }}</span>
+            @endif
+
+            @if($hasOverrideShown)
+              <span class="pill custom">OVERRIDE {{ strtoupper($overrideCycle) }}: {{ $fmt($overrideShown) }}</span>
             @endif
           </div>
         </div>
@@ -691,9 +756,9 @@
             ID cuenta: <span class="mono">{{ $account->id }}</span>
             <small>Stripe Price ID: <span class="mono">{{ $stripe_price_id ?: '—' }}</span></small>
 
-            @if($isCustom)
+            @if($hasOverrideShown)
               <small>
-                Override: <span class="mono">{{ $fmt($override) }}</span> · aplica:
+                Override {{ $overrideCycle }}: <span class="mono">{{ $fmt($overrideShown) }}</span> · aplica:
                 <b>{{ $override_effective === 'now' ? 'inmediato' : 'próximo ciclo' }}</b>
                 @if($override_updated_at) · actualizado: {{ $override_updated_at }}@endif
               </small>
@@ -711,12 +776,13 @@
           <div class="hd">
             <div>
               <div class="h">Licencia / Precio</div>
-              <div class="s">Asigna price_key, valida base y controla override.</div>
+              <div class="s">Asigna price_key, valida base y controla override por ciclo.</div>
             </div>
             <span class="pill info">meta.billing.*</span>
           </div>
 
           <div class="bd">
+            {{-- LICENSE --}}
             <form class="form" method="POST" action="{{ route('admin.billing.accounts.license', $account->id) }}">
               @csrf
 
@@ -733,8 +799,11 @@
                       @endphp
                       <option value="{{ $key }}" @selected($key === $pk)>{{ $label }} ({{ $key }}){{ $suffix }}</option>
                     @endforeach
+
+                    {{-- ✅ Custom --}}
+                    <option value="custom" @selected($pk === 'custom')>Licencia personalizada (custom)</option>
                   </select>
-                  <div class="help">Guarda: price_key, billing_cycle, amount_mxn, stripe_price_id.</div>
+                  <div class="help">Catálogo guarda: price_key, billing_cycle, amount_mxn, stripe_price_id. Custom guarda: billing_cycle + amount_mxn.</div>
                 </div>
 
                 <div>
@@ -746,40 +815,82 @@
                 </div>
               </div>
 
+              {{-- ✅ Campos custom (solo si price_key=custom) --}}
+              <div id="customFields" class="{{ $isCustomLicense ? '' : 'hide' }}">
+                <div class="row2">
+                  <div>
+                    <div class="lbl">Ciclo (custom)</div>
+                    <select class="sel" name="billing_cycle" id="custom_billing_cycle">
+                      <option value="monthly" @selected($customCycle === 'monthly')>Mensual</option>
+                      <option value="yearly"  @selected($customCycle === 'yearly')>Anual</option>
+                    </select>
+                    <div class="help">Este ciclo será el usado por el cliente y el estado de cuenta.</div>
+                  </div>
+
+                  <div>
+                    <div class="lbl">Monto MXN (custom)</div>
+                    <input class="in" type="number" min="0" step="1" name="amount_mxn" id="custom_amount_mxn"
+                           value="{{ $customAmount > 0 ? $customAmount : '' }}" placeholder="Ej. 40000">
+                    <div class="help">Monto base guardado en <span class="mono">meta.billing.amount_mxn</span>.</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="lbl">Etiqueta (opcional)</div>
+                  <input class="in" type="text" name="custom_label" id="custom_label" value="{{ $customLabel }}" placeholder="Ej. PRO Corporativo">
+                  <div class="help">Solo informativo: <span class="mono">meta.billing.custom.label</span></div>
+                </div>
+
+                <div class="note">
+                  Nota: Al guardar “custom”, el sistema NO depende del catálogo ni de Stripe Price ID.
+                  <small>Plan (SOT) puede quedar en <span class="mono">custom</span> si tu tabla tiene columna <span class="mono">plan</span>.</small>
+                </div>
+              </div>
+
               <button class="btn primary" type="submit">Guardar licencia</button>
             </form>
 
             <div class="line"></div>
 
+            {{-- OVERRIDE --}}
             <form class="form" method="POST" action="{{ route('admin.billing.accounts.override', $account->id) }}">
               @csrf
 
               <div class="row2">
                 <div>
-                  <div class="lbl">Override mensual</div>
-                  <select class="sel" name="override_mode" id="override_mode">
-                    <option value="none" @selected($override === null)>Usar precio asignado</option>
-                    <option value="set"  @selected($override !== null)>Definir costo mensual personalizado</option>
+                  <div class="lbl">Ciclo del override</div>
+                  <select class="sel" name="override_cycle" id="override_cycle">
+                    <option value="monthly" @selected($overrideCycle === 'monthly')>Mensual</option>
+                    <option value="yearly"  @selected($overrideCycle === 'yearly')>Anual</option>
                   </select>
-                  <div class="help">Tu backend debe respetar override al cobrar.</div>
+                  <div class="help">Guarda en <span class="mono">meta.billing.override.{cycle}</span> (monthly/yearly).</div>
                 </div>
 
                 <div>
-                  <div class="lbl">Monto mensual MXN</div>
-                  <input class="in" type="number" min="0" step="1" name="override_amount_mxn" id="override_amount_mxn"
-                         value="{{ $override !== null ? $override : '' }}" placeholder="Ej. 799">
-                  <div class="help" id="overrideHint">
-                    @if($override !== null)
-                      Guardado: {{ $fmt($override) }} · aplica: <b>{{ $override_effective === 'now' ? 'inmediato' : 'próximo ciclo' }}</b>
-                      @if($override_updated_at) · actualizado: {{ $override_updated_at }} @endif
-                    @else
-                      No hay override activo.
-                    @endif
-                  </div>
+                  <div class="lbl">Modo</div>
+                  <select class="sel" name="override_mode" id="override_mode">
+                    <option value="none" @selected(!$hasOverrideShown)>Usar precio asignado</option>
+                    <option value="set"  @selected($hasOverrideShown)>Definir costo personalizado</option>
+                  </select>
+                  <div class="help">Compat: si el override es mensual, también guarda legacy mensual.</div>
                 </div>
               </div>
 
               <div class="row2">
+                <div>
+                  <div class="lbl">Monto MXN</div>
+                  <input class="in" type="number" min="0" step="1" name="override_amount_mxn" id="override_amount_mxn"
+                         value="{{ $hasOverrideShown ? $overrideShown : '' }}" placeholder="Ej. 799">
+                  <div class="help" id="overrideHint">
+                    @if($hasOverrideShown)
+                      Guardado: {{ $fmt($overrideShown) }} · aplica: <b>{{ $override_effective === 'now' ? 'inmediato' : 'próximo ciclo' }}</b>
+                      @if($override_updated_at) · actualizado: {{ $override_updated_at }} @endif
+                    @else
+                      No hay override activo para este ciclo.
+                    @endif
+                  </div>
+                </div>
+
                 <div>
                   <div class="lbl">Aplicación</div>
                   <select class="sel" name="override_effective" id="override_effective">
@@ -788,12 +899,23 @@
                   </select>
                   <div class="help">“Inmediato” requiere que el flujo de cobro use override desde hoy.</div>
                 </div>
+              </div>
 
+              <div class="row2">
                 <div>
                   <div class="lbl">Vista previa (paga)</div>
                   <div class="note" id="previewPay">
                     <span data-val>{{ $fmt($current) }}</span>
                     <small>Costo efectivo (override si aplica).</small>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="lbl">Referencia</div>
+                  <div class="note">
+                    Base: <span class="mono" id="refBase">{{ $fmt($base) }}</span>
+                    <small>Override mensual guardado: <span class="mono" id="refOvMonthly">{{ $overrideMonthly !== null ? $fmt($overrideMonthly) : '—' }}</span></small>
+                    <small>Override anual guardado: <span class="mono" id="refOvYearly">{{ $overrideYearly !== null ? $fmt($overrideYearly) : '—' }}</span></small>
                   </div>
                 </div>
               </div>
@@ -957,6 +1079,19 @@
 
   const catalog = @json($catalog);
 
+  const existingOverrides = {
+    monthly: {
+      amount: @json($overrideMonthly),
+      effective: @json($overrideEffMonthly),
+      updated_at: @json($overrideAtMonthly),
+    },
+    yearly: {
+      amount: @json($overrideYearly),
+      effective: @json($overrideEffYearly),
+      updated_at: @json($overrideAtYearly),
+    }
+  };
+
   const fmt = (n) => {
     n = parseInt(n||0, 10) || 0;
     return '$' + n.toLocaleString('es-MX') + ' MXN';
@@ -968,9 +1103,15 @@
   const priceKey = document.getElementById('price_key');
   const previewBase = document.getElementById('previewBase');
 
+  const customFields = document.getElementById('customFields');
+  const customCycle = document.getElementById('custom_billing_cycle');
+  const customAmount = document.getElementById('custom_amount_mxn');
+
+  const overrideCycle = document.getElementById('override_cycle');
   const overrideMode = document.getElementById('override_mode');
   const overrideAmount = document.getElementById('override_amount_mxn');
   const overrideEffective = document.getElementById('override_effective');
+  const overrideHint = document.getElementById('overrideHint');
   const previewPay = document.getElementById('previewPay');
 
   function setNoteVal(noteEl, valueStr){
@@ -979,11 +1120,25 @@
     if (span) span.textContent = valueStr;
   }
 
-  function syncPayPreview(base){
-    base = parseInt(base||0, 10) || 0;
+  function getBaseAmount(){
+    const k = priceKey ? String(priceKey.value || '') : '';
+    if (k === 'custom') {
+      const v = parseInt(customAmount ? customAmount.value : '0', 10);
+      return Number.isNaN(v) ? 0 : Math.max(0, v);
+    }
+    const p = catalog[k] || {};
+    const base = parseInt(p.amount_mxn || 0, 10) || 0;
+    return Math.max(0, base);
+  }
+
+  function syncPayPreview(){
+    const base = getBaseAmount();
     let eff = base;
 
-    if (!overrideMode || !overrideAmount) return;
+    if (!overrideMode || !overrideAmount) {
+      setNoteVal(previewPay, fmt(eff));
+      return;
+    }
 
     const mode = overrideMode.value || 'none';
     const amt  = parseInt(overrideAmount.value || '', 10);
@@ -993,12 +1148,16 @@
   }
 
   function syncBasePreview(){
-    if (!priceKey) return;
-    const k = priceKey.value || '';
-    const p = catalog[k] || {};
-    const base = parseInt(p.amount_mxn || 0, 10) || 0;
+    const base = getBaseAmount();
     setNoteVal(previewBase, fmt(base));
-    syncPayPreview(base);
+    syncPayPreview();
+  }
+
+  function toggleCustomFields(){
+    if (!priceKey || !customFields) return;
+    const isCustom = String(priceKey.value || '') === 'custom';
+    customFields.classList.toggle('hide', !isCustom);
+    syncBasePreview();
   }
 
   function toggleOverrideInputs(){
@@ -1007,13 +1166,57 @@
     const isSet = mode === 'set';
     if (overrideAmount) overrideAmount.disabled = !isSet;
     if (overrideEffective) overrideEffective.disabled = !isSet;
+    syncPayPreview();
+  }
+
+  function setOverrideHint(cycle, data){
+    if (!overrideHint) return;
+
+    const amount = data && data.amount != null ? parseInt(data.amount, 10) : null;
+    const eff = (data && data.effective) ? String(data.effective) : 'next';
+    const at  = (data && data.updated_at) ? String(data.updated_at) : '';
+
+    if (amount == null || Number.isNaN(amount)) {
+      overrideHint.textContent = 'No hay override activo para este ciclo.';
+      return;
+    }
+
+    const when = eff === 'now' ? 'inmediato' : 'próximo ciclo';
+    overrideHint.innerHTML = 'Guardado: <b>' + fmt(amount) + '</b> · aplica: <b>' + when + '</b>' + (at ? (' · actualizado: ' + at) : '');
+  }
+
+  function applyOverrideCycle(){
+    if (!overrideCycle) return;
+
+    const cy = String(overrideCycle.value || 'monthly');
+    const data = existingOverrides[cy] || {};
+
+    const amount = (data.amount == null) ? '' : String(parseInt(data.amount, 10));
+    if (overrideAmount) overrideAmount.value = amount;
+
+    if (overrideMode) overrideMode.value = (amount === '' ? 'none' : 'set');
+
+    if (overrideEffective) {
+      const eff = String(data.effective || 'next');
+      overrideEffective.value = (eff === 'now' ? 'now' : 'next');
+    }
+
+    setOverrideHint(cy, data);
+    toggleOverrideInputs();
     syncBasePreview();
   }
 
-  if (priceKey) priceKey.addEventListener('change', syncBasePreview);
-  if (overrideMode) overrideMode.addEventListener('change', toggleOverrideInputs);
-  if (overrideAmount) overrideAmount.addEventListener('input', syncBasePreview);
+  if (priceKey) priceKey.addEventListener('change', toggleCustomFields);
+  if (customAmount) customAmount.addEventListener('input', syncBasePreview);
+  if (customCycle) customCycle.addEventListener('change', syncBasePreview);
 
+  if (overrideCycle) overrideCycle.addEventListener('change', applyOverrideCycle);
+  if (overrideMode) overrideMode.addEventListener('change', toggleOverrideInputs);
+  if (overrideAmount) overrideAmount.addEventListener('input', syncPayPreview);
+
+  // Init
+  toggleCustomFields();
+  applyOverrideCycle();
   syncBasePreview();
   toggleOverrideInputs();
 

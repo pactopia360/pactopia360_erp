@@ -1,3 +1,10 @@
+/* C:\wamp64\www\pactopia360_erp\resources\css\app.css */
+/* ===== Pactopia360 · Vite/Tailwind entry (v2.0) =====
+   - Mantiene Tailwind + fuentes.
+   - Añade tokens tipográficos mínimos y pequeños defaults seguros.
+   - NO toca layout Admin (eso vive en public/assets/admin/css/*.css y layouts/admin.blade.php)
+*/
+
 @import 'tailwindcss';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
@@ -13,12 +20,41 @@
                'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';
 }
 
-/* ---- P360 UI: ajustes globales de tipografía ---- */
-:root{ --font-sans: 'Poppins', 'Instrument Sans', ui-sans-serif, system-ui, -apple-system,
-                   'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
-                   'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol'; }
+/* ==========================================================================
+   Tipografía y defaults globales (seguros)
+   - No modifica layout/anchos.
+   - Mejora rendering.
+   ========================================================================== */
+
+:root{
+  --font-sans: 'Poppins', 'Instrument Sans', ui-sans-serif, system-ui, -apple-system,
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+               'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';
+
+  /* Defaults útiles para UI consistente */
+  --radius: 12px;
+  --focus-ring: 0 0 0 3px rgba(59,130,246,.25); /* azul neutral */
+}
+
 html, body{
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Mejoras de accesibilidad sin afectar estilos de módulos */
+:focus-visible{
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Evita que imágenes/iframes rompan contenedores */
+img, svg, video, canvas, iframe{
+  max-width: 100%;
+}
+
+/* Consistencia en inputs (sin imponer colores) */
+input, select, textarea, button{
+  font: inherit;
 }

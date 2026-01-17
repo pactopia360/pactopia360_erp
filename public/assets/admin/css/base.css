@@ -1,15 +1,19 @@
 /* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\base.css */
-/* ===== P360 · Admin · BASE =====  (se carga SIEMPRE antes de los módulos) */
+/* ===== P360 · Admin · BASE (v2.2 · Layout-safe) =====
+   FIXES:
+   - reset real (body margin/padding = 0) para header/sidebar a borde
+   - .admin-content SIEMPRE respeta --sidebar-offset (no overlap)
+   - un solo scroll en .admin-content
+*/
 
 :root{
-  --header-h:56px;              /* ajusta si tu header mide diferente */
+  --header-h:56px;
 
   /* ✅ Sidebar widths (source of truth) */
-  --sidebar-w:260px;            /* ancho sidebar abierto */
-  --sidebar-w-collapsed:72px;   /* ancho sidebar cerrado */
+  --sidebar-w:260px;
+  --sidebar-w-collapsed:72px;
 
-  /* ✅ Offset que usa el layout para empujar el contenido.
-     Se actualiza por JS (sidebar.blade.php) al colapsar/expandir. */
+  /* ✅ Offset efectivo del layout */
   --sidebar-offset: var(--sidebar-w);
 
   /* colores/vars mínimas por si aún no carga el CSS del módulo */
@@ -18,7 +22,7 @@
   --shadow-1:0 6px 18px rgba(0,0,0,.12);
 }
 
-/* Tema claro/oscuro a nivel <html>  */
+/* Tema claro/oscuro a nivel <html> */
 html.theme-light, html[data-theme="light"]{
   color-scheme:light;
   --text:#111827; --muted:#6b7280;
@@ -30,10 +34,17 @@ html.theme-dark, html[data-theme="dark"]{
   --bg:#0e141c; --card-bg:#111827; --card-border:rgba(255,255,255,.12);
 }
 
-/* —————————————————————
-   Estructura y scroll “contenidos”, no body
-   ————————————————————— */
-html,body{height:100%}
+/* ======================================================================
+   ✅ RESET CRÍTICO (esto arregla el “margen fantasma”)
+   ====================================================================== */
+html, body{
+  height:100%;
+  margin:0 !important;
+  padding:0 !important;
+}
+*, *::before, *::after{ box-sizing:border-box; }
+
+/* Estructura y scroll (el scroll vive en el contenido, no en body) */
 body{
   overflow:hidden;
   background:var(--bg);
@@ -43,33 +54,49 @@ body{
 /* Header */
 #topbar, #p360-topbar{ min-height:var(--header-h) }
 
-/* App frame */
-.admin-app{
-  height:calc(100vh - var(--header-h));
-  overflow:hidden;
+/* Si el sidebar está colapsado (lo pone JS en <html>) */
+html.sidebar-collapsed{
+  --sidebar-offset: var(--sidebar-w-collapsed);
 }
 
-/* Sidebar: compat (si existiera un #sidebar viejo) */
+/* En móvil el sidebar es overlay */
+@media (max-width:1023.98px){
+  html{ --sidebar-offset: 0px !important; }
+}
+
+/* Sidebar compat */
 #sidebar{ height:100%; overflow:auto }
 
-/* ✅ Nebula sidebar id real */
+/* Nebula sidebar id real */
 #nebula-sidebar{ height:calc(100vh - var(--header-h)); overflow:auto }
 
-/* Contenido principal: único scroll del contenido */
+/* ======================================================================
+   ✅ LAYOUT MAIN (ANTI-OVERLAP)
+   OJO: esto ES lo que evita que el contenido se meta debajo del sidebar.
+   ====================================================================== */
 .admin-content{
-  height:100%;
-  overflow:auto;                      /* <- aquí vive el scroll */
+  position:relative !important;
+  margin-left: var(--sidebar-offset) !important;
+  width: calc(100% - var(--sidebar-offset)) !important;
+  height: calc(100vh - var(--header-h)) !important;
+
+  overflow:auto !important;
   -webkit-overflow-scrolling:touch;
+
   background:var(--bg);
+  display:flex;
+  flex-direction:column;
+  min-width:0;
 }
 
-/* Contenedor de página (márgenes internos) */
-.page-container{ padding:.75rem }
+/* Contenedor de página */
+.page-container{
+  padding: .75rem;
+  width:100%;
+  min-width:0;
+}
 
-/* Evita “brincos” visuales al cambiar tema/densidad */
-*{ scrollbar-gutter: stable both-edges }
-
-/* Mini guard para FOUC: si falta CSS del módulo, que al menos se vea decente */
+/* Guard visual mínimo */
 .page-card{
   background:var(--card-bg);
   border:1px solid var(--card-border);
@@ -78,22 +105,10 @@ body{
   box-shadow:var(--shadow-1);
 }
 
-/* ==========================================================================
-   ✅ LAYOUT OFFSET (CRÍTICO)
-   Empuja el contenido a la derecha del sidebar fijo.
-   Evita el “corte”/solape que se ve en tu screenshot.
-   ========================================================================== */
+/* Evita “brincos” visuales al cambiar tema/densidad */
+*{ scrollbar-gutter: stable both-edges }
+
+/* Blindaje: no empujar .admin-app (offset lo hace .admin-content) */
 .admin-app{
-  /* sidebar fijo a la izquierda */
-  padding-left: var(--sidebar-offset);
-}
-
-/* Si el sidebar está colapsado (lo pone JS en <html>) */
-html.sidebar-collapsed{
-  --sidebar-offset: var(--sidebar-w-collapsed);
-}
-
-/* En móvil NO empujamos (sidebar es overlay) */
-@media (max-width:1023.98px){
-  .admin-app{ padding-left: 0 !important; }
+  padding-left: 0 !important;
 }

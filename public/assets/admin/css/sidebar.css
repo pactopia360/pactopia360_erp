@@ -1,19 +1,35 @@
-/* public/assets/admin/css/sidebar.css (P360 Sidebar – extracted from Blade) */
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\sidebar.css */
+/* ===== P360 · Admin · sidebar.css (v2.0 · LEGACY SAFE) =====
+   IMPORTANTE:
+   - Tu Admin actual usa Nebula (#nebula-sidebar + .ns-*) desde Blade.
+   - Este archivo existe por compat con pantallas antiguas que usen `.sidebar`.
+   - Para NO romper Nebula ni el layout, aquí:
+     1) encapsulamos TODO bajo: html[data-sidebar-legacy="1"]
+     2) no tocamos main/admin-content ni offsets
+     3) evitamos z-index agresivos y overlays que bloqueen clicks
+   Para activar este sidebar legacy en una vista:
+     <html data-sidebar-legacy="1">
+   (o desde admin.blade.php si realmente lo necesitas)
+   ======================================================================= */
 
 /* ================= BRAND P360 ================= */
-.sidebar{
+html[data-sidebar-legacy="1"] .sidebar{
   --brand: var(--p360-brand, #E11D48);
   --brand-600: var(--p360-brand-600, #BE123C);
   --brand-700: #9F1239;
   --brand-soft: color-mix(in oklab, var(--brand) 12%, transparent);
+
   --ink: var(--c-fg, #0f172a);
   --ink-weak: color-mix(in oklab, var(--ink) 45%, transparent);
+
   --card: var(--card, #fff);
   --bd: var(--bd, #e5e7eb);
+
   --shadow-lg: 0 10px 30px rgba(0,0,0,.15);
 }
-html.theme-dark .sidebar,
-html[data-theme="dark"] .sidebar{
+
+html[data-sidebar-legacy="1"].theme-dark .sidebar,
+html[data-sidebar-legacy="1"][data-theme="dark"] .sidebar{
   --ink:#e5e7eb;
   --ink-weak: color-mix(in oklab, #fff 55%, transparent);
   --card: color-mix(in oklab, #0b1220 86%, transparent);
@@ -22,30 +38,41 @@ html[data-theme="dark"] .sidebar{
 }
 
 /* ==== Layout base ==== */
-.sidebar{
+html[data-sidebar-legacy="1"] .sidebar{
   --w:260px;
   --w-mini:68px;
+
   background:
     radial-gradient(140px 60px at -20% 0%, color-mix(in oklab, var(--brand) 10%, transparent), transparent),
     linear-gradient(180deg, transparent, transparent);
+
   border-right:1px solid var(--bd);
 
   width:var(--w);
   min-width:var(--w);
 
-  top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
-  height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
-  position:sticky;
-  transition:width .18s ease;
+  top: calc(var(--header-h, 56px) - var(--p360-rail-h, 2px));
+  height: calc(100dvh - var(--header-h, 56px) + var(--p360-rail-h, 2px));
+
+  /* Legacy sidebar se pensó sticky; lo mantenemos pero sin romper layout */
+  position: sticky;
+  align-self: start;
+
+  transition: width .18s ease;
+
   display:flex;
   flex-direction:column;
+
+  /* no bloquear clicks de otros elementos por overlays raros */
+  z-index: 10;
 }
-.sidebar[data-state="collapsed"]{
+
+html[data-sidebar-legacy="1"] .sidebar[data-state="collapsed"]{
   width:var(--w-mini);
   min-width:var(--w-mini);
 }
 
-.sidebar-head{
+html[data-sidebar-legacy="1"] .sidebar-head{
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -55,7 +82,8 @@ html[data-theme="dark"] .sidebar{
   background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 6%, transparent), transparent);
   position:relative;
 }
-.sidebar-head::after{
+
+html[data-sidebar-legacy="1"] .sidebar-head::after{
   content:'';
   position:absolute;
   left:10px;
@@ -64,12 +92,14 @@ html[data-theme="dark"] .sidebar{
   height:1px;
   background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 40%, transparent), transparent);
 }
-.sb-title{
+
+html[data-sidebar-legacy="1"] .sb-title{
   font:900 12px/1 Poppins, system-ui;
   letter-spacing:.08em;
   color:var(--ink-weak);
 }
-.sb-toggle{
+
+html[data-sidebar-legacy="1"] .sb-toggle{
   width:36px;
   height:32px;
   border:1px solid var(--bd);
@@ -81,7 +111,8 @@ html[data-theme="dark"] .sidebar{
   justify-content:center;
   box-shadow:0 2px 10px color-mix(in oklab, var(--brand) 12%, transparent);
 }
-.sb-toggle::before{
+
+html[data-sidebar-legacy="1"] .sb-toggle::before{
   content:'≡';
   font-size:18px;
   line-height:1;
@@ -90,21 +121,24 @@ html[data-theme="dark"] .sidebar{
   color:var(--ink);
 }
 
-.sidebar-scroll{
+html[data-sidebar-legacy="1"] .sidebar-scroll{
   height:calc(100% - 50px);
   overflow:auto;
   padding:14px;
 }
-.nav{
+
+html[data-sidebar-legacy="1"] .nav{
   display:flex;
   flex-direction:column;
   gap:18px;
 }
-.nav-group{
+
+html[data-sidebar-legacy="1"] .nav-group{
   display:grid;
   gap:8px;
 }
-.nav-title{
+
+html[data-sidebar-legacy="1"] .nav-title{
   font-weight:700;
   font-size:12px;
   letter-spacing:.04em;
@@ -112,7 +146,8 @@ html[data-theme="dark"] .sidebar{
   color:var(--ink-weak);
   padding:0 6px;
 }
-.nav-title .pill{
+
+html[data-sidebar-legacy="1"] .nav-title .pill{
   display:inline-block;
   padding:6px 10px;
   border-radius:999px;
@@ -121,23 +156,33 @@ html[data-theme="dark"] .sidebar{
 }
 
 /* ==== Ítems ==== */
-.sidebar .tip{
+html[data-sidebar-legacy="1"] .sidebar .tip{
   display:flex !important;
   align-items:center !important;
   gap:12px !important;
   padding:12px 12px !important;
   border-radius:14px !important;
+
   color:var(--ink) !important;
   text-decoration:none !important;
+
   border:1px solid transparent !important;
   background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 0%, transparent), transparent) !important;
+
   outline:0 !important;
   min-width:0;
+
   position:relative;
   isolation:isolate;
-  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+
+  transition:
+    background .18s ease,
+    border-color .18s ease,
+    box-shadow .18s ease,
+    transform .12s ease;
 }
-.sidebar .tip::before{
+
+html[data-sidebar-legacy="1"] .sidebar .tip::before{
   content:'';
   position:absolute;
   left:6px;
@@ -151,29 +196,35 @@ html[data-theme="dark"] .sidebar{
   transform:translateX(-4px);
   transition:opacity .18s ease, transform .18s ease, box-shadow .18s ease;
 }
-.sidebar .tip:hover{
+
+html[data-sidebar-legacy="1"] .sidebar .tip:hover{
   background: linear-gradient(180deg, color-mix(in oklab, var(--brand) 8%, transparent), transparent) !important;
   border-color: color-mix(in oklab, var(--brand) 22%, var(--bd)) !important;
   box-shadow: 0 6px 18px color-mix(in oklab, var(--brand) 12%, transparent);
   transform: translateY(-1px);
 }
-.sidebar .tip:hover::before{
+
+html[data-sidebar-legacy="1"] .sidebar .tip:hover::before{
   opacity:1;
   transform:none;
   box-shadow:0 0 16px color-mix(in oklab, var(--brand) 40%, transparent);
 }
 
-.sidebar .tip.active .ico{ color:var(--brand); }
-.sidebar .tip.active::before{
+html[data-sidebar-legacy="1"] .sidebar .tip.active .ico{ color:var(--brand); }
+
+html[data-sidebar-legacy="1"] .sidebar .tip.active::before{
   opacity:1;
   transform:none;
   box-shadow:0 0 18px color-mix(in oklab, var(--brand) 42%, transparent);
 }
 
-.sidebar .tip.danger{ color:#b91c1c; }
-.sidebar .tip.danger:hover{ border-color: color-mix(in oklab, #b91c1c 30%, var(--bd)); }
+html[data-sidebar-legacy="1"] .sidebar .tip.danger{ color:#b91c1c; }
 
-.sidebar .ico{
+html[data-sidebar-legacy="1"] .sidebar .tip.danger:hover{
+  border-color: color-mix(in oklab, #b91c1c 30%, var(--bd));
+}
+
+html[data-sidebar-legacy="1"] .sidebar .ico{
   width:20px;
   height:20px;
   color:currentColor;
@@ -182,12 +233,13 @@ html[data-theme="dark"] .sidebar{
   filter: drop-shadow(0 0 0 transparent);
   transition: color .18s ease, filter .18s ease, transform .18s ease;
 }
-.sidebar .tip:hover .ico{
+
+html[data-sidebar-legacy="1"] .sidebar .tip:hover .ico{
   transform: translateY(-1px);
   filter: drop-shadow(0 4px 10px color-mix(in oklab, var(--brand) 20%, transparent));
 }
 
-.sidebar .tx{
+html[data-sidebar-legacy="1"] .sidebar .tx{
   display:inline-block !important;
   flex:1 1 auto !important;
   min-width:0 !important;
@@ -198,38 +250,40 @@ html[data-theme="dark"] .sidebar{
 }
 
 /* Oculta labels y títulos SOLO cuando está colapsado en desktop */
-.sidebar:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important; }
-.sidebar:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center !important; }
-.sidebar:not(.is-mobile)[data-state="collapsed"] .tip.active{ box-shadow:none; }
-.sidebar:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none !important; }
-.sidebar:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
+html[data-sidebar-legacy="1"] .sidebar:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important; }
+html[data-sidebar-legacy="1"] .sidebar:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center !important; }
+html[data-sidebar-legacy="1"] .sidebar:not(.is-mobile)[data-state="collapsed"] .tip.active{ box-shadow:none; }
+html[data-sidebar-legacy="1"] .sidebar:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none !important; }
+html[data-sidebar-legacy="1"] .sidebar:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
 
-/* ===== Responsive (móvil) =====
-   FIX: alineado a layout cliente (1099.98px)
-*/
+/* ===== Responsive (móvil) ===== */
 @media (max-width:1099.98px){
-  .sidebar{
+  html[data-sidebar-legacy="1"] .sidebar{
     position:fixed;
     left:0;
-    top: calc(var(--header-h, 64px) - var(--p360-rail-h, 2px));
-    height: calc(100dvh - var(--header-h, 64px) + var(--p360-rail-h, 2px));
-    z-index:40;
+    top: calc(var(--header-h, 56px) - var(--p360-rail-h, 2px));
+    height: calc(100dvh - var(--header-h, 56px) + var(--p360-rail-h, 2px));
+
+    /* z-index moderado (no tapar topbar/overlays del admin moderno) */
+    z-index: 40;
+
     width:var(--w);
     min-width:var(--w);
     transform:translateX(-100%);
     transition:transform .22s ease;
     box-shadow:var(--shadow-lg);
   }
-  .sidebar.open{ transform:translateX(0); }
+  html[data-sidebar-legacy="1"] .sidebar.open{ transform:translateX(0); }
 
-  .sidebar[data-state="collapsed"] .tx{ display:inline-block !important; }
-  .sidebar[data-state="collapsed"] .tip{ justify-content:flex-start !important; }
-  .sidebar[data-state="collapsed"]{ width:var(--w); min-width:var(--w); }
+  html[data-sidebar-legacy="1"] .sidebar[data-state="collapsed"] .tx{ display:inline-block !important; }
+  html[data-sidebar-legacy="1"] .sidebar[data-state="collapsed"] .tip{ justify-content:flex-start !important; }
+  html[data-sidebar-legacy="1"] .sidebar[data-state="collapsed"]{ width:var(--w); min-width:var(--w); }
 }
 
 /* ===== Separador lateral ===== */
-.sidebar.skin-brand-rail{ position:relative; }
-.sidebar.skin-brand-rail::after{
+html[data-sidebar-legacy="1"] .sidebar.skin-brand-rail{ position:relative; }
+
+html[data-sidebar-legacy="1"] .sidebar.skin-brand-rail::after{
   content:"";
   position:absolute;
   top:0;
@@ -239,7 +293,8 @@ html[data-theme="dark"] .sidebar{
   background: url("/assets/client/img/ui/sidebar-brand-rail.svg") repeat-y right top;
   pointer-events:none;
 }
-html.theme-dark .sidebar.skin-brand-rail::after,
-html[data-theme="dark"] .sidebar.skin-brand-rail::after{
+
+html[data-sidebar-legacy="1"].theme-dark .sidebar.skin-brand-rail::after,
+html[data-sidebar-legacy="1"][data-theme="dark"] .sidebar.skin-brand-rail::after{
   filter: opacity(.8);
 }
