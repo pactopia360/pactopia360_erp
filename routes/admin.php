@@ -1,11 +1,16 @@
 <?php
-// routes/admin.php
-// (equivalente a C:\wamp64\www\pactopia360_erp\routes\admin.php)
+// C:\wamp64\www\pactopia360_erp\routes\admin.php
+// PACTOPIA360 · ADMIN routes (SOT)
+// ✅ Mejoras:
+// - FIX: evita 500 si NO existe BillingStatementsHubController::scheduleEmail (route condicional)
+// - Orden + cierre de braces consistente (route:cache safe)
+// - SAT Admin (prices/discounts) queda dentro de auth:admin (como debe ser)
+// - CSRF bypass en local solo en rutas POST críticas
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,17 +37,18 @@ use App\Http\Controllers\Admin\Billing\PaymentsController;
 use App\Http\Controllers\Admin\Billing\InvoiceRequestsController;
 use App\Http\Controllers\Admin\Billing\AccountsController;
 
-// Usuarios admin (nuevo módulo)
-use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
-
-// ✅ Estados de cuenta (legacy)
+// Estados de cuenta (legacy)
 use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 
-// ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
+// HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
-use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
+// Usuarios admin (módulo)
+use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
+
+// SAT Admin
 use App\Http\Controllers\Admin\Billing\Sat\SatDiscountCodesController as AdminSatDiscountCodesController;
+use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
 
 /*
 |--------------------------------------------------------------------------
@@ -59,15 +65,15 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 */
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
-$thrLogin        = $isLocal ? 'throttle:60,1'  : 'throttle:5,1';
-$thrUiHeartbeat  = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
-$thrUiLog        = $isLocal ? 'throttle:480,1' : 'throttle:240,1';
-$thrHomeStats    = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
-$thrUiDiag       = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
-$thrUiBotAsk     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
-$thrDevQa        = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
-$thrDevPosts     = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
-$thrAdminPosts   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
+$thrLogin       = $isLocal ? 'throttle:60,1'  : 'throttle:5,1';
+$thrUiHeartbeat = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrUiLog       = $isLocal ? 'throttle:480,1' : 'throttle:240,1';
+$thrHomeStats   = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrUiDiag      = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrUiBotAsk    = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrDevQa       = $isLocal ? 'throttle:120,1' : 'throttle:60,1';
+$thrDevPosts    = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
+$thrAdminPosts  = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
 |--------------------------------------------------------------------------
@@ -118,16 +124,11 @@ if (!function_exists('admin_placeholder_view')) {
 | - Este archivo admin.php se monta bajo prefix('/admin') desde web.php,
 |   por lo que las URLs finales serán:
 |   - /admin/t/billing/open/{emailId}
-|   - /admin/t/billing/open/{emailId}.gif   (compat, puede chocar con nginx static si no se enruta a PHP)
+|   - /admin/t/billing/open/{emailId}.gif
 |   - /admin/t/billing/click/{emailId}?u=...
 |
-| - Los nombres de ruta quedan:
-|   - admin.track.billing.open
-|   - admin.track.billing.open_gif
-|   - admin.track.billing.click
-|
 | - Debe ir FUERA del grupo auth:admin.
-| - Para que NO aparezca ningún Set-Cookie, quitamos cookies+sesión del stack web.
+| - Para NO emitir Set-Cookie, quitamos cookies+sesión del stack web.
 |--------------------------------------------------------------------------
 */
 $noCookies = [
@@ -144,19 +145,16 @@ Route::prefix('t/billing')
     ->middleware('throttle:240,1')
     ->group(function () use ($noCookies) {
 
-        // OPEN pixel (sin .gif) ← recomendado (evita que nginx lo trate como asset estático)
         Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
             ->name('open');
 
-        // OPEN pixel (con .gif) para compatibilidad (puede requerir ajuste nginx)
         Route::get('open/{emailId}.gif', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
             ->name('open_gif');
 
-        // CLICK wrapper
         Route::get('click/{emailId}', [BillingStatementsHubController::class, 'trackClick'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
@@ -167,12 +165,9 @@ Route::prefix('t/billing')
 |--------------------------------------------------------------------------
 | ✅ PayLink público (GET) para Estados de Cuenta (HUB)
 |--------------------------------------------------------------------------
-| Debe ir FUERA de auth:admin para permitir que el cliente (o correo) lo abra.
-|
-| OJO:
-| - Este archivo ya vive bajo prefix('/admin'), así que aquí NO debes repetir "admin/".
-| - La URL final queda: /admin/billing/statements-hub/paylink
-| - El nombre de ruta queda: admin.billing.statements_hub.paylink
+| - Debe ir FUERA de auth:admin (correo/cliente lo abre)
+| - URL final: /admin/billing/statements-hub/paylink
+| - Nombre: admin.billing.statements_hub.paylink
 |--------------------------------------------------------------------------
 */
 Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
@@ -458,27 +453,26 @@ Route::middleware([
     }
 
     /* ---------- Soporte interno admin ---------- */
-    Route::prefix('soporte')
-        ->as('soporte.')
-        ->group(function () use ($thrAdminPosts, $isLocal) {
+    Route::prefix('soporte')->as('soporte.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-            Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
-            Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
+        Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
+        Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
 
-            $sendCreds = Route::post('email-credentials/{accountId}', [EmailClienteCredentialsController::class, 'send'])
-                ->middleware($thrAdminPosts)
-                ->name('email_credentials.send');
+        $sendCreds = Route::post('email-credentials/{accountId}', [EmailClienteCredentialsController::class, 'send'])
+            ->middleware($thrAdminPosts)
+            ->name('email_credentials.send');
 
-            if ($isLocal) {
-                $sendCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-            }
-        });
+        if ($isLocal) {
+            $sendCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+    });
 
     /* ---------- Logout admin ---------- */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
     /* ---------- DEV / QA interno ---------- */
     Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
+
         Route::get('qa', [QaController::class, 'index'])
             ->middleware($thrDevQa)
             ->name('qa');
@@ -513,8 +507,7 @@ Route::middleware([
     */
     Route::prefix('billing')->name('billing.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        Route::get('accounts', [AccountsController::class, 'index'])
-            ->name('accounts.index');
+        Route::get('accounts', [AccountsController::class, 'index'])->name('accounts.index');
 
         Route::get('accounts/{id}', [AccountsController::class, 'show'])
             ->where('id', '[A-Za-z0-9\-]+')
@@ -571,7 +564,6 @@ Route::middleware([
             $stStatus->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-
         Route::get('statements/{accountId}/{period}', [BillingStatementsController::class, 'show'])
             ->where([
                 'accountId' => '[A-Za-z0-9\-]+',
@@ -623,8 +615,15 @@ Route::middleware([
         Route::post('statements-hub/invoice-status', [BillingStatementsHubController::class, 'invoiceStatus'])
             ->name('statements_hub.invoice_status');
 
-        Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
-            ->name('statements_hub.schedule');
+        /*
+         * ✅ FIX CRÍTICO:
+         * En prod te tronaba porque scheduleEmail NO existe.
+         * Aquí lo hacemos "feature-flag" automático: solo registra la ruta si el método existe.
+         */
+        if (method_exists(BillingStatementsHubController::class, 'scheduleEmail')) {
+            Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
+                ->name('statements_hub.schedule');
+        }
 
         $stLinesStore = Route::post('statements/lines', [BillingStatementsController::class, 'lineStore'])
             ->middleware($thrAdminPosts)
@@ -648,33 +647,43 @@ Route::middleware([
             }
         }
 
+        // Catálogo de precios
         Route::get('prices', [PriceCatalogController::class, 'index'])->name('prices.index');
         Route::get('prices/{id}/edit', [PriceCatalogController::class, 'edit'])->whereNumber('id')->name('prices.edit');
         Route::put('prices/{id}', [PriceCatalogController::class, 'update'])->whereNumber('id')->name('prices.update');
         Route::post('prices/{id}/toggle', [PriceCatalogController::class, 'toggle'])->whereNumber('id')->name('prices.toggle');
 
+        // Licencias
         Route::get('licenses', [AccountLicensesController::class, 'index'])->name('licenses.index');
         Route::get('licenses/{accountId}', [AccountLicensesController::class, 'show'])->whereNumber('accountId')->name('licenses.show');
 
         Route::post('licenses/{accountId}/assign-price', [AccountLicensesController::class, 'assignPrice'])
-            ->whereNumber('accountId')->name('licenses.assignPrice');
+            ->whereNumber('accountId')
+            ->name('licenses.assignPrice');
 
         Route::post('licenses/{accountId}/modules', [AccountLicensesController::class, 'saveModules'])
-            ->whereNumber('accountId')->name('licenses.modules.save');
+            ->whereNumber('accountId')
+            ->name('licenses.modules.save');
 
         Route::post('licenses/{accountId}/email/license', [AccountLicensesController::class, 'emailLicenseSummary'])
-            ->whereNumber('accountId')->name('licenses.email.license');
+            ->whereNumber('accountId')
+            ->name('licenses.email.license');
 
+        // Pagos
         Route::get('payments', [PaymentsController::class, 'index'])->name('payments.index');
         Route::post('payments/manual', [PaymentsController::class, 'manual'])->name('payments.manual');
         Route::post('payments/{id}/email', [PaymentsController::class, 'emailReceipt'])
-            ->whereNumber('id')->name('payments.email');
+            ->whereNumber('id')
+            ->name('payments.email');
 
+        // Facturas
         Route::get('invoices/requests', [InvoiceRequestsController::class, 'index'])->name('invoices.requests.index');
         Route::post('invoices/requests/{id}/status', [InvoiceRequestsController::class, 'setStatus'])
-            ->whereNumber('id')->name('invoices.requests.status');
+            ->whereNumber('id')
+            ->name('invoices.requests.status');
         Route::post('invoices/requests/{id}/email', [InvoiceRequestsController::class, 'email'])
-            ->whereNumber('id')->name('invoices.requests.email');
+            ->whereNumber('id')
+            ->name('invoices.requests.email');
     });
 
     /*
@@ -683,7 +692,6 @@ Route::middleware([
     |--------------------------------------------------------------------------
     */
     Route::prefix('usuarios')->name('usuarios.')->group(function () {
-        // Usuarios Administrativos (CRUD completo)
         Route::get('administrativos', [AdministrativosController::class, 'index'])->name('administrativos.index');
         Route::get('administrativos/create', [AdministrativosController::class, 'create'])->name('administrativos.create');
         Route::post('administrativos', [AdministrativosController::class, 'store'])->name('administrativos.store');
@@ -709,115 +717,103 @@ Route::middleware([
             ->name('administrativos.destroy');
     });
 
-/*
-|--------------------------------------------------------------------------|
-| SAT · Lista de precios + Códigos de descuento (Admin) — CANÓNICO
-|--------------------------------------------------------------------------|
-| MONTAJE:
-| - Este archivo ya vive bajo prefix('/admin') desde web.php
-| - Por lo tanto las URLs finales quedan:
-|   - /admin/sat/prices
-|   - /admin/sat/discounts
-|
-| NOMBRES:
-|   - admin.sat.prices.*
-|   - admin.sat.discounts.*
-|
-| NOTA:
-| - Esto coincide con tus blades que usan route('admin.sat....')
-|--------------------------------------------------------------------------|
-*/
-Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
+    /*
+    |--------------------------------------------------------------------------
+    | SAT · Lista de precios + Códigos de descuento (Admin) — CANÓNICO
+    |--------------------------------------------------------------------------
+    | MONTAJE:
+    | - Este archivo ya vive bajo prefix('/admin') desde web.php
+    | - URLs:
+    |   - /admin/sat/prices
+    |   - /admin/sat/discounts
+    |
+    | NOMBRES:
+    |   - admin.sat.prices.*
+    |   - admin.sat.discounts.*
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-    // =========================
-    // SAT · PRICE RULES
-    // =========================
+        // =========================
+        // SAT · PRICE RULES
+        // =========================
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
-        Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
+            Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
+            Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
 
-        $store = Route::post('/', [AdminSatPriceRulesController::class, 'store'])
-            ->middleware($thrAdminPosts)
-            ->name('store');
+            $store = Route::post('/', [AdminSatPriceRulesController::class, 'store'])
+                ->middleware($thrAdminPosts)
+                ->name('store');
 
-        Route::get('{id}/edit', [AdminSatPriceRulesController::class, 'edit'])
-            ->whereNumber('id')
-            ->name('edit');
+            Route::get('{id}/edit', [AdminSatPriceRulesController::class, 'edit'])
+                ->whereNumber('id')
+                ->name('edit');
 
-        $update = Route::put('{id}', [AdminSatPriceRulesController::class, 'update'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('update');
+            $update = Route::put('{id}', [AdminSatPriceRulesController::class, 'update'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('update');
 
-        $toggle = Route::post('{id}/toggle', [AdminSatPriceRulesController::class, 'toggle'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('toggle');
+            $toggle = Route::post('{id}/toggle', [AdminSatPriceRulesController::class, 'toggle'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('toggle');
 
-        $destroy = Route::delete('{id}', [AdminSatPriceRulesController::class, 'destroy'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('destroy');
+            $destroy = Route::delete('{id}', [AdminSatPriceRulesController::class, 'destroy'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('destroy');
 
-        if ($isLocal) {
-            foreach ([$store, $update, $toggle, $destroy] as $rt) {
-                $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+            if ($isLocal) {
+                foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
             }
-        }
+        });
+
+        // =========================
+        // SAT · DISCOUNT CODES
+        // =========================
+        Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+            Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
+            Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
+
+            $store = Route::post('/', [AdminSatDiscountCodesController::class, 'store'])
+                ->middleware($thrAdminPosts)
+                ->name('store');
+
+            Route::get('{id}/edit', [AdminSatDiscountCodesController::class, 'edit'])
+                ->whereNumber('id')
+                ->name('edit');
+
+            $update = Route::put('{id}', [AdminSatDiscountCodesController::class, 'update'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('update');
+
+            $toggle = Route::post('{id}/toggle', [AdminSatDiscountCodesController::class, 'toggle'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('toggle');
+
+            $destroy = Route::delete('{id}', [AdminSatDiscountCodesController::class, 'destroy'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('destroy');
+
+            if ($isLocal) {
+                foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
+            }
+        });
     });
-
-
-    // =========================
-    // SAT · DISCOUNT CODES
-    // =========================
-    Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
-
-    Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
-    Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
-
-    $store = Route::post('/', [AdminSatDiscountCodesController::class, 'store'])
-        ->middleware($thrAdminPosts)
-        ->name('store');
-
-    Route::get('{id}/edit', [AdminSatDiscountCodesController::class, 'edit'])
-        ->whereNumber('id')
-        ->name('edit');
-
-    $update = Route::put('{id}', [AdminSatDiscountCodesController::class, 'update'])
-        ->whereNumber('id')
-        ->middleware($thrAdminPosts)
-        ->name('update');
-
-    $toggle = Route::post('{id}/toggle', [AdminSatDiscountCodesController::class, 'toggle'])
-        ->whereNumber('id')
-        ->middleware($thrAdminPosts)
-        ->name('toggle');
-
-    $destroy = Route::delete('{id}', [AdminSatDiscountCodesController::class, 'destroy'])
-        ->whereNumber('id')
-        ->middleware($thrAdminPosts)
-        ->name('destroy');
-
-    if ($isLocal) {
-        foreach ([$store, $update, $toggle, $destroy] as $rt) {
-            $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
-        }
-    }
-});
-
-
-});
-
 
     /*
     |--------------------------------------------------------------------------
     | ✅ Fallback interno admin (SIEMPRE AL FINAL)
-    |--------------------------------------------------------------------------
-    | NOTA:
-    | - Aquí eliminamos cualquier ruta duplicada "clientes" que apunte a un
-    |   controller inexistente (ej. UsuariosClientesController).
-    | - El listado de clientes ya existe arriba como: admin.clientes.index
     |--------------------------------------------------------------------------
     */
     Route::fallback(fn () => redirect()->route('admin.home'));
