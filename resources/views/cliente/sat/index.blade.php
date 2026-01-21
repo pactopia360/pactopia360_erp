@@ -1,4 +1,4 @@
-{{-- resources/views/cliente/sat/index.blade.php (v3.2) --}}
+{{-- resources/views/cliente/sat/index.blade.php (v3.4 · FULL RESTORE · SINGLE CLEAN) --}}
 @extends('layouts.cliente')
 @section('title','SAT · Descargas masivas CFDI')
 
@@ -6,6 +6,10 @@
 @section('pageClass','page-sat')
 
 @php
+  use Illuminate\Support\Carbon;
+  use Illuminate\Support\Str;
+  use Illuminate\Support\Facades\Route;
+
   // ======================================================
   //  Usuario / cuenta
   // ======================================================
@@ -75,7 +79,7 @@
       $created = data_get($row, 'created_at', data_get($row, 'createdAt', null));
       if (!$created) return false;
       try {
-          return \Illuminate\Support\Carbon::parse($created)->greaterThanOrEqualTo($periodFrom);
+          return Carbon::parse($created)->greaterThanOrEqualTo($periodFrom);
       } catch (\Exception $e) {
           return false;
       }
@@ -98,9 +102,9 @@
   $downloadsTotal  = (int)$rowsColl->count();
   $downloadsPeriod = (int)$filesPeriod;
 
-  $reqStart     = (int)($summary['sat_req_start']    ?? $asig);
-  $reqDone      = (int)($summary['sat_req_done']     ?? $downloadsTotal);
-  $reqPeriod    = (int)($summary['sat_req_period']   ?? $downloadsPeriod);
+  $reqStart     = (int)($summary['sat_req_start']     ?? $asig);
+  $reqDone      = (int)($summary['sat_req_done']      ?? $downloadsTotal);
+  $reqPeriod    = (int)($summary['sat_req_period']    ?? $downloadsPeriod);
   $reqAvailable = (int)($summary['sat_req_available'] ?? max(0, $reqStart - $reqDone));
 
   // ======================================================
@@ -141,37 +145,35 @@
   // ------------------------------------------------------
   // Rutas (defensivas)
   // ------------------------------------------------------
-  $rtCsdStore   = \Route::has('cliente.sat.credenciales.store') ? route('cliente.sat.credenciales.store') : '#';
-  $rtReqCreate  = \Route::has('cliente.sat.request')            ? route('cliente.sat.request')            : '#';
-  $rtVerify     = \Route::has('cliente.sat.verify')             ? route('cliente.sat.verify')             : '#';
-  $rtPkgPost    = \Route::has('cliente.sat.download')           ? route('cliente.sat.download')           : '#';
-  $rtZipGet     = \Route::has('cliente.sat.zip')                ? route('cliente.sat.zip',['id'=>'__ID__']) : '#';
-  $rtReport     = \Route::has('cliente.sat.report')             ? route('cliente.sat.report')             : '#';
-  $rtVault      = \Route::has('cliente.sat.vault')              ? route('cliente.sat.vault')              : '#';
-  $rtMode       = \Route::has('cliente.sat.mode')               ? route('cliente.sat.mode')               : null;
-  $rtCharts     = \Route::has('cliente.sat.charts')             ? route('cliente.sat.charts')             : null;
+  $rtCsdStore   = Route::has('cliente.sat.credenciales.store') ? route('cliente.sat.credenciales.store') : '#';
+  $rtReqCreate  = Route::has('cliente.sat.request')            ? route('cliente.sat.request')            : '#';
+  $rtVerify     = Route::has('cliente.sat.verify')             ? route('cliente.sat.verify')             : '#';
+  $rtPkgPost    = Route::has('cliente.sat.download')           ? route('cliente.sat.download')           : '#';
+  $rtZipGet     = Route::has('cliente.sat.zip')                ? route('cliente.sat.zip',['id'=>'__ID__']) : '#';
+  $rtReport     = Route::has('cliente.sat.report')             ? route('cliente.sat.report')             : '#';
+  $rtVault      = Route::has('cliente.sat.vault')              ? route('cliente.sat.vault')              : '#';
+  $rtMode       = Route::has('cliente.sat.mode')               ? route('cliente.sat.mode')               : null;
+  $rtCharts     = Route::has('cliente.sat.charts')             ? route('cliente.sat.charts')             : null;
 
-  // FIX: si no existe la ruta quick, no romper (antes daba error de method)
-  $rtVaultQuick = \Route::has('cliente.sat.vault.quick') ? route('cliente.sat.vault.quick') : null;
+  $rtVaultQuick = Route::has('cliente.sat.vault.quick') ? route('cliente.sat.vault.quick') : null;
 
-  // Guardar en bóveda desde descarga pagada
-  $rtVaultFromDownload = \Route::has('cliente.sat.vault.fromDownload')
+  $rtVaultFromDownload = Route::has('cliente.sat.vault.fromDownload')
       ? route('cliente.sat.vault.fromDownload', ['download' => '__ID__'])
       : null;
 
   // RFCs
-  $rtAlias          = \Route::has('cliente.sat.alias')            ? route('cliente.sat.alias')            : '#';
-  $rtRfcReg         = \Route::has('cliente.sat.rfc.register')     ? route('cliente.sat.rfc.register')     : '#';
-  $rtRfcDelete      = \Route::has('cliente.sat.rfc.delete')       ? route('cliente.sat.rfc.delete')       : '#';
-  $rtDownloadCancel = \Route::has('cliente.sat.download.cancel')  ? route('cliente.sat.download.cancel')  : null;
+  $rtAlias          = Route::has('cliente.sat.alias')            ? route('cliente.sat.alias')            : '#';
+  $rtRfcReg         = Route::has('cliente.sat.rfc.register')     ? route('cliente.sat.rfc.register')     : '#';
+  $rtRfcDelete      = Route::has('cliente.sat.rfc.delete')       ? route('cliente.sat.rfc.delete')       : '#';
+  $rtDownloadCancel = Route::has('cliente.sat.download.cancel')  ? route('cliente.sat.download.cancel')  : null;
 
   // Carrito SAT
-  $rtCartIndex  = \Route::has('cliente.sat.cart.index')  ? route('cliente.sat.cart.index')  : null;
-  $rtCartAdd    = \Route::has('cliente.sat.cart.add')    ? route('cliente.sat.cart.add')    : null;
-  $rtCartRemove = \Route::has('cliente.sat.cart.remove') ? route('cliente.sat.cart.remove') : null;
-  $rtCartList   = \Route::has('cliente.sat.cart.list')   ? route('cliente.sat.cart.list')   : null;
+  $rtCartIndex  = Route::has('cliente.sat.cart.index')  ? route('cliente.sat.cart.index')  : null;
+  $rtCartAdd    = Route::has('cliente.sat.cart.add')    ? route('cliente.sat.cart.add')    : null;
+  $rtCartRemove = Route::has('cliente.sat.cart.remove') ? route('cliente.sat.cart.remove') : null;
+  $rtCartList   = Route::has('cliente.sat.cart.list')   ? route('cliente.sat.cart.list')   : null;
 
-  $rtCartPay = \Route::has('cliente.sat.cart.checkout')
+  $rtCartPay = Route::has('cliente.sat.cart.checkout')
       ? route('cliente.sat.cart.checkout')
       : null;
 
@@ -182,6 +184,10 @@
       ?? $rtCartList
       ?? $rtVault
       ?? '#';
+
+  // Cotizador (opcionales: si no existen, no rompe)
+  $rtQuoteCalc = Route::has('cliente.sat.quote.calc') ? route('cliente.sat.quote.calc') : null;
+  $rtQuotePdf  = Route::has('cliente.sat.quote.pdf')  ? route('cliente.sat.quote.pdf')  : null;
 @endphp
 
 @push('styles')
@@ -190,6 +196,7 @@
 
 @section('content')
 <div class="sat-ui" id="satApp" data-plan="{{ $plan }}" data-mode="{{ $modeSafe }}">
+
   {{-- 0) TÍTULO + MODO DEMO/PROD --}}
   <div class="sat-header-top">
     <div class="sat-title-wrap">
@@ -254,9 +261,14 @@
         <div class="top-card-header">Peticiones realizadas</div>
         <div class="top-card-main">{{ number_format($reqDone) }}</div>
         <div class="top-card-cta-foot">
-          @unless($isProPlan)
-            <button type="button" class="btn btn-cta">Comprar ahora</button>
-          @endunless
+          <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
+            <button type="button" class="btn btn-cta" id="btnQuickQuote" data-tip="Cotizar una descarga por cantidad/peso">
+              Cotizar descarga
+            </button>
+            @unless($isProPlan)
+              <button type="button" class="btn btn-cta">Comprar ahora</button>
+            @endunless
+          </div>
         </div>
       </div>
     </div>
@@ -311,10 +323,10 @@
       <div class="sat-quick-title-wrap">
         <div class="sat-quick-icon" aria-hidden="true">⚡</div>
         <div>
-          <div class="sat-quick-kicker">Atajos SAT</div>
+          <div class="sat-quick-kicker">ATAJOS SAT</div>
           <h3 class="sat-quick-title">Guías rápidas</h3>
           <p class="sat-quick-sub">
-            Usa estos atajos para lanzar descargas y revisar tu información sin navegar por todo el módulo.
+            Usa estos atajos para lanzar descargas, cotizar y revisar tu información sin navegar por todo el módulo.
           </p>
         </div>
       </div>
@@ -329,7 +341,12 @@
     </div>
 
     <div class="pills-row sat-quick-pills">
-      <button type="button" class="pill primary" id="btnQuickLast30" data-tip="Crear solicitud para últimos 30 días">
+      {{-- ✅ NUEVO: Calculadora dentro de ATAJOS SAT (como tu imagen) --}}
+      <button type="button" class="pill primary" id="btnQuickCalc" data-tip="Calcular costo estimado y generar PDF">
+        <span aria-hidden="true">🧮</span><span>Calcular descarga</span>
+      </button>
+
+      <button type="button" class="pill" id="btnQuickLast30" data-tip="Crear solicitud para últimos 30 días">
         <span aria-hidden="true">📥</span><span>Descargar últimos 30 días</span>
       </button>
 
@@ -341,7 +358,7 @@
         <span aria-hidden="true">📤</span><span>Sólo emitidos (rápido)</span>
       </button>
 
-      <a href="#mis-rfcs" class="pill" data-tip="Ir a la sección Mis RFCs">
+      <a href="#block-rfcs" class="pill" data-tip="Ir a la sección Mis RFCs">
         <span aria-hidden="true">🧩</span><span>Administrar RFCs</span>
       </a>
 
@@ -350,6 +367,7 @@
       </a>
     </div>
   </div>
+
 
   {{-- 4) CONEXIONES SAT · RFCs --}}
   <div class="sat-card" id="block-rfcs">
@@ -613,7 +631,7 @@
                   $isExpired = (bool) data_get($row,'is_expired', false);
 
                   if (!$isExpired && $expiresAt) {
-                      try { $isExpired = \Illuminate\Support\Carbon::parse($expiresAt)->isPast(); }
+                      try { $isExpired = Carbon::parse($expiresAt)->isPast(); }
                       catch (\Exception $e) { $isExpired = false; }
                   }
 
@@ -647,7 +665,7 @@
                 $id = data_get($row,'id') ?? data_get($row,'download_id');
 
                 $createdAt = data_get($row,'created_at') ?? data_get($row,'createdAt') ?? data_get($row,'fecha') ?? data_get($row,'fecha_creacion');
-                try { $createdObj = $createdAt ? \Illuminate\Support\Carbon::parse($createdAt) : null; }
+                try { $createdObj = $createdAt ? Carbon::parse($createdAt) : null; }
                 catch (\Exception $e) { $createdObj = null; }
 
                 $desde       = data_get($row,'desde');
@@ -657,9 +675,7 @@
                 $rfc   = data_get($row,'rfc','—');
                 $alias = data_get($row,'alias','—');
 
-                // ======================
                 // PESO (Mb)
-                // ======================
                 $sizeLabel = data_get($row,'size_label') ?? data_get($row,'peso_label') ?? data_get($row,'zip_size_label');
                 $sizeMb  = null;
                 $hasSize = false;
@@ -703,9 +719,7 @@
                 if ($hasSize) $sizeLabel = number_format((float)$sizeMb, 2) . ' Mb';
                 else $sizeLabel = 'Pendiente';
 
-                // ======================
                 // COSTO
-                // ======================
                 $costLabelFromRow = data_get($row,'costo_label') ?? data_get($row,'price_label') ?? data_get($row,'total_label') ?? data_get($row,'zip_cost_label');
 
                 $costRaw = null;
@@ -736,9 +750,7 @@
                 elseif ($hasCost) $costLabel = '$' . number_format($costUsd, 2);
                 else $costLabel = '$0.00';
 
-                // ======================
                 // ESTATUS
-                // ======================
                 $statusDb      = (string) data_get($row,'status','');
                 $statusDbLower = strtolower($statusDb);
 
@@ -751,23 +763,19 @@
                 $statusKeyLower  = strtolower($statusKey);
                 $statusTextLower = strtolower(trim($statusText));
 
-                // ======================
                 // EXPIRACIÓN / DISPONIBILIDAD
-                // ======================
                 $expiresAt     = data_get($row,'expires_at');
                 $isExpiredFlag = (bool) data_get($row,'is_expired', false);
 
                 if (!$isExpiredFlag && $expiresAt) {
-                    try { $isExpiredFlag = \Illuminate\Support\Carbon::parse($expiresAt)->isPast(); }
+                    try { $isExpiredFlag = Carbon::parse($expiresAt)->isPast(); }
                     catch (\Exception $e) { $isExpiredFlag = false; }
                 }
 
                 $isExpired = $isExpiredFlag;
                 $remaining = data_get($row,'remaining_label', data_get($row,'time_left_label','—:—:—'));
 
-                // ======================
                 // PAGADO
-                // ======================
                 $isPaidRow = false;
                 foreach (['is_paid','paid','pagado','paid_flag','pagado_flag'] as $fld) {
                     $v = data_get($row,$fld);
@@ -843,7 +851,7 @@
                   @if($createdObj)
                     <span class="mono">{{ $createdObj->format('Y-m-d H:i:s') }}</span>
                   @elseif($createdAt)
-                    <span class="mono">{{ \Illuminate\Support\Str::substr((string)$createdAt, 0, 19) }}</span>
+                    <span class="mono">{{ Str::substr((string)$createdAt, 0, 19) }}</span>
                   @else
                     —
                   @endif
@@ -1224,6 +1232,84 @@
       </div>
     </div>
   </div>
+
+  {{-- MODAL: COTIZADOR (CALCULAR DESCARGA + PDF) --}}
+  <div class="sat-modal-backdrop" id="modalQuote" style="display:none;">
+    <div class="sat-modal sat-modal-lg">
+      <div class="sat-modal-header">
+        <div>
+          <div class="sat-modal-kicker">Cotizador SAT</div>
+          <div class="sat-modal-title">Calcular costo de descarga</div>
+          <p class="sat-modal-sub">Calcula por cantidad de XML y/o costo unitario; genera PDF para enviar al cliente.</p>
+        </div>
+        <button type="button" class="sat-modal-close" data-close="modal-quote" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="sat-modal-body">
+        <div class="sat-step-card">
+          <div class="sat-step-kicker">
+            <span>Parámetros</span>
+            <small>Información base</small>
+          </div>
+
+          <div class="sat-step-grid sat-step-grid-2col">
+            <div class="sat-field">
+              <div class="sat-field-label">Cantidad de XML</div>
+              <input class="input sat-input-pill" id="quoteXmlCount" type="number" min="1" step="1" placeholder="1000" value="1000">
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Costo unitario (opcional)</div>
+              <input class="input sat-input-pill" id="quoteUnitCost" type="number" min="0" step="0.01" placeholder="Ej. 0.10">
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Código de descuento (opcional)</div>
+              <input class="input sat-input-pill" id="quoteDiscountCode" type="text" placeholder="PROMO10">
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">IVA</div>
+              <select class="input sat-input-pill" id="quoteIva">
+                <option value="16" selected>16%</option>
+                <option value="0">0%</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="sat-modal-note" style="margin-top:10px;">
+            Nota: Si no defines costo unitario, se usará el cálculo por backend (si está configurado).
+          </div>
+        </div>
+
+        <div class="sat-step-card" style="margin-top:14px;">
+          <div class="sat-step-kicker">
+            <span>Resultado</span>
+            <small>Desglose</small>
+          </div>
+
+          <div class="sat-mov-dl" style="margin-top:8px;">
+            <div class="sat-mov-row"><dt>Base</dt><dd id="quoteBaseVal">$0.00</dd></div>
+            <div class="sat-mov-row"><dt>Descuento (<span id="quoteDiscPct">0</span>%)</dt><dd id="quoteDiscVal">-$0.00</dd></div>
+            <div class="sat-mov-row"><dt>Subtotal</dt><dd id="quoteSubtotalVal">$0.00</dd></div>
+            <div class="sat-mov-row"><dt>IVA (<span id="quoteIvaPct">16</span>%)</dt><dd id="quoteIvaVal">$0.00</dd></div>
+            <div class="sat-mov-row"><dt><b>Total</b></dt><dd><b id="quoteTotalVal">$0.00</b></dd></div>
+          </div>
+
+          <div class="sat-modal-note" style="margin-top:10px;">
+            <span id="quoteNote">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sat-modal-footer">
+        <button type="button" class="btn" data-close="modal-quote">Cerrar</button>
+        <button type="button" class="btn soft" id="btnQuoteRecalc">Recalcular</button>
+        <button type="button" class="btn primary" id="btnQuotePdf">Generar PDF</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 @endsection
 
@@ -1262,6 +1348,10 @@
 
       // plantilla con __ID__
       vaultFromDownload: @json($rtVaultFromDownload),
+
+      // ✅ Cotizador (opcionales)
+      quoteCalc: @json($rtQuoteCalc),
+      quotePdf:  @json($rtQuotePdf),
     },
 
     vault: @json($vault ?? []),
@@ -1271,20 +1361,49 @@
 {{-- JS principal del dashboard SAT --}}
 <script src="{{ asset('assets/client/js/sat-dashboard.js') }}" defer></script>
 
+{{-- BOOTSTRAP extra: bulk + quick guides + vault CTA + cotizador (sin reventar si faltan rutas) --}}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const CFG    = window.P360_SAT || {};
-  const ROUTES = (CFG.routes || {});
-  const csrf   = (CFG.csrf || '');
+  if (window.__P360_SAT_INDEX_BOOT__) return;
+  window.__P360_SAT_INDEX_BOOT__ = true;
 
+  const CFG    = window.P360_SAT || {};
+  const ROUTES = CFG.routes || {};
+  const CSRF   = CFG.csrf || '';
+
+  function toast(msg, kind='info') {
+    try {
+      if (window.P360 && typeof window.P360.toast === 'function') {
+        if (kind === 'error' && window.P360.toast.error) return window.P360.toast.error(msg);
+        if (kind === 'success' && window.P360.toast.success) return window.P360.toast.success(msg);
+        return window.P360.toast(msg);
+      }
+    } catch(e) {}
+    alert(msg);
+  }
+
+  async function postJson(url, payload) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': CSRF,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.msg || data.message || 'Solicitud fallida.');
+    return data;
+  }
+
+  // =========================
+  // Bulk selection bar
+  // =========================
   const bulkBar   = document.getElementById('satDlBulk');
   const bulkCount = document.getElementById('satDlBulkCount');
   const btnAll    = document.getElementById('satCheckAll');
-
-  function toast(msg) {
-    if (window.P360 && typeof window.P360.toast === 'function') return window.P360.toast(msg);
-    alert(msg);
-  }
 
   const checks = () => Array.from(document.querySelectorAll('.sat-dl-check'));
 
@@ -1309,40 +1428,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  async function postJson(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': csrf,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: JSON.stringify(payload || {}),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) throw new Error(data.msg || data.message || 'Solicitud fallida.');
-    return data;
-  }
-
-  async function addToCart(downloadId) {
-    if (!ROUTES.cartAdd) throw new Error('Ruta cartAdd no configurada.');
-    return await postJson(ROUTES.cartAdd, { download_id: downloadId, id: downloadId });
-  }
-
-  async function removeFromCart(downloadId) {
-    if (!ROUTES.cartRemove) throw new Error('Ruta cartRemove no configurada.');
-    return await postJson(ROUTES.cartRemove, { download_id: downloadId, id: downloadId });
-  }
-
-  async function checkout(ids) {
-    if (!ROUTES.cartCheckout) throw new Error('Ruta cartCheckout no configurada.');
-    const data = await postJson(ROUTES.cartCheckout, { ids, download_ids: ids });
-    const url = data.url || data.checkout_url || data.redirect || null;
-    if (!url) throw new Error('Checkout generado, pero sin URL.');
-    window.location.href = url;
-  }
-
   // Bulk buttons
   const btnRefresh = document.getElementById('satDlBulkRefresh');
   const btnAdd     = document.getElementById('satDlAddSelected');
@@ -1356,6 +1441,22 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  async function addToCart(downloadId) {
+    if (!ROUTES.cartAdd) throw new Error('Ruta cartAdd no configurada.');
+    return await postJson(ROUTES.cartAdd, { download_id: downloadId, id: downloadId });
+  }
+  async function removeFromCart(downloadId) {
+    if (!ROUTES.cartRemove) throw new Error('Ruta cartRemove no configurada.');
+    return await postJson(ROUTES.cartRemove, { download_id: downloadId, id: downloadId });
+  }
+  async function checkout(ids) {
+    if (!ROUTES.cartCheckout) throw new Error('Ruta cartCheckout no configurada.');
+    const data = await postJson(ROUTES.cartCheckout, { ids, download_ids: ids });
+    const url = data.url || data.checkout_url || data.redirect || null;
+    if (!url) throw new Error('Checkout generado, pero sin URL.');
+    window.location.href = url;
+  }
+
   if (btnAdd) {
     btnAdd.addEventListener('click', async function () {
       const ids = getSelectedIds();
@@ -1363,16 +1464,15 @@ document.addEventListener('DOMContentLoaded', function () {
       btnAdd.disabled = true;
       try {
         for (const id of ids) await addToCart(id);
-        toast('Seleccionados agregados al carrito.');
+        toast('Seleccionados agregados al carrito.', 'success');
       } catch (e) {
-        toast(e?.message || 'No se pudo agregar al carrito.');
+        toast(e?.message || 'No se pudo agregar al carrito.', 'error');
       } finally {
         btnAdd.disabled = false;
       }
     });
   }
 
-  // IMPORTANTE: solo un handler de compra masiva (evita duplicados)
   if (btnBuy) {
     btnBuy.addEventListener('click', async function (ev) {
       ev.preventDefault();
@@ -1387,7 +1487,7 @@ document.addEventListener('DOMContentLoaded', function () {
         for (const id of ids) await addToCart(id);
         await checkout(ids);
       } catch (e) {
-        toast(e?.message || 'No se pudo iniciar la compra.');
+        toast(e?.message || 'No se pudo iniciar la compra.', 'error');
       } finally {
         btnBuy.disabled = false;
       }
@@ -1405,7 +1505,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Row cart toggle (si sat-dashboard.js no lo cubre, aquí queda asegurado)
+  // Toggle carrito por fila (fallback)
   document.body.addEventListener('click', async function (ev) {
     const btn = ev.target.closest('.sat-btn-cart');
     if (!btn) return;
@@ -1422,25 +1522,28 @@ document.addEventListener('DOMContentLoaded', function () {
         await removeFromCart(id);
         btn.dataset.action = 'cart-add';
         btn.classList.remove('is-in-cart');
-        btn.setAttribute('data-tip','Agregar al carrito');
+        btn.setAttribute('data-tip', 'Agregar al carrito');
       } else {
         await addToCart(id);
         btn.dataset.action = 'cart-remove';
         btn.classList.add('is-in-cart');
-        btn.setAttribute('data-tip','Quitar del carrito');
+        btn.setAttribute('data-tip', 'Quitar del carrito');
       }
     } catch (e) {
-      toast(e?.message || 'No se pudo actualizar el carrito.');
+      toast(e?.message || 'No se pudo actualizar el carrito.', 'error');
     } finally {
       btn.disabled = false;
     }
   }, true);
 
-  // Quick guides -> set fechas + tipo + submit
+  // =========================
+  // Quick guides
+  // =========================
   function ymd(d) {
-    const pad = (n) => String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
+
   function setRange(fromDate, toDate, tipo) {
     const f = document.getElementById('reqFrom');
     const t = document.getElementById('reqTo');
@@ -1453,13 +1556,13 @@ document.addEventListener('DOMContentLoaded', function () {
   const btnLast30 = document.getElementById('btnQuickLast30');
   const btnMonth  = document.getElementById('btnQuickThisMonth');
   const btnEmit   = document.getElementById('btnQuickOnlyEmitted');
-
-  const reqForm = document.getElementById('reqForm');
+  const reqForm   = document.getElementById('reqForm');
 
   if (btnLast30 && reqForm) {
     btnLast30.addEventListener('click', function () {
       const to = new Date();
-      const from = new Date(); from.setDate(from.getDate() - 30);
+      const from = new Date();
+      from.setDate(from.getDate() - 30);
       setRange(from, to, 'ambos');
       reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
     });
@@ -1469,7 +1572,7 @@ document.addEventListener('DOMContentLoaded', function () {
     btnMonth.addEventListener('click', function () {
       const now = new Date();
       const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      const to   = new Date(now.getFullYear(), now.getMonth()+1, 0);
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       setRange(from, to, 'ambos');
       reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
     });
@@ -1478,80 +1581,16 @@ document.addEventListener('DOMContentLoaded', function () {
   if (btnEmit && reqForm) {
     btnEmit.addEventListener('click', function () {
       const to = new Date();
-      const from = new Date(); from.setDate(from.getDate() - 30);
+      const from = new Date();
+      from.setDate(from.getDate() - 30);
       setRange(from, to, 'emitidos');
       reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
     });
   }
 
-  // Guardar en bóveda desde fila
-  function buildFromDownloadUrl(id) {
-    const tpl = ROUTES.vaultFromDownload;
-    if (!tpl) return null;
-    return String(tpl).replace('__ID__', encodeURIComponent(id));
-  }
-
-  async function refreshVaultQuick() {
-    if (!ROUTES.vaultQuick) return;
-    try {
-      const res = await fetch(ROUTES.vaultQuick, {
-        headers: { 'Accept':'application/json', 'X-Requested-With':'XMLHttpRequest' }
-      });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      if (data && data.vault) {
-        CFG.vault = data.vault;
-        window.P360_SAT = CFG;
-        if (window.P360_SAT_UI && typeof window.P360_SAT_UI.redrawVault === 'function') {
-          window.P360_SAT_UI.redrawVault(data.vault);
-        }
-      }
-    } catch (e) {}
-  }
-
-  document.body.addEventListener('click', async function (ev) {
-    const btn = ev.target.closest('.sat-btn-vault');
-    if (!btn) return;
-
-    ev.preventDefault();
-
-    const id  = (btn.dataset.id || '').trim();
-    const url = buildFromDownloadUrl(id);
-
-    if (!id || !url) return toast('No se pudo construir la ruta para guardar en bóveda.');
-
-    btn.disabled = true;
-    btn.classList.add('is-loading');
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': csrf,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({}),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        return toast(data.message || data.msg || 'No se pudo guardar en bóveda. Revisa el backend.');
-      }
-
-      btn.remove();
-      toast('Guardado en Bóveda Fiscal.');
-      await refreshVaultQuick();
-    } catch (e) {
-      toast('Error de red al guardar en bóveda.');
-    } finally {
-      btn.disabled = false;
-      btn.classList.remove('is-loading');
-    }
-  }, true);
-
-  // CTA bóveda (activar / ampliar)
+  // =========================
+  // Vault CTA
+  // =========================
   const selectVault = document.getElementById('vaultUpgradeSelect');
   const btnVault    = document.getElementById('btnVaultCtaIndex');
 
@@ -1578,17 +1617,278 @@ document.addEventListener('DOMContentLoaded', function () {
       const baseUrl = (btnVault.dataset.url || '').trim();
       const param   = (btnVault.dataset.param || 'vault_gb').trim();
 
-      if (!baseUrl || baseUrl === '#') return toast('No hay ruta configurada para activar/comprar bóveda (carrito/checkout).');
+      if (!baseUrl || baseUrl === '#') {
+        return toast('No hay ruta configurada para activar/comprar bóveda (carrito/checkout).', 'error');
+      }
 
       let gb = selectVault.value;
       if (!gb) {
         if (!hasQuota()) gb = btnVault.dataset.defaultGb || '5';
-        else return toast('Selecciona primero una ampliación de Gb para continuar.');
+        else return toast('Selecciona primero una ampliación de Gb para continuar.', 'error');
       }
 
       window.location.href = buildFinalUrl(baseUrl, param, gb);
     });
   }
+
+  // =========================
+  // Vault-from-download
+  // =========================
+  function buildFromDownloadUrl(id) {
+    const tpl = ROUTES.vaultFromDownload;
+    if (!tpl) return null;
+    return String(tpl).replace('__ID__', encodeURIComponent(id));
+  }
+
+  async function refreshVaultQuick() {
+    if (!ROUTES.vaultQuick) return;
+    try {
+      const res = await fetch(ROUTES.vaultQuick, { headers: { 'Accept':'application/json', 'X-Requested-With':'XMLHttpRequest' }});
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      if (data && data.vault) {
+        CFG.vault = data.vault;
+        window.P360_SAT = CFG;
+        if (window.P360_SAT_UI && typeof window.P360_SAT_UI.redrawVault === 'function') {
+          window.P360_SAT_UI.redrawVault(data.vault);
+        }
+      }
+    } catch(e) {}
+  }
+
+  document.body.addEventListener('click', async function (ev) {
+    const btn = ev.target.closest('.sat-btn-vault');
+    if (!btn) return;
+
+    ev.preventDefault();
+
+    const id = (btn.dataset.id || '').trim();
+    const url = buildFromDownloadUrl(id);
+    if (!id || !url) return toast('No se pudo construir la ruta para guardar en bóveda.', 'error');
+
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': CSRF,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        return toast(data.message || data.msg || 'No se pudo guardar en bóveda. Revisa el backend.', 'error');
+      }
+
+      btn.remove();
+      toast('Guardado en Bóveda Fiscal.', 'success');
+      await refreshVaultQuick();
+    } catch (e) {
+      toast('Error de red al guardar en bóveda.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+    }
+  }, true);
+
+    // =========================
+  // Cotizador (Calcular + PDF)
+  // =========================
+  const btnQuickQuote  = document.getElementById('btnQuickQuote'); // botón superior (si existe)
+  const btnQuickCalc   = document.getElementById('btnQuickCalc');  // ✅ botón dentro de ATAJOS SAT
+  const modalQuote     = document.getElementById('modalQuote');
+  const btnQuoteRecalc = document.getElementById('btnQuoteRecalc');
+  const btnQuotePdf    = document.getElementById('btnQuotePdf');
+
+  const quoteXmlCount  = document.getElementById('quoteXmlCount');
+  const quoteUnitCost  = document.getElementById('quoteUnitCost');
+  const quoteDiscount  = document.getElementById('quoteDiscountCode');
+  const quoteIva       = document.getElementById('quoteIva');
+
+  const quoteBaseVal     = document.getElementById('quoteBaseVal');
+  const quoteDiscPct     = document.getElementById('quoteDiscPct');
+  const quoteDiscVal     = document.getElementById('quoteDiscVal');
+  const quoteSubtotalVal = document.getElementById('quoteSubtotalVal');
+  const quoteIvaPct      = document.getElementById('quoteIvaPct');
+  const quoteIvaVal      = document.getElementById('quoteIvaVal');
+  const quoteTotalVal    = document.getElementById('quoteTotalVal');
+  const quoteNote        = document.getElementById('quoteNote');
+
+  let quoteTimer = null;
+
+  function money(n) {
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function renderQuote(d) {
+    if (!d) return;
+    if (quoteBaseVal)     quoteBaseVal.textContent     = money(d.base);
+    if (quoteDiscPct)     quoteDiscPct.textContent     = String((d.discount_pct ?? 0));
+    if (quoteDiscVal)     quoteDiscVal.textContent     = '-' + money(d.discount_amount || 0);
+    if (quoteSubtotalVal) quoteSubtotalVal.textContent = money(d.subtotal);
+    if (quoteIvaPct)      quoteIvaPct.textContent      = String(d.iva_rate ?? 16);
+    if (quoteIvaVal)      quoteIvaVal.textContent      = money(d.iva_amount || 0);
+    if (quoteTotalVal)    quoteTotalVal.textContent    = money(d.total || 0);
+    if (quoteNote)        quoteNote.textContent        = d.note || '—';
+  }
+
+  async function quoteCalcNow() {
+    if (!ROUTES.quoteCalc) throw new Error('Ruta quoteCalc no configurada (cliente.sat.quote.calc).');
+
+    const xmlCount = parseInt((quoteXmlCount?.value || '0'), 10) || 0;
+    if (xmlCount <= 0) throw new Error('Escribe una cantidad válida de archivos.');
+
+    const unitCostRaw = String(quoteUnitCost?.value || '').trim();
+    const unitCost = unitCostRaw !== '' ? (parseFloat(unitCostRaw) || 0) : null;
+
+    const payload = {
+      xml_count: xmlCount,
+      iva: parseInt((quoteIva?.value || '16'), 10) || 16,
+      discount_code: String(quoteDiscount?.value || '').trim(),
+    };
+
+    if (unitCost !== null && unitCost > 0) payload.unit_cost = unitCost;
+
+    const res = await postJson(ROUTES.quoteCalc, payload);
+    const d = res.data || null;
+    if (!d) throw new Error('Respuesta de cotización inválida.');
+    renderQuote(d);
+    return d;
+  }
+
+  function openQuote() {
+    if (!modalQuote) return;
+
+    // si no existen rutas, avisa sin romper
+    if (!ROUTES.quoteCalc && !ROUTES.quotePdf) {
+      toast('Cotizador no configurado: faltan rutas quoteCalc/quotePdf.', 'error');
+      return;
+    }
+
+    modalQuote.style.display = 'flex';
+
+    // defaults
+    if (quoteXmlCount && !quoteXmlCount.value) quoteXmlCount.value = '1000';
+    if (quoteIva && quoteIvaPct) quoteIvaPct.textContent = quoteIva.value || '16';
+
+    scheduleQuoteCalc(60);
+  }
+
+  function closeQuote() {
+    if (!modalQuote) return;
+    modalQuote.style.display = 'none';
+  }
+
+  function scheduleQuoteCalc(ms = 250) {
+    clearTimeout(quoteTimer);
+    quoteTimer = setTimeout(async () => {
+      try {
+        if (!modalQuote || modalQuote.style.display === 'none') return;
+        await quoteCalcNow();
+      } catch (e) {}
+    }, ms);
+  }
+
+  // ✅ abre desde botón superior y desde ATAJOS SAT
+  if (btnQuickQuote) btnQuickQuote.addEventListener('click', openQuote);
+  if (btnQuickCalc)  btnQuickCalc.addEventListener('click', openQuote);
+
+  document.body.addEventListener('click', function (ev) {
+    const b = ev.target.closest('[data-close="modal-quote"]');
+    if (!b) return;
+    ev.preventDefault();
+    closeQuote();
+  }, true);
+
+  if (modalQuote) {
+    modalQuote.addEventListener('click', function (ev) {
+      if (ev.target === modalQuote) closeQuote();
+    });
+  }
+
+  if (quoteXmlCount) quoteXmlCount.addEventListener('input', () => scheduleQuoteCalc(250));
+  if (quoteUnitCost) quoteUnitCost.addEventListener('input', () => scheduleQuoteCalc(300));
+  if (quoteDiscount) quoteDiscount.addEventListener('input', () => scheduleQuoteCalc(350));
+  if (quoteIva)      quoteIva.addEventListener('change', () => {
+    if (quoteIvaPct) quoteIvaPct.textContent = quoteIva.value || '16';
+    scheduleQuoteCalc(120);
+  });
+
+  if (btnQuoteRecalc) {
+    btnQuoteRecalc.addEventListener('click', async function () {
+      btnQuoteRecalc.disabled = true;
+      try {
+        await quoteCalcNow();
+        toast('Cotización actualizada.', 'success');
+      } catch (e) {
+        toast(e?.message || 'No se pudo recalcular.', 'error');
+      } finally {
+        btnQuoteRecalc.disabled = false;
+      }
+    });
+  }
+
+  function submitPdfForm(url, params) {
+    const f = document.createElement('form');
+    f.method = 'POST';
+    f.action = url;
+    f.style.display = 'none';
+
+    const token = document.createElement('input');
+    token.type = 'hidden';
+    token.name = '_token';
+    token.value = CSRF;
+    f.appendChild(token);
+
+    Object.keys(params || {}).forEach((k) => {
+      const v = params[k];
+      if (v === null || typeof v === 'undefined' || v === '') return;
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = k;
+      inp.value = String(v);
+      f.appendChild(inp);
+    });
+
+    document.body.appendChild(f);
+    f.submit();
+    setTimeout(() => f.remove(), 3000);
+  }
+
+  if (btnQuotePdf) {
+    btnQuotePdf.addEventListener('click', async function () {
+      if (!ROUTES.quotePdf) return toast('Ruta quotePdf no configurada (cliente.sat.quote.pdf).', 'error');
+
+      btnQuotePdf.disabled = true;
+      try {
+        await quoteCalcNow();
+
+        const p = {
+          xml_count: parseInt(quoteXmlCount?.value || '0', 10) || 0,
+          iva: parseInt(quoteIva?.value || '16', 10) || 16,
+          discount_code: String(quoteDiscount?.value || '').trim(),
+        };
+
+        const ucRaw = String(quoteUnitCost?.value || '').trim();
+        if (ucRaw !== '') p.unit_cost = parseFloat(ucRaw) || 0;
+
+        submitPdfForm(ROUTES.quotePdf, p);
+        toast('Generando PDF…', 'success');
+      } catch (e) {
+        toast(e?.message || 'No se pudo generar el PDF.', 'error');
+      } finally {
+        btnQuotePdf.disabled = false;
+      }
+    });
+  }
+
 
   updateBulk();
 });

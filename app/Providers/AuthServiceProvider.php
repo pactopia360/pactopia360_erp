@@ -34,6 +34,10 @@ class AuthServiceProvider extends ServiceProvider
         'pagos.ver','pagos.crear','pagos.editar','pagos.eliminar',
         'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
         'auditoria.ver','reportes.ver','configuracion.ver',
+
+        // ✅ módulos por prefijo (para sidebar)
+        'billing.*','sat.*','soporte.*','empresas.*',
+        'crm.*','cxp.*','cxc.*','conta.*','nomina.*','facturacion.*','docs.*','pv.*','bancos.*',
     ];
 
     /** -------- Helpers internos -------- */
@@ -90,6 +94,88 @@ class AuthServiceProvider extends ServiceProvider
         return false;
     }
 
+    /**
+     * ✅ Extrae permisos desde usuarios_admin.permisos (JSON)
+     * Soporta:
+     * - array
+     * - string JSON
+     * - null
+     *
+     * @return array<int,string>
+     */
+    private function extractUserPerms($user): array
+    {
+        try {
+            if (!$user) return [];
+
+            $raw = null;
+            if (method_exists($user, 'getAttribute')) {
+                $raw = $user->getAttribute('permisos');
+            } else {
+                $raw = $user->permisos ?? null;
+            }
+
+            if (is_array($raw)) {
+                return array_values(array_unique(array_map(fn($x)=>strtolower(trim((string)$x)), array_filter($raw))));
+            }
+
+            if (is_string($raw) && trim($raw) !== '') {
+                $j = json_decode($raw, true);
+                if (is_array($j)) {
+                    return array_values(array_unique(array_map(fn($x)=>strtolower(trim((string)$x)), array_filter($j))));
+                }
+                // si guardaste "a,b,c" por error, también lo toleramos
+                $parts = preg_split('/[\n,]+/', $raw) ?: [];
+                $out = [];
+                foreach ($parts as $p) {
+                    $p = strtolower(trim((string)$p));
+                    if ($p !== '') $out[] = $p;
+                }
+                return array_values(array_unique($out));
+            }
+
+            return [];
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * ✅ Match de permisos con wildcards:
+     * - '*' => todo
+     * - 'billing.*' => prefijo
+     * - exact match
+     */
+    private function permMatches(string $need, array $granted): bool
+    {
+        $need = strtolower(trim($need));
+        if ($need === '') return false;
+        if (!$granted) return false;
+
+        if (in_array('*', $granted, true)) return true;
+        if (in_array($need, $granted, true)) return true;
+
+        // si necesito "billing.ver", acepta "billing.*"
+        $parts = explode('.', $need);
+        while (count($parts) > 1) {
+            array_pop($parts);
+            $prefix = implode('.', $parts) . '.*';
+            if (in_array($prefix, $granted, true)) return true;
+        }
+
+        // si me dieron un wildcard tipo "admin.*" (o cualquiera), también permite por prefijo
+        foreach ($granted as $g) {
+            $g = strtolower(trim((string)$g));
+            if ($g === '*' || $g === '') continue;
+            if (Str::endsWith($g, '.*')) {
+                $pref = substr($g, 0, -2);
+                if ($pref !== '' && Str::startsWith($need, $pref . '.')) return true;
+            }
+        }
+
+        return false;
+    }
+
     public function boot(): void
     {
         $this->registerPolicies();
@@ -116,22 +202,33 @@ class AuthServiceProvider extends ServiceProvider
                 if ($this->isAdminRequest()) return true;
             }
 
-            return null; // continúa con otras gates/policies
+            return null;
         });
 
         /**
          * Gate genérico "perm" (punto único de verdad).
-         * - En prod+strict → si no hay infraestructura de permisos → DENIEGA.
-         * - En local/testing → si no hay infraestructura → PERMITE para no bloquear desarrollo.
-         * - Consulta cacheada para reducir roundtrips a DB.
+         * ✅ PRIORIDAD #1: usuarios_admin.permisos (JSON) con wildcards.
+         * ✅ PRIORIDAD #2: método hasPerm() en el modelo (si existe).
+         * ✅ PRIORIDAD #3: infra legacy de tablas (si existe).
          */
         Gate::define('perm', function ($user, string $perm) use ($isProd, $strictProd) {
             $u = $this->currentUser($user);
             if (!$u) return false;
 
             $key = strtolower(trim($perm));
+            if ($key === '') return false;
 
-            // Método en modelo tiene prioridad
+            // ✅ 1) JSON en usuarios_admin.permisos
+            try {
+                $list = $this->extractUserPerms($u);
+                if (!empty($list)) {
+                    return $this->permMatches($key, $list);
+                }
+            } catch (Throwable $e) {
+                // sigue
+            }
+
+            // ✅ 2) Método en modelo tiene prioridad (si lo usas en el futuro)
             try {
                 if (method_exists($u, 'hasPerm')) {
                     $res = $u->hasPerm($key);
@@ -141,7 +238,7 @@ class AuthServiceProvider extends ServiceProvider
                 // continúa al flujo por tablas
             }
 
-            // ¿Infraestructura de permisos?
+            // ✅ 3) Infra legacy por tablas (si existe)
             try {
                 $hasPermTable = Schema::hasTable('permisos');
             } catch (Throwable $e) {
@@ -149,32 +246,25 @@ class AuthServiceProvider extends ServiceProvider
             }
 
             if (!$hasPermTable) {
-                // Producción estricta -> deniega; en otros entornos -> permite
-                return ($isProd && $strictProd) ? false : true;
+                // Producción estricta -> deniega; en otros entornos -> permite solo abilities comunes
+                return ($isProd && $strictProd) ? false : in_array($key, self::COMMON_ABILITIES, true);
             }
 
-            // Cache TTL corto para no martillar DB (ajustable si lo ves necesario)
             $ttl = (int) env('PERM_CACHE_TTL', 30);
 
             try {
-                // Buscar permiso por clave (cacheado)
                 $permId = Cache::remember("perm:id:{$key}", $ttl, function () use ($key) {
                     return DB::table('permisos')->where('clave', $key)->value('id');
                 });
 
                 if (!$permId) {
-                    // Si no existe, en prod+strict deniega; en local/testing se permite para claves comunes
-                    if ($isProd && $strictProd) {
-                        return false;
-                    }
+                    if ($isProd && $strictProd) return false;
                     return in_array($key, self::COMMON_ABILITIES, true);
                 }
 
-                // Por perfil (si existe columna en usuario_administrativos) — cacheado
                 $perfilId = Cache::remember("user:perfil:{$u->id}", $ttl, function () use ($u) {
                     if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
-                        return (int) DB::table('usuario_administrativos')
-                            ->where('id', $u->id)->value('perfil_id');
+                        return (int) DB::table('usuario_administrativos')->where('id', $u->id)->value('perfil_id');
                     }
                     return 0;
                 });
@@ -189,7 +279,6 @@ class AuthServiceProvider extends ServiceProvider
                     if ($has) return true;
                 }
 
-                // Pivot usuario_permiso (fallback) — cacheado
                 if (Schema::hasTable('usuario_permiso')) {
                     $has = Cache::remember("perm:user:{$u->id}:{$permId}", $ttl, function () use ($u, $permId) {
                         return DB::table('usuario_permiso')
@@ -200,10 +289,8 @@ class AuthServiceProvider extends ServiceProvider
                     if ($has) return true;
                 }
 
-                // Infra parcial pero sin match → deniega (o permite en entornos no estrictos)
-                return ($isProd && $strictProd) ? false : false;
+                return false;
             } catch (Throwable $e) {
-                // En error, en prod+strict deniega; en otros entornos permite.
                 return ($isProd && $strictProd) ? false : true;
             }
         });
@@ -225,7 +312,6 @@ class AuthServiceProvider extends ServiceProvider
         Gate::after(function ($user, string $ability, bool $result, array $arguments = []) use ($auditGates) {
             if (!$auditGates) return;
 
-            // Evitar depender de request() en CLI/jobs
             $isAdminReq = $this->isAdminRequest();
 
             if ($result === false && $isAdminReq) {

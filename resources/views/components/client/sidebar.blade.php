@@ -1,4 +1,4 @@
-{{-- resources/views/components/client/sidebar.blade.php (v4.8 – Compacto sin huecos + acordeón opcional + respeta Admin state/visible/access) --}}
+{{-- resources/views/components/client/sidebar.blade.php (v5.2 – Client Sidebar · label+desc + SOT módulos) --}}
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Str;
@@ -20,16 +20,15 @@
    * =========================
    * MÓDULOS desde sesión (SOT Admin)
    * =========================
-   * v4+: p360.modules_state[key]   = active|inactive|hidden|blocked
-   *      p360.modules_access[key]  = bool (true SOLO active)
-   *      p360.modules_visible[key] = bool (false si hidden)
-   *
-   * fallback legacy: p360.modules[key] = bool (true/false)
+   * p360.modules_state[key]   = active|inactive|hidden|blocked
+   * p360.modules_access[key]  = bool (true SOLO active)
+   * p360.modules_visible[key] = bool (false si hidden)
+   * fallback legacy: p360.modules[key] = bool
    */
   $modsState   = session('p360.modules_state', []);
   $modsAccess  = session('p360.modules_access', []);
   $modsVisible = session('p360.modules_visible', []);
-  $legacyMods  = session('p360.modules', []); // v3.x fallback
+  $legacyMods  = session('p360.modules', []);
 
   $stateOf = function(string $key) use ($modsState, $legacyMods): string {
     if (is_array($modsState) && array_key_exists($key, $modsState)) {
@@ -117,6 +116,7 @@
   $isDown     = request()->routeIs('cliente.sat.descargas.*') || request()->is('cliente/sat/descargas*');
   $isVault    = request()->routeIs('cliente.vault.*') || request()->is('cliente/vault*') || request()->is('cliente/boveda*');
 
+  // Inicia expanded (layout manda isOpen=true normalmente)
   $dataState = $isOpen ? 'expanded' : 'collapsed';
 
   // =========================
@@ -138,43 +138,77 @@
   $svgChat = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM6 9h12v2H6V9Zm0-4h12v2H6V5Zm0 8h8v2H6v-2Z"/></svg>';
   $svgBell = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2Zm6-6V11a6 6 0 1 0-12 0v5L4 18v1h16v-1l-2-2Z"/></svg>';
   $svgLink = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l3.18-3.18a2 2 0 1 1 2.82 2.82l-1.06 1.06l1.41 1.41l1.06-1.06a4 4 0 0 0-5.66-5.66l-3.18 3.18a4 4 0 0 0 0 5.66l.7.7l1.41-1.41l-.68-.7ZM13.41 10.59a1.996 1.996 0 0 1 0 2.82l-3.18 3.18a2 2 0 1 1-2.82-2.82l1.06-1.06l-1.41-1.41l-1.06 1.06a4 4 0 0 0 5.66 5.66l3.18-3.18a4 4 0 0 0 0-5.66l-.7-.7l-1.41 1.41l.68.7Z"/></svg>';
+  $svgLock = '<svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16"><path fill="currentColor" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z"/></svg>';
+
+  // ===== Descripciones UI =====
+  $desc = [
+    'Inicio' => 'Resumen y métricas',
+    'Mi cuenta' => 'Perfil, plan y accesos',
+    'Estado de cuenta' => 'Cargos, abonos y saldo',
+    'Pagos' => 'Métodos y movimientos',
+    'Facturas' => 'Descarga y gestión',
+
+    'Facturación' => 'CFDI y administración',
+    'Nuevo CFDI' => 'Crear comprobante',
+    'SAT (Descarga)' => 'Detecta y procesa CFDI',
+    'Descargas' => 'Historial SAT',
+    'Bóveda Fiscal' => 'Archivos y resguardo',
+
+    'CRM' => 'Clientes y oportunidades',
+    'Nómina' => 'Recibos y timbrado',
+    'Punto de venta' => 'Ventas y tickets',
+    'Inventario' => 'Productos y existencias',
+    'Reportes' => 'KPIs y analítica',
+    'Integraciones' => 'API y conexiones',
+    'Alertas' => 'Notificaciones',
+    'Chat' => 'Soporte y mensajes',
+    'Marketplace' => 'Addons y servicios',
+
+    'Configuración' => 'Preferencias',
+    'Configuración avanzada' => 'Opciones técnicas',
+    'Cerrar sesión' => 'Salir de la plataforma',
+  ];
 
   // =========================
-  // Render item (respeta v3.2)
+  // Render item (label + desc)
   // =========================
-  $renderItem = function(string $key, string $label, ?string $url, bool $active, string $icon, bool $always = false) use ($stateOf, $isVisible, $canAccess, $lockTitle, $routeMissingTitle) {
+  $renderItem = function(string $key, string $label, ?string $url, bool $active, string $icon, bool $always = false) use (
+    $stateOf, $isVisible, $canAccess, $lockTitle, $routeMissingTitle, $svgLock, $desc
+  ) {
     if (!$always && !$isVisible($key)) return '';
 
     $hasUrl = is_string($url) && trim($url) !== '';
+    $d = (string)($desc[$label] ?? '');
+
+    $tx = '<span class="tx"><span class="lbl">'.e($label).'</span>'.($d!==''?'<span class="desc">'.e($d).'</span>':'').'</span>';
 
     if ($always) {
       if ($hasUrl) {
-        return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.'<span class="tx">'.e($label).'</span></a>';
+        return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.$tx.'</a>';
       }
-      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.$tx.'<span class="lock" aria-hidden="true">'.$svgLock.'</span></a>';
     }
 
     $st = $stateOf($key);
 
     if (!$canAccess($key)) {
-      return '<a class="tip is-disabled" title="'.e($lockTitle($label, $st)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+      return '<a class="tip is-disabled" title="'.e($lockTitle($label, $st)).'">'.$icon.$tx.'<span class="lock" aria-hidden="true">'.$svgLock.'</span></a>';
     }
 
     if (!$hasUrl) {
-      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.'<span class="tx">'.e($label).'</span><span class="lock" aria-hidden="true">🔒</span></a>';
+      return '<a class="tip is-disabled" title="'.e($routeMissingTitle($label)).'">'.$icon.$tx.'<span class="lock" aria-hidden="true">'.$svgLock.'</span></a>';
     }
 
-    return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.'<span class="tx">'.e($label).'</span></a>';
+    return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.$tx.'</a>';
   };
 
   // =========================
-  // Builder de grupos: SOLO renderiza si hay items (evita huecos)
+  // Builder de grupos: SOLO renderiza si hay items
   // =========================
   $renderGroupIfAny = function(string $title, string $htmlItems, string $titleId, bool $accordion = true) {
     $htmlItems = trim((string)$htmlItems);
     if ($htmlItems === '') return '';
 
-    // Acordeón (details/summary) para compactar y permitir colapsar
     if ($accordion) {
       return '
         <details class="nav-acc" open>
@@ -184,7 +218,6 @@
       ';
     }
 
-    // Fallback sin acordeón (clásico)
     return '
       <div class="nav-group" aria-labelledby="'.e($titleId).'">
         <div class="nav-title" id="'.e($titleId).'"><span class="pill">'.e($title).'</span></div>
@@ -195,7 +228,6 @@
 
   // =========================
   // Construimos HTML de grupos dinámicos
-  // (si todo hidden => NO se imprimen => no hay espacio)
   // =========================
   $htmlCuenta = '';
   $htmlCuenta .= $renderItem('mi_cuenta','Mi cuenta',$rtMiCuenta,$isMiCuenta,$svgUser,false);
@@ -222,49 +254,22 @@
   $htmlModulos .= $renderItem('chat','Chat',$rtChat,(request()->routeIs('cliente.chat.*') || request()->is('cliente/chat*')),$svgChat,false);
   $htmlModulos .= $renderItem('marketplace','Marketplace',$rtMarket,(request()->routeIs('cliente.marketplace.*') || request()->is('cliente/marketplace*')),$svgBag,false);
 
-  // OJO: esto es “avanzada”; la dejamos dinámica para que admin pueda ocultarla
-  $htmlConfigAdv = $renderItem('configuracion_avanzada','Configuración avanzada',$rtCfgAdv,(request()->is('cliente/config*') || request()->is('cliente/configuracion*')),$svgGear,false);
+  $htmlConfigAdv = $renderItem(
+    'configuracion_avanzada',
+    'Configuración avanzada',
+    $rtCfgAdv,
+    (request()->is('cliente/config*') || request()->is('cliente/configuracion*')),
+    $svgGear,
+    false
+  );
 @endphp
 
 @once
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/sidebar.css') }}">
-  <style>
-    .sidebar .tip.is-disabled{
-      opacity:.55;
-      cursor:not-allowed;
-      pointer-events:none;
-      position:relative;
-    }
-    .sidebar .tip.is-disabled .tx{ filter:saturate(.7); }
-    .sidebar .tip.is-disabled .lock{
-      margin-left:auto;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      width:22px;height:22px;
-      border-radius:8px;
-      background:rgba(15,23,42,.08);
-      border:1px solid rgba(15,23,42,.12);
-      color:rgba(15,23,42,.7);
-      font-weight:950;
-      font-size:12px;
-    }
-    html[data-theme="dark"] .sidebar .tip.is-disabled .lock{
-      background:rgba(255,255,255,.08);
-      border-color:rgba(255,255,255,.12);
-      color:rgba(255,255,255,.75);
-    }
-
-    /* Acordeón: usa summary como título y no deja “huecos” si no hay items */
-    .sidebar details.nav-acc{ margin:0; padding:0; }
-    .sidebar details.nav-acc > summary{
-      list-style:none;
-      cursor:pointer;
-      user-select:none;
-    }
-    .sidebar details.nav-acc > summary::-webkit-details-marker{ display:none; }
-    .sidebar details.nav-acc[open] > summary{ opacity:1; }
-  </style>
+  @php
+    $CLIENT_SB_CSS_ABS = public_path('assets/client/css/sidebar.css');
+    $CLIENT_SB_CSS_URL = asset('assets/client/css/sidebar.css') . (is_file($CLIENT_SB_CSS_ABS) ? ('?v='.filemtime($CLIENT_SB_CSS_ABS)) : '');
+  @endphp
+  <link rel="stylesheet" href="{{ $CLIENT_SB_CSS_URL }}">
 @endonce
 
 <aside
@@ -288,31 +293,29 @@
   <div class="sidebar-scroll" role="navigation" aria-label="Secciones">
     <nav class="nav">
 
-      {{-- ===== Inicio (siempre) ===== --}}
       <div class="nav-group" aria-labelledby="nav-title-ini">
         <div class="nav-title" id="nav-title-ini"><span class="pill">Inicio</span></div>
         {!! $renderItem('__always__','Inicio',$rtHome,$isHome,$svgHome,true) !!}
       </div>
 
-      {{-- ===== Dinámicos debajo de Inicio (solo si hay visibles) ===== --}}
       {!! $renderGroupIfAny('Cuenta',  $htmlCuenta,  'nav-title-cta', true) !!}
       {!! $renderGroupIfAny('Módulos', $htmlModulos, 'nav-title-mod', true) !!}
 
-      {{-- ===== Configuración (siempre al final, sin huecos) ===== --}}
       <div class="nav-group" aria-labelledby="nav-title-cfg">
         <div class="nav-title" id="nav-title-cfg"><span class="pill">Configuración</span></div>
 
-        {{-- Configuración (engrane) -> Mi cuenta --}}
         {!! $renderItem('__always__','Configuración',$rtMiCuenta,$isMiCuenta,$svgGear,true) !!}
-
-        {{-- Configuración avanzada (solo si admin la deja visible/activa) --}}
         {!! $htmlConfigAdv !!}
 
         <form method="POST" action="{{ $rtLogout }}" id="logoutForm-{{ $id }}-{{ $inst }}">
           @csrf
           <button type="submit" class="tip danger" title="Cerrar sesión">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 17v-2h4v2h-4zM4 12h10l-3-3l1.41-1.41L18.83 12l-6.42 6.41L11 17l3-3H4z"/></svg>
-            <span class="tx">Cerrar sesión</span>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M10 17v-2h4v2h-4zM4 12h10l-3-3l1.41-1.41L18.83 12l-6.42 6.41L11 17l3-3H4z"/>
+            </svg>
+            <span class="tx">
+              <span class="lbl">Cerrar sesión</span>
+            </span>
           </button>
         </form>
       </div>

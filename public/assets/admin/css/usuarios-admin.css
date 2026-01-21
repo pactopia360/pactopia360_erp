@@ -200,3 +200,14 @@ html.theme-dark .p360-table tbody td{ border-bottom-color: rgba(255,255,255,.08)
   margin-left: 0 !important;
   margin-right: 0 !important;
 }
+
+.ua-pw{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ua-pw input{flex:1 1 260px;min-width:220px}
+.ua-pw-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ua-pw-hint{margin-top:6px}
+@media (max-width:900px){
+  .ua-pw{gap:8px}
+  .ua-pw-tools{width:100%}
+  .ua-pw-tools .btnx{flex:1 1 auto}
+}
+

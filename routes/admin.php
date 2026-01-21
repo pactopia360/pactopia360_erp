@@ -41,6 +41,10 @@ use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 // ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
+use App\Http\Controllers\Admin\Billing\SatPriceRulesController;
+use App\Http\Controllers\Admin\Billing\SatDiscountCodesController;
+
+
 /*
 |--------------------------------------------------------------------------
 | CSRF middlewares (para quitar en local en algunos POST)
@@ -705,6 +709,105 @@ Route::middleware([
             ->whereNumber('id')
             ->name('administrativos.destroy');
     });
+
+/*
+|--------------------------------------------------------------------------|
+| SAT · Lista de precios + Códigos de descuento (Admin) — CANÓNICO
+|--------------------------------------------------------------------------|
+| MONTAJE:
+| - Este archivo ya vive bajo prefix('/admin') desde web.php
+| - Por lo tanto las URLs finales quedan:
+|   - /admin/sat/prices
+|   - /admin/sat/discounts
+|
+| NOMBRES:
+|   - admin.sat.prices.*
+|   - admin.sat.discounts.*
+|
+| NOTA:
+| - Esto coincide con tus blades que usan route('admin.sat....')
+|--------------------------------------------------------------------------|
+*/
+Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+    // =========================
+    // SAT · PRICE RULES
+    // =========================
+    Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+        Route::get('/', [SatPriceRulesController::class, 'index'])->name('index');
+        Route::get('create', [SatPriceRulesController::class, 'create'])->name('create');
+
+        $store = Route::post('/', [SatPriceRulesController::class, 'store'])
+            ->middleware($thrAdminPosts)
+            ->name('store');
+
+        Route::get('{id}/edit', [SatPriceRulesController::class, 'edit'])
+            ->whereNumber('id')
+            ->name('edit');
+
+        $update = Route::put('{id}', [SatPriceRulesController::class, 'update'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('update');
+
+        $toggle = Route::post('{id}/toggle', [SatPriceRulesController::class, 'toggle'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('toggle');
+
+        $destroy = Route::delete('{id}', [SatPriceRulesController::class, 'destroy'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('destroy');
+
+        if ($isLocal) {
+            foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+            }
+        }
+    });
+
+    // =========================
+    // SAT · DISCOUNT CODES
+    // =========================
+    Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+        Route::get('/', [SatDiscountCodesController::class, 'index'])->name('index');
+        Route::get('create', [SatDiscountCodesController::class, 'create'])->name('create');
+
+        $store = Route::post('/', [SatDiscountCodesController::class, 'store'])
+            ->middleware($thrAdminPosts)
+            ->name('store');
+
+        Route::get('{id}/edit', [SatDiscountCodesController::class, 'edit'])
+            ->whereNumber('id')
+            ->name('edit');
+
+        $update = Route::put('{id}', [SatDiscountCodesController::class, 'update'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('update');
+
+        $toggle = Route::post('{id}/toggle', [SatDiscountCodesController::class, 'toggle'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('toggle');
+
+        $destroy = Route::delete('{id}', [SatDiscountCodesController::class, 'destroy'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('destroy');
+
+        if ($isLocal) {
+            foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+            }
+        }
+    });
+
+});
+
 
     /*
     |--------------------------------------------------------------------------

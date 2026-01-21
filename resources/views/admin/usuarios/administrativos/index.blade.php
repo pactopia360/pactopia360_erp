@@ -32,17 +32,25 @@
           @endif
         </div>
       @endif
-
     </div>
 
     <div class="p360-ph-right">
-      <a class="btnx primary" href="#" onclick="alert('Pendiente: alta de usuario');return false;">+ Nuevo</a>
+      {{-- ✅ real: va a create --}}
+      <a class="btnx primary" href="{{ route('admin.usuarios.administrativos.create') }}">+ Nuevo</a>
     </div>
   </div>
 @endsection
 
 @section('content')
   <div class="p360-card p360-card-wide">
+
+    {{-- Flash --}}
+    @if(session('ok'))
+      <div class="p360-flash ok">{{ session('ok') }}</div>
+    @endif
+    @if(session('err'))
+      <div class="p360-flash err">{{ session('err') }}</div>
+    @endif
 
     <form method="GET" action="{{ route('admin.usuarios.administrativos.index') }}" class="p360-toolbar">
       <div class="field" style="min-width:320px">
@@ -104,7 +112,7 @@
               <td>
                 <div class="title">
                   {{ $u->nombre ?? '(Sin nombre)' }}
-                  @if((int)$u->es_superadmin === 1)
+                  @if((int)($u->es_superadmin ?? 0) === 1)
                     <span class="chip ok" style="margin-left:8px">Super</span>
                   @endif
                 </div>
@@ -113,7 +121,7 @@
               <td class="mono">{{ $u->email }}</td>
               <td><span class="chip">{{ $u->rol ?: '—' }}</span></td>
               <td>
-                @if((int)$u->activo === 1)
+                @if((int)($u->activo ?? 0) === 1)
                   <span class="chip ok">Activo</span>
                 @else
                   <span class="chip off">Inactivo</span>
@@ -123,10 +131,29 @@
                 {{ $u->last_login_at ? \Illuminate\Support\Carbon::parse($u->last_login_at)->format('Y-m-d H:i') : '—' }}
               </td>
               <td>
-                <div class="row-actions">
-                  <a class="btnx sm" href="#" onclick="alert('Pendiente: editar');return false;">Editar</a>
-                  <a class="btnx sm warn" href="#" onclick="alert('Pendiente: permisos');return false;">Permisos</a>
-                  <a class="btnx sm danger" href="#" onclick="alert('Pendiente: desactivar');return false;">Desactivar</a>
+                <div class="row-actions" style="gap:8px; flex-wrap:wrap">
+                  {{-- ✅ real: editar --}}
+                  <a class="btnx sm" href="{{ route('admin.usuarios.administrativos.edit', (int)$u->id) }}">Editar</a>
+
+                  {{-- ✅ “Permisos”: por ahora manda al mismo edit y hace foco visual (anchor) --}}
+                  <a class="btnx sm warn" href="{{ route('admin.usuarios.administrativos.edit', (int)$u->id) }}#permisos">Permisos</a>
+
+                  {{-- ✅ toggle activo/inactivo --}}
+                  <form method="POST" action="{{ route('admin.usuarios.administrativos.toggle', (int)$u->id) }}" class="inline"
+                        onsubmit="return confirm('¿Seguro que deseas {{ (int)($u->activo ?? 0)===1 ? 'desactivar' : 'activar' }} a este usuario?');">
+                    @csrf
+                    <button class="btnx sm {{ (int)($u->activo ?? 0)===1 ? 'danger' : '' }}" type="submit">
+                      {{ (int)($u->activo ?? 0)===1 ? 'Desactivar' : 'Activar' }}
+                    </button>
+                  </form>
+
+                  {{-- ✅ eliminar (opcional) --}}
+                  <form method="POST" action="{{ route('admin.usuarios.administrativos.destroy', (int)$u->id) }}" class="inline"
+                        onsubmit="return confirm('¿Eliminar usuario #{{ (int)$u->id }}? Esta acción no se puede deshacer.');">
+                    @csrf
+                    @method('DELETE')
+                    <button class="btnx sm" type="submit">Eliminar</button>
+                  </form>
                 </div>
               </td>
             </tr>
@@ -143,4 +170,12 @@
     </div>
 
   </div>
+
+  <style>
+    /* Flash básico si no existe en CSS */
+    .p360-flash{margin:0 0 12px;padding:10px 12px;border-radius:12px;font-weight:600}
+    .p360-flash.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+    .p360-flash.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+    form.inline{display:inline}
+  </style>
 @endsection

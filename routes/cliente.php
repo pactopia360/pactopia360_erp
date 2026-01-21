@@ -20,6 +20,8 @@ use App\Http\Controllers\Cliente\MarketplaceController;
 use App\Http\Controllers\Cliente\PerfilController;
 use App\Http\Controllers\Cliente\MiCuentaController;
 use App\Http\Controllers\Cliente\UiController;
+use App\Http\Controllers\Cliente\Sat\SatDescargaController as ClienteSatDescargaController;
+
 
 // ✅ FIX: importar FacturasController con su namespace real
 use App\Http\Controllers\Cliente\MiCuenta\FacturasController;
@@ -526,6 +528,95 @@ Route::middleware(['session.cliente', 'auth:web', 'account.active', 'cliente.hyd
     if ($isLocal) {
         $reqInv->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SAT (Descargas masivas) — Cotizador
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('sat')->name('sat.')->group(function () use ($isLocal) {
+
+        // Calcular cotización (AJAX)
+        $quoteCalc = Route::post('quote/calc', [ClienteSatDescargaController::class, 'quoteCalc'])
+            ->name('quote.calc');
+
+        // Generar PDF de cotización (GET o POST)
+        $quotePdf = Route::match(['GET','POST'], 'quote/pdf', [ClienteSatDescargaController::class, 'quotePdf'])
+            ->name('quote.pdf');
+
+        // Si estás en local y tienes CSRF relajado en algunos posts, puedes deshabilitarlo aquí también
+        // (normalmente NO es necesario si tu JS manda X-CSRF-TOKEN).
+        /*
+        if ($isLocal) {
+            $quoteCalc->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
+        }
+        */
+    });
+
+
+    Route::prefix('sat')->name('sat.')->group(function () use ($isLocal) {
+
+    // Dashboard SAT
+    Route::get('/', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'index'])
+        ->name('index');
+
+    // Solicitudes SAT
+    Route::post('request', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'request'])
+        ->name('request');
+
+    // Verificar estado (poll)
+    Route::get('verify', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'verify'])
+        ->name('verify');
+
+    // Descargar ZIP por id
+    Route::get('zip/{id}', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'zip'])
+        ->name('zip');
+
+    // Cancelar / eliminar descarga
+    Route::post('cancel', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cancelDownload'])
+        ->name('cancel');
+
+    // Credenciales / RFC
+    Route::post('rfc/register', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'registerRfc'])
+        ->name('rfc.register');
+
+    Route::post('rfc/alias', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'saveAlias'])
+        ->name('rfc.alias');
+
+    Route::post('rfc/delete', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'deleteRfc'])
+        ->name('rfc.delete');
+
+    Route::post('credentials', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'storeCredentials'])
+        ->name('credentials.store');
+
+    // Carrito (session + optional DB sat_cart_items)
+    Route::get('cart', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartGet'])
+        ->name('cart.get');
+
+    Route::post('cart/add', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartAdd'])
+        ->name('cart.add');
+
+    Route::post('cart/remove', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartRemove'])
+        ->name('cart.remove');
+
+    Route::post('cart/bulk-add', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartBulkAdd'])
+        ->name('cart.bulk_add');
+
+    Route::post('cart/clear', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartClear'])
+        ->name('cart.clear');
+
+    // Bóveda
+    Route::post('vault/backfill', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'vaultBackfill'])
+        ->name('vault.backfill');
+
+    // Cotizador (ya lo tenías)
+    Route::post('quote/calc', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'quoteCalc'])
+        ->name('quote.calc');
+
+    Route::match(['GET','POST'], 'quote/pdf', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'quotePdf'])
+        ->name('quote.pdf');
+
+    });
 
     /*
     |--------------------------------------------------------------------------
