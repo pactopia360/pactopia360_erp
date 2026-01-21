@@ -9,12 +9,16 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 final class AdministrativosController extends Controller
 {
     private string $adm;
+
+    /** cache columns per request */
+    private array $colCache = [];
 
     public function __construct()
     {
@@ -53,6 +57,22 @@ final class AdministrativosController extends Controller
         return $preferred ?: 'mysql';
     }
 
+    private function hasCol(string $col): bool
+    {
+        $key = $this->adm . ':usuarios_admin:' . $col;
+        if (array_key_exists($key, $this->colCache)) {
+            return (bool) $this->colCache[$key];
+        }
+
+        try {
+            $ok = Schema::connection($this->adm)->hasColumn('usuarios_admin', $col);
+        } catch (\Throwable $e) {
+            $ok = false;
+        }
+
+        return (bool) ($this->colCache[$key] = $ok);
+    }
+
     private function parsePerms(?string $text): ?string
     {
         $t = trim((string) $text);
@@ -63,7 +83,7 @@ final class AdministrativosController extends Controller
 
         $out = [];
         foreach ($parts as $p) {
-            $p = strtolower(trim((string)$p));
+            $p = strtolower(trim((string) $p));
             if ($p !== '') $out[] = $p;
         }
 
@@ -84,8 +104,7 @@ final class AdministrativosController extends Controller
         if (!in_array($perPage, $allowedPerPage, true)) $perPage = 25;
 
         $adm = DB::connection($this->adm);
-
-        $qb = $adm->table('usuarios_admin');
+        $qb  = $adm->table('usuarios_admin');
 
         if ($q !== '') {
             $qb->where(function ($w) use ($q) {
@@ -102,13 +121,26 @@ final class AdministrativosController extends Controller
             $qb->where('activo', (int) $estado);
         }
 
+        // SELECT tolerante: si no existe la columna, seleccionamos NULL alias
+        $select = [
+            'id', 'nombre', 'email', 'rol', 'activo',
+            $this->hasCol('es_superadmin') ? 'es_superadmin' : DB::raw('0 as es_superadmin'),
+            $this->hasCol('force_password_change') ? 'force_password_change' : DB::raw('0 as force_password_change'),
+            $this->hasCol('last_login_at') ? 'last_login_at' : DB::raw('NULL as last_login_at'),
+            $this->hasCol('last_login_ip') ? 'last_login_ip' : DB::raw('NULL as last_login_ip'),
+            $this->hasCol('created_at') ? 'created_at' : DB::raw('NULL as created_at'),
+            $this->hasCol('updated_at') ? 'updated_at' : DB::raw('NULL as updated_at'),
+        ];
+
+        if ($this->hasCol('permisos')) {
+            $select[] = 'permisos';
+        } else {
+            $select[] = DB::raw('NULL as permisos');
+        }
+
         $rows = $qb
-            ->select([
-                'id','nombre','email','rol','activo','es_superadmin',
-                'permisos','force_password_change','last_login_at','last_login_ip',
-                'created_at','updated_at',
-            ])
-            ->orderByDesc('es_superadmin')
+            ->select($select)
+            ->orderByDesc($this->hasCol('es_superadmin') ? 'es_superadmin' : 'id')
             ->orderBy('nombre')
             ->paginate($perPage)
             ->withQueryString();
@@ -127,6 +159,13 @@ final class AdministrativosController extends Controller
             'conn'  => $this->adm,
             'db'    => (string) $adm->getDatabaseName(),
             'total' => (int) $adm->table('usuarios_admin')->count(),
+            'cols'  => [
+                'permisos' => $this->hasCol('permisos'),
+                'es_superadmin' => $this->hasCol('es_superadmin'),
+                'force_password_change' => $this->hasCol('force_password_change'),
+                'last_login_at' => $this->hasCol('last_login_at'),
+                'last_login_ip' => $this->hasCol('last_login_ip'),
+            ],
             'auth'  => [
                 'id'    => auth('admin')->id(),
                 'email' => (string) (auth('admin')->user()?->email ?? ''),
@@ -148,7 +187,6 @@ final class AdministrativosController extends Controller
 
     public function create(): View
     {
-        // objeto dummy para que el blade no truene con $row->...
         $row = (object)[
             'id' => null,
             'nombre' => '',
@@ -190,21 +228,43 @@ final class AdministrativosController extends Controller
 
         $permsJson = $this->parsePerms($data['permisos_text'] ?? null);
 
-        $adm->table('usuarios_admin')->insert([
+        $ins = [
             'nombre' => $data['nombre'],
             'email'  => $data['email'],
             'password' => Hash::make($data['password']),
             'rol'    => (string)($data['rol'] ?? 'usuario'),
-            'permisos' => $permsJson, // JSON string o null
             'activo' => (int) $data['activo'],
-            'es_superadmin' => (int) $data['es_superadmin'],
-            'force_password_change' => (int)($data['force_password_change'] ?? 0),
-            'last_login_at' => null,
-            'last_login_ip' => null,
             'remember_token' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        ];
+
+        if ($this->hasCol('permisos')) {
+            $ins['permisos'] = $permsJson;
+        }
+
+        if ($this->hasCol('es_superadmin')) {
+            $ins['es_superadmin'] = (int) $data['es_superadmin'];
+        }
+
+        if ($this->hasCol('force_password_change')) {
+            $ins['force_password_change'] = (int)($data['force_password_change'] ?? 0);
+        }
+
+        if ($this->hasCol('last_login_at')) {
+            $ins['last_login_at'] = null;
+        }
+
+        if ($this->hasCol('last_login_ip')) {
+            $ins['last_login_ip'] = null;
+        }
+
+        if ($this->hasCol('created_at')) {
+            $ins['created_at'] = now();
+        }
+        if ($this->hasCol('updated_at')) {
+            $ins['updated_at'] = now();
+        }
+
+        $adm->table('usuarios_admin')->insert($ins);
 
         return redirect()->route('admin.usuarios.administrativos.index')->with('ok', 'Usuario creado.');
     }
@@ -215,6 +275,11 @@ final class AdministrativosController extends Controller
 
         $row = $adm->table('usuarios_admin')->where('id', $id)->first();
         abort_unless($row, 404);
+
+        // si no existe permisos, agrega prop para que el blade no falle
+        if (!property_exists($row, 'permisos')) {
+            $row->permisos = null;
+        }
 
         return view('admin.usuarios.administrativos.form', [
             'mode' => 'edit',
@@ -255,17 +320,32 @@ final class AdministrativosController extends Controller
             'nombre' => $data['nombre'],
             'email'  => $data['email'],
             'rol'    => (string)($data['rol'] ?? 'usuario'),
-            'permisos' => $permsJson,
             'activo' => (int) $data['activo'],
-            'es_superadmin' => (int) $data['es_superadmin'],
-            'force_password_change' => (int)($data['force_password_change'] ?? (int)($row->force_password_change ?? 0)),
-            'updated_at' => now(),
         ];
+
+        if ($this->hasCol('permisos')) {
+            $upd['permisos'] = $permsJson;
+        }
+
+        if ($this->hasCol('es_superadmin')) {
+            $upd['es_superadmin'] = (int) $data['es_superadmin'];
+        }
+
+        if ($this->hasCol('force_password_change')) {
+            $upd['force_password_change'] = (int)($data['force_password_change'] ?? (int)($row->force_password_change ?? 0));
+        }
+
+        if ($this->hasCol('updated_at')) {
+            $upd['updated_at'] = now();
+        }
 
         if (!empty($data['password'])) {
             $upd['password'] = Hash::make($data['password']);
+
             // Si cambias password manualmente aquí, normalmente NO fuerzas cambio.
-            $upd['force_password_change'] = (int)($data['force_password_change'] ?? 0);
+            if ($this->hasCol('force_password_change')) {
+                $upd['force_password_change'] = (int)($data['force_password_change'] ?? 0);
+            }
         }
 
         $adm->table('usuarios_admin')->where('id', $id)->update($upd);
@@ -282,17 +362,21 @@ final class AdministrativosController extends Controller
 
         $new = ((int) $row->activo === 1) ? 0 : 1;
 
-        $adm->table('usuarios_admin')->where('id', $id)->update([
+        $upd = [
             'activo' => $new,
-            'updated_at' => now(),
-        ]);
+        ];
+
+        if ($this->hasCol('updated_at')) {
+            $upd['updated_at'] = now();
+        }
+
+        $adm->table('usuarios_admin')->where('id', $id)->update($upd);
 
         return back()->with('ok', $new ? 'Usuario activado.' : 'Usuario desactivado.');
     }
 
     public function resetPassword(Request $req, int $id): RedirectResponse
     {
-        // soporta password o new_password (compat)
         $data = $req->validate([
             'password' => ['nullable','string','min:10'],
             'new_password' => ['nullable','string','min:10'],
@@ -308,11 +392,19 @@ final class AdministrativosController extends Controller
             $plain = Str::random(14);
         }
 
-        $adm->table('usuarios_admin')->where('id', $id)->update([
+        $upd = [
             'password' => Hash::make($plain),
-            'force_password_change' => 1,
-            'updated_at' => now(),
-        ]);
+        ];
+
+        if ($this->hasCol('force_password_change')) {
+            $upd['force_password_change'] = 1;
+        }
+
+        if ($this->hasCol('updated_at')) {
+            $upd['updated_at'] = now();
+        }
+
+        $adm->table('usuarios_admin')->where('id', $id)->update($upd);
 
         return back()->with('ok', 'Password reseteada. Nueva: '.$plain);
     }
