@@ -1,17 +1,27 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\cliente.php
+// PACTOPIA360 · Cliente routes (CORE)
+// ✅ Canónico: este archivo = portal cliente general (auth, perfil, mi-cuenta, billing, etc.)
+// ✅ SAT completo vive en routes/cliente_sat.php (montado en routes/web.php)
+// ✅ Aquí SOLO dejamos (opcional) el Cotizador SAT si aún NO está en cliente_sat.php
+//
+// IMPORTANTÍSIMO (route:cache):
+// - No duplicar nombres de rutas entre cliente.php y cliente_sat.php
+// - Este archivo ya se monta con prefix('cliente') + as('cliente.') desde routes/web.php
+
+declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 
 use App\Http\Controllers\Cliente\Auth\LoginController as ClienteLogin;
+use App\Http\Controllers\Cliente\Auth\FirstPasswordController;
 use App\Http\Controllers\Cliente\HomeController as ClienteHome;
 use App\Http\Controllers\Cliente\RegisterController;
 use App\Http\Controllers\Cliente\VerificationController;
 use App\Http\Controllers\Cliente\PasswordController;
 use App\Http\Controllers\Cliente\StripeController;
 use App\Http\Controllers\Cliente\AccountBillingController;
-use App\Http\Controllers\Cliente\Auth\FirstPasswordController;
 use App\Http\Controllers\Cliente\FacturacionController as ClienteFacturacion;
 
 use App\Http\Controllers\Cliente\AlertasController;
@@ -20,11 +30,12 @@ use App\Http\Controllers\Cliente\MarketplaceController;
 use App\Http\Controllers\Cliente\PerfilController;
 use App\Http\Controllers\Cliente\MiCuentaController;
 use App\Http\Controllers\Cliente\UiController;
-use App\Http\Controllers\Cliente\Sat\SatDescargaController as ClienteSatDescargaController;
 
-
-// ✅ FIX: importar FacturasController con su namespace real
+// ✅ Mi cuenta / Facturas (ZIP estados de cuenta admin SOT)
 use App\Http\Controllers\Cliente\MiCuenta\FacturasController;
+
+// ✅ SAT (solo cotizador si lo quieres aquí)
+use App\Http\Controllers\Cliente\Sat\SatDescargaController as ClienteSatDescargaController;
 
 // ✅ CSRF (solo para local)
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
@@ -32,6 +43,9 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
+// =========================
+// Throttles (local más permisivo)
+// =========================
 $throttleLogin        = $isLocal ? 'throttle:60,1'  : 'throttle:5,1';
 $throttleRegister     = $isLocal ? 'throttle:60,1'  : 'throttle:6,1';
 $throttleCheckout     = $isLocal ? 'throttle:120,1' : 'throttle:10,1';
@@ -41,11 +55,20 @@ $throttleOtpCheck     = $isLocal ? 'throttle:60,1'  : 'throttle:6,5';
 $throttlePassEmail    = $isLocal ? 'throttle:30,1'  : 'throttle:5,10';
 $throttlePassReset    = $isLocal ? 'throttle:60,1'  : 'throttle:6,10';
 $throttleBillingPay   = $isLocal ? 'throttle:120,1' : 'throttle:10,1';
-$throttleQaSeedClean  = $isLocal ? 'throttle:120,1' : 'throttle:12,1';
 $throttleUiTheme      = $isLocal ? 'throttle:120,1' : 'throttle:30,1';
 $throttleAlerts       = $isLocal ? 'throttle:120,1' : 'throttle:30,1';
 $throttleChat         = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 $throttleHomeData     = $isLocal ? 'throttle:120,1' : 'throttle:30,1';
+
+// =========================
+// Helper: quitar CSRF solo en local
+// =========================
+$noCsrfLocal = function ($route) use ($isLocal) {
+    if ($isLocal && $route) {
+        $route->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+    }
+    return $route;
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -100,7 +123,6 @@ Route::get('__debug', function (Request $request) {
     ]);
 })->middleware(['web'])->name('debug.public');
 
-
 /*
 |--------------------------------------------------------------------------
 | DEBUG SESSION (TEMP) — VALIDAR COOKIE/GUARD/SESSION EN CONTEXTO /cliente
@@ -134,18 +156,14 @@ Route::get('__session', function () {
             'provider_model' => config('auth.providers.clientes.model'),
         ],
     ]);
-})->middleware(['web','auth:web'])->name('debug.session');
-
+})->middleware(['web', 'auth:web'])->name('debug.session');
 
 /*
 |--------------------------------------------------------------------------
 | ✅ PAYWALL (SIN LOGIN) — redirige a Stripe Checkout PRO
 |--------------------------------------------------------------------------
-| LoginController (cuando admin.is_blocked=1) hace:
-|   return redirect()->route('cliente.paywall');
-|
-| Aquí NO podemos mandar al "estado de cuenta" porque requiere auth:web y eso
-| provoca loop a login. Entonces redirigimos directo a Checkout PRO.
+| Regla: desde el primer login válido, si is_blocked=1, NO mostramos mensaje,
+| redirigimos directo a Stripe Checkout (mensual/anual). Se desbloquea solo vía webhook.
 */
 Route::get('paywall', function (Request $request) {
     $accountId = (int) $request->session()->get('paywall.account_id', 0);
@@ -158,8 +176,6 @@ Route::get('paywall', function (Request $request) {
 
     $cycle = ($cycle === 'anual' || $cycle === 'annual') ? 'anual' : 'mensual';
 
-    // ✅ Redirección inmediata (sin mensajes)
-    // Usamos rutas públicas GET para evitar CSRF y porque aún no hay auth.
     if ($cycle === 'anual') {
         return redirect()->route('cliente.checkout.pro.annual', [
             'account_id' => $accountId,
@@ -178,8 +194,7 @@ Route::get('paywall', function (Request $request) {
 | PDF / PAGO PÚBLICOS (SIN LOGIN) — CONTROLADOS EN CONTROLLER
 |--------------------------------------------------------------------------
 | ✅ FIX:
-| - NO usar middleware 'signed' aquí, porque en tu UI hay flujos donde el
-|   iframe abre sin query (?expires&signature) y eso dispara 403 INVALID SIGNATURE.
+| - NO usar middleware 'signed' aquí (hay flujos sin query signature).
 | - La validación se hace en el Controller: si no hay sesión, exige firma.
 */
 Route::get('billing/statement/public-pdf/{accountId}/{period}', [AccountBillingController::class, 'publicPdf'])
@@ -209,8 +224,6 @@ Route::post('billing/profile/save', [AccountBillingController::class, 'saveBilli
 |--------------------------------------------------------------------------
 | ✅ STRIPE CHECKOUT PRO (PÚBLICO) — GET
 |--------------------------------------------------------------------------
-| Paywall redirige aquí con account_id/email por query string.
-| StripeController ya valida account_id/email, funciona con GET o POST.
 */
 Route::get('checkout/pro/mensual', [StripeController::class, 'checkoutMonthly'])
     ->middleware($throttleCheckout)
@@ -225,11 +238,8 @@ Route::get('checkout/pro/anual', [StripeController::class, 'checkoutAnnual'])
 | STRIPE CALLBACKS
 |--------------------------------------------------------------------------
 */
-Route::get('checkout/success', [StripeController::class, 'success'])
-    ->name('checkout.success');
-
-Route::get('checkout/cancel', [StripeController::class, 'cancel'])
-    ->name('checkout.cancel');
+Route::get('checkout/success', [StripeController::class, 'success'])->name('checkout.success');
+Route::get('checkout/cancel',  [StripeController::class, 'cancel'])->name('checkout.cancel');
 
 /*
 |--------------------------------------------------------------------------
@@ -237,21 +247,18 @@ Route::get('checkout/cancel', [StripeController::class, 'cancel'])
 |--------------------------------------------------------------------------
 */
 Route::middleware(['guest:web'])->group(function () use (
-    $isLocal,
+    $noCsrfLocal,
     $throttleLogin,
     $throttleRegister,
-    $throttleCheckout,
     $throttleVerifyResend,
     $throttleOtpSend,
-    $throttleOtpCheck,
-    $throttlePassEmail,
-    $throttlePassReset
+    $throttleOtpCheck
 ) {
 
     /*
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     | AUTH
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     */
     Route::get('login', [ClienteLogin::class, 'showLogin'])->name('login');
 
@@ -259,10 +266,13 @@ Route::middleware(['guest:web'])->group(function () use (
         ->middleware($throttleLogin)
         ->name('login.do');
 
-    if ($isLocal) {
-        $postLogin->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
+    $noCsrfLocal($postLogin);
 
+    /*
+    |----------------------------------------------------------------------
+    | REGISTRO
+    |----------------------------------------------------------------------
+    */
     Route::get('registro', [RegisterController::class, 'showFree'])->name('registro.free');
     $rFree = Route::post('registro', [RegisterController::class, 'storeFree'])
         ->middleware($throttleRegister)
@@ -273,34 +283,31 @@ Route::middleware(['guest:web'])->group(function () use (
         ->middleware($throttleRegister)
         ->name('registro.pro.do');
 
-    if ($isLocal) {
-        foreach ([$rFree, $rPro] as $r) {
-            $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-        }
-    }
+    $noCsrfLocal($rFree);
+    $noCsrfLocal($rPro);
 
     /*
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     | VERIFICACIÓN EMAIL (TOKEN)
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     */
     Route::get('verificar/email/{token}', [VerificationController::class, 'verifyEmail'])
         ->where('token', '[A-Za-z0-9\-\_\.]+')
         ->name('verify.email.token');
 
     /*
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     | VERIFICACIÓN EMAIL (SIGNED LINK)
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     */
     Route::get('verificar/email/link', [VerificationController::class, 'verifyEmailSigned'])
         ->middleware('signed')
         ->name('verify.email.signed');
 
     /*
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     | REENVIAR VERIFICACIÓN EMAIL
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     */
     Route::get('verificar/email/reenviar', [VerificationController::class, 'showResendEmail'])
         ->name('verify.email.resend');
@@ -309,17 +316,14 @@ Route::middleware(['guest:web'])->group(function () use (
         ->middleware($throttleVerifyResend)
         ->name('verify.email.resend.do');
 
-    if ($isLocal) {
-        $resendEmail->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
+    $noCsrfLocal($resendEmail);
 
     /*
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     | VERIFICACIÓN TELÉFONO (OTP) - flujo invitado
-    |--------------------------------------------------------------------------
+    |----------------------------------------------------------------------
     */
-    Route::get('verificar/telefono', [VerificationController::class, 'showOtp'])
-        ->name('verify.phone');
+    Route::get('verificar/telefono', [VerificationController::class, 'showOtp'])->name('verify.phone');
 
     $updPhone = Route::post('verificar/telefono', [VerificationController::class, 'updatePhone'])
         ->middleware($throttleOtpSend)
@@ -333,11 +337,9 @@ Route::middleware(['guest:web'])->group(function () use (
         ->middleware($throttleOtpCheck)
         ->name('verify.phone.check');
 
-    if ($isLocal) {
-        foreach ([$updPhone, $sendOtp, $checkOtp] as $r) {
-            $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-        }
-    }
+    $noCsrfLocal($updPhone);
+    $noCsrfLocal($sendOtp);
+    $noCsrfLocal($checkOtp);
 });
 
 /*
@@ -345,10 +347,9 @@ Route::middleware(['guest:web'])->group(function () use (
 | PRIMER PASSWORD (POST-LOGIN)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:web'])->group(function () use ($isLocal) {
+Route::middleware(['auth:web'])->group(function () use ($noCsrfLocal) {
 
-    Route::get('password/first', [FirstPasswordController::class, 'show'])
-        ->name('password.first');
+    Route::get('password/first', [FirstPasswordController::class, 'show'])->name('password.first');
 
     $firstPassStore = Route::post('password/first', [FirstPasswordController::class, 'store'])
         ->name('password.first.store');
@@ -356,10 +357,8 @@ Route::middleware(['auth:web'])->group(function () use ($isLocal) {
     $firstPassDo = Route::post('password/first/do', [FirstPasswordController::class, 'store'])
         ->name('password.first.do');
 
-    if ($isLocal) {
-        $firstPassStore->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-        $firstPassDo->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
+    $noCsrfLocal($firstPassStore);
+    $noCsrfLocal($firstPassDo);
 });
 
 /*
@@ -367,7 +366,7 @@ Route::middleware(['auth:web'])->group(function () use ($isLocal) {
 | UI helpers (demo-mode, theme, etc.)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:web'])->group(function () use ($isLocal) {
+Route::middleware(['auth:web'])->group(function () use ($noCsrfLocal) {
 
     $demoPost = Route::post('ui/demo-mode', [UiController::class, 'demoMode'])
         ->name('ui.demo_mode');
@@ -375,9 +374,7 @@ Route::middleware(['auth:web'])->group(function () use ($isLocal) {
     Route::get('ui/demo-mode', [UiController::class, 'demoModeGet'])
         ->name('ui.demo_mode.get');
 
-    if ($isLocal) {
-        $demoPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
+    $noCsrfLocal($demoPost);
 });
 
 /*
@@ -393,238 +390,147 @@ Route::view('terminos', 'legal.terminos')->name('terminos');
 |--------------------------------------------------------------------------
 | ✅ FIX REAL:
 | - hidratar módulos desde admin SOT para que el cliente respete ON/OFF
-| - forzar session.cliente por consistencia (aunque ya venga del RouteServiceProvider)
+| - forzar session.cliente por consistencia
 */
 Route::middleware(['session.cliente', 'auth:web', 'account.active', 'cliente.hydrate_modules'])
     ->group(function () use (
         $throttleBillingPay,
         $throttleAlerts,
         $throttleChat,
-        $throttleHomeData,
-        $isLocal
+        $throttleHomeData
     ) {
 
-    Route::get('home', [ClienteHome::class, 'index'])->name('home');
-
-    /*
-    |--------------------------------------------------------------------------
-    | PERFIL (Cliente)
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('perfil')->name('perfil.')->group(function () use ($isLocal) {
-
-        Route::get('/', [PerfilController::class, 'index'])->name('index');
-        Route::get('/', [PerfilController::class, 'index'])->name('show');
-
-        $pw = Route::match(['POST','PUT'], 'password', [PerfilController::class, 'updatePassword'])
-            ->name('password.update');
-
-        $ph = Route::match(['POST','PUT'], 'phone', [PerfilController::class, 'updatePhone'])
-            ->name('phone.update');
-
-        $av = Route::match(['POST','PUT'], 'avatar', [PerfilController::class, 'uploadAvatar'])
-            ->name('avatar.update');
-
-        Route::get('settings', [PerfilController::class, 'settings'])
-            ->name('settings');
-
-        if ($isLocal) {
-            foreach ([$pw, $ph, $av] as $r) {
-                $r->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-            }
-        }
-    });
-
-    Route::get('perfil', [PerfilController::class, 'index'])->name('perfil');
-
-    /*
-    |--------------------------------------------------------------------------
-    | MI CUENTA (Cliente)
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('mi-cuenta')->name('mi_cuenta.')->group(function () {
-
-        Route::get('/', [MiCuentaController::class, 'index'])->name('index');
-
-        // ✅ MIS PAGOS
-        Route::get('pagos', [MiCuentaController::class, 'pagos'])->name('pagos');
-
-        Route::post('profile/update', [MiCuentaController::class, 'profileUpdate'])->name('profile.update');
-        Route::post('security/update', [MiCuentaController::class, 'securityUpdate'])->name('security.update');
-        Route::post('preferences/update', [MiCuentaController::class, 'preferencesUpdate'])->name('preferences.update');
-        Route::post('brand/update', [MiCuentaController::class, 'brandUpdate'])->name('brand.update');
-        Route::post('billing/update', [MiCuentaController::class, 'billingUpdate'])->name('billing.update');
-
-        // Contratos placeholders
-        Route::get('contratos', [MiCuentaController::class, 'contratosIndex'])->name('contratos.index');
-        Route::get('contratos/{contract}', [MiCuentaController::class, 'showContract'])->whereNumber('contract')->name('contratos.show');
-        Route::post('contratos/{contract}/sign', [MiCuentaController::class, 'signContract'])->whereNumber('contract')->name('contratos.sign');
-        Route::get('contratos/{contract}/pdf', [MiCuentaController::class, 'downloadSignedPdf'])->whereNumber('contract')->name('contratos.pdf');
+        /*
+        |----------------------------------------------------------------------
+        | HOME
+        |----------------------------------------------------------------------
+        */
+        Route::get('home', [ClienteHome::class, 'index'])->name('home');
 
         /*
-        |--------------------------------------------------------------------------
-        | ✅ FACTURAS (Mi cuenta) — SOLICITUDES DE ESTADO DE CUENTA
-        |--------------------------------------------------------------------------
-        | OJO:
-        | Estas “facturas” son las solicitudes/ZIP de estados de cuenta (admin SOT),
-        | NO dependen del módulo “facturacion” (CFDI).
-        | Si lo dejas con cliente.module:facturacion, el iframe se redirige a Home.
+        |----------------------------------------------------------------------
+        | PERFIL (Cliente)
+        |----------------------------------------------------------------------
         */
-        Route::get('facturas', [FacturasController::class, 'index'])->name('facturas.index');
-        Route::post('facturas', [FacturasController::class, 'store'])->name('facturas.store');
-        Route::get('facturas/{id}', [FacturasController::class, 'show'])->whereNumber('id')->name('facturas.show');
-        Route::get('facturas/{id}/download', [FacturasController::class, 'downloadZip'])->whereNumber('id')->name('facturas.download');
+        Route::prefix('perfil')->name('perfil.')->group(function () {
 
-    });
+            Route::get('/', [PerfilController::class, 'index'])->name('index');
+            Route::get('/', [PerfilController::class, 'index'])->name('show'); // compat
 
-    /*
-    |--------------------------------------------------------------------------
-    | ESTADO DE CUENTA
-    |--------------------------------------------------------------------------
-    */
-    Route::get('estado-de-cuenta', [AccountBillingController::class, 'statement'])
-        ->name('estado_cuenta');
+            Route::match(['POST', 'PUT'], 'password', [PerfilController::class, 'updatePassword'])
+                ->name('password.update');
 
-    Route::get('billing/statement/pdf-inline/{period}', [AccountBillingController::class, 'pdfInline'])
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.pdfInline');
+            Route::match(['POST', 'PUT'], 'phone', [PerfilController::class, 'updatePhone'])
+                ->name('phone.update');
 
-    Route::get('billing/statement/pdf/{period}', [AccountBillingController::class, 'pdf'])
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.pdf');
+            Route::match(['POST', 'PUT'], 'avatar', [PerfilController::class, 'uploadAvatar'])
+                ->name('avatar.update');
 
-    /*
-    |--------------------------------------------------------------------------
-    | PAGO
-    |--------------------------------------------------------------------------
-    */
-    $payPost = Route::post('billing/statement/pay/{period}', [AccountBillingController::class, 'pay'])
-        ->middleware($throttleBillingPay)
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.pay');
+            Route::get('settings', [PerfilController::class, 'settings'])
+                ->name('settings');
+        });
 
-    Route::get('billing/statement/pay/{period}', [AccountBillingController::class, 'pay'])
-        ->middleware($throttleBillingPay)
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.pay.get');
+        Route::get('perfil', [PerfilController::class, 'index'])->name('perfil');
 
-    if ($isLocal) {
-        $payPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | FACTURAR (Solicitud y Descarga ZIP)
-    |--------------------------------------------------------------------------
-    */
-    $reqInv = Route::post('billing/statement/factura/{period}', [AccountBillingController::class, 'requestInvoice'])
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.factura.request');
-
-    Route::get('billing/statement/factura/{period}/download', [AccountBillingController::class, 'downloadInvoiceZip'])
-        ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
-        ->name('billing.factura.download');
-
-    if ($isLocal) {
-        $reqInv->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SAT (Descargas masivas) — Cotizador
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('sat')->name('sat.')->group(function () use ($isLocal) {
-
-        // Calcular cotización (AJAX)
-        $quoteCalc = Route::post('quote/calc', [ClienteSatDescargaController::class, 'quoteCalc'])
-            ->name('quote.calc');
-
-        // Generar PDF de cotización (GET o POST)
-        $quotePdf = Route::match(['GET','POST'], 'quote/pdf', [ClienteSatDescargaController::class, 'quotePdf'])
-            ->name('quote.pdf');
-
-        // Si estás en local y tienes CSRF relajado en algunos posts, puedes deshabilitarlo aquí también
-        // (normalmente NO es necesario si tu JS manda X-CSRF-TOKEN).
         /*
-        if ($isLocal) {
-            $quoteCalc->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
-        }
+        |----------------------------------------------------------------------
+        | MI CUENTA (Cliente)
+        |----------------------------------------------------------------------
         */
+        Route::prefix('mi-cuenta')->name('mi_cuenta.')->group(function () {
+
+            Route::get('/', [MiCuentaController::class, 'index'])->name('index');
+
+            // ✅ MIS PAGOS
+            Route::get('pagos', [MiCuentaController::class, 'pagos'])->name('pagos');
+
+            Route::post('profile/update', [MiCuentaController::class, 'profileUpdate'])->name('profile.update');
+            Route::post('security/update', [MiCuentaController::class, 'securityUpdate'])->name('security.update');
+            Route::post('preferences/update', [MiCuentaController::class, 'preferencesUpdate'])->name('preferences.update');
+            Route::post('brand/update', [MiCuentaController::class, 'brandUpdate'])->name('brand.update');
+            Route::post('billing/update', [MiCuentaController::class, 'billingUpdate'])->name('billing.update');
+
+            // Contratos placeholders
+            Route::get('contratos', [MiCuentaController::class, 'contratosIndex'])->name('contratos.index');
+            Route::get('contratos/{contract}', [MiCuentaController::class, 'showContract'])->whereNumber('contract')->name('contratos.show');
+            Route::post('contratos/{contract}/sign', [MiCuentaController::class, 'signContract'])->whereNumber('contract')->name('contratos.sign');
+            Route::get('contratos/{contract}/pdf', [MiCuentaController::class, 'downloadSignedPdf'])->whereNumber('contract')->name('contratos.pdf');
+
+            /*
+            |------------------------------------------------------------------
+            | ✅ FACTURAS (Mi cuenta) — SOLICITUDES DE ESTADO DE CUENTA
+            |------------------------------------------------------------------
+            */
+            Route::get('facturas', [FacturasController::class, 'index'])->name('facturas.index');
+            Route::post('facturas', [FacturasController::class, 'store'])->name('facturas.store');
+            Route::get('facturas/{id}', [FacturasController::class, 'show'])->whereNumber('id')->name('facturas.show');
+            Route::get('facturas/{id}/download', [FacturasController::class, 'downloadZip'])->whereNumber('id')->name('facturas.download');
+        });
+
+        /*
+        |----------------------------------------------------------------------
+        | ESTADO DE CUENTA
+        |----------------------------------------------------------------------
+        */
+        Route::get('estado-de-cuenta', [AccountBillingController::class, 'statement'])
+            ->name('estado_cuenta');
+
+        Route::get('billing/statement/pdf-inline/{period}', [AccountBillingController::class, 'pdfInline'])
+            ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+            ->name('billing.pdfInline');
+
+        Route::get('billing/statement/pdf/{period}', [AccountBillingController::class, 'pdf'])
+            ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+            ->name('billing.pdf');
+
+        /*
+        |----------------------------------------------------------------------
+        | PAGO
+        |----------------------------------------------------------------------
+        */
+        Route::match(['GET', 'POST'], 'billing/statement/pay/{period}', [AccountBillingController::class, 'pay'])
+            ->middleware($throttleBillingPay)
+            ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+            ->name('billing.pay'); // unificamos para evitar duplicados
+
+        /*
+        |----------------------------------------------------------------------
+        | FACTURAR (Solicitud y Descarga ZIP)
+        |----------------------------------------------------------------------
+        */
+        Route::post('billing/statement/factura/{period}', [AccountBillingController::class, 'requestInvoice'])
+            ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+            ->name('billing.factura.request');
+
+        Route::get('billing/statement/factura/{period}/download', [AccountBillingController::class, 'downloadInvoiceZip'])
+            ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
+            ->name('billing.factura.download');
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ SAT (Descargas masivas) — SOLO COTIZADOR
+        |----------------------------------------------------------------------
+        | SAT completo (dashboard, rfc, cart, vault, etc.) vive en:
+        |   routes/cliente_sat.php
+        |
+        | Si ya migraste el cotizador ahí, puedes borrar este bloque completo.
+        */
+        Route::prefix('sat')->name('sat.')->group(function () {
+
+            Route::post('quote/calc', [ClienteSatDescargaController::class, 'quoteCalc'])
+                ->name('quote.calc');
+
+            Route::match(['GET', 'POST'], 'quote/pdf', [ClienteSatDescargaController::class, 'quotePdf'])
+                ->name('quote.pdf');
+        });
+
+        /*
+        |----------------------------------------------------------------------
+        | LOGOUT
+        |----------------------------------------------------------------------
+        */
+        Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
     });
-
-
-    Route::prefix('sat')->name('sat.')->group(function () use ($isLocal) {
-
-    // Dashboard SAT
-    Route::get('/', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'index'])
-        ->name('index');
-
-    // Solicitudes SAT
-    Route::post('request', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'request'])
-        ->name('request');
-
-    // Verificar estado (poll)
-    Route::get('verify', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'verify'])
-        ->name('verify');
-
-    // Descargar ZIP por id
-    Route::get('zip/{id}', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'zip'])
-        ->name('zip');
-
-    // Cancelar / eliminar descarga
-    Route::post('cancel', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cancelDownload'])
-        ->name('cancel');
-
-    // Credenciales / RFC
-    Route::post('rfc/register', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'registerRfc'])
-        ->name('rfc.register');
-
-    Route::post('rfc/alias', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'saveAlias'])
-        ->name('rfc.alias');
-
-    Route::post('rfc/delete', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'deleteRfc'])
-        ->name('rfc.delete');
-
-    Route::post('credentials', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'storeCredentials'])
-        ->name('credentials.store');
-
-    // Carrito (session + optional DB sat_cart_items)
-    Route::get('cart', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartGet'])
-        ->name('cart.get');
-
-    Route::post('cart/add', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartAdd'])
-        ->name('cart.add');
-
-    Route::post('cart/remove', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartRemove'])
-        ->name('cart.remove');
-
-    Route::post('cart/bulk-add', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartBulkAdd'])
-        ->name('cart.bulk_add');
-
-    Route::post('cart/clear', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'cartClear'])
-        ->name('cart.clear');
-
-    // Bóveda
-    Route::post('vault/backfill', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'vaultBackfill'])
-        ->name('vault.backfill');
-
-    // Cotizador (ya lo tenías)
-    Route::post('quote/calc', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'quoteCalc'])
-        ->name('quote.calc');
-
-    Route::match(['GET','POST'], 'quote/pdf', [\App\Http\Controllers\Cliente\Sat\SatDescargaController::class, 'quotePdf'])
-        ->name('quote.pdf');
-
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOGOUT
-    |--------------------------------------------------------------------------
-    */
-    Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
-});
 
 /*
 |--------------------------------------------------------------------------
