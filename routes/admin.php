@@ -41,9 +41,8 @@ use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 // ✅ HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
-use App\Http\Controllers\Admin\Billing\SatPriceRulesController;
-use App\Http\Controllers\Admin\Billing\SatDiscountCodesController;
-
+use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
+use App\Http\Controllers\Admin\Billing\Sat\SatDiscountCodesController as AdminSatDiscountCodesController;
 
 /*
 |--------------------------------------------------------------------------
@@ -733,30 +732,30 @@ Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLo
     // =========================
     // SAT · PRICE RULES
     // =========================
-    Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
+        Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        Route::get('/', [SatPriceRulesController::class, 'index'])->name('index');
-        Route::get('create', [SatPriceRulesController::class, 'create'])->name('create');
+        Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
+        Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
 
-        $store = Route::post('/', [SatPriceRulesController::class, 'store'])
+        $store = Route::post('/', [AdminSatPriceRulesController::class, 'store'])
             ->middleware($thrAdminPosts)
             ->name('store');
 
-        Route::get('{id}/edit', [SatPriceRulesController::class, 'edit'])
+        Route::get('{id}/edit', [AdminSatPriceRulesController::class, 'edit'])
             ->whereNumber('id')
             ->name('edit');
 
-        $update = Route::put('{id}', [SatPriceRulesController::class, 'update'])
+        $update = Route::put('{id}', [AdminSatPriceRulesController::class, 'update'])
             ->whereNumber('id')
             ->middleware($thrAdminPosts)
             ->name('update');
 
-        $toggle = Route::post('{id}/toggle', [SatPriceRulesController::class, 'toggle'])
+        $toggle = Route::post('{id}/toggle', [AdminSatPriceRulesController::class, 'toggle'])
             ->whereNumber('id')
             ->middleware($thrAdminPosts)
             ->name('toggle');
 
-        $destroy = Route::delete('{id}', [SatPriceRulesController::class, 'destroy'])
+        $destroy = Route::delete('{id}', [AdminSatPriceRulesController::class, 'destroy'])
             ->whereNumber('id')
             ->middleware($thrAdminPosts)
             ->name('destroy');
@@ -767,44 +766,46 @@ Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLo
             }
         }
     });
+
 
     // =========================
     // SAT · DISCOUNT CODES
     // =========================
     Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        Route::get('/', [SatDiscountCodesController::class, 'index'])->name('index');
-        Route::get('create', [SatDiscountCodesController::class, 'create'])->name('create');
+    Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
+    Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
 
-        $store = Route::post('/', [SatDiscountCodesController::class, 'store'])
-            ->middleware($thrAdminPosts)
-            ->name('store');
+    $store = Route::post('/', [AdminSatDiscountCodesController::class, 'store'])
+        ->middleware($thrAdminPosts)
+        ->name('store');
 
-        Route::get('{id}/edit', [SatDiscountCodesController::class, 'edit'])
-            ->whereNumber('id')
-            ->name('edit');
+    Route::get('{id}/edit', [AdminSatDiscountCodesController::class, 'edit'])
+        ->whereNumber('id')
+        ->name('edit');
 
-        $update = Route::put('{id}', [SatDiscountCodesController::class, 'update'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('update');
+    $update = Route::put('{id}', [AdminSatDiscountCodesController::class, 'update'])
+        ->whereNumber('id')
+        ->middleware($thrAdminPosts)
+        ->name('update');
 
-        $toggle = Route::post('{id}/toggle', [SatDiscountCodesController::class, 'toggle'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('toggle');
+    $toggle = Route::post('{id}/toggle', [AdminSatDiscountCodesController::class, 'toggle'])
+        ->whereNumber('id')
+        ->middleware($thrAdminPosts)
+        ->name('toggle');
 
-        $destroy = Route::delete('{id}', [SatDiscountCodesController::class, 'destroy'])
-            ->whereNumber('id')
-            ->middleware($thrAdminPosts)
-            ->name('destroy');
+    $destroy = Route::delete('{id}', [AdminSatDiscountCodesController::class, 'destroy'])
+        ->whereNumber('id')
+        ->middleware($thrAdminPosts)
+        ->name('destroy');
 
-        if ($isLocal) {
-            foreach ([$store, $update, $toggle, $destroy] as $rt) {
-                $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
-            }
+    if ($isLocal) {
+        foreach ([$store, $update, $toggle, $destroy] as $rt) {
+            $rt->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class, \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class]);
         }
-    });
+    }
+});
+
 
 });
 
