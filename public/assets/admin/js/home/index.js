@@ -1,9 +1,11 @@
 // public/assets/admin/js/home/index.js
-// P360 Admin · Home/Dashboard · v6.3
+// P360 Admin · Home/Dashboard · v6.4
 // FIX REAL:
-// - Backend ahora soporta from/to/scope. KPI usa ingresosTotal.
-// - ARPA/Ticket toma kpis.arpa / kpis.ticketProm.
-// - Tabla clientes usa plan+estado, ingresos reales, timbres si existen.
+// - Overlay real (#loadingOverlay).
+// - fetch JSON robusto: maneja 500 con HTML sin romper.
+// - Render de bots/meta a debug cuando existan warnings/errors.
+// - Daily: mejor diagnóstico ante HTTP != 200.
+// - Re-aplicar filtros destruye charts consistentemente.
 
 (function () {
   'use strict';
@@ -20,6 +22,8 @@
     compareTpl: page?.dataset?.compareUrl ? String(page.dataset.compareUrl) : '',
   };
 
+  function qs(sel, root) { return (root || document).querySelector(sel); }
+
   function showDebug(html) {
     if (!elDebug) return;
     elDebug.style.display = 'block';
@@ -33,12 +37,18 @@
 
   function showLoading() {
     page.setAttribute('aria-busy', 'true');
+    if (elLoading) {
+      elLoading.style.display = 'flex';
+      elLoading.setAttribute('aria-hidden', 'false');
+    }
   }
   function hideLoading() {
     page.setAttribute('aria-busy', 'false');
+    if (elLoading) {
+      elLoading.style.display = 'none';
+      elLoading.setAttribute('aria-hidden', 'true');
+    }
   }
-
-  function qs(sel, root) { return (root || document).querySelector(sel); }
 
   const moneyMXN = (v) =>
     new Intl.NumberFormat('es-MX', {
@@ -107,12 +117,47 @@
     }
   }
 
+  // Robust fetch JSON (maneja HTML en 500)
+  async function fetchJson(url, opts) {
+    const r = await fetch(url, opts || {});
+    const text = await r.text();
+    let json = null;
+
+    try { json = text ? JSON.parse(text) : null; } catch (_) {}
+
+    return { ok: r.ok, status: r.status, json, text };
+  }
+
+  function hasBadBots(bots) {
+    if (!Array.isArray(bots) || !bots.length) return false;
+    return bots.some(b => String(b?.level || '').toLowerCase() === 'error' || String(b?.level || '').toLowerCase() === 'warning');
+  }
+
+  function renderBots(bots) {
+    if (!Array.isArray(bots) || !bots.length) return '';
+    const rows = bots.map(b => {
+      const lvl = escapeHtml(String(b?.level || 'info'));
+      const code = escapeHtml(String(b?.code || ''));
+      const text = escapeHtml(String(b?.text || ''));
+      const meta = b?.meta ? escapeHtml(JSON.stringify(b.meta)) : '';
+      return `<li><b>${lvl}</b> <code>${code}</code> — ${text}${meta ? `<div class="muted" style="font-weight:700; margin-top:4px; opacity:.9">${meta}</div>` : ''}</li>`;
+    }).join('');
+    return `<div style="margin-top:10px"><div style="font-weight:900; margin-bottom:6px">BOTS</div><ul style="margin:0; padding-left:18px">${rows}</ul></div>`;
+  }
+
   // Chart helpers
   const charts = { income:null, stamps:null, plans:null, accum:null, daily:null };
 
   function destroyChart(key) {
     try { charts[key] && charts[key].destroy && charts[key].destroy(); } catch (_) {}
     charts[key] = null;
+  }
+  function destroyAllCharts() {
+    destroyChart('income');
+    destroyChart('stamps');
+    destroyChart('plans');
+    destroyChart('accum');
+    destroyChart('daily');
   }
 
   function attachChart(key, canvasId, cfg) {
@@ -180,7 +225,7 @@
     };
   }
 
-  // KPIs (FIX: ahora son consistentes con el rango)
+  // KPIs
   function paintKPIs(data) {
     const k = data?.kpis || {};
     const ingresosTotal = Number(k.ingresosTotal ?? 0);
@@ -199,7 +244,6 @@
     if (elStamps)  elStamps.textContent  = intMX(timbres);
     if (elClients) elClients.textContent = intMX(totalClientes);
 
-    // Mostramos ARPA si existe, si no ticket
     const arpaOrTicket = (arpa > 0 ? arpa : ticket);
     if (elArpa) elArpa.textContent = moneyMXN(arpaOrTicket) + ' MXN';
   }
@@ -277,6 +321,8 @@
     const labels = Array.isArray(series.labels) ? series.labels.map(String) : [];
     const ingresos = Array.isArray(series.ingresos) ? series.ingresos.map(v => Number(v || 0)) : [];
     const timbres = Array.isArray(series.timbres) ? series.timbres.map(v => Number(v || 0)) : [];
+
+    destroyAllCharts();
 
     if (labels.length && ingresos.length === labels.length) {
       attachChart('income', 'chartIncome', barMoneyCfg(labels, ingresos, 'Ingresos', (ym) => {
@@ -393,17 +439,18 @@
     const url = buildUrlWithFilters(ROUTES.compareTpl.replace('__YM__', ym), filters);
 
     try {
-      const r = await fetch(url, {
+      const res = await fetchJson(url, {
         method: 'GET',
         headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
       });
 
-      if (!r.ok) {
-        setDailyEmpty('Sin datos diarios para ' + ym + ' (HTTP ' + r.status + ').');
+      if (!res.ok) {
+        const hint = (res.text || '').slice(0, 140).replace(/\s+/g, ' ').trim();
+        setDailyEmpty('Sin datos diarios para ' + ym + ' (HTTP ' + res.status + ').' + (hint ? (' ' + hint) : ''));
         return;
       }
 
-      const payload = await r.json();
+      const payload = res.json || {};
       const norm = normalizeDailyPayload(payload);
 
       if (!norm) {
@@ -441,24 +488,48 @@
     hideDebug();
 
     try {
-      const r = await fetch(url, {
+      const res = await fetchJson(url, {
         method: 'GET',
         headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
         signal: currentAbort.signal
       });
 
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return await r.json();
+      if (!res.ok) {
+        const hint = (res.text || '').slice(0, 200).replace(/\s+/g, ' ').trim();
+        throw new Error('HTTP ' + res.status + (hint ? (': ' + hint) : ''));
+      }
+
+      return res.json || null;
 
     } finally {
       hideLoading();
     }
   }
 
+  function maybeShowDebugFromPayload(data) {
+    const bots = Array.isArray(data?.bots) ? data.bots : [];
+    const bad = hasBadBots(bots);
+
+    if (!bad) return;
+
+    const meta = data?.meta ? escapeHtml(JSON.stringify(data.meta)) : '';
+    const diag = data?._diag ? escapeHtml(JSON.stringify(data._diag)) : '';
+
+    showDebug(
+      '<div>Se detectaron avisos en la respuesta del backend.</div>' +
+      renderBots(bots) +
+      (meta ? `<div style="margin-top:10px"><div style="font-weight:900; margin-bottom:6px">META</div><code>${meta}</code></div>` : '') +
+      (diag ? `<div style="margin-top:10px"><div style="font-weight:900; margin-bottom:6px">DIAG</div><code>${diag}</code></div>` : '')
+    );
+  }
+
   async function loadAll() {
     try {
       const data = await fetchStats();
       if (!data) return;
+
+      // si el backend manda bots con warning/error, los mostramos
+      maybeShowDebugFromPayload(data);
 
       if (typeof window.Chart === 'undefined') {
         showDebug('No cargó <code>Chart.js</code>. Revisa el script local/CDN.');
@@ -501,6 +572,12 @@
     const fGroup = qs('#fGroup'); if (fGroup) fGroup.value = 'month';
     loadAll();
   });
+
+  // Inicial
+  if (elLoading) {
+    elLoading.style.display = 'none';
+    elLoading.setAttribute('aria-hidden', 'true');
+  }
 
   loadAll();
 })();
