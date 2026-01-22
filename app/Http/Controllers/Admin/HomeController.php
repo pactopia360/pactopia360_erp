@@ -320,7 +320,7 @@ class HomeController extends Controller
                         ->selectRaw("DATE_FORMAT({$T_PAYMENTS}.{$dateCol}, '%Y-%m') as ym, LOWER({$T_ACCOUNTS}.plan) as pkey, SUM({$T_PAYMENTS}.{$amtCol}) as total");
 
                     if ($statusCol) {
-                        $q->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
+                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), ['paid','succeeded','success','completed','complete','captured','authorized']);
                     }
                     if ($planFilter) {
                         $q->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
@@ -361,7 +361,7 @@ class HomeController extends Controller
                         ->limit(10);
 
                     if ($statusCol) {
-                        $q->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
+                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), ['paid','succeeded','success','completed','complete','captured','authorized']);
                     }
                     if ($planFilter && $hasPlan) {
                         $q->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
@@ -742,6 +742,210 @@ class HomeController extends Controller
                 ]);
             } catch (\Throwable $e) {}
         }
+
+        return response()->json($payload);
+    }
+
+    /**
+     * ✅ Diario: mes actual vs promedio de 2 meses anteriores (JSON)
+     *
+     * Formato:
+     * {
+     *   ym: "2026-01",
+     *   labels: ["01","02",...],
+     *   current: [..],
+     *   avg_prev2: [..],
+     *   meta: {...}
+     * }
+     */
+    public function compare(Request $request, string $ym): JsonResponse
+    {
+        $rid     = $request->headers->get('X-Request-Id') ?: Str::uuid()->toString();
+        $adminId = Auth::guard('admin')->id();
+        $ip      = $request->ip();
+        $t0      = microtime(true);
+
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ym)) {
+            return response()->json(['message' => 'Formato inválido, usa YYYY-MM'], 422);
+        }
+
+        $TTL      = max(0, (int) env('HOME_COMPARE_TTL', 30));
+        $NO_CACHE = $request->boolean('nocache');
+
+        $planFilter = trim(mb_strtolower((string) $request->string('plan')));
+        if ($planFilter === 'all' || $planFilter === '') $planFilter = null;
+
+        $scope = trim(mb_strtolower((string) $request->string('scope', 'paid')));
+        if (!in_array($scope, ['paid','issued','all'], true)) $scope = 'paid';
+
+        $cacheKey = sprintf('home:compare:v2:conn:%s:%s:plan:%s:scope:%s',
+            $this->statsConn, $ym, $planFilter ?: 'all', $scope
+        );
+
+        $compute = function () use ($ym, $planFilter, $scope, $rid) {
+            $db  = $this->db();
+            $sch = $this->schema();
+
+            $has    = fn(string $t) => $sch->hasTable($t);
+            $hasCol = fn(string $t, string $c) => $sch->hasColumn($t, $c);
+
+            $T_ACCOUNTS = $has('accounts') ? 'accounts' : null;
+
+            // Detecta payments
+            $T_PAYMENTS = null;
+            if ($has('payments') && ($hasCol('payments', 'amount') || $hasCol('payments', 'monto'))) {
+                $T_PAYMENTS = 'payments';
+            } elseif ($has('pagos') && ($hasCol('pagos', 'amount') || $hasCol('pagos', 'monto'))) {
+                $T_PAYMENTS = 'pagos';
+            } elseif ($has('cobros')) {
+                $T_PAYMENTS = 'cobros';
+            }
+
+            if (!$T_PAYMENTS) {
+                return [
+                    'ym' => $ym,
+                    'labels' => [],
+                    'current' => [],
+                    'avg_prev2' => [],
+                    'bots' => [['level'=>'warning','code'=>'no_payments_table','text'=>'No se detectó tabla de pagos (payments/pagos/cobros).']],
+                ];
+            }
+
+            $amtCol    = $hasCol($T_PAYMENTS,'monto') ? 'monto' : ($hasCol($T_PAYMENTS,'amount') ? 'amount' : null);
+            $dateCol   = $hasCol($T_PAYMENTS,'paid_at') ? 'paid_at' : ($hasCol($T_PAYMENTS,'fecha') ? 'fecha' : ($hasCol($T_PAYMENTS,'created_at') ? 'created_at' : null));
+            $statusCol = $hasCol($T_PAYMENTS,'status') ? 'status' : ($hasCol($T_PAYMENTS,'estado') ? 'estado' : null);
+
+            if (!$amtCol || !$dateCol) {
+                return [
+                    'ym' => $ym,
+                    'labels' => [],
+                    'current' => [],
+                    'avg_prev2' => [],
+                    'bots' => [[
+                        'level'=>'warning',
+                        'code'=>'missing_cols',
+                        'text'=>'Faltan columnas de fecha o monto en la tabla de pagos detectada.',
+                        'meta'=>['table'=>$T_PAYMENTS,'need'=>['amount|monto','paid_at|fecha|created_at']]
+                    ]],
+                ];
+            }
+
+            $paidStatuses = ['paid','succeeded','success','completed','complete','captured','authorized'];
+
+            // Mes target
+            $m0Start = Carbon::createFromFormat('Y-m-d', $ym.'-01')->startOfMonth();
+            $m0End   = $m0Start->copy()->endOfMonth();
+            $daysN   = (int) $m0Start->daysInMonth;
+
+            // Labels "01..N"
+            $labels = [];
+            for ($d=1; $d <= $daysN; $d++) $labels[] = str_pad((string)$d, 2, '0', STR_PAD_LEFT);
+
+            // 2 meses previos
+            $m1Start = $m0Start->copy()->subMonthNoOverflow()->startOfMonth();
+            $m1End   = $m1Start->copy()->endOfMonth();
+            $m2Start = $m0Start->copy()->subMonthsNoOverflow(2)->startOfMonth();
+            $m2End   = $m2Start->copy()->endOfMonth();
+
+            // Helper para daily sums por rango mensual
+            $dailySums = function (Carbon $from, Carbon $to) use ($db, $T_PAYMENTS, $T_ACCOUNTS, $planFilter, $scope, $statusCol, $paidStatuses, $amtCol, $dateCol, $hasCol, $has) {
+                $q = $db->table($T_PAYMENTS)
+                    ->selectRaw("DAY({$T_PAYMENTS}.{$dateCol}) as d, SUM({$T_PAYMENTS}.{$amtCol}) as total")
+                    ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to]);
+
+                // scope: paid/issued/all
+                if ($scope === 'paid' && $statusCol) {
+                    $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
+                }
+
+                // plan filter
+                if ($planFilter && $T_ACCOUNTS && $hasCol($T_PAYMENTS,'account_id') && $hasCol($T_ACCOUNTS,'plan')) {
+                    $q->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
+                      ->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
+                }
+
+                $rows = $q->groupByRaw("DAY({$T_PAYMENTS}.{$dateCol})")->get();
+
+                $map = [];
+                foreach ($rows as $r) {
+                    $day = (int) ($r->d ?? 0);
+                    if ($day >= 1 && $day <= 31) $map[$day] = (float) ($r->total ?? 0);
+                }
+                return $map;
+            };
+
+            $m0 = $dailySums($m0Start, $m0End);
+            $m1 = $dailySums($m1Start, $m1End);
+            $m2 = $dailySums($m2Start, $m2End);
+
+            $current = [];
+            $avgPrev2 = [];
+
+            for ($day=1; $day <= $daysN; $day++) {
+                $current[] = (float) ($m0[$day] ?? 0.0);
+
+                $vals = [];
+                if (isset($m1[$day])) $vals[] = (float) $m1[$day];
+                if (isset($m2[$day])) $vals[] = (float) $m2[$day];
+
+                $avgPrev2[] = count($vals) ? array_sum($vals) / count($vals) : 0.0;
+            }
+
+            $bots = [];
+            $sum0 = array_sum($current);
+            if ($sum0 <= 0.0) {
+                $bots[] = ['level'=>'info','code'=>'empty_month','text'=>"No hay ingresos diarios para {$ym} con los filtros actuales."];
+            }
+
+            return [
+                'ym' => $ym,
+                'labels' => $labels,
+                'current' => $current,
+                'avg_prev2' => $avgPrev2,
+                'bots' => $bots,
+                'ranges' => [
+                    'current' => [$m0Start->toDateString(), $m0End->toDateString()],
+                    'prev1'   => [$m1Start->toDateString(), $m1End->toDateString()],
+                    'prev2'   => [$m2Start->toDateString(), $m2End->toDateString()],
+                ],
+            ];
+        };
+
+        $cacheHit = false;
+        try {
+            if ($TTL > 0 && !$NO_CACHE) {
+                $payload = Cache::remember($cacheKey, $TTL, function () use ($compute) {
+                    return $compute();
+                });
+                $cacheHit = true;
+            } else {
+                $payload = $compute();
+            }
+        } catch (\Throwable $e) {
+            $payload = [
+                'ym' => $ym,
+                'labels' => [],
+                'current' => [],
+                'avg_prev2' => [],
+                'bots' => [[
+                    'level'=>'error',
+                    'code'=>'compare_exception',
+                    'text'=>'No se pudo calcular la serie diaria comparativa.',
+                    'meta'=>['error'=>$e->getMessage()]
+                ]],
+            ];
+        }
+
+        $tookMs = (int) ((microtime(true) - $t0) * 1000);
+        $payload['meta'] = [
+            'request_id'   => $rid,
+            'admin_id'     => $adminId,
+            'ip'           => $ip,
+            'generated_at' => now()->toIso8601String(),
+            'took_ms'      => $tookMs,
+            'cache'        => $cacheHit ? 'hit' : 'miss',
+            'conn'         => $this->statsConn,
+        ];
 
         return response()->json($payload);
     }

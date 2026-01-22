@@ -1,42 +1,25 @@
-// state.js
+// public/assets/admin/js/home/state.js
+let _cache = null;
+let _lastQueryKey = '';
 
-// ===== Cache de último payload =====
-export let cache = null;
-export function setCache(d){ cache = d; }
-export function clearCache(){ cache = null; }
+let _controller = null;
 
-// ===== Tema actual (para re-pintar charts si cambia) =====
-export let currentThemeLight = document.body.classList.contains('theme-light');
-export function setCurrentThemeLight(v){ currentThemeLight = !!v; }
+export function setCache(data) { _cache = data; }
+export function cache() { return _cache; }
 
-// ===== Deduplicación de consultas =====
-export let lastQueryKey = '';
-export function setLastQueryKey(v){ lastQueryKey = v || ''; }
+export function setLastQueryKey(k) { _lastQueryKey = String(k || ''); }
+export function lastQueryKey() { return _lastQueryKey; }
 
-// ===== Control de fetch en curso (AbortController) =====
-export let loadingCtrl = null;
-export function setLoadingCtrl(ctrl){ loadingCtrl = ctrl || null; }
-export function abortCurrent(){
-  try { loadingCtrl?.abort?.(); } catch {}
-  // Limpia referencia para evitar reusos accidentales
-  loadingCtrl = null;
+export function newAbortController() {
+  try { if (_controller) _controller.abort(); } catch (_) {}
+  _controller = new AbortController();
+  return _controller;
 }
-export function isLoading(){ return !!loadingCtrl; }
 
-// ===== Referencias a instancias de Chart.js (para resize/destroy) =====
-export const chartsRef = {
-  income: null,
-  stamps: null,
-  plans: null,
-  // nuevos módulos:
-  incomePlan: null,
-  newClients: null,
-  topClients: null,
-  scatter: null,
-  mom: null, // variación mensual (%)
-};
+export function getAbortSignal() {
+  return _controller?.signal;
+}
 
-// Utilidad opcional para limpiar todas las refs (no obligatoria)
-export function clearChartsRef(){
-  for (const k of Object.keys(chartsRef)) chartsRef[k] = null;
+export function abortCurrent() {
+  try { _controller?.abort(); } catch (_) {}
 }
