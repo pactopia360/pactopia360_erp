@@ -1,61 +1,61 @@
+/* public/assets/admin/js/login.js
+ * Pactopia360 Admin Login UX (v1.0)
+ * - Toggle password robusto
+ * - CapsLock tip
+ * - Anti double-submit
+ */
+
 (function () {
-  // -----------------------------
-  // Toggle de tema (oscuro/ligero)
-  // -----------------------------
-  const STORAGE_KEY = 'p360_theme';
-  const body = document.body;
-  const btnTheme = document.getElementById('themeToggle');
+  'use strict';
 
-  function applyTheme(theme) {
-    if (theme === 'light') {
-      body.classList.add('theme-light');
-      if (btnTheme) {
-        btnTheme.querySelector('.icon').textContent = '🌞';
-        btnTheme.querySelector('.label').textContent = 'Modo claro';
-      }
-    } else {
-      body.classList.remove('theme-light');
-      if (btnTheme) {
-        btnTheme.querySelector('.icon').textContent = '🌙';
-        btnTheme.querySelector('.label').textContent = 'Modo oscuro';
-      }
+  function byId(id){ return document.getElementById(id); }
+
+  function togglePwd(){
+    const inp = byId('password');
+    const btn = byId('btnTogglePassword');
+    if (!inp || !btn) return;
+
+    const t = (inp.getAttribute('type') || '').toLowerCase();
+    const isPw = t === 'password' || t === '';
+    inp.setAttribute('type', isPw ? 'text' : 'password');
+    btn.textContent = isPw ? 'Ocultar' : 'Mostrar';
+    btn.setAttribute('aria-pressed', String(isPw));
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    const btn = byId('btnTogglePassword');
+    const inp = byId('password');
+    const tip = byId('capsTip');
+    const form = byId('loginForm');
+    const submit = byId('btnSubmit');
+
+    if (btn) {
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        togglePwd();
+      });
     }
-  }
 
-  // Inicial: lee preferencia o usa oscuro
-  const saved = localStorage.getItem(STORAGE_KEY) || 'dark';
-  applyTheme(saved);
+    if (inp) {
+      inp.addEventListener('keyup', function(e){
+        try {
+          const on = e.getModifierState && e.getModifierState('CapsLock');
+          if (tip) tip.style.display = on ? 'block' : 'none';
+        } catch (_) {}
+      });
 
-  // Click: alterna y guarda
-  if (btnTheme) {
-    btnTheme.addEventListener('click', function () {
-      const next = body.classList.contains('theme-light') ? 'dark' : 'light';
-      localStorage.setItem(STORAGE_KEY, next);
-      applyTheme(next);
-    });
-  }
+      inp.addEventListener('blur', function(){
+        if (tip) tip.style.display = 'none';
+      });
+    }
 
-  // -----------------------------
-  // UX login: mostrar/ocultar pass
-  // -----------------------------
-  const pwd = document.getElementById('password');
-  const btnPwd = document.querySelector('.toggle');
-  if (btnPwd && pwd) {
-    btnPwd.addEventListener('click', function () {
-      if (pwd.type === 'password') { pwd.type = 'text'; btnPwd.textContent = 'Ocultar'; }
-      else { pwd.type = 'password'; btnPwd.textContent = 'Mostrar'; }
-    });
-  }
-
-  // -----------------------------
-  // Evitar doble submit
-  // -----------------------------
-  const form = document.getElementById('loginForm');
-  const btnSubmit = document.getElementById('btnSubmit');
-  if (form && btnSubmit) {
-    form.addEventListener('submit', function () {
-      btnSubmit.disabled = true;
-      btnSubmit.textContent = 'Entrando…';
-    });
-  }
+    // Anti double submit
+    if (form && submit) {
+      form.addEventListener('submit', function(){
+        submit.disabled = true;
+        submit.setAttribute('aria-busy', 'true');
+        // si algo falla en backend y recarga, se restablece por la navegación
+      });
+    }
+  });
 })();

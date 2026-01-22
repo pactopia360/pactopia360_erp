@@ -10,16 +10,16 @@ use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Auth\SmartLoginController;
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | ENTORNO
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 $isLocal = app()->environment(['local','development','testing']);
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Público
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::redirect('/', '/cliente')->name('home.public');
 
@@ -27,32 +27,39 @@ Route::redirect('/', '/cliente')->name('home.public');
 Route::get('/login', SmartLoginController::class)->name('login');
 
 /*
-|--------------------------------------------------------------------------|
-| Admin / Cliente (rutas separadas por archivo)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
+| Admin / Cliente (rutas separadas por archivo) + ✅ middleware groups
+|--------------------------------------------------------------------------
+| CRÍTICO:
+| - admin.php debe correr bajo middleware group "admin" (AdminSessionConfig antes de StartSession)
+| - cliente*.php debe correr bajo middleware group "cliente" (ClientSessionConfig antes de StartSession)
 */
 Route::prefix('admin')
     ->as('admin.')
+    ->middleware('admin') // ✅ IMPORTANTÍSIMO
     ->group(base_path('routes/admin.php'));
 
 Route::prefix('cliente')
     ->as('cliente.')
+    ->middleware('cliente') // ✅ IMPORTANTÍSIMO
     ->group(base_path('routes/cliente.php'));
 
 Route::prefix('cliente')
     ->as('cliente.')
+    ->middleware('cliente') // ✅ IMPORTANTÍSIMO
     ->group(base_path('routes/cliente_sat.php'));
 
 if ($isLocal) {
     Route::prefix('cliente')
         ->as('cliente.')
+        ->middleware('cliente') // ✅ IMPORTANTÍSIMO
         ->group(base_path('routes/cliente_qa.php'));
 }
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | Utilidades / Infra
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 */
 Route::get('/_deploy/finish/{signature}', [DeployController::class, 'finish'])
     ->where('signature', '[A-Za-z0-9._-]+')
@@ -71,14 +78,18 @@ if ($isLocal) {
 }
 
 /*
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
 | QA Admin/Dev (Local)
-|--------------------------------------------------------------------------|
+|--------------------------------------------------------------------------
+| OJO:
+| - Ya está bajo /admin/dev, PERO si quieres que sea 100% admin-session aislado,
+|   debe correr bajo middleware 'admin' (group) o al menos AdminSessionConfig.
+|   Como /admin ya tiene middleware('admin') arriba, aquí ya viene “bien”.
 */
 if ($isLocal) {
     Route::prefix('admin/dev')
         ->name('admin.dev.')
-        ->middleware(['auth:admin', \App\Http\Middleware\AdminSessionConfig::class])
+        ->middleware(['auth:admin'])
         ->group(function () {
             Route::get('/qa',                [QaController::class, 'index'])->name('qa');
             Route::post('/resend-email',     [QaController::class, 'resendEmail'])->name('resend_email');

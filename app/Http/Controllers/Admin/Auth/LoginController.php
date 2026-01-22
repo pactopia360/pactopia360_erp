@@ -16,10 +16,8 @@ class LoginController extends Controller
      */
     public function showLogin(Request $request)
     {
-        // Aseguramos que TODO este flujo use el guard 'admin'
         Auth::shouldUse('admin');
 
-        // Si ya está autenticado como admin, mándalo directo al dashboard admin
         if (Auth::guard('admin')->check()) {
             return redirect()->intended(
                 \Route::has('admin.home') ? route('admin.home') : '/'
@@ -34,43 +32,32 @@ class LoginController extends Controller
      */
     public function login(Request $request)
     {
-        // Importantísimo: fijar contexto del guard admin,
-        // para que no intente usar el guard web del cliente.
         Auth::shouldUse('admin');
 
         $reqId  = (string) Str::ulid();
         $diag   = [];
-        $this->d($diag, $reqId, 'Start', [
-            'ip' => $request->ip(),
-        ]);
+        $this->d($diag, $reqId, 'Start', ['ip' => $request->ip()]);
 
-        // Acepta email o codigo_usuario (si existe)
         $identifier = $this->normalizeIdentifier(
             (string) ($request->input('email') ?? $request->input('codigo_usuario') ?? '')
         );
         $password   = (string) $request->input('password', '');
         $remember   = $request->boolean('remember', false);
 
-        // Validación mínima (string para permitir email o código)
         $request->merge(['_login' => $identifier]);
         $request->validate([
             '_login'   => ['required','string','max:150'],
             'password' => ['required','string','min:6','max:200'],
         ], [], ['_login' => 'usuario/email']);
 
-        // Throttle (intentos fallidos)
         if ($this->tooManyAttempts($request, $identifier)) {
             $wait = $this->remainingLockSeconds($request, $identifier);
             return $this->failBack(
                 "Demasiados intentos. Intenta de nuevo en {$wait}s.",
-                $identifier,
-                $diag,
-                $reqId,
-                'E0: throttled'
+                $identifier, $diag, $reqId, 'E0: throttled'
             );
         }
 
-        // Intento 1: por email (si parece email)
         $ok    = false;
         $guard = Auth::guard('admin');
 
@@ -85,7 +72,6 @@ class LoginController extends Controller
             );
         }
 
-        // Intento 2: por codigo_usuario (si existe columna o si el input NO parece email)
         if (!$ok) {
             if ($hasCodigo) {
                 $this->d($diag, $reqId, 'Try by codigo_usuario');
@@ -102,17 +88,13 @@ class LoginController extends Controller
             $this->hitThrottle($request, $identifier);
             return $this->failBack(
                 'Credenciales inválidas',
-                $identifier,
-                $diag,
-                $reqId,
-                'E1: bad credentials'
+                $identifier, $diag, $reqId, 'E1: bad credentials'
             );
         }
 
         /** @var \App\Models\Admin\Auth\UsuarioAdministrativo $user */
         $user = $guard->user();
 
-        // Superadmin (rol/flag/lista en .env) salta validaciones duras de estado
         $isSuper = $this->isSuper($user);
         $this->d($diag, $reqId, 'Logged in (pre-status checks)', [
             'user_id' => $user?->id,
@@ -120,76 +102,55 @@ class LoginController extends Controller
             'super'   => $isSuper,
         ]);
 
-        // Validaciones de estado (si existen las columnas) — solo para no-superadmins
         if (!$isSuper) {
             if ($this->colExists('activo') && (int)($user->activo ?? 0) !== 1) {
                 $this->logoutNow($request);
                 $this->hitThrottle($request, $identifier);
-                return $this->failBack(
-                    'Cuenta inactiva',
-                    $identifier,
-                    $diag,
-                    $reqId,
-                    'E2: inactiva'
-                );
+                return $this->failBack('Cuenta inactiva', $identifier, $diag, $reqId, 'E2: inactiva');
             }
 
+            // ✅ FIX: si existe estatus pero viene NULL/vacío, lo tratamos como ACTIVO (para compatibilidad)
             if ($this->colExists('estatus')) {
-                $st = Str::lower((string)($user->estatus ?? ''));
-                if (!in_array($st, ['activo','active','enabled','ok'], true)) {
+                $stRaw = trim((string)($user->estatus ?? ''));
+                $st    = Str::lower($stRaw);
+
+                // Normalizaciones comunes
+                if ($st === '' || $st === 'null' || $st === '1' || $st === 'true') {
+                    $st = 'activo';
+                }
+
+                $allowed = ['activo','activa','active','enabled','ok','habilitado','habilitada'];
+
+                if (!in_array($st, $allowed, true)) {
                     $this->logoutNow($request);
                     $this->hitThrottle($request, $identifier);
-                    return $this->failBack(
-                        'Cuenta no autorizada',
-                        $identifier,
-                        $diag,
-                        $reqId,
-                        'E3: estatus bloqueado'
-                    );
+                    return $this->failBack('Cuenta no autorizada', $identifier, $diag, $reqId, 'E3: estatus bloqueado');
                 }
             }
 
             if ($this->colExists('is_blocked') && (int)($user->is_blocked ?? 0) === 1) {
                 $this->logoutNow($request);
                 $this->hitThrottle($request, $identifier);
-                return $this->failBack(
-                    'Cuenta bloqueada',
-                    $identifier,
-                    $diag,
-                    $reqId,
-                    'E4: blocked'
-                );
+                return $this->failBack('Cuenta bloqueada', $identifier, $diag, $reqId, 'E4: blocked');
             }
         }
 
-        // Registra último acceso (si el modelo lo soporta) — no interrumpe
         try {
-            if (method_exists($user, 'markLastLogin')) {
+            if ($user && method_exists($user, 'markLastLogin')) {
                 $user->markLastLogin($request->ip());
-            } else {
-                // Fallback suave: si existen columnas, intenta guardarlas
+            } else if ($user) {
                 $updated = false;
-                if ($this->colExists('ultimo_login_at')) {
-                    $user->ultimo_login_at = now();
-                    $updated = true;
-                }
-                if ($this->colExists('ip_ultimo_login')) {
-                    $user->ip_ultimo_login = (string) $request->ip();
-                    $updated = true;
-                }
-                if ($updated && method_exists($user, 'saveQuietly')) {
-                    $user->saveQuietly();
-                }
+                if ($this->colExists('ultimo_login_at')) { $user->ultimo_login_at = now(); $updated = true; }
+                if ($this->colExists('ip_ultimo_login')) { $user->ip_ultimo_login = (string) $request->ip(); $updated = true; }
+                if ($updated && method_exists($user, 'saveQuietly')) { $user->saveQuietly(); }
             }
         } catch (\Throwable $e) {
             $this->d($diag, $reqId, 'markLastLogin error', ['e' => $e->getMessage()]);
         }
 
-        // Regenera sesión y limpia throttle
         $request->session()->regenerate();
         $this->clearThrottle($request, $identifier);
 
-        // Forzar cambio de contraseña (si existe la bandera/columna)
         if ($this->colExists('force_password_change') && (bool)($user->force_password_change ?? false)) {
             $this->d($diag, $reqId, 'Must change password');
             $this->flashDiag($diag, $reqId);
@@ -217,10 +178,7 @@ class LoginController extends Controller
      */
     public function logout(Request $request)
     {
-        // logout SIEMPRE del guard admin, limpia sesión
         $this->logoutNow($request);
-
-        // redirigir SIEMPRE al login admin
         return redirect()->route('admin.login');
     }
 
@@ -229,10 +187,7 @@ class LoginController extends Controller
     private function normalizeIdentifier(string $v): string
     {
         $v = trim($v);
-        if (Str::contains($v, '@')) {
-            return Str::lower($v);
-        }
-        return $v;
+        return Str::contains($v, '@') ? Str::lower($v) : $v;
     }
 
     private function logoutNow(Request $request): void
@@ -291,10 +246,7 @@ class LoginController extends Controller
             return [$conn, $table];
         }
 
-        $conn  = config('database.connections.mysql_admin')
-            ? 'mysql_admin'
-            : (config('database.default') ?? 'mysql');
-
+        $conn  = config('database.connections.mysql_admin') ? 'mysql_admin' : (config('database.default') ?? 'mysql');
         $table = 'usuario_administrativos';
         return [$conn, $table];
     }
@@ -374,7 +326,8 @@ class LoginController extends Controller
 
         $this->flashDiag($diag, $reqId);
 
-        return back()
+        return redirect()
+            ->route('admin.login')
             ->withErrors(['email' => $msg])
             ->withInput(['email' => $identifier]);
     }

@@ -29,7 +29,6 @@
 @section('content')
 @php
   // ===== catálogo de permisos por módulos (alineado a sidebar) =====
-  // Nota: puedes ajustar claves cuando quieras; el Gate ya soporta wildcards con "*".
   $permCatalog = [
     'Administración' => [
       'usuarios_admin.ver' => 'Ver usuarios administrativos',
@@ -68,6 +67,12 @@
       ? implode("\n", $row->permisos)
       : (string)($row->permisos ?? '')
   );
+
+  $hasEstatus   = property_exists($row, 'estatus');
+  $hasIsBlocked = property_exists($row, 'is_blocked');
+
+  $estatusVal   = old('estatus', $hasEstatus ? (string)($row->estatus ?? 'activo') : 'activo');
+  $blockedVal   = old('is_blocked', $hasIsBlocked ? (string)($row->is_blocked ?? 0) : '0');
 @endphp
 
   <div class="p360-card p360-card-wide">
@@ -131,7 +136,8 @@
               @error('password') <div class="err">{{ $message }}</div> @enderror
             </div>
 
-            <div class="ua-row3">
+            {{-- layout dinámico para rol/activo/estatus/superadmin --}}
+            <div class="{{ ($hasEstatus || $hasIsBlocked) ? 'ua-row4' : 'ua-row3' }}">
               <div class="field sm">
                 <label>Rol</label>
                 <input name="rol" value="{{ old('rol', $row->rol) }}" placeholder="ej. admin, soporte, auditor…">
@@ -141,12 +147,25 @@
 
               <div class="field sm">
                 <label>Estado</label>
-                <select name="activo">
+                <select name="activo" id="selActivo">
                   <option value="1" @selected((int)old('activo', (int)$row->activo)===1)>Activo</option>
                   <option value="0" @selected((int)old('activo', (int)$row->activo)===0)>Inactivo</option>
                 </select>
                 @error('activo') <div class="err">{{ $message }}</div> @enderror
               </div>
+
+              @if($hasEstatus)
+                <div class="field sm">
+                  <label>Estatus (auth)</label>
+                  <select name="estatus" id="selEstatus">
+                    <option value="activo" @selected(strtolower($estatusVal)==='activo')>activo</option>
+                    <option value="inactivo" @selected(strtolower($estatusVal)==='inactivo')>inactivo</option>
+                    <option value="bloqueado" @selected(strtolower($estatusVal)==='bloqueado')>bloqueado</option>
+                  </select>
+                  <div class="muted">Este campo afecta el login (no debe quedar NULL).</div>
+                  @error('estatus') <div class="err">{{ $message }}</div> @enderror
+                </div>
+              @endif
 
               <div class="field sm">
                 <label>SuperAdmin</label>
@@ -158,6 +177,18 @@
                 @error('es_superadmin') <div class="err">{{ $message }}</div> @enderror
               </div>
             </div>
+
+            @if($hasIsBlocked)
+              <div class="field sm">
+                <label>Bloqueado</label>
+                <select name="is_blocked" id="selBlocked">
+                  <option value="0" @selected((int)$blockedVal===0)>No</option>
+                  <option value="1" @selected((int)$blockedVal===1)>Sí</option>
+                </select>
+                <div class="muted">Si es “Sí”, se fuerza estatus “bloqueado”.</div>
+                @error('is_blocked') <div class="err">{{ $message }}</div> @enderror
+              </div>
+            @endif
 
             <div class="field sm">
               <label>Forzar cambio password</label>
@@ -223,7 +254,7 @@
           <div class="ua-custom">
             <div class="ua-custom-head">
               <div class="ua-ctitle">Permisos personalizados</div>
-              <div class="muted">Se guardan como JSON en <span class="mono">usuarios_admin.permisos</span>.</div>
+              <div class="muted">Se guardan como JSON en <span class="mono">permisos</span>.</div>
             </div>
 
             <textarea id="permisos_text" name="permisos_text" rows="7"
@@ -282,8 +313,10 @@
     html.theme-dark .ua-sub{color:rgba(255,255,255,.60)}
     .ua-fields{padding:14px}
     .ua-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+    .ua-row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
     .ua-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media (max-width:900px){.ua-row3{grid-template-columns:1fr}.ua-row2{grid-template-columns:1fr}}
+    @media (max-width:1100px){.ua-row4{grid-template-columns:1fr 1fr}}
+    @media (max-width:900px){.ua-row3{grid-template-columns:1fr}.ua-row4{grid-template-columns:1fr}.ua-row2{grid-template-columns:1fr}}
 
     .field label{display:block;font:800 12px/1 system-ui;color:#0f172a;margin:0 0 6px}
     html.theme-dark .field label{color:#e5e7eb}
@@ -349,149 +382,120 @@
     const search = document.getElementById('permSearch');
 
     // ======================================================
-// Password generator (seguro) + mostrar + copiar
-// ======================================================
-const pwInput = document.getElementById('admPassword');
-const pwGen   = document.getElementById('pwGen');
-const pwShow  = document.getElementById('pwShow');
-const pwCopy  = document.getElementById('pwCopy');
-const pwHint  = document.getElementById('pwHint');
-const forceSel = document.querySelector('select[name="force_password_change"]');
+    // Password generator (seguro) + mostrar + copiar
+    // ======================================================
+    const pwInput = document.getElementById('admPassword');
+    const pwGen   = document.getElementById('pwGen');
+    const pwShow  = document.getElementById('pwShow');
+    const pwCopy  = document.getElementById('pwCopy');
+    const pwHint  = document.getElementById('pwHint');
+    const forceSel = document.querySelector('select[name="force_password_change"]');
 
-function randInt(max){
-  // 0..max-1
-  const a = new Uint32Array(1);
-  window.crypto.getRandomValues(a);
-  return a[0] % max;
-}
-
-function pick(chars){
-  return chars[randInt(chars.length)];
-}
-
-function shuffle(arr){
-  for(let i = arr.length - 1; i > 0; i--){
-    const j = randInt(i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-/**
- * Genera password con:
- * - 1 minúscula, 1 mayúscula, 1 número, 1 símbolo (mínimo)
- * - resto aleatorio
- * - evita caracteres “problemáticos” (quotes/backslash)
- */
-function generateSecurePassword(len = 16){
-  const lowers = 'abcdefghjkmnpqrstuvwxyz';      // sin i,l,o
-  const uppers = 'ABCDEFGHJKMNPQRSTUVWXYZ';      // sin I,L,O
-  const nums   = '23456789';                     // sin 0,1
-  const syms   = '!@#$%^&*()-_=+[]{};:,.?';
-
-  const all = lowers + uppers + nums + syms;
-  const out = [];
-
-  // mínimos
-  out.push(pick(lowers));
-  out.push(pick(uppers));
-  out.push(pick(nums));
-  out.push(pick(syms));
-
-  while(out.length < Math.max(10, len)){
-    out.push(pick(all));
-  }
-
-  return shuffle(out).join('');
-}
-
-async function copyToClipboard(text){
-  try{
-    await navigator.clipboard.writeText(text);
-    return true;
-  }catch(e){
-    // fallback
-    try{
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly','');
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return !!ok;
-    }catch(_){
-      return false;
+    function randInt(max){
+      const a = new Uint32Array(1);
+      window.crypto.getRandomValues(a);
+      return a[0] % max;
     }
-  }
-}
+    function pick(chars){ return chars[randInt(chars.length)]; }
+    function shuffle(arr){
+      for(let i = arr.length - 1; i > 0; i--){
+        const j = randInt(i + 1);
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+    function generateSecurePassword(len = 16){
+      const lowers = 'abcdefghjkmnpqrstuvwxyz';
+      const uppers = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+      const nums   = '23456789';
+      const syms   = '!@#$%^&*()-_=+[]{};:,.?';
 
-function showHint(msg){
-  if(!pwHint) return;
-  pwHint.textContent = msg;
-  pwHint.style.display = '';
-  setTimeout(()=>{ try{ pwHint.style.display='none'; }catch(_){} }, 4500);
-}
+      const all = lowers + uppers + nums + syms;
+      const out = [];
+      out.push(pick(lowers));
+      out.push(pick(uppers));
+      out.push(pick(nums));
+      out.push(pick(syms));
+      while(out.length < Math.max(10, len)){
+        out.push(pick(all));
+      }
+      return shuffle(out).join('');
+    }
+    async function copyToClipboard(text){
+      try{ await navigator.clipboard.writeText(text); return true; }
+      catch(e){
+        try{
+          const t = document.createElement('textarea');
+          t.value = text;
+          t.setAttribute('readonly','');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          return !!ok;
+        }catch(_){ return false; }
+      }
+    }
+    function showHint(msg){
+      if(!pwHint) return;
+      pwHint.textContent = msg;
+      pwHint.style.display = '';
+      setTimeout(()=>{ try{ pwHint.style.display='none'; }catch(_){} }, 4500);
+    }
 
-pwGen?.addEventListener('click', async ()=>{
-  if(!pwInput) return;
-  const pass = generateSecurePassword(16);
-  pwInput.value = pass;
+    pwGen?.addEventListener('click', async ()=>{
+      if(!pwInput) return;
+      const pass = generateSecurePassword(16);
+      pwInput.value = pass;
+      if(forceSel) forceSel.value = '1';
+      const ok = await copyToClipboard(pass);
+      showHint(ok
+        ? 'Password generada y copiada. (Forzar cambio password = Sí)'
+        : 'Password generada. No se pudo copiar automáticamente (cópiala manualmente).'
+      );
+      pwInput.focus();
+      pwInput.select?.();
+    });
 
-  // si existe selector, al generar forzamos cambio (más seguro)
-  if(forceSel) forceSel.value = '1';
+    pwShow?.addEventListener('click', ()=>{
+      if(!pwInput || !pwShow) return;
+      const isPwd = pwInput.getAttribute('type') === 'password';
+      pwInput.setAttribute('type', isPwd ? 'text' : 'password');
+      pwShow.setAttribute('aria-pressed', isPwd ? 'true' : 'false');
+      pwShow.textContent = isPwd ? 'Ocultar' : 'Mostrar';
+    });
 
-  // Copiar automáticamente para acelerar el registro
-  const ok = await copyToClipboard(pass);
-  showHint(ok
-    ? 'Password generada y copiada. (Forzar cambio password = Sí)'
-    : 'Password generada. No se pudo copiar automáticamente (cópiala manualmente).'
-  );
+    pwCopy?.addEventListener('click', async ()=>{
+      if(!pwInput) return;
+      const val = (pwInput.value || '').trim();
+      if(!val){
+        showHint('No hay password para copiar.');
+        pwInput.focus();
+        return;
+      }
+      const ok = await copyToClipboard(val);
+      showHint(ok ? 'Copiada al portapapeles.' : 'No se pudo copiar. Copia manualmente.');
+    });
 
-  pwInput.focus();
-  pwInput.select?.();
-});
-
-pwShow?.addEventListener('click', ()=>{
-  if(!pwInput || !pwShow) return;
-  const isPwd = pwInput.getAttribute('type') === 'password';
-  pwInput.setAttribute('type', isPwd ? 'text' : 'password');
-  pwShow.setAttribute('aria-pressed', isPwd ? 'true' : 'false');
-  pwShow.textContent = isPwd ? 'Ocultar' : 'Mostrar';
-});
-
-pwCopy?.addEventListener('click', async ()=>{
-  if(!pwInput) return;
-  const val = (pwInput.value || '').trim();
-  if(!val){
-    showHint('No hay password para copiar.');
-    pwInput.focus();
-    return;
-  }
-  const ok = await copyToClipboard(val);
-  showHint(ok ? 'Copiada al portapapeles.' : 'No se pudo copiar. Copia manualmente.');
-});
-
-
+    // ======================================================
+    // Permisos: textarea <-> checks
+    // ======================================================
     function normalizeListFromTextarea(){
       const t = (ta.value || '').trim().replace(/\r\n/g,'\n').replace(/\r/g,'\n');
       if(!t) return new Set();
       const parts = t.split(/[\n,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
       return new Set(parts);
     }
-
     function writeTextareaFromSet(set){
       const arr = Array.from(set).filter(Boolean).sort();
       ta.value = arr.join("\n");
     }
-
     function syncChecksFromTextarea(){
       const set = normalizeListFromTextarea();
       checks.forEach(ch => { ch.checked = set.has(ch.value); });
     }
-
     function syncTextareaFromChecks(){
       const set = normalizeListFromTextarea();
       checks.forEach(ch => {
@@ -501,31 +505,24 @@ pwCopy?.addEventListener('click', async ()=>{
       writeTextareaFromSet(set);
     }
 
-    // init
     syncChecksFromTextarea();
-
-    // events
     checks.forEach(ch => ch.addEventListener('change', syncTextareaFromChecks));
     ta.addEventListener('input', syncChecksFromTextarea);
 
-    // presets
     document.getElementById('permAll')?.addEventListener('click', ()=>{
       checks.forEach(ch => ch.checked = true);
       syncTextareaFromChecks();
     });
-
     document.getElementById('permNone')?.addEventListener('click', ()=>{
       checks.forEach(ch => ch.checked = false);
       syncTextareaFromChecks();
     });
-
     document.getElementById('permBilling')?.addEventListener('click', ()=>{
       const allow = new Set(['facturacion.ver','pagos.ver','billing.*','sat.*']);
       checks.forEach(ch => ch.checked = allow.has(ch.value));
       syncTextareaFromChecks();
     });
 
-    // filter UI
     function applySearch(q){
       q = String(q||'').trim().toLowerCase();
       document.querySelectorAll('.ua-pitem').forEach(row=>{
@@ -540,6 +537,54 @@ pwCopy?.addEventListener('click', async ()=>{
       });
     }
     search?.addEventListener('input', e => applySearch(e.target.value));
+
+    // ======================================================
+    // Coherencia: activo / estatus / is_blocked
+    // ======================================================
+    const selActivo  = document.getElementById('selActivo');
+    const selEstatus = document.getElementById('selEstatus');
+    const selBlocked = document.getElementById('selBlocked');
+
+    function syncStatus(){
+      const activo  = selActivo ? String(selActivo.value) : '1';
+      const blocked = selBlocked ? String(selBlocked.value) : '0';
+
+      if (selEstatus) {
+        if (blocked === '1') {
+          selEstatus.value = 'bloqueado';
+          if (selActivo) selActivo.value = '0';
+          return;
+        }
+        if (activo === '0') {
+          if (selEstatus.value === 'activo') selEstatus.value = 'inactivo';
+          return;
+        }
+        // activo=1 y no bloqueado -> si estaba inactivo/bloqueado, regresa a activo
+        if (selEstatus.value !== 'activo') selEstatus.value = 'activo';
+      }
+    }
+
+    selActivo?.addEventListener('change', syncStatus);
+    selBlocked?.addEventListener('change', syncStatus);
+    selEstatus?.addEventListener('change', ()=>{
+      // si eligen bloqueado, forzamos blocked=1 y activo=0
+      if(!selEstatus) return;
+      if (selEstatus.value === 'bloqueado') {
+        if (selBlocked) selBlocked.value = '1';
+        if (selActivo) selActivo.value = '0';
+      }
+      if (selEstatus.value === 'activo') {
+        if (selBlocked) selBlocked.value = '0';
+        if (selActivo) selActivo.value = '1';
+      }
+      if (selEstatus.value === 'inactivo') {
+        if (selBlocked) selBlocked.value = '0';
+        if (selActivo) selActivo.value = '0';
+      }
+    });
+
+    // init
+    syncStatus();
   })();
   </script>
 @endsection

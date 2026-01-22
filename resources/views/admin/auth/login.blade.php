@@ -6,24 +6,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <link rel="stylesheet" href="{{ asset('assets/admin/css/login.css') }}">
+
   <script>
-    // Persistencia de tema (no rompe tu JS si ya existe)
+    // Persistencia de tema (admin) — sin dependencia del JS externo
     (function(){
       const KEY='p360-theme-admin';
       const saved = localStorage.getItem(KEY);
       const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
       const initial = saved || (prefersDark ? 'dark' : 'light');
+
+      function setUI(dark){
+        const btn = document.getElementById('themeToggle');
+        if (!btn) return;
+        btn.setAttribute('aria-pressed', String(dark));
+        const i = btn.querySelector('.icon');  if(i) i.textContent  = dark ? '🌞' : '🌙';
+        const l = btn.querySelector('.label'); if(l) l.textContent = dark ? 'Modo claro' : 'Modo oscuro';
+      }
+
       document.addEventListener('DOMContentLoaded', function(){
         document.body.classList.toggle('theme-dark',  initial==='dark');
         document.body.classList.toggle('theme-light', initial!=='dark');
-        const btn = document.getElementById('themeToggle');
-        const setUI = (dark) => {
-          if (!btn) return;
-          btn.setAttribute('aria-pressed', String(dark));
-          const i = btn.querySelector('.icon');  if(i) i.textContent  = dark ? '🌞' : '🌙';
-          const l = btn.querySelector('.label'); if(l) l.textContent = dark ? 'Modo claro' : 'Modo oscuro';
-        };
         setUI(initial==='dark');
+
+        const btn = document.getElementById('themeToggle');
         btn && btn.addEventListener('click', () => {
           const toDark = !document.body.classList.contains('theme-dark');
           document.body.classList.toggle('theme-dark', toDark);
@@ -33,8 +38,38 @@
         });
       });
     })();
+
+    // ✅ Toggle password ULTRA-robusto: disponible incluso si no carga login.js
+    window.P360_togglePwd = function(){
+      const inp = document.getElementById('password');
+      const btn = document.getElementById('btnTogglePassword');
+      if (!inp || !btn) return;
+
+      const isPw = (inp.getAttribute('type') || '').toLowerCase() === 'password';
+      inp.setAttribute('type', isPw ? 'text' : 'password');
+      btn.textContent = isPw ? 'Ocultar' : 'Mostrar';
+      btn.setAttribute('aria-pressed', String(isPw));
+    };
   </script>
+
+  {{-- ✅ Micro-fix CSS inline SOLO para asegurar que el botón sea clickeable --}}
+  <style>
+    /* Si tu CSS trae overlays/position raros, esto asegura el click */
+    .pwd-field{ position:relative; }
+    .pwd-field .toggle{
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 50;
+      pointer-events: auto !important;
+      touch-action: manipulation;
+    }
+    /* Asegura espacio para el botón */
+    .pwd-field input.input{ padding-right: 92px; }
+  </style>
 </head>
+
 <body>
   {{-- Botón flotante para cambiar de tema --}}
   <div class="theme-switch">
@@ -71,15 +106,28 @@
     <section class="panel" aria-label="Formulario de inicio de sesión para administradores">
       <form class="card" method="POST" action="{{ route('admin.login.do') }}" id="loginForm" novalidate autocomplete="on" accept-charset="UTF-8">
         @csrf
+
         <h1 class="title">Iniciar sesión</h1>
         <p class="subtitle">Usa tus credenciales administrativas para continuar.</p>
 
+        {{-- ALERTA ROBUSTA: errores y/o mensaje de sesión --}}
         <div aria-live="polite" aria-atomic="true">
-          @if ($errors->any())
-            <div class="err">
-              @foreach ($errors->all() as $e)
-                <div>• {{ $e }}</div>
-              @endforeach
+          @php
+            $hasErrors = $errors && $errors->any();
+            $sessErr   = session('error') ?: session('warn');
+          @endphp
+
+          @if ($hasErrors || $sessErr)
+            <div class="err" role="alert">
+              @if ($sessErr)
+                <div>• {{ $sessErr }}</div>
+              @endif
+
+              @if ($hasErrors)
+                @foreach ($errors->all() as $e)
+                  <div>• {{ $e }}</div>
+                @endforeach
+              @endif
             </div>
           @endif
         </div>
@@ -89,7 +137,7 @@
           <input
             class="input"
             id="email"
-            type="email"
+            type="text"
             name="email"
             value="{{ old('email') }}"
             required
@@ -97,24 +145,37 @@
             autocomplete="username"
             inputmode="email"
             placeholder="micorreo@dominio.com"
-            maxlength="120">
+            maxlength="150">
         </div>
 
         <div class="pwd-wrap">
           <label for="password">Contraseña</label>
-          <input
-            class="input"
-            id="password"
-            type="password"
-            name="password"
-            required
-            autocomplete="current-password"
-            placeholder="********"
-            minlength="6"
-            maxlength="72"
-            aria-describedby="capsTip">
-          <button type="button" class="toggle" aria-controls="password" aria-label="Mostrar u ocultar contraseña">Mostrar</button>
-          <div id="capsTip" class="hint" style="display:none;margin-top:.35rem;">🔠 Bloq Mayús está activado</div>
+
+          <div class="pwd-field">
+            <input
+              class="input"
+              id="password"
+              type="password"
+              name="password"
+              required
+              autocomplete="current-password"
+              placeholder="********"
+              minlength="6"
+              maxlength="72"
+              aria-describedby="capsTip">
+
+            {{-- ✅ onclick directo (no depende de listeners) --}}
+            <button
+              type="button"
+              class="toggle"
+              id="btnTogglePassword"
+              aria-controls="password"
+              aria-pressed="false"
+              aria-label="Mostrar u ocultar contraseña"
+              onclick="window.P360_togglePwd && window.P360_togglePwd()">Mostrar</button>
+          </div>
+
+          <div id="capsTip" class="hint hint-caps" style="display:none;">🔠 Bloq Mayús está activado</div>
         </div>
 
         <div class="row">
@@ -130,36 +191,34 @@
     </section>
   </div>
 
-  <script src="{{ asset('assets/admin/js/login.js') }}"></script>
+  {{-- ✅ Listener adicional (por si quitas onclick) + CapsLock tip --}}
   <script>
-    // UX: CapsLock, toggle contraseña, anti doble submit y limpieza
     (function(){
-      const pwd    = document.getElementById('password');
-      const capsEl = document.getElementById('capsTip');
-      const btnPwd = document.querySelector('.pwd-wrap .toggle');
-      const form   = document.getElementById('loginForm');
-      const btn    = document.getElementById('btnSubmit');
+      const btn = document.getElementById('btnTogglePassword');
+      const inp = document.getElementById('password');
+      const tip = document.getElementById('capsTip');
 
-      if (pwd && capsEl) {
-        const onCaps = (e)=>{ const on = e.getModifierState && e.getModifierState('CapsLock'); capsEl.style.display = on ? 'block' : 'none'; };
-        pwd.addEventListener('keydown', onCaps);
-        pwd.addEventListener('keyup',   onCaps);
-        pwd.addEventListener('blur',    ()=> capsEl.style.display='none');
-      }
-      if (btnPwd && pwd) {
-        btnPwd.addEventListener('click', () => {
-          const show = (pwd.type === 'password');
-          pwd.type = show ? 'text' : 'password';
-          btnPwd.textContent = show ? 'Ocultar' : 'Mostrar';
+      if (btn && inp) {
+        btn.addEventListener('click', function(e){
+          // redundante, pero asegura que NUNCA se “pierda” el click
+          e.preventDefault();
+          if (window.P360_togglePwd) window.P360_togglePwd();
         });
-      }
-      if (form) {
-        form.addEventListener('submit', () => {
-          if (btn){ btn.disabled = true; btn.textContent = 'Entrando…'; }
-          if (pwd){ pwd.value = (pwd.value || '').trim(); }
+
+        inp.addEventListener('keyup', function(e){
+          try {
+            const on = e.getModifierState && e.getModifierState('CapsLock');
+            if (tip) tip.style.display = on ? 'block' : 'none';
+          } catch (_) {}
+        });
+        inp.addEventListener('blur', function(){
+          if (tip) tip.style.display = 'none';
         });
       }
     })();
   </script>
+
+  {{-- Tu JS externo (si existe). Ya NO es necesario para el toggle. --}}
+  <script src="{{ asset('assets/admin/js/login.js') }}"></script>
 </body>
 </html>

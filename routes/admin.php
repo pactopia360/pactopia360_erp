@@ -1,11 +1,14 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\admin.php
 // PACTOPIA360 · ADMIN routes (SOT)
-// ✅ Mejoras:
+// ✅ Mejoras incluidas (v2026-01-21):
+// - FIX 419/logout: añade GET /admin/logout (compat) + POST /admin/logout (real)
+// - FIX “arrastre” de sesión: AdminSessionConfig aplicado en guest/auth
 // - FIX: evita 500 si NO existe BillingStatementsHubController::scheduleEmail (route condicional)
 // - Orden + cierre de braces consistente (route:cache safe)
 // - SAT Admin (prices/discounts) queda dentro de auth:admin (como debe ser)
 // - CSRF bypass en local solo en rutas POST críticas
+// ✅ + /admin/_cfg para diagnóstico rápido del contexto admin (cookie/guard/driver)
 
 declare(strict_types=1);
 
@@ -120,16 +123,6 @@ if (!function_exists('admin_placeholder_view')) {
 |--------------------------------------------------------------------------
 | ✅ Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
 |--------------------------------------------------------------------------
-| IMPORTANTE:
-| - Este archivo admin.php se monta bajo prefix('/admin') desde web.php,
-|   por lo que las URLs finales serán:
-|   - /admin/t/billing/open/{emailId}
-|   - /admin/t/billing/open/{emailId}.gif
-|   - /admin/t/billing/click/{emailId}?u=...
-|
-| - Debe ir FUERA del grupo auth:admin.
-| - Para NO emitir Set-Cookie, quitamos cookies+sesión del stack web.
-|--------------------------------------------------------------------------
 */
 $noCookies = [
     \Illuminate\Cookie\Middleware\EncryptCookies::class,
@@ -165,10 +158,6 @@ Route::prefix('t/billing')
 |--------------------------------------------------------------------------
 | ✅ PayLink público (GET) para Estados de Cuenta (HUB)
 |--------------------------------------------------------------------------
-| - Debe ir FUERA de auth:admin (correo/cliente lo abre)
-| - URL final: /admin/billing/statements-hub/paylink
-| - Nombre: admin.billing.statements_hub.paylink
-|--------------------------------------------------------------------------
 */
 Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
     ->middleware('throttle:240,1')
@@ -191,6 +180,25 @@ $uiLog = Route::match(['POST', 'GET'], 'ui/log', [UiController::class, 'log'])
 if ($isLocal) {
     $uiLog->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
 }
+
+/*
+|--------------------------------------------------------------------------
+| ✅ Diag rápido (admin context): /admin/_cfg
+|--------------------------------------------------------------------------
+*/
+Route::get('_cfg', function () {
+    return response()->json([
+        'ok'             => true,
+        'auth_default'   => config('auth.defaults.guard'),
+        'session_cookie' => config('session.cookie'),
+        'session_driver' => config('session.driver'),
+        'session_conn'   => config('session.connection'),
+        'now'            => now()->toDateTimeString(),
+        'admin_id'       => auth('admin')->id(),
+        'admin_email'    => auth('admin')->user()?->email,
+    ]);
+})->middleware([\App\Http\Middleware\AdminSessionConfig::class])
+  ->name('cfg');
 
 /*
 |--------------------------------------------------------------------------
@@ -467,8 +475,13 @@ Route::middleware([
         }
     });
 
-    /* ---------- Logout admin ---------- */
+    /* ---------- Logout admin (POST real + GET compat) ---------- */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
+
+    // Compatibilidad: si alguien pega /admin/logout (GET) en navegador, evita 419
+    Route::get('logout', function () {
+        return redirect()->route('admin.home');
+    })->name('logout.get');
 
     /* ---------- DEV / QA interno ---------- */
     Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
@@ -615,11 +628,7 @@ Route::middleware([
         Route::post('statements-hub/invoice-status', [BillingStatementsHubController::class, 'invoiceStatus'])
             ->name('statements_hub.invoice_status');
 
-        /*
-         * ✅ FIX CRÍTICO:
-         * En prod te tronaba porque scheduleEmail NO existe.
-         * Aquí lo hacemos "feature-flag" automático: solo registra la ruta si el método existe.
-         */
+        // ✅ Feature-flag automático: solo registra la ruta si el método existe.
         if (method_exists(BillingStatementsHubController::class, 'scheduleEmail')) {
             Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
                 ->name('statements_hub.schedule');
@@ -696,24 +705,25 @@ Route::middleware([
         Route::get('administrativos/create', [AdministrativosController::class, 'create'])->name('administrativos.create');
         Route::post('administrativos', [AdministrativosController::class, 'store'])->name('administrativos.store');
 
+        // ✅ soporta UUID (local) o int (prod)
         Route::get('administrativos/{id}/edit', [AdministrativosController::class, 'edit'])
-            ->whereNumber('id')
+            ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.edit');
 
         Route::put('administrativos/{id}', [AdministrativosController::class, 'update'])
-            ->whereNumber('id')
+            ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.update');
 
         Route::post('administrativos/{id}/toggle', [AdministrativosController::class, 'toggle'])
-            ->whereNumber('id')
+            ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.toggle');
 
         Route::post('administrativos/{id}/reset-password', [AdministrativosController::class, 'resetPassword'])
-            ->whereNumber('id')
+            ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.reset_password');
 
         Route::delete('administrativos/{id}', [AdministrativosController::class, 'destroy'])
-            ->whereNumber('id')
+            ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.destroy');
     });
 
@@ -721,22 +731,10 @@ Route::middleware([
     |--------------------------------------------------------------------------
     | SAT · Lista de precios + Códigos de descuento (Admin) — CANÓNICO
     |--------------------------------------------------------------------------
-    | MONTAJE:
-    | - Este archivo ya vive bajo prefix('/admin') desde web.php
-    | - URLs:
-    |   - /admin/sat/prices
-    |   - /admin/sat/discounts
-    |
-    | NOMBRES:
-    |   - admin.sat.prices.*
-    |   - admin.sat.discounts.*
-    |--------------------------------------------------------------------------
     */
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-        // =========================
         // SAT · PRICE RULES
-        // =========================
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
 
             Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
@@ -772,9 +770,7 @@ Route::middleware([
             }
         });
 
-        // =========================
         // SAT · DISCOUNT CODES
-        // =========================
         Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
 
             Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');

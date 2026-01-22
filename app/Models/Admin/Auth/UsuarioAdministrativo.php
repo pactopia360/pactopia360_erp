@@ -9,10 +9,14 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use App\Support\Auth\WithoutRememberToken;
 
 /**
  * Usuario administrativo (Admin)
+ *
+ * SOT en LOCAL/PROD con tabla configurable:
+ * - env P360_ADMIN_USERS_TABLE puede forzar: usuario_administrativos | usuarios_admin
  *
  * Compatibilidad:
  * - LOCAL:  usuario_administrativos (UUID string, no AI)
@@ -39,17 +43,14 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
     /** Conexión ADMIN */
     protected $connection = 'mysql_admin';
 
-    /**
-     * Tabla default (PROD). En constructor se ajusta si existe la tabla LOCAL.
-     */
+    /** Default PROD */
     protected $table = 'usuarios_admin';
 
-    /** PK default (PROD) */
+    /** PK default PROD */
     public $incrementing  = true;
     protected $keyType    = 'int';
     protected $primaryKey = 'id';
 
-    /** Atributos asignables (conjunto amplio para ambos esquemas) */
     protected $fillable = [
         'id',
         'nombre',
@@ -64,12 +65,8 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
         'updated_at',
     ];
 
-    /** Ocultos */
-    protected $hidden = [
-        'password',
-    ];
+    protected $hidden = ['password'];
 
-    /** Casts */
     protected $casts = [
         'activo'        => 'integer',
         'es_superadmin' => 'integer',
@@ -81,35 +78,55 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
     {
         parent::__construct($attributes);
 
-        // Elegir tabla según exista en el esquema real de la conexión admin
         $conn = $this->getConnectionName();
 
         try {
             $schema = Schema::connection($conn);
 
-            // Preferir tabla LOCAL si existe
-            if ($schema->hasTable('usuario_administrativos')) {
-                $this->setTable('usuario_administrativos');
-
-                // En tu local es UUID (string)
-                $this->incrementing = false;
-                $this->keyType = 'string';
-                $this->primaryKey = 'id';
-            } else {
-                // Fallback PROD
-                $this->setTable('usuarios_admin');
-
-                // En prod es bigint AI
-                $this->incrementing = true;
-                $this->keyType = 'int';
-                $this->primaryKey = 'id';
+            // 1) Si env fuerza tabla y existe, úsala
+            $forced = trim((string) env('P360_ADMIN_USERS_TABLE', ''));
+            if ($forced !== '' && $schema->hasTable($forced)) {
+                $this->applyTableSchema($forced);
+                return;
             }
+
+            // 2) Auto: preferir LOCAL si existe
+            if ($schema->hasTable('usuario_administrativos')) {
+                $this->applyTableSchema('usuario_administrativos');
+                return;
+            }
+
+            // 3) Fallback PROD
+            if ($schema->hasTable('usuarios_admin')) {
+                $this->applyTableSchema('usuarios_admin');
+                return;
+            }
+
+            // 4) Si no existe ninguna, deja default
         } catch (\Throwable $e) {
-            // Si falla Schema por cualquier razón, no rompas el modelo: se queda en default PROD
+            // no romper
         }
     }
 
-    /** Fallback si no existe conexión mysql_admin */
+    private function applyTableSchema(string $table): void
+    {
+        $this->setTable($table);
+
+        // Si es tabla local UUID
+        if ($table === 'usuario_administrativos') {
+            $this->incrementing = false;
+            $this->keyType      = 'string';
+            $this->primaryKey   = 'id';
+            return;
+        }
+
+        // PROD / usuarios_admin
+        $this->incrementing = true;
+        $this->keyType      = 'int';
+        $this->primaryKey   = 'id';
+    }
+
+    /** Fallback si no existe mysql_admin */
     public function getConnectionName()
     {
         return config('database.connections.mysql_admin')
@@ -117,21 +134,16 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
             : (config('database.default') ?? 'mysql');
     }
 
-    /** Guard */
     public function getGuardName(): string
     {
         return 'admin';
     }
 
-    /** Normaliza email */
     public function setEmailAttribute($value): void
     {
         $this->attributes['email'] = is_string($value) ? mb_strtolower(trim($value)) : $value;
     }
 
-    /* =========================
-     | Scopes
-     * ========================= */
     public function scopeActive($q)
     {
         $schema = Schema::connection($this->getConnectionName());
@@ -145,9 +157,6 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
         return $q->where('email', mb_strtolower(trim($email)));
     }
 
-    /* =========================
-     | Helpers
-     * ========================= */
     public function isActive(): bool
     {
         $schema = Schema::connection($this->getConnectionName());
@@ -157,12 +166,11 @@ class UsuarioAdministrativo extends BaseAdminModel implements AuthenticatableCon
 
     public function markLastLogin(?string $ip = null): void
     {
-        // En ambos esquemas actuales no dependemos de columnas last_login_*.
+        // opcional
     }
 
     public function isSuperAdmin(): bool
     {
-        // Flag primero (local tiene es_superadmin)
         if ((int)($this->es_superadmin ?? 0) === 1) return true;
 
         $rol = strtolower((string)($this->rol ?? ''));
