@@ -557,32 +557,33 @@ class HomeController extends Controller
                 $rows = $qC->limit(50)->get();
 
                 foreach ($rows as $r) {
-                    $planTxt = '';
-                    if (isset($r->plan) && $r->plan !== null && trim((string)$r->plan) !== '') {
-                        $planTxt = strtoupper(trim((string)$r->plan));
+                    $estadoTxt = '—';
+
+                    // Prioridad: estado_cuenta
+                    if ($hasEstado && isset($r->estado_cuenta)) {
+                        $estadoTxt = (string) $r->estado_cuenta;
+                    } elseif ($hasBlocked && isset($r->is_blocked)) {
+                        $estadoTxt = ((int)$r->is_blocked === 1) ? 'pendiente' : 'operando';
                     }
 
-                    $estadoTxt = '';
-                    if (isset($r->estado_cuenta) && $r->estado_cuenta !== null && trim((string)$r->estado_cuenta) !== '') {
-                        $estadoTxt = trim((string)$r->estado_cuenta);
-                    } elseif ($blockedCol) {
-                        $estadoTxt = ((int)($r->is_blocked ?? 0) === 1) ? 'Bloqueada_pago' : 'Activa';
-                    } else {
-                        $estadoTxt = '—';
+                    // Plan si existe
+                    $planTxt = '—';
+                    if ($hasPlan && isset($r->plan)) {
+                        $planTxt = (string) $r->plan;
                     }
-
-                    $planEstado = trim($planTxt . ($planTxt ? ' / ' : '') . $estadoTxt);
 
                     $clientesTabla[] = [
-                        'id'       => (int) ($r->id ?? 0),
-                        'empresa'  => (string) ($r->empresa ?? '—'),
-                        'rfc'      => (string) ($r->rfc ?? ''),
-                        'plan'     => $planEstado ?: '—',
-                        'ingresos' => (float) ($r->ingresos ?? 0),
-                        'timbres'  => (int) ($r->timbres ?? 0),
-                        'ultimo'   => (!empty($r->ts) ? Carbon::parse($r->ts)->diffForHumans() : ''),
+                        'id'      => (int) $r->id,
+                        'empresa' => (string) $r->nombre,
+                        'rfc'     => $r->rfc ?? '',
+                        'plan'    => $planTxt,
+                        'estado'  => $estadoTxt,
+                        'ingresos'=> 0,
+                        'timbres' => 0,
+                        'ultimo'  => isset($r->ts) ? Carbon::parse($r->ts)->diffForHumans() : '',
                     ];
                 }
+
             }
 
 
