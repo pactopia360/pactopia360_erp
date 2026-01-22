@@ -85,19 +85,36 @@ class HomeController extends Controller
             });
         }
 
-        // ====== Filtros ======
-        $months = max(3, min(24, (int) $request->integer('months', 12)));
-        $planFilter = trim(mb_strtolower((string) $request->string('plan')));
+        // ====== Filtros (UI) ======
+        // UI manda: from=YYYY-MM, to=YYYY-MM, scope=paid|issued|all, group=...
+        // Backend: soportamos from/to/scope; ignoramos group (por ahora).
+        $fromYm = trim((string) $request->string('from', ''));
+        $toYm   = trim((string) $request->string('to', ''));
+        $scope  = trim(mb_strtolower((string) $request->string('scope', 'paid')));
+        if (!in_array($scope, ['paid','issued','all'], true)) $scope = 'paid';
+
+        // Compat: si alguien manda months aún
+        $monthsLegacy = max(3, min(24, (int) $request->integer('months', 12)));
+
+        // Plan filter (no está en UI hoy, pero lo dejamos listo)
+        $planFilter = trim(mb_strtolower((string) $request->string('plan', '')));
         if ($planFilter === 'all' || $planFilter === '') $planFilter = null;
 
-        $from = now()->startOfMonth()->subMonths($months - 1);
-        $to   = now()->endOfMonth();
+        // Rango real
+        [$from, $to, $months] = $this->resolveRange($fromYm, $toYm, $monthsLegacy);
 
-        // ====== Cache key (amarrada a la conexión) ======
-        $cacheKey = sprintf('home:stats:v2:conn:%s:m%d:plan:%s', $this->statsConn, $months, $planFilter ?: 'all');
+        // ====== Cache key (amarrada a conexión + filtros reales) ======
+        $cacheKey = sprintf(
+            'home:stats:v3:conn:%s:from:%s:to:%s:scope:%s:plan:%s',
+            $this->statsConn,
+            $from->format('Y-m'),
+            $to->format('Y-m'),
+            $scope,
+            $planFilter ?: 'all'
+        );
 
         $bots = [];
-        $compute = function () use ($from, $to, $months, $planFilter, &$bots) {
+        $compute = function () use ($from, $to, $months, $planFilter, $scope, &$bots) {
             $db  = $this->db();
             $sch = $this->schema();
 
@@ -109,27 +126,28 @@ class HomeController extends Controller
             // =========================
             $T_ACCOUNTS = $has('accounts') ? 'accounts' : null;
 
-            // Pagos: priorizar payments (porque pagos existe pero está vacío en tu caso)
+            // Pagos: priorizar payments
             $T_PAYMENTS = null;
             if ($has('payments') && ($hasCol('payments', 'amount') || $hasCol('payments', 'monto'))) {
                 $T_PAYMENTS = 'payments';
             } elseif ($has('pagos') && ($hasCol('pagos', 'amount') || $hasCol('pagos', 'monto'))) {
                 $T_PAYMENTS = 'pagos';
-            } elseif ($has('cobros')) {
+            } elseif ($has('cobros') && ($hasCol('cobros', 'amount') || $hasCol('cobros', 'monto'))) {
                 $T_PAYMENTS = 'cobros';
             }
 
             $T_CFDI   = $has('cfdis') ? 'cfdis' : null;
-            $T_PLANES = $has('planes') ? 'planes' : null;
 
-            // Helper seguro para LOWER(col) con/ sin prefijo tabla
+            // Helper seguro para LOWER(col)
             $lowerCol = function (?string $table, string $col) {
                 return $table ? DB::raw("LOWER({$table}.{$col})") : DB::raw("LOWER({$col})");
             };
 
             // ===== Meses base =====
             $monthsMap = [];
-            for ($d = $from->copy(); $d <= $to; $d->addMonth()) $monthsMap[$d->format('Y-m')] = 0;
+            for ($d = $from->copy(); $d <= $to; $d->addMonth()) {
+                $monthsMap[$d->format('Y-m')] = 0;
+            }
             $labels = array_keys($monthsMap);
 
             // =========================
@@ -180,63 +198,94 @@ class HomeController extends Controller
             // ✅ Ingresos (sobre PAYMENTS)
             // =========================
             $ingresos = $monthsMap;
-            $ingresoMesActual = 0.0;
             $ingresosTabla = [];
+            $ingresoMesActual = 0.0;
+            $ingresoTotalRango = 0.0;
+            $pagosTotalRango = 0;
 
             $paidStatuses = ['paid','succeeded','success','completed','complete','captured','authorized'];
+
+            // scope:
+            // - paid: solo statuses "pagado"
+            // - issued: NO filtra status (si tu tabla guarda emisiones; si no, equivale a all)
+            // - all: NO filtra status
+            $mustFilterPaid = ($scope === 'paid');
+
+            $paymentsMeta = [
+                'table' => $T_PAYMENTS,
+                'amtCol' => null,
+                'dateCol' => null,
+                'statusCol' => null,
+                'accountIdCol' => null,
+            ];
 
             if ($T_PAYMENTS) {
                 $amtCol    = $hasCol($T_PAYMENTS,'monto') ? 'monto' : ($hasCol($T_PAYMENTS,'amount') ? 'amount' : null);
                 $dateCol   = $hasCol($T_PAYMENTS,'paid_at') ? 'paid_at' : ($hasCol($T_PAYMENTS,'fecha') ? 'fecha' : ($hasCol($T_PAYMENTS,'created_at') ? 'created_at' : null));
                 $statusCol = $hasCol($T_PAYMENTS,'status') ? 'status' : ($hasCol($T_PAYMENTS,'estado') ? 'estado' : null);
+                $accountIdCol = $hasCol($T_PAYMENTS,'account_id') ? 'account_id' : null;
+
+                $paymentsMeta['amtCol'] = $amtCol;
+                $paymentsMeta['dateCol'] = $dateCol;
+                $paymentsMeta['statusCol'] = $statusCol;
+                $paymentsMeta['accountIdCol'] = $accountIdCol;
 
                 if ($amtCol && $dateCol) {
                     $q = $db->table($T_PAYMENTS)
                         ->selectRaw("DATE_FORMAT({$T_PAYMENTS}.{$dateCol}, '%Y-%m') as ym, COUNT(*) as pagos, SUM({$T_PAYMENTS}.{$amtCol}) as total, AVG({$T_PAYMENTS}.{$amtCol}) as avg_ticket")
                         ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to]);
 
-                    if ($statusCol) {
+                    if ($mustFilterPaid && $statusCol) {
                         $q->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
                     }
 
-                    if ($planFilter && $T_ACCOUNTS && $hasPlan && $hasCol($T_PAYMENTS, 'account_id')) {
-                        $q->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
+                    if ($planFilter && $T_ACCOUNTS && $hasPlan && $accountIdCol) {
+                        $q->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.{$accountIdCol}")
                           ->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
                     }
 
                     $rows = $q->groupByRaw("DATE_FORMAT({$T_PAYMENTS}.{$dateCol}, '%Y-%m')")->get();
 
-                    foreach ($rows as $r) {
-                        if (isset($ingresos[$r->ym])) $ingresos[$r->ym] = (float) $r->total;
-                    }
-
-                    // Ingreso mes actual
-                    $qNow = $db->table($T_PAYMENTS)->whereBetween("{$T_PAYMENTS}.{$dateCol}", [now()->startOfMonth(), now()->endOfMonth()]);
-                    if ($statusCol) $qNow->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
-                    if ($planFilter && $T_ACCOUNTS && $hasPlan && $hasCol($T_PAYMENTS, 'account_id')) {
-                        $qNow->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
-                             ->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
-                    }
-                    $ingresoMesActual = (float) $qNow->sum("{$T_PAYMENTS}.{$amtCol}");
-
-                    // Tabla mensual completa (aunque no haya rows para todos)
                     $map = [];
                     foreach ($rows as $r) {
+                        if (isset($ingresos[$r->ym])) $ingresos[$r->ym] = (float) $r->total;
                         $map[$r->ym] = [
                             'total' => (float) $r->total,
                             'pagos' => (int) $r->pagos,
                             'avg'   => (float) $r->avg_ticket,
                         ];
                     }
+
+                    // Totales rango
+                    $ingresoTotalRango = array_sum(array_values($ingresos));
+                    $pagosTotalRango = array_sum(array_map(fn($v) => (int)($v['pagos'] ?? 0), $map));
+                   
+                    // Ingreso mes actual
+                    $qNow = $db->table($T_PAYMENTS)
+                        ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [now()->startOfMonth(), now()->endOfMonth()]);
+
+                    if ($statusCol) {
+                        $qNow->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
+                    }
+
+                    if ($planFilter && $T_ACCOUNTS && $hasPlan && $hasCol($T_PAYMENTS, 'account_id')) {
+                        $qNow->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
+                            ->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
+                    }
+
+                    $ingresoMesActual = (float) $qNow->sum("{$T_PAYMENTS}.{$amtCol}");
+
+
+                    // Tabla mensual completa (incluye meses en 0)
                     $cursor = $from->copy();
                     while ($cursor <= $to) {
                         $ym = $cursor->format('Y-m');
                         $ingresosTabla[] = [
                             'ym'    => $ym,
                             'label' => $cursor->translatedFormat('F Y'),
-                            'total' => $map[$ym]['total'] ?? 0.0,
-                            'pagos' => $map[$ym]['pagos'] ?? 0,
-                            'avg'   => $map[$ym]['avg'] ?? 0.0,
+                            'total' => (float) ($map[$ym]['total'] ?? 0.0),
+                            'pagos' => (int)   ($map[$ym]['pagos'] ?? 0),
+                            'avg'   => (float) ($map[$ym]['avg'] ?? 0.0),
                         ];
                         $cursor->addMonth();
                     }
@@ -247,14 +296,17 @@ class HomeController extends Controller
                     ]);
                 }
             } else {
-                $this->pushBot($bots, 'warning', 'no_payments_table', 'No se detectó tabla de pagos (payments/pagos).');
+                $this->pushBot($bots, 'warning', 'no_payments_table', 'No se detectó tabla de pagos (payments/pagos/cobros).');
             }
 
             // =========================
-            // ✅ Timbres (CFDI)
+            // ✅ Timbres (CFDI) - por mes
             // =========================
             $timbres = $monthsMap;
             $timbresUsados = 0;
+
+            // Importante: solo podemos contar si existe tabla cfdis en ESTA conexión.
+            // Si cfdis vive en otra conexión, aquí quedará 0 (y lo reportamos en bots).
             if ($T_CFDI) {
                 $cfdiDate = $hasCol($T_CFDI,'fecha') ? 'fecha' : ($hasCol($T_CFDI,'created_at') ? 'created_at' : null);
                 if ($cfdiDate) {
@@ -268,14 +320,17 @@ class HomeController extends Controller
                         if (isset($timbres[$r->ym])) $timbres[$r->ym] = (int) $r->c;
                         $timbresUsados += (int) $r->c;
                     }
+                } else {
+                    $this->pushBot($bots, 'warning', 'cfdi_missing_date', 'Existe cfdis pero no hay columna fecha/created_at para agrupar.', [
+                        'table' => $T_CFDI,
+                    ]);
                 }
             }
 
             // =========================
-            // ✅ Clientes por plan (dona)
+            // ✅ Planes (dona)
             // =========================
             $planesChart = [];
-            $planOptions = [];
             if ($T_ACCOUNTS && $hasPlan) {
                 $rows = $db->table($T_ACCOUNTS)
                     ->selectRaw("LOWER(plan) as clave, COUNT(*) as c")
@@ -284,7 +339,6 @@ class HomeController extends Controller
 
                 foreach ($rows as $r) {
                     $planesChart[$r->clave] = (int) $r->c;
-                    $planOptions[] = ['value' => $r->clave, 'label' => ucfirst($r->clave)];
                 }
             }
 
@@ -308,19 +362,20 @@ class HomeController extends Controller
             // ✅ Ingresos por plan
             // =========================
             $ingresosPorPlan = ['labels' => $labels, 'plans' => []];
-            if ($T_PAYMENTS && $T_ACCOUNTS && $hasPlan && $hasCol($T_PAYMENTS, 'account_id')) {
-                $amtCol    = $hasCol($T_PAYMENTS,'monto') ? 'monto' : ($hasCol($T_PAYMENTS,'amount') ? 'amount' : null);
-                $dateCol   = $hasCol($T_PAYMENTS,'paid_at') ? 'paid_at' : ($hasCol($T_PAYMENTS,'fecha') ? 'fecha' : ($hasCol($T_PAYMENTS,'created_at') ? 'created_at' : null));
-                $statusCol = $hasCol($T_PAYMENTS,'status') ? 'status' : ($hasCol($T_PAYMENTS,'estado') ? 'estado' : null);
+            if ($T_PAYMENTS && $T_ACCOUNTS && $hasPlan && ($paymentsMeta['accountIdCol'] ?? null)) {
+                $amtCol    = $paymentsMeta['amtCol'];
+                $dateCol   = $paymentsMeta['dateCol'];
+                $statusCol = $paymentsMeta['statusCol'];
+                $accountIdCol = $paymentsMeta['accountIdCol'];
 
                 if ($amtCol && $dateCol) {
                     $q = $db->table($T_PAYMENTS)
-                        ->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
+                        ->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.{$accountIdCol}")
                         ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to])
                         ->selectRaw("DATE_FORMAT({$T_PAYMENTS}.{$dateCol}, '%Y-%m') as ym, LOWER({$T_ACCOUNTS}.plan) as pkey, SUM({$T_PAYMENTS}.{$amtCol}) as total");
 
-                    if ($statusCol) {
-                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), ['paid','succeeded','success','completed','complete','captured','authorized']);
+                    if ($mustFilterPaid && $statusCol) {
+                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
                     }
                     if ($planFilter) {
                         $q->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
@@ -339,13 +394,14 @@ class HomeController extends Controller
             }
 
             // =========================
-            // ✅ Top clientes por ingresos
+            // ✅ Top clientes por ingresos (gráfica)
             // =========================
             $topClientes = ['labels' => [], 'values' => []];
-            if ($T_PAYMENTS && $T_ACCOUNTS && $hasCol($T_PAYMENTS,'account_id')) {
-                $amtCol    = $hasCol($T_PAYMENTS,'monto') ? 'monto' : ($hasCol($T_PAYMENTS,'amount') ? 'amount' : null);
-                $dateCol   = $hasCol($T_PAYMENTS,'paid_at') ? 'paid_at' : ($hasCol($T_PAYMENTS,'fecha') ? 'fecha' : ($hasCol($T_PAYMENTS,'created_at') ? 'created_at' : null));
-                $statusCol = $hasCol($T_PAYMENTS,'status') ? 'status' : ($hasCol($T_PAYMENTS,'estado') ? 'estado' : null);
+            if ($T_PAYMENTS && $T_ACCOUNTS && ($paymentsMeta['accountIdCol'] ?? null)) {
+                $amtCol    = $paymentsMeta['amtCol'];
+                $dateCol   = $paymentsMeta['dateCol'];
+                $statusCol = $paymentsMeta['statusCol'];
+                $accountIdCol = $paymentsMeta['accountIdCol'];
 
                 $nameCol = $hasCol($T_ACCOUNTS,'razon_social') ? 'razon_social'
                     : ($hasCol($T_ACCOUNTS,'nombre') ? 'nombre'
@@ -353,15 +409,15 @@ class HomeController extends Controller
 
                 if ($amtCol && $dateCol) {
                     $q = $db->table($T_PAYMENTS)
-                        ->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
+                        ->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.{$accountIdCol}")
                         ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to])
                         ->selectRaw("MAX({$T_ACCOUNTS}.{$nameCol}) as cliente, SUM({$T_PAYMENTS}.{$amtCol}) as total")
-                        ->groupBy("{$T_PAYMENTS}.account_id")
+                        ->groupBy("{$T_PAYMENTS}.{$accountIdCol}")
                         ->orderByDesc('total')
                         ->limit(10);
 
-                    if ($statusCol) {
-                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), ['paid','succeeded','success','completed','complete','captured','authorized']);
+                    if ($mustFilterPaid && $statusCol) {
+                        $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
                     }
                     if ($planFilter && $hasPlan) {
                         $q->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
@@ -385,42 +441,171 @@ class HomeController extends Controller
                 ];
             }
 
-            // Tabla clientes (últimos 50, activos)
+            // =========================
+            // ✅ Tabla clientes (Top por ingresos en el periodo)
+            //    - Nombre robusto: COALESCE(NULLIF(...))
+            //    - Ingresos: SUM(payments.amount|monto) por account_id (según filtros)
+            //    - Timbres por cliente: solo si cfdis tiene account_id (si no, queda 0)
+            // =========================
             $clientesTabla = [];
             if ($T_ACCOUNTS) {
-                $nameCol = $hasCol($T_ACCOUNTS,'razon_social') ? 'razon_social'
-                    : ($hasCol($T_ACCOUNTS,'nombre') ? 'nombre'
-                    : ($hasCol($T_ACCOUNTS,'email') ? 'email' : 'id'));
 
-                $rfcCol  = $hasCol($T_ACCOUNTS,'rfc') ? 'rfc' : null;
-                $tsCol   = $hasCol($T_ACCOUNTS,'updated_at') ? 'updated_at' : ($hasCol($T_ACCOUNTS,'created_at') ? 'created_at' : null);
+                // Columnas posibles para "nombre" (vamos a coalescer varias)
+                $nameCandidates = [];
+                foreach (['razon_social', 'name', 'nombre', 'empresa', 'email'] as $c) {
+                    if ($hasCol($T_ACCOUNTS, $c)) $nameCandidates[] = "{$T_ACCOUNTS}.{$c}";
+                }
 
-                $qC = $db->table($T_ACCOUNTS)->select(["{$T_ACCOUNTS}.id", "{$T_ACCOUNTS}.{$nameCol} as nombre"]);
-                if ($rfcCol) $qC->addSelect("{$T_ACCOUNTS}.{$rfcCol} as rfc");
-                if ($tsCol)  $qC->addSelect("{$T_ACCOUNTS}.{$tsCol} as ts");
+                // Expresión SQL: COALESCE(NULLIF(col,''), ..., CONCAT('Cuenta #',id))
+                // Si no hay ninguna columna, cae a "Cuenta #id".
+                $nameExprParts = [];
+                foreach ($nameCandidates as $colRef) {
+                    $nameExprParts[] = "NULLIF(TRIM({$colRef}), '')";
+                }
+                $nameExpr = count($nameExprParts)
+                    ? ("COALESCE(" . implode(', ', $nameExprParts) . ", CONCAT('Cuenta #', {$T_ACCOUNTS}.id))")
+                    : ("CONCAT('Cuenta #', {$T_ACCOUNTS}.id)");
 
-                if ($hasBlocked) $qC->where("{$T_ACCOUNTS}.is_blocked", 0);
-                if ($planFilter && $hasPlan) $qC->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
+                $rfcCol = $hasCol($T_ACCOUNTS, 'rfc') ? "{$T_ACCOUNTS}.rfc" : null;
 
-                $rows = $qC->orderByDesc($tsCol ?? "{$T_ACCOUNTS}.id")->limit(50)->get();
+                // Estado/plan para mostrar en tabla
+                $planCol   = $hasCol($T_ACCOUNTS, 'plan') ? "{$T_ACCOUNTS}.plan" : null;
+                $estadoCol = $hasCol($T_ACCOUNTS, 'estado_cuenta') ? "{$T_ACCOUNTS}.estado_cuenta" : null;
+                $blockedCol = $hasCol($T_ACCOUNTS, 'is_blocked') ? "{$T_ACCOUNTS}.is_blocked" : null;
+
+                // Timestamp para “último”
+                $tsCol = $hasCol($T_ACCOUNTS, 'updated_at') ? "{$T_ACCOUNTS}.updated_at"
+                    : ($hasCol($T_ACCOUNTS, 'created_at') ? "{$T_ACCOUNTS}.created_at" : null);
+
+                // ---------- Ingresos por cuenta (subquery agregada) ----------
+                $incomeByAccount = null;
+                if ($T_PAYMENTS && $hasCol($T_PAYMENTS, 'account_id')) {
+
+                    $amtCol  = $hasCol($T_PAYMENTS,'monto') ? 'monto' : ($hasCol($T_PAYMENTS,'amount') ? 'amount' : null);
+                    $dateCol = $hasCol($T_PAYMENTS,'paid_at') ? 'paid_at' : ($hasCol($T_PAYMENTS,'fecha') ? 'fecha' : ($hasCol($T_PAYMENTS,'created_at') ? 'created_at' : null));
+                    $statusCol = $hasCol($T_PAYMENTS,'status') ? 'status' : ($hasCol($T_PAYMENTS,'estado') ? 'estado' : null);
+
+                    if ($amtCol && $dateCol) {
+                        $qInc = $db->table($T_PAYMENTS)
+                            ->selectRaw("{$T_PAYMENTS}.account_id as account_id, SUM({$T_PAYMENTS}.{$amtCol}) as ingresos")
+                            ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to])
+                            ->groupBy("{$T_PAYMENTS}.account_id");
+
+                        if ($statusCol) {
+                            $qInc->whereIn($lowerCol($T_PAYMENTS, $statusCol), $paidStatuses);
+                        }
+
+                        $incomeByAccount = $qInc;
+                    }
+                }
+
+                // ---------- Timbres por cuenta (subquery agregada) ----------
+                $stampsByAccount = null;
+                if ($T_CFDI && $hasCol($T_CFDI, 'account_id')) {
+
+                    $cfdiDate = $hasCol($T_CFDI,'fecha') ? 'fecha' : ($hasCol($T_CFDI,'created_at') ? 'created_at' : null);
+                    if ($cfdiDate) {
+                        $stampsByAccount = $db->table($T_CFDI)
+                            ->selectRaw("{$T_CFDI}.account_id as account_id, COUNT(*) as timbres")
+                            ->whereBetween("{$T_CFDI}.{$cfdiDate}", [$from, $to])
+                            ->groupBy("{$T_CFDI}.account_id");
+                    }
+                }
+
+                // ---------- Query final: cuentas + ingresos + timbres ----------
+                $qC = $db->table($T_ACCOUNTS)
+                    ->selectRaw("{$T_ACCOUNTS}.id as id, {$nameExpr} as empresa");
+
+                if ($rfcCol)   $qC->addSelect(DB::raw("{$rfcCol} as rfc"));
+                if ($planCol)  $qC->addSelect(DB::raw("{$planCol} as plan"));
+                if ($estadoCol) $qC->addSelect(DB::raw("{$estadoCol} as estado_cuenta"));
+                if ($blockedCol) $qC->addSelect(DB::raw("{$blockedCol} as is_blocked"));
+                if ($tsCol)    $qC->addSelect(DB::raw("{$tsCol} as ts"));
+
+                if ($incomeByAccount) {
+                    $qC->leftJoinSub($incomeByAccount, 'inc', function ($j) use ($T_ACCOUNTS) {
+                        $j->on('inc.account_id', '=', "{$T_ACCOUNTS}.id");
+                    });
+                    $qC->addSelect(DB::raw("COALESCE(inc.ingresos, 0) as ingresos"));
+                } else {
+                    $qC->addSelect(DB::raw("0 as ingresos"));
+                }
+
+                if ($stampsByAccount) {
+                    $qC->leftJoinSub($stampsByAccount, 'st', function ($j) use ($T_ACCOUNTS) {
+                        $j->on('st.account_id', '=', "{$T_ACCOUNTS}.id");
+                    });
+                    $qC->addSelect(DB::raw("COALESCE(st.timbres, 0) as timbres"));
+                } else {
+                    $qC->addSelect(DB::raw("0 as timbres"));
+                }
+
+                // Filtros: excluye bloqueados si existe is_blocked (como ya venías haciendo)
+                if ($blockedCol) {
+                    $qC->where("{$T_ACCOUNTS}.is_blocked", 0);
+                }
+
+                if ($planFilter && $hasPlan) {
+                    $qC->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
+                }
+
+                // Orden: top ingresos, luego recencia
+                $qC->orderByDesc('ingresos');
+                if ($tsCol) $qC->orderByDesc('ts');
+                else $qC->orderByDesc("{$T_ACCOUNTS}.id");
+
+                $rows = $qC->limit(50)->get();
+
                 foreach ($rows as $r) {
+                    $planTxt = '';
+                    if (isset($r->plan) && $r->plan !== null && trim((string)$r->plan) !== '') {
+                        $planTxt = strtoupper(trim((string)$r->plan));
+                    }
+
+                    $estadoTxt = '';
+                    if (isset($r->estado_cuenta) && $r->estado_cuenta !== null && trim((string)$r->estado_cuenta) !== '') {
+                        $estadoTxt = trim((string)$r->estado_cuenta);
+                    } elseif ($blockedCol) {
+                        $estadoTxt = ((int)($r->is_blocked ?? 0) === 1) ? 'Bloqueada_pago' : 'Activa';
+                    } else {
+                        $estadoTxt = '—';
+                    }
+
+                    $planEstado = trim($planTxt . ($planTxt ? ' / ' : '') . $estadoTxt);
+
                     $clientesTabla[] = [
-                        'id'      => (int) $r->id,
-                        'empresa' => (string) $r->nombre,
-                        'rfc'     => $r->rfc ?? '',
-                        'timbres' => 0,
-                        'ultimo'  => isset($r->ts) ? Carbon::parse($r->ts)->diffForHumans() : '',
-                        'estado'  => ($hasBlocked ? 'Activo' : '—'),
+                        'id'       => (int) ($r->id ?? 0),
+                        'empresa'  => (string) ($r->empresa ?? '—'),
+                        'rfc'      => (string) ($r->rfc ?? ''),
+                        'plan'     => $planEstado ?: '—',
+                        'ingresos' => (float) ($r->ingresos ?? 0),
+                        'timbres'  => (int) ($r->timbres ?? 0),
+                        'ultimo'   => (!empty($r->ts) ? Carbon::parse($r->ts)->diffForHumans() : ''),
                     ];
                 }
             }
 
-            // Diagnóstico HUD
+
+            // =========================
+            // ✅ KPIs CONSISTENTES (mismo rango)
+            // =========================
+            $arpa = 0.0;
+            $ticketProm = 0.0;
+
+            if (($activos > 0) && $ingresoTotalRango > 0) {
+                $arpa = $ingresoTotalRango / $activos;
+            }
+            if (($pagosTotalRango > 0) && $ingresoTotalRango > 0) {
+                $ticketProm = $ingresoTotalRango / $pagosTotalRango;
+            }
+
+            // =========================
+            // Diagnóstico
+            // =========================
             $diagnostics = [
                 'tables' => [
                     'accounts' => $T_ACCOUNTS,
                     'payments' => $T_PAYMENTS,
-                    'planes'   => $T_PLANES,
                     'cfdi'     => $T_CFDI,
                 ],
                 'counts' => [
@@ -428,37 +613,51 @@ class HomeController extends Controller
                     'payments' => $T_PAYMENTS ? (int) $db->table($T_PAYMENTS)->count() : 0,
                     'cfdi'     => $T_CFDI ? (int) $db->table($T_CFDI)->count() : 0,
                 ],
+                'range' => [
+                    'from' => $from->toDateString(),
+                    'to'   => $to->toDateString(),
+                    'scope'=> $scope,
+                    'months'=> $months,
+                ],
                 'warnings' => [],
             ];
 
-            if ($T_PAYMENTS === 'pagos') {
-                $this->pushBot($bots, 'warning', 'using_pagos', 'Se está usando la tabla pagos; si está vacía, los ingresos saldrán en 0. Se recomienda payments.', [
-                    'hint' => 'Tu BD ya tiene payments con datos; este controlador ya prioriza payments.',
-                ]);
-            }
-
             if ($T_PAYMENTS && ($diagnostics['counts']['payments'] ?? 0) === 0) {
-                $this->pushBot($bots, 'info', 'payments_empty', 'No hay registros en la tabla de pagos detectada para el periodo.', [
+                $this->pushBot($bots, 'info', 'payments_empty', 'No hay registros en la tabla de pagos detectada para el rango.', [
                     'table' => $T_PAYMENTS,
-                    'period' => [$from->toDateString(), $to->toDateString()],
+                    'range' => [$from->toDateString(), $to->toDateString()],
+                    'scope' => $scope,
                 ]);
             }
 
+            // Payload final
             $payload = [
                 'filters' => [
-                    'months'      => $months,
-                    'plan'        => $planFilter ?: 'all',
-                    'planOptions' => array_values(collect($planOptions)->unique('value')->sortBy('label')->values()->all()),
+                    'from'   => $from->format('Y-m'),
+                    'to'     => $to->format('Y-m'),
+                    'months' => $months,
+                    'scope'  => $scope,
+                    'plan'   => $planFilter ?: 'all',
                 ],
                 'kpis' => [
-                    'totalClientes' => $totalClientes,
-                    'activos'       => $activos,
-                    'inactivos'     => $inactivos,
-                    'nuevosMes'     => $nuevosMes,
-                    'pendientes'    => $pendientes,
-                    'premium'       => $premium,
-                    'timbresUsados' => $timbresUsados,
-                    'ingresosMes'   => $ingresoMesActual,
+                    'totalClientes'      => $totalClientes,
+                    'activos'            => $activos,
+                    'inactivos'          => $inactivos,
+                    'nuevosMes'          => $nuevosMes,
+                    'pendientes'         => $pendientes,
+                    'premium'            => $premium,
+
+                    // Timbres en rango
+                    'timbresUsados'      => (int) $timbresUsados,
+
+                    // Ingresos: mes actual (referencia) y rango total (KPI principal)
+                    'ingresosMesActual'  => (float) $ingresoMesActual,
+                    'ingresosTotal'      => (float) $ingresoTotalRango,
+
+                    // KPI consistentes
+                    'arpa'               => (float) $arpa,
+                    'ticketProm'         => (float) $ticketProm,
+                    'pagosTotal'         => (int) $pagosTotalRango,
                 ],
                 'series' => [
                     'labels'   => $labels,
@@ -475,6 +674,7 @@ class HomeController extends Controller
                 'ingresosTable' => $ingresosTabla,
                 'clientes'      => $clientesTabla,
                 'bots'          => $bots,
+                '_diag'         => $diagnostics, // útil para HUD / debugging
             ];
 
             return [$payload, $diagnostics];
@@ -493,8 +693,8 @@ class HomeController extends Controller
             }
         } catch (\Throwable $e) {
             $payload = [
-                'filters' => ['months' => $months, 'plan' => $planFilter ?: 'all', 'planOptions' => []],
-                'kpis'    => ['totalClientes' => 0, 'activos' => 0, 'inactivos' => 0, 'nuevosMes' => 0, 'pendientes' => 0, 'premium' => 0, 'timbresUsados' => 0, 'ingresosMes' => 0.0],
+                'filters' => ['from' => $fromYm, 'to' => $toYm, 'months' => $monthsLegacy, 'scope' => $scope, 'plan' => $planFilter ?: 'all'],
+                'kpis'    => ['totalClientes' => 0, 'activos' => 0, 'inactivos' => 0, 'nuevosMes' => 0, 'pendientes' => 0, 'premium' => 0, 'timbresUsados' => 0, 'ingresosMesActual' => 0.0, 'ingresosTotal' => 0.0, 'arpa' => 0.0, 'ticketProm' => 0.0, 'pagosTotal' => 0],
                 'series'  => ['labels' => [], 'ingresos' => [], 'timbres' => [], 'planes' => []],
                 'extra'   => ['nuevosClientes' => ['labels' => [], 'values' => []], 'ingresosPorPlan' => ['labels' => [], 'plans' => []], 'topClientes' => ['labels' => [], 'values' => []], 'scatterIncomeStamps' => []],
                 'ingresosTable' => [],
@@ -519,7 +719,7 @@ class HomeController extends Controller
         if ($tookMs >= $WARN_MS) {
             $this->pushBot($payload['bots'], 'warning', 'slow_request', "La respuesta tardó {$tookMs} ms.", [
                 'threshold_ms' => $WARN_MS,
-                'hint' => 'Considera aumentar HOME_STATS_TTL o agregar índices (payments.paid_at/created_at, payments.status).',
+                'hint' => 'Considera aumentar HOME_STATS_TTL o agregar índices (payments.paid_at/created_at, payments.status, payments.account_id).',
             ]);
         }
 
@@ -552,9 +752,10 @@ class HomeController extends Controller
                         'rid'       => $rid,
                         'admin_id'  => $adminId,
                         'ip'        => $ip,
-                        'filters'   => ['months' => $months, 'plan' => $planFilter ?: 'all'],
+                        'filters'   => $payload['filters'] ?? [],
                         'tables'    => $diagnostics['tables'] ?? [],
                         'counts'    => $diagnostics['counts'] ?? [],
+                        'range'     => $diagnostics['range'] ?? [],
                         'warnings'  => $diagnostics['warnings'] ?? [],
                         'took_ms'   => $tookMs,
                         'cache'     => $cacheHit ? 'hit' : 'miss',
@@ -590,9 +791,13 @@ class HomeController extends Controller
         $planFilter = trim(mb_strtolower((string) $request->string('plan')));
         if ($planFilter === 'all' || $planFilter === '') $planFilter = null;
 
-        $cacheKey = sprintf('home:income:v2:conn:%s:%s:plan:%s', $this->statsConn, $ym, $planFilter ?: 'all');
+        $scope = trim(mb_strtolower((string) $request->string('scope', 'paid')));
+        if (!in_array($scope, ['paid','issued','all'], true)) $scope = 'paid';
+        $mustFilterPaid = ($scope === 'paid');
 
-        $compute = function () use ($ym, $planFilter) {
+        $cacheKey = sprintf('home:income:v3:conn:%s:%s:plan:%s:scope:%s', $this->statsConn, $ym, $planFilter ?: 'all', $scope);
+
+        $compute = function () use ($ym, $planFilter, $scope, $mustFilterPaid) {
             $db  = $this->db();
             $sch = $this->schema();
 
@@ -602,15 +807,16 @@ class HomeController extends Controller
             $T_ACCOUNTS = $has('accounts') ? 'accounts' : null;
 
             $T_PAYMENTS = null;
-            if ($has('payments')) $T_PAYMENTS = 'payments';
-            elseif ($has('pagos')) $T_PAYMENTS = 'pagos';
+            if ($has('payments') && ($hasCol('payments','amount') || $hasCol('payments','monto'))) $T_PAYMENTS = 'payments';
+            elseif ($has('pagos') && ($hasCol('pagos','amount') || $hasCol('pagos','monto'))) $T_PAYMENTS = 'pagos';
+            elseif ($has('cobros') && ($hasCol('cobros','amount') || $hasCol('cobros','monto'))) $T_PAYMENTS = 'cobros';
 
             if (!$T_PAYMENTS) {
                 return [
                     'ym'     => $ym,
                     'rows'   => [],
                     'totals' => ['monto' => 0, 'pagos' => 0],
-                    'bots'   => [['level' => 'warning', 'code' => 'no_payments_table', 'text' => 'No existe la tabla payments/pagos.']],
+                    'bots'   => [['level' => 'warning', 'code' => 'no_payments_table', 'text' => 'No existe la tabla payments/pagos/cobros.']],
                 ];
             }
 
@@ -623,7 +829,7 @@ class HomeController extends Controller
                     'ym'     => $ym,
                     'rows'   => [],
                     'totals' => ['monto' => 0, 'pagos' => 0],
-                    'bots'   => [['level' => 'warning', 'code' => 'missing_cols', 'text' => 'Faltan columnas de fecha o monto en payments/pagos.']],
+                    'bots'   => [['level' => 'warning', 'code' => 'missing_cols', 'text' => 'Faltan columnas de fecha o monto en payments/pagos/cobros.']],
                 ];
             }
 
@@ -637,8 +843,10 @@ class HomeController extends Controller
                 ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to]);
 
             if ($statusCol) {
-                $q->addSelect("{$T_PAYMENTS}.{$statusCol} as estado")
-                  ->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
+                $q->addSelect("{$T_PAYMENTS}.{$statusCol} as estado");
+                if ($mustFilterPaid) {
+                    $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
+                }
             }
 
             if ($T_ACCOUNTS && $hasCol($T_PAYMENTS, 'account_id')) {
@@ -685,7 +893,7 @@ class HomeController extends Controller
 
             $bots = [];
             if ($count === 0) {
-                $bots[] = ['level' => 'info', 'code' => 'empty_month', 'text' => "No hay pagos pagados para {$ym}."];
+                $bots[] = ['level' => 'info', 'code' => 'empty_month', 'text' => "No hay pagos para {$ym} con scope={$scope}."];
             }
 
             return [
@@ -734,6 +942,7 @@ class HomeController extends Controller
                     'ip'       => $ip,
                     'ym'       => $ym,
                     'plan'     => $planFilter ?: 'all',
+                    'scope'    => $scope,
                     'rows'     => (int) ($payload['totals']['pagos'] ?? 0),
                     'amount'   => (float) ($payload['totals']['monto'] ?? 0),
                     'took_ms'  => $tookMs,
@@ -748,18 +957,10 @@ class HomeController extends Controller
 
     /**
      * ✅ Diario: mes actual vs promedio de 2 meses anteriores (JSON)
-     *
-     * Formato:
-     * {
-     *   ym: "2026-01",
-     *   labels: ["01","02",...],
-     *   current: [..],
-     *   avg_prev2: [..],
-     *   meta: {...}
-     * }
      */
     public function compare(Request $request, string $ym): JsonResponse
     {
+        // Tu compare ya estaba bien; solo agregamos soporte scope paid|issued|all
         $rid     = $request->headers->get('X-Request-Id') ?: Str::uuid()->toString();
         $adminId = Auth::guard('admin')->id();
         $ip      = $request->ip();
@@ -772,17 +973,17 @@ class HomeController extends Controller
         $TTL      = max(0, (int) env('HOME_COMPARE_TTL', 30));
         $NO_CACHE = $request->boolean('nocache');
 
-        $planFilter = trim(mb_strtolower((string) $request->string('plan')));
+        $planFilter = trim(mb_strtolower((string) $request->string('plan', '')));
         if ($planFilter === 'all' || $planFilter === '') $planFilter = null;
 
         $scope = trim(mb_strtolower((string) $request->string('scope', 'paid')));
         if (!in_array($scope, ['paid','issued','all'], true)) $scope = 'paid';
 
-        $cacheKey = sprintf('home:compare:v2:conn:%s:%s:plan:%s:scope:%s',
+        $cacheKey = sprintf('home:compare:v3:conn:%s:%s:plan:%s:scope:%s',
             $this->statsConn, $ym, $planFilter ?: 'all', $scope
         );
 
-        $compute = function () use ($ym, $planFilter, $scope, $rid) {
+        $compute = function () use ($ym, $planFilter, $scope) {
             $db  = $this->db();
             $sch = $this->schema();
 
@@ -791,13 +992,12 @@ class HomeController extends Controller
 
             $T_ACCOUNTS = $has('accounts') ? 'accounts' : null;
 
-            // Detecta payments
             $T_PAYMENTS = null;
             if ($has('payments') && ($hasCol('payments', 'amount') || $hasCol('payments', 'monto'))) {
                 $T_PAYMENTS = 'payments';
             } elseif ($has('pagos') && ($hasCol('pagos', 'amount') || $hasCol('pagos', 'monto'))) {
                 $T_PAYMENTS = 'pagos';
-            } elseif ($has('cobros')) {
+            } elseif ($has('cobros') && ($hasCol('cobros', 'amount') || $hasCol('cobros', 'monto'))) {
                 $T_PAYMENTS = 'cobros';
             }
 
@@ -831,34 +1031,29 @@ class HomeController extends Controller
             }
 
             $paidStatuses = ['paid','succeeded','success','completed','complete','captured','authorized'];
+            $mustFilterPaid = ($scope === 'paid');
 
-            // Mes target
             $m0Start = Carbon::createFromFormat('Y-m-d', $ym.'-01')->startOfMonth();
             $m0End   = $m0Start->copy()->endOfMonth();
             $daysN   = (int) $m0Start->daysInMonth;
 
-            // Labels "01..N"
             $labels = [];
             for ($d=1; $d <= $daysN; $d++) $labels[] = str_pad((string)$d, 2, '0', STR_PAD_LEFT);
 
-            // 2 meses previos
             $m1Start = $m0Start->copy()->subMonthNoOverflow()->startOfMonth();
             $m1End   = $m1Start->copy()->endOfMonth();
             $m2Start = $m0Start->copy()->subMonthsNoOverflow(2)->startOfMonth();
             $m2End   = $m2Start->copy()->endOfMonth();
 
-            // Helper para daily sums por rango mensual
-            $dailySums = function (Carbon $from, Carbon $to) use ($db, $T_PAYMENTS, $T_ACCOUNTS, $planFilter, $scope, $statusCol, $paidStatuses, $amtCol, $dateCol, $hasCol, $has) {
+            $dailySums = function (Carbon $from, Carbon $to) use ($db, $T_PAYMENTS, $T_ACCOUNTS, $planFilter, $statusCol, $paidStatuses, $amtCol, $dateCol, $hasCol, $mustFilterPaid) {
                 $q = $db->table($T_PAYMENTS)
                     ->selectRaw("DAY({$T_PAYMENTS}.{$dateCol}) as d, SUM({$T_PAYMENTS}.{$amtCol}) as total")
                     ->whereBetween("{$T_PAYMENTS}.{$dateCol}", [$from, $to]);
 
-                // scope: paid/issued/all
-                if ($scope === 'paid' && $statusCol) {
+                if ($mustFilterPaid && $statusCol) {
                     $q->whereIn(DB::raw("LOWER({$T_PAYMENTS}.{$statusCol})"), $paidStatuses);
                 }
 
-                // plan filter
                 if ($planFilter && $T_ACCOUNTS && $hasCol($T_PAYMENTS,'account_id') && $hasCol($T_ACCOUNTS,'plan')) {
                     $q->join($T_ACCOUNTS, "{$T_ACCOUNTS}.id", '=', "{$T_PAYMENTS}.account_id")
                       ->whereRaw("LOWER({$T_ACCOUNTS}.plan) = ?", [$planFilter]);
@@ -892,9 +1087,8 @@ class HomeController extends Controller
             }
 
             $bots = [];
-            $sum0 = array_sum($current);
-            if ($sum0 <= 0.0) {
-                $bots[] = ['level'=>'info','code'=>'empty_month','text'=>"No hay ingresos diarios para {$ym} con los filtros actuales."];
+            if (array_sum($current) <= 0.0) {
+                $bots[] = ['level'=>'info','code'=>'empty_month','text'=>"No hay ingresos diarios para {$ym} con scope={$scope}."];
             }
 
             return [
@@ -903,11 +1097,6 @@ class HomeController extends Controller
                 'current' => $current,
                 'avg_prev2' => $avgPrev2,
                 'bots' => $bots,
-                'ranges' => [
-                    'current' => [$m0Start->toDateString(), $m0End->toDateString()],
-                    'prev1'   => [$m1Start->toDateString(), $m1End->toDateString()],
-                    'prev2'   => [$m2Start->toDateString(), $m2End->toDateString()],
-                ],
             ];
         };
 
@@ -951,6 +1140,39 @@ class HomeController extends Controller
     }
 
     // ===== Helpers internos =====
+
+    private function resolveRange(string $fromYm, string $toYm, int $monthsFallback): array
+    {
+        // Si UI no manda from/to, usamos monthsFallback (12 por defecto)
+        $validYm = fn(string $s) => (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $s);
+
+        if ($validYm($fromYm) && $validYm($toYm)) {
+            $from = Carbon::createFromFormat('Y-m-d', $fromYm . '-01')->startOfMonth();
+            $to   = Carbon::createFromFormat('Y-m-d', $toYm . '-01')->endOfMonth();
+
+            if ($from->greaterThan($to)) {
+                // swap
+                [$from, $to] = [$to->copy()->startOfMonth(), $from->copy()->endOfMonth()];
+            }
+
+            // meses inclusivos
+            $months = max(1, ($from->diffInMonths($to) + 1));
+            $months = max(3, min(24, $months));
+
+            // clamp a 24 meses si excede
+            if ($months > 24) {
+                $from = $to->copy()->startOfMonth()->subMonths(23);
+                $months = 24;
+            }
+
+            return [$from, $to, $months];
+        }
+
+        $months = max(3, min(24, $monthsFallback));
+        $from = now()->startOfMonth()->subMonths($months - 1);
+        $to   = now()->endOfMonth();
+        return [$from, $to, $months];
+    }
 
     private function safeBindings($bindings): array
     {

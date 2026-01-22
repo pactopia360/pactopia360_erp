@@ -1,9 +1,9 @@
 // public/assets/admin/js/home/index.js
-// P360 Admin · Home/Dashboard · v6.2 (NO module, NO imports)
-// FIX:
-// - Daily chart: consume data-compare-url (admin.home.compare) y dibuja chartDaily
-// - Fallback seguro si no existe endpoint o no hay data
-// - Click en barra de ingresos -> recarga Daily para ese mes
+// P360 Admin · Home/Dashboard · v6.3
+// FIX REAL:
+// - Backend ahora soporta from/to/scope. KPI usa ingresosTotal.
+// - ARPA/Ticket toma kpis.arpa / kpis.ticketProm.
+// - Tabla clientes usa plan+estado, ingresos reales, timbres si existen.
 
 (function () {
   'use strict';
@@ -20,9 +20,6 @@
     compareTpl: page?.dataset?.compareUrl ? String(page.dataset.compareUrl) : '',
   };
 
-  // -------------------------
-  // Debug visible
-  // -------------------------
   function showDebug(html) {
     if (!elDebug) return;
     elDebug.style.display = 'block';
@@ -34,21 +31,13 @@
     elDebug.innerHTML = '';
   }
 
-  // -------------------------
-  // Loading overlay
-  // -------------------------
   function showLoading() {
-    if (!elLoading) return;
     page.setAttribute('aria-busy', 'true');
   }
   function hideLoading() {
-    if (!elLoading) return;
     page.setAttribute('aria-busy', 'false');
   }
 
-  // -------------------------
-  // Helpers
-  // -------------------------
   function qs(sel, root) { return (root || document).querySelector(sel); }
 
   const moneyMXN = (v) =>
@@ -70,9 +59,7 @@
       .replaceAll("'", '&#039;');
   }
 
-  // -------------------------
   // Abortable fetch
-  // -------------------------
   let currentAbort = null;
 
   function abortCurrent() {
@@ -88,9 +75,7 @@
     );
   }
 
-  // -------------------------
   // Filters
-  // -------------------------
   function readFilters() {
     const from  = qs('#fFrom')?.value || '';
     const to    = qs('#fTo')?.value || '';
@@ -122,16 +107,8 @@
     }
   }
 
-  // -------------------------
-  // Chart.js helpers
-  // -------------------------
-  const charts = {
-    income: null,
-    stamps: null,
-    plans: null,
-    accum: null,
-    daily: null,
-  };
+  // Chart helpers
+  const charts = { income:null, stamps:null, plans:null, accum:null, daily:null };
 
   function destroyChart(key) {
     try { charts[key] && charts[key].destroy && charts[key].destroy(); } catch (_) {}
@@ -203,35 +180,31 @@
     };
   }
 
-  // -------------------------
-  // KPIs
-  // -------------------------
+  // KPIs (FIX: ahora son consistentes con el rango)
   function paintKPIs(data) {
     const k = data?.kpis || {};
-    const s = data?.series || {};
-
-    const ingresosMes = Number(k.ingresosMes ?? 0);
-    const timbres = Number(k.timbresUsados ?? (Array.isArray(s.timbres) ? (s.timbres[s.timbres.length - 1] || 0) : 0));
+    const ingresosTotal = Number(k.ingresosTotal ?? 0);
+    const timbres = Number(k.timbresUsados ?? 0);
     const totalClientes = Number(k.totalClientes ?? 0);
 
-    const activos = Number(k.activos ?? 0);
-    const denom = activos > 0 ? activos : (totalClientes > 0 ? totalClientes : 1);
-    const arpa = ingresosMes / denom;
+    const arpa = Number(k.arpa ?? 0);
+    const ticket = Number(k.ticketProm ?? 0);
 
     const elIncome  = document.getElementById('kpiIncome');
     const elStamps  = document.getElementById('kpiStamps');
     const elClients = document.getElementById('kpiClients');
     const elArpa    = document.getElementById('kpiArpa');
 
-    if (elIncome)  elIncome.textContent  = moneyMXN(ingresosMes) + ' MXN';
+    if (elIncome)  elIncome.textContent  = moneyMXN(ingresosTotal) + ' MXN';
     if (elStamps)  elStamps.textContent  = intMX(timbres);
     if (elClients) elClients.textContent = intMX(totalClientes);
-    if (elArpa)    elArpa.textContent    = moneyMXN(arpa) + ' MXN';
+
+    // Mostramos ARPA si existe, si no ticket
+    const arpaOrTicket = (arpa > 0 ? arpa : ticket);
+    if (elArpa) elArpa.textContent = moneyMXN(arpaOrTicket) + ' MXN';
   }
 
-  // -------------------------
-  // Tables (mínimo)
-  // -------------------------
+  // Tables
   function renderIncomeTable(data) {
     const tbl = document.getElementById('tblIncome');
     const tbody = tbl?.querySelector('tbody');
@@ -271,15 +244,16 @@
     }
 
     tbody.innerHTML = rows.map(r => {
-      const empresa = String(r.empresa || r.cliente || r.name || '—').trim() || '—';
-      const plan = String(r.plan || r.plan_name || r.estado || '—');
+      const empresa = String(r.empresa || '—').trim() || '—';
+      const plan = String(r.plan || '—');
+      const estado = String(r.estado || '—');
       const ingresos = Number(r.ingresos || 0);
       const timbres = Number(r.timbres || 0);
 
       return `
         <tr>
           <td>${escapeHtml(empresa)}</td>
-          <td>${escapeHtml(plan)}</td>
+          <td>${escapeHtml(plan)} / ${escapeHtml(estado)}</td>
           <td>${moneyMXN(ingresos)}</td>
           <td>${intMX(timbres)}</td>
         </tr>
@@ -287,18 +261,11 @@
     }).join('');
   }
 
-  // -------------------------
-  // Charts principales
-  // -------------------------
-  let lastStats = null;
-
+  // Charts
   function pickDefaultYm(series) {
     const labels = Array.isArray(series?.labels) ? series.labels.map(String) : [];
     const ingresos = Array.isArray(series?.ingresos) ? series.ingresos.map(v => Number(v || 0)) : [];
-
     if (!labels.length) return '';
-
-    // último mes con ingreso > 0; si no, último label
     for (let i = ingresos.length - 1; i >= 0; i--) {
       if ((ingresos[i] || 0) > 0) return labels[i];
     }
@@ -311,14 +278,12 @@
     const ingresos = Array.isArray(series.ingresos) ? series.ingresos.map(v => Number(v || 0)) : [];
     const timbres = Array.isArray(series.timbres) ? series.timbres.map(v => Number(v || 0)) : [];
 
-    // Ingresos (bar) + click -> daily
     if (labels.length && ingresos.length === labels.length) {
       attachChart('income', 'chartIncome', barMoneyCfg(labels, ingresos, 'Ingresos', (ym) => {
         loadDaily(ym).catch(() => {});
       }));
     }
 
-    // Timbres (line)
     if (labels.length && timbres.length === labels.length) {
       attachChart('stamps', 'chartStamps', lineCfg(labels, [{
         label: 'Timbres',
@@ -330,7 +295,6 @@
       }], false));
     }
 
-    // Acumulado (running sum)
     if (labels.length && ingresos.length === labels.length) {
       let run = 0;
       const accum = ingresos.map(v => (run += (Number(v) || 0)));
@@ -344,7 +308,6 @@
       }], true));
     }
 
-    // Planes (doughnut)
     const planes = series.planes || {};
     const keys = planes && typeof planes === 'object' ? Object.keys(planes) : [];
     if (keys.length) {
@@ -357,16 +320,13 @@
     }
   }
 
-  // -------------------------
-  // DAILY (compare endpoint)
-  // -------------------------
+  // DAILY
   function setDailyEmpty(msg) {
     destroyChart('daily');
 
     const canvas = document.getElementById('chartDaily');
     if (!canvas) return;
 
-    // “placeholder” sin romper layout: ponemos un texto encima del canvas
     const wrap = canvas.closest('.chart-wrap');
     if (!wrap) return;
 
@@ -394,31 +354,17 @@
   }
 
   function normalizeDailyPayload(p) {
-    // Acepta múltiples formatos:
-    // 1) { labels:[1..n], current:[..], avg_prev2:[..] }
-    // 2) { days:[..], series:{ current:[..], avg:[..] } }
-    // 3) { labels, actual, promedio }
     const labels =
       Array.isArray(p?.labels) ? p.labels :
-      Array.isArray(p?.days) ? p.days :
-      Array.isArray(p?.x) ? p.x :
-      null;
+      Array.isArray(p?.days) ? p.days : null;
 
     const current =
       Array.isArray(p?.current) ? p.current :
-      Array.isArray(p?.actual) ? p.actual :
-      Array.isArray(p?.series?.current) ? p.series.current :
-      Array.isArray(p?.series?.actual) ? p.series.actual :
-      null;
+      Array.isArray(p?.actual) ? p.actual : null;
 
     const avg =
       Array.isArray(p?.avg_prev2) ? p.avg_prev2 :
-      Array.isArray(p?.avg) ? p.avg :
-      Array.isArray(p?.promedio) ? p.promedio :
-      Array.isArray(p?.series?.avg_prev2) ? p.series.avg_prev2 :
-      Array.isArray(p?.series?.avg) ? p.series.avg :
-      Array.isArray(p?.series?.promedio) ? p.series.promedio :
-      null;
+      Array.isArray(p?.avg) ? p.avg : null;
 
     if (!labels || !current || !avg) return null;
 
@@ -427,7 +373,6 @@
     const A = avg.map(v => Number(v || 0));
 
     if (L.length !== C.length || L.length !== A.length) return null;
-
     return { labels: L, current: C, avg: A };
   }
 
@@ -440,7 +385,6 @@
     clearDailyEmpty();
 
     if (!ROUTES.compareTpl || !ROUTES.compareTpl.includes('__YM__')) {
-      // Si no hay compare endpoint, no inventamos.
       setDailyEmpty('Sin endpoint de comparación (admin.home.compare).');
       return;
     }
@@ -448,13 +392,10 @@
     const filters = readFilters();
     const url = buildUrlWithFilters(ROUTES.compareTpl.replace('__YM__', ym), filters);
 
-    // fetch diario independiente (no aborta el stats principal, pero sí aborta su propia corrida)
-    const ac = new AbortController();
     try {
       const r = await fetch(url, {
         method: 'GET',
         headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
-        signal: ac.signal
       });
 
       if (!r.ok) {
@@ -473,34 +414,17 @@
       destroyChart('daily');
 
       attachChart('daily', 'chartDaily', lineCfg(norm.labels, [
-        {
-          label: 'Actual (' + ym + ')',
-          data: norm.current,
-          tension: 0.25,
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: false
-        },
-        {
-          label: 'Promedio 2 meses prev.',
-          data: norm.avg,
-          tension: 0.25,
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: false
-        }
+        { label: 'Actual (' + ym + ')', data: norm.current, tension: 0.25, borderWidth: 2, pointRadius: 0, fill: false },
+        { label: 'Promedio 2 meses prev.', data: norm.avg, tension: 0.25, borderWidth: 2, pointRadius: 0, fill: false }
       ], true));
 
     } catch (e) {
-      if (isAbort(e)) return;
       console.error('Daily error', e);
       setDailyEmpty('Error cargando diario: ' + (e.message || String(e)));
     }
   }
 
-  // -------------------------
   // Stats fetch + hydrate
-  // -------------------------
   async function fetchStats() {
     if (!ROUTES.statsUrl) {
       showDebug('No existe <code>data-stats-url</code>. Revisa la ruta <code>admin.home.stats</code>.');
@@ -536,8 +460,6 @@
       const data = await fetchStats();
       if (!data) return;
 
-      lastStats = data;
-
       if (typeof window.Chart === 'undefined') {
         showDebug('No cargó <code>Chart.js</code>. Revisa el script local/CDN.');
         paintKPIs(data);
@@ -552,7 +474,6 @@
       renderIncomeTable(data);
       renderClientsTable(data);
 
-      // ✅ Daily: carga por defecto con el mes más reciente relevante
       const ym = pickDefaultYm(data?.series || {});
       if (ym) await loadDaily(ym);
       else setDailyEmpty('Sin mes para calcular diario.');
@@ -565,9 +486,7 @@
     }
   }
 
-  // -------------------------
   // Bind UI
-  // -------------------------
   const btnApply = qs('#btnApply');
   const btnReset = qs('#btnReset');
   const btnAbort = qs('#btnAbort');
@@ -583,7 +502,5 @@
     loadAll();
   });
 
-  // Primera carga
   loadAll();
-
 })();
