@@ -5,7 +5,19 @@
 
 @section('content')
 @php
-  $active = $active ?? request('active');
+  // Normaliza active para evitar comparaciones inconsistentes (null/'1'/'0')
+  $rawActive = $active ?? request()->query('active', null);
+  if ($rawActive === '' || $rawActive === null) {
+    $active = null;
+  } else {
+    $active = ((string)$rawActive === '1') ? '1' : (((string)$rawActive === '0') ? '0' : null);
+  }
+
+  $total   = method_exists($rows, 'total') ? (int)$rows->total() : (is_iterable($rows) ? count($rows) : 0);
+  $perPage = method_exists($rows, 'perPage') ? (int)$rows->perPage() : 0;
+
+  // Mensaje estándar (tu controller usa 'success')
+  $flashOk = session('ok') ?? session('success');
 @endphp
 
 <style>
@@ -68,9 +80,9 @@
     </div>
   </div>
 
-  @if(session('ok'))
+  @if($flashOk)
     <div class="sat-card" style="margin-top:14px; padding:12px; border-color:color-mix(in oklab, #16a34a 30%, transparent);">
-      <div style="font-weight:900;">✅ {{ session('ok') }}</div>
+      <div style="font-weight:900;">✅ {{ $flashOk }}</div>
     </div>
   @endif
 
@@ -82,12 +94,12 @@
 
   <div class="sat-card" style="margin-top:14px;">
     <div class="sat-bar">
-      <a class="sat-chip {{ ($active===null || $active==='') ? 'on' : '' }}" href="{{ route('admin.sat.prices.index') }}">Todas</a>
-      <a class="sat-chip ok {{ ($active==='1') ? 'on' : '' }}" href="{{ route('admin.sat.prices.index',['active'=>1]) }}">Activas</a>
-      <a class="sat-chip warn {{ ($active==='0') ? 'on' : '' }}" href="{{ route('admin.sat.prices.index',['active'=>0]) }}">Inactivas</a>
+      <a class="sat-chip {{ ($active === null) ? 'on' : '' }}" href="{{ route('admin.sat.prices.index') }}">Todas</a>
+      <a class="sat-chip ok {{ ($active === '1') ? 'on' : '' }}" href="{{ route('admin.sat.prices.index',['active'=>1]) }}">Activas</a>
+      <a class="sat-chip warn {{ ($active === '0') ? 'on' : '' }}" href="{{ route('admin.sat.prices.index',['active'=>0]) }}">Inactivas</a>
 
       <div class="sat-meta">
-        {{ $rows->total() }} reglas · {{ $rows->perPage() }}/pág
+        {{ number_format($total) }} reglas @if($perPage>0) · {{ $perPage }}/pág @endif
       </div>
     </div>
 
@@ -109,9 +121,29 @@
         <tbody>
         @forelse($rows as $r)
           @php
+            $unit = (string)($r->unit ?? 'range_per_xml');
+
             $hasta = $r->max_xml === null ? null : (int)$r->max_xml;
-            $precio = $r->flat_price !== null ? (float)$r->flat_price : null;
-            $unitario = ($hasta && $hasta > 0 && $precio !== null) ? ($precio / $hasta) : null;
+
+            // ✅ Precio según tipo:
+            // - flat         => usa flat_price (precio total)
+            // - range_per_xml=> usa price_per_xml (precio unitario por XML)
+            $priceFlat   = $r->flat_price !== null ? (float)$r->flat_price : null;
+            $pricePerXml = $r->price_per_xml !== null ? (float)$r->price_per_xml : null;
+
+            $precio = null;
+            $unitario = null;
+
+            if ($unit === 'flat') {
+              $precio = $priceFlat;
+              $unitario = ($hasta && $hasta > 0 && $precio !== null) ? ($precio / $hasta) : null;
+            } else {
+              $precio = $pricePerXml;
+              $unitario = $pricePerXml; // ya es “por XML”
+            }
+
+            $precioLabel = ($unit === 'flat') ? 'Precio' : 'Precio/XML';
+            $unitLabel   = ($unit === 'flat') ? 'Unitario' : 'Unitario/XML';
           @endphp
           <tr>
             <td style="color:var(--sx-mut,#64748b); font-weight:800;">#{{ $r->id }}</td>
@@ -121,6 +153,7 @@
               <div class="sat-small">
                 Moneda: {{ $r->currency ?? 'MXN' }}
                 · Rango: {{ (int)$r->min_xml }} – {{ $r->max_xml === null ? '—' : (int)$r->max_xml }}
+                · {{ $precioLabel }}: {{ $precio === null ? '—' : '$'.number_format($precio, 2) }}
               </div>
             </td>
 
@@ -133,7 +166,7 @@
             </td>
 
             <td>
-              <span class="sat-badge info">{{ $r->unit === 'flat' ? 'Volumen (flat)' : 'Rango/XML' }}</span>
+              <span class="sat-badge info">{{ $unit === 'flat' ? 'Volumen (flat)' : 'Rango/XML' }}</span>
             </td>
 
             <td class="sat-right" style="font-weight:950;">
@@ -142,10 +175,12 @@
 
             <td class="sat-right" style="font-weight:950;">
               {{ $precio === null ? '—' : '$'.number_format($precio, 2) }}
+              <div class="sat-small" style="margin-top:4px;">{{ $precioLabel }}</div>
             </td>
 
             <td class="sat-right" style="font-weight:950;">
               {{ $unitario === null ? '—' : '$'.number_format($unitario, 2) }}
+              <div class="sat-small" style="margin-top:4px;">{{ $unitLabel }}</div>
             </td>
 
             <td class="sat-right" style="color:var(--sx-mut,#64748b); font-weight:900;">{{ (int)$r->sort }}</td>

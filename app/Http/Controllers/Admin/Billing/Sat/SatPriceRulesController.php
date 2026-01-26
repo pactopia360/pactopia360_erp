@@ -13,14 +13,18 @@ use Illuminate\View\View;
 
 final class SatPriceRulesController extends Controller
 {
+    private const RT_INDEX = 'admin.sat.prices.index';
+
     public function index(Request $request): View
     {
-        $q = trim((string)$request->get('q', ''));
+        $q = trim((string) $request->get('q', ''));
 
         $rows = SatPriceRule::query()
             ->when($q !== '', function ($w) use ($q) {
-                $w->where('name', 'like', '%' . $q . '%')
-                  ->orWhere('unit', 'like', '%' . $q . '%');
+                $w->where(function ($qq) use ($q) {
+                    $qq->where('name', 'like', '%' . $q . '%')
+                       ->orWhere('unit', 'like', '%' . $q . '%');
+                });
             })
             ->orderBy('sort', 'asc')
             ->orderBy('min_xml', 'asc')
@@ -62,7 +66,7 @@ final class SatPriceRulesController extends Controller
         });
 
         return redirect()
-            ->route('admin.billing.sat.prices.index')
+            ->route(self::RT_INDEX)
             ->with('success', 'Regla de precio creada (#' . $row->id . ').');
     }
 
@@ -87,7 +91,7 @@ final class SatPriceRulesController extends Controller
         });
 
         return redirect()
-            ->route('admin.billing.sat.prices.index')
+            ->route(self::RT_INDEX)
             ->with('success', 'Regla de precio actualizada (#' . $row->id . ').');
     }
 
@@ -100,7 +104,7 @@ final class SatPriceRulesController extends Controller
         });
 
         return redirect()
-            ->route('admin.billing.sat.prices.index')
+            ->route(self::RT_INDEX)
             ->with('success', 'Regla eliminada.');
     }
 
@@ -114,29 +118,29 @@ final class SatPriceRulesController extends Controller
         });
 
         return redirect()
-            ->route('admin.billing.sat.prices.index')
+            ->route(self::RT_INDEX)
             ->with('success', 'Estado actualizado.');
     }
 
     private function validatePayload(Request $request, ?int $id = null): array
     {
         $data = $request->validate([
-            'name'          => ['required','string','max:120'],
-            'active'        => ['nullable','boolean'],
-            'unit'          => ['required','in:range_per_xml,flat'],
-            'min_xml'       => ['required','integer','min:0'],
-            'max_xml'       => ['nullable','integer','min:0'],
-            'price_per_xml' => ['nullable','numeric','min:0'],
-            'flat_price'    => ['nullable','numeric','min:0'],
-            'currency'      => ['required','string','max:8'],
-            'sort'          => ['nullable','integer','min:0','max:9999'],
+            'name'          => ['required', 'string', 'max:120'],
+            'active'        => ['nullable', 'boolean'],
+            'unit'          => ['required', 'in:range_per_xml,flat'],
+            'min_xml'       => ['required', 'integer', 'min:0'],
+            'max_xml'       => ['nullable', 'integer', 'min:0'],
+            'price_per_xml' => ['nullable', 'numeric', 'min:0'],
+            'flat_price'    => ['nullable', 'numeric', 'min:0'],
+            'currency'      => ['required', 'string', 'max:8'],
+            'sort'          => ['nullable', 'integer', 'min:0', 'max:9999'],
         ]);
 
-        $data['active'] = (bool)($data['active'] ?? false);
-        $data['sort']   = (int)($data['sort'] ?? 0);
+        $data['active'] = (bool) ($data['active'] ?? false);
+        $data['sort']   = (int) ($data['sort'] ?? 0);
 
-        $min = (int)($data['min_xml'] ?? 0);
-        $max = $data['max_xml'] !== null ? (int)$data['max_xml'] : null;
+        $min = (int) ($data['min_xml'] ?? 0);
+        $max = $data['max_xml'] !== null ? (int) $data['max_xml'] : null;
 
         if ($max !== null && $max < $min) {
             $data['max_xml'] = $min;
@@ -145,10 +149,10 @@ final class SatPriceRulesController extends Controller
         // Normalización según unit
         if (($data['unit'] ?? '') === 'flat') {
             $data['price_per_xml'] = 0;
-            $data['flat_price']    = (float)($data['flat_price'] ?? 0);
+            $data['flat_price']    = (float) ($data['flat_price'] ?? 0);
         } else {
             $data['flat_price']    = 0;
-            $data['price_per_xml'] = (float)($data['price_per_xml'] ?? 0);
+            $data['price_per_xml'] = (float) ($data['price_per_xml'] ?? 0);
         }
 
         return $data;
