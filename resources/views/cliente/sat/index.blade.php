@@ -1,4 +1,4 @@
-{{-- resources/views/cliente/sat/index.blade.php (v3.4 · FULL RESTORE · SINGLE CLEAN) --}}
+{{-- resources/views/cliente/sat/index.blade.php (v3.6 · CTA MOVE: Descargas manuales · FIX expired + status badge safe + rfcOptions SOT + external RFC visible) --}}
 @extends('layouts.cliente')
 @section('title','SAT · Descargas masivas CFDI')
 
@@ -21,6 +21,15 @@
   // ======================================================
   $summary = $summary ?? app(\App\Http\Controllers\Cliente\HomeController::class)->buildAccountSummary();
 
+  // ======================================================
+  //  RFC externo (Admin) - datos base para UI SAT
+  // ======================================================
+  $externalRfc      = strtoupper(trim((string) data_get($summary, 'rfc_externo', data_get($summary, 'rfc', ''))));
+  $externalVerified = (bool) data_get($summary, 'rfc_external_verified', false);
+
+  // ======================================================
+  //  Plan / PRO
+  // ======================================================
   $planFromSummary = strtoupper((string)($summary['plan'] ?? 'FREE'));
   $isProSummary    = (bool)($summary['is_pro'] ?? in_array(
       strtolower($planFromSummary),
@@ -35,8 +44,16 @@
   // ======================================================
   //  Datos base
   // ======================================================
-  $credList = collect($credList ?? []);
-  $rowsInit = $initialRows ?? [];
+   $credList = collect($credList ?? []);
+
+  // ✅ SOT para gráfica: usar la misma fuente que el listado (paginator/rows/etc)
+  //    Evita que la tabla tenga datos y la gráfica quede en ceros.
+  $downloadsPaginator = $downloadsPaginator ?? null;
+
+  $rowsInit = $initialRows
+      ?? ($downloadsPaginator ? $downloadsPaginator->items() : null)
+      ?? ($rows ?? $downloads ?? $lista ?? []);
+
 
   // Modo DEMO/PROD por cookie/entorno
   $cookieMode  = request()->cookie('sat_mode');
@@ -86,15 +103,18 @@
   })->count());
 
   $rfcsValidated = (int)($summary['sat_rfcs_validated'] ?? $credList->filter(function ($c) {
+      // ✅ Validación real:
+      // - validado flag
+      // - validated_at presente
+      // Nota: tener CSD/archivos NO implica validación (puede ser registro externo pendiente).
       $estatusRaw = strtolower((string) data_get($c, 'estatus', ''));
-      $okFlag = !empty(data_get($c,'validado'))
-             || !empty(data_get($c,'validated_at'))
-             || !empty(data_get($c,'has_files'))
-             || !empty(data_get($c,'has_csd'))
-             || !empty(data_get($c,'cer_path'))
-             || !empty(data_get($c,'key_path'));
 
-      return $okFlag || in_array($estatusRaw, ['ok','valido','válido','validado'], true);
+      $isValidated =
+          !empty(data_get($c,'validado'))
+          || !empty(data_get($c,'validated_at'))
+          || in_array($estatusRaw, ['ok','valido','válido','validado','valid'], true);
+
+      return $isValidated;
   })->count());
 
   $rfcsPending = max(0, (int)$credList->count() - (int)$rfcsValidated);
@@ -167,6 +187,9 @@
   $rtRfcDelete      = Route::has('cliente.sat.rfc.delete')       ? route('cliente.sat.rfc.delete')       : '#';
   $rtDownloadCancel = Route::has('cliente.sat.download.cancel')  ? route('cliente.sat.download.cancel')  : null;
 
+  // ✅ Registro externo (invite)
+  $rtExternalInvite = Route::has('cliente.sat.external.invite')  ? route('cliente.sat.external.invite')  : null;
+
   // Carrito SAT
   $rtCartIndex  = Route::has('cliente.sat.cart.index')  ? route('cliente.sat.cart.index')  : null;
   $rtCartAdd    = Route::has('cliente.sat.cart.add')    ? route('cliente.sat.cart.add')    : null;
@@ -185,13 +208,183 @@
       ?? $rtVault
       ?? '#';
 
-  // Cotizador (opcionales: si no existen, no rompe)
+  // ======================================================
+  // Cotizadores / Calculadoras (DOS FLUJOS DIFERENTES)
+  // ======================================================
+
+  // A) Calculadora rápida (Guías rápidas) -> SIN RFC -> solo cotiza + PDF
+  // Requiere endpoints que consulten lista de precios en Admin
+  $rtQuickCalc = Route::has('cliente.sat.quick.calc') ? route('cliente.sat.quick.calc') : null;
+  $rtQuickPdf  = Route::has('cliente.sat.quick.pdf')  ? route('cliente.sat.quick.pdf')  : null;
+
+  // B) Cotizador por RFC/periodo (para manuales / proceso a pago)
+  // (se mantiene como está)
   $rtQuoteCalc = Route::has('cliente.sat.quote.calc') ? route('cliente.sat.quote.calc') : null;
   $rtQuotePdf  = Route::has('cliente.sat.quote.pdf')  ? route('cliente.sat.quote.pdf')  : null;
+
+  // ======================================================
+  // Descargas manuales (FLUJO SEPARADO)
+  // ======================================================
+  // Nuevo módulo: listado/progreso/pago diferencia/archivos soporte
+  $rtManualIndex  = Route::has('cliente.sat.manual.index')  ? route('cliente.sat.manual.index')  : null;
+
+  // ⚠️ manual.create ya no es el CTA principal (se mantiene por compatibilidad si quieres usarlo después)
+  $rtManualCreate = Route::has('cliente.sat.manual.create') ? route('cliente.sat.manual.create') : null;
+
+  // ✅ NUEVO: inicio del proceso (wizard → pago)
+  $rtManualQuote  = Route::has('cliente.sat.manual.quote')  ? route('cliente.sat.manual.quote')  : null;
+
+  // ======================================================
+  // RFC Options (SOT / fallback defensivo)
+  // - Incluye RFC externo (Admin) aunque esté pendiente SAT
+  // - Solo RFCs validados se usarán para SOLICITAR (ver conteos abajo)
+  // ======================================================
+  $rfcOptions = $rfcOptions ?? (function () use ($credList, $externalRfc, $externalVerified) {
+      $out = [];
+
+      foreach (collect($credList ?? []) as $c) {
+          $rfc = strtoupper(trim((string) ($c->rfc ?? '')));
+          if ($rfc === '') continue;
+
+          $estatusRaw = strtolower((string) ($c->estatus ?? ''));
+
+          $isValidated =
+              !empty($c->validado ?? null)
+              || !empty($c->validated_at ?? null)
+              || in_array($estatusRaw, ['ok','valido','válido','validado','valid'], true);
+
+          $alias = trim((string) ($c->razon_social ?? $c->alias ?? ''));
+
+          $out[$rfc] = [
+              'rf'        => $rfc,
+              'alias'     => $alias !== '' ? $alias : null,
+              'validated' => (bool) $isValidated,
+              'source'    => 'sat_credentials',
+          ];
+      }
+
+      // ✅ RFC externo visible aunque no esté validado SAT
+      if (is_string($externalRfc) && trim($externalRfc) !== '') {
+          $r = strtoupper(trim($externalRfc));
+          if (!isset($out[$r])) {
+              $out[$r] = [
+                  'rf'        => $r,
+                  'alias'     => 'Registro externo',
+                  // IMPORTANTE: verificado externo ≠ validado SAT
+                  'validated' => false,
+                  'source'    => 'external_registry',
+                  'external'  => true,
+              ];
+          }
+      }
+
+      $list = array_values($out);
+      usort($list, fn($a, $b) => strcmp((string)$a['rf'], (string)$b['rf']));
+      return $list;
+  })();
+
+  // ======================================================
+  // RFC Options: separar VISIBLES vs VALIDOS (SOT)
+  // ======================================================
+  $rfcOptionsAll = is_array($rfcOptions) ? $rfcOptions : collect($rfcOptions)->values()->all();
+
+  // Solo RFCs validados SAT (para SOLICITAR / COTIZAR / MANUAL)
+  $rfcOptionsValid = collect($rfcOptionsAll)
+      ->filter(fn($opt) => !empty($opt['validated']))
+      ->values()
+      ->all();
+
+   // Conteos RFC (para UI)
+  $kRfcVisible   = count($rfcOptionsAll);
+  $kRfcValidated = count($rfcOptionsValid);
+
+  // ======================================================
+  //  Dataset local para GRÁFICA (fallback inmediato)
+  //  - Evita depender de /cliente/sat/dashboard/stats (422)
+  //  - Semanas: últimas 8 semanas (incluye semana actual)
+  // ======================================================
+  $chartWeeks = 8;
+
+  $weekLabels = [];
+  $weekCounts = [];
+
+  $now = now();
+  $start = (clone $now)->startOfWeek(); // Lunes
+  $fromStart = (clone $start)->subWeeks($chartWeeks - 1); // 8 semanas contando actual
+
+  // Pre-armar buckets por semana (ISO year-week)
+  $buckets = [];
+  for ($i = 0; $i < $chartWeeks; $i++) {
+      $wkStart = (clone $fromStart)->addWeeks($i);
+      $key = $wkStart->format('o-\WW'); // ej: 2026-W04
+      $buckets[$key] = 0;
+
+      // Label: "dd/mm - dd/mm"
+      $wkEnd = (clone $wkStart)->endOfWeek();
+      $weekLabels[] = $wkStart->format('d/m') . ' - ' . $wkEnd->format('d/m');
+  }
+
+  // Contar descargas por created_at dentro de esos buckets
+  foreach ($rowsColl as $row) {
+      $created = data_get($row, 'created_at', data_get($row, 'createdAt', null));
+      if (!$created) continue;
+
+      try {
+          $dt = Carbon::parse($created);
+      } catch (\Throwable $e) {
+          continue;
+      }
+
+      // Solo rango considerado
+      if ($dt->lt($fromStart)) continue;
+
+      $wkKey = $dt->startOfWeek()->format('o-\WW');
+      if (array_key_exists($wkKey, $buckets)) {
+          $buckets[$wkKey] = (int)$buckets[$wkKey] + 1;
+      }
+  }
+
+  // Convertir buckets (mismo orden que labels)
+  $weekCounts = array_values($buckets);
+
 @endphp
 
 @push('styles')
-<link rel="stylesheet" href="{{ asset('assets/client/css/sat-dashboard.css') }}">
+@php
+  // ============================
+  // CSS SAT (cache-bust por mtime)
+  // ============================
+  $CSS1_REL = 'assets/client/css/sat-dashboard.css';
+  $CSS2_REL = 'assets/client/css/sat/sat-index-extras.css';
+
+  // ✅ RFCs v48 (ajusta el nombre si tu archivo real es diferente)
+  $CSS3_REL = 'assets/client/css/sat/sat-rfcs-v48.css';
+
+  $CSS1_ABS = public_path($CSS1_REL);
+  $CSS2_ABS = public_path($CSS2_REL);
+  $CSS3_ABS = public_path($CSS3_REL);
+
+  $CSS1_V = is_file($CSS1_ABS) ? (string) filemtime($CSS1_ABS) : null;
+  $CSS2_V = is_file($CSS2_ABS) ? (string) filemtime($CSS2_ABS) : null;
+  $CSS3_V = is_file($CSS3_ABS) ? (string) filemtime($CSS3_ABS) : null;
+
+  $CSS1_URL = asset($CSS1_REL) . ($CSS1_V ? ('?v='.$CSS1_V) : '');
+  $CSS2_URL = asset($CSS2_REL) . ($CSS2_V ? ('?v='.$CSS2_V) : '');
+  $CSS3_URL = asset($CSS3_REL) . ($CSS3_V ? ('?v='.$CSS3_V) : '');
+@endphp
+
+@if(!$CSS1_V || !$CSS2_V || !$CSS3_V)
+  <div style="margin:10px 0; padding:10px; border:1px solid #f3c; background:#fff5ff; color:#700; border-radius:10px; font-family:ui-monospace,Menlo,monospace;">
+    <b>DEBUG SAT:</b> Faltan CSS en disco:
+    <div>sat-dashboard.css: {{ $CSS1_V ? 'OK' : 'NO EXISTE en public/assets' }}</div>
+    <div>sat-index-extras.css: {{ $CSS2_V ? 'OK' : 'NO EXISTE en public/assets' }}</div>
+    <div>sat-rfcs-v48.css: {{ $CSS3_V ? 'OK' : 'NO EXISTE en public/assets' }}</div>
+  </div>
+@endif
+
+<link rel="stylesheet" href="{{ $CSS1_URL }}" onerror="alert('SAT CSS no carga: {{ $CSS1_URL }}')">
+<link rel="stylesheet" href="{{ $CSS2_URL }}" onerror="alert('SAT CSS no carga: {{ $CSS2_URL }}')">
+<link rel="stylesheet" href="{{ $CSS3_URL }}" onerror="alert('SAT CSS no carga: {{ $CSS3_URL }}')">
 @endpush
 
 @section('content')
@@ -213,66 +406,81 @@
       </div>
     </div>
 
-    <div class="sat-actions">
-      @if($rtMode)
-        <button
-          type="button"
-          id="badgeMode"
-          data-url="{{ $rtMode }}"
-          class="mode-switch {{ ($modeSafe === 'demo') ? 'is-demo' : 'is-prod' }}"
-          data-tip="{{ ($modeSafe === 'demo') ? 'Modo DEMO (click para cambiar a PRODUCCIÓN)' : 'Modo PRODUCCIÓN (click para cambiar a DEMO)' }}"
-          aria-label="{{ ($modeSafe === 'demo') ? 'Cambiar a producción' : 'Cambiar a modo demo' }}"
-        >
-          <span class="mode-pill mode-pill-demo">Demo</span>
-          <span class="mode-pill mode-pill-prod">Prod</span>
-        </button>
-      @endif
+<div class="sat-header-actions">
+  {{-- ✅ Refrescar pantalla (hard refresh) --}}
+  <button
+    type="button"
+    class="btn icon-only"
+    id="btnSatPageRefresh"
+    data-tip="Refrescar pantalla"
+    aria-label="Refrescar pantalla"
+    style="margin-right:8px;"
+  >
+    <span aria-hidden="true">🔄</span>
+  </button>
+
+  @if($rtMode)
+    <button
+      type="button"
+      id="badgeMode"
+      data-url="{{ $rtMode }}"
+      class="mode-switch {{ ($modeSafe === 'demo') ? 'is-demo' : 'is-prod' }}"
+      data-tip="{{ ($modeSafe === 'demo') ? 'Modo DEMO (click para cambiar a PRODUCCIÓN)' : 'Modo PRODUCCIÓN (click para cambiar a DEMO)' }}"
+      aria-label="{{ ($modeSafe === 'demo') ? 'Cambiar a producción' : 'Cambiar a modo demo' }}"
+    >
+      <span class="mode-pill mode-pill-demo">Demo</span>
+      <span class="mode-pill mode-pill-prod">Prod</span>
+    </button>
+  @endif
+</div>
+
+
+</div> {{-- ✅ /sat-header-top (FIX CRÍTICO) --}}
+
+
+    {{-- 1) BARRA SUTIL (reemplazo temporal del resumen/KPIs) --}}
+  <div class="sat-card" style="padding:12px 14px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span class="badge-mode {{ ($modeSafe === 'demo') ? 'demo' : 'prod' }}">
+          <span class="dot"></span>
+          {{ $modeSafe === 'demo' ? 'DEMO' : 'PRODUCCIÓN' }}
+        </span>
+
+        <span class="badge-mode {{ ($isProPlan ?? false) ? 'prod' : 'demo' }}">
+          <span class="dot"></span>
+          PLAN {{ strtoupper((string)($plan ?? 'FREE')) }}
+        </span>
+
+        @if(!empty($externalRfc))
+          <span class="badge-mode {{ ($externalVerified ?? false) ? 'prod' : 'demo' }}">
+            <span class="dot"></span>
+            RFC EXTERNO {{ $externalRfc }}
+            {{ ($externalVerified ?? false) ? '· VERIFICADO' : '· PENDIENTE' }}
+          </span>
+        @endif
+      </div>
+
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span class="text-muted" style="font-size:13px;">
+          Peticiones: <b>{{ number_format((int)($reqAvailable ?? 0)) }}</b> disponibles ·
+          Descargas (30d): <b>{{ number_format((int)($filesPeriod ?? 0)) }}</b>
+        </span>
+
+        @if(!empty($rtManualIndex))
+          <a class="btn soft" href="{{ $rtManualIndex }}" style="text-decoration:none;">
+            Ir a descargas manuales
+          </a>
+        @elseif(!empty($rtManualQuote))
+          <a class="btn soft" href="{{ $rtManualQuote }}" style="text-decoration:none;">
+            Iniciar manual (cotización)
+          </a>
+        @endif
+      </div>
     </div>
   </div>
 
-  {{-- 1) CONTADORES TOP --}}
-  <div class="sat-card sat-card-header">
-    <div class="sat-top-grid">
-      <div class="top-card">
-        <div class="top-card-header">Archivos descargados en el periodo</div>
-        <div class="top-card-main">{{ number_format($filesPeriod) }}</div>
-        <div class="top-card-foot top-card-foot-success">0.00% ▲</div>
-      </div>
 
-      <div class="top-card">
-        <div class="top-card-header">Archivos descargados (totales)</div>
-        <div class="top-card-main">{{ number_format($filesTotal) }}</div>
-        <div class="top-card-caption">&nbsp;</div>
-      </div>
-
-      <div class="top-card">
-        <div class="top-card-header">RFCs validados</div>
-        <div class="top-card-main">{{ number_format($rfcsValidated) }}</div>
-        <div class="top-card-caption">&nbsp;</div>
-      </div>
-
-      <div class="top-card">
-        <div class="top-card-header">RFCs por validar</div>
-        <div class="top-card-main">{{ number_format($rfcsPending) }}</div>
-        <div class="top-card-caption">&nbsp;</div>
-      </div>
-
-      <div class="top-card top-card-cta">
-        <div class="top-card-header">Peticiones realizadas</div>
-        <div class="top-card-main">{{ number_format($reqDone) }}</div>
-        <div class="top-card-cta-foot">
-          <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
-            <button type="button" class="btn btn-cta" id="btnQuickQuote" data-tip="Cotizar una descarga por cantidad/peso">
-              Cotizar descarga
-            </button>
-            @unless($isProPlan)
-              <button type="button" class="btn btn-cta">Comprar ahora</button>
-            @endunless
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   {{-- 2) GRÁFICA + DETALLE MOVIMIENTOS --}}
   <div class="sat-card sat-movements-card">
@@ -317,96 +525,116 @@
     </div>
   </div>
 
-  {{-- 3) Guías rápidas --}}
-  <div class="sat-card" id="block-quick-guides">
+{{-- 3) Guías rápidas (partial) --}}
+@include('cliente.sat._partials.quick_guides', [
+  'isPro'        => $isPro ?? false,
+  'rtVault'      => $rtVault ?? '#',
+  'rtQuickCalc'  => $rtQuickCalc ?? null,
+  'rtQuickPdf'   => $rtQuickPdf  ?? null,
+])
+
+
+    {{-- 3.1) Descargas manuales (FLUJO SEPARADO) --}}
+  <div class="sat-card" id="block-manual-downloads">
     <div class="sat-quick-head">
       <div class="sat-quick-title-wrap">
-        <div class="sat-quick-icon" aria-hidden="true">⚡</div>
+        <div class="sat-quick-icon" aria-hidden="true">⬇️</div>
         <div>
-          <div class="sat-quick-kicker">ATAJOS SAT</div>
-          <h3 class="sat-quick-title">Guías rápidas</h3>
+          <div class="sat-quick-kicker">DESCARGAS</div>
+          <h3 class="sat-quick-title">Descargas manuales</h3>
           <p class="sat-quick-sub">
-            Usa estos atajos para lanzar descargas, cotizar y revisar tu información sin navegar por todo el módulo.
+            Solicitudes atendidas por soporte: avance (%), validación de costo, adjuntos desde Admin y (si aplica) pago por diferencia.
           </p>
         </div>
       </div>
 
       <div class="sat-quick-plan">
-        @if($isPro ?? false)
-          <span class="badge-mode prod"><span class="dot"></span> Plan PRO</span>
-        @else
-          <span class="badge-mode demo"><span class="dot"></span> Plan FREE</span>
-        @endif
+        <span class="badge-mode {{ ($isProPlan ?? false) ? 'prod' : 'demo' }}">
+          <span class="dot"></span>
+          {{ ($isProPlan ?? false) ? 'Disponible' : 'Pago por solicitud' }}
+        </span>
       </div>
     </div>
 
-    <div class="pills-row sat-quick-pills">
-      {{-- ✅ NUEVO: Calculadora dentro de ATAJOS SAT (como tu imagen) --}}
-      <button type="button" class="pill primary" id="btnQuickCalc" data-tip="Calcular costo estimado y generar PDF">
-        <span aria-hidden="true">🧮</span><span>Calcular descarga</span>
-      </button>
+    <div class="sat-manual-grid"
+         style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:stretch;">
+      <div class="sat-card"
+           style="border:1px solid rgba(0,0,0,.06); box-shadow:none; margin:0;">
+        <div class="section-title" style="margin:0 0 6px 0;">Crear solicitud manual</div>
+        <div class="text-muted">
+          El flujo manual no aparece en “Solicitudes SAT” porque tiene tratamiento diferente (revisión, avance, validación y adjuntos).
+        </div>
 
-      <button type="button" class="pill" id="btnQuickLast30" data-tip="Crear solicitud para últimos 30 días">
-        <span aria-hidden="true">📥</span><span>Descargar últimos 30 días</span>
-      </button>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button"
+                class="btn primary"
+                id="btnManualStartProcess"
+                data-url="{{ $rtManualQuote ?: '' }}"
+                {{ $rtManualQuote ? '' : 'disabled' }}>
+          Solicitar descarga (cotización)
+        </button>
 
-      <button type="button" class="pill" id="btnQuickThisMonth" data-tip="Emitidos y recibidos del mes actual">
-        <span aria-hidden="true">🗓️</span><span>Mes actual (emitidos + recibidos)</span>
-      </button>
 
-      <button type="button" class="pill" id="btnQuickOnlyEmitted" data-tip="Sólo CFDI emitidos del periodo rápido">
-        <span aria-hidden="true">📤</span><span>Sólo emitidos (rápido)</span>
-      </button>
+          <button type="button" class="btn soft" id="btnManualOpenQuote">
+            Cotizar (estimado)
+          </button>
+        </div>
 
-      <a href="#block-rfcs" class="pill" data-tip="Ir a la sección Mis RFCs">
-        <span aria-hidden="true">🧩</span><span>Administrar RFCs</span>
-      </a>
+        @if(!$rtManualQuote)
+          <div class="text-muted" style="margin-top:8px;">
+            Ruta no configurada: <span class="mono">cliente.sat.manual.quote</span>
+          </div>
+        @endif
 
-      <a href="{{ $rtVault }}" class="pill" data-tip="Abrir la Bóveda Fiscal">
-        <span aria-hidden="true">📚</span><span>Bóveda fiscal</span>
-      </a>
+      </div>
+
+      <div class="sat-card"
+           style="border:1px solid rgba(0,0,0,.06); box-shadow:none; margin:0;">
+        <div class="section-title" style="margin:0 0 6px 0;">Ver mis manuales</div>
+        <div class="text-muted">
+          Aquí verás: estatus (en revisión / pendiente pago / en progreso / listo), porcentaje de avance y mensajes de soporte.
+        </div>
+
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button"
+                  class="btn"
+                  id="btnManualGoIndex"
+                  data-url="{{ $rtManualIndex ?: '' }}"
+                  {{ $rtManualIndex ? '' : 'disabled' }}>
+            Abrir listado de manuales
+          </button>
+
+          <a class="btn soft" href="#block-downloads" style="text-decoration:none;">
+            Volver a descargas SAT
+          </a>
+        </div>
+
+        @if(!$rtManualIndex)
+          <div class="text-muted" style="margin-top:8px;">
+            Ruta no configurada: <span class="mono">cliente.sat.manual.index</span>
+          </div>
+        @endif
+      </div>
     </div>
   </div>
 
+{{-- 4) CONEXIONES SAT (UI LIMPIA) --}}
+@include('cliente.sat._partials.connections_clean', [
+  'externalRfc'      => $externalRfc ?? '',
+  'externalVerified' => (bool)($externalVerified ?? false),
+  'credList'         => $credList ?? collect(),
+  'plan'             => $plan ?? 'FREE',
+  'rtCsdStore'       => $rtCsdStore ?? '#',
+  'rtAlias'          => $rtAlias ?? '#',
+  'rtRfcReg'         => $rtRfcReg ?? '#',
+  'rtRfcDelete'      => $rtRfcDelete ?? '#',
+  'rtExternalInvite' => $rtExternalInvite ?? null,
+])
 
-  {{-- 4) CONEXIONES SAT · RFCs --}}
-  <div class="sat-card" id="block-rfcs">
-    <div style="margin-bottom:10px"></div>
 
-    @include('cliente.sat._partials.rfcs', [
-      'credList'   => $credList,
-      'plan'       => $plan,
-      'rtCsdStore' => $rtCsdStore,
-      'rtAlias'    => $rtAlias,
-      'rtRfcReg'   => $rtRfcReg,
-      'rtRfcDelete'=> $rtRfcDelete,
-    ])
-  </div>
 
-  {{-- 5) SOLICITUDES + LISTADO --}}
-  @php
-    $rfcOptions = [];
-    foreach ($credList as $c) {
-        $rf = strtoupper((string) data_get($c,'rfc',''));
-        if (!$rf) continue;
+@php $kRfc = (int) count($rfcOptionsValid ?? []); @endphp
 
-        $alias = trim((string) data_get($c,'razon_social', data_get($c,'alias','')));
-        $estatusRaw = strtolower((string) data_get($c,'estatus',''));
-
-        $okFlag = !empty(data_get($c,'validado'))
-               || !empty(data_get($c,'validated_at'))
-               || !empty(data_get($c,'has_files'))
-               || !empty(data_get($c,'has_csd'))
-               || !empty(data_get($c,'cer_path'))
-               || !empty(data_get($c,'key_path'))
-               || in_array($estatusRaw, ['ok','valido','válido','validado'], true);
-
-        if (!$okFlag) continue;
-
-        $rfcOptions[] = ['rf' => $rf, 'alias' => $alias];
-    }
-    $kRfc = count($rfcOptions);
-  @endphp
 
   <section class="sat-section" id="block-requests-section">
     <div class="sat-card sat-req-dl-card" id="block-requests">
@@ -431,6 +659,8 @@
       <div class="sat-req-panel">
         <form id="reqForm" method="post" action="{{ $rtReqCreate }}" class="sat-req-form">
           @csrf
+          <input type="hidden" name="manual" id="reqManual" value="0">
+
           <div class="sat-req-row">
             <div class="sat-req-field sat-req-field-sm">
               <label class="sat-req-label">Tipo</label>
@@ -477,7 +707,7 @@
                       <span>(Todos los RFCs)</span>
                     </label>
 
-                    @foreach($rfcOptions as $opt)
+                    @foreach($rfcOptionsValid as $opt)
                       <label class="sat-rfc-option">
                         <input type="checkbox" class="satRfcItem" value="{{ $opt['rf'] }}" checked>
                         <span class="mono">{{ $opt['rf'] }}</span>
@@ -495,10 +725,11 @@
               </div>
 
               <select name="rfcs[]" id="satRfcs" multiple hidden>
-                @foreach($rfcOptions as $opt)
+                @foreach(($rfcOptionsValid ?? []) as $opt)
                   <option value="{{ $opt['rf'] }}" selected>{{ $opt['rf'] }}</option>
                 @endforeach
               </select>
+
             </div>
 
             <div class="sat-req-field sat-req-field-btn">
@@ -635,7 +866,9 @@
                       catch (\Exception $e) { $isExpired = false; }
                   }
 
-                  return !$isExpired;
+                  // No ocultamos expiradas: solo se marcarán en UI y no permitirán acciones
+                  return true;
+
               });
 
           $downloadsForJs = $satRows->values();
@@ -763,6 +996,11 @@
                 $statusKeyLower  = strtolower($statusKey);
                 $statusTextLower = strtolower(trim($statusText));
 
+                // Clase CSS segura (solo a-z0-9-_)
+                $statusBadgeClass = Str::slug($statusKeyLower, '-');
+                if ($statusBadgeClass === '') $statusBadgeClass = 'unknown';
+
+
                 // EXPIRACIÓN / DISPONIBILIDAD
                 $expiresAt     = data_get($row,'expires_at');
                 $isExpiredFlag = (bool) data_get($row,'is_expired', false);
@@ -840,7 +1078,9 @@
                 data-tipo="{{ $tipoRaw }}"
                 data-status="{{ $statusKeyLower }}"
                 data-paid="{{ $isPaidRow ? 1 : 0 }}"
+                data-manual="{{ (int) (data_get($row,'is_manual', data_get($row,'manual', 0)) ? 1 : 0) }}"
               >
+
                 <td class="sat-dl-col-check t-center">
                   <input type="checkbox" name="dl_ids[]" value="{{ $id }}" class="sat-dl-check">
                 </td>
@@ -865,7 +1105,7 @@
                 <td class="t-right">{{ $costLabel }}</td>
 
                 <td class="t-center">
-                  <span class="sat-badge sat-badge-{{ $statusKey }}">{{ $statusText }}</span>
+                  <span class="sat-badge sat-badge-{{ $statusBadgeClass }}">{{ $statusText }}</span>
                 </td>
 
                 <td class="t-center">
@@ -1129,6 +1369,7 @@
     </div>
   </section>
 
+
   {{-- MODAL: AGREGAR RFC / CSD --}}
   <div class="sat-modal-backdrop" id="modalRfc">
     <div class="sat-modal sat-modal-lg">
@@ -1192,55 +1433,16 @@
     </div>
   </div>
 
-  {{-- MODAL: AUTOMATIZAR DESCARGAS --}}
-  <div class="sat-modal-backdrop" id="modalAuto">
-    <div class="sat-modal">
-      <div class="sat-modal-header">
-        <div>
-          <div class="sat-modal-kicker">Descargas SAT</div>
-          <div class="sat-modal-title">Automatizar descargas</div>
-          <p class="sat-modal-sub">Programa ejecuciones periódicas por RFC para no tener que lanzar las descargas manualmente.</p>
-        </div>
-        <button type="button" class="sat-modal-close" data-close="modal-auto" aria-label="Cerrar">✕</button>
-      </div>
-
-      <div class="sat-modal-body">
-        @if(!$isProPlan)
-          <p class="text-muted">
-            Las automatizaciones están disponibles únicamente en el <b>plan PRO</b>.
-            Contrata PRO para activar descargas diarias, semanales o mensuales por RFC.
-          </p>
-          <div class="auto-grid is-locked">
-            <button type="button" class="btn auto-btn" disabled><span aria-hidden="true">⏱</span><span>Diario</span></button>
-            <button type="button" class="btn auto-btn" disabled><span aria-hidden="true">📅</span><span>Semanal</span></button>
-            <button type="button" class="btn auto-btn" disabled><span aria-hidden="true">🗓</span><span>Mensual</span></button>
-            <button type="button" class="btn auto-btn" disabled><span aria-hidden="true">⚙️</span><span>Por rango</span></button>
-          </div>
-        @else
-          <p>Aquí podrás configurar tus automatizaciones. De momento es una vista informativa; más adelante conectaremos esta pantalla con el backend para guardar las reglas.</p>
-          <div class="auto-grid">
-            <button type="button" class="btn auto-btn"><span aria-hidden="true">⏱</span><span>Agregar tarea diaria</span></button>
-            <button type="button" class="btn auto-btn"><span aria-hidden="true">📅</span><span>Agregar tarea semanal</span></button>
-            <button type="button" class="btn auto-btn"><span aria-hidden="true">🗓</span><span>Agregar tarea mensual</span></button>
-            <button type="button" class="btn auto-btn"><span aria-hidden="true">⚙️</span><span>Personalizado</span></button>
-          </div>
-        @endif
-      </div>
-
-      <div class="sat-modal-footer">
-        <button type="button" class="btn" data-close="modal-auto">Cerrar</button>
-      </div>
-    </div>
-  </div>
-
-  {{-- MODAL: COTIZADOR (CALCULAR DESCARGA + PDF) --}}
+    {{-- MODAL: COTIZADOR (CALCULAR DESCARGA + PDF + PROCEDER A PAGO) --}}
   <div class="sat-modal-backdrop" id="modalQuote" style="display:none;">
     <div class="sat-modal sat-modal-lg">
       <div class="sat-modal-header">
         <div>
           <div class="sat-modal-kicker">Cotizador SAT</div>
           <div class="sat-modal-title">Calcular costo de descarga</div>
-          <p class="sat-modal-sub">Calcula por cantidad de XML y/o costo unitario; genera PDF para enviar al cliente.</p>
+          <p class="sat-modal-sub">
+            El costo se calcula automáticamente con la lista de precios (Admin). Selecciona RFC y periodo para cotizar, generar PDF o proceder a pago.
+          </p>
         </div>
         <button type="button" class="sat-modal-close" data-close="modal-quote" aria-label="Cerrar">✕</button>
       </div>
@@ -1249,18 +1451,56 @@
         <div class="sat-step-card">
           <div class="sat-step-kicker">
             <span>Parámetros</span>
-            <small>Información base</small>
+            <small>RFC y periodo</small>
           </div>
 
           <div class="sat-step-grid sat-step-grid-2col">
             <div class="sat-field">
-              <div class="sat-field-label">Cantidad de XML</div>
-              <input class="input sat-input-pill" id="quoteXmlCount" type="number" min="1" step="1" placeholder="1000" value="1000">
+              <div class="sat-field-label">RFC</div>
+              <select class="input sat-input-pill" id="quoteRfc">
+                <option value="">Selecciona RFC</option>
+                @foreach(($rfcOptionsValid ?? []) as $opt)
+                  <option value="{{ $opt['rf'] }}">
+                    {{ $opt['rf'] }}{{ !empty($opt['alias']) ? ' · '.$opt['alias'] : '' }}
+                  </option>
+                @endforeach
+              </select>
+              <div class="sat-modal-note" style="margin-top:6px;">
+                Solo aparecen RFCs validados.
+              </div>
             </div>
 
             <div class="sat-field">
-              <div class="sat-field-label">Costo unitario (opcional)</div>
-              <input class="input sat-input-pill" id="quoteUnitCost" type="number" min="0" step="0.01" placeholder="Ej. 0.10">
+              <div class="sat-field-label">Tipo</div>
+              <select class="input sat-input-pill" id="quoteTipo">
+                <option value="emitidos">Emitidos</option>
+                <option value="recibidos">Recibidos</option>
+                <option value="ambos" selected>Ambos</option>
+              </select>
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Desde</div>
+              <input class="input sat-input-pill" id="quoteFrom" type="date">
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Hasta</div>
+              <input class="input sat-input-pill" id="quoteTo" type="date">
+            </div>
+          </div>
+        </div>
+
+        <div class="sat-step-card" style="margin-top:14px;">
+          <div class="sat-step-kicker">
+            <span>Volumen</span>
+            <small>Estimación</small>
+          </div>
+
+          <div class="sat-step-grid sat-step-grid-2col">
+            <div class="sat-field">
+              <div class="sat-field-label">Cantidad estimada de XML</div>
+              <input class="input sat-input-pill" id="quoteXmlCount" type="number" min="1" step="1" placeholder="1000" value="1000">
             </div>
 
             <div class="sat-field">
@@ -1275,10 +1515,13 @@
                 <option value="0">0%</option>
               </select>
             </div>
-          </div>
 
-          <div class="sat-modal-note" style="margin-top:10px;">
-            Nota: Si no defines costo unitario, se usará el cálculo por backend (si está configurado).
+            <div class="sat-field">
+              <div class="sat-field-label">Notas</div>
+              <div class="text-muted" style="padding:10px 2px;">
+                La tarifa se determina por catálogo y rangos configurados en Admin.
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1307,8 +1550,109 @@
         <button type="button" class="btn soft" id="btnQuoteRecalc">Recalcular</button>
         <button type="button" class="btn primary" id="btnQuotePdf">Generar PDF</button>
       </div>
+
     </div>
   </div>
+
+  {{-- MODAL: SOLICITUD MANUAL (PROCESO → PAGO) --}}
+<div class="sat-modal-backdrop" id="modalManualRequest" style="display:none;">
+  <div class="sat-modal sat-modal-lg">
+    <div class="sat-modal-header">
+      <div>
+        <div class="sat-modal-kicker">Descargas manuales</div>
+        <div class="sat-modal-title">Solicitar descarga (cotización)</div>
+        <p class="sat-modal-sub">
+          Define lo necesario (RFC, periodo, tipo, cantidad estimada). Al continuar, se generará el pago.
+        </p>
+      </div>
+      <button type="button" class="sat-modal-close" data-close="modal-manual" aria-label="Cerrar">✕</button>
+    </div>
+
+    <div class="sat-modal-body">
+      <div class="sat-step-card">
+        <div class="sat-step-kicker">
+          <span>Paso 1</span>
+          <small>Datos de la solicitud</small>
+        </div>
+
+        <div class="sat-step-grid sat-step-grid-2col">
+          <div class="sat-field">
+            <div class="sat-field-label">RFC</div>
+            <select class="input sat-input-pill" id="manualRfc">
+              <option value="">Selecciona RFC</option>
+              @foreach(($rfcOptionsValid ?? []) as $opt)
+                <option value="{{ $opt['rf'] }}">
+                  {{ $opt['rf'] }}{{ !empty($opt['alias']) ? ' · '.$opt['alias'] : '' }}
+                </option>
+              @endforeach
+            </select>
+            <div class="sat-modal-note" style="margin-top:6px;">
+              Solo aparecen RFCs validados.
+            </div>
+          </div>
+
+          <div class="sat-field">
+            <div class="sat-field-label">Tipo</div>
+            <select class="input sat-input-pill" id="manualTipo">
+              <option value="emitidos">Emitidos</option>
+              <option value="recibidos">Recibidos</option>
+              <option value="ambos" selected>Ambos</option>
+            </select>
+          </div>
+
+          <div class="sat-field">
+            <div class="sat-field-label">Desde</div>
+            <input class="input sat-input-pill" type="date" id="manualFrom">
+          </div>
+
+          <div class="sat-field">
+            <div class="sat-field-label">Hasta</div>
+            <input class="input sat-input-pill" type="date" id="manualTo">
+          </div>
+        </div>
+      </div>
+
+      <div class="sat-step-card" style="margin-top:14px;">
+        <div class="sat-step-kicker">
+          <span>Paso 2</span>
+          <small>Cotización y notas</small>
+        </div>
+
+        <div class="sat-step-grid sat-step-grid-2col">
+          <div class="sat-field">
+            <div class="sat-field-label">Cantidad estimada de XML</div>
+            <input class="input sat-input-pill" id="manualXmlEstimated" type="number" min="1" step="1" placeholder="Ej. 1000" value="1000">
+          </div>
+
+          <div class="sat-field">
+            <div class="sat-field-label">Referencia / Cliente (opcional)</div>
+            <input class="input sat-input-pill" id="manualRef" type="text" maxlength="120" placeholder="Ej. Cliente XYZ / Caso 123">
+          </div>
+
+          <div class="sat-field sat-field-full">
+            <div class="sat-field-label">Notas (opcional)</div>
+            <textarea class="input sat-input-pill" id="manualNotes" rows="3" placeholder="Detalles relevantes para soporte (si aplica)"></textarea>
+          </div>
+        </div>
+
+        <div class="sat-modal-note" style="margin-top:10px;">
+          El costo final puede ajustarse tras revisar metadata. Si el costo real es mayor, se solicitará pago complementario.
+        </div>
+      </div>
+    </div>
+
+    <div class="sat-modal-footer">
+      <button type="button" class="btn" data-close="modal-manual">Cancelar</button>
+      <button type="button" class="btn soft" id="btnManualDraftToQuote">
+        Ver cotizador (estimado)
+      </button>
+      <button type="button" class="btn primary" id="btnManualSubmitPay">
+        Siguiente: solicitar pago
+      </button>
+    </div>
+  </div>
+</div>
+
 
 </div>
 @endsection
@@ -1317,580 +1661,184 @@
 {{-- Chart.js --}}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
+@php
+  // ======================================================
+  // P360_SAT (SOT) -> serialización segura sin duplicados
+  // ======================================================
+  $p360SatCfg = [
+    'csrf'      => csrf_token(),
+    'isProPlan' => (bool) ($isProPlan ?? ($isPro ?? false)),
+    'downloads' => $downloadsForJs ?? [],
+
+    // ✅ Dataset local para gráfica (fallback inmediato)
+    'localChart' => [
+      'labels' => $weekLabels ?? [],
+      'counts' => $weekCounts ?? [],
+    ],
+
+    // Para UI: visibles (incluye externo) + validados (para acciones)
+    'rfcOptions'      => $rfcOptionsAll   ?? ($rfcOptions ?? []),
+    'rfcOptionsValid' => $rfcOptionsValid ?? [],
+
+    'routes' => [
+      // Core
+      'request'        => $rtReqCreate ?: '',
+      'verify'         => $rtVerify    ?: '',
+      'mode'           => $rtMode      ?: '',
+      'download'       => $rtPkgPost   ?: '',
+      'cancel'         => $rtDownloadCancel ?: '',
+      'charts'         => $rtCharts    ?: '',
+
+      // Dashboard JSON (Chart/KPIs)
+      'dashboardStats' => \Illuminate\Support\Facades\Route::has('cliente.sat.dashboard.stats')
+        ? route('cliente.sat.dashboard.stats')
+        : '',
+
+      // ✅ Registro externo (invite)
+      // sat-dashboard.js está pidiendo ROUTES.externalInvite
+      // y algunos tests usan externalRfcInvite: exponemos ambas.
+      'externalInvite'    => $rtExternalInvite ?: '',
+      'externalRfcInvite' => $rtExternalInvite ?: '',
+
+      // RFC/CSD
+      'csdStore'  => $rtCsdStore ?: '',
+      'rfcReg'    => $rtRfcReg   ?: '',
+      'rfcDelete' => $rtRfcDelete ?: '',
+      'alias'     => $rtAlias    ?: '',
+
+      // Carrito
+      'cartIndex'    => $rtCartIndex ?: '',
+      'cartList'     => ($rtCartList ?: $rtCartIndex) ?: '',
+      'cartAdd'      => $rtCartAdd ?: '',
+      'cartRemove'   => $rtCartRemove ?: '',
+      'cartCheckout' => $rtCartPay ?: '',
+
+      // ZIP
+      'zipPattern' => $zipPattern ?: '',
+
+      // Vault
+      'vaultIndex'        => $rtVault ?: '',
+      'vaultQuick'        => $rtVaultQuick ?: '',
+      'vaultFromDownload' => $rtVaultFromDownload ?: '',
+
+      // Cotizador RFC/periodo
+      'quoteCalc' => $rtQuoteCalc ?: '',
+      'quotePdf'  => $rtQuotePdf  ?: '',
+
+      // Manuales
+      'manualQuote' => $rtManualQuote ?: '',
+      'manualIndex' => $rtManualIndex ?: '',
+
+      // Calculadora rápida (sin RFC)
+      'quickCalc' => $rtQuickCalc ?: '',
+      'quickPdf'  => $rtQuickPdf  ?: '',
+    ],
+
+    'vault' => $vault ?? [],
+  ];
+@endphp
+
+
+{{-- ✅ SOT: Exponer config global ANTES de cargar cualquier JS del SAT --}}
 <script>
-  // CONFIG GLOBAL SAT -> debe existir ANTES de sat-dashboard.js
-  window.P360_SAT = {
-    csrf: @json(csrf_token()),
-    isProPlan: @json((bool)($isProPlan ?? $isPro ?? false)),
-    downloads: @json($downloadsForJs ?? []),
+(function () {
+  'use strict';
 
-    routes: {
-      request:      @json($rtReqCreate),
-      verify:       @json($rtVerify),
-      mode:         @json($rtMode),
-      download:     @json($rtPkgPost),
-      cancel:       @json($rtDownloadCancel),
-      charts:       @json($rtCharts),
+  // Evita sobreescritura si por alguna razón se inyecta dos veces
+  if (!window.P360_SAT || typeof window.P360_SAT !== 'object') {
+    window.P360_SAT = {};
+  }
 
-      csdStore:     @json($rtCsdStore),
-      rfcReg:       @json($rtRfcReg),
+  // Inyecta config calculada en PHP (SOT)
+  const CFG = @json($p360SatCfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-      cartIndex:    @json($rtCartIndex),
-      cartList:     @json($rtCartList ?: $rtCartIndex),
-      cartAdd:      @json($rtCartAdd),
-      cartRemove:   @json($rtCartRemove),
-      cartCheckout: @json($rtCartPay),
-
-      zipPattern:   @json($zipPattern),
-
-      vaultIndex:   @json($rtVault),
-      vaultQuick:   @json($rtVaultQuick),
-
-      // plantilla con __ID__
-      vaultFromDownload: @json($rtVaultFromDownload),
-
-      // ✅ Cotizador (opcionales)
-      quoteCalc: @json($rtQuoteCalc),
-      quotePdf:  @json($rtQuotePdf),
-    },
-
-    vault: @json($vault ?? []),
-  };
+  // Merge defensivo (por si otras vistas agregan propiedades)
+  window.P360_SAT = Object.assign({}, window.P360_SAT, CFG);
+})();
 </script>
 
-{{-- JS principal del dashboard SAT --}}
-<script src="{{ asset('assets/client/js/sat-dashboard.js') }}" defer></script>
-
-{{-- BOOTSTRAP extra: bulk + quick guides + vault CTA + cotizador (sin reventar si faltan rutas) --}}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (window.__P360_SAT_INDEX_BOOT__) return;
-  window.__P360_SAT_INDEX_BOOT__ = true;
+(function () {
+  'use strict';
+  // ✅ NO-OP:
+  // La gráfica se controla únicamente desde public/assets/client/js/sat-dashboard.js
+  // para evitar doble instanciación de Chart.js sobre el mismo canvas.
+})();
+</script>
 
-  const CFG    = window.P360_SAT || {};
-  const ROUTES = CFG.routes || {};
-  const CSRF   = CFG.csrf || '';
 
-  function toast(msg, kind='info') {
+<script>
+(function () {
+  'use strict';
+
+  // Refresh duro con cache-bust (_ts) para evitar que el navegador muestre HTML viejo
+  function hardRefresh() {
     try {
-      if (window.P360 && typeof window.P360.toast === 'function') {
-        if (kind === 'error' && window.P360.toast.error) return window.P360.toast.error(msg);
-        if (kind === 'success' && window.P360.toast.success) return window.P360.toast.success(msg);
-        return window.P360.toast(msg);
-      }
-    } catch(e) {}
-    alert(msg);
+      const u = new URL(window.location.href);
+      u.searchParams.set('_ts', String(Date.now()));
+      window.location.href = u.toString();
+    } catch (e) {
+      window.location.reload();
+    }
   }
 
-  async function postJson(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': CSRF,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: JSON.stringify(payload || {}),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) throw new Error(data.msg || data.message || 'Solicitud fallida.');
-    return data;
-  }
-
-  // =========================
-  // Bulk selection bar
-  // =========================
-  const bulkBar   = document.getElementById('satDlBulk');
-  const bulkCount = document.getElementById('satDlBulkCount');
-  const btnAll    = document.getElementById('satCheckAll');
-
-  const checks = () => Array.from(document.querySelectorAll('.sat-dl-check'));
-
-  function getSelectedIds() {
-    return checks().filter(c => c.checked).map(c => (c.value || '').trim()).filter(Boolean);
-  }
-
-  function updateBulk() {
-    const n = getSelectedIds().length;
-    if (!bulkBar) return;
-    bulkBar.style.display = n > 0 ? 'flex' : 'none';
-    if (bulkCount) bulkCount.textContent = String(n);
-  }
-
-  checks().forEach(cb => cb.addEventListener('change', updateBulk));
-
-  if (btnAll) {
-    btnAll.addEventListener('change', function () {
-      const check = this.checked;
-      checks().forEach(cb => { cb.checked = check; });
-      updateBulk();
-    });
-  }
-
-  // Bulk buttons
-  const btnRefresh = document.getElementById('satDlBulkRefresh');
-  const btnAdd     = document.getElementById('satDlAddSelected');
-  const btnBuy     = document.getElementById('satDlBulkBuy');
-  const btnDelete  = document.getElementById('satDlBulkDelete');
-
-  if (btnRefresh) {
-    btnRefresh.addEventListener('click', function () {
-      const verifyBtn = document.getElementById('btnSatVerify');
-      if (verifyBtn) verifyBtn.click();
-    });
-  }
-
-  async function addToCart(downloadId) {
-    if (!ROUTES.cartAdd) throw new Error('Ruta cartAdd no configurada.');
-    return await postJson(ROUTES.cartAdd, { download_id: downloadId, id: downloadId });
-  }
-  async function removeFromCart(downloadId) {
-    if (!ROUTES.cartRemove) throw new Error('Ruta cartRemove no configurada.');
-    return await postJson(ROUTES.cartRemove, { download_id: downloadId, id: downloadId });
-  }
-  async function checkout(ids) {
-    if (!ROUTES.cartCheckout) throw new Error('Ruta cartCheckout no configurada.');
-    const data = await postJson(ROUTES.cartCheckout, { ids, download_ids: ids });
-    const url = data.url || data.checkout_url || data.redirect || null;
-    if (!url) throw new Error('Checkout generado, pero sin URL.');
-    window.location.href = url;
-  }
-
-  if (btnAdd) {
-    btnAdd.addEventListener('click', async function () {
-      const ids = getSelectedIds();
-      if (!ids.length) return toast('Selecciona al menos 1 solicitud.');
-      btnAdd.disabled = true;
-      try {
-        for (const id of ids) await addToCart(id);
-        toast('Seleccionados agregados al carrito.', 'success');
-      } catch (e) {
-        toast(e?.message || 'No se pudo agregar al carrito.', 'error');
-      } finally {
-        btnAdd.disabled = false;
-      }
-    });
-  }
-
-  if (btnBuy) {
-    btnBuy.addEventListener('click', async function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-
-      const ids = getSelectedIds();
-      if (!ids.length) return toast('Selecciona al menos 1 solicitud para comprar.');
-
-      btnBuy.disabled = true;
-      try {
-        for (const id of ids) await addToCart(id);
-        await checkout(ids);
-      } catch (e) {
-        toast(e?.message || 'No se pudo iniciar la compra.', 'error');
-      } finally {
-        btnBuy.disabled = false;
-      }
-    }, true);
-  }
-
-  if (btnDelete) {
-    btnDelete.addEventListener('click', function () {
-      const selected = checks().filter(c => c.checked);
-      selected.forEach(cb => {
-        const tr = cb.closest('tr');
-        const delBtn = tr ? tr.querySelector('.sat-btn-cancel') : null;
-        if (delBtn) delBtn.click();
-      });
-    });
-  }
-
-  // Toggle carrito por fila (fallback)
-  document.body.addEventListener('click', async function (ev) {
-    const btn = ev.target.closest('.sat-btn-cart');
+  document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.getElementById('btnSatPageRefresh');
     if (!btn) return;
 
-    ev.preventDefault();
-
-    const id = (btn.dataset.id || '').trim();
-    const action = (btn.dataset.action || 'cart-add').trim();
-    if (!id) return;
-
-    btn.disabled = true;
-    try {
-      if (action === 'cart-remove') {
-        await removeFromCart(id);
-        btn.dataset.action = 'cart-add';
-        btn.classList.remove('is-in-cart');
-        btn.setAttribute('data-tip', 'Agregar al carrito');
-      } else {
-        await addToCart(id);
-        btn.dataset.action = 'cart-remove';
-        btn.classList.add('is-in-cart');
-        btn.setAttribute('data-tip', 'Quitar del carrito');
-      }
-    } catch (e) {
-      toast(e?.message || 'No se pudo actualizar el carrito.', 'error');
-    } finally {
-      btn.disabled = false;
-    }
-  }, true);
-
-  // =========================
-  // Quick guides
-  // =========================
-  function ymd(d) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
-
-  function setRange(fromDate, toDate, tipo) {
-    const f = document.getElementById('reqFrom');
-    const t = document.getElementById('reqTo');
-    const tp = document.getElementById('reqTipo');
-    if (tp && tipo) tp.value = tipo;
-    if (f) f.value = ymd(fromDate);
-    if (t) t.value = ymd(toDate);
-  }
-
-  const btnLast30 = document.getElementById('btnQuickLast30');
-  const btnMonth  = document.getElementById('btnQuickThisMonth');
-  const btnEmit   = document.getElementById('btnQuickOnlyEmitted');
-  const reqForm   = document.getElementById('reqForm');
-
-  if (btnLast30 && reqForm) {
-    btnLast30.addEventListener('click', function () {
-      const to = new Date();
-      const from = new Date();
-      from.setDate(from.getDate() - 30);
-      setRange(from, to, 'ambos');
-      reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
+    btn.addEventListener('click', function () {
+      hardRefresh();
     });
-  }
-
-  if (btnMonth && reqForm) {
-    btnMonth.addEventListener('click', function () {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      setRange(from, to, 'ambos');
-      reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
-    });
-  }
-
-  if (btnEmit && reqForm) {
-    btnEmit.addEventListener('click', function () {
-      const to = new Date();
-      const from = new Date();
-      from.setDate(from.getDate() - 30);
-      setRange(from, to, 'emitidos');
-      reqForm.requestSubmit ? reqForm.requestSubmit() : reqForm.submit();
-    });
-  }
-
-  // =========================
-  // Vault CTA
-  // =========================
-  const selectVault = document.getElementById('vaultUpgradeSelect');
-  const btnVault    = document.getElementById('btnVaultCtaIndex');
-
-  if (selectVault && btnVault) {
-    function hasQuota() { return String(btnVault.dataset.hasQuota || '0') === '1'; }
-    function syncLabel() {
-      const label = btnVault.querySelector('.btn-amazon-label');
-      if (!label) return;
-      label.textContent = hasQuota() ? 'Ampliar bóveda' : 'Activar bóveda';
-    }
-    function canProceed() { return !hasQuota() || !!selectVault.value; }
-    function syncDisabled() { btnVault.disabled = !canProceed(); }
-
-    function buildFinalUrl(baseUrl, param, gb) {
-      const sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
-      return baseUrl + sep + encodeURIComponent(param) + '=' + encodeURIComponent(String(gb));
-    }
-
-    selectVault.addEventListener('change', syncDisabled);
-    syncLabel();
-    syncDisabled();
-
-    btnVault.addEventListener('click', function () {
-      const baseUrl = (btnVault.dataset.url || '').trim();
-      const param   = (btnVault.dataset.param || 'vault_gb').trim();
-
-      if (!baseUrl || baseUrl === '#') {
-        return toast('No hay ruta configurada para activar/comprar bóveda (carrito/checkout).', 'error');
-      }
-
-      let gb = selectVault.value;
-      if (!gb) {
-        if (!hasQuota()) gb = btnVault.dataset.defaultGb || '5';
-        else return toast('Selecciona primero una ampliación de Gb para continuar.', 'error');
-      }
-
-      window.location.href = buildFinalUrl(baseUrl, param, gb);
-    });
-  }
-
-  // =========================
-  // Vault-from-download
-  // =========================
-  function buildFromDownloadUrl(id) {
-    const tpl = ROUTES.vaultFromDownload;
-    if (!tpl) return null;
-    return String(tpl).replace('__ID__', encodeURIComponent(id));
-  }
-
-  async function refreshVaultQuick() {
-    if (!ROUTES.vaultQuick) return;
-    try {
-      const res = await fetch(ROUTES.vaultQuick, { headers: { 'Accept':'application/json', 'X-Requested-With':'XMLHttpRequest' }});
-      if (!res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      if (data && data.vault) {
-        CFG.vault = data.vault;
-        window.P360_SAT = CFG;
-        if (window.P360_SAT_UI && typeof window.P360_SAT_UI.redrawVault === 'function') {
-          window.P360_SAT_UI.redrawVault(data.vault);
-        }
-      }
-    } catch(e) {}
-  }
-
-  document.body.addEventListener('click', async function (ev) {
-    const btn = ev.target.closest('.sat-btn-vault');
-    if (!btn) return;
-
-    ev.preventDefault();
-
-    const id = (btn.dataset.id || '').trim();
-    const url = buildFromDownloadUrl(id);
-    if (!id || !url) return toast('No se pudo construir la ruta para guardar en bóveda.', 'error');
-
-    btn.disabled = true;
-    btn.classList.add('is-loading');
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': CSRF,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({}),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        return toast(data.message || data.msg || 'No se pudo guardar en bóveda. Revisa el backend.', 'error');
-      }
-
-      btn.remove();
-      toast('Guardado en Bóveda Fiscal.', 'success');
-      await refreshVaultQuick();
-    } catch (e) {
-      toast('Error de red al guardar en bóveda.', 'error');
-    } finally {
-      btn.disabled = false;
-      btn.classList.remove('is-loading');
-    }
-  }, true);
-
-    // =========================
-  // Cotizador (Calcular + PDF)
-  // =========================
-  const btnQuickQuote  = document.getElementById('btnQuickQuote'); // botón superior (si existe)
-  const btnQuickCalc   = document.getElementById('btnQuickCalc');  // ✅ botón dentro de ATAJOS SAT
-  const modalQuote     = document.getElementById('modalQuote');
-  const btnQuoteRecalc = document.getElementById('btnQuoteRecalc');
-  const btnQuotePdf    = document.getElementById('btnQuotePdf');
-
-  const quoteXmlCount  = document.getElementById('quoteXmlCount');
-  const quoteUnitCost  = document.getElementById('quoteUnitCost');
-  const quoteDiscount  = document.getElementById('quoteDiscountCode');
-  const quoteIva       = document.getElementById('quoteIva');
-
-  const quoteBaseVal     = document.getElementById('quoteBaseVal');
-  const quoteDiscPct     = document.getElementById('quoteDiscPct');
-  const quoteDiscVal     = document.getElementById('quoteDiscVal');
-  const quoteSubtotalVal = document.getElementById('quoteSubtotalVal');
-  const quoteIvaPct      = document.getElementById('quoteIvaPct');
-  const quoteIvaVal      = document.getElementById('quoteIvaVal');
-  const quoteTotalVal    = document.getElementById('quoteTotalVal');
-  const quoteNote        = document.getElementById('quoteNote');
-
-  let quoteTimer = null;
-
-  function money(n) {
-    const v = Number(n || 0);
-    return '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  function renderQuote(d) {
-    if (!d) return;
-    if (quoteBaseVal)     quoteBaseVal.textContent     = money(d.base);
-    if (quoteDiscPct)     quoteDiscPct.textContent     = String((d.discount_pct ?? 0));
-    if (quoteDiscVal)     quoteDiscVal.textContent     = '-' + money(d.discount_amount || 0);
-    if (quoteSubtotalVal) quoteSubtotalVal.textContent = money(d.subtotal);
-    if (quoteIvaPct)      quoteIvaPct.textContent      = String(d.iva_rate ?? 16);
-    if (quoteIvaVal)      quoteIvaVal.textContent      = money(d.iva_amount || 0);
-    if (quoteTotalVal)    quoteTotalVal.textContent    = money(d.total || 0);
-    if (quoteNote)        quoteNote.textContent        = d.note || '—';
-  }
-
-  async function quoteCalcNow() {
-    if (!ROUTES.quoteCalc) throw new Error('Ruta quoteCalc no configurada (cliente.sat.quote.calc).');
-
-    const xmlCount = parseInt((quoteXmlCount?.value || '0'), 10) || 0;
-    if (xmlCount <= 0) throw new Error('Escribe una cantidad válida de archivos.');
-
-    const unitCostRaw = String(quoteUnitCost?.value || '').trim();
-    const unitCost = unitCostRaw !== '' ? (parseFloat(unitCostRaw) || 0) : null;
-
-    const payload = {
-      xml_count: xmlCount,
-      iva: parseInt((quoteIva?.value || '16'), 10) || 16,
-      discount_code: String(quoteDiscount?.value || '').trim(),
-    };
-
-    if (unitCost !== null && unitCost > 0) payload.unit_cost = unitCost;
-
-    const res = await postJson(ROUTES.quoteCalc, payload);
-    const d = res.data || null;
-    if (!d) throw new Error('Respuesta de cotización inválida.');
-    renderQuote(d);
-    return d;
-  }
-
-  function openQuote() {
-    if (!modalQuote) return;
-
-    // si no existen rutas, avisa sin romper
-    if (!ROUTES.quoteCalc && !ROUTES.quotePdf) {
-      toast('Cotizador no configurado: faltan rutas quoteCalc/quotePdf.', 'error');
-      return;
-    }
-
-    modalQuote.style.display = 'flex';
-
-    // defaults
-    if (quoteXmlCount && !quoteXmlCount.value) quoteXmlCount.value = '1000';
-    if (quoteIva && quoteIvaPct) quoteIvaPct.textContent = quoteIva.value || '16';
-
-    scheduleQuoteCalc(60);
-  }
-
-  function closeQuote() {
-    if (!modalQuote) return;
-    modalQuote.style.display = 'none';
-  }
-
-  function scheduleQuoteCalc(ms = 250) {
-    clearTimeout(quoteTimer);
-    quoteTimer = setTimeout(async () => {
-      try {
-        if (!modalQuote || modalQuote.style.display === 'none') return;
-        await quoteCalcNow();
-      } catch (e) {}
-    }, ms);
-  }
-
-  // ✅ abre desde botón superior y desde ATAJOS SAT
-  if (btnQuickQuote) btnQuickQuote.addEventListener('click', openQuote);
-  if (btnQuickCalc)  btnQuickCalc.addEventListener('click', openQuote);
-
-  document.body.addEventListener('click', function (ev) {
-    const b = ev.target.closest('[data-close="modal-quote"]');
-    if (!b) return;
-    ev.preventDefault();
-    closeQuote();
-  }, true);
-
-  if (modalQuote) {
-    modalQuote.addEventListener('click', function (ev) {
-      if (ev.target === modalQuote) closeQuote();
-    });
-  }
-
-  if (quoteXmlCount) quoteXmlCount.addEventListener('input', () => scheduleQuoteCalc(250));
-  if (quoteUnitCost) quoteUnitCost.addEventListener('input', () => scheduleQuoteCalc(300));
-  if (quoteDiscount) quoteDiscount.addEventListener('input', () => scheduleQuoteCalc(350));
-  if (quoteIva)      quoteIva.addEventListener('change', () => {
-    if (quoteIvaPct) quoteIvaPct.textContent = quoteIva.value || '16';
-    scheduleQuoteCalc(120);
   });
 
-  if (btnQuoteRecalc) {
-    btnQuoteRecalc.addEventListener('click', async function () {
-      btnQuoteRecalc.disabled = true;
-      try {
-        await quoteCalcNow();
-        toast('Cotización actualizada.', 'success');
-      } catch (e) {
-        toast(e?.message || 'No se pudo recalcular.', 'error');
-      } finally {
-        btnQuoteRecalc.disabled = false;
-      }
-    });
-  }
-
-  function submitPdfForm(url, params) {
-    const f = document.createElement('form');
-    f.method = 'POST';
-    f.action = url;
-    f.style.display = 'none';
-
-    const token = document.createElement('input');
-    token.type = 'hidden';
-    token.name = '_token';
-    token.value = CSRF;
-    f.appendChild(token);
-
-    Object.keys(params || {}).forEach((k) => {
-      const v = params[k];
-      if (v === null || typeof v === 'undefined' || v === '') return;
-      const inp = document.createElement('input');
-      inp.type = 'hidden';
-      inp.name = k;
-      inp.value = String(v);
-      f.appendChild(inp);
-    });
-
-    document.body.appendChild(f);
-    f.submit();
-    setTimeout(() => f.remove(), 3000);
-  }
-
-  if (btnQuotePdf) {
-    btnQuotePdf.addEventListener('click', async function () {
-      if (!ROUTES.quotePdf) return toast('Ruta quotePdf no configurada (cliente.sat.quote.pdf).', 'error');
-
-      btnQuotePdf.disabled = true;
-      try {
-        await quoteCalcNow();
-
-        const p = {
-          xml_count: parseInt(quoteXmlCount?.value || '0', 10) || 0,
-          iva: parseInt(quoteIva?.value || '16', 10) || 16,
-          discount_code: String(quoteDiscount?.value || '').trim(),
-        };
-
-        const ucRaw = String(quoteUnitCost?.value || '').trim();
-        if (ucRaw !== '') p.unit_cost = parseFloat(ucRaw) || 0;
-
-        submitPdfForm(ROUTES.quotePdf, p);
-        toast('Generando PDF…', 'success');
-      } catch (e) {
-        toast(e?.message || 'No se pudo generar el PDF.', 'error');
-      } finally {
-        btnQuotePdf.disabled = false;
-      }
-    });
-  }
-
-
-  updateBulk();
-});
+  // Exponer helper por si lo quieres invocar desde otros scripts
+  window.P360_SAT_HARD_REFRESH = hardRefresh;
+})();
 </script>
+
+
+{{-- ✅ FIX: define applyFilters GLOBAL antes de cualquier script SAT que lo invoque --}}
+<script>
+(function () {
+  'use strict';
+
+  if (typeof window.applyFilters === 'function') return;
+
+  window.applyFilters = function () {
+    try {
+      // Preferimos el módulo UI si existe
+      if (window.P360_SAT_UI && typeof window.P360_SAT_UI.applyFilters === 'function') {
+        return window.P360_SAT_UI.applyFilters();
+      }
+
+      // Fallback suave: si existe sat-dashboard como función pública
+      if (window.P360_SAT && window.P360_SAT.ui && typeof window.P360_SAT.ui.applyFilters === 'function') {
+        return window.P360_SAT.ui.applyFilters();
+      }
+    } catch (e) {}
+
+    // No revienta: simplemente no hace nada
+    return null;
+  };
+})();
+</script>
+
+
+@php
+  $SAT_DASH_ABS = public_path('assets/client/js/sat-dashboard.js');
+  $SAT_BOOT_ABS = public_path('assets/client/js/sat-index-boot.js');
+
+  $SAT_DASH_V = is_file($SAT_DASH_ABS) ? (string) filemtime($SAT_DASH_ABS) : (string) time();
+  $SAT_BOOT_V = is_file($SAT_BOOT_ABS) ? (string) filemtime($SAT_BOOT_ABS) : (string) time();
+@endphp
+
+{{-- JS principal del dashboard SAT --}}
+<script src="{{ asset('assets/client/js/sat-dashboard.js') }}?v={{ $SAT_DASH_V }}" defer></script>
+
+{{-- BOOTSTRAP extra --}}
+<script src="{{ asset('assets/client/js/sat-index-boot.js') }}?v={{ $SAT_BOOT_V }}" defer></script>
+
+
 @endpush
+
+

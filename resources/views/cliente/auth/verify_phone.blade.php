@@ -1,19 +1,38 @@
-{{-- resources/views/cliente/auth/verify_phone.blade.php --}}
-@php
-  /** @var object $account (id, phone) */
-  /** @var string $phone_masked */
-  /** @var string $state "otp"|"phone" */
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\auth\verify_phone.blade.php --}}
+@extends('layouts.guest')
+@section('hide-brand','1')
+@section('title','Verificar teléfono · Pactopia360')
 
-  $aid = $account->id ?? session('verify.account_id');
+@php
+  /**
+   * Variables esperadas desde controller:
+   * @var object $account (id, phone)
+   * @var string $phone_masked
+   * @var string $state "otp"|"phone"
+   */
+
+  // ✅ Resolver account_id de forma robusta:
+  // 1) account->id (desde controller)
+  // 2) request('account_id') (fallback por query o hidden)
+  // 3) session('verify.account_id')
+  $aid = (int) data_get($account, 'id', 0);
+  if ($aid <= 0) $aid = (int) request()->input('account_id', 0);
+  if ($aid <= 0) $aid = (int) session('verify.account_id', 0);
 
   // Logos (tus rutas reales)
   $logoLight = asset('assets/client/p360-black.png'); // modo claro
   $logoDark  = asset('assets/client/p360-white.png'); // modo oscuro
-@endphp
 
-@extends('layouts.guest')
-@section('hide-brand','1')
-@section('title','Verificar teléfono · Pactopia360')
+  // Normalizar state
+  $state = ($state ?? 'phone');
+  if (!in_array($state, ['phone','otp'], true)) $state = 'phone';
+
+  // Si NO tenemos account_id, forzamos estado phone y mostramos alerta
+  $missingAccount = ($aid <= 0);
+  if ($missingAccount) {
+    $state = 'phone';
+  }
+@endphp
 
 @push('styles')
   <link rel="stylesheet" href="{{ asset('assets/client/css/verify-base.css') }}">
@@ -38,14 +57,38 @@
     {{-- Alertas --}}
     @if (session('ok'))      <div class="vf-alert vf-alert-ok">{{ session('ok') }}</div> @endif
     @if (session('warning')) <div class="vf-alert vf-alert-warn">{{ session('warning') }}</div> @endif
+
+    @if ($missingAccount)
+      <div class="vf-alert vf-alert-warn">
+        No pudimos detectar tu sesión de verificación (account_id).<br>
+        Regresa y solicita un enlace nuevo de verificación de correo, o abre el enlace desde el mismo dispositivo/navegador.
+      </div>
+    @endif
+
     @if ($errors->any())
       <div class="vf-alert vf-alert-err">
         @foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach
       </div>
     @endif
 
+        {{-- DEBUG OTP (solo LOCAL): muestra el código aunque no haya WhatsApp/Twilio --}}
+    @if(app()->environment(['local','development','testing']) && session('otp_debug_code'))
+      <div class="vf-alert vf-alert-ok" style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+        <div>
+          <strong>OTP (LOCAL)</strong> Código: <strong style="letter-spacing:2px;">{{ session('otp_debug_code') }}</strong>
+        </div>
+        <button type="button"
+                class="vf-resend-btn"
+                style="padding:8px 10px;min-height:auto;font-size:12px;"
+                onclick="navigator.clipboard?.writeText('{{ session('otp_debug_code') }}');">
+          Copiar
+        </button>
+      </div>
+    @endif
+
+
     {{-- Estado: Captura de teléfono --}}
-    @if (($state ?? 'phone') === 'phone')
+    @if ($state === 'phone')
       <form method="POST" action="{{ route('cliente.verify.phone.update') }}" class="vf-grid">
         @csrf
         <input type="hidden" name="account_id" value="{{ $aid }}">
@@ -60,7 +103,9 @@
           <input class="vf-control" name="telefono" placeholder="5537747366" value="{{ old('telefono') }}" maxlength="25" required>
         </label>
 
-        <button class="vf-btn" type="submit">Enviar código</button>
+        <button class="vf-btn" type="submit" @if($missingAccount) disabled aria-disabled="true" @endif>
+          Enviar código
+        </button>
       </form>
     @else
       {{-- Estado: OTP --}}
@@ -101,8 +146,7 @@
 @push('scripts')
 <script>
 (function(){
-  // Si tu app usa data-theme="dark|light", mantenemos el logo sincronizado.
-  // Si no existe data-theme, el <picture> cubre prefers-color-scheme.
+  // Sync logo con data-theme="dark|light" si existe
   const root = document.documentElement;
   const logo = document.getElementById('vhLogo');
   const imgs = { light: @json($logoLight), dark: @json($logoDark) };

@@ -66,6 +66,32 @@ class PerfilController extends Controller
         $user   = Auth::guard('web')->user();
         $cuenta = $user?->cuenta;
 
+        // ======================================================
+        // RFC efectivo para Perfil:
+        // - primero desde cuenta (rfc_padre / rfc)
+        // - si no existe, desde SAT credentials (cuenta_id o email)
+        // ======================================================
+        $rfcCuenta = null;
+        try {
+            $rfcCuenta = strtoupper(trim((string)($cuenta->rfc_padre ?? $cuenta->rfc ?? '')));
+            if ($rfcCuenta === '') $rfcCuenta = null;
+        } catch (\Throwable $e) {
+            $rfcCuenta = null;
+        }
+
+        $rfcSat = null;
+        if (!$rfcCuenta) {
+            $cuentaIdInt = null;
+            try { $cuentaIdInt = $cuenta?->id ? (int)$cuenta->id : null; } catch (\Throwable $e) { $cuentaIdInt = null; }
+            $email = null;
+            try { $email = $user?->email ? (string)$user->email : null; } catch (\Throwable $e) { $email = null; }
+
+            $rfcSat = $this->resolveRfcFromSatCredentials($cuentaIdInt, $email);
+        }
+
+        $rfcPerfil = $rfcCuenta ?: $rfcSat; // RFC final a mostrar
+
+
         // Plan base desde cuenta clientes
         $planFromCuenta = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
         $planLower      = strtolower($planFromCuenta);
@@ -243,7 +269,12 @@ class PerfilController extends Controller
 
             // Resumen (para header / layout, igual que en Home)
             'summary'            => $summary,
+
+            // RFC a mostrar en Perfil (cuenta SOT + fallback SAT)
+            'rfcPerfil'          => $rfcPerfil,
+            'rfcPerfilSource'    => $rfcCuenta ? 'cuenta' : ($rfcSat ? 'sat_credentials' : null),
         ]);
+
     }
 
     /* =========================================================
@@ -280,6 +311,71 @@ class PerfilController extends Controller
         }
         return null;
     }
+
+        /**
+     * RFC efectivo desde SAT credentials (fallback cuando cuenta no tiene rfc).
+     * Prioridad:
+     *  - por cuenta_id (si existe)
+     *  - por email (si existe)
+     */
+    protected function resolveRfcFromSatCredentials(?int $cuentaId, ?string $email): ?string
+    {
+        try {
+            $modelClass = \App\Models\Cliente\SatCredential::class;
+            if (!class_exists($modelClass)) return null;
+
+            $m = new $modelClass();
+            $table = method_exists($m, 'getTable') ? $m->getTable() : 'sat_credentials';
+            $conn  = method_exists($m, 'getConnectionName') && $m->getConnectionName()
+                ? $m->getConnectionName()
+                : 'mysql_clientes';
+
+            // Si por alguna razón el modelo usa otra conexión y no existe, fallback
+            if (!$this->tableExists($table, $conn)) {
+                $conn = $this->pickConn($table, 'mysql_clientes');
+                if (!$this->tableExists($table, $conn)) return null;
+            }
+
+            $q = DB::connection($conn)->table($table);
+
+            // Columnas esperadas (con tolerancia)
+            $hasCuenta = $this->hasCol($table, 'cuenta_id', $conn);
+            $hasRfc    = $this->hasCol($table, 'rfc', $conn);
+
+            // meta puede existir o no; aquí no lo necesitamos
+            if (!$hasRfc) return null;
+
+            // 1) por cuenta_id
+            if ($cuentaId && $hasCuenta) {
+                $row = (clone $q)
+                    ->where('cuenta_id', $cuentaId)
+                    ->orderByDesc('id')
+                    ->first(['rfc']);
+
+                $rfc = strtoupper(trim((string)($row->rfc ?? '')));
+                if ($rfc !== '') return $rfc;
+            }
+
+            // 2) fallback por email dentro de meta JSON (si existe) NO lo asumimos
+            //    Como no sabemos si existe columna email, hacemos fallback SOLO si existe columna meta y es JSON string.
+            $hasMeta = $this->hasCol($table, 'meta', $conn);
+            if ($email && $hasMeta) {
+                // Búsqueda conservadora: LIKE del email en meta (evita JSON_EXTRACT incompatible)
+                $row = (clone $q)
+                    ->where('meta', 'like', '%' . $email . '%')
+                    ->orderByDesc('id')
+                    ->first(['rfc']);
+
+                $rfc = strtoupper(trim((string)($row->rfc ?? '')));
+                if ($rfc !== '') return $rfc;
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
 
     /**
      * Igual que buildAccountSummary() de HomeController

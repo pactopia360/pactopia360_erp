@@ -830,7 +830,7 @@
       csrf: '{{ csrf_token() }}',
       isProPlan: @json($isPro ?? false),
       downloads: [],
-      routes: {
+            routes: {
         cartIndex:    @json($rtCartIndex),
         cartList:     @json($rtCartList),
         cartAdd:      @json($rtCartAdd),
@@ -849,7 +849,32 @@
         vaultXml:     @json($rtVaultXml),
         vaultPdf:     @json($rtVaultPdf),
         vaultZip:     @json($rtVaultZip),
+
+        // Registro externo / invite
+        externalRfcInvite: @json(\Route::has('cliente.sat.external.invite') ? route('cliente.sat.external.invite') : null),
+        externalRfcRegisterForm: @json(\Route::has('cliente.sat.external.register') ? route('cliente.sat.external.register') : null),
+
+
+        // ======================================================
+        // Registro externo (INVITE) – para modal / flujo externo
+        // Ajusta el nombre de ruta si tu backend usa otro.
+        // ======================================================
+        externalRfcInvite: @json(
+          \Route::has('cliente.sat.rfcs.external.invite')
+            ? route('cliente.sat.rfcs.external.invite')
+            : (\Route::has('cliente.sat.external.invite')
+                ? route('cliente.sat.external.invite')
+                : null)
+        ),
+
+        // Opcional: si tienes pantalla pública/form externo
+        externalRfcRegisterForm: @json(
+          \Route::has('sat.external.register')
+            ? route('sat.external.register')
+            : null
+        ),
       },
+
       vault: @json($vaultForJs),
     };
   </script>

@@ -166,6 +166,10 @@ $menu = [
           // ✅ SAT (rutas reales: admin.sat.*)
           ['text'=>'SAT · Lista de precios','icon'=>'📦','route'=>'admin.sat.prices.index','active_when'=>['admin.sat.prices.*']],
           ['text'=>'SAT · Códigos descuento','icon'=>'🎟️','route'=>'admin.sat.discounts.index','active_when'=>['admin.sat.discounts.*']],
+
+          // ✅ SAT Backoffice (Operación) — nuevo módulo admin.sat.ops.*
+          ['text'=>'SAT · Operación','icon'=>'🛰️','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
+
         ],
       ],
 

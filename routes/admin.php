@@ -52,6 +52,14 @@ use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
 // SAT Admin
 use App\Http\Controllers\Admin\Billing\Sat\SatDiscountCodesController as AdminSatDiscountCodesController;
 use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
+use App\Http\Controllers\Admin\Sat\SatCredentialsController;
+
+// SAT Ops (Backoffice)
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsCredentialsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsDownloadsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsManualRequestsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsPaymentsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -734,6 +742,49 @@ Route::middleware([
     */
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
 
+        /*
+        |----------------------------------------------------------------------
+        | SAT · OPERACIÓN (Backoffice) — admin.sat.ops.*
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('ops')->name('ops.')->group(function () {
+
+            // HUB
+            Route::get('/', [SatOpsController::class, 'index'])->name('index');
+
+            // Secciones (stubs; luego conectamos a DB/modelos)
+           Route::prefix('credentials')->name('credentials.')->group(function () {
+
+            Route::get('/', [SatOpsCredentialsController::class, 'index'])
+                ->name('index');
+
+            // ✅ Descargas (OPS) — IMPORTANTÍSIMO:
+            // - NO pongas /admin aquí, ya viene del prefix() en routes/web.php
+            // - NO pongas admin. en el name, ya viene del as('admin.') en routes/web.php
+            Route::get('{id}/cer', [SatOpsCredentialsController::class, 'cer'])
+                ->where('id', '[A-Za-z0-9\-]+')
+                ->name('cer');
+
+            Route::get('{id}/key', [SatOpsCredentialsController::class, 'key'])
+                ->where('id', '[A-Za-z0-9\-]+')
+                ->name('key');
+        });
+
+
+
+            Route::prefix('downloads')->name('downloads.')->group(function () {
+                Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
+            });
+
+            Route::prefix('manual')->name('manual.')->group(function () {
+                Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
+            });
+
+            Route::prefix('payments')->name('payments.')->group(function () {
+                Route::get('/', [SatOpsPaymentsController::class, 'index'])->name('index');
+            });
+        });
+
         // SAT · PRICE RULES
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
 
@@ -768,6 +819,17 @@ Route::middleware([
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
             }
+
+            // Descarga CSD (desde mysql_clientes.sat_credentials + disk public)
+            Route::get('credentials/{id}/cer', [SatCredentialsController::class, 'downloadCer'])
+                ->where('id', '[0-9]+')
+                ->name('credentials.cer');
+
+            Route::get('credentials/{id}/key', [SatCredentialsController::class, 'downloadKey'])
+                ->where('id', '[0-9]+')
+                ->name('credentials.key');
+
+
         });
 
         // SAT · DISCOUNT CODES

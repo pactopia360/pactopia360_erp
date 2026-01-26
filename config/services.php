@@ -61,17 +61,16 @@ return [
         'secret_key' => (string) env('RECAPTCHA_SECRET_KEY', ''),
     ],
 
-    // OTP (WhatsApp / SMS)
     'otp' => [
-        // 'whatsapp' -> usa WhatsApp (Meta o Twilio), 'twilio' -> SMS por Twilio
-        'driver'   => env('OTP_DRIVER', 'whatsapp'),
+        'driver'  => env('OTP_DRIVER', 'whatsapp'),
+        'channel' => env('OTP_CHANNEL', 'whatsapp'),
 
-        // Cuando driver = 'whatsapp'
         'whatsapp' => [
-            // 'meta' para WhatsApp Cloud API, 'twilio' para WhatsApp via Twilio
             'provider' => env('WHATSAPP_PROVIDER', 'meta'),
         ],
     ],
+
+
 
     // Twilio (SMS y/o WhatsApp vía Twilio)
     'twilio' => [

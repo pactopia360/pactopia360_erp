@@ -115,12 +115,37 @@ html[data-theme="dark"] .sat-icon{
   color:var(--mut);
 }
 
-/* Acciones de header (uso general, NO la tabla) */
+/* =========================
+   ACTIONS (SAT) · FIX cascada
+   - .sat-actions: SOLO header
+   - .sat-actions-cell: SOLO tablas
+   ========================= */
+
+/* Header actions (arriba a la derecha) */
 .sat-actions{
   display:flex;
   flex-wrap:wrap;
   gap:8px;
   align-items:center;
+  justify-content:flex-end;
+}
+
+/* Row actions en tablas (descargas/RFCs) */
+.sat-actions-cell{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+
+/* Compat: si el HTML aún usa .sat-actions dentro de tabla */
+.sat-dl-table .sat-actions,
+.sat-rfc-table .sat-actions,
+.sat-rfcs-table .sat-actions{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
 }
 
 /* ---------- SWITCH DEMO / PROD ---------- */
@@ -2711,272 +2736,251 @@ html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
 
 
 /* ===========================
-   BÓVEDA FISCAL · ALMACENAMIENTO
+   BÓVEDA FISCAL · ALMACENAMIENTO (SCOPED)
+   - NO redefinir .vault-modern global
+   - Solo ajustes dentro del bloque de almacenamiento
    =========================== */
 
-.vault-modern {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+/* Scope al contenedor real del bloque (ajusta si tu ID/clase difiere) */
+#block-vault-storage .vault-modern{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
 }
 
-.vault-modern-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+/* Header dentro del bloque */
+#block-vault-storage .vault-modern-header{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  flex-wrap:wrap;
 }
 
-.vault-modern-header-left {
-  flex: 1;
+#block-vault-storage .vault-modern-header-left{
+  flex:1 1 420px;
+  min-width:280px;
 }
 
-.vault-modern .section-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--ink);
+#block-vault-storage .vault-modern .section-title{
+  font-size:1.05rem;
+  font-weight:600;
+  color:var(--ink);
 }
 
-.vault-modern .section-sub {
-  font-size: .85rem;
-  color: var(--mut);
-  margin-top: 2px;
+#block-vault-storage .vault-modern .section-sub{
+  font-size:.85rem;
+  color:var(--mut);
+  margin-top:2px;
 }
 
-/* “Carrito” de bóveda */
-.vault-compact {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+/* “Carrito” compacto */
+#block-vault-storage .vault-compact{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
 }
 
-.vault-compact-label {
-  font-size: .7rem;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--mut);
+#block-vault-storage .vault-compact-label{
+  font-size:.7rem;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--mut);
 }
 
-.vault-compact-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  font-size: .8rem;
-  color: var(--ink);
+#block-vault-storage .vault-compact-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  background:#f9fafb;
+  border:1px solid #e5e7eb;
+  font-size:.8rem;
+  color:var(--ink);
 }
 
-.vault-compact-used {
-  font-weight: 600;
+#block-vault-storage .vault-compact-used{font-weight:600;}
+#block-vault-storage .vault-compact-free{color:var(--mut);}
+#block-vault-storage .vault-compact-dot{opacity:.5;}
+
+/* Layout del cuerpo */
+#block-vault-storage .vault-modern-body{
+  display:grid;
+  grid-template-columns:minmax(220px,260px) minmax(0,1fr);
+  gap:24px;
+  align-items:center;
 }
 
-.vault-compact-free {
-  color: var(--mut);
+/* Donut (solo en este bloque) */
+#block-vault-storage .vault-modern-chart{
+  display:flex;
+  justify-content:center;
+  align-items:center;
 }
 
-.vault-compact-dot {
-  opacity: .5;
+#block-vault-storage .vault-modern-ring{
+  position:relative;
+  width:190px;
+  height:190px;
+  border-radius:999px;
+  background:radial-gradient(circle at 30% 20%, #f9fafb, #e5edff);
+  padding:18px;
 }
 
-/* Cuerpo */
-
-.vault-modern-body {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  gap: 24px;
-  align-items: center;
+#block-vault-storage .vault-modern-ring canvas{
+  width:100% !important;
+  height:100% !important;
 }
 
-/* Donut */
-
-.vault-modern-chart {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+#block-vault-storage .vault-modern-center{
+  position:absolute;
+  inset:32px;
+  border-radius:999px;
+  background:#ffffff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
 }
 
-.vault-modern-ring {
-  position: relative;
-  width: 190px;
-  height: 190px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 30% 20%, #f9fafb, #e5edff);
-  padding: 18px;
+#block-vault-storage .vault-modern-center-main{
+  font-weight:700;
+  font-size:1.2rem;
+  color:var(--ink);
 }
 
-.vault-modern-ring canvas {
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.vault-modern-center {
-  position: absolute;
-  inset: 32px;
-  border-radius: 999px;
-  background: #ffffff;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.vault-modern-center-main {
-  font-weight: 700;
-  font-size: 1.2rem;
-  color: var(--ink);
-}
-
-.vault-modern-center-sub {
-  font-size: .75rem;
-  color: var(--mut);
+#block-vault-storage .vault-modern-center-sub{
+  font-size:.75rem;
+  color:var(--mut);
 }
 
 /* Barras */
-
-.vault-modern-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+#block-vault-storage .vault-modern-stats{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
 }
 
-.vault-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+#block-vault-storage .vault-bar{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
 }
 
-.vault-bar-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: .8rem;
+#block-vault-storage .vault-bar-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  font-size:.8rem;
 }
 
-.vault-bar-label {
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+#block-vault-storage .vault-bar-label{
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.06em;
 }
 
-.vault-bar-meta {
-  color: var(--mut);
+#block-vault-storage .vault-bar-meta{color:var(--mut);}
+
+#block-vault-storage .vault-bar-track{
+  position:relative;
+  width:100%;
+  height:20px;
+  border-radius:999px;
+  overflow:hidden;
+  background:#f3f4f6;
 }
 
-.vault-bar-track {
-  position: relative;
-  width: 100%;
-  height: 20px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #f3f4f6;
+#block-vault-storage .vault-bar-fill{
+  position:absolute;
+  inset:0;
+  transform-origin:left center;
 }
 
-.vault-bar-fill {
-  position: absolute;
-  inset: 0;
-  transform-origin: left center;
+#block-vault-storage .vault-bar-used .vault-bar-label{color:#f97316;}
+#block-vault-storage .vault-bar-used .vault-bar-fill{
+  background:linear-gradient(90deg, #fb923c, #fb7185);
 }
 
-/* Colores similares al gradiente de descargas */
-.vault-bar-used .vault-bar-label {
-  color: #f97316;
-}
-
-.vault-bar-used .vault-bar-fill {
-  background: linear-gradient(90deg, #fb923c, #fb7185);
-}
-
-.vault-bar-free .vault-bar-label {
-  color: #0ea5e9;
-}
-
-.vault-bar-free .vault-bar-fill {
-  background: linear-gradient(90deg, #bfdbfe, #e0f2fe);
+#block-vault-storage .vault-bar-free .vault-bar-label{color:#0ea5e9;}
+#block-vault-storage .vault-bar-free .vault-bar-fill{
+  background:linear-gradient(90deg, #bfdbfe, #e0f2fe);
 }
 
 /* Pills */
-
-.vault-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+#block-vault-storage .vault-pill-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
 }
 
-.vault-pill {
-  flex: 1;
-  min-width: 140px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
+#block-vault-storage .vault-pill{
+  flex:1;
+  min-width:140px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid #e5e7eb;
+  background:#f9fafb;
 }
 
-.vault-pill-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: .8rem;
+#block-vault-storage .vault-pill-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  font-size:.8rem;
 }
 
-.vault-pill-chip {
-  font-size: .7rem;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+#block-vault-storage .vault-pill-chip{
+  font-size:.7rem;
+  padding:2px 7px;
+  border-radius:999px;
+  background:#eef2ff;
+  color:#4f46e5;
+  text-transform:uppercase;
+  letter-spacing:.06em;
 }
 
-.vault-pill-percent {
-  font-size: .8rem;
-  color: var(--mut);
+#block-vault-storage .vault-pill-percent{font-size:.8rem;color:var(--mut);}
+#block-vault-storage .vault-pill-value{
+  margin-top:4px;
+  font-weight:600;
+  font-size:.95rem;
+  color:var(--ink);
 }
 
-.vault-pill-value {
-  margin-top: 4px;
-  font-weight: 600;
-  font-size: .95rem;
-  color: var(--ink);
+#block-vault-storage .vault-pill-used .vault-pill-chip{
+  background:#fee2e2;
+  color:#b91c1c;
+}
+#block-vault-storage .vault-pill-free .vault-pill-chip{
+  background:#dcfce7;
+  color:#166534;
 }
 
-.vault-pill-used .vault-pill-chip {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.vault-pill-free .vault-pill-chip {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.vault-mini-note {
-  font-size: .8rem;
-  color: var(--mut);
-  margin-top: 2px;
+#block-vault-storage .vault-mini-note{
+  font-size:.8rem;
+  color:var(--mut);
+  margin-top:2px;
 }
 
 /* Responsive */
-
-@media (max-width: 900px) {
-  .vault-modern-body {
-    grid-template-columns: minmax(0, 1fr);
+@media (max-width:900px){
+  #block-vault-storage .vault-modern-body{
+    grid-template-columns:minmax(0,1fr);
   }
-  .vault-modern-chart {
-    justify-content: flex-start;
+  #block-vault-storage .vault-modern-chart{
+    justify-content:flex-start;
   }
 }
 
-@media (max-width: 640px) {
-  .vault-modern-header {
-    flex-direction: column;
-    align-items: flex-start;
+@media (max-width:640px){
+  #block-vault-storage .vault-modern-header{
+    flex-direction:column;
+    align-items:flex-start;
   }
-  .vault-compact {
-    align-items: flex-start;
+  #block-vault-storage .vault-compact{
+    align-items:flex-start;
   }
 }
 
@@ -3382,15 +3386,43 @@ html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
 }
 
 /* =========================
-   ACTION ICON BUTTONS (SAT)
+   ACTIONS (SAT) · FIX cascada DEFINITIVO
+   - .sat-actions: SOLO header/top actions (arriba a la derecha)
+   - .sat-actions-cell: SOLO acciones dentro de tablas (descargas/RFCs)
+   - Compat: si algún HTML viejo usa .sat-actions en tabla, lo forzamos ahí
    ========================= */
 
+/* Header actions (arriba a la derecha) */
 .sat-actions{
   display:flex;
-  justify-content:flex-end;
-  gap:10px;
+  flex-wrap:wrap;
+  gap:8px;
   align-items:center;
+  justify-content:flex-end;
 }
+
+/* Row actions en tablas (descargas/RFCs) */
+.sat-actions-cell{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+
+/* Compat: si el HTML aún usa .sat-actions dentro de tabla */
+.sat-dl-table .sat-actions,
+.sat-rfc-table .sat-actions,
+.sat-rfcs-table .sat-actions{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+
+/* =========================
+   ICON BUTTONS (UTILIDAD)
+   Nota: NO redefinir .sat-actions aquí para no romper el header
+   ========================= */
 
 .icon-btn{
   --ib-size: 34px;
@@ -3463,21 +3495,19 @@ html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
 }
 
 /* ===========================
-   ACCIONES SAT: UNIFICAR ICONOS
+   ACCIONES SAT EN TABLAS: UNIFICAR ICONOS (SIN TOCAR HEADER)
+   - aplica a acciones dentro de tablas usando .sat-actions-cell
+   - y a compat: .sat-dl-table .sat-actions / .sat-rfcs-table .sat-actions
    =========================== */
 
-/* Ajusta al selector real de tu columna si ya tienes uno.
-   Si no, aplica por clase a un wrapper (ver punto 2). */
-.sat-actions{
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:10px;
-}
-
-/* Unifica <a>, <button> y cualquier "icon wrapper" */
-.sat-actions a,
-.sat-actions button{
+.sat-actions-cell a,
+.sat-actions-cell button,
+.sat-dl-table .sat-actions a,
+.sat-dl-table .sat-actions button,
+.sat-rfcs-table .sat-actions a,
+.sat-rfcs-table .sat-actions button,
+.sat-rfc-table .sat-actions a,
+.sat-rfc-table .sat-actions button{
   width: 34px;
   height: 34px;
   border-radius: 12px;
@@ -3496,22 +3526,41 @@ html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
 }
 
 /* Hover/Focus consistentes */
-.sat-actions a:hover,
-.sat-actions button:hover{
+.sat-actions-cell a:hover,
+.sat-actions-cell button:hover,
+.sat-dl-table .sat-actions a:hover,
+.sat-dl-table .sat-actions button:hover,
+.sat-rfcs-table .sat-actions a:hover,
+.sat-rfcs-table .sat-actions button:hover,
+.sat-rfc-table .sat-actions a:hover,
+.sat-rfc-table .sat-actions button:hover{
   background:#E2E8F0;                /* slate-200 */
   border-color: rgba(15,23,42,.16);
   box-shadow: 0 8px 20px rgba(15,23,42,.10);
   transform: translateY(-1px);
 }
-.sat-actions a:focus,
-.sat-actions button:focus{
+
+.sat-actions-cell a:focus,
+.sat-actions-cell button:focus,
+.sat-dl-table .sat-actions a:focus,
+.sat-dl-table .sat-actions button:focus,
+.sat-rfcs-table .sat-actions a:focus,
+.sat-rfcs-table .sat-actions button:focus,
+.sat-rfc-table .sat-actions a:focus,
+.sat-rfc-table .sat-actions button:focus{
   outline:none;
   box-shadow: 0 0 0 4px rgba(59,130,246,.16), 0 8px 20px rgba(15,23,42,.10);
 }
 
 /* Tamaño de icono uniforme (Bootstrap Icons / FontAwesome / SVG) */
-.sat-actions i,
-.sat-actions svg{
+.sat-actions-cell i,
+.sat-actions-cell svg,
+.sat-dl-table .sat-actions i,
+.sat-dl-table .sat-actions svg,
+.sat-rfcs-table .sat-actions i,
+.sat-rfcs-table .sat-actions svg,
+.sat-rfc-table .sat-actions i,
+.sat-rfc-table .sat-actions svg{
   width: 18px;
   height: 18px;
   font-size: 18px;
@@ -3520,19 +3569,893 @@ html[data-theme="dark"] .sat-step-title{color:#e5e7eb;}
   color:#334155;                     /* slate-700 */
 }
 
-/* Variantes: SOLO cambia el color, no la forma */
-.sat-actions .act-primary{ background: rgba(59,130,246,.10); border-color: rgba(59,130,246,.22); }
-.sat-actions .act-primary i, .sat-actions .act-primary svg{ color:#1D4ED8; }
-.sat-actions .act-primary:hover{ background: rgba(59,130,246,.16); }
+/* Variantes por clase (si existen en tu HTML) */
+.sat-actions-cell .act-primary,
+.sat-dl-table .sat-actions .act-primary,
+.sat-rfcs-table .sat-actions .act-primary,
+.sat-rfc-table .sat-actions .act-primary{
+  background: rgba(59,130,246,.10);
+  border-color: rgba(59,130,246,.22);
+}
+.sat-actions-cell .act-primary i,
+.sat-actions-cell .act-primary svg,
+.sat-dl-table .sat-actions .act-primary i,
+.sat-dl-table .sat-actions .act-primary svg,
+.sat-rfcs-table .sat-actions .act-primary i,
+.sat-rfcs-table .sat-actions .act-primary svg,
+.sat-rfc-table .sat-actions .act-primary i,
+.sat-rfc-table .sat-actions .act-primary svg{
+  color:#1D4ED8;
+}
+.sat-actions-cell .act-primary:hover,
+.sat-dl-table .sat-actions .act-primary:hover,
+.sat-rfcs-table .sat-actions .act-primary:hover,
+.sat-rfc-table .sat-actions .act-primary:hover{
+  background: rgba(59,130,246,.16);
+}
 
-.sat-actions .act-danger{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.22); }
-.sat-actions .act-danger i, .sat-actions .act-danger svg{ color:#B91C1C; }
-.sat-actions .act-danger:hover{ background: rgba(239,68,68,.16); }
+.sat-actions-cell .act-danger,
+.sat-dl-table .sat-actions .act-danger,
+.sat-rfcs-table .sat-actions .act-danger,
+.sat-rfc-table .sat-actions .act-danger{
+  background: rgba(239,68,68,.10);
+  border-color: rgba(239,68,68,.22);
+}
+.sat-actions-cell .act-danger i,
+.sat-actions-cell .act-danger svg,
+.sat-dl-table .sat-actions .act-danger i,
+.sat-dl-table .sat-actions .act-danger svg,
+.sat-rfcs-table .sat-actions .act-danger i,
+.sat-rfcs-table .sat-actions .act-danger svg,
+.sat-rfc-table .sat-actions .act-danger i,
+.sat-rfc-table .sat-actions .act-danger svg{
+  color:#B91C1C;
+}
+.sat-actions-cell .act-danger:hover,
+.sat-dl-table .sat-actions .act-danger:hover,
+.sat-rfcs-table .sat-actions .act-danger:hover,
+.sat-rfc-table .sat-actions .act-danger:hover{
+  background: rgba(239,68,68,.16);
+}
 
-/* Elimina "burbujas" internas si tu HTML trae spans/círculos */
-.sat-actions .icon,
-.sat-actions .btn,
-.sat-actions .circle,
-.sat-actions .pill{
+/* Evita “burbujas” internas si tu HTML trae spans/círculos */
+.sat-actions-cell .icon,
+.sat-actions-cell .btn,
+.sat-actions-cell .circle,
+.sat-actions-cell .pill,
+.sat-dl-table .sat-actions .icon,
+.sat-dl-table .sat-actions .btn,
+.sat-dl-table .sat-actions .circle,
+.sat-dl-table .sat-actions .pill,
+.sat-rfcs-table .sat-actions .icon,
+.sat-rfcs-table .sat-actions .btn,
+.sat-rfcs-table .sat-actions .circle,
+.sat-rfcs-table .sat-actions .pill,
+.sat-rfc-table .sat-actions .icon,
+.sat-rfc-table .sat-actions .btn,
+.sat-rfc-table .sat-actions .circle,
+.sat-rfc-table .sat-actions .pill{
   box-shadow:none !important;
+}
+
+
+/* ===========================
+   SAT · Mis RFCs · acciones top-right
+   FIX: botón junto a "Registro externo" no visible
+   =========================== */
+
+/* Contenedor de header/acciones (ajusta el selector si tu bloque usa otro) */
+.sat-rfcs-head,
+.rfcs-head,
+.sat-rfcs-header,
+.sat-rfc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Grupo de botones a la derecha */
+.sat-rfcs-actions,
+.rfcs-actions,
+.sat-rfc-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Botones: altura y contraste consistente */
+.sat-rfcs-actions .btn,
+.rfcs-actions .btn,
+.sat-rfc-actions .btn {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, .18);
+  background: #fff;
+  color: #0f172a;
+  font-weight: 600;
+  line-height: 38px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .04);
+}
+
+/* Hover (ligero) */
+.sat-rfcs-actions .btn:hover,
+.rfcs-actions .btn:hover,
+.sat-rfc-actions .btn:hover {
+  border-color: rgba(15, 23, 42, .28);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .08);
+}
+
+/* Variante “principal” (si tu segundo botón debe verse como CTA) */
+.sat-rfcs-actions .btn.primary,
+.rfcs-actions .btn.primary,
+.sat-rfc-actions .btn.primary {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+/* ✅ CRÍTICO: disabled visible (no desaparecer) */
+.sat-rfcs-actions .btn:disabled,
+.rfcs-actions .btn:disabled,
+.sat-rfc-actions .btn:disabled {
+  opacity: .55;              /* antes a veces queda 0.1 o 0 */
+  cursor: not-allowed;
+  filter: grayscale(0.1);
+}
+
+/* Si tu botón tiene clase “ghost/soft” y se perdía */
+.sat-rfcs-actions .btn.soft,
+.rfcs-actions .btn.soft,
+.sat-rfc-actions .btn.soft,
+.sat-rfcs-actions .btn.ghost,
+.rfcs-actions .btn.ghost,
+.sat-rfc-actions .btn.ghost {
+  background: rgba(15, 23, 42, .04);
+}
+
+/* Responsive: en pantallas chicas baja acciones a otra línea */
+@media (max-width: 720px) {
+  .sat-rfcs-head,
+  .rfcs-head,
+  .sat-rfcs-header,
+  .sat-rfc-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .sat-rfcs-actions,
+  .rfcs-actions,
+  .sat-rfc-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* =====================================================
+   SAT · CONEXIONES (REDISEÑO LIMPIO · v1)
+   Objetivo:
+   - Mucho menos texto
+   - Chips + tooltips
+   - Layout limpio tipo “login card”
+   ===================================================== */
+
+/* Card principal */
+.sat-conx-card{
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+}
+
+/* Header compacto */
+.sat-conx-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 10px;
+}
+
+.sat-conx-title{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+
+.sat-conx-badge{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(59,130,246,.12);
+  color: #1D4ED8;
+  flex: 0 0 auto;
+}
+
+html[data-theme="dark"] .sat-conx-badge{
+  background: rgba(59,130,246,.18);
+  color:#93c5fd;
+}
+
+.sat-conx-title h3{
+  margin:0;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:14px;
+  font-weight:700;
+  color: var(--ink);
+  line-height:1.2;
+}
+
+.sat-conx-sub{
+  margin-top:3px;
+  font-size:11px;
+  color: var(--mut);
+}
+
+/* Actions top-right */
+.sat-conx-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+/* Chip base */
+.sat-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: var(--pill-bg);
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:11px;
+  font-weight:600;
+  color: var(--ink);
+  white-space:nowrap;
+}
+
+.sat-chip i,
+.sat-chip svg{
+  width:14px;
+  height:14px;
+  display:block;
+}
+
+/* Variantes */
+.sat-chip--info{ background: rgba(59,130,246,.08); border-color: rgba(59,130,246,.18); color:#1D4ED8; }
+.sat-chip--ok{ background: rgba(34,197,94,.10); border-color: rgba(34,197,94,.22); color:#15803d; }
+.sat-chip--warn{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); color:#92400e; }
+.sat-chip--danger{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.24); color:#b91c1c; }
+
+html[data-theme="dark"] .sat-chip--info{ color:#93c5fd; }
+html[data-theme="dark"] .sat-chip--ok{ color:#bbf7d0; }
+html[data-theme="dark"] .sat-chip--warn{ color:#fde68a; }
+html[data-theme="dark"] .sat-chip--danger{ color:#fecaca; }
+
+/* Mini panel “RFC externo” */
+.sat-ext-rfc{
+  margin-top:10px;
+  border-radius:16px;
+  border:1px dashed rgba(148,163,184,.55);
+  background: rgba(15,23,42,.02);
+  padding: 12px 12px 10px;
+}
+
+html[data-theme="dark"] .sat-ext-rfc{
+  background: rgba(148,163,184,.06);
+  border-color:#334155;
+}
+
+.sat-ext-rfc-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.sat-ext-rfc-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+  font-weight:700;
+  color: var(--ink);
+}
+
+.sat-ext-rfc-meta{
+  margin-top:6px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.sat-ext-rfc-code{
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(148,163,184,.35);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .sat-ext-rfc-code{
+  background:#0b1220;
+  border-color:#1f2937;
+}
+
+/* Header de “Mis RFCs” más limpio */
+.sat-rfcs-head-clean{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-top: 14px;
+  margin-bottom: 10px;
+}
+
+.sat-rfcs-head-clean-left{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+
+.sat-rfcs-head-clean h4{
+  margin:0;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:13px;
+  font-weight:700;
+  color: var(--ink);
+  line-height:1.2;
+}
+
+.sat-rfcs-head-clean .muted{
+  margin-top:3px;
+  font-size:11px;
+  color: var(--mut);
+}
+
+/* Filtros compactos (buscador + selects) */
+.sat-rfcs-filters-clean{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.sat-rfcs-filters-clean .input,
+.sat-rfcs-filters-clean .select{
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#f9fafb;
+  padding:6px 10px;
+  font-size:11px;
+  font-family:'Poppins',system-ui,sans-serif;
+  min-height:34px;
+}
+
+.sat-rfcs-filters-clean .input{
+  min-width: 280px;
+}
+
+@media (max-width: 980px){
+  .sat-rfcs-filters-clean{ justify-content:flex-start; }
+  .sat-rfcs-filters-clean .input{ min-width: 100%; }
+}
+
+/* Table wrap: más “login clean” */
+.sat-rfcs-wrapper-clean{
+  border-radius:18px;
+  border:1px solid rgba(148,163,184,.35);
+  background: rgba(15,23,42,.02);
+  padding: 10px 12px 12px;
+}
+
+html[data-theme="dark"] .sat-rfcs-wrapper-clean{
+  background: rgba(148,163,184,.06);
+  border-color:#1f2937;
+}
+
+/* Acciones por fila: usa el sistema existente, pero con aire */
+.sat-rfcs-actions-cell{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+
+/* Tip: usa tu sistema [data-tip] ya existente, pero que no choque */
+.sat-tip{
+  cursor: help;
+  text-decoration:none;
+  border-bottom: 1px dotted rgba(148,163,184,.55);
+}
+
+/* =====================================================
+   SAT · Conexiones (UI limpia) — support classes
+   ===================================================== */
+
+.sat-conx-card{
+  border-radius:18px;
+  border:1px solid rgba(148,163,184,.35);
+  background: rgba(255,255,255,.70);
+  backdrop-filter: blur(10px);
+}
+
+html[data-theme="dark"] .sat-conx-card{
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.12);
+}
+
+.sat-conx-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 10px;
+}
+
+.sat-conx-title{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+
+.sat-conx-badge{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(59,130,246,.12);
+  color: #1D4ED8;
+  flex: 0 0 auto;
+}
+
+html[data-theme="dark"] .sat-conx-badge{
+  background: rgba(59,130,246,.18);
+  color:#93c5fd;
+}
+
+.sat-conx-title h3{
+  margin:0;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:14px;
+  font-weight:800;
+  color: var(--ink);
+  line-height:1.2;
+}
+
+.sat-conx-sub{
+  margin-top:3px;
+  font-size:11px;
+  color: var(--mut);
+}
+
+.sat-conx-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+/* Chips compactos */
+.sat-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.35);
+  background: rgba(255,255,255,.55);
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:11px;
+  font-weight:700;
+  color: var(--ink);
+  white-space:nowrap;
+}
+
+html[data-theme="dark"] .sat-chip{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.12);
+}
+
+.sat-chip--info{ background: rgba(59,130,246,.08); border-color: rgba(59,130,246,.18); color:#1D4ED8; }
+.sat-chip--ok{ background: rgba(34,197,94,.10); border-color: rgba(34,197,94,.22); color:#15803d; }
+.sat-chip--warn{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); color:#92400e; }
+.sat-chip--danger{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.24); color:#b91c1c; }
+
+html[data-theme="dark"] .sat-chip--info{ color:#93c5fd; }
+html[data-theme="dark"] .sat-chip--ok{ color:#bbf7d0; }
+html[data-theme="dark"] .sat-chip--warn{ color:#fde68a; }
+html[data-theme="dark"] .sat-chip--danger{ color:#fecaca; }
+
+/* RFC externo mini panel */
+.sat-ext-rfc{
+  margin-top:10px;
+  border-radius:16px;
+  border:1px dashed rgba(148,163,184,.55);
+  background: rgba(15,23,42,.02);
+  padding: 12px 12px 10px;
+}
+
+html[data-theme="dark"] .sat-ext-rfc{
+  background: rgba(148,163,184,.06);
+  border-color:#334155;
+}
+
+.sat-ext-rfc-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.sat-ext-rfc-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+  font-weight:800;
+  color: var(--ink);
+}
+
+.sat-ext-rfc-meta{
+  margin-top:6px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.sat-ext-rfc-code{
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(148,163,184,.35);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .sat-ext-rfc-code{
+  background:#0b1220;
+  border-color:#1f2937;
+}
+
+/* SAT · Movimientos (gráfica): asegurar altura real para Chart.js */
+.sat-mov-chart-body{
+  position: relative;
+  height: 240px;
+  width: 100%;
+  overflow: hidden;
+}
+
+#satMovChart{
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* =====================================================
+   SAT · OVERRIDES (LOGIN-LIKE) · v1.0
+   Objetivo:
+   - Forzar look tipo “login”
+   - Evitar que estilos duplicados se pisen
+   - Asegurar visibilidad de acciones (Registro externo)
+   ===================================================== */
+
+/* 1) Asegura que nada del header quede recortado */
+.sat-ui,
+.sat-card,
+.sat-conx-card,
+.sat-rfcs-wrapper-clean,
+.sat-rfcs-table-wrap,
+.sat-rfcs-table-inner,
+.sat-dl-table-wrap{
+  overflow: visible; /* evita “desaparece” botones por overflow hidden */
+}
+
+/* 2) Conexiones: “login card” limpio, consistente (sube especificidad) */
+.sat-ui .sat-conx-card{
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(148,163,184,.28);
+  background: rgba(255,255,255,.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 18px 45px rgba(15,23,42,.08);
+}
+
+/* Dark */
+html[data-theme="dark"] .sat-ui .sat-conx-card{
+  background: rgba(2,6,23,.65);
+  border-color: rgba(255,255,255,.12);
+  box-shadow: 0 20px 55px rgba(0,0,0,.55);
+}
+
+/* Header: compacto, limpio, como login */
+.sat-ui .sat-conx-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 10px;
+}
+
+.sat-ui .sat-conx-title{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  min-width: 220px;
+}
+
+.sat-ui .sat-conx-badge{
+  width:36px;
+  height:36px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(59,130,246,.10);
+  color:#1D4ED8;
+  flex: 0 0 auto;
+}
+
+html[data-theme="dark"] .sat-ui .sat-conx-badge{
+  background: rgba(59,130,246,.18);
+  color:#93c5fd;
+}
+
+.sat-ui .sat-conx-title h3{
+  margin:0;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:14px;
+  font-weight:800;
+  color: var(--ink);
+  line-height:1.2;
+}
+
+.sat-ui .sat-conx-sub{
+  margin-top:3px;
+  font-size:11px;
+  color: var(--mut);
+  max-width: 820px;
+}
+
+/* Actions top-right: que siempre se vean */
+.sat-ui .sat-conx-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+  min-width: 220px;
+  z-index: 2;
+}
+
+/* Chips: consistencia y contraste (evita que “se pierdan”) */
+.sat-ui .sat-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.35);
+  background: rgba(255,255,255,.65);
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:11px;
+  font-weight:700;
+  color: var(--ink);
+  white-space:nowrap;
+}
+
+html[data-theme="dark"] .sat-ui .sat-chip{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.14);
+}
+
+.sat-ui .sat-chip--info{ background: rgba(59,130,246,.08); border-color: rgba(59,130,246,.18); color:#1D4ED8; }
+.sat-ui .sat-chip--ok{ background: rgba(34,197,94,.10); border-color: rgba(34,197,94,.22); color:#15803d; }
+.sat-ui .sat-chip--warn{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); color:#92400e; }
+.sat-ui .sat-chip--danger{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.24); color:#b91c1c; }
+
+html[data-theme="dark"] .sat-ui .sat-chip--info{ color:#93c5fd; }
+html[data-theme="dark"] .sat-ui .sat-chip--ok{ color:#bbf7d0; }
+html[data-theme="dark"] .sat-ui .sat-chip--warn{ color:#fde68a; }
+html[data-theme="dark"] .sat-ui .sat-chip--danger{ color:#fecaca; }
+
+/* 3) RFC Externo: mini-panel tipo login, con jerarquía visual */
+.sat-ui .sat-ext-rfc{
+  margin-top:10px;
+  border-radius:16px;
+  border:1px dashed rgba(148,163,184,.55);
+  background: rgba(15,23,42,.02);
+  padding: 12px 12px 10px;
+}
+
+html[data-theme="dark"] .sat-ui .sat-ext-rfc{
+  background: rgba(148,163,184,.06);
+  border-color:#334155;
+}
+
+.sat-ui .sat-ext-rfc-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap: wrap; /* clave para que no se tape el botón */
+}
+
+.sat-ui .sat-ext-rfc-title{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+  font-weight:800;
+  color: var(--ink);
+}
+
+.sat-ui .sat-ext-rfc-meta{
+  margin-top:6px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+
+.sat-ui .sat-ext-rfc-code{
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(148,163,184,.35);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .sat-ui .sat-ext-rfc-code{
+  background:#0b1220;
+  border-color:#1f2937;
+}
+
+/* 4) Mis RFCs: header limpio + acciones visibles siempre */
+.sat-ui .sat-rfcs-head-clean{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-top: 14px;
+  margin-bottom: 10px;
+  flex-wrap: wrap; /* clave: evita que “desaparezca” el botón */
+}
+
+.sat-ui .sat-rfcs-filters-clean{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  max-width: 100%;
+}
+
+.sat-ui .sat-rfcs-filters-clean .input,
+.sat-ui .sat-rfcs-filters-clean .select{
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#f9fafb;
+  padding:6px 10px;
+  font-size:11px;
+  font-family:'Poppins',system-ui,sans-serif;
+  min-height:34px;
+}
+
+/* Botón junto a “Registro externo”: sube especificidad para que no lo mate otra regla */
+.sat-ui .sat-rfcs-actions .btn,
+.sat-ui .rfcs-actions .btn,
+.sat-ui .sat-rfc-actions .btn{
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, .18);
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  line-height: 38px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .04);
+  opacity: 1;              /* evita que quede “invisible” por cascada */
+  visibility: visible;
+}
+
+html[data-theme="dark"] .sat-ui .sat-rfcs-actions .btn,
+html[data-theme="dark"] .sat-ui .rfcs-actions .btn,
+html[data-theme="dark"] .sat-ui .sat-rfc-actions .btn{
+  background: rgba(255,255,255,.06);
+  color: #e5e7eb;
+  border-color: rgba(255,255,255,.14);
+}
+
+.sat-ui .sat-rfcs-actions .btn.primary,
+.sat-ui .rfcs-actions .btn.primary,
+.sat-ui .sat-rfc-actions .btn.primary{
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+html[data-theme="dark"] .sat-ui .sat-rfcs-actions .btn.primary,
+html[data-theme="dark"] .sat-ui .rfcs-actions .btn.primary,
+html[data-theme="dark"] .sat-ui .sat-rfc-actions .btn.primary{
+  background: #e5e7eb;
+  border-color: #e5e7eb;
+  color: #0b1220;
+}
+
+/* Disabled visible (no desaparece) */
+.sat-ui .sat-rfcs-actions .btn:disabled,
+.sat-ui .rfcs-actions .btn:disabled,
+.sat-ui .sat-rfc-actions .btn:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* Responsive: acciones bajan y se alinean sin tapar */
+@media (max-width: 860px){
+  .sat-ui .sat-conx-actions,
+  .sat-ui .sat-rfcs-filters-clean{
+    justify-content:flex-start;
+    width: 100%;
+  }
+}
+
+
+/* ==========================================================
+   P360 SAT Dashboard · FIX: Chart no visible (altura 0)
+   - Chart.js con maintainAspectRatio:false requiere altura real
+   - Fuerza altura mínima del bloque y del contenedor del canvas
+   ========================================================== */
+
+.sat-movements-card .sat-mov-layout{
+  align-items: stretch;
+}
+
+.sat-movements-card .sat-mov-chart{
+  min-height: 260px; /* garantiza área visible */
+}
+
+.sat-movements-card .sat-mov-chart-body{
+  position: relative;
+  height: 260px;     /* altura real para Chart.js */
+  min-height: 260px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.sat-movements-card #satMovChart{
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Responsive: en pantallas grandes deja más aire */
+@media (min-width: 1100px){
+  .sat-movements-card .sat-mov-chart-body{
+    height: 300px;
+    min-height: 300px;
+  }
 }

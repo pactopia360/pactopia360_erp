@@ -1230,4 +1230,23 @@ startxref
 
         $zip->close();
     }
+
+    /**
+     * Valida credencial contra SAT (real).
+     * Debe intentar autenticar con el CSD y confirmar que SAT responde OK.
+     *
+     * @return array{0:bool,1:?string,2:array}  [ok, errorMessage, details]
+     */
+    public function validateSatCredential(\App\Models\Cliente\SatCredential $cred, string $plainPassword): array
+    {
+        // TODO: aquí conectas con tu capa real SAT.
+        // Debe:
+        // - leer cer/key desde Storage con $cred->cer_path / $cred->key_path
+        // - descifrar password si tú lo guardas cifrado (o usar $plainPassword directo)
+        // - ejecutar login/solicitud mínima al SAT (ej. obtener token, estado, prueba de autenticación)
+        // - retornar ok=true si SAT autentica
+
+        return [false, 'Método validateSatCredential aún no está implementado.', []];
+    }
+
 }

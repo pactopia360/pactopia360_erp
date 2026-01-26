@@ -18,12 +18,59 @@ use Carbon\Carbon;
 
 class HomeController extends Controller
 {
+
+        /**
+     * SOT: Obtiene el usuario autenticado respetando el guard por defecto.
+     * - Primero intenta el guard default (config auth.defaults.guard).
+     * - Luego fallback a 'cliente'
+     * - Luego fallback a 'web'
+     */
+    private function authUser()
+    {
+        try {
+            $default = (string) (config('auth.defaults.guard') ?? 'web');
+            $u = Auth::guard($default)->user();
+            if ($u) return $u;
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        try {
+            $u = Auth::guard('cliente')->user();
+            if ($u) return $u;
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        try {
+            return Auth::guard('web')->user();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function authUserId(): ?string
+    {
+        $u = $this->authUser();
+        if (!$u) return null;
+        try {
+            return (string) ($u->getAuthIdentifier() ?? null);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function authGuardName(): string
+    {
+        return (string) (config('auth.defaults.guard') ?? 'web');
+    }
+
     /**
      * Dashboard principal del cliente.
      */
     public function index(Request $request): View
     {
-        $user   = Auth::guard('web')->user();
+        $user   = $this->authUser();
         $cuenta = $user?->cuenta;
 
         if (is_array($cuenta)) {
@@ -118,9 +165,12 @@ class HomeController extends Controller
             }
         }
 
-        // Summary cacheado (ligero)
+        // Summary cacheado (ligero) — KEY incluye guard+uid para evitar colisiones
+        $uid   = $this->authUserId() ?? 'guest';
+        $guard = $this->authGuardName();
+
         $summary = Cache::remember(
-            'home:summary:uid:'.(Auth::id() ?? 'guest'),
+            'home:summary:guard:'.$guard.':uid:'.$uid,
             30,
             fn() => $this->buildAccountSummary()
         );
@@ -147,7 +197,7 @@ class HomeController extends Controller
      */
     public function kpis(Request $request): JsonResponse
     {
-        $user   = Auth::guard('web')->user();
+        $user   = $this->authUser();
         $cuenta = $user?->cuenta;
 
         if (is_array($cuenta)) {
@@ -220,7 +270,7 @@ class HomeController extends Controller
      */
     public function series(Request $request): JsonResponse
     {
-        $user   = Auth::guard('web')->user();
+        $user   = $this->authUser();
         $cuenta = $user?->cuenta;
 
         if (is_array($cuenta)) {
@@ -324,28 +374,32 @@ class HomeController extends Controller
         return response()->json($payload);
     }
 
-    /**
+       /**
      * (Opcional) Combo para un solo fetch en el front. Incluye 'source'.
      */
     public function combo(Request $request): JsonResponse
     {
-        $user   = Auth::guard('web')->user();
+        $user   = $this->authUser();
         $cuenta = $user?->cuenta;
 
         if (is_array($cuenta)) {
-            $cuenta = (object)$cuenta;
+            $cuenta = (object) $cuenta;
         }
 
-        [$from, $to] = $this->resolveMonthRange($request->string('month'));
+        $monthRaw = $request->input('month');
+        $month    = is_string($monthRaw) ? $monthRaw : null;
 
-        $k      = [
+        [$from, $to] = $this->resolveMonthRange($month);
+
+        $k = [
             'total'      => 0.0,
             'emitidos'   => 0.0,
             'cancelados' => 0.0,
             'delta'      => 0.0,
             'period'     => ['from' => $from, 'to' => $to],
         ];
-        $s      = [
+
+        $s = [
             'labels' => [],
             'series' => [
                 'emitidos_total'   => [],
@@ -354,6 +408,7 @@ class HomeController extends Controller
                 'bar_q'            => [0, 0, 0, 0],
             ],
         ];
+
         $source = 'db';
 
         if ($this->canQueryCfdi()) {
@@ -366,6 +421,7 @@ class HomeController extends Controller
                         ->where('cuenta_id', $cuenta->id)
                         ->pluck('id')
                         ->all();
+
                     $base->whereIn('cliente_id', empty($ids) ? [-1] : $ids);
                 }
 
@@ -404,13 +460,13 @@ class HomeController extends Controller
     /**
      * Sincroniza el modo DEMO del front (localStorage/query) hacia sesión.
      * - Solo permitido en local/dev/testing.
-     * - Requiere auth:web.
+     * - Requiere auth (cliente/web según tu config).
      */
     public function setDemoMode(Request $request): JsonResponse
     {
         if (!app()->environment(['local', 'development', 'testing'])) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'DEMO mode is disabled in this environment.',
             ], 403);
         }
@@ -424,6 +480,7 @@ class HomeController extends Controller
             'demo' => (bool) $request->session()->get('p360_demo_mode', false),
         ]);
     }
+
 
     /* ===========================
      * Helpers internos
@@ -525,7 +582,7 @@ class HomeController extends Controller
      */
     public function buildAccountSummary(): array
     {
-        $u      = Auth::guard('web')->user();
+        $u      = $this->authUser();
         $cuenta = $u?->cuenta;
 
         if (is_array($cuenta)) {
@@ -550,16 +607,22 @@ class HomeController extends Controller
         $acc = null;
         if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
             $cols = ['id'];
+
             foreach ([
+                // Identidad / registro externo
+                'rfc',
+                'name',
+                'razon_social',
+                'email',
+                'email_verified_at',
+                'phone_verified_at',
+
+                // Estado / billing
                 'plan',
                 'billing_cycle',
                 'next_invoice_date',
                 'estado_cuenta',
                 'is_blocked',
-                'razon_social',
-                'email',
-                'email_verified_at',
-                'phone_verified_at',
                 'meta',
 
                 // columnas posibles de pricing en accounts (por si existen)
@@ -571,7 +634,13 @@ class HomeController extends Controller
                     $cols[] = $c;
                 }
             }
-            $acc = DB::connection($admConn)->table('accounts')->select($cols)->where('id', $adminId)->first();
+
+            $acc = DB::connection($admConn)
+                ->table('accounts')
+                ->select(array_values(array_unique($cols)))
+                ->where('id', $adminId)
+                ->first();
+
         }
 
         // ===========================
@@ -629,17 +698,35 @@ class HomeController extends Controller
         $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
         $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed / $spaceTotal) * 100, 1)) : 0;
 
-        $plan   = strtolower((string) ($acc->plan ?? $planKey));
-        $cycle  = $acc->billing_cycle ?? ($cuenta->modo_cobro ?? 'mensual');
-        $estado = $acc->estado_cuenta ?? ($cuenta->estado_cuenta ?? null);
-        $blocked = (bool) (($acc->is_blocked ?? 0) || ($cuenta->is_blocked ?? 0));
+        // ===========================
+        // Plan + ciclo (normalizados) — NULL SAFE si no hay $acc
+        // ===========================
+        $planRaw = (string) (($acc?->plan) ?? $planKey);
+
+        $norm = $this->normalizePlanAndCycle($planRaw);
+
+        // plan "base" sin sufijos: pro/premium/free/...
+        $planBase = (string) ($norm['plan_base'] ?? 'free');
+
+        // billing_cycle tiene prioridad si existe; si no, derivamos del sufijo del plan; si no, modo_cobro
+        $cycle = ($acc?->billing_cycle)
+            ?? (($norm['cycle'] ?? null) ?: ($cuenta->modo_cobro ?? 'mensual'));
+
+        $estado  = ($acc?->estado_cuenta) ?? ($cuenta->estado_cuenta ?? null);
+        $blocked = (bool) (((int)($acc?->is_blocked ?? 0)) || ((int)($cuenta->is_blocked ?? 0)));
+
+        // Exponemos plan como base normalizada (sin _mensual/_anual)
+        $plan = $planBase;
+
+
 
         // ===========================
         // ✅ BILLING: precio vigente gobernado por Admin
         // ===========================
         $periodNow = now()->format('Y-m');
 
-        $meta = $this->decodeMeta($acc->meta ?? null);
+        $meta = $this->decodeMeta($acc?->meta ?? null);
+
 
         $lastPaid = $this->resolveLastPaidPeriodForAdminAccount((int)($acc->id ?? 0), $meta, $admConn);
         $payAllowed = $lastPaid
@@ -648,12 +735,40 @@ class HomeController extends Controller
 
         $pricing = $this->resolveEffectiveMonthlyAmountFromAdmin($acc, $meta, $periodNow, $payAllowed);
 
-        return [
-            'razon'        => (string) ($acc->razon_social ?? $razon),
+        // ===========================
+        // ✅ RFC EXTERNO (registro admin)
+        // ===========================
+        $rfcExterno = null;
+        if ($acc && isset($acc->rfc) && is_string($acc->rfc) && trim($acc->rfc) !== '') {
+            $rfcExterno = strtoupper(trim($acc->rfc));
+        } elseif (is_string($rfc) && trim($rfc) !== '') {
+            // fallback a rfc_padre si existiera
+            $rfcExterno = strtoupper(trim($rfc));
+        }
+
+        // Señal “verificado externamente” (defensivo: usa verificación de contacto como proxy si no hay flag dedicado)
+        $externalVerified = false;
+        if ($acc) {
+            $externalVerified = !empty($acc->email_verified_at) || !empty($acc->phone_verified_at);
+        }
+
+
+         return [
+            'razon'        => (string) (($acc?->razon_social) ?? $razon),
+
+            // Normalizado para lógica (ej: "pro")
             'plan'         => $plan,
+
+            // Para debug/UI (ej: "pro_mensual" si así viene)
+            'plan_raw'     => $planRaw,
+
+            // Alias explícito por si lo consumes en Blade/JS
+            'plan_norm'    => $planBase,
+
             'is_pro'       => in_array($plan, ['pro', 'premium', 'empresa', 'business'], true),
+
             'cycle'        => $cycle,
-            'next_invoice' => $acc->next_invoice_date ?? null,
+            'next_invoice' => $acc?->next_invoice_date ?? null,
             'estado'       => $estado,
             'blocked'      => $blocked,
             'balance'      => $balance,
@@ -665,11 +780,52 @@ class HomeController extends Controller
 
             // ✅ compat / consumo directo en UI
             'billing'      => $pricing,
-            'amount_mxn'   => (float)($pricing['effective_amount_mxn'] ?? 0), // fallback simple
+            'amount_mxn'   => (float)($pricing['effective_amount_mxn'] ?? 0),
             'last_paid'    => $lastPaid,
             'pay_allowed'  => $payAllowed,
+
+            // RFC proveniente de registro externo (Admin)
+            'rfc_externo'           => $rfcExterno,
+            'rfc_source'            => $rfcExterno ? 'external_registry' : null,
+            'rfc_external_verified' => $externalVerified,
+
+            // compat: algunos blades esperan rfc directo
+            'rfc'                   => $rfcExterno,
+        ];
+
+    }
+
+        /**
+     * Normaliza planes tipo "pro_mensual", "pro_anual", "premium_anual", etc.
+     * Retorna:
+     * - plan_base: "pro" | "premium" | "free" | ...
+     * - cycle: "mensual" | "anual" | null
+     * - plan_norm: string (slug normalizado)
+     */
+    private function normalizePlanAndCycle(?string $planRaw): array
+    {
+        $p = strtolower(trim((string) $planRaw));
+        $p = str_replace([' ', '-'], '_', $p);
+        $p = preg_replace('/_+/', '_', $p) ?: '';
+
+        $cycle = null;
+        if (str_ends_with($p, '_mensual')) {
+            $cycle = 'mensual';
+            $p = substr($p, 0, -8); // remove "_mensual"
+        } elseif (str_ends_with($p, '_anual')) {
+            $cycle = 'anual';
+            $p = substr($p, 0, -6); // remove "_anual"
+        }
+
+        $base = $p ?: 'free';
+
+        return [
+            'plan_base' => $base,
+            'cycle'     => $cycle,
+            'plan_norm' => $base, // base ya viene sin sufijo
         ];
     }
+
 
     // month=YYYY-MM
     private function resolveMonthRange(?string $month): array
@@ -709,7 +865,7 @@ class HomeController extends Controller
         $start = Carbon::parse($from)->startOfMonth();
         $end   = Carbon::parse($to)->endOfMonth();
 
-        $seed = crc32((string) (Auth::id() ?? 0) . '|' . $start->format('Y-m'));
+        $seed = crc32((string) (($this->authUserId() ?? '0')) . '|' . $start->format('Y-m'));
         mt_srand($seed);
 
         $labels = [];

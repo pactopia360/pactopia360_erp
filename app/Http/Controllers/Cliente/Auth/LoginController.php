@@ -25,6 +25,27 @@ class LoginController extends Controller
     {
         Auth::shouldUse('web');
 
+        // ✅ Limpieza de error "enlace inválido" en pantalla de login.
+        // Si el usuario llega a /cliente/login SIN parámetros de firma,
+        // no debemos mostrar un error de "link expirado/usado" (eso pertenece a la pantalla de error 403).
+        $hasSignedParams = $request->query->has('signature') || $request->query->has('expires');
+
+        if (!$hasSignedParams) {
+            $err = session('error');
+
+            if (is_string($err) && $err !== '') {
+                $low = mb_strtolower($err, 'UTF-8');
+
+                $looksLikeSignedError =
+                    str_contains($low, 'enlace') &&
+                    (str_contains($low, 'no es válido') || str_contains($low, 'no es valido') || str_contains($low, 'ya fue usado') || str_contains($low, 'expir'));
+
+                if ($looksLikeSignedError) {
+                    $request->session()->forget('error');
+                }
+            }
+        }
+
         if (Auth::guard('web')->check()) {
             return redirect()->intended(
                 \Route::has('cliente.home') ? route('cliente.home') : '/'
@@ -41,6 +62,7 @@ class LoginController extends Controller
 
         return view('cliente.auth.login');
     }
+
 
     public function login(Request $request)
     {

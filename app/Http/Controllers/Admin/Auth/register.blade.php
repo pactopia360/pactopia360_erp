@@ -1,75 +1,74 @@
-@extends('layouts.cliente-auth')
-@section('title','Crear cuenta GRATIS · Pactopia360')
+{{-- resources/views/cliente/sat/external/register.blade.php
+     SAT · Registro externo (pantalla mínima para enlace firmado)
+--}}
 
-@push('styles')
-<link rel="stylesheet" href="{{ asset('assets/client/css/auth-register.css') }}">
-@endpush
+@extends('layouts.cliente')
+@section('title','SAT · Registro externo')
+
+@section('pageClass','page-sat')
+
+@php
+  $email     = (string) request()->query('email','');
+  $note      = (string) request()->query('note','');
+  $expiresTs = (string) request()->query('expires','');
+@endphp
 
 @section('content')
-<div class="auth-bg">
-  <div class="auth-card">
+  <div class="container" style="max-width:980px; padding: 18px 14px;">
+    <div class="card" style="border:1px solid rgba(0,0,0,.08); border-radius:16px; padding:18px; background:rgba(255,255,255,.92);">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div>
+          <div style="font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; opacity:.65;">
+            SAT · Registro externo
+          </div>
+          <h2 style="margin:6px 0 0; font:900 22px/1.2 'Poppins',system-ui;">
+            Registro de RFC para descargas
+          </h2>
+          <p style="margin:10px 0 0; opacity:.85;">
+            Esta liga fue generada por Pactopia360 para que el emisor registre su RFC y continúe con el flujo de configuración.
+          </p>
+        </div>
 
-    {{-- Header --}}
-    <div class="auth-header">
-      <img src="{{ asset('assets/client/img/logo-p360.svg') }}" alt="Pactopia360" class="auth-logo">
+        <div style="min-width:260px; text-align:right;">
+          @if($expiresTs !== '')
+            <div style="font-size:12px; opacity:.7;">Expira: <b>{{ $expiresTs }}</b></div>
+          @endif
+        </div>
+      </div>
 
-      <span class="badge-free">PLAN FREE</span>
+      <hr style="margin:14px 0; border:0; border-top:1px solid rgba(0,0,0,.08);">
 
-      <h1>Crear cuenta gratis</h1>
-      <p>
-        Accede a Pactopia360 sin costo.<br>
-        Verificaremos tu correo y teléfono para activar tu cuenta.
-      </p>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div style="border:1px dashed rgba(0,0,0,.12); border-radius:14px; padding:12px;">
+          <div style="font-weight:800; font-size:12px; opacity:.7;">Correo</div>
+          <div style="font:800 14px/1.2 ui-monospace,Menlo,Consolas,monospace; margin-top:6px;">
+            {{ $email !== '' ? $email : '—' }}
+          </div>
+        </div>
+
+        <div style="border:1px dashed rgba(0,0,0,.12); border-radius:14px; padding:12px;">
+          <div style="font-weight:800; font-size:12px; opacity:.7;">Nota</div>
+          <div style="margin-top:6px; font-weight:700;">
+            {{ $note !== '' ? $note : '—' }}
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px; padding:12px; border-radius:14px; background:rgba(0,0,0,.035);">
+        <div style="font-weight:900; margin-bottom:6px;">Siguiente paso</div>
+        <div style="opacity:.85;">
+          Este módulo está listo para mostrar la pantalla del enlace firmado. El siguiente paso es conectar aquí el formulario real
+          (RFC + carga e.firma/CSD o el flujo que definamos para “registro externo”).
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px; flex-wrap:wrap;">
+        <a class="btn"
+           href="{{ route('cliente.sat.index') }}"
+           style="display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 14px; border-radius:999px; border:1px solid rgba(0,0,0,.14); text-decoration:none; font-weight:900;">
+          Volver a SAT
+        </a>
+      </div>
     </div>
-
-    {{-- Form --}}
-    <form method="POST" action="{{ route('cliente.register') }}" class="auth-form">
-      @csrf
-
-      <div class="form-group">
-        <label>Nombre completo</label>
-        <input type="text" name="nombre" placeholder="Tu nombre y apellido" required>
-      </div>
-
-      <div class="form-group">
-        <label>Correo electrónico</label>
-        <input type="email" name="email" placeholder="correo@empresa.com" required>
-      </div>
-
-      <div class="form-group">
-        <label>RFC con homoclave</label>
-        <input type="text" name="rfc" placeholder="XAXX010101000" required>
-        <small>No se permiten cuentas duplicadas por RFC.</small>
-      </div>
-
-      <div class="form-group">
-        <label>Teléfono</label>
-        <input type="tel" name="telefono" placeholder="+52 55 1234 5678" required>
-      </div>
-
-      <div class="form-terms">
-        <label>
-          <input type="checkbox" required>
-          Acepto los <a href="#">términos y condiciones</a>
-        </label>
-      </div>
-
-      <button type="submit" class="btn-primary">
-        Crear cuenta gratis
-      </button>
-    </form>
-
-    {{-- Divider --}}
-    <div class="auth-divider">
-      <span>o</span>
-    </div>
-
-    {{-- Secondary actions --}}
-    <div class="auth-actions">
-      <a href="{{ route('cliente.login') }}">¿Ya tienes cuenta? Inicia sesión</a>
-      <a href="{{ route('cliente.pricing') }}" class="btn-pro">Pasar a PRO</a>
-    </div>
-
   </div>
-</div>
 @endsection

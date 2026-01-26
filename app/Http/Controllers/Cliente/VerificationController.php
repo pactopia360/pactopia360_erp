@@ -67,10 +67,24 @@ class VerificationController extends Controller
             ->where('token', $token)
             ->first();
 
+        // ✅ FIX: NO contaminar /cliente/login con session('error').
+        // Si el token no existe (usado o inválido), mostramos pantalla de verificación
+        // (o reenviar) en lugar de redirigir al login.
         if (!$row) {
+            // Si tienes la vista verify_email, úsala
+            if (view()->exists('cliente.auth.verify_email')) {
+                return view('cliente.auth.verify_email', [
+                    'status'       => 'invalid',
+                    'message'      => 'El enlace no es válido o ya fue usado. Solicita uno nuevo.',
+                    'email'        => null,
+                    'phone_masked' => null,
+                ]);
+            }
+
+            // Fallback: mandar a reenviar (sin session('error'))
             return redirect()
-                ->route('cliente.login')
-                ->with('error', 'El enlace no es válido o ya fue usado.');
+                ->route('cliente.verify.email.resend')
+                ->with('info', 'El enlace no es válido o ya fue usado. Solicita uno nuevo.');
         }
 
         if ($row->expires_at && now()->greaterThan($row->expires_at)) {
@@ -135,15 +149,25 @@ class VerificationController extends Controller
         if ($resolvedAccountId) {
             session([
                 'verify.account_id' => $resolvedAccountId,
-                'verify.email'      => Str::lower((string)$row->email),
+                'verify.email'      => Str::lower((string) $row->email),
             ]);
+
+            // ✅ Forzar persistencia inmediata (evita perder la sesión en algunos flujos)
+            try { session()->save(); } catch (\Throwable $e) {}
         }
 
-        return view('cliente.auth.verify_email', [
-            'status'       => 'ok',
-            'message'      => 'Correo verificado. Ahora verifica tu teléfono.',
-            'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
-        ]);
+        // ✅ Robusto: manda a OTP con account_id como fallback duro (aunque la sesión falle)
+        if ($resolvedAccountId) {
+            return redirect()
+                ->route('cliente.verify.phone', ['account_id' => $resolvedAccountId])
+                ->with('ok', 'Correo verificado. Ahora verifica tu teléfono.');
+        }
+
+        // Fallback (no debería pasar, pero evitamos pantalla OTP sin cuenta)
+        return redirect()
+            ->route('cliente.verify.email.resend')
+            ->with('info', 'Correo verificado, pero no pudimos ubicar tu cuenta. Solicita un enlace nuevo.');
+
     }
 
     /* =========================================================
@@ -216,13 +240,22 @@ class VerificationController extends Controller
                 'verify.account_id' => $resolvedAccountId,
                 'verify.email'      => Str::lower($emailFromLink),
             ]);
+
+            // ✅ Forzar persistencia inmediata
+            try { session()->save(); } catch (\Throwable $e) {}
         }
 
-        return view('cliente.auth.verify_email', [
-            'status'       => 'ok',
-            'message'      => 'Correo verificado. Falta tu teléfono.',
-            'phone_masked' => $this->maskPhone($resolvedPhone ?? ''),
-        ]);
+        // ✅ Redirigir directo a OTP con fallback por query
+        if ($resolvedAccountId) {
+            return redirect()
+                ->route('cliente.verify.phone', ['account_id' => $resolvedAccountId])
+                ->with('ok', 'Correo verificado. Falta tu teléfono.');
+        }
+
+        return redirect()
+            ->route('cliente.verify.email.resend')
+            ->with('info', 'Correo verificado, pero no pudimos ubicar tu cuenta. Solicita un enlace nuevo.');
+
     }
 
     /* =========================================================
@@ -262,8 +295,18 @@ class VerificationController extends Controller
         }
 
         if (!empty($account->email_verified_at)) {
-            return back()->with('ok', 'Ese correo ya está verificado. Continúa con tu teléfono.');
+            // ✅ Si ya está verificado, manda directo a OTP con account_id (sin depender de sesión)
+            session([
+                'verify.account_id' => (int) $account->id,
+                'verify.email'      => $email,
+            ]);
+            try { session()->save(); } catch (\Throwable $e) {}
+
+            return redirect()
+                ->route('cliente.verify.phone', ['account_id' => (int) $account->id])
+                ->with('ok', 'Ese correo ya está verificado. Continúa con tu teléfono.');
         }
+
 
         $token = $this->createEmailVerificationToken((int)$account->id, $email);
         $this->sendEmailVerification($email, $token, $this->adminDisplayName($account));
@@ -281,107 +324,88 @@ class VerificationController extends Controller
      */
     private function resolveAccountId(Request $request): ?int
     {
-        if ($request->filled('account_id')) {
-            $aid = (int) $request->input('account_id');
-            if ($aid > 0) {
+        // 1) flujo verificación (correo) -> session.verify.account_id
+        $aid = (int) session('verify.account_id', 0);
+        if ($aid > 0) {
+            \Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.account_id', ['aid' => $aid]);
+            return $aid;
+        }
+
+        // 2) request explícito (GET ?account_id=) o POST account_id
+        // IMPORTANTE: en GET (click en <a>) viene por query()
+        $aid = (int) ($request->query('account_id', 0) ?: $request->input('account_id', 0));
+        if ($aid > 0) {
+            \Log::debug('[OTP-FLOW][resolveAccountId] from request.account_id', [
+                'aid'   => $aid,
+                'from'  => $request->query('account_id') ? 'query' : 'input',
+                'path'  => $request->path(),
+                'full'  => $request->fullUrl(),
+            ]);
+
+            // Si venimos por query y la sesión está vacía, la sembramos para siguientes requests
+            try {
                 session(['verify.account_id' => $aid]);
-                Log::debug('[OTP-FLOW][resolveAccountId] from request.account_id', ['aid' => $aid]);
-                return $aid;
+                session()->save();
+            } catch (\Throwable $e) {
+                \Log::warning('[OTP-FLOW][resolveAccountId] could not persist verify.account_id into session', [
+                    'aid' => $aid,
+                    'e'   => $e->getMessage(),
+                ]);
+            }
+
+            return $aid;
+        }
+
+        // 3) sesiones estándar del portal cliente
+        foreach (['cliente.account_id','client.account_id','account_id','cliente.cuenta_id','client.cuenta_id','cuenta_id'] as $k) {
+            $v = (int) session($k, 0);
+            if ($v > 0) {
+                \Log::debug('[OTP-FLOW][resolveAccountId] from session', ['key' => $k, 'aid' => $v]);
+                return $v;
             }
         }
 
-        if (session()->has('verify.account_id')) {
-            $aid = (int) session('verify.account_id');
-            if ($aid > 0) {
-                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.account_id', ['aid' => $aid]);
-                return $aid;
-            }
-        }
-
-        if ($this->clientIsAuthenticated()) {
-            $user       = $this->currentClientUser();
-            $userCuenta = $user?->cuenta()?->first();
-            $rfcPadre   = $userCuenta?->rfc_padre ? Str::upper($userCuenta->rfc_padre) : null;
-
-            if ($rfcPadre) {
-                $otpRow = DB::connection('mysql_admin')
-                    ->table('phone_otps as po')
-                    ->join('accounts as a', 'a.id', '=', 'po.account_id')
-                    ->whereRaw('UPPER(a.rfc) = ?', [$rfcPadre])
-                    ->orderByDesc('po.id')
-                    ->select('po.account_id')
-                    ->first();
-
-                if ($otpRow?->account_id) {
-                    $final = (int) $otpRow->account_id;
-                    session([
-                        'verify.account_id' => $final,
-                        'verify.email'      => $this->fetchAccountEmailById($final),
-                    ]);
-                    Log::debug('[OTP-FLOW][resolveAccountId] from otpRow/rfc', ['aid' => $final, 'rfc' => $rfcPadre]);
-                    return $final;
+        // 4) fallback por auth:web (cuando viene desde login normal)
+        try {
+            $u = auth('web')->user();
+            if ($u) {
+                $direct = (int) data_get($u, 'account_id', 0);
+                if ($direct > 0) {
+                    \Log::debug('[OTP-FLOW][resolveAccountId] from auth.user.account_id', ['aid' => $direct]);
+                    return $direct;
                 }
 
-                $connAdmin = DB::connection('mysql_admin');
-                $schema    = Schema::connection('mysql_admin');
-
-                $q = $connAdmin->table('accounts')->whereRaw('UPPER(rfc)=?', [$rfcPadre]);
-                if ($schema->hasColumn('accounts', 'is_blocked')) {
-                    $q->orderBy('is_blocked', 'asc');
-                }
-                $q->orderByDesc('id');
-
-                $accAdm = $q->select('id')->first();
-                if ($accAdm?->id) {
-                    $final = (int) $accAdm->id;
-                    session([
-                        'verify.account_id' => $final,
-                        'verify.email'      => $this->fetchAccountEmailById($final),
-                    ]);
-                    Log::debug('[OTP-FLOW][resolveAccountId] from accounts/rfc', ['aid' => $final, 'rfc' => $rfcPadre]);
-                    return $final;
+                $rel = (int) data_get($u, 'cuenta.account_id', 0);
+                if ($rel > 0) {
+                    \Log::debug('[OTP-FLOW][resolveAccountId] from auth.user.cuenta.account_id', ['aid' => $rel]);
+                    return $rel;
                 }
             }
+        } catch (\Throwable $e) {
+            \Log::warning('[OTP-FLOW][resolveAccountId] auth fallback failed', ['e' => $e->getMessage()]);
         }
 
-        if (session()->has('verify.rfc')) {
-            $rfc = Str::upper((string) session('verify.rfc'));
-            $acc = DB::connection('mysql_admin')
-                ->table('accounts')
-                ->whereRaw('UPPER(rfc)=?', [$rfc])
-                ->orderByDesc('id')
-                ->select('id')
-                ->first();
+        \Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id', [
+            'path' => $request->path(),
+            'full' => $request->fullUrl(),
+        ]);
 
-            if ($acc?->id) {
-                $final = (int) $acc->id;
-                session(['verify.account_id' => $final]);
-                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.rfc', ['aid' => $final, 'rfc' => $rfc]);
-                return $final;
-            }
-        }
-
-        if (session()->has('verify.email')) {
-            $email = (string) session('verify.email');
-            $acc = DB::connection('mysql_admin')
-                ->table('accounts')
-                ->where('correo_contacto', $email)
-                ->orWhere('email', $email)
-                ->orderByDesc('id')
-                ->select('id')
-                ->first();
-
-            if ($acc?->id) {
-                $final = (int) $acc->id;
-                session(['verify.account_id' => $final]);
-                Log::debug('[OTP-FLOW][resolveAccountId] from session.verify.email', ['aid' => $final, 'email' => $email]);
-                return $final;
-            }
-        }
-
-        Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id');
         return null;
     }
+
+    public function finalizeActivationAndSendCredentialsByRfc(string $rfc): void
+    {
+        // Alias compat: si ya existe otro método finalizador, llámalo.
+        if (method_exists($this, 'finalizeActivationAndSendCredentials')) {
+            $this->finalizeActivationAndSendCredentials($rfc);
+            return;
+        }
+
+        \Log::warning('finalizeActivationAndSendCredentialsByRfc: no-op (missing implementation)', ['rfc' => $rfc]);
+    }
+
+
+
 
     private function fetchAccountEmailById(int $accountId): string
     {
@@ -415,8 +439,18 @@ class VerificationController extends Controller
             ]);
         }
 
+        if (!$accountId) {
+            return redirect()
+                ->route('cliente.verify.email.resend')
+                ->withErrors([
+                    'email' => 'No pudimos ubicar tu cuenta para actualizar el teléfono. Solicita un enlace nuevo.',
+                ]);
+        }
+
+
         $viewData = $this->loadAccountWithPhone($accountId);
         return view('cliente.auth.verify_phone', $viewData);
+
     }
 
     private function loadAccountWithPhone(?int $accountId): array
@@ -496,7 +530,9 @@ class VerificationController extends Controller
                 'updated_at' => now(),
             ]);
 
-        $channel = config('services.otp.driver', 'whatsapp'); // 'whatsapp' | 'twilio'
+        // Canal: whatsapp|sms (el driver/proveedor va aparte en generateAndStoreOtp)
+        $channel = (string) config('services.otp.channel', 'whatsapp'); // whatsapp|sms
+
 
         $digits = preg_replace('/\D+/', '', $full);
         [$code, $expiresTs] = $this->generateAndStoreOtp(
@@ -513,10 +549,11 @@ class VerificationController extends Controller
         ]);
 
         if (!$code) {
-            return redirect()
-                ->route('cliente.verify.phone')
-                ->withErrors(['general' => 'Error generando el código.']);
+        return redirect()
+            ->route('cliente.verify.phone', ['account_id' => $accountId])
+            ->withErrors(['general' => 'Error generando el código.']);
         }
+
 
         session([
             'verify.account_id'  => $accountId,
@@ -525,12 +562,14 @@ class VerificationController extends Controller
             'verify.otp_expires' => $expiresTs,
         ]);
 
+        
         return redirect()
-            ->route('cliente.verify.phone')
-            ->with(
-                'ok',
-                'Te enviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo. Si no llega en 1–2 minutos, toca “Reenviar código”.'
-            );
+        ->route('cliente.verify.phone', ['account_id' => $accountId])
+        ->with(
+            'ok',
+            'Te enviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo. Si no llega en 1–2 minutos, toca “Reenviar código”.'
+        );
+
     }
 
     /* =========================================================
@@ -543,11 +582,12 @@ class VerificationController extends Controller
 
         if (!$accountId) {
             return redirect()
-                ->route('cliente.verify.phone')
+                ->route('cliente.verify.email.resend')
                 ->withErrors([
-                    'general' => 'No pudimos asociar tu cuenta. Abre de nuevo tu enlace de verificación.',
+                    'email' => 'No pudimos asociar tu cuenta. Abre de nuevo tu enlace de verificación o solicita uno nuevo.',
                 ]);
         }
+
 
         $phoneCol = $this->adminPhoneColumn();
 
@@ -560,7 +600,9 @@ class VerificationController extends Controller
         $rawPhone   = $accAdm?->phone ?? '';
         $onlyDigits = preg_replace('/\D+/', '', $rawPhone);
 
-        $channel = config('services.otp.driver', 'whatsapp'); // 'whatsapp' | 'twilio'
+        // Canal: whatsapp|sms (el driver/proveedor va aparte en generateAndStoreOtp)
+        $channel = (string) config('services.otp.channel', 'whatsapp'); // whatsapp|sms
+
 
         [$code, $expiresTs] = $this->generateAndStoreOtp(
             $accountId,
@@ -570,11 +612,12 @@ class VerificationController extends Controller
 
         if (!$code) {
             return redirect()
-                ->route('cliente.verify.phone')
+                ->route('cliente.verify.phone', ['account_id' => $accountId])
                 ->withErrors([
                     'general' => 'No pudimos generar el código en este momento. Intenta más tarde.',
                 ]);
         }
+
 
         session([
             'verify.account_id'  => $accountId,
@@ -584,8 +627,9 @@ class VerificationController extends Controller
         ]);
 
         return redirect()
-            ->route('cliente.verify.phone')
-            ->with('ok', 'Reenviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo.');
+        ->route('cliente.verify.phone', ['account_id' => $accountId])
+        ->with('ok', 'Reenviamos tu código por ' . strtoupper($channel) . '. Ingrésalo abajo.');
+
     }
 
     /* =========================================================
@@ -789,7 +833,9 @@ class VerificationController extends Controller
             'post_verify.remember',
             'verify.otp_code',
             'verify.otp_expires',
+            'verify.phone',
         ]);
+
 
         return redirect()
             ->route('cliente.home')
@@ -1033,32 +1079,76 @@ class VerificationController extends Controller
 
             DB::connection('mysql_admin')->table('phone_otps')->insert($row);
 
-            try {
-                $sent = OtpService::send($digitsPhone, $code, $normalizedChannel);
+            // =========================================================
+            // ENVÍO OTP (robusto)
+            // - En LOCAL: si no hay provider real, simulamos y mostramos el code
+            // - En PROD: usa OtpService real
+            // =========================================================
+            $driver = (string) config('services.otp.driver', '');
 
-                if (!$sent) {
-                    Log::warning('[OTP SEND] No se pudo enviar el OTP al usuario', [
+            $isLocalEnv = app()->environment(['local','development','testing']);
+            $localNoProvider = $isLocalEnv && ($driver === '' || in_array($driver, ['local','fake','log','none'], true));
+
+            $sent = false;
+
+            if ($localNoProvider) {
+                // Simulación LOCAL: no intenta WhatsApp/Twilio. Permite probar el flujo completo.
+                $sent = true;
+
+                // Guardar para UI (flash) y para logs
+                session()->flash('otp_debug_code', $code);
+
+                Log::debug('[OTP][LOCAL] simulated send', [
+                    'account_id' => $accountId,
+                    'phone'      => $digitsPhone,
+                    'code'       => $code,
+                    'channel'    => $normalizedChannel,
+                    'expires_at' => $expires->toDateTimeString(),
+                    'driver'     => $driver ?: '(empty)',
+                ]);
+            } else {
+                try {
+                    // Preferimos service container si existe instancia
+                    // (por si OtpService no es estático en tu implementación real)
+                    $svc = null;
+                    try { $svc = app(\App\Services\OtpService::class); } catch (\Throwable $e) { $svc = null; }
+
+                    if ($svc && method_exists($svc, 'send')) {
+                        $sent = (bool) $svc->send($digitsPhone, $code, $normalizedChannel);
+                    } else {
+                        // fallback a estático (tu código actual)
+                        $sent = (bool) \App\Services\OtpService::send($digitsPhone, $code, $normalizedChannel);
+                    }
+
+                    if (!$sent) {
+                        Log::warning('[OTP SEND] Provider returned false', [
+                            'account_id' => $accountId,
+                            'phone'      => $digitsPhone,
+                            'channel'    => $normalizedChannel,
+                            'driver'     => $driver ?: null,
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('[OTP SEND] Exception during send', [
+                        'e'          => $e->getMessage(),
                         'account_id' => $accountId,
                         'phone'      => $digitsPhone,
                         'channel'    => $normalizedChannel,
+                        'driver'     => $driver ?: null,
                     ]);
                 }
-            } catch (\Throwable $e) {
-                Log::error('[OTP SEND] Excepción durante envío', [
-                    'e'          => $e->getMessage(),
-                    'account_id' => $accountId,
-                    'phone'      => $digitsPhone,
-                    'channel'    => $normalizedChannel,
-                ]);
             }
 
-            if (app()->environment(['local','development','testing'])) {
+            // Debug general (LOCAL)
+            if ($isLocalEnv) {
                 Log::debug('[OTP-GENERATED]', [
                     'account_id' => $accountId,
                     'phone'      => $digitsPhone,
                     'code'       => $code,
                     'channel'    => $normalizedChannel,
                     'expires_at' => $expires->toDateTimeString(),
+                    'sent'       => $sent,
+                    'driver'     => $driver ?: '(empty)',
                 ]);
             }
 
@@ -1072,4 +1162,5 @@ class VerificationController extends Controller
             return [null, null];
         }
     }
+
 }

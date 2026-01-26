@@ -231,3 +231,38 @@ body.theme-dark .vf-logo-light{
   html:not(.theme-light):not(.light) .vf-logo-light,
   body:not(.theme-light):not(.light) .vf-logo-light{ display:block; }
 }
+
+/* =========================================================
+   P360 · Verify Flow · Click-Safety Patch
+   Objetivo: evitar que overlays/pseudo-elementos capturen clicks
+   ========================================================= */
+
+.vf-auth,
+.vf-card,
+.vf-center,
+.vf-actions {
+  pointer-events: auto;
+}
+
+.vf-actions .vf-btn {
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+/* Si el fondo/gradientes se renderizan con pseudo-elementos,
+   nos aseguramos que NO intercepten eventos */
+.vf-auth::before,
+.vf-auth::after,
+.vf-card::before,
+.vf-card::after {
+  pointer-events: none !important;
+}
+
+/* Cualquier capa decorativa “full cover” típica */
+.vf-bg,
+.vf-overlay,
+.vf-noise,
+.vf-glow {
+  pointer-events: none !important;
+}

@@ -1,0 +1,106 @@
+/* SAT KPI v2 · cards layout */
+.sat-kpi-cards { overflow: hidden; }
+
+.sat-kpi-head-modern{
+  display:flex;
+  gap:14px;
+  align-items:flex-start;
+  justify-content:space-between;
+  padding-bottom:12px;
+  border-bottom:1px solid rgba(0,0,0,.06);
+}
+
+.sat-kpi-meta-modern{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+}
+
+.sat-kpi-chip{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  padding:8px 10px;
+  border:1px solid rgba(0,0,0,.06);
+  border-radius:12px;
+  background: rgba(255,255,255,.55);
+}
+
+.sat-kpi-chip-label{
+  font-size:12px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  opacity:.75;
+}
+
+.sat-kpi-chip-val{ font-weight:700; }
+
+.sat-kpi-grid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap:12px;
+  padding-top:12px;
+}
+
+.sat-kpi-tile{
+  border:1px solid rgba(0,0,0,.06);
+  border-radius:16px;
+  background: rgba(255,255,255,.60);
+  padding:12px 12px 10px;
+}
+
+.sat-kpi-tile-top{ margin-bottom:10px; }
+.sat-kpi-tile-label{ font-weight:700; }
+.sat-kpi-tile-hint{ font-size:12px; opacity:.72; margin-top:2px; }
+
+.sat-kpi-tile-val{
+  font-size:22px;
+  font-weight:800;
+  line-height:1.1;
+  margin:2px 0 6px;
+}
+
+.sat-kpi-tile-sub{ font-size:12px; opacity:.72; }
+
+.sat-kpi-tile-row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+}
+
+.sat-kpi-tile-pills{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+}
+
+.sat-kpi-tile-wide{ grid-column: span 2; }
+
+.sat-kpi-foot-modern{
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid rgba(0,0,0,.06);
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+}
+
+.sat-link-soft{ text-decoration:none; }
+
+@media (max-width: 1200px){
+  .sat-kpi-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sat-kpi-tile-wide{ grid-column: span 2; }
+}
+
+@media (max-width: 720px){
+  .sat-kpi-head-modern{ flex-direction:column; }
+  .sat-kpi-grid{ grid-template-columns: 1fr; }
+  .sat-kpi-tile-wide{ grid-column: span 1; }
+}

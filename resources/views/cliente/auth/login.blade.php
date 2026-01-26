@@ -52,39 +52,6 @@
 
   </style>
 
-  {{-- Persistencia de tema --}}
-  <script>
-    (() => {
-      const KEY='p360-theme-client';
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const saved = localStorage.getItem(KEY);
-      const initial = saved || (prefersDark ? 'dark' : 'light');
-      document.addEventListener('DOMContentLoaded', () => {
-        const body = document.body;
-        const isDark = initial === 'dark';
-        body.classList.toggle('theme-dark',  isDark);
-        body.classList.toggle('theme-light', !isDark);
-
-        const btn = document.getElementById('themeToggle');
-        const updateUI = (dark) => {
-          if (!btn) return;
-          btn.setAttribute('aria-pressed', dark);
-          btn.querySelector('.icon').textContent = dark ? '🌞' : '🌙';
-          btn.querySelector('.label').textContent = dark ? 'Modo claro' : 'Modo oscuro';
-        };
-        updateUI(isDark);
-
-        btn?.addEventListener('click', () => {
-          const toDark = !body.classList.contains('theme-dark');
-          body.classList.toggle('theme-dark',  toDark);
-          body.classList.toggle('theme-light', !toDark);
-          localStorage.setItem(KEY, toDark ? 'dark' : 'light');
-          updateUI(toDark);
-        });
-      });
-    })();
-  </script>
-
   <script src="{{ asset('assets/client/js/login.js') }}" defer></script>
 </head>
 
@@ -239,73 +206,18 @@
 
         <div class="mini-note-admin" style="margin-top:10px;">
           ¿Eres del equipo Pactopia?<br>
-          <a href="{{ route('admin.login') ?? url('/admin/login') }}">Ir a panel interno</a>
+          @php
+            $adminLoginUrl = \Illuminate\Support\Facades\Route::has('admin.login')
+              ? route('admin.login')
+              : url('/admin/login');
+          @endphp
+
+          <a href="{{ $adminLoginUrl }}">Ir a panel interno</a>
+
         </div>
       </form>
     </section>
   </div>
 
-  {{-- JS auxiliares --}}
-  <script>
-    (() => {
-      const login   = document.getElementById('login');
-      const help    = document.getElementById('loginHelp');
-      const msg     = document.getElementById('detectMsg');
-      const pwd     = document.getElementById('password');
-      const capsEl  = document.getElementById('capsTip');
-      const btnPwd  = document.getElementById('pwdToggle');
-      const form    = document.getElementById('loginForm');
-      const btn     = document.getElementById('btnSubmit');
-
-      const looksEmail = v => /\S+@\S+\.\S+/.test(v);
-      const sanitizeRfc = v => (v||'').toUpperCase().replace(/[^A-Z0-9&Ñ]/g,'');
-      const looksRfc = v => /^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(sanitizeRfc(v||''));
-
-      const renderDetect = (val) => {
-        const v = (val||'').trim();
-        let text='';
-        if (looksEmail(v)) text='Detectamos formato de correo electrónico.';
-        else if (looksRfc(v)) text='Detectamos formato de RFC.';
-        help.textContent = text;
-        help.style.display = text ? 'block' : 'none';
-        msg.textContent = text;
-        msg.style.display = text ? 'inline' : 'none';
-      };
-      login?.addEventListener('input', e => renderDetect(e.target.value));
-      if (login?.value) renderDetect(login.value);
-
-      if (pwd && capsEl){
-        const caps = e => {
-          const on = e.getModifierState && e.getModifierState('CapsLock');
-          capsEl.style.display = on ? 'block' : 'none';
-        };
-        pwd.addEventListener('keydown', caps);
-        pwd.addEventListener('keyup',   caps);
-        pwd.addEventListener('blur', () => capsEl.style.display='none');
-      }
-
-      // Estado inicial del toggle
-      if (btnPwd) {
-        btnPwd.dataset.showing = 'false';
-        btnPwd.setAttribute('aria-pressed', 'false');
-        btnPwd.setAttribute('aria-label', 'Mostrar contraseña');
-      }
-
-      // Toggle fiable
-      btnPwd?.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        const show = pwd.type === 'password';
-        pwd.type = show ? 'text' : 'password';
-        btnPwd.dataset.showing = show ? 'true' : 'false';
-        btnPwd.setAttribute('aria-pressed', show ? 'true' : 'false');
-        btnPwd.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
-      });
-
-      form?.addEventListener('submit', () => {
-        if (btn){ btn.disabled = true; btn.textContent = 'Entrando…'; }
-        if (pwd){ pwd.value = (pwd.value||'').trim(); }
-      });
-    })();
-  </script>
 </body>
 </html>

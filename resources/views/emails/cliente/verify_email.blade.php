@@ -1,17 +1,21 @@
 {{-- resources/views/emails/cliente/verify_email.blade.php --}}
 @php
-  $producto    = $producto    ?? 'Pactopia360';
-  $nombre      = $nombre      ?? 'Usuario';
-  $email       = $email       ?? null;
-  $rfc         = $rfc         ?? null;
-  $tempPassword= $tempPassword?? null;
-  $is_pro      = isset($is_pro) ? (bool)$is_pro : null;
+  $producto     = $producto     ?? 'Pactopia360';
+  $nombre       = $nombre       ?? 'Usuario';
+  $email        = $email        ?? null;
+  $rfc          = $rfc          ?? null;
+  $tempPassword = $tempPassword ?? null;
+  $is_pro       = isset($is_pro) ? (bool)$is_pro : null;
 
-  $loginUrl    = $loginUrl ?? ( \Illuminate\Support\Facades\Route::has('cliente.login')
-                  ? route('cliente.login')
-                  : url('/cliente/login') );
+  // ✅ URL PRINCIPAL: confirmar correo (viene del controller como actionUrl)
+  $actionUrl = $actionUrl ?? null;
 
-  $preheader   = $preheader ?? 'Tu cuenta ya está activa. Inicia sesión y cambia tu contraseña.';
+  // Fallback a login (secundario)
+  $loginUrl = $loginUrl ?? (\Illuminate\Support\Facades\Route::has('cliente.login')
+              ? route('cliente.login')
+              : url('/cliente/login'));
+
+  $preheader = $preheader ?? 'Confirma tu correo para activar tu cuenta en Pactopia360.';
 @endphp
 
 <!DOCTYPE html>
@@ -19,7 +23,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tu cuenta ya está activa · {{ $producto }}</title>
+  <title>Confirma tu correo · {{ $producto }}</title>
   <style>
     /* --- Paleta y tokens (modo oscuro amigable para email modernos) --- */
     :root{
@@ -46,15 +50,15 @@
     .creds-box{border:1px solid var(--bdField);border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.5;margin-top:12px;background:rgba(30,41,59,.5);color:var(--text)}
     .creds-label{display:block;color:var(--muted);font-size:12px;font-weight:600;margin-bottom:2px;text-transform:uppercase;letter-spacing:.03em}
     .creds-value{color:var(--text);font-weight:600;word-break:break-all}
-    .btn-wrap{text-align:center;margin:28px 0 16px}
+    .btn-wrap{text-align:center;margin:28px 0 10px}
     .btn{display:inline-block;background:linear-gradient(180deg,var(--brand),var(--brand-dark));color:#fff !important;text-decoration:none;font-weight:700;font-size:15px;padding:14px 28px;border-radius:12px;box-shadow:0 12px 30px rgba(255,42,42,.35)}
+    .btn-secondary{display:inline-block;margin-top:10px;background:transparent;color:var(--muted) !important;text-decoration:underline;font-weight:600;font-size:12px}
     .note-small{font-size:12px;color:var(--muted);line-height:1.5;text-align:center}
-    .info-section{margin-top:32px}
+    .info-section{margin-top:22px}
     .info-headline{color:var(--text);font-weight:600;font-size:13px;margin:0 0 6px;text-align:left}
     .info-text{color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 14px;text-align:left}
-    .footer{margin-top:40px;text-align:center;font-size:12px;color:#64748b;line-height:1.5}
+    .footer{margin-top:34px;text-align:center;font-size:12px;color:#64748b;line-height:1.5}
     .footer a{color:var(--muted);text-decoration:underline}
-    /* Botón como enlace de fallback visible si estilos bloqueados */
     .btn-fallback{display:block;text-align:center;margin-top:10px;font-size:12px;color:var(--muted)}
     @media (prefers-color-scheme: light){
       body{background:#f1f5f9;color:#0b1220}
@@ -76,90 +80,87 @@
   @endif
 
   <div class="wrapper">
-    <div class="card" role="article" aria-roledescription="email" aria-label="Cuenta activada">
+    <div class="card" role="article" aria-roledescription="email" aria-label="Verificación de correo">
       <div class="content">
 
         {{-- LOGO --}}
         <img src="{{ asset('assets/client/logop360light.png') }}" alt="{{ $producto }}" class="logo" width="160" height="40" style="height:auto">
 
         {{-- TITULAR --}}
-        <h1>Tu cuenta ya está activa 🎉</h1>
+        <h1>Confirma tu correo</h1>
 
         <p class="subtitle">
           Hola <strong style="color:#fff">{{ $nombre }}</strong>,<br>
-          terminaste la verificación en <strong style="color:#fff">{{ $producto }}</strong>. Ya puedes entrar al portal.
+          solo falta confirmar tu correo para activar tu cuenta en <strong style="color:#fff">{{ $producto }}</strong>.
         </p>
 
         {{-- RESUMEN --}}
         <div class="highlight-box">
-          <p class="highlight-title">Acceso habilitado</p>
+          <p class="highlight-title">Paso 1 de 2: Verificación de correo</p>
           <p class="highlight-desc">
-            Tu correo y tu teléfono fueron verificados correctamente.
-            <br>Tu cuenta está lista para facturar CFDI 4.0, consultar reportes y administrar tu bóveda fiscal.
+            Da clic en el botón para confirmar tu correo. Después podrás verificar tu teléfono y entrar al portal.
           </p>
 
-          {{-- CREDENCIALES (si llegaron) --}}
-          @if($email)
+          {{-- DATOS (si llegaron) --}}
+          @if($email || $rfc)
             <div class="creds-box">
-              <div style="margin-bottom:10px">
-                <span class="creds-label">Correo</span>
-                <span class="creds-value">{{ $email }}</span>
-              </div>
-              @if($rfc)
+              @if($email)
                 <div style="margin-bottom:10px">
-                  <span class="creds-label">RFC</span>
-                  <span class="creds-value">{{ $rfc }}</span>
+                  <span class="creds-label">Correo</span>
+                  <span class="creds-value">{{ $email }}</span>
                 </div>
               @endif
-              @if($tempPassword)
+              @if($rfc)
                 <div style="margin-bottom:6px">
-                  <span class="creds-label">Contraseña temporal</span>
-                  <span class="creds-value">{{ $tempPassword }}</span>
-                </div>
-                <div style="color:var(--muted);font-size:12px;line-height:1.4;margin-top:8px">
-                  Te pediremos cambiarla en tu primer inicio de sesión.
+                  <span class="creds-label">RFC</span>
+                  <span class="creds-value">{{ $rfc }}</span>
                 </div>
               @endif
             </div>
           @endif
         </div>
 
-        {{-- CTA LOGIN --}}
+        {{-- CTA CONFIRMAR CORREO --}}
         <div class="btn-wrap">
-          <a href="{{ $loginUrl }}" class="btn" target="_blank" rel="noopener">Ir al portal de clientes</a>
-          <div class="btn-fallback">
-            Si el botón no funciona copia y pega este enlace:<br>
-            <span style="word-break:break-all">{{ $loginUrl }}</span>
-          </div>
+          @if($actionUrl)
+            <a href="{{ $actionUrl }}" class="btn" target="_blank" rel="noopener">Confirmar correo</a>
+            <div class="btn-fallback">
+              Si el botón no funciona copia y pega este enlace:<br>
+              <span style="word-break:break-all">{{ $actionUrl }}</span>
+            </div>
+          @else
+            {{-- Fallback duro si por alguna razón no llegó actionUrl --}}
+            <a href="{{ $loginUrl }}" class="btn" target="_blank" rel="noopener">Ir al portal</a>
+            <div class="btn-fallback">
+              No se generó el enlace de verificación. Entra al portal y solicita uno nuevo:<br>
+              <span style="word-break:break-all">{{ $loginUrl }}</span>
+            </div>
+          @endif
+
+          <a href="{{ $loginUrl }}" class="btn-secondary" target="_blank" rel="noopener">Ir al login</a>
         </div>
 
         <p class="note-small">
-          Si olvidaste tu contraseña, puedes restablecerla en la pantalla de acceso.
+          Por seguridad, este enlace puede expirar. Si expiró, vuelve a solicitar un enlace de verificación.
         </p>
 
         {{-- INFO EXTRA --}}
         <div class="info-section">
-          <p class="info-headline">Lo que puedes hacer desde hoy:</p>
+          <p class="info-headline">Paso 2 de 2: Verificación de teléfono</p>
           <p class="info-text">
-            • Timbrar y cancelar CFDI 4.0 con validaciones en tiempo real.<br>
-            • Visualizar tu flujo mensual de facturación con métricas claras.<br>
-            • Subir, organizar y descargar XML de manera masiva.<br>
-            • Dar acceso a tu contador y controlar permisos por usuario.<br>
-            • Monitorear estatus de la cuenta y saldo de timbres.
+            Al confirmar tu correo, te pediremos verificar tu teléfono con un código OTP para terminar la activación.
           </p>
 
           @if(!is_null($is_pro))
             @if ($is_pro)
-              <p class="info-headline">Tu plan PRO</p>
+              <p class="info-headline">Plan PRO</p>
               <p class="info-text">
-                Tienes prioridad en soporte, más almacenamiento, más timbres al mes
-                y reportes avanzados de ingresos/cancelaciones.
+                Tienes prioridad en soporte, más almacenamiento y reportes avanzados.
               </p>
             @else
-              <p class="info-headline">¿Necesitas más capacidad?</p>
+              <p class="info-headline">Plan FREE</p>
               <p class="info-text">
-                {{ $producto }} PRO te da más timbres, espacio ampliado,
-                reportes avanzados y SLA prioritario. Escríbenos si quieres activar PRO.
+                Puedes activar PRO cuando lo necesites para ampliar timbres, almacenamiento y reportes.
               </p>
             @endif
           @endif

@@ -14,6 +14,10 @@
   // Datos desde el controlador (compat)
   $user              = $user ?? auth('web')->user();
   $cuenta            = $cuenta ?? ($user?->cuenta);
+    // RFC efectivo (viene del controller: cuenta SOT + fallback SAT credentials)
+  $rfcPerfil       = $rfcPerfil ?? null;
+  $rfcPerfilSource = $rfcPerfilSource ?? null; // 'cuenta' | 'sat_credentials' | null
+
 
   $plan              = strtoupper((string)($plan ?? ($cuenta->plan_actual ?? $cuenta->plan ?? 'FREE')));
   $isPro             = (bool)($isPro ?? ($plan === 'PRO'));
@@ -193,11 +197,28 @@
             {{ $cuenta?->razon_social ?? $cuenta?->nombre_fiscal ?? '—' }}
           </div>
 
+          <div class="k">RFC</div>
+          <div class="v" style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;">
+            <span class="pf-mono">{{ $rfcPerfil ? $rfcPerfil : '—' }}</span>
+
+            @if($rfcPerfil)
+              @php
+                $src = strtoupper((string)($rfcPerfilSource ?? ''));
+                $srcLabel = $src === 'CUENTA' ? 'CUENTA' : ($src === 'SAT_CREDENTIALS' ? 'SAT' : 'RFC');
+                $srcCls = $src === 'CUENTA' ? 'pf-pill--status-ok' : ($src === 'SAT_CREDENTIALS' ? 'pf-pill--pro' : 'pf-pill--status-off');
+              @endphp
+              <span class="pf-pill {{ $srcCls }}" style="padding:.28rem .55rem; font-size:.72rem;">
+                <span class="dot"></span> {{ $srcLabel }}
+              </span>
+            @endif
+          </div>
+
           <div class="k">Plan</div>
           <div class="v">{{ $plan }}</div>
 
           <div class="k">Timbres</div>
           <div class="v">{{ number_format((int)($cuenta->timbres_disponibles ?? 0)) }}</div>
+
         </div>
       </div>
     </section>
