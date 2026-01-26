@@ -701,6 +701,89 @@ Route::middleware([
         Route::post('invoices/requests/{id}/email', [InvoiceRequestsController::class, 'email'])
             ->whereNumber('id')
             ->name('invoices.requests.email');
+
+                /*
+        |----------------------------------------------------------------------
+        | ✅ COMPAT: SAT Admin bajo billing (admin.billing.sat.*)
+        | Motivo: código legacy/redirecciones usan admin.billing.sat.discounts.*
+        | Canon actual: admin.sat.discounts.* (fuera de billing)
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+            // === PRICE RULES (compat) ===
+            Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+                Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
+                Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
+
+                $store = Route::post('/', [AdminSatPriceRulesController::class, 'store'])
+                    ->middleware($thrAdminPosts)
+                    ->name('store');
+
+                Route::get('{id}/edit', [AdminSatPriceRulesController::class, 'edit'])
+                    ->whereNumber('id')
+                    ->name('edit');
+
+                $update = Route::put('{id}', [AdminSatPriceRulesController::class, 'update'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('update');
+
+                $toggle = Route::post('{id}/toggle', [AdminSatPriceRulesController::class, 'toggle'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('toggle');
+
+                $destroy = Route::delete('{id}', [AdminSatPriceRulesController::class, 'destroy'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('destroy');
+
+                if ($isLocal) {
+                    foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
+                }
+            });
+
+            // === DISCOUNT CODES (compat) ===
+            Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
+
+                Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
+                Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
+
+                $store = Route::post('/', [AdminSatDiscountCodesController::class, 'store'])
+                    ->middleware($thrAdminPosts)
+                    ->name('store');
+
+                Route::get('{id}/edit', [AdminSatDiscountCodesController::class, 'edit'])
+                    ->whereNumber('id')
+                    ->name('edit');
+
+                $update = Route::put('{id}', [AdminSatDiscountCodesController::class, 'update'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('update');
+
+                $toggle = Route::post('{id}/toggle', [AdminSatDiscountCodesController::class, 'toggle'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('toggle');
+
+                $destroy = Route::delete('{id}', [AdminSatDiscountCodesController::class, 'destroy'])
+                    ->whereNumber('id')
+                    ->middleware($thrAdminPosts)
+                    ->name('destroy');
+
+                if ($isLocal) {
+                    foreach ([$store, $update, $toggle, $destroy] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
+                }
+            });
+        });
+
     });
 
     /*

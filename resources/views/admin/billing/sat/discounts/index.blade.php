@@ -5,9 +5,13 @@
 
 @section('content')
 @php
-  $active = $active ?? request('active');
+  $q      = $q      ?? request('q','');
+  $active = $active ?? request('active','');
   $scope  = $scope  ?? request('scope','');
-  $search = $search ?? request('q','');
+
+  // Flash compat: soporta success (nuevo) y ok (legacy)
+  $flashOk    = session('success') ?? session('ok');
+  $flashError = session('error');
 @endphp
 
 <style>
@@ -82,15 +86,15 @@
     </div>
   </div>
 
-  @if(session('ok'))
+  @if($flashOk)
     <div class="sat-card" style="margin-top:14px; padding:12px; border-color:color-mix(in oklab, #16a34a 30%, transparent);">
-      <div style="font-weight:900;">✅ {{ session('ok') }}</div>
+      <div style="font-weight:900;">✅ {{ $flashOk }}</div>
     </div>
   @endif
 
-  @if(session('error'))
+  @if($flashError)
     <div class="sat-card" style="margin-top:14px; padding:12px; border-color:color-mix(in oklab, #ef4444 34%, transparent);">
-      <div style="font-weight:900;">⚠️ {{ session('error') }}</div>
+      <div style="font-weight:900;">⚠️ {{ $flashError }}</div>
     </div>
   @endif
 
@@ -98,18 +102,18 @@
     <form class="sat-form" method="GET" action="{{ route('admin.sat.discounts.index') }}">
       <select class="sat-sel" name="active" style="width:190px;">
         <option value=""  {{ ($active===null || $active==='') ? 'selected' : '' }}>Estado: Todos</option>
-        <option value="1" {{ $active==='1' ? 'selected' : '' }}>Activos</option>
-        <option value="0" {{ $active==='0' ? 'selected' : '' }}>Inactivos</option>
+        <option value="1" {{ (string)$active==='1' ? 'selected' : '' }}>Activos</option>
+        <option value="0" {{ (string)$active==='0' ? 'selected' : '' }}>Inactivos</option>
       </select>
 
       <select class="sat-sel" name="scope" style="width:210px;">
-        <option value=""        {{ $scope==='' ? 'selected' : '' }}>Scope: Todos</option>
-        <option value="global"  {{ $scope==='global' ? 'selected' : '' }}>Global</option>
-        <option value="account" {{ $scope==='account' ? 'selected' : '' }}>Por cuenta</option>
-        <option value="partner" {{ $scope==='partner' ? 'selected' : '' }}>Socio/Distribuidor</option>
+        <option value=""        {{ (string)$scope==='' ? 'selected' : '' }}>Scope: Todos</option>
+        <option value="global"  {{ (string)$scope==='global' ? 'selected' : '' }}>Global</option>
+        <option value="account" {{ (string)$scope==='account' ? 'selected' : '' }}>Por cuenta</option>
+        <option value="partner" {{ (string)$scope==='partner' ? 'selected' : '' }}>Socio/Distribuidor</option>
       </select>
 
-      <input class="sat-inp" name="q" value="{{ $search }}" placeholder="Buscar código, label, partner_id o account_id…">
+      <input class="sat-inp" name="q" value="{{ $q }}" placeholder="Buscar: code, label, account_id, partner_id…">
 
       <button class="sat-btn" type="submit" style="padding:10px 14px;">Buscar</button>
       <a class="sat-btn" href="{{ route('admin.sat.discounts.index') }}" style="padding:10px 14px;">Limpiar</a>
@@ -159,6 +163,9 @@
                 @else
                   Descuento: {{ (int)($r->pct ?? 0) }}%
                 @endif
+              </div>
+              <div class="sat-small">
+                Usos: {{ (int)($r->uses_count ?? 0) }}{{ $r->max_uses !== null ? (' / ' . (int)$r->max_uses) : '' }}
               </div>
             </td>
 
