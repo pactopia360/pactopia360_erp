@@ -45,6 +45,20 @@ final class SatOpsCredentialsController extends Controller
 
         $base = $connClientes->table('sat_credentials as sc');
 
+        // =========================================================
+        // SELECT column-safe (prod/local pueden diferir)
+        // =========================================================
+        $colOrNull = function (string $col, ?string $alias = null) use ($hasColClientes) {
+            $alias = $alias ?: $col;
+
+            if ($hasColClientes('sat_credentials', $col)) {
+                // usamos alias sc fijo (sat_credentials as sc)
+                return 'sc.' . $col;
+            }
+
+            return DB::raw("NULL as {$alias}");
+        };
+
         $select = [
             'sc.id',
             'sc.account_id',
@@ -53,14 +67,21 @@ final class SatOpsCredentialsController extends Controller
             'sc.razon_social',
             'sc.cer_path',
             'sc.key_path',
-            'sc.key_password',
-            'sc.key_password_enc',
-            'sc.validated_at',
-            'sc.auto_download',
-            'sc.alert_email',
-            'sc.alert_whatsapp',
-            'sc.alert_inapp',
-            'sc.last_alert_at',
+
+            // passwords
+            $colOrNull('key_password', 'key_password'),
+            $colOrNull('key_password_enc', 'key_password_enc'),
+
+            // flags / fechas (compat)
+            $colOrNull('validated_at', 'validated_at'),
+            $colOrNull('auto_download', 'auto_download'),
+
+            // alertas (compat)
+            $colOrNull('alert_email', 'alert_email'),
+            $colOrNull('alert_whatsapp', 'alert_whatsapp'),
+            $colOrNull('alert_inapp', 'alert_inapp'),
+            $colOrNull('last_alert_at', 'last_alert_at'),
+
             'sc.created_at',
             'sc.updated_at',
             'sc.meta',
@@ -106,7 +127,7 @@ final class SatOpsCredentialsController extends Controller
             DB::raw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_name')), '') as created_by_name"),
             DB::raw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_email')), '') as created_by_email"),
 
-                        // Campos para UI (se rellenan después)
+            // Campos para UI (se rellenan después)
             DB::raw("NULL as account_name"),
             DB::raw("NULL as account_hint"),
 
@@ -116,15 +137,7 @@ final class SatOpsCredentialsController extends Controller
             DB::raw("NULL as account_status"),
             DB::raw("NULL as account_plan"),
             DB::raw("NULL as account_created_at"),
-
-
         ];
-
-        // compat: si no existe key_password_enc
-        if (!$hasColClientes('sat_credentials', 'key_password_enc')) {
-            $select = array_values(array_filter($select, fn($s) => $s !== 'sc.key_password_enc'));
-            $select[] = DB::raw("NULL as key_password_enc");
-        }
 
         $base->select($select);
 
@@ -134,14 +147,14 @@ final class SatOpsCredentialsController extends Controller
         if ($q !== '') {
             $base->where(function ($w) use ($q) {
                 $w->where('sc.rfc', 'like', '%' . $q . '%')
-                  ->orWhere('sc.razon_social', 'like', '%' . $q . '%')
-                  ->orWhere('sc.id', 'like', '%' . $q . '%')
-                  ->orWhere('sc.cuenta_id', 'like', '%' . $q . '%')
-                  ->orWhere('sc.account_id', 'like', '%' . $q . '%')
-                  ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')) like ?", ['%' . $q . '%'])
-                  ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by')) like ?", ['%' . $q . '%'])
-                  ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_name')) like ?", ['%' . $q . '%'])
-                  ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_email')) like ?", ['%' . $q . '%']);
+                ->orWhere('sc.razon_social', 'like', '%' . $q . '%')
+                ->orWhere('sc.id', 'like', '%' . $q . '%')
+                ->orWhere('sc.cuenta_id', 'like', '%' . $q . '%')
+                ->orWhere('sc.account_id', 'like', '%' . $q . '%')
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')) like ?", ['%' . $q . '%'])
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by')) like ?", ['%' . $q . '%'])
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_name')) like ?", ['%' . $q . '%'])
+                ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_email')) like ?", ['%' . $q . '%']);
             });
         }
 
@@ -153,7 +166,7 @@ final class SatOpsCredentialsController extends Controller
             } else {
                 $base->where(function ($w) {
                     $w->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.blocked')) IN ('1','true','TRUE')")
-                      ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.status')) IN ('blocked','error','invalid')");
+                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.status')) IN ('blocked','error','invalid')");
                 });
             }
         }
@@ -162,14 +175,14 @@ final class SatOpsCredentialsController extends Controller
             if ($origin === 'externo') {
                 $base->where(function ($w) {
                     $w->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.from_external')) IN ('1','true','TRUE')")
-                      ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.is_external')) IN ('1','true','TRUE')")
-                      ->orWhereRaw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')), '') IS NOT NULL");
+                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.is_external')) IN ('1','true','TRUE')")
+                    ->orWhereRaw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')), '') IS NOT NULL");
                 });
             } else {
                 $base->where(function ($w) {
                     $w->whereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.from_external')),'0') NOT IN ('1','true','TRUE')")
-                      ->whereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.is_external')),'0') NOT IN ('1','true','TRUE')")
-                      ->whereRaw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')), '') IS NULL");
+                    ->whereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.is_external')),'0') NOT IN ('1','true','TRUE')")
+                    ->whereRaw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.external_rfc')), '') IS NULL");
                 });
             }
         }

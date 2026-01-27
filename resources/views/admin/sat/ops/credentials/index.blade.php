@@ -1,5 +1,5 @@
 {{-- resources/views/admin/sat/ops/credentials/index.blade.php --}}
-{{-- P360 · Admin · SAT Ops · Credenciales (v3.6.1 · FIX syntax + UI Cuenta/Password ordenado) --}}
+{{-- P360 · Admin · SAT Ops · Credenciales (v4.0 · Drawer derecho por fila + lista compacta) --}}
 
 @extends('layouts.admin')
 
@@ -102,7 +102,7 @@
     return ['Alertas: '.implode(' · ', $parts),'al-on'];
   };
 
-  $short = function($v, $n=12){
+  $short = function($v, $n=14){
     $v = (string)$v;
     if($v === '' || $v === '—') return '—';
     return strlen($v) > $n ? (substr($v,0,$n).'…') : $v;
@@ -139,7 +139,8 @@
   $rtDeleteName = Route::has('admin.sat.ops.credentials.destroy') ? 'admin.sat.ops.credentials.destroy'
                : (Route::has('admin.sat.credentials.destroy') ? 'admin.sat.credentials.destroy' : null);
 
-  $canGoAccount = Route::has('admin.accounts.show');
+  $canGoAccount = Route::has('admin.billing.accounts.show');
+
 @endphp
 
 @section('page-header')
@@ -226,14 +227,13 @@
       </div>
     </div>
 
-    {{-- List --}}
-    <div class="ops-table ops-v3">
+    {{-- List (compact) --}}
+    <div class="ops-table ops-v3 ops-compact">
       <div class="ops-table-head">
-        <div class="th">Cuenta</div>
-        <div class="th">RFC / Razón social</div>
+        <div class="th">Cuenta / RFC</div>
         <div class="th">Origen</div>
         <div class="th">Archivos</div>
-        <div class="th">SAT</div>
+        <div class="th">SAT / Alertas</div>
         <div class="th">Actividad</div>
         <div class="th th-actions">Acciones</div>
       </div>
@@ -249,24 +249,31 @@
           @php
             $id       = (string) data_get($row,'id');
 
-            // Core: RFC + razon/alias (lo usaremos también para CUENTA si no hay account_name)
             $rfc    = $fmtRfc(data_get($row,'rfc'));
             $name   = $fmt($pick($row, ['razon_social','alias','nombre'], '—'));
 
-            // Account context
+            // Cuenta (detalles reales si vienen del controller)
+            $accEmail   = trim((string)$pick($row, ['account_email'], ''));
+            $accPhone   = trim((string)$pick($row, ['account_phone'], ''));
+            $accStatus  = trim((string)$pick($row, ['account_status'], ''));
+            $accPlan    = trim((string)$pick($row, ['account_plan'], ''));
+            $accCreated = trim((string)$pick($row, ['account_created'], ''));
+
+            // Cuenta (hidratada por controller)
             $accountHint = trim((string)$pick($row, ['account_hint'], ''));
             $accountRef  = $fmt($pick($row, ['account_ref_id'], '—'));
             $aidFull     = $fmt($pick($row, ['account_id'], '—'));
             $cidFull     = $fmt($pick($row, ['cuenta_id'], '—'));
 
             $accountName = trim((string)$pick($row, ['account_name'], ''));
-            // “Información real”: account_name si existe, si no usa razón social
-            $accTitle = $accountName !== '' ? $accountName : ($name !== '—' ? $name : 'Cuenta');
-            $accSub   = $rfc !== '—' ? $rfc : '—';
+            $accTitle    = $accountName !== '' ? $accountName : ($name !== '—' ? $name : 'Cuenta');
 
-            $showAccountRef = ($accountRef !== '' && $accountRef !== '—');
-            $showAccountId  = ($aidFull    !== '' && $aidFull    !== '—');
-            $showCuentaId   = ($cidFull    !== '' && $cidFull    !== '—');
+            // Detalle real de cuenta (drawer)
+            $accEmail    = trim((string)$pick($row, ['account_email'], ''));
+            $accPhone    = trim((string)$pick($row, ['account_phone'], ''));
+            $accStatus   = trim((string)$pick($row, ['account_status'], ''));
+            $accPlan     = trim((string)$pick($row, ['account_plan'], ''));
+            $accCreated  = trim((string)$pick($row, ['account_created_at'], ''));
 
             [$bTxt, $bCls] = $badge($row);
             [$oTxt, $oCls] = $originTag($row);
@@ -302,99 +309,88 @@
             $cerUrl = $rtCerName ? route($rtCerName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/cer');
             $keyUrl = $rtKeyName ? route($rtKeyName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/key');
 
-            // Link cuenta (si existe y si tenemos referencia “usable”)
+            // Link cuenta
             $accountUrl = null;
             if($canGoAccount && $accountRef !== '—' && $accountRef !== ''){
-              try { $accountUrl = route('admin.accounts.show', ['account' => $accountRef]); } catch(\Throwable) { $accountUrl = null; }
+              try { $accountUrl = route('admin.billing.accounts.show', ['id' => $accountRef]); } catch(\Throwable) { $accountUrl = null; }
             }
+
           @endphp
 
-          <div class="tr" data-row data-id="{{ e($id) }}">
+          <div class="tr tr-compact"
+               data-row
+               data-id="{{ e($id) }}"
+               data-rfc="{{ e($rfc) }}"
+               data-name="{{ e($name) }}"
+               data-acc-title="{{ e($accTitle) }}"
+               data-acc-hint="{{ e($accountHint) }}"
+               data-acc-ref="{{ e($accountRef) }}"
+               data-account-id="{{ e($aidFull) }}"
+               data-cuenta-id="{{ e($cidFull) }}"
+               data-origin="{{ e($oTxt) }}"
+               data-origin-hint="{{ e($originHint) }}"
+               data-files="{{ e($fTxt) }}"
+               data-has-cer="{{ $hasCer ? '1' : '0' }}"
+               data-has-key="{{ $hasKey ? '1' : '0' }}"
+               data-has-pass="{{ $hasPass ? '1' : '0' }}"
+               data-pass="{{ e($keyPass) }}"
+               data-cer-url="{{ e($cerUrl) }}"
+               data-key-url="{{ e($keyUrl) }}"
+               data-alerts="{{ e($alTxt) }}"
+               data-status="{{ e($bTxt) }}"
+               data-status-cls="{{ e($bCls) }}"
+               data-origin-cls="{{ e($oCls) }}"
+               data-files-cls="{{ e($fCls) }}"
+               data-alerts-cls="{{ e($alCls) }}"
+               data-created="{{ e($fmtDate($createdAt,true)) }}"
+               data-updated="{{ e($fmtDate($updatedAt,true)) }}"
+               data-validated="{{ e($fmtDate($validatedAt,true)) }}"
+               data-last-alert="{{ e($fmtDate($lastAlertAt,true)) }}"
+               data-created-ago="{{ e($ago($createdAt)) }}"
+               data-updated-ago="{{ e($ago($updatedAt)) }}"
+               data-last-alert-ago="{{ e($ago($lastAlertAt)) }}"
+               data-account-url="{{ e($accountUrl ?? '') }}"
+               data-meta="{{ e($metaJson) }}"
+               data-meta-title="{{ e($rfc.' · '.$name) }}"
+               data-acc-email="{{ e($accEmail) }}"
+               data-acc-phone="{{ e($accPhone) }}"
+               data-acc-status="{{ e($accStatus) }}"
+               data-acc-plan="{{ e($accPlan) }}"
+               data-acc-created="{{ e($accCreated) }}"
 
-            {{-- CUENTA --}}
-            <div class="td td-account-first">
-              <div class="acc-top">
-                <div class="acc-title" title="{{ $accTitle }}">{{ $accTitle }}</div>
-                <div class="acc-sub">
-                  <span class="acc-chip mono" title="RFC">{{ $accSub }}</span>
+          >
 
-                  @if($accountHint !== '')
-                    <span class="acc-chip acc-chip-muted" title="{{ $accountHint }}">Fuente: {{ $accountHint }}</span>
-                  @endif
-
-                  @if($showAccountRef)
-                    <span class="acc-chip acc-chip-muted mono" title="Account ref">{{ $short($accountRef, 18) }}</span>
-                  @endif
-                </div>
-              </div>
-
-              <div class="acc-ids acc-ids-v3">
-                @if($showAccountRef)
-                  <div class="acc-row">
-                    <div class="acc-k">Account ref</div>
-                    <div class="acc-v mono" title="{{ $accountRef }}">{{ $accountRef }}</div>
-                    <button class="acc-copy" type="button"
-                            data-copy="{{ e($accountRef) }}" data-toast="account_ref copiado">Copiar</button>
-                  </div>
-                @endif
-
-                @if($showAccountId)
-                  <div class="acc-row">
-                    <div class="acc-k">Account ID</div>
-                    <div class="acc-v mono" title="{{ $aidFull }}">{{ $aidFull }}</div>
-                    <button class="acc-copy" type="button"
-                            data-copy="{{ e($aidFull) }}" data-toast="account_id copiado">Copiar</button>
-                  </div>
-                @endif
-
-                @if($showCuentaId)
-                  <div class="acc-row">
-                    <div class="acc-k">Cuenta ID</div>
-                    <div class="acc-v mono" title="{{ $cidFull }}">{{ $cidFull }}</div>
-                    <button class="acc-copy" type="button"
-                            data-copy="{{ e($cidFull) }}" data-toast="cuenta_id copiado">Copiar</button>
-                  </div>
-                @endif
-
-                @if(!$showAccountRef && !$showAccountId && !$showCuentaId)
-                  <div class="acc-empty">Sin identificadores.</div>
-                @endif
-              </div>
-
-              @if($accountUrl)
-                <a class="link" href="{{ $accountUrl }}">Ver cuenta</a>
-              @endif
-            </div>
-
-            {{-- RFC / RAZÓN --}}
-            <div class="td td-main">
-              <div class="main-top">
-                <div class="rfc mono" title="{{ $rfc }}">{{ $rfc }}</div>
+            {{-- COL 1: Cuenta / RFC --}}
+            <div class="td td-c1">
+              <div class="c1-top">
+                <div class="c1-acc" title="{{ $accTitle }}">{{ $accTitle }}</div>
                 <span class="pill {{ $bCls }}">{{ $bTxt }}</span>
               </div>
-
-              <div class="main-name" title="{{ $name }}">{{ $name }}</div>
-
-              <div class="main-sub">
-                <span class="mini mono" title="ID completo">{{ $short($id, 22) }}</span>
-                @if($validatedAt)
+              <div class="c1-sub">
+                <span class="mono c1-rfc" title="{{ $rfc }}">{{ $rfc }}</span>
+                <span class="dotsep">•</span>
+                <span class="c1-name" title="{{ $name }}">{{ $name }}</span>
+              </div>
+              <div class="c1-mini">
+                <span class="mini mono" title="ID">{{ $short($id, 18) }}</span>
+                @if($accountHint !== '')
                   <span class="dotsep">•</span>
-                  <span class="mini" title="Validado">{{ $fmtDate($validatedAt, true) }}</span>
+                  <span class="mini" title="{{ $accountHint }}">Fuente: {{ $accountHint }}</span>
                 @endif
               </div>
             </div>
 
-            {{-- ORIGEN --}}
-            <div class="td td-origin">
+            {{-- COL 2: Origen --}}
+            <div class="td td-c2">
               <span class="tag {{ $oCls }}" title="{{ $originHint }}">{{ $oTxt }}</span>
               @if($extRfc !== '')
                 <div class="hint mono" title="{{ $extRfc }}">{{ $extRfc }}</div>
               @endif
             </div>
 
-            {{-- ARCHIVOS --}}
-            <div class="td td-files">
-              <div class="files-top">
+            {{-- COL 3: Archivos --}}
+            <div class="td td-c3">
+              <div class="stack">
                 <span class="tag {{ $fCls }}">{{ $fTxt }}</span>
                 <div class="files-state">
                   <span class="mini {{ $hasCer ? 'ok' : 'warn' }}">CER</span>
@@ -402,74 +398,33 @@
                   <span class="mini {{ $hasPass ? 'ok' : 'warn' }}">PASS</span>
                 </div>
               </div>
-
-              <div class="files-actions">
-                <a class="a {{ $hasCer ? '' : 'is-disabled' }}"
-                   href="{{ $hasCer ? $cerUrl : 'javascript:void(0)' }}"
-                   @if(!$hasCer) aria-disabled="true" tabindex="-1" @endif
-                   title="{{ $hasCer ? 'Descargar CER' : 'No hay CER' }}">
-                  Descargar CER
-                </a>
-
-                <a class="a {{ $hasKey ? '' : 'is-disabled' }}"
-                   href="{{ $hasKey ? $keyUrl : 'javascript:void(0)' }}"
-                   @if(!$hasKey) aria-disabled="true" tabindex="-1" @endif
-                   title="{{ $hasKey ? 'Descargar KEY' : 'No hay KEY' }}">
-                  Descargar KEY
-                </a>
-              </div>
-
-              {{-- PASSWORD (UI FIX: visible y alineado) --}}
-              <div class="passbox">
-                <div class="k">Password</div>
-
-                @if($hasPass)
-                  <div class="passui">
-                    <div class="passmask" title="Password enmascarada" aria-label="Password enmascarada">
-                      <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
-                      <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
-                    </div>
-
-                    <input class="passinp" type="text" value="{{ $keyPass }}" readonly>
-
-                    <div class="pass-actions">
-                      <button class="pbtn" type="button" data-pass-toggle>Ver</button>
-                      <button class="pbtn pbtn-ghost" type="button" data-copy="{{ e($keyPass) }}" data-toast="Password copiada">Copiar</button>
-                    </div>
-                  </div>
-                @else
-                  <div class="hint">—</div>
-                @endif
-              </div>
             </div>
 
-            {{-- SAT / ALERTAS --}}
-            <div class="td td-status">
+            {{-- COL 4: SAT / Alertas --}}
+            <div class="td td-c4">
               <span class="tag {{ $alCls }}">{{ $alTxt }}</span>
-              @if($lastAlertAt)
-                <div class="hint" title="Última alerta">{{ $ago($lastAlertAt) }}</div>
-              @else
-                <div class="hint">—</div>
-              @endif
-            </div>
-
-            {{-- ACTIVIDAD --}}
-            <div class="td td-meta">
-              <div class="kv">
-                <div class="k">Alta</div>
-                <div class="v" title="{{ $fmtDate($createdAt, true) }}">{{ $ago($createdAt) }}</div>
-              </div>
-              <div class="kv">
-                <div class="k">Actualización</div>
-                <div class="v" title="{{ $fmtDate($updatedAt, true) }}">{{ $ago($updatedAt) }}</div>
+              <div class="hint" title="Última alerta">
+                {{ $lastAlertAt ? $ago($lastAlertAt) : '—' }}
               </div>
             </div>
 
-            {{-- ACCIONES --}}
+            {{-- COL 5: Actividad --}}
+            <div class="td td-c5">
+              <div class="kvline">
+                <span class="k">Alta</span>
+                <span class="v" title="{{ $fmtDate($createdAt,true) }}">{{ $ago($createdAt) }}</span>
+              </div>
+              <div class="kvline">
+                <span class="k">Update</span>
+                <span class="v" title="{{ $fmtDate($updatedAt,true) }}">{{ $ago($updatedAt) }}</span>
+              </div>
+            </div>
+
+            {{-- COL 6: Acciones --}}
             <div class="td td-actions">
-              <div class="act">
-                <button class="a a-ghost" type="button" data-copy="{{ e($rfc) }}" data-toast="RFC copiado">Copiar RFC</button>
-                <button class="a a-ghost" type="button" data-copy="{{ e($id) }}" data-toast="ID copiado">Copiar ID</button>
+              <div class="act act-compact">
+                <button class="a a-primary" type="button" data-open-cred>Ver</button>
+                <button class="a a-ghost" type="button" data-copy="{{ e($rfc) }}" data-toast="RFC copiado">Copiar</button>
 
                 <div class="kebab" data-menu>
                   <button class="kebab-btn" type="button" aria-label="Herramientas" data-menu-btn>⋯</button>
@@ -490,6 +445,7 @@
                     @endif
                   </div>
                 </div>
+
               </div>
             </div>
 
@@ -507,7 +463,204 @@
 
   </div>
 
-  {{-- Meta Drawer --}}
+  {{-- Drawer: Detalle credencial --}}
+  <div class="p360-drawer p360-drawer-cred" id="credDrawer" aria-hidden="true">
+    <div class="drawer-backdrop" data-cred-close></div>
+
+    <div class="drawer-card" role="dialog" aria-modal="true" aria-label="Detalle credencial">
+      <div class="drawer-head">
+        <div class="drawer-title">
+          <div class="d-title-row">
+            <span class="mono" id="credRfc">—</span>
+            <span class="pill" id="credStatus">—</span>
+          </div>
+          <div class="d-sub" id="credName">—</div>
+        </div>
+
+        <button type="button" class="drawer-x" data-cred-close aria-label="Cerrar">×</button>
+      </div>
+
+      <div class="drawer-body">
+
+        <div class="d-grid">
+
+          {{-- Cuenta --}}
+          <section class="d-card">
+            <div class="d-card-h">
+              <div class="d-card-t">Cuenta</div>
+              <a class="d-link" id="credAccountLink" href="#" target="_self" rel="noopener" style="display:none;">Ver cuenta</a>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Nombre</div>
+              <div class="v" id="credAccTitle">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Fuente</div>
+              <div class="v" id="credAccHint">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Estado</div>
+              <div class="v" id="credAccStatus">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Plan</div>
+              <div class="v" id="credAccPlan">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Email</div>
+              <div class="v" id="credAccEmail">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Teléfono</div>
+              <div class="v" id="credAccPhone">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Alta</div>
+              <div class="v" id="credAccCreated">—</div>
+            </div>
+
+
+             <div class="d-ids">
+              <div class="idrow">
+                <div class="k">Cuenta ref</div>
+                <div class="v mono" id="credAccRef">—</div>
+                <button class="a a-mini" type="button" data-copy-from="#credAccRef" data-toast="Cuenta ref copiada">Copiar</button>
+              </div>
+
+              <details class="ids-more">
+                <summary>IDs avanzados</summary>
+
+                <div class="idrow">
+                  <div class="k">account_id</div>
+                  <div class="v mono" id="credAccountId">—</div>
+                  <button class="a a-mini" type="button" data-copy-from="#credAccountId" data-toast="account_id copiado">Copiar</button>
+                </div>
+
+                <div class="idrow">
+                  <div class="k">cuenta_id</div>
+                  <div class="v mono" id="credCuentaId">—</div>
+                  <button class="a a-mini" type="button" data-copy-from="#credCuentaId" data-toast="cuenta_id copiado">Copiar</button>
+                </div>
+              </details>
+            </div>
+
+          </section>
+
+          {{-- Origen / SAT --}}
+          <section class="d-card">
+            <div class="d-card-h">
+              <div class="d-card-t">Origen / SAT</div>
+              <span class="tag" id="credOriginTag">—</span>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Detalle</div>
+              <div class="v" id="credOriginHint">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Alertas</div>
+              <div class="v">
+                <span class="tag" id="credAlertsTag">—</span>
+              </div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Última alerta</div>
+              <div class="v" id="credLastAlert">—</div>
+            </div>
+          </section>
+
+          {{-- Archivos / Password --}}
+          <section class="d-card">
+            <div class="d-card-h">
+              <div class="d-card-t">Archivos</div>
+              <span class="tag" id="credFilesTag">—</span>
+            </div>
+
+            <div class="d-actions">
+              <a class="a" id="credCerBtn" href="#" target="_self" rel="noopener">Descargar CER</a>
+              <a class="a" id="credKeyBtn" href="#" target="_self" rel="noopener">Descargar KEY</a>
+            </div>
+
+            <div class="d-pass">
+              <div class="k">Password</div>
+
+              <div class="passui" id="credPassUi">
+                <input class="passinp" id="credPassInput" type="password" value="" readonly>
+                <div class="pass-actions">
+                  <button class="a a-ghost" type="button" data-cred-pass-toggle>Ver</button>
+                  <button class="a a-ghost" type="button" data-copy-from="#credPassInput" data-toast="Password copiada">Copiar</button>
+                </div>
+              </div>
+
+              <div class="hint" id="credPassEmpty" style="display:none;">—</div>
+            </div>
+          </section>
+
+          {{-- Actividad --}}
+          <section class="d-card">
+            <div class="d-card-h">
+              <div class="d-card-t">Actividad</div>
+              <span class="mini mono" id="credIdShort">—</span>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Alta</div>
+              <div class="v" id="credCreated">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Actualización</div>
+              <div class="v" id="credUpdated">—</div>
+            </div>
+
+            <div class="d-kv">
+              <div class="k">Validado</div>
+              <div class="v" id="credValidated">—</div>
+            </div>
+          </section>
+
+          {{-- Acciones --}}
+          <section class="d-card d-card-actions">
+            <div class="d-card-h">
+              <div class="d-card-t">Acciones</div>
+            </div>
+
+            <div class="d-actions d-actions-wide">
+              <button class="a" type="button" data-copy-from="#credRfc" data-toast="RFC copiado">Copiar RFC</button>
+              <button class="a" type="button" data-copy-from="#credIdFull" data-toast="ID copiado">Copiar ID</button>
+              <button class="a a-ghost" type="button" data-open-meta>Ver meta</button>
+              <button class="a a-ghost" type="button" data-cred-edit>Editar</button>
+              <button class="a a-ghost" type="button" data-cred-refresh>Actualizar</button>
+
+              @if($rtDeleteName)
+                <button class="a a-danger" type="button" data-cred-delete>Eliminar</button>
+              @endif
+            </div>
+
+            <div class="d-hidden">
+              <div class="mono" id="credIdFull">—</div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <div class="drawer-foot">
+        <button type="button" class="p360-btn" data-cred-close>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  {{-- Meta Drawer (se conserva) --}}
   <div class="p360-drawer" id="metaDrawer" aria-hidden="true">
     <div class="drawer-backdrop" data-drawer-close></div>
     <div class="drawer-card" role="dialog" aria-modal="true" aria-label="Meta">
@@ -529,134 +682,8 @@
 
 @push('styles')
   <link rel="stylesheet" href="{{ asset('assets/admin/css/sat-ops-credentials.css') }}?v={{ date('YmdHis') }}">
-
-  <style>
-    /* ---------- Cuenta (más real y ordenado) ---------- */
-    .td-account-first .acc-top{display:flex;flex-direction:column;gap:6px;min-width:0}
-    .td-account-first .acc-title{
-      font-weight:800;font-size:13px;line-height:1.2;color:#0f172a;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
-    }
-    .td-account-first .acc-sub{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
-    .td-account-first .acc-chip{
-      display:inline-flex;align-items:center;gap:6px;
-      padding:4px 8px;border-radius:999px;border:1px solid #e2e8f0;background:#f8fafc;
-      font-size:11px;font-weight:800;color:#0f172a;max-width:100%;
-    }
-    .td-account-first .acc-chip-muted{background:#f1f5f9;color:#475569}
-    .td-account-first .acc-ids-v3{
-      display:flex;flex-direction:column;gap:8px;
-      background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:10px;margin-top:8px;
-      min-width:0;
-    }
-    .td-account-first .acc-row{
-      display:grid;grid-template-columns: 92px 1fr 74px;gap:10px;align-items:center;
-      padding:8px 10px;border:1px solid #eef2f7;border-radius:12px;background:#fbfdff;min-width:0;
-    }
-    .td-account-first .acc-k{
-      font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;
-    }
-    .td-account-first .acc-v{
-      font-size:12px;font-weight:800;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
-      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-    }
-    .td-account-first .acc-copy{
-      justify-self:end;height:30px;padding:0 10px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;
-      font-weight:800;font-size:12px;cursor:pointer;
-    }
-    .td-account-first .acc-copy:hover{background:#f8fafc}
-    .td-account-first .acc-empty{font-size:12px;color:#64748b;padding:4px 2px}
-
-    /* ---------- Password (que SI se vea) ---------- */
-    .td-files .passbox{margin-top:10px}
-    .td-files .passbox .k{
-      font-size:11px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;
-    }
-    .td-files .passui{
-      display:grid;
-      grid-template-columns: 1fr auto;
-      gap:10px;
-      align-items:center;
-      padding:10px;
-      border:1px solid #e2e8f0;
-      border-radius:14px;
-      background:#ffffff;
-      min-width:0;
-    }
-    .td-files .passmask{
-      display:flex;align-items:center;gap:6px;min-height:34px;
-      padding:6px 10px;border:1px dashed #e2e8f0;border-radius:12px;background:#fbfdff;
-    }
-    .td-files .passmask .dot{
-      width:8px;height:8px;border-radius:999px;background:#0f172a;opacity:.55;display:inline-block;
-    }
-    .td-files .passinp{
-      display:none;
-      width:100%;
-      height:34px;
-      padding:0 10px;
-      border:1px solid #e2e8f0;
-      border-radius:12px;
-      font-weight:800;
-      font-size:12px;
-      color:#0f172a;
-      background:#fbfdff;
-      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-      min-width:0;
-    }
-    .td-files .passui.is-reveal .passmask{display:none}
-    .td-files .passui.is-reveal .passinp{display:block}
-    .td-files .pass-actions{display:flex;gap:8px;align-items:center}
-    .td-files .pbtn{
-      height:34px;padding:0 12px;border-radius:999px;border:1px solid #e2e8f0;background:#0f172a;color:#fff;
-      font-weight:900;font-size:12px;cursor:pointer;white-space:nowrap;
-    }
-    .td-files .pbtn:hover{filter:brightness(0.97)}
-    .td-files .pbtn-ghost{background:#fff;color:#0f172a}
-    .td-files .pbtn-ghost:hover{background:#f8fafc}
-  </style>
 @endpush
 
 @push('scripts')
   <script src="{{ asset('assets/admin/js/sat-ops-credentials.js') }}?v={{ date('YmdHis') }}" defer></script>
-
-  <script>
-  document.addEventListener('click', function(e){
-    const tgl = e.target.closest('[data-pass-toggle]');
-    if(tgl){
-      const box = tgl.closest('.passui');
-      if(!box) return;
-      const on = box.classList.toggle('is-reveal');
-      tgl.textContent = on ? 'Ocultar' : 'Ver';
-      return;
-    }
-
-    const cpy = e.target.closest('[data-copy]');
-    if(cpy){
-      const val = cpy.getAttribute('data-copy') || '';
-      if(!val) return;
-      const toastMsg = cpy.getAttribute('data-toast') || 'Copiado';
-
-      const okToast = () => {
-        try {
-          if (window.P360 && window.P360.toast && typeof window.P360.toast.success === 'function') {
-            return window.P360.toast.success(toastMsg);
-          }
-        } catch (err) {}
-      };
-
-      const fallback = () => {
-        try { window.prompt('Copia:', val); } catch(err) {}
-      };
-
-      try{
-        if(navigator.clipboard && navigator.clipboard.writeText){
-          navigator.clipboard.writeText(val).then(okToast).catch(fallback);
-          return;
-        }
-      }catch(err){}
-      fallback();
-    }
-  });
-  </script>
 @endpush
