@@ -139,6 +139,30 @@ final class SatOpsCredentialsController extends Controller
             DB::raw("NULL as account_created_at"),
         ];
 
+        // =========================================================
+        // compat: columnas de alertas pueden NO existir en PROD
+        // =========================================================
+        if (!$hasColClientes('sat_credentials', 'alert_email')) {
+            $select = array_values(array_filter($select, fn($s) => $s !== 'sc.alert_email'));
+            $select[] = DB::raw("0 as alert_email");
+        }
+
+        if (!$hasColClientes('sat_credentials', 'alert_whatsapp')) {
+            $select = array_values(array_filter($select, fn($s) => $s !== 'sc.alert_whatsapp'));
+            $select[] = DB::raw("0 as alert_whatsapp");
+        }
+
+        if (!$hasColClientes('sat_credentials', 'alert_inapp')) {
+            $select = array_values(array_filter($select, fn($s) => $s !== 'sc.alert_inapp'));
+            $select[] = DB::raw("0 as alert_inapp");
+        }
+
+        if (!$hasColClientes('sat_credentials', 'last_alert_at')) {
+            $select = array_values(array_filter($select, fn($s) => $s !== 'sc.last_alert_at'));
+            $select[] = DB::raw("NULL as last_alert_at");
+        }
+
+
         $base->select($select);
 
         // =========================================================
