@@ -14,6 +14,10 @@ use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
+
 
 final class SatOpsCredentialsController extends Controller
 {
@@ -102,9 +106,18 @@ final class SatOpsCredentialsController extends Controller
             DB::raw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_name')), '') as created_by_name"),
             DB::raw("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(sc.meta,'$.created_by_email')), '') as created_by_email"),
 
-            // Campos para UI (se rellenan después)
+                        // Campos para UI (se rellenan después)
             DB::raw("NULL as account_name"),
             DB::raw("NULL as account_hint"),
+
+            // Detalle de cuenta (drawer)
+            DB::raw("NULL as account_email"),
+            DB::raw("NULL as account_phone"),
+            DB::raw("NULL as account_status"),
+            DB::raw("NULL as account_plan"),
+            DB::raw("NULL as account_created_at"),
+
+
         ];
 
         // compat: si no existe key_password_enc
@@ -376,16 +389,128 @@ final class SatOpsCredentialsController extends Controller
     abort(404, 'Archivo no encontrado en almacenamiento: ' . $pathRaw);
 }
 
+// =========================================================
+// DELETE (OPS) — usado por sat-ops-credentials.js (fetch DELETE)
+// =========================================================
+public function destroy(Request $request, string $id): JsonResponse
+{
+    try {
+        $conn = DB::connection('mysql_clientes');
+
+        $row = $conn->table('sat_credentials')
+            ->select(['id', 'rfc', 'cer_path', 'key_path'])
+            ->where('id', $id)
+            ->first();
+
+        if (!$row) {
+            return response()->json(['message' => 'Credencial no encontrada.'], 404);
+        }
+
+        $rfc = strtoupper(trim((string) ($row->rfc ?? '')));
+        $cer = trim((string) ($row->cer_path ?? ''));
+        $key = trim((string) ($row->key_path ?? ''));
+
+        // 1) Borra registro
+        $conn->table('sat_credentials')->where('id', $id)->delete();
+
+        // 2) Best-effort: borra archivos si existen (NO rompe si falla)
+        $this->tryDeleteStoredFile($cer);
+        $this->tryDeleteStoredFile($key);
+
+        return response()->json([
+            'ok'      => true,
+            'message' => 'Credencial eliminada.',
+            'id'      => (string) $id,
+            'rfc'     => $rfc,
+        ], 200);
+    } catch (\Throwable $e) {
+        try { Log::error('SAT OPS destroy failed', ['id' => $id, 'e' => $e->getMessage()]); } catch (\Throwable) {}
+        return response()->json(['message' => 'No se pudo eliminar la credencial.'], 500);
+    }
+}
+
+/**
+ * Best-effort: intenta borrar un archivo guardado en BD (paths tipo sat/certs/... o public/sat/...).
+ * No lanza excepción si no existe / falla.
+ */
+private function tryDeleteStoredFile(string $pathRaw): void
+{
+    $pathRaw = trim($pathRaw);
+    if ($pathRaw === '') return;
+
+    $p = str_replace('\\', '/', $pathRaw);
+    $p = preg_replace('#/+#', '/', $p);
+    $p = ltrim($p, '/');
+    $p = trim($p);
+    if ($p === '') return;
+
+    $cands = [];
+    $push = function (string $x) use (&$cands) {
+        $x = str_replace('\\', '/', $x);
+        $x = preg_replace('#/+#', '/', $x);
+        $x = ltrim($x, '/');
+        $x = trim($x);
+        if ($x !== '' && !in_array($x, $cands, true)) $cands[] = $x;
+    };
+
+    // original y normalizaciones típicas
+    $push($p);
+    $push(preg_replace('#^public/#', '', $p) ?? $p);
+    $push(preg_replace('#^storage/app/public/#', '', $p) ?? $p);
+    $push('public/' . $p);
+
+    // discos a intentar
+    $disks = ['public', 'local'];
+    try {
+        foreach (array_keys((array) config('filesystems.disks', [])) as $d) {
+            if (!in_array($d, $disks, true)) $disks[] = $d;
+        }
+    } catch (\Throwable) {}
+
+    foreach ($disks as $disk) {
+        try { $d = Storage::disk($disk); } catch (\Throwable) { continue; }
+
+        foreach ($cands as $cand) {
+            try {
+                if ($d->exists($cand)) {
+                    $d->delete($cand);
+                    return;
+                }
+            } catch (\Throwable) {}
+        }
+    }
+
+    // fallback a rutas absolutas dentro de storage
+    foreach ($cands as $cand) {
+        try {
+            $abs1 = storage_path('app/' . $cand);
+            if (is_file($abs1)) { @unlink($abs1); return; }
+
+            $abs2 = storage_path('app/public/' . $cand);
+            if (is_file($abs2)) { @unlink($abs2); return; }
+        } catch (\Throwable) {}
+    }
+}
+
+
 
     // =========================================================
     // Resolver nombre de cuenta: primero ADMIN.accounts, luego CLIENTES.*
     // =========================================================
     private function hydrateAccountNames($items)
     {
+        // 1) Intenta admin.accounts (si hubiera match directo)
         $items = $this->hydrateAccountNamesFromAdmin($items);
+
+        // 2) ✅ Nuevo: fallback real para UUID -> billing_statements.snapshot.account
+        $items = $this->hydrateAccountNamesFromAdminBillingSnapshot($items);
+
+        // 3) Fallbacks legacy: mysql_clientes (companies/accounts/clientes)
         $items = $this->hydrateAccountNamesFromClientes($items);
+
         return $items;
     }
+
 
     private function hydrateAccountNamesFromAdmin($items)
     {
@@ -404,16 +529,26 @@ final class SatOpsCredentialsController extends Controller
             $schema = Schema::connection($accConn);
             if (!$schema->hasTable('accounts')) return $items;
 
-            // nombre
-            $nameCol = null;
-            foreach (['razon_social', 'nombre', 'name', 'title'] as $col) {
-                try {
-                    if ($schema->hasColumn('accounts', $col)) { $nameCol = $col; break; }
-                } catch (\Throwable) {}
-            }
-            if (!$nameCol) return $items;
+            // ===========================
+            // Detectar columnas disponibles
+            // ===========================
+            $pickCol = function (array $cands) use ($schema): ?string {
+                foreach ($cands as $c) {
+                    try {
+                        if ($schema->hasColumn('accounts', $c)) return $c;
+                    } catch (\Throwable) {}
+                }
+                return null;
+            };
 
-            // llave
+            $nameCol   = $pickCol(['razon_social','nombre','name','title']);
+            $emailCol  = $pickCol(['email','correo','email_contacto','correo_contacto']);
+            $phoneCol  = $pickCol(['telefono','phone','tel','celular','movil']);
+            $statusCol = $pickCol(['estado_cuenta','status','estado','is_blocked','blocked']);
+            $planCol   = $pickCol(['plan','plan_name','license','license_name','paquete','package']);
+            $createdCol= $pickCol(['created_at','alta','created']);
+
+            // llave (columna para whereIn)
             $keyCandidates = ['id', 'uuid', 'account_uuid', 'public_id', 'uid', 'external_id', 'account_id', 'key'];
             $existing = [];
             foreach ($keyCandidates as $c) {
@@ -434,25 +569,69 @@ final class SatOpsCredentialsController extends Controller
             }
             if (!$keyCol) $keyCol = $existing[0];
 
+            // ===========================
+            // SELECT dinámico
+            // ===========================
+            $sel = [
+                $keyCol . ' as k',
+                ($nameCol ? ($nameCol . ' as n') : DB::raw("NULL as n")),
+                ($emailCol ? ($emailCol . ' as e') : DB::raw("NULL as e")),
+                ($phoneCol ? ($phoneCol . ' as p') : DB::raw("NULL as p")),
+                ($statusCol ? ($statusCol . ' as s') : DB::raw("NULL as s")),
+                ($planCol ? ($planCol . ' as pl') : DB::raw("NULL as pl")),
+                ($createdCol ? ($createdCol . ' as c') : DB::raw("NULL as c")),
+            ];
+
             $rows = DB::connection($accConn)
                 ->table('accounts')
-                ->select([$keyCol . ' as k', $nameCol . ' as n'])
+                ->select($sel)
                 ->whereIn($keyCol, $ids->all())
                 ->get();
 
             $map = [];
             foreach ($rows as $r) {
-                $k = trim((string) ($r->k ?? ''));
-                $n = trim((string) ($r->n ?? ''));
-                if ($k !== '' && $n !== '') $map[$k] = $n;
+                $k  = trim((string) ($r->k ?? ''));
+                if ($k === '') continue;
+
+                $map[$k] = [
+                    'name'   => trim((string) ($r->n ?? '')),
+                    'email'  => trim((string) ($r->e ?? '')),
+                    'phone'  => trim((string) ($r->p ?? '')),
+                    'status' => trim((string) ($r->s ?? '')),
+                    'plan'   => trim((string) ($r->pl ?? '')),
+                    'created'=> trim((string) ($r->c ?? '')),
+                ];
             }
 
             foreach ($items as $it) {
-                if (!empty($it->account_name)) continue;
                 $k = trim((string) ($it->account_ref_id ?? ''));
-                if ($k !== '' && isset($map[$k])) {
-                    $it->account_name = $map[$k];
+                if ($k === '' || !isset($map[$k])) continue;
+
+                $payload = $map[$k];
+
+                if (empty($it->account_name) && ($payload['name'] ?? '') !== '') {
+                    $it->account_name = $payload['name'];
+                }
+
+                // Siempre marcamos hint si se hidrató algo desde admin
+                if (empty($it->account_hint)) {
                     $it->account_hint = 'Admin · accounts';
+                }
+
+                if (empty($it->account_email) && ($payload['email'] ?? '') !== '') {
+                    $it->account_email = $payload['email'];
+                }
+                if (empty($it->account_phone) && ($payload['phone'] ?? '') !== '') {
+                    $it->account_phone = $payload['phone'];
+                }
+                if (empty($it->account_status) && ($payload['status'] ?? '') !== '') {
+                    $it->account_status = $payload['status'];
+                }
+                if (empty($it->account_plan) && ($payload['plan'] ?? '') !== '') {
+                    $it->account_plan = $payload['plan'];
+                }
+                if (empty($it->account_created_at) && ($payload['created'] ?? '') !== '') {
+                    $it->account_created_at = $payload['created'];
                 }
             }
         } catch (\Throwable) {
@@ -461,6 +640,122 @@ final class SatOpsCredentialsController extends Controller
 
         return $items;
     }
+
+    private function hydrateAccountNamesFromAdminBillingSnapshot($items)
+    {
+        try {
+            // =========================================================
+            // Objetivo:
+            // - Cuando sat_credentials.account_id es UUID y NO existe en admin.accounts,
+            //   tomamos la info de cuenta desde mysql_admin.billing_statements.snapshot
+            //   snapshot.account.{razon_social,email,rfc,is_blocked,...}
+            //   snapshot.license.{price_key,cycle,is_pro,...}
+            // =========================================================
+
+            $ids = collect($items)
+                ->map(fn($r) => trim((string)($r->account_ref_id ?? '')))
+                ->filter(fn($v) => $v !== '' && $v !== '0' && $v !== '—')
+                ->unique()
+                ->values();
+
+            if ($ids->isEmpty()) return $items;
+
+            // Solo UUIDs (porque billing_statements.account_id es varchar(36))
+            $isUuid = fn(string $v) => (bool)preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
+
+            $uuidIds = $ids->filter(fn($v) => $isUuid((string)$v))->values();
+            if ($uuidIds->isEmpty()) return $items;
+
+            // Traer el statement más reciente por account_id (simple: order desc y en PHP nos quedamos con el primero)
+            $rows = DB::connection('mysql_admin')
+                ->table('billing_statements')
+                ->select(['account_id', 'snapshot', 'updated_at', 'created_at'])
+                ->whereIn('account_id', $uuidIds->all())
+                ->orderByDesc('updated_at')
+                ->orderByDesc('created_at')
+                ->get();
+
+            if ($rows->isEmpty()) return $items;
+
+            $map = [];
+            foreach ($rows as $r) {
+                $k = trim((string)($r->account_id ?? ''));
+                if ($k === '' || isset($map[$k])) continue; // ya tenemos el más reciente
+
+                $snapRaw = (string)($r->snapshot ?? '');
+                if ($snapRaw === '') continue;
+
+                $snap = json_decode($snapRaw, true);
+                if (!is_array($snap)) continue;
+
+                $acc = $snap['account'] ?? [];
+                $lic = $snap['license'] ?? [];
+
+                $name   = trim((string)($acc['razon_social'] ?? $acc['name'] ?? $acc['nombre'] ?? ''));
+                $email  = trim((string)($acc['email'] ?? ''));
+                $rfc    = trim((string)($acc['rfc'] ?? ''));
+                $blocked= (int)($acc['is_blocked'] ?? 0);
+
+                // status compacto
+                $status = $blocked ? 'bloqueada' : 'operando';
+
+                // plan/cycle desde snapshot.license
+                $priceKey = trim((string)($lic['price_key'] ?? $lic['plan'] ?? ''));
+                $cycle    = trim((string)($lic['cycle'] ?? ''));
+                $isPro    = (bool)($lic['is_pro'] ?? false);
+
+                $plan = $priceKey !== '' ? $priceKey : ($isPro ? 'pro' : '');
+                if ($cycle !== '' && $plan !== '') $plan = $plan.' · '.$cycle;
+
+                $map[$k] = [
+                    'name'   => $name,
+                    'email'  => $email,
+                    'rfc'    => $rfc,
+                    'status' => $status,
+                    'plan'   => $plan,
+                ];
+            }
+
+            if (empty($map)) return $items;
+
+            foreach ($items as $it) {
+                $k = trim((string)($it->account_ref_id ?? ''));
+                if ($k === '' || !isset($map[$k])) continue;
+
+                $p = $map[$k];
+
+                // solo llena si venía vacío (para respetar admin.accounts si existiera)
+                if (empty($it->account_name) && ($p['name'] ?? '') !== '') {
+                    $it->account_name = $p['name'];
+                }
+                if (empty($it->account_hint)) {
+                    $it->account_hint = 'Admin · billing_statements.snapshot';
+                }
+                if (empty($it->account_email) && ($p['email'] ?? '') !== '') {
+                    $it->account_email = $p['email'];
+                }
+                // account_phone no viene en snapshot actual
+                if (empty($it->account_status) && ($p['status'] ?? '') !== '') {
+                    $it->account_status = $p['status'];
+                }
+                if (empty($it->account_plan) && ($p['plan'] ?? '') !== '') {
+                    $it->account_plan = $p['plan'];
+                }
+
+                // Extra útil: si en snapshot viene RFC, lo guardamos como "account_ref" (sin romper nada)
+                // (esto ayuda a mostrar algo aunque la cuenta no tenga rfc en admin.accounts)
+                if (empty($it->account_ref) && ($p['rfc'] ?? '') !== '') {
+                    $it->account_ref = $p['rfc'];
+                }
+            }
+
+        } catch (\Throwable) {
+            // no romper vista
+        }
+
+        return $items;
+    }
+
 
     private function hydrateAccountNamesFromClientes($items)
 {
@@ -549,6 +844,55 @@ final class SatOpsCredentialsController extends Controller
                     }
                 }
             }
+
+                            // ================================
+                // Extra (si existen columnas): email / teléfono
+                // ================================
+                $emailCol = null;
+                foreach (['email','correo','email_contacto','correo_contacto'] as $c) {
+                    try { if ($schema->hasColumn('companies', $c)) { $emailCol = $c; break; } } catch (\Throwable) {}
+                }
+                $phoneCol = null;
+                foreach (['telefono','phone','tel','celular','movil'] as $c) {
+                    try { if ($schema->hasColumn('companies', $c)) { $phoneCol = $c; break; } } catch (\Throwable) {}
+                }
+
+                if (($emailCol || $phoneCol) && $cuentaIds->isNotEmpty()) {
+                    $sel = ['account_id as k'];
+                    if ($emailCol) $sel[] = $emailCol.' as e';
+                    else $sel[] = DB::raw("NULL as e");
+                    if ($phoneCol) $sel[] = $phoneCol.' as p';
+                    else $sel[] = DB::raw("NULL as p");
+
+                    $rowsX = DB::connection('mysql_clientes')
+                        ->table('companies')
+                        ->select($sel)
+                        ->whereIn('account_id', $cuentaIds->all())
+                        ->get();
+
+                    $mapX = [];
+                    foreach ($rowsX as $r) {
+                        $k = trim((string) ($r->k ?? ''));
+                        if ($k === '') continue;
+                        $mapX[$k] = [
+                            'email' => trim((string) ($r->e ?? '')),
+                            'phone' => trim((string) ($r->p ?? '')),
+                        ];
+                    }
+
+                    foreach ($items as $it) {
+                        $k = trim((string) ($it->cuenta_id ?? ''));
+                        if ($k === '' || !isset($mapX[$k])) continue;
+
+                        if (empty($it->account_email) && ($mapX[$k]['email'] ?? '') !== '') {
+                            $it->account_email = $mapX[$k]['email'];
+                        }
+                        if (empty($it->account_phone) && ($mapX[$k]['phone'] ?? '') !== '') {
+                            $it->account_phone = $mapX[$k]['phone'];
+                        }
+                    }
+                }
+
         }
 
         // =========================================================

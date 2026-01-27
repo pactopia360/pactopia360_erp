@@ -832,18 +832,20 @@ Route::middleware([
         */
         Route::prefix('ops')->name('ops.')->group(function () {
 
-            // HUB
-            Route::get('/', [SatOpsController::class, 'index'])->name('index');
+        // HUB
+        Route::get('/', [SatOpsController::class, 'index'])->name('index');
 
-            // Secciones (stubs; luego conectamos a DB/modelos)
-           Route::prefix('credentials')->name('credentials.')->group(function () {
+        /*
+        |----------------------------------------------------------------------
+        | OPS · CREDENCIALES — admin.sat.ops.credentials.*
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('credentials')->name('credentials.')->group(function () {
 
             Route::get('/', [SatOpsCredentialsController::class, 'index'])
                 ->name('index');
 
-            // ✅ Descargas (OPS) — IMPORTANTÍSIMO:
-            // - NO pongas /admin aquí, ya viene del prefix() en routes/web.php
-            // - NO pongas admin. en el name, ya viene del as('admin.') en routes/web.php
+            // Descargas
             Route::get('{id}/cer', [SatOpsCredentialsController::class, 'cer'])
                 ->where('id', '[A-Za-z0-9\-]+')
                 ->name('cer');
@@ -851,22 +853,39 @@ Route::middleware([
             Route::get('{id}/key', [SatOpsCredentialsController::class, 'key'])
                 ->where('id', '[A-Za-z0-9\-]+')
                 ->name('key');
+
+            // ✅ DELETE correcto:
+            // URL : /admin/sat/ops/credentials/{id}
+            // NAME: admin.sat.ops.credentials.destroy
+            $destroy = Route::delete('{id}', [SatOpsCredentialsController::class, 'destroy'])
+                ->where('id', '[A-Za-z0-9\-]+')
+                ->name('destroy');
+
+            // En local, si usas fetch() sin token o con headers raros, esto evita fricción.
+            // Si ya lo mandas bien con X-CSRF-TOKEN, puedes quitarlo.
+            if (app()->environment(['local', 'development', 'testing'])) {
+                $destroy->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
         });
 
-
-
-            Route::prefix('downloads')->name('downloads.')->group(function () {
-                Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
-            });
-
-            Route::prefix('manual')->name('manual.')->group(function () {
-                Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
-            });
-
-            Route::prefix('payments')->name('payments.')->group(function () {
-                Route::get('/', [SatOpsPaymentsController::class, 'index'])->name('index');
-            });
+        /*
+        |----------------------------------------------------------------------
+        | OPS · DESCARGAS / MANUAL / PAYMENTS
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('downloads')->name('downloads.')->group(function () {
+            Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
         });
+
+        Route::prefix('manual')->name('manual.')->group(function () {
+            Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
+        });
+
+        Route::prefix('payments')->name('payments.')->group(function () {
+            Route::get('/', [SatOpsPaymentsController::class, 'index'])->name('index');
+        });
+    });
+
 
         // SAT · PRICE RULES
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
