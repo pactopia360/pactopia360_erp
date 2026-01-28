@@ -170,6 +170,16 @@ class VerificationController extends Controller
             // ✅ Forzar persistencia inmediata
             try {
                 session()->save();
+                            // ✅ FIX: crear/actualizar espejo en mysql_clientes.accounts
+            try {
+                $this->ensureClientesAccountMirror((int) $resolvedAccountId);
+            } catch (\Throwable $e) {
+                Log::warning('[MIRROR] ensureClientesAccountMirror failed (verifyEmail)', [
+                    'account_id' => (int) $resolvedAccountId,
+                    'e' => $e->getMessage(),
+                ]);
+            }
+
             } catch (\Throwable $e) {
                 // ignore
             }
@@ -252,6 +262,15 @@ class VerificationController extends Controller
 
             try {
                 session()->save();
+                            try {
+                $this->ensureClientesAccountMirror((int) $resolvedAccountId);
+            } catch (\Throwable $e) {
+                Log::warning('[MIRROR] ensureClientesAccountMirror failed (verifyEmailSigned)', [
+                    'account_id' => (int) $resolvedAccountId,
+                    'e' => $e->getMessage(),
+                ]);
+            }
+
             } catch (\Throwable $e) {
                 // ignore
             }
@@ -327,6 +346,14 @@ class VerificationController extends Controller
 
             try {
                 session()->save();
+                try {
+                $this->ensureClientesAccountMirror((int) $account->id);
+            } catch (\Throwable $e) {
+                Log::warning('[MIRROR] ensureClientesAccountMirror failed (resendEmail)', [
+                    'account_id' => (int) $account->id,
+                    'e' => $e->getMessage(),
+                ]);
+            }
             } catch (\Throwable $e) {
                 // ignore
             }
@@ -563,6 +590,16 @@ class VerificationController extends Controller
                 ->withErrors([
                     'email' => 'No pudimos ubicar tu cuenta para actualizar el teléfono. Solicita un enlace nuevo.',
                 ]);
+        }
+
+        // ✅ FIX: asegurar espejo antes de mostrar la pantalla
+        try {
+            $this->ensureClientesAccountMirror((int) $accountId);
+        } catch (\Throwable $e) {
+            Log::warning('[MIRROR] ensureClientesAccountMirror failed (showOtp)', [
+                'account_id' => (int) $accountId,
+                'e' => $e->getMessage(),
+            ]);
         }
 
         $viewData = $this->loadAccountWithPhone($accountId);
@@ -843,6 +880,16 @@ class VerificationController extends Controller
                 'phone_verified_at' => now(),
                 'updated_at'        => now(),
             ]);
+
+                    try {
+            $this->ensureClientesAccountMirror((int) $accountId);
+        } catch (\Throwable $e) {
+            Log::warning('[MIRROR] ensureClientesAccountMirror failed (checkOtp)', [
+                'account_id' => (int) $accountId,
+                'e' => $e->getMessage(),
+            ]);
+        }
+
 
         Log::info('[OTP-FLOW][7] OTP OK, phone_verified_at set', [
             'account_id' => $accountId,
@@ -1257,6 +1304,162 @@ class VerificationController extends Controller
         }
         return 'Usuario';
     }
+
+        /* =========================================================
+     * MIRROR: mysql_clientes.accounts (correo_contacto/telefono)
+     * ========================================================= */
+
+    private function ensureClientesAccountMirror(int $adminAccountId): void
+    {
+        if ($adminAccountId <= 0) return;
+
+        try {
+            if (!Schema::connection(self::CONN_CLIENTE)->hasTable('accounts')) return;
+        } catch (\Throwable) {
+            return;
+        }
+
+        $phoneCol = $this->adminPhoneColumn();
+        $emailCol = $this->adminPrimaryEmailColumn();
+
+        $select = ['id', 'is_blocked', 'updated_at'];
+
+        foreach (['rfc', 'razon_social', 'plan', 'billing_cycle', 'billing_status', 'estado_cuenta'] as $c) {
+            try {
+                if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', $c)) {
+                    $select[] = $c;
+                }
+            } catch (\Throwable) {}
+        }
+
+        $select[] = DB::raw("`{$emailCol}` as _email");
+        $select[] = DB::raw("`{$phoneCol}` as _phone");
+
+        $acc = DB::connection(self::CONN_ADMIN)
+            ->table('accounts')
+            ->where('id', $adminAccountId)
+            ->select($select)
+            ->first();
+
+        if (!$acc) return;
+
+        $email = Str::lower(trim((string) ($acc->_email ?? '')));
+        if ($email === '') return;
+
+        $rfc = trim((string) ($acc->rfc ?? ''));
+        if ($rfc === '') $rfc = 'XAXX010101000';
+
+        $razon = trim((string) ($acc->razon_social ?? ''));
+        if ($razon === '') {
+            $razon = $this->adminDisplayName($acc);
+            if ($razon === '' || $razon === 'Usuario') $razon = 'CLIENTE';
+        }
+
+        $telefono = trim((string) ($acc->_phone ?? ''));
+
+        $planCli = $this->mapClientePlanFromAdmin($acc);
+        $cycle   = $this->mapClienteBillingCycleFromAdmin($acc);
+
+        $billingStatus = 'activa';
+        $isBlocked = (int) ($acc->is_blocked ?? 0);
+
+        if ($isBlocked === 1) {
+            $billingStatus = 'bloqueada';
+        } else {
+            $tmp = trim((string) ($acc->billing_status ?? ''));
+            if ($tmp !== '') {
+                $billingStatus = $tmp;
+            } else {
+                $tmp2 = trim((string) ($acc->estado_cuenta ?? ''));
+                if ($tmp2 !== '') {
+                    if (in_array($tmp2, ['activa','activo','active'], true))  $billingStatus = 'activa';
+                    if (in_array($tmp2, ['pendiente','pending'], true))      $billingStatus = 'pendiente';
+                    if (in_array($tmp2, ['bloqueada','blocked'], true))      $billingStatus = 'bloqueada';
+                }
+            }
+        }
+
+        $cols = [];
+        try {
+            $cols = Schema::connection(self::CONN_CLIENTE)->getColumnListing('accounts');
+            $cols = array_values(array_map('strval', $cols));
+        } catch (\Throwable) {
+            $cols = [];
+        }
+
+        $now = now();
+
+        $existing = DB::connection(self::CONN_CLIENTE)
+            ->table('accounts')
+            ->where('correo_contacto', $email)
+            ->first();
+
+        if ($existing) {
+            $upd = [
+                'rfc'            => $rfc,
+                'razon_social'   => $razon,
+                'telefono'       => $telefono,
+                'plan'           => $planCli,
+                'billing_cycle'  => $cycle,
+                'billing_status' => $billingStatus,
+                'is_blocked'     => $isBlocked,
+                'updated_at'     => $now,
+            ];
+
+            $filtered = [];
+            foreach ($upd as $k => $v) {
+                if (empty($cols) || in_array($k, $cols, true)) $filtered[$k] = $v;
+            }
+
+            DB::connection(self::CONN_CLIENTE)
+                ->table('accounts')
+                ->where('id', $existing->id)
+                ->update($filtered);
+
+            return;
+        }
+
+        $ins = [
+            'rfc'              => $rfc,
+            'razon_social'     => $razon,
+            'correo_contacto'  => $email,
+            'telefono'         => $telefono,
+            'plan'             => $planCli,
+            'billing_cycle'    => $cycle,
+            'billing_status'   => $billingStatus,
+            'next_invoice_date'=> null,
+            'is_blocked'       => $isBlocked,
+            'user_code'        => strtoupper(Str::random(8)),
+            'created_at'       => $now,
+            'updated_at'       => $now,
+        ];
+
+        $filtered = [];
+        foreach ($ins as $k => $v) {
+            if (empty($cols) || in_array($k, $cols, true)) $filtered[$k] = $v;
+        }
+
+        DB::connection(self::CONN_CLIENTE)->table('accounts')->insert($filtered);
+    }
+
+    private function mapClientePlanFromAdmin(object $acc): string
+    {
+        $p = Str::lower(trim((string) ($acc->plan ?? '')));
+        if ($p === 'pro') return 'premium';
+        if ($p === 'premium') return 'premium';
+        if ($p === 'basic') return 'basic';
+        if ($p === 'free') return 'free';
+        return 'premium';
+    }
+
+    private function mapClienteBillingCycleFromAdmin(object $acc): string
+    {
+        $c = Str::lower(trim((string) ($acc->billing_cycle ?? '')));
+        if (in_array($c, ['monthly','mensual'], true)) return 'monthly';
+        if (in_array($c, ['annual','yearly','anual'], true)) return 'annual';
+        return 'monthly';
+    }
+
 
     /**
      * Genera y guarda un OTP, intenta enviarlo por el canal configurado
