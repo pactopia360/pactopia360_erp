@@ -874,26 +874,36 @@ class ClientesController extends \App\Http\Controllers\Controller
     // ====== IMPERSONATE ======
     public function impersonate(string $key): RedirectResponse
     {
-        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
-        $accountId = (string) $acc->id;
-        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+    $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
+    $accountId = (string) $acc->id;
+    $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
-        $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
+    $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
 
-        $owner = UsuarioCuenta::on('mysql_clientes')->find($pack['owner']->id);
-        abort_if(!$owner || !(int) $owner->activo, 404, 'Usuario owner no disponible');
+    $owner = UsuarioCuenta::on('mysql_clientes')->find($pack['owner']->id);
+    abort_if(!$owner || !(int) $owner->activo, 404, 'Usuario owner no disponible');
 
-        session([
-            'impersonated_by_admin' => auth('admin')->id(),
-            'impersonated_rfc'      => $rfcReal !== '' ? $rfcReal : $accountId,
-        ]);
+    // ✅ Token 1-uso en cache
+    $token = Str::random(32);
 
-        try { Auth::guard('web')->logout(); } catch (\Throwable $e) {}
+    Cache::put("impersonate.token.$token", [
+        'owner_id'   => (string) $owner->id,
+        'admin_id'   => (string) auth('admin')->id(),
+        'rfc'        => $rfcReal,
+        'account_id' => $accountId,
+    ], now()->addMinutes(5));
 
-        Auth::guard('web')->login($owner, false);
+    // ✅ URL firmada temporal hacia /cliente/impersonate/{token}
+    $url = \URL::temporarySignedRoute(
+        'cliente.impersonate.consume',
+        now()->addMinutes(5),
+        ['token' => $token]
+    );
 
-        return redirect()->route('cliente.home');
+    return redirect($url);
     }
+
+
 
     public function impersonateStop(): RedirectResponse
     {
@@ -901,6 +911,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         session()->forget(['impersonated_by_admin', 'impersonated_rfc']);
         return redirect()->route('admin.clientes.index')->with('ok', 'Sesión de cliente finalizada.');
     }
+
 
     // ======================= SYNC accounts -> clientes =======================
     public function syncToClientes(): RedirectResponse
