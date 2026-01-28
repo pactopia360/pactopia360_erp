@@ -20,11 +20,16 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
-use Stripe\StripeClient;
+
 
 final class AccountBillingController extends Controller
 {
-    private StripeClient $stripe;
+    /**
+     * Stripe se resuelve "lazy" para que /estado-de-cuenta NO truene
+     * si stripe/stripe-php no está instalado o si falta el secret.
+     */
+    private $stripe = null;
+
     private BillingStatementsHubController $hub;
 
     public function __construct()
@@ -32,11 +37,32 @@ final class AccountBillingController extends Controller
         // ✅ publicPdf/publicPdfInline/publicPay sin sesión (firma)
         $this->middleware(['auth:web'])->except(['publicPdf', 'publicPdfInline', 'publicPay']);
 
-        $secret = (string) config('services.stripe.secret');
-        $this->stripe = new StripeClient($secret ?: '');
-
         // ✅ HUB (misma lógica que Admin)
         $this->hub = App::make(BillingStatementsHubController::class);
+    }
+
+    /**
+     * Retorna instancia de StripeClient solo si:
+     * - stripe/stripe-php está instalado
+     * - hay secret configurado
+     */
+    private function stripe()
+    {
+        if ($this->stripe) return $this->stripe;
+
+        $secret = (string) config('services.stripe.secret');
+        if (trim($secret) === '') return null;
+
+        // Importante: no referenciar Stripe\StripeClient en types para evitar fatal
+        if (!class_exists(\Stripe\StripeClient::class)) return null;
+
+        try {
+            $this->stripe = new \Stripe\StripeClient($secret);
+            return $this->stripe;
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] StripeClient init failed', ['err' => $e->getMessage()]);
+            return null;
+        }
     }
 
     /**
@@ -1345,174 +1371,188 @@ final class AccountBillingController extends Controller
      */
     public function publicPay(Request $r, int $accountId, string $period)
     {
-        if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
-        if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
+    if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
+    if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
 
-        // Si hay sesión autenticada, evita cross-account.
+    // Si hay sesión autenticada, evita cross-account.
+    try {
+        [$sessAccountIdRaw] = $this->resolveAdminAccountId($r);
+        $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
+        if (Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
+            abort(403, 'Cuenta no autorizada.');
+        }
+    } catch (\Throwable $e) {
+        // ignora
+    }
+
+    // Backward-compat: si alguien llega con st=success/cancel, solo informa
+    $st = strtolower((string) $r->query('st', ''));
+    if (in_array($st, ['success', 'cancel'], true)) {
+        if ($st === 'success') {
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('success', 'Pago iniciado. En cuanto se confirme, se actualizará tu estado de cuenta.');
+        }
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'Pago cancelado.');
+    }
+
+    // Regla: solo permitir pagar el "payAllowed"
+    $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
+    $payAllowed = $lastPaid
+        ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+        : $period;
+
+    if ($period !== $payAllowed) {
+        Log::warning('[BILLING] publicPay blocked (period not allowed)', [
+            'account_id'  => $accountId,
+            'period'      => $period,
+            'last_paid'   => $lastPaid,
+            'pay_allowed' => $payAllowed,
+        ]);
+
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'Este periodo no está habilitado para pago.');
+    }
+
+    // Resuelve monto (monto lógico del sistema / UI)
+    $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
+    if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
+    if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
+
+    if ($monthlyCents <= 0) {
+        Log::error('[BILLING] publicPay blocked (amount unresolved)', [
+            'account_id'  => $accountId,
+            'period'      => $period,
+            'last_paid'   => $lastPaid,
+            'pay_allowed' => $payAllowed,
+        ]);
+
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'No se pudo determinar el monto a pagar. Contacta soporte.');
+    }
+
+    // ==========================================================
+    // ✅ STRIPE MINIMUM (MXN)
+    // Stripe no permite Checkout por debajo de $10.00 MXN (1000 cents).
+    // Si tu sistema quiere mostrar $1.00, aquí seguimos guardando ambos:
+    // - ui/original: $monthlyCents (ej. 100)
+    // - cobro real en Stripe: $stripeCents (mínimo 1000)
+    // ==========================================================
+    $originalCents = (int) $monthlyCents;
+    $stripeCents   = (int) max($originalCents, 1000);
+
+    $amountMxnOriginal = round($originalCents / 100, 2);
+    $amountMxnStripe   = round($stripeCents / 100, 2);
+
+    // Email del cliente (si está logueado) / fallback admin.accounts.email
+    $customerEmail = Auth::guard('web')->user()?->email;
+    if (!$customerEmail) {
         try {
-            [$sessAccountIdRaw] = $this->resolveAdminAccountId($r);
-            $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
-            if (Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
-                abort(403, 'Cuenta no autorizada.');
+            $adm = config('p360.conn.admin', 'mysql_admin');
+            if (Schema::connection($adm)->hasTable('accounts')) {
+                $acc = DB::connection($adm)->table('accounts')->select(['id', 'email'])->where('id', (int)$accountId)->first();
+                $customerEmail = $acc?->email ?: null;
             }
         } catch (\Throwable $e) {
             // ignora
         }
+    }
 
-        // Backward-compat: si alguien llega con st=success/cancel, solo informa
-        $st = strtolower((string) $r->query('st', ''));
-        if (in_array($st, ['success', 'cancel'], true)) {
-            if ($st === 'success') {
-                return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                    ->with('success', 'Pago iniciado. En cuanto se confirme, se actualizará tu estado de cuenta.');
-            }
-            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'Pago cancelado.');
-        }
+    // ✅ CRÍTICO: success debe ir a StripeController@success con session_id
+    $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
+    $cancelUrl  = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
 
-        // Regla: solo permitir pagar el "payAllowed"
-        $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
-        $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-            : $period;
+    // ✅ Lazy Stripe: NO revienta si stripe/stripe-php no está instalado o falta el secret
+    $stripe = $this->stripe();
+    if (!$stripe) {
+        Log::error('[BILLING] Stripe not available (missing package or secret)', [
+            'account_id'   => $accountId,
+            'period'       => $period,
+            'has_secret'   => trim((string) config('services.stripe.secret')) !== '',
+            'class_exists' => class_exists(\Stripe\StripeClient::class),
+        ]);
 
-        if ($period !== $payAllowed) {
-            Log::warning('[BILLING] publicPay blocked (period not allowed)', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'last_paid'  => $lastPaid,
-                'pay_allowed'=> $payAllowed,
-            ]);
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'No se pudo iniciar el pago (Stripe no disponible). Contacta soporte.');
+    }
 
-            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'Este periodo no está habilitado para pago.');
-        }
+    try {
+        $idempotencyKey = 'publicPay:' . $accountId . ':' . $period . ':' . Str::uuid()->toString();
 
-        // Resuelve monto (monto lógico del sistema / UI)
-        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
-        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
-        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
+        $session = $stripe->checkout->sessions->create([
+            'mode' => 'payment',
+            'payment_method_types' => ['card'],
+            'customer_email' => $customerEmail ?: null,
 
-        if ($monthlyCents <= 0) {
-            Log::error('[BILLING] publicPay blocked (amount unresolved)', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'last_paid'  => $lastPaid,
-                'pay_allowed'=> $payAllowed,
-            ]);
+            'success_url' => (string) $successUrl,
+            'cancel_url'  => (string) $cancelUrl,
 
-            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'No se pudo determinar el monto a pagar. Contacta soporte.');
-        }
-
-        // ==========================================================
-        // ✅ STRIPE MINIMUM (MXN)
-        // Stripe no permite Checkout por debajo de $10.00 MXN (1000 cents).
-        // Si tu sistema quiere mostrar $1.00, aquí seguimos guardando ambos:
-        // - ui/original: $monthlyCents (ej. 100)
-        // - cobro real en Stripe: $stripeCents (mínimo 1000)
-        // ==========================================================
-        $originalCents = (int) $monthlyCents;
-        $stripeCents   = (int) max($originalCents, 1000);
-
-        $amountMxnOriginal = round($originalCents / 100, 2);
-        $amountMxnStripe   = round($stripeCents / 100, 2);
-
-        // Email del cliente (si está logueado) / fallback admin.accounts.email
-        $customerEmail = Auth::guard('web')->user()?->email;
-        if (!$customerEmail) {
-            try {
-                $adm = config('p360.conn.admin', 'mysql_admin');
-                if (Schema::connection($adm)->hasTable('accounts')) {
-                    $acc = DB::connection($adm)->table('accounts')->select(['id', 'email'])->where('id', (int)$accountId)->first();
-                    $customerEmail = $acc?->email ?: null;
-                }
-            } catch (\Throwable $e) {
-                // ignora
-            }
-        }
-
-        // ✅ CRÍTICO: success debe ir a StripeController@success con session_id
-        $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
-        $cancelUrl  = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
-
-        try {
-            $idempotencyKey = 'publicPay:' . $accountId . ':' . $period . ':' . Str::uuid()->toString();
-
-            $session = $this->stripe->checkout->sessions->create([
-                'mode' => 'payment',
-                'payment_method_types' => ['card'],
-                'customer_email' => $customerEmail ?: null,
-
-                'success_url' => (string) $successUrl,
-                'cancel_url'  => (string) $cancelUrl,
-
-                'line_items' => [[
-                    'quantity' => 1,
-                    'price_data' => [
-                        'currency' => 'mxn',
-                        'unit_amount' => (int) $stripeCents, // ✅ COBRO REAL
-                        'product_data' => [
-                            'name' => 'Pactopia360 · Licencia · '.$period,
-                            'description' => ($originalCents < 1000)
-                                ? ('Stripe requiere mínimo $10.00 MXN. Cobro aplicado: $'.number_format($amountMxnStripe, 2).' MXN (monto sistema: $'.number_format($amountMxnOriginal, 2).' MXN).')
-                                : ('Pago de licencia (periodo '.$period.').'),
-                        ],
+            'line_items' => [[
+                'quantity' => 1,
+                'price_data' => [
+                    'currency' => 'mxn',
+                    'unit_amount' => (int) $stripeCents, // ✅ COBRO REAL
+                    'product_data' => [
+                        'name' => 'Pactopia360 · Licencia · '.$period,
+                        'description' => ($originalCents < 1000)
+                            ? ('Stripe requiere mínimo $10.00 MXN. Cobro aplicado: $'.number_format($amountMxnStripe, 2).' MXN (monto sistema: $'.number_format($amountMxnOriginal, 2).' MXN).')
+                            : ('Pago de licencia (periodo '.$period.').'),
                     ],
-                ]],
-
-                // ✅ metadata.type debe empezar con "billing_"
-                'metadata' => [
-                    'type'                => 'billing_statement_public',
-                    'account_id'          => (string)$accountId,
-                    'period'              => $period,
-
-                    // monto del sistema
-                    'amount_mxn'          => (string)$amountMxnOriginal,
-                    'amount_cents'        => (string)$originalCents,
-
-                    // monto real cobrado en Stripe (por mínimo)
-                    'stripe_amount_mxn'   => (string)$amountMxnStripe,
-                    'stripe_amount_cents' => (string)$stripeCents,
-
-                    'source'              => 'cliente_publicPay',
                 ],
-            ], [
-                'idempotency_key' => $idempotencyKey,
-            ]);
+            ]],
 
-            // Guardamos en admin.payments el COBRO REAL (stripeCents) y en meta dejamos el original
-            $this->upsertPendingPaymentForStatementPublicPay(
-                (string)$accountId,
-                $period,
-                (int)$stripeCents,
-                (string)($session->id ?? ''),
-                (float)$amountMxnOriginal,
-                (int)$originalCents
-            );
+            // ✅ metadata.type debe empezar con "billing_"
+            'metadata' => [
+                'type'                => 'billing_statement_public',
+                'account_id'          => (string)$accountId,
+                'period'              => $period,
 
-            if (!empty($session->url)) {
-                // Nota: si hubo “mínimo Stripe”, avisamos al usuario antes de mandarlo al checkout
-                if ($originalCents < 1000) {
-                    $r->session()->flash('warning', 'Stripe requiere un mínimo de $10.00 MXN; se enviará a pago por $'.number_format($amountMxnStripe, 2).' MXN.');
-                }
-                return redirect()->away((string) $session->url);
+                // monto del sistema
+                'amount_mxn'          => (string)$amountMxnOriginal,
+                'amount_cents'        => (string)$originalCents,
+
+                // monto real cobrado en Stripe (por mínimo)
+                'stripe_amount_mxn'   => (string)$amountMxnStripe,
+                'stripe_amount_cents' => (string)$stripeCents,
+
+                'source'              => 'cliente_publicPay',
+            ],
+        ], [
+            'idempotency_key' => $idempotencyKey,
+        ]);
+
+        // Guardamos en admin.payments el COBRO REAL (stripeCents) y en meta dejamos el original
+        $this->upsertPendingPaymentForStatementPublicPay(
+            (string)$accountId,
+            $period,
+            (int)$stripeCents,
+            (string)($session->id ?? ''),
+            (float)$amountMxnOriginal,
+            (int)$originalCents
+        );
+
+        if (!empty($session->url)) {
+            // Nota: si hubo “mínimo Stripe”, avisamos al usuario antes de mandarlo al checkout
+            if ($originalCents < 1000) {
+                $r->session()->flash('warning', 'Stripe requiere un mínimo de $10.00 MXN; se enviará a pago por $'.number_format($amountMxnStripe, 2).' MXN.');
             }
-
-            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'No se pudo iniciar el checkout. Intenta nuevamente.');
-        } catch (\Throwable $e) {
-            Log::error('[BILLING] publicPay checkout failed', [
-                'account_id'        => $accountId,
-                'period'            => $period,
-                'amount_cents_ui'   => $originalCents,
-                'amount_cents_stripe'=> $stripeCents,
-                'err'               => $e->getMessage(),
-            ]);
-
-            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'Error al iniciar pago: '.$e->getMessage());
+            return redirect()->away((string) $session->url);
         }
+
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'No se pudo iniciar el checkout. Intenta nuevamente.');
+    } catch (\Throwable $e) {
+        Log::error('[BILLING] publicPay checkout failed', [
+            'account_id'         => $accountId,
+            'period'             => $period,
+            'amount_cents_ui'    => $originalCents,
+            'amount_cents_stripe'=> $stripeCents,
+            'err'                => $e->getMessage(),
+        ]);
+
+        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+            ->with('warning', 'Error al iniciar pago: '.$e->getMessage());
+    }
     }
 
     /**
