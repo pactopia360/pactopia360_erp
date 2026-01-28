@@ -70,7 +70,8 @@ final class AccountBillingController extends Controller
      * ESTADO DE CUENTA (2 cards)
      * ============================================
      */
-    public function statement(Request $r): View
+    public function statement(Request $r)
+
     {
         $u = Auth::guard('web')->user();
 
@@ -111,6 +112,15 @@ final class AccountBillingController extends Controller
                 'next' => '/cliente/estado-de-cuenta',
             ]);
         }
+
+        // ✅ cachea en sesión para futuras resoluciones (evita "unresolved" si cambia cuenta_id)
+        try {
+            $r->session()->put('client.account_id', (string)$accountId);
+            $r->session()->put('account_id', (string)$accountId);
+        } catch (\Throwable $e) {
+            // ignora
+        }
+
 
 
         // Datos UI (RFC/Alias)
@@ -2033,10 +2043,27 @@ final class AccountBillingController extends Controller
                         if ($has($c)) $sel[] = $c;
                     }
 
-                    $cc = DB::connection($cli)->table('cuentas_cliente')
-                        ->select(array_values(array_unique($sel)))
-                        ->where('id', $clientAccountId)
-                        ->first();
+                    $tbl = DB::connection($cli)->table('cuentas_cliente')
+                        ->select(array_values(array_unique($sel)));
+
+                    // 1) intento por PK
+                    $cc = $tbl->where('id', $clientAccountId)->first();
+
+                    // 2) fallback UUID/public_id si existe
+                    if (!$cc) {
+                        $altCols = [];
+                        foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
+                            if ($has($c)) $altCols[] = $c;
+                        }
+
+                        foreach ($altCols as $col) {
+                            $cc = DB::connection($cli)->table('cuentas_cliente')
+                                ->select(array_values(array_unique($sel)))
+                                ->where($col, $clientAccountId)
+                                ->first();
+                            if ($cc) break;
+                        }
+                    }
 
                     if ($cc) {
                         if ($rfc === '') {
@@ -2277,15 +2304,33 @@ final class AccountBillingController extends Controller
                     if ($has($c)) $sel[] = $c;
                 }
 
-                $cc = DB::connection($cli)->table('cuentas_cliente')
-                    ->select(array_values(array_unique($sel)))
-                    ->where('id', $clientCuentaId)
-                    ->first();
+                $tbl = DB::connection($cli)->table('cuentas_cliente')
+                    ->select(array_values(array_unique($sel)));
+
+                // 1) Intento por PK id
+                $cc = $tbl->where('id', $clientCuentaId)->first();
+
+                // 2) Si no encontró y el valor parece UUID, intenta por columnas alternativas
+                if (!$cc) {
+                    $altCols = [];
+                    foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
+                        if ($has($c)) $altCols[] = $c;
+                    }
+
+                    foreach ($altCols as $col) {
+                        $cc = DB::connection($cli)->table('cuentas_cliente')
+                            ->select(array_values(array_unique($sel)))
+                            ->where($col, $clientCuentaId)
+                            ->first();
+                        if ($cc) break;
+                    }
+                }
 
                 if ($cc) {
                     $id = $this->resolveAdminAccountIdFromClientAccount($cc);
                     if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
                 }
+
             }
         } catch (\Throwable $e) {
             // ignora
