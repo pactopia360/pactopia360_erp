@@ -9,6 +9,7 @@ use App\Models\Cliente\UsuarioCuenta;
 use App\Models\Cliente\CuentaCliente;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +24,9 @@ class LoginController extends Controller
 {
     public function showLogin(Request $request)
     {
+        // ✅ Asegura sesión aislada del portal cliente (cookie correcta)
+        Config::set('session.cookie', 'p360_client_session');
+
         Auth::shouldUse('web');
 
         // ✅ Limpieza de error "enlace inválido" en pantalla de login.
@@ -63,9 +67,12 @@ class LoginController extends Controller
         return view('cliente.auth.login');
     }
 
-
     public function login(Request $request)
     {
+        // ✅ Asegura sesión aislada del portal cliente (cookie correcta)
+        // Importante: debe ejecutarse ANTES de leer/escribir session()
+        Config::set('session.cookie', 'p360_client_session');
+
         Auth::shouldUse('web');
 
         $reqId      = (string) Str::ulid();
@@ -342,6 +349,9 @@ class LoginController extends Controller
 
     public function logout(Request $request)
     {
+        // ✅ Asegura que el logout opere sobre la sesión/cookie del portal cliente
+        Config::set('session.cookie', 'p360_client_session');
+
         $request->session()->forget('impersonated_by_admin');
 
         auth('web')->logout();
