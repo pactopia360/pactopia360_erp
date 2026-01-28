@@ -16,3 +16,9 @@ backups_migrations/
 
 /public/build
 
+
+# debug artifacts
+/cookies.txt
+/login.html
+/login_post_response.txt
+
