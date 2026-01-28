@@ -40,14 +40,14 @@ class Kernel extends HttpKernel
         ],
 
         /**
-         * ✅ CLIENTE: config de sesión ANTES de StartSession
+         * ✅ CLIENTE: bootstrap antes de StartSession + hydrate después de StartSession
          */
         'cliente' => [
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
 
-            // Config + Auth context (ok)
-            \App\Http\Middleware\ClientSessionConfig::class,
+            // ✅ ANTES de StartSession (cookie + auth provider/guard)
+            \App\Http\Middleware\ClientPortalBootstrap::class,
 
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
@@ -55,6 +55,10 @@ class Kernel extends HttpKernel
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
 
+            // ✅ DESPUÉS de StartSession (ya existe session store)
+            \App\Http\Middleware\ClientSessionHydrate::class,
+
+            // Tus middlewares de módulos (se quedan igual)
             \App\Http\Middleware\Cliente\InjectModulesState::class,
             \App\Http\Middleware\ShareClientModules::class,
         ],
@@ -111,7 +115,7 @@ class Kernel extends HttpKernel
 
         // Aislamiento de sesión por sub-plataforma (alias, por si los sigues usando)
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
-        'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,
+        'session.cliente'  => \App\Http\Middleware\ClientPortalBootstrap::class,
 
         'phone.verified'   => \App\Http\Middleware\EnsurePhoneVerified::class,
     ];
@@ -139,7 +143,7 @@ class Kernel extends HttpKernel
         'auth.web'         => \App\Http\Middleware\Authenticate::class,
 
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
-        'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,
+        'session.cliente'  => \App\Http\Middleware\ClientPortalBootstrap::class,
 
         'phone.verified'   => \App\Http\Middleware\EnsurePhoneVerified::class,
     ];
@@ -149,13 +153,16 @@ class Kernel extends HttpKernel
      */
     protected $middlewarePriority = [
         \App\Http\Middleware\AdminSessionConfig::class,
-        \App\Http\Middleware\ClientSessionConfig::class,
+        \App\Http\Middleware\ClientPortalBootstrap::class,
 
         \Illuminate\Session\Middleware\StartSession::class,
         \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+
+        \App\Http\Middleware\ClientSessionHydrate::class,
 
         \App\Http\Middleware\Authenticate::class,
         \Illuminate\Routing\Middleware\ThrottleRequests::class,
         \Illuminate\Routing\Middleware\SubstituteBindings::class,
     ];
+
 }
