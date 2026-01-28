@@ -449,23 +449,48 @@ class VerificationController extends Controller
             return $byEmail;
         }
 
-        Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id', [
+        // Importante: si llegan directo (bots/URL pelón) no es “bug”, es falta de contexto.
+        // No spameamos WARNING: dejamos INFO con mínimo contexto.
+        Log::info('[OTP-FLOW][resolveAccountId] missing context', [
             'path'        => $request->path(),
             'full'        => $request->fullUrl(),
             'verify_email'=> (string) session('verify.email', ''),
+            'has_session' => (bool) $request->hasSession(),
         ]);
 
         return null;
+
     }
 
+    /**
+     * Fallback: si hay verify.email en sesión (o viene por query ?email=),
+     * intenta resolver account_id en mysql_admin.accounts usando columnas reales.
+     *
+     * Esto corrige el caso producción donde abren /cliente/verificar/telefono sin querystring account_id.
+     */
     private function resolveAccountIdFromVerifyEmailSession(Request $request): ?int
     {
-        $email = trim((string) session('verify.email', ''));
+        // 0) permitir ?email=... como fallback inmediato
+        $email = trim((string) $request->query('email', ''));
+
+        // 1) si no viene por query, usar sesión
+        if ($email === '') {
+            $email = trim((string) session('verify.email', ''));
+        }
+
         if ($email === '') {
             return null;
         }
 
         $email = Str::lower($email);
+
+        // Persistimos email para siguientes requests
+        try {
+            session(['verify.email' => $email]);
+            session()->save();
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
         try {
             $acc = DB::connection(self::CONN_ADMIN)
@@ -478,7 +503,7 @@ class VerificationController extends Controller
                 ->first();
 
             if (!$acc || empty($acc->id)) {
-                Log::warning('[OTP-FLOW][resolveAccountId] email fallback: account not found', [
+                Log::info('[OTP-FLOW][resolveAccountId] email fallback: account not found', [
                     'email' => $email,
                     'path'  => $request->path(),
                 ]);
@@ -487,17 +512,15 @@ class VerificationController extends Controller
 
             $aid = (int) $acc->id;
 
+            // Persistimos para el resto del flujo
             try {
                 session(['verify.account_id' => $aid]);
                 session()->save();
             } catch (\Throwable $e) {
-                Log::warning('[OTP-FLOW][resolveAccountId] email fallback: could not persist session', [
-                    'aid' => $aid,
-                    'e'   => $e->getMessage(),
-                ]);
+                // ignore
             }
 
-            Log::debug('[OTP-FLOW][resolveAccountId] from verify.email fallback', [
+            Log::debug('[OTP-FLOW][resolveAccountId] from email/session fallback', [
                 'aid'   => $aid,
                 'email' => $email,
             ]);
@@ -511,6 +534,7 @@ class VerificationController extends Controller
             return null;
         }
     }
+
 
     public function finalizeActivationAndSendCredentialsByRfc(string $rfc): void
     {
