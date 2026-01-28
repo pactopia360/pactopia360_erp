@@ -45,13 +45,30 @@ class RouteServiceProvider extends ServiceProvider
              * CLIENTE
              * - Usa grupo "cliente" (NO "web") para que ClientSessionConfig corra antes de StartSession
              * - Prefix /cliente y nombres cliente.*
+             * - Monta core + SAT + QA (solo local)
              * =========================
              */
             if (file_exists(base_path('routes/cliente.php'))) {
                 Route::middleware('cliente')
                     ->prefix('cliente')
                     ->as('cliente.')
-                    ->group(base_path('routes/cliente.php'));
+                    ->group(function () {
+
+                        // CORE cliente
+                        require base_path('routes/cliente.php');
+
+                        // SAT (si existe)
+                        if (file_exists(base_path('routes/cliente_sat.php'))) {
+                            require base_path('routes/cliente_sat.php');
+                        }
+
+                        // QA (solo local/dev/testing)
+                        if (app()->environment(['local', 'development', 'testing'])
+                            && file_exists(base_path('routes/cliente_qa.php'))
+                        ) {
+                            require base_path('routes/cliente_qa.php');
+                        }
+                    });
             }
 
             /**

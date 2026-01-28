@@ -1,12 +1,21 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\web.php
+//
+// WEB "GENERAL" (público / utilidades)
+// ✅ NO montar aquí /cliente ni /admin core si quieres aislamiento total.
+//    Esos se montan desde App\Providers\RouteServiceProvider con sus middleware groups:
+//    - admin   -> rutas/admin.php
+//    - cliente -> rutas/cliente.php
+//
+// Motivo:
+// - ClientSessionConfig/AdminSessionConfig necesitan correr ANTES de StartSession,
+//   por eso NO deben pasar por el grupo "web" primero.
 
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\DeployController;
-use App\Http\Controllers\Admin\QaController;
 use App\Http\Controllers\Auth\SmartLoginController;
 use App\Http\Controllers\LocalStorageController;
 
@@ -19,90 +28,40 @@ $isLocal = app()->environment(['local', 'development', 'testing']);
 
 /*
 |--------------------------------------------------------------------------
-| Público
+| PÚBLICO
 |--------------------------------------------------------------------------
 */
 Route::redirect('/', '/cliente')->name('home.public');
 
-// Login “inteligente” que respeta el contexto cliente/admin
+/**
+ * Login “inteligente” que respeta el contexto cliente/admin
+ * - Redirige a cliente.login si intended/referer/cookie cliente aplica
+ * - Fallback a admin.login
+ */
 Route::get('/login', SmartLoginController::class)->name('login');
 
 /*
 |--------------------------------------------------------------------------
-| Admin / Cliente (rutas separadas por archivo) + ✅ middleware groups
+| ✅ IMPORTANTE: NO montar /cliente aquí
 |--------------------------------------------------------------------------
-| CRÍTICO:
-| - admin.php debe correr bajo middleware group "admin"
-| - cliente*.php debe correr bajo middleware group "cliente"
+| Antes se montaba /cliente (cliente.php y cliente_sat.php) dentro de web.php,
+| lo cual hacía que las rutas tuviesen el stack:
+|   web -> StartSession (cookie global) -> cliente (ClientSessionConfig ya tarde)
 |
-| FIX aplicado:
-| - Unificamos el montaje de /cliente en un solo group para consistencia y cache-safety.
-| - Movemos /admin/dev (QA) dentro del stack "admin" real.
+| Eso rompe el aislamiento de cookie (p360_client_session) y genera:
+|   403 CUENTA NO SELECCIONADA
+|
+| Ahora /cliente se monta EXCLUSIVAMENTE desde RouteServiceProvider:
+|   Route::middleware('cliente')->prefix('cliente')->as('cliente.')->group(...)
+|
+| ✅ No agregues require('routes/cliente*.php') aquí.
 */
-
-/**
- * ADMIN (SOT)
- */
-Route::prefix('admin')
-    ->as('admin.')
-    ->middleware('admin') // ✅ IMPORTANTÍSIMO
-    ->group(function () use ($isLocal) {
-
-        // Monta routes/admin.php (core admin)
-        require base_path('routes/admin.php');
-
-        /*
-        |----------------------------------------------------------------------
-        | QA Admin/Dev (Local)
-        |----------------------------------------------------------------------
-        | ✅ Ahora SI queda bajo middleware('admin'):
-        | - AdminSessionConfig / cookie / guard / sesión aislada correctamente.
-        */
-        if ($isLocal) {
-            Route::prefix('dev')
-                ->name('dev.')
-                ->middleware(['auth:admin'])
-                ->group(function () {
-
-                    Route::get('/qa',            [QaController::class, 'index'])->name('qa');
-                    Route::post('/resend-email', [QaController::class, 'resendEmail'])->name('resend_email');
-                    Route::post('/send-otp',     [QaController::class, 'sendOtp'])->name('send_otp');
-                    Route::post('/force-email',  [QaController::class, 'forceEmailVerified'])->name('force_email');
-                    Route::post('/force-phone',  [QaController::class, 'forcePhoneVerified'])->name('force_phone');
-
-                    Route::post('/clean-otps',   [QaController::class, 'cleanOtps'])
-                        ->name('clean_otps')
-                        ->middleware('throttle:30,1');
-                });
-        }
-    });
-
-/**
- * CLIENTE (SOT) — un solo montaje para /cliente
- * - cache-safe
- * - evita inconsistencias por tener 2 grupos iguales
- */
-Route::prefix('cliente')
-    ->as('cliente.')
-    ->middleware('cliente') // ✅ IMPORTANTÍSIMO
-    ->group(function () use ($isLocal) {
-
-        // Portal cliente general (auth, perfil, mi-cuenta, billing, etc.)
-        require base_path('routes/cliente.php');
-
-        // SAT completo (descargas, bóveda, reportes, carrito, externo, etc.)
-        require base_path('routes/cliente_sat.php');
-
-        // QA cliente (local)
-        if ($isLocal) {
-            require base_path('routes/cliente_qa.php');
-        }
-    });
 
 /*
 |--------------------------------------------------------------------------
-| Utilidades / Infra
+| DEPLOY / INFRA
 |--------------------------------------------------------------------------
+| Endpoint de “finish” (si lo necesitas en prod)
 */
 Route::get('/_deploy/finish/{signature}', [DeployController::class, 'finish'])
     ->where('signature', '[A-Za-z0-9._-]+')
