@@ -579,21 +579,6 @@ class VerificationController extends Controller
             }
         }
 
-        if (app()->environment(['local', 'development', 'testing'])) {
-            Log::debug('[OTP-FLOW][DEBUG showOtp FINAL]', [
-                'auth_web_id'        => Auth::guard('web')->id(),
-                'auth_cli_id'        => (function () {
-                    try {
-                        return Auth::guard('cliente')->id();
-                    } catch (\Throwable $e) {
-                        return null;
-                    }
-                })(),
-                'session_verify_acc' => session('verify.account_id'),
-                'final_account_id'   => $accountId,
-            ]);
-        }
-
         if (!$accountId) {
             return redirect()
                 ->route('cliente.verify.email.resend')
@@ -602,13 +587,66 @@ class VerificationController extends Controller
                 ]);
         }
 
-        // ✅ asegurar espejo antes de mostrar la pantalla
+        /**
+         * ✅ BYPASS: si ya está verificado (email + phone), NO mostramos OTP.
+         * Esto evita que usuarios ya activados caigan de nuevo en /verificar/telefono.
+         */
+        try {
+            $phoneCol = $this->adminPhoneColumn();
+
+            $acc = DB::connection(self::CONN_ADMIN)
+                ->table('accounts')
+                ->select([
+                    'id',
+                    "{$phoneCol} as phone",
+                    'email_verified_at',
+                    'phone_verified_at',
+                ])
+                ->where('id', (int) $accountId)
+                ->first();
+
+            $emailOk = $acc && !empty($acc->email_verified_at);
+            $phoneOk = $acc && !empty($acc->phone_verified_at);
+
+            if ($emailOk && $phoneOk) {
+                // Limpieza de sesión temporal de verificación (no afecta login normal)
+                try {
+                    session()->forget([
+                        'verify.account_id',
+                        'verify.email',
+                        'verify.phone',
+                        'verify.otp_code',
+                        'verify.otp_expires',
+                        'post_verify.user_id',
+                        'post_verify.remember',
+                    ]);
+                    session()->save();
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+
+                // Si ya está autenticado, a home. Si no, a login.
+                if ($this->clientIsAuthenticated()) {
+                    return redirect()
+                        ->route('cliente.home')
+                        ->with('ok', 'Tu cuenta ya estaba verificada.');
+                }
+
+                return redirect()
+                    ->route('cliente.login')
+                    ->with('ok', 'Tu cuenta ya está verificada. Inicia sesión.');
+            }
+        } catch (\Throwable $e) {
+            // Si falla el check, seguimos con el flujo normal
+        }
+
+        // ✅ FIX: asegurar espejo antes de mostrar la pantalla
         try {
             $this->ensureClientesAccountMirror((int) $accountId);
         } catch (\Throwable $e) {
             Log::warning('[MIRROR] ensureClientesAccountMirror failed (showOtp)', [
                 'account_id' => (int) $accountId,
-                'e'          => $e->getMessage(),
+                'e' => $e->getMessage(),
             ]);
         }
 
