@@ -538,13 +538,88 @@ class VerificationController extends Controller
 
     public function finalizeActivationAndSendCredentialsByRfc(string $rfc): void
     {
-        if (method_exists($this, 'finalizeActivationAndSendCredentials')) {
-            $this->finalizeActivationAndSendCredentials($rfc);
+        $rfc = Str::upper(trim((string) $rfc));
+        if ($rfc === '') {
+            Log::warning('[ACTIVATION][RFC] empty rfc', ['rfc' => $rfc]);
             return;
         }
 
-        Log::warning('finalizeActivationAndSendCredentialsByRfc: no-op (missing implementation)', ['rfc' => $rfc]);
+        // 1) Si existe implementación legacy, úsala.
+        if (method_exists($this, 'finalizeActivationAndSendCredentials')) {
+            try {
+                $this->finalizeActivationAndSendCredentials($rfc);
+                Log::info('[ACTIVATION][RFC] legacy finalizeActivationAndSendCredentials executed', ['rfc' => $rfc]);
+            } catch (\Throwable $e) {
+                Log::warning('[ACTIVATION][RFC] legacy finalizeActivationAndSendCredentials failed', [
+                    'rfc' => $rfc,
+                    'e'   => $e->getMessage(),
+                ]);
+            }
+            return;
+        }
+
+        // 2) Resolver account_id admin por RFC (source of truth)
+        try {
+            $acc = DB::connection(self::CONN_ADMIN)
+                ->table('accounts')
+                ->whereRaw('UPPER(rfc)=?', [$rfc])
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$acc || empty($acc->id)) {
+                Log::warning('[ACTIVATION][RFC] admin account not found', ['rfc' => $rfc]);
+                return;
+            }
+
+            $adminId = (int) $acc->id;
+
+            // 3) Si ya está verificado email+tel → finaliza activación (esto activa owner y cuenta en clientes)
+            $emailOk = !empty($acc->email_verified_at);
+            $phoneOk = !empty($acc->phone_verified_at);
+
+            if (!$emailOk || !$phoneOk) {
+                Log::info('[ACTIVATION][RFC] not ready (missing verifications)', [
+                    'rfc'      => $rfc,
+                    'admin_id' => $adminId,
+                    'email_ok' => $emailOk,
+                    'phone_ok' => $phoneOk,
+                ]);
+                return;
+            }
+
+            // espejo (best-effort)
+            try {
+                $this->ensureClientesAccountMirror($adminId);
+            } catch (\Throwable $e) {
+                Log::warning('[MIRROR] ensureClientesAccountMirror failed (finalizeActivationAndSendCredentialsByRfc)', [
+                    'account_id' => $adminId,
+                    'e'          => $e->getMessage(),
+                ]);
+            }
+
+            try {
+                $uid = $this->finalizeActivationAndNotify($adminId);
+
+                Log::info('[ACTIVATION][RFC] finalizeActivationAndNotify executed', [
+                    'rfc'      => $rfc,
+                    'admin_id' => $adminId,
+                    'user_id'  => $uid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('[ACTIVATION][RFC] finalizeActivationAndNotify failed', [
+                    'rfc'      => $rfc,
+                    'admin_id' => $adminId,
+                    'e'        => $e->getMessage(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('[ACTIVATION][RFC] unexpected error', [
+                'rfc' => $rfc,
+                'e'   => $e->getMessage(),
+            ]);
+        }
     }
+
 
     private function fetchAccountEmailById(int $accountId): string
     {
@@ -609,6 +684,17 @@ class VerificationController extends Controller
             $phoneOk = $acc && !empty($acc->phone_verified_at);
 
             if ($emailOk && $phoneOk) {
+
+                // ✅ AUTO-HEAL: si ya está verificado, aseguramos activación (evita "verificado pero no puede entrar")
+                try {
+                    $this->finalizeActivationAndNotify((int) $accountId);
+                } catch (\Throwable $e) {
+                    Log::warning('[ACTIVATION] finalizeActivationAndNotify failed (showOtp bypass)', [
+                        'account_id' => (int) $accountId,
+                        'e'          => $e->getMessage(),
+                    ]);
+                }
+
                 // Limpieza de sesión temporal de verificación (no afecta login normal)
                 try {
                     session()->forget([
@@ -1180,14 +1266,25 @@ class VerificationController extends Controller
 
         DB::connection(self::CONN_CLIENTE)->beginTransaction();
         try {
+            $hasPassword = !empty((string) ($usuario->password ?? ''));
+
+            $mustChange = 0;
+            if (!$hasPassword) {
+                $mustChange = 1;
+            } else {
+                // respeta el valor actual si existe
+                $mustChange = (int) ($usuario->must_change_password ?? 0);
+            }
+
             DB::connection(self::CONN_CLIENTE)
                 ->table('usuarios_cuenta')
                 ->where('id', $usuario->id)
                 ->update([
                     'activo'               => 1,
-                    'must_change_password' => 1,
+                    'must_change_password' => $mustChange,
                     'updated_at'           => now(),
                 ]);
+
 
             DB::connection(self::CONN_CLIENTE)
                 ->table('cuentas_cliente')
