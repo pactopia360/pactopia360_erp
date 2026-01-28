@@ -67,6 +67,20 @@ final class AdministrativosController extends Controller
         return (bool) ($this->colCache[$key] = $ok);
     }
 
+    private function normalizeIdForQuery(string $id)
+    {
+        try {
+            $colType = Schema::connection($this->adm)->getColumnType($this->table, 'id');
+            if (in_array($colType, ['integer', 'bigint'], true)) {
+                return (int) $id;
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+        return $id;
+    }
+
+
     private function parsePerms(?string $text): ?string
     {
         $t = trim((string) $text);
@@ -271,9 +285,20 @@ final class AdministrativosController extends Controller
         ];
 
         // LOCAL: usuario_administrativos usa UUID string normalmente
-        if ($this->table === 'usuario_administrativos') {
-            $ins['id'] = (string) Str::uuid();
+        // ✅ Decide por tipo real de columna (no por nombre de tabla)
+        // - Si id es integer/bigint (AI) => NO mandamos id
+        // - Si id es string/uuid => mandamos UUID
+        try {
+            $colType = Schema::connection($this->adm)->getColumnType($this->table, 'id'); // 'integer'|'bigint'|'string'...
+            $idIsNumeric = in_array($colType, ['integer', 'bigint'], true);
+
+            if (!$idIsNumeric) {
+                $ins['id'] = (string) Str::uuid();
+            }
+        } catch (\Throwable $e) {
+            // Fallback seguro para producción: no mandamos id
         }
+
 
         if ($this->hasCol('rol')) {
             $ins['rol'] = (string)($data['rol'] ?? 'usuario');
@@ -319,7 +344,9 @@ final class AdministrativosController extends Controller
     {
         $adm = DB::connection($this->adm);
 
-        $row = $adm->table($this->table)->where('id', $id)->first();
+        $qid = $this->normalizeIdForQuery($id);
+        $row = $adm->table($this->table)->where('id', $qid)->first();
+
         abort_unless($row, 404);
 
         if (!property_exists($row, 'permisos')) $row->permisos = null;
@@ -361,7 +388,9 @@ final class AdministrativosController extends Controller
 
         $adm = DB::connection($this->adm);
 
-        $row = $adm->table($this->table)->where('id', $id)->first();
+        $qid = $this->normalizeIdForQuery($id);
+        $row = $adm->table($this->table)->where('id', $qid)->first();
+
         abort_unless($row, 404);
 
         $email = strtolower(trim($data['email']));
@@ -422,7 +451,9 @@ final class AdministrativosController extends Controller
 
         if ($this->hasCol('updated_at')) $upd['updated_at'] = now();
 
-        $adm->table($this->table)->where('id', $id)->update($upd);
+        $qid = $this->normalizeIdForQuery($id);
+        $row = $adm->table($this->table)->where('id', $qid)->first();
+
 
         return redirect()->route('admin.usuarios.administrativos.edit', $id)->with('ok', 'Usuario actualizado.');
     }
@@ -478,7 +509,8 @@ final class AdministrativosController extends Controller
         if ($this->hasCol('force_password_change')) $upd['force_password_change'] = 1;
         if ($this->hasCol('updated_at')) $upd['updated_at'] = now();
 
-        $adm->table($this->table)->where('id', $id)->update($upd);
+        $adm->table($this->table)->where('id', $qid)->update($upd);
+
 
         return back()->with('ok', 'Password reseteada. Nueva: '.$plain);
     }
