@@ -1,19 +1,15 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\cliente_sat.php
 // PACTOPIA360 · SAT Cliente routes (SOT SAT)
-// ✅ Este archivo se monta desde routes/web.php con:
-//    Route::prefix('cliente')->as('cliente.')->middleware('cliente')->group(base_path('routes/cliente_sat.php'));
-// Por lo tanto, aquí DEFINIMOS rutas relativas a /cliente/... y nombres relativos a cliente.*
+// ✅ Se monta desde routes/web.php bajo:
+// Route::prefix('cliente')->as('cliente.')->middleware('cliente')->group(...)
 //
 // Objetivos:
 // ✅ Evitar duplicados (route:cache)
 // ✅ Robustez en deploy: solo registrar rutas si existe el método
 // ✅ CSRF solo relajado en local (cuando aplique)
 // ✅ Throttle consistente por operación
-// ✅ Paths y names estables (para JS y Blade)
-//
-// ✅ Opción A aplicada:
-// - Movido el COTIZADOR (quote.*) desde routes/cliente.php a este archivo (SOT SAT único).
+// ✅ Separar rutas públicas (signed) de rutas privadas (auth:web + account.active)
 
 declare(strict_types=1);
 
@@ -30,27 +26,6 @@ use App\Http\Controllers\Cliente\Sat\VaultController;
 use App\Http\Controllers\Cliente\Sat\SatCartController;
 use App\Http\Controllers\Cliente\Sat\SatZipController;
 use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
-
-/*
-|--------------------------------------------------------------------------
-| Rutas SAT Cliente (Descargas masivas CFDI, Bóveda, Reportes, Carrito, Cotizador)
-|--------------------------------------------------------------------------
-| Prefijo final: /cliente/sat/...
-| Names final:   cliente.sat.*  (por as('cliente.') en web.php + as('sat.') aquí)
-|
-| IMPORTANTE:
-| - Este archivo YA está envuelto por middleware('cliente') en routes/web.php.
-| - Por eso aquí NO debemos declarar auth:* (evita loops /cliente/login).
-|
-| Middleware base sugerido aquí:
-| - session.cliente
-| - account.active
-|
-| Nota negocio:
-| - La cuenta puede ser FREE (sin PRO) y aun así pagar Bóveda.
-| - Por eso BÓVEDA se protege con middleware separado: vault.active
-|--------------------------------------------------------------------------
-*/
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -103,11 +78,42 @@ $thrExcelPrev   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 $thrDiotBuild   = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 $thrVaultExport = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
-// =========================
-// Grupo base SAT (interno)
-// =========================
-// OJO: NO auth:* aquí, porque ya viene desde web.php (middleware('cliente'))
-Route::middleware(['session.cliente', 'account.active'])
+/*
+|--------------------------------------------------------------------------
+| ✅ SAT PUBLIC (NO LOGIN) — solo signed + throttle
+|--------------------------------------------------------------------------
+| Importante:
+| - Estas rutas van FUERA del grupo "privado" para no heredar account.active ni auth:web.
+| - Siguen viviendo bajo middleware('cliente') por el montaje, pero eso ya trae session/cookies.
+| - El controller debe validar firma y expiración con middleware('signed').
+*/
+Route::prefix('sat')
+    ->as('sat.')
+    ->group(function () use ($noCsrfLocal, $thrCredsAlias) {
+
+        // Link firmado (GET) + submit (POST) para registrar emisor externo
+        Route::get('/external/register', [SatExternalPublicController::class, 'externalRegisterForm'])
+            ->middleware(['signed'])
+            ->name('external.register');
+
+        $rRegisterStore = Route::post('/external/register', [SatExternalPublicController::class, 'externalRegisterStore'])
+            ->middleware(['signed', $thrCredsAlias])
+            ->name('external.register.store');
+
+        $noCsrfLocal($rRegisterStore);
+    });
+
+/*
+|--------------------------------------------------------------------------
+| ✅ SAT PRIVADO (AUTH) — requiere cuenta activa
+|--------------------------------------------------------------------------
+| OJO:
+| - Aquí SÍ exigimos auth:web explícito para blindar en producción
+|   (no dependemos de que venga “por accidente” desde otro lado).
+| - Evitamos `session.cliente` porque ya lo ejecuta el middlewareGroup 'cliente'
+|   ANTES de StartSession (vía ClientSessionConfig en Kernel).
+*/
+Route::middleware(['auth:web', 'account.active'])
     ->prefix('sat')
     ->as('sat.')
     ->group(function () use (
@@ -129,16 +135,9 @@ Route::middleware(['session.cliente', 'account.active'])
         |--------------------------------------------------------------------------
         | Dashboard SAT
         |--------------------------------------------------------------------------
-        | GET /cliente/sat
         */
         Route::get('/', [SatDescargaController::class, 'index'])->name('index');
 
-        /*
-        |--------------------------------------------------------------------------
-        | Dashboard SAT (JSON)
-        |--------------------------------------------------------------------------
-        | GET /cliente/sat/dashboard/stats -> cliente.sat.dashboard.stats
-        */
         Route::get('/dashboard/stats', [SatDescargaController::class, 'dashboardStats'])
             ->middleware($thrVerify)
             ->name('dashboard.stats');
@@ -205,10 +204,8 @@ Route::middleware(['session.cliente', 'account.active'])
 
         /*
         |--------------------------------------------------------------------------
-        | ✅ REGISTRO EXTERNO / INVITE (cliente.sat.external.*)
+        | ✅ REGISTRO EXTERNO / INVITE (autenticado)
         |--------------------------------------------------------------------------
-        | GET  /cliente/sat/external/register  -> firmado (SIN LOGIN)
-        | POST /cliente/sat/external/register  -> firmado (SIN LOGIN)
         */
         Route::get('/external/invite', [SatExternalPublicController::class, 'externalInviteGet'])
             ->name('external.invite.get');
@@ -224,17 +221,6 @@ Route::middleware(['session.cliente', 'account.active'])
                 ->name('external.invite');
             $noCsrfLocal($rInvite);
         }
-
-        // SIN LOGIN: removemos middlewares del grupo (session/account) y el middleware('cliente') del web.php debe permitir signed guest
-        Route::get('/external/register', [SatExternalPublicController::class, 'externalRegisterForm'])
-            ->withoutMiddleware(['session.cliente', 'account.active'])
-            ->name('external.register');
-
-        $rRegisterStore = Route::post('/external/register', [SatExternalPublicController::class, 'externalRegisterStore'])
-            ->middleware([$thrCredsAlias])
-            ->withoutMiddleware(['session.cliente', 'account.active'])
-            ->name('external.register.store');
-        $noCsrfLocal($rRegisterStore);
 
         /*
         |--------------------------------------------------------------------------
