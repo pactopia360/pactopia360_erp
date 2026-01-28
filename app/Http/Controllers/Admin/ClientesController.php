@@ -195,6 +195,40 @@ class ClientesController extends \App\Http\Controllers\Controller
         return view('admin.clientes.index', compact('rows', 'extras', 'creds', 'recipients', 'billingStatuses'));
     }
 
+    protected function resolveCuentaClienteFromAdminAccount(?object $acc): ?object
+    {
+        if (!$acc || empty($acc->id)) return null;
+
+        $schemaCli = \Schema::connection('mysql_clientes');
+        if (!$schemaCli->hasTable('cuentas_cliente')) return null;
+
+        $connCli = \DB::connection('mysql_clientes');
+
+        $accountId = (int) $acc->id;
+        $rfc = strtoupper(trim((string)($acc->rfc ?? '')));
+
+        // 1) match principal: admin_account_id
+        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+            $row = $connCli->table('cuentas_cliente')->where('admin_account_id', $accountId)->first();
+            if ($row) return $row;
+        }
+
+        // 2) fallback: rfc
+        if ($rfc !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+            $row = $connCli->table('cuentas_cliente')->whereRaw('UPPER(rfc) = ?', [$rfc])->first();
+            if ($row) return $row;
+        }
+
+        // 3) fallback: rfc_padre (en tu caso guarda RFC)
+        if ($rfc !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $row = $connCli->table('cuentas_cliente')->whereRaw('UPPER(rfc_padre) = ?', [$rfc])->first();
+            if ($row) return $row;
+        }
+
+        return null;
+    }
+
+
     // ======================= GUARDAR (accounts) =======================
     public function save(string $key, Request $request): RedirectResponse
     {
@@ -554,36 +588,76 @@ class ClientesController extends \App\Http\Controllers\Controller
 
     public function forceEmailVerified(string $key): RedirectResponse
     {
-        $acc = $this->requireAccount($key, ['id']);
+        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
 
+        // ✅ IMPORTANTÍSIMO: NUNCA uses $acc en operaciones numéricas
+        $accId = (int) ((is_object($acc) && isset($acc->id)) ? $acc->id : 0);
+        if ($accId <= 0) {
+            return back()->with('error', 'Cuenta inválida.');
+        }
+
+        $accountId = (string) $accId;
+        $rfcCol    = $this->colRfcAdmin();
+        $rfcReal   = strtoupper(trim((string) (is_object($acc) ? ($acc->{$rfcCol} ?? '') : '')));
+
+
+        // 1) Admin SOT
         if ($this->hasCol($this->adminConn, 'accounts', 'email_verified_at')) {
             DB::connection($this->adminConn)->table('accounts')
-                ->where('id', $acc->id)->update(['email_verified_at' => now(), 'updated_at' => now()]);
-        }
-        return back()->with('ok', 'Email marcado como verificado.');
-    }
-
-    public function forcePhoneVerified(string $key): RedirectResponse
-    {
-        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
-        $rfcReal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
-
-        if ($this->hasCol($this->adminConn, 'accounts', 'phone_verified_at')) {
-            DB::connection($this->adminConn)->table('accounts')
-                ->where('id', $acc->id)->update(['phone_verified_at' => now(), 'updated_at' => now()]);
+                ->where('id', $acc->id)
+                ->update(['email_verified_at' => now(), 'updated_at' => now()]);
         }
 
-        // Intento de activación final (si tu controlador cliente trabaja por RFC real)
+        // 2) Limpia tokens pendientes (admin)
+        $this->purgeAdminVerificationArtifacts($accountId, 'email');
+
+        // 3) Espejo mysql_clientes (owner + cuenta)
+        $this->forceVerifyInMirror($accountId, $rfcReal, 'email');
+        // 4) Intento de activación final (si existe)
         try {
             if ($rfcReal !== '' && class_exists(\App\Http\Controllers\Cliente\VerificationController::class)) {
                 app(\App\Http\Controllers\Cliente\VerificationController::class)
                     ->finalizeActivationAndSendCredentialsByRfc($rfcReal);
             }
         } catch (\Throwable $e) {
-            Log::warning('finalizeActivation: ' . $e->getMessage());
+            Log::warning('finalizeActivation (email): ' . $e->getMessage());
         }
 
-        return back()->with('ok', 'Teléfono verificado. Activación final intentada.');
+        return back()->with('ok', 'Email marcado como verificado (admin + cliente).');
+     }
+
+    public function forcePhoneVerified(string $key): RedirectResponse
+     {
+
+       $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
+       $accountId = (string) $acc->id;
+       $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+
+       // 1) Admin SOT
+       if ($this->hasCol($this->adminConn, 'accounts', 'phone_verified_at')) {
+            DB::connection($this->adminConn)->table('accounts')
+                ->where('id', $acc->id)
+                ->update(['phone_verified_at' => now(), 'updated_at' => now()]);
+        }
+
+
+        // 2) Limpia OTP pendientes (admin)
+        $this->purgeAdminVerificationArtifacts($accountId, 'phone');
+
+        // 3) Espejo mysql_clientes (owner + cuenta)
+        $this->forceVerifyInMirror($accountId, $rfcReal, 'phone');
+
+        // 4) Intento de activación final (si tu controlador cliente trabaja por RFC real)
+        try {
+            if ($rfcReal !== '' && class_exists(\App\Http\Controllers\Cliente\VerificationController::class)) {
+                app(\App\Http\Controllers\Cliente\VerificationController::class)
+                    ->finalizeActivationAndSendCredentialsByRfc($rfcReal);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('finalizeActivation (phone): ' . $e->getMessage());
+        }
+
+        return back()->with('ok', 'Teléfono verificado (admin + cliente).');
     }
 
     public function resetPassword(Request $request, string $rfcOrId)
@@ -1905,13 +1979,159 @@ class ClientesController extends \App\Http\Controllers\Controller
      * Cache para hasColumn: reduce overhead de Schema en listados grandes.
      */
     private function hasCol(string $conn, string $table, string $col): bool
+     {
+         $k = "{$conn}.{$table}.{$col}";
+         if (array_key_exists($k, $this->schemaHas)) return $this->schemaHas[$k];
+         try {
+             return $this->schemaHas[$k] = Schema::connection($conn)->hasColumn($table, $col);
+         } catch (\Throwable $e) {
+             return $this->schemaHas[$k] = false;
+         }
+     }
+
+    /**
+     * Marca verificación en mysql_clientes (owner + opcional cuentas_cliente)
+     * y limpia pendientes (otp/tokens) si existen tablas.
+     *
+     * $type: 'email' | 'phone'
+     */
+    private function forceVerifyInMirror(string $accountId, string $rfcReal, string $type): void
     {
-        $k = "{$conn}.{$table}.{$col}";
-        if (array_key_exists($k, $this->schemaHas)) return $this->schemaHas[$k];
+        $type = strtolower(trim($type));
+        if (!in_array($type, ['email', 'phone'], true)) return;
+
         try {
-            return $this->schemaHas[$k] = Schema::connection($conn)->hasColumn($table, $col);
+            // Asegura espejo + owner
+            $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal !== '' ? $rfcReal : $accountId);
+            $cuentaId = (string) ($pack['cuenta']->id ?? '');
+            $ownerId  = (string) ($pack['owner']->id ?? '');
+
+            $schemaCli = Schema::connection('mysql_clientes');
+            $connCli   = DB::connection('mysql_clientes');
+
+            // --- usuarios_cuenta (owner) ---
+            if ($schemaCli->hasTable('usuarios_cuenta') && $ownerId !== '') {
+                $uUpd = ['updated_at' => now()];
+                if ($type === 'email' && $schemaCli->hasColumn('usuarios_cuenta', 'email_verified_at')) {
+                    $uUpd['email_verified_at'] = now();
+                }
+                if ($type === 'phone' && $schemaCli->hasColumn('usuarios_cuenta', 'phone_verified_at')) {
+                    $uUpd['phone_verified_at'] = now();
+                }
+
+                // Opcional: algunas implementaciones guardan flags booleanos
+                if ($type === 'email' && $schemaCli->hasColumn('usuarios_cuenta', 'email_verified')) {
+                    $uUpd['email_verified'] = 1;
+                }
+                if ($type === 'phone' && $schemaCli->hasColumn('usuarios_cuenta', 'phone_verified')) {
+                    $uUpd['phone_verified'] = 1;
+                }
+
+                if (count($uUpd) > 1) {
+                    $connCli->table('usuarios_cuenta')->where('id', $ownerId)->update($uUpd);
+                }
+            }
+
+            // --- cuentas_cliente (opcional) ---
+            if ($schemaCli->hasTable('cuentas_cliente') && $cuentaId !== '') {
+                $cUpd = ['updated_at' => now()];
+                if ($type === 'email' && $schemaCli->hasColumn('cuentas_cliente', 'email_verified_at')) {
+                    $cUpd['email_verified_at'] = now();
+                }
+                if ($type === 'phone' && $schemaCli->hasColumn('cuentas_cliente', 'phone_verified_at')) {
+                    $cUpd['phone_verified_at'] = now();
+                }
+                if ($type === 'email' && $schemaCli->hasColumn('cuentas_cliente', 'email_verified')) {
+                    $cUpd['email_verified'] = 1;
+                }
+                if ($type === 'phone' && $schemaCli->hasColumn('cuentas_cliente', 'phone_verified')) {
+                    $cUpd['phone_verified'] = 1;
+                }
+
+                if (count($cUpd) > 1) {
+                    $connCli->table('cuentas_cliente')->where('id', $cuentaId)->update($cUpd);
+                }
+            }
+
+            // Limpia pendientes en mysql_clientes (si existen)
+            $this->purgeClientesVerificationArtifacts($accountId, $type, $cuentaId, $ownerId);
+
         } catch (\Throwable $e) {
-            return $this->schemaHas[$k] = false;
+            Log::warning('forceVerifyInMirror failed: ' . $e->getMessage(), [
+                'account_id' => $accountId,
+                'rfc'        => $rfcReal,
+                'type'       => $type,
+            ]);
         }
     }
+
+    /**
+     * Limpieza en mysql_admin para que no queden tokens/otps vigentes.
+     * $type: email|phone
+     */
+    private function purgeAdminVerificationArtifacts(string $accountId, string $type): void
+    {
+        $type = strtolower(trim($type));
+        try {
+            if ($type === 'email' && Schema::connection($this->adminConn)->hasTable('email_verifications')) {
+                DB::connection($this->adminConn)->table('email_verifications')
+                    ->where('account_id', $accountId)
+                    ->delete();
+            }
+
+            if ($type === 'phone' && Schema::connection($this->adminConn)->hasTable('phone_otps')) {
+                DB::connection($this->adminConn)->table('phone_otps')
+                    ->where('account_id', $accountId)
+                    ->delete();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('purgeAdminVerificationArtifacts: ' . $e->getMessage(), [
+                'account_id' => $accountId,
+                'type'       => $type,
+            ]);
+        }
+    }
+
+    /**
+     * Limpieza en mysql_clientes (si existen tablas).
+     * Nota: tu arquitectura ha tenido phone_otps también del lado clientes.
+     */
+    private function purgeClientesVerificationArtifacts(string $accountId, string $type, string $cuentaId = '', string $ownerId = ''): void
+    {
+        $type = strtolower(trim($type));
+        try {
+            $schemaCli = Schema::connection('mysql_clientes');
+            $connCli   = DB::connection('mysql_clientes');
+
+            // phone_otps en clientes puede colgarse de account_id o cuenta_id (dependiendo versión)
+            if ($type === 'phone' && $schemaCli->hasTable('phone_otps')) {
+                $q = $connCli->table('phone_otps');
+                if ($schemaCli->hasColumn('phone_otps', 'account_id')) {
+                    $q->where('account_id', $accountId);
+                } elseif ($cuentaId !== '' && $schemaCli->hasColumn('phone_otps', 'cuenta_id')) {
+                    $q->where('cuenta_id', $cuentaId);
+                }
+                $q->delete();
+            }
+
+            // email_verifications en clientes (si existiera) — por account_id o por email/usuario
+            if ($type === 'email' && $schemaCli->hasTable('email_verifications')) {
+                $q = $connCli->table('email_verifications');
+                if ($schemaCli->hasColumn('email_verifications', 'account_id')) {
+                    $q->where('account_id', $accountId);
+                } elseif ($ownerId !== '' && $schemaCli->hasColumn('email_verifications', 'user_id')) {
+                    $q->where('user_id', $ownerId);
+                } elseif ($cuentaId !== '' && $schemaCli->hasColumn('email_verifications', 'cuenta_id')) {
+                    $q->where('cuenta_id', $cuentaId);
+                }
+                $q->delete();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('purgeClientesVerificationArtifacts: ' . $e->getMessage(), [
+                'account_id' => $accountId,
+                'type'       => $type,
+            ]);
+        }
+    }
+ 
 }

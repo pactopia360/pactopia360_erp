@@ -120,14 +120,20 @@
     }
   }
 
-  function cssEscape(value) {
-  const v = String(value ?? '');
-  try {
-    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(v);
-  } catch (_) {}
-  // fallback simple (suficiente para UUIDs/ids comunes)
-  return v.replace(/"/g, '\\"').replace(/\\/g, '\\\\');
-}
+    function cssEscape(value) {
+    const v = String(value ?? '');
+    try {
+      if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(v);
+    } catch (_) {}
+    // fallback más robusto para selectores tipo [data-id="..."]
+    // escapa backslash, comillas y corchetes (por si acaso)
+    return v
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+  }
+
 
 
   // ===== Menús kebab =====
@@ -323,7 +329,15 @@
 
 
     if (credAccountLink) {
-      const url = (d.accountUrl || '').trim();
+      let url = (d.accountUrl || '').trim();
+
+      // Fallback: si no viene URL pero tenemos accountId numérico, construimos ruta típica
+      // (esto evita que se "muera" el botón por un route/cache viejo en Blade)
+      const aid = String(d.accountId || '').trim();
+      if (!url && aid && /^\d+$/.test(aid)) {
+        url = `/admin/billing/accounts/${encodeURIComponent(aid)}`;
+      }
+
       if (url) {
         credAccountLink.href = url;
         show(credAccountLink);
@@ -332,6 +346,7 @@
         hide(credAccountLink);
       }
     }
+
 
     setTag(credOriginTag, d.origin || '—', d.originCls || '');
     setText(credOriginHint, d.originHint || '—');
@@ -434,7 +449,6 @@
 
       const row = document.querySelector(`.tr[data-id="${cssEscape(id)}"]`);
       if (row) row.remove();
-
 
       if (activeId && activeId === id && isCredOpen()) {
         closeCredDrawer();

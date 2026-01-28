@@ -257,8 +257,7 @@
             $accPhone   = trim((string)$pick($row, ['account_phone'], ''));
             $accStatus  = trim((string)$pick($row, ['account_status'], ''));
             $accPlan    = trim((string)$pick($row, ['account_plan'], ''));
-            $accCreated = trim((string)$pick($row, ['account_created'], ''));
-
+            
             // Cuenta (hidratada por controller)
             $accountHint = trim((string)$pick($row, ['account_hint'], ''));
             $accountRef  = $fmt($pick($row, ['account_ref_id'], '—'));
@@ -309,11 +308,25 @@
             $cerUrl = $rtCerName ? route($rtCerName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/cer');
             $keyUrl = $rtKeyName ? route($rtKeyName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/key');
 
-            // Link cuenta
+            // Link cuenta (SIEMPRE debe ser admin_account_id numérico)
+            $adminAccountId = trim((string)$pick($row, ['account_admin_id','admin_account_id'], ''));
+
+            // Link cuenta (✅ usa ID numérico real si viene hidratado)
             $accountUrl = null;
-            if($canGoAccount && $accountRef !== '—' && $accountRef !== ''){
-              try { $accountUrl = route('admin.billing.accounts.show', ['id' => $accountRef]); } catch(\Throwable) { $accountUrl = null; }
+            $accountLinkId = trim((string)$pick($row, ['account_link_id'], ''));
+
+            // fallback: si por alguna razón ya viniera numérico en account_ref_id
+            if ($accountLinkId === '') {
+              $tmp = trim((string)$pick($row, ['account_ref_id'], ''));
+              if ($tmp !== '' && ctype_digit($tmp)) $accountLinkId = $tmp;
             }
+
+            if ($canGoAccount && $accountLinkId !== '') {
+              try { $accountUrl = route('admin.billing.accounts.show', ['id' => $accountLinkId]); }
+              catch(\Throwable) { $accountUrl = null; }
+            }
+
+
 
           @endphp
 

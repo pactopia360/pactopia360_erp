@@ -130,6 +130,7 @@ final class SatOpsCredentialsController extends Controller
             // Campos para UI (se rellenan después)
             DB::raw("NULL as account_name"),
             DB::raw("NULL as account_hint"),
+            DB::raw("NULL as account_link_id"), // ✅ id numérico para admin.billing.accounts.show
 
             // Detalle de cuenta (drawer)
             DB::raw("NULL as account_email"),
@@ -536,17 +537,21 @@ private function tryDeleteStoredFile(string $pathRaw): void
     // =========================================================
     private function hydrateAccountNames($items)
     {
-        // 1) Intenta admin.accounts (si hubiera match directo)
+        // 1) Admin (si hay match directo por id/uuid/etc)
         $items = $this->hydrateAccountNamesFromAdmin($items);
 
-        // 2) ✅ Nuevo: fallback real para UUID -> billing_statements.snapshot.account
+        // 2) UUID fallback: billing_statements.snapshot (solo si aplica)
         $items = $this->hydrateAccountNamesFromAdminBillingSnapshot($items);
 
-        // 3) Fallbacks legacy: mysql_clientes (companies/accounts/clientes)
+        // 3) ✅ PRIORIDAD REAL: cuentas_cliente (espejo operativo)
+        $items = $this->hydrateAccountNamesFromCuentasCliente($items);
+
+        // 4) Fallbacks legacy: companies/accounts/clientes
         $items = $this->hydrateAccountNamesFromClientes($items);
 
         return $items;
     }
+
 
 
     private function hydrateAccountNamesFromAdmin($items)
@@ -793,269 +798,560 @@ private function tryDeleteStoredFile(string $pathRaw): void
         return $items;
     }
 
+    // =========================================================
+    // PRIORIDAD: mysql_clientes.cuentas_cliente (espejo real)
+    // - match por admin_account_id (mejor)
+    // - fallback por rfc / rfc_padre (en tu BD rfc_padre guarda RFC)
+    // =========================================================
+    private function hydrateAccountNamesFromCuentasCliente($items)
+    {
+        try {
+            $schema = Schema::connection('mysql_clientes');
+            if (!$schema->hasTable('cuentas_cliente')) return $items;
 
-    private function hydrateAccountNamesFromClientes($items)
-{
-    try {
-        $schema = Schema::connection('mysql_clientes');
+            $conn = DB::connection('mysql_clientes');
 
-        $cuentaIds = collect($items)
-            ->map(fn($r) => trim((string) ($r->cuenta_id ?? '')))
-            ->filter(fn($v) => $v !== '' && $v !== '0' && $v !== '—')
-            ->unique()
-            ->values();
+            // Colecciones de llaves
+            $rfcs = collect($items)
+                ->map(fn($r) => strtoupper(trim((string)($r->rfc ?? ''))))
+                ->filter(fn($v) => $v !== '' && $v !== '—')
+                ->unique()
+                ->values();
 
-        $refIds = collect($items)
-            ->map(fn($r) => trim((string) ($r->account_ref_id ?? '')))
-            ->filter(fn($v) => $v !== '' && $v !== '0' && $v !== '—')
-            ->unique()
-            ->values();
+            $adminIds = collect($items)
+                ->map(function ($r) {
+                    $ref = trim((string)($r->account_ref_id ?? ''));
+                    return ctype_digit($ref) ? (int)$ref : null;
+                })
+                ->filter(fn($v) => $v !== null && $v > 0)
+                ->unique()
+                ->values();
 
-        // ================================
-        // 0) Helper: detect UUID
-        // ================================
-        $looksUuid = function (?string $v): bool {
-            $v = trim((string)$v);
-            if ($v === '') return false;
-            return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
-        };
+            // Columnas disponibles (prod/local pueden variar)
+            $has = fn(string $c) => (bool)($schema->hasColumn('cuentas_cliente', $c));
 
-        // =========================================================
-        // 1) ✅ PRIORIDAD: companies (account_id -> razon_social)
-        //    Esto hace que la cuenta se vea "real" para UUID cuenta_id
-        // =========================================================
-        if ($schema->hasTable('companies')) {
+            $sel = [
+                'id',
+                ($has('admin_account_id') ? 'admin_account_id' : DB::raw('NULL as admin_account_id')),
+                ($has('rfc') ? 'rfc' : DB::raw('NULL as rfc')),
+                ($has('rfc_padre') ? 'rfc_padre' : DB::raw('NULL as rfc_padre')),
+                ($has('razon_social') ? 'razon_social' : DB::raw('NULL as razon_social')),
+                ($has('email') ? 'email' : DB::raw('NULL as email')),
+                ($has('telefono') ? 'telefono' : DB::raw('NULL as telefono')),
+                ($has('estado_cuenta') ? 'estado_cuenta' : DB::raw('NULL as estado_cuenta')),
+                ($has('plan_actual') ? 'plan_actual' : DB::raw('NULL as plan_actual')),
+                ($has('modo_cobro') ? 'modo_cobro' : DB::raw('NULL as modo_cobro')),
+                ($has('created_at') ? 'created_at' : DB::raw('NULL as created_at')),
+            ];
 
-            $hasAccountId = $schema->hasColumn('companies', 'account_id');
-            $hasRazon     = $schema->hasColumn('companies', 'razon_social');
+            $q = $conn->table('cuentas_cliente')->select($sel);
 
-            if ($hasAccountId && $hasRazon) {
+            $q->where(function ($w) use ($adminIds, $rfcs, $has) {
+                $did = false;
 
-                // a) por cuenta_id
-                if ($cuentaIds->isNotEmpty()) {
-                    $rows = DB::connection('mysql_clientes')
-                        ->table('companies')
-                        ->select(['account_id as k', 'razon_social as n'])
-                        ->whereIn('account_id', $cuentaIds->all())
-                        ->get();
+                if ($adminIds->isNotEmpty() && $has('admin_account_id')) {
+                    $w->whereIn('admin_account_id', $adminIds->all());
+                    $did = true;
+                }
 
-                    $map = [];
-                    foreach ($rows as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map[$k] = $n;
+                if ($rfcs->isNotEmpty()) {
+                    // rfc
+                    if ($has('rfc')) {
+                        $did ? $w->orWhereIn(DB::raw('UPPER(rfc)'), $rfcs->all())
+                            : $w->whereIn(DB::raw('UPPER(rfc)'), $rfcs->all());
+                        $did = true;
                     }
-
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->cuenta_id ?? ''));
-                        if ($k !== '' && isset($map[$k])) {
-                            $it->account_name = $map[$k];
-                            $it->account_hint = 'Clientes · companies (account_id)';
-                        }
+                    // rfc_padre (en tu BD es RFC)
+                    if ($has('rfc_padre')) {
+                        $did ? $w->orWhereIn(DB::raw('UPPER(rfc_padre)'), $rfcs->all())
+                            : $w->whereIn(DB::raw('UPPER(rfc_padre)'), $rfcs->all());
+                        $did = true;
                     }
                 }
 
-                // b) fallback por account_ref_id (si viene un UUID ahí)
-                if ($refIds->isNotEmpty() && $looksUuid((string)$refIds->first())) {
-                    $rows2 = DB::connection('mysql_clientes')
-                        ->table('companies')
-                        ->select(['account_id as k', 'razon_social as n'])
-                        ->whereIn('account_id', $refIds->all())
-                        ->get();
-
-                    $map2 = [];
-                    foreach ($rows2 as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map2[$k] = $n;
-                    }
-
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->account_ref_id ?? ''));
-                        if ($k !== '' && isset($map2[$k])) {
-                            $it->account_name = $map2[$k];
-                            $it->account_hint = 'Clientes · companies (account_id)';
-                        }
-                    }
+                // Si no hubo llaves, evita query inútil
+                if (!$did) {
+                    $w->whereRaw('1=0');
                 }
+            });
+
+            $rows = $q->get();
+            if ($rows->isEmpty()) return $items;
+
+            // Mapa multi-llave: admin_account_id / rfc / rfc_padre / uuid
+            $mapByAdmin = [];
+            $mapByRfc   = [];
+            $mapByPadre = [];
+            $mapById    = [];
+
+            foreach ($rows as $r) {
+                $aid = (int)($r->admin_account_id ?? 0);
+                $rfc = strtoupper(trim((string)($r->rfc ?? '')));
+                $pad = strtoupper(trim((string)($r->rfc_padre ?? '')));
+                $cid = trim((string)($r->id ?? ''));
+
+                if ($aid > 0 && !isset($mapByAdmin[$aid])) $mapByAdmin[$aid] = $r;
+                if ($rfc !== '' && !isset($mapByRfc[$rfc])) $mapByRfc[$rfc] = $r;
+                if ($pad !== '' && !isset($mapByPadre[$pad])) $mapByPadre[$pad] = $r;
+                if ($cid !== '' && !isset($mapById[$cid])) $mapById[$cid] = $r;
             }
 
-                            // ================================
-                // Extra (si existen columnas): email / teléfono
-                // ================================
-                $emailCol = null;
-                foreach (['email','correo','email_contacto','correo_contacto'] as $c) {
-                    try { if ($schema->hasColumn('companies', $c)) { $emailCol = $c; break; } } catch (\Throwable) {}
-                }
-                $phoneCol = null;
-                foreach (['telefono','phone','tel','celular','movil'] as $c) {
-                    try { if ($schema->hasColumn('companies', $c)) { $phoneCol = $c; break; } } catch (\Throwable) {}
-                }
+            foreach ($items as $it) {
+                // match preferido: admin_account_id detectado desde account_ref_id
+                $ref = trim((string)($it->account_ref_id ?? ''));
+                $aid = ctype_digit($ref) ? (int)$ref : 0;
 
-                if (($emailCol || $phoneCol) && $cuentaIds->isNotEmpty()) {
-                    $sel = ['account_id as k'];
-                    if ($emailCol) $sel[] = $emailCol.' as e';
-                    else $sel[] = DB::raw("NULL as e");
-                    if ($phoneCol) $sel[] = $phoneCol.' as p';
-                    else $sel[] = DB::raw("NULL as p");
+                $rfc = strtoupper(trim((string)($it->rfc ?? '')));
 
-                    $rowsX = DB::connection('mysql_clientes')
-                        ->table('companies')
-                        ->select($sel)
-                        ->whereIn('account_id', $cuentaIds->all())
-                        ->get();
+                $hit = null;
+                if ($aid > 0 && isset($mapByAdmin[$aid])) $hit = $mapByAdmin[$aid];
+                if (!$hit && $rfc !== '' && isset($mapByRfc[$rfc])) $hit = $mapByRfc[$rfc];
+                if (!$hit && $rfc !== '' && isset($mapByPadre[$rfc])) $hit = $mapByPadre[$rfc];
 
-                    $mapX = [];
-                    foreach ($rowsX as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        if ($k === '') continue;
-                        $mapX[$k] = [
-                            'email' => trim((string) ($r->e ?? '')),
-                            'phone' => trim((string) ($r->p ?? '')),
-                        ];
-                    }
+                if (!$hit) continue;
 
-                    foreach ($items as $it) {
-                        $k = trim((string) ($it->cuenta_id ?? ''));
-                        if ($k === '' || !isset($mapX[$k])) continue;
-
-                        if (empty($it->account_email) && ($mapX[$k]['email'] ?? '') !== '') {
-                            $it->account_email = $mapX[$k]['email'];
-                        }
-                        if (empty($it->account_phone) && ($mapX[$k]['phone'] ?? '') !== '') {
-                            $it->account_phone = $mapX[$k]['phone'];
-                        }
-                    }
+                // Nombre
+                $rs = trim((string)($hit->razon_social ?? ''));
+                if (empty($it->account_name) && $rs !== '') {
+                    $it->account_name = $rs;
                 }
 
-        }
-
-        // =========================================================
-        // 2) accounts (id -> razon_social)  [normalmente ID numérico]
-        // =========================================================
-        if ($schema->hasTable('accounts')) {
-            $nameCol = $schema->hasColumn('accounts', 'razon_social') ? 'razon_social' : null;
-
-            if ($nameCol) {
-                // por cuenta_id (si fuera numérico)
-                if ($cuentaIds->isNotEmpty() && !$looksUuid((string)$cuentaIds->first())) {
-                    $rows = DB::connection('mysql_clientes')
-                        ->table('accounts')
-                        ->select(['id as k', $nameCol . ' as n'])
-                        ->whereIn('id', $cuentaIds->all())
-                        ->get();
-
-                    $map = [];
-                    foreach ($rows as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map[$k] = $n;
-                    }
-
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->cuenta_id ?? ''));
-                        if ($k !== '' && isset($map[$k])) {
-                            $it->account_name = $map[$k];
-                            $it->account_hint = 'Clientes · accounts (id)';
-                        }
-                    }
+                // Fuente
+                if (empty($it->account_hint)) {
+                    $it->account_hint = 'Clientes · cuentas_cliente';
                 }
 
-                // fallback por account_ref_id (si fuera numérico)
-                if ($refIds->isNotEmpty() && !$looksUuid((string)$refIds->first())) {
-                    $rows2 = DB::connection('mysql_clientes')
-                        ->table('accounts')
-                        ->select(['id as k', $nameCol . ' as n'])
-                        ->whereIn('id', $refIds->all())
-                        ->get();
+                // Datos útiles para drawer
+                $email = trim((string)($hit->email ?? ''));
+                $tel   = trim((string)($hit->telefono ?? ''));
+                $st    = trim((string)($hit->estado_cuenta ?? ''));
+                $pl    = trim((string)($hit->plan_actual ?? ''));
+                $mc    = trim((string)($hit->modo_cobro ?? ''));
+                $cr    = trim((string)($hit->created_at ?? ''));
 
-                    $map2 = [];
-                    foreach ($rows2 as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map2[$k] = $n;
-                    }
+                if (empty($it->account_email) && $email !== '') $it->account_email = $email;
+                if (empty($it->account_phone) && $tel !== '') $it->account_phone = $tel;
 
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->account_ref_id ?? ''));
-                        if ($k !== '' && isset($map2[$k])) {
-                            $it->account_name = $map2[$k];
-                            $it->account_hint = 'Clientes · accounts (id)';
-                        }
-                    }
+                // status/plan: compactos pero útiles
+                if (empty($it->account_status) && $st !== '') $it->account_status = $st;
+                if (empty($it->account_plan)) {
+                    $planTxt = $pl;
+                    if ($mc !== '' && $planTxt !== '') $planTxt .= ' · ' . $mc;
+                    if ($planTxt !== '') $it->account_plan = $planTxt;
                 }
+
+                if (empty($it->account_created_at) && $cr !== '') $it->account_created_at = $cr;
+
+                // 🔑 IDs extras para link correcto al admin
+                $adminAccountId = (int)($hit->admin_account_id ?? 0);
+                if ($adminAccountId > 0) {
+                    $it->account_admin_id = $adminAccountId; // NUEVO campo dinámico para el blade
+                }
+                $it->cuenta_cliente_id = (string)($hit->id ?? '');
             }
+
+        } catch (\Throwable) {
+            // no romper vista
         }
 
-        // =========================================================
-        // 3) clientes (id -> razon_social) [por si tu cuenta_id fuera id cliente]
-        // =========================================================
-        if ($schema->hasTable('clientes')) {
-            $nameCol = $schema->hasColumn('clientes', 'razon_social') ? 'razon_social' : null;
-
-            if ($nameCol) {
-                // por cuenta_id
-                if ($cuentaIds->isNotEmpty()) {
-                    $rows = DB::connection('mysql_clientes')
-                        ->table('clientes')
-                        ->select(['id as k', $nameCol . ' as n'])
-                        ->whereIn('id', $cuentaIds->all())
-                        ->get();
-
-                    $map = [];
-                    foreach ($rows as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map[$k] = $n;
-                    }
-
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->cuenta_id ?? ''));
-                        if ($k !== '' && isset($map[$k])) {
-                            $it->account_name = $map[$k];
-                            $it->account_hint = 'Clientes · clientes (id)';
-                        }
-                    }
-                }
-
-                // por account_ref_id
-                if ($refIds->isNotEmpty()) {
-                    $rows2 = DB::connection('mysql_clientes')
-                        ->table('clientes')
-                        ->select(['id as k', $nameCol . ' as n'])
-                        ->whereIn('id', $refIds->all())
-                        ->get();
-
-                    $map2 = [];
-                    foreach ($rows2 as $r) {
-                        $k = trim((string) ($r->k ?? ''));
-                        $n = trim((string) ($r->n ?? ''));
-                        if ($k !== '' && $n !== '') $map2[$k] = $n;
-                    }
-
-                    foreach ($items as $it) {
-                        if (!empty($it->account_name)) continue;
-                        $k = trim((string) ($it->account_ref_id ?? ''));
-                        if ($k !== '' && isset($map2[$k])) {
-                            $it->account_name = $map2[$k];
-                            $it->account_hint = 'Clientes · clientes (id)';
-                        }
-                    }
-                }
-            }
-        }
-
-    } catch (\Throwable) {
-        // no romper vista
+        return $items;
     }
 
-    return $items;
-}
+
+
+    private function hydrateAccountNamesFromClientes($items)
+    {
+        try {
+            $schema = Schema::connection('mysql_clientes');
+
+            // =========================================================
+            // 0) ✅ PRIORIDAD REAL: cuentas_cliente (rfc / rfc_padre -> admin_account_id)
+            //    - Esto es lo que realmente amarra a admin.accounts (numérico)
+            //    - Además trae razon_social/estado/plan/email/tel en tu BD
+            // =========================================================
+            if ($schema->hasTable('cuentas_cliente')) {
+
+                $hasRfc        = $schema->hasColumn('cuentas_cliente', 'rfc');
+                $hasRfcPadre   = $schema->hasColumn('cuentas_cliente', 'rfc_padre');
+                $hasAdminAID   = $schema->hasColumn('cuentas_cliente', 'admin_account_id');
+
+                // columnas opcionales útiles
+                $hasRazon      = $schema->hasColumn('cuentas_cliente', 'razon_social');
+                $hasEmail      = $schema->hasColumn('cuentas_cliente', 'email');
+                $hasTel        = $schema->hasColumn('cuentas_cliente', 'telefono');
+                $hasEstado     = $schema->hasColumn('cuentas_cliente', 'estado_cuenta');
+                $hasPlan       = $schema->hasColumn('cuentas_cliente', 'plan_actual');
+                $hasModoCobro  = $schema->hasColumn('cuentas_cliente', 'modo_cobro');
+
+                if ($hasAdminAID && ($hasRfc || $hasRfcPadre)) {
+
+                    $rfcs = collect($items)
+                        ->map(fn($r) => strtoupper(trim((string)($r->rfc ?? ''))))
+                        ->filter(fn($v) => $v !== '' && $v !== '—')
+                        ->unique()
+                        ->values();
+
+                    if ($rfcs->isNotEmpty()) {
+
+                        $sel = ['admin_account_id as aid'];
+
+                        if ($hasRazon) $sel[] = 'razon_social as n'; else $sel[] = DB::raw("NULL as n");
+                        if ($hasEmail) $sel[] = 'email as e';        else $sel[] = DB::raw("NULL as e");
+                        if ($hasTel)   $sel[] = 'telefono as p';     else $sel[] = DB::raw("NULL as p");
+                        if ($hasEstado)$sel[] = 'estado_cuenta as s';else $sel[] = DB::raw("NULL as s");
+
+                        // plan: plan_actual + modo_cobro (si existe)
+                        if ($hasPlan && $hasModoCobro) {
+                            $sel[] = DB::raw("TRIM(CONCAT(COALESCE(plan_actual,''), CASE WHEN modo_cobro IS NULL OR modo_cobro='' THEN '' ELSE CONCAT(' · ', modo_cobro) END)) as pl");
+                        } elseif ($hasPlan) {
+                            $sel[] = DB::raw("TRIM(COALESCE(plan_actual,'')) as pl");
+                        } else {
+                            $sel[] = DB::raw("NULL as pl");
+                        }
+
+                        // traemos también llaves para mapear por rfc/rfc_padre
+                        if ($hasRfc)      $sel[] = 'rfc as rfc';
+                        else              $sel[] = DB::raw("NULL as rfc");
+
+                        if ($hasRfcPadre) $sel[] = 'rfc_padre as rp';
+                        else              $sel[] = DB::raw("NULL as rp");
+
+                        $q = DB::connection('mysql_clientes')->table('cuentas_cliente')->select($sel);
+
+                        $q->where(function ($w) use ($rfcs, $hasRfc, $hasRfcPadre) {
+                            if ($hasRfc) {
+                                $w->orWhereIn('rfc', $rfcs->all());
+                            }
+                            if ($hasRfcPadre) {
+                                $w->orWhereIn('rfc_padre', $rfcs->all());
+                            }
+                        });
+
+                        $rowsCC = $q->get();
+
+                        // Map por RFC y por RFC_PADRE
+                        $map = [];
+                        foreach ($rowsCC as $r) {
+                            $aid = trim((string)($r->aid ?? ''));
+                            if ($aid === '' || $aid === '0') continue;
+
+                            $n  = trim((string)($r->n ?? ''));
+                            $e  = trim((string)($r->e ?? ''));
+                            $p  = trim((string)($r->p ?? ''));
+                            $s  = trim((string)($r->s ?? ''));
+                            $pl = trim((string)($r->pl ?? ''));
+
+                            $rfc = strtoupper(trim((string)($r->rfc ?? '')));
+                            $rp  = strtoupper(trim((string)($r->rp ?? '')));
+
+                            $payload = [
+                                'aid'   => $aid,
+                                'name'  => $n,
+                                'email' => $e,
+                                'phone' => $p,
+                                'status'=> $s,
+                                'plan'  => $pl,
+                            ];
+
+                            if ($rfc !== '') $map[$rfc] = $payload;
+                            if ($rp  !== '' && !isset($map[$rp])) $map[$rp] = $payload;
+                        }
+
+                        // aplicar a items
+                        foreach ($items as $it) {
+                            $rfc = strtoupper(trim((string)($it->rfc ?? '')));
+                            if ($rfc === '' || !isset($map[$rfc])) continue;
+
+                            $p = $map[$rfc];
+
+                            // nombre cuenta
+                            if (empty($it->account_name) && ($p['name'] ?? '') !== '') {
+                                $it->account_name = $p['name'];
+                            }
+                            if (empty($it->account_hint)) {
+                                $it->account_hint = 'Clientes · cuentas_cliente';
+                            }
+
+                            // ✅ id numérico para link a admin/billing/accounts/{id}
+                            if (empty($it->account_link_id) && ($p['aid'] ?? '') !== '') {
+                                $it->account_link_id = $p['aid'];
+                            }
+
+                            if (empty($it->account_email) && ($p['email'] ?? '') !== '') {
+                                $it->account_email = $p['email'];
+                            }
+                            if (empty($it->account_phone) && ($p['phone'] ?? '') !== '') {
+                                $it->account_phone = $p['phone'];
+                            }
+                            if (empty($it->account_status) && ($p['status'] ?? '') !== '') {
+                                $it->account_status = $p['status'];
+                            }
+                            if (empty($it->account_plan) && ($p['plan'] ?? '') !== '') {
+                                $it->account_plan = $p['plan'];
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            $cuentaIds = collect($items)
+                ->map(fn($r) => trim((string) ($r->cuenta_id ?? '')))
+                ->filter(fn($v) => $v !== '' && $v !== '0' && $v !== '—')
+                ->unique()
+                ->values();
+
+            $refIds = collect($items)
+                ->map(fn($r) => trim((string) ($r->account_ref_id ?? '')))
+                ->filter(fn($v) => $v !== '' && $v !== '0' && $v !== '—')
+                ->unique()
+                ->values();
+
+            // ================================
+            // 0) Helper: detect UUID
+            // ================================
+            $looksUuid = function (?string $v): bool {
+                $v = trim((string)$v);
+                if ($v === '') return false;
+                return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
+            };
+
+            // =========================================================
+            // 1) ✅ PRIORIDAD: companies (account_id -> razon_social)
+            //    Esto hace que la cuenta se vea "real" para UUID cuenta_id
+            // =========================================================
+            if ($schema->hasTable('companies')) {
+
+                $hasAccountId = $schema->hasColumn('companies', 'account_id');
+                $hasRazon     = $schema->hasColumn('companies', 'razon_social');
+
+                if ($hasAccountId && $hasRazon) {
+
+                    // a) por cuenta_id
+                    if ($cuentaIds->isNotEmpty()) {
+                        $rows = DB::connection('mysql_clientes')
+                            ->table('companies')
+                            ->select(['account_id as k', 'razon_social as n'])
+                            ->whereIn('account_id', $cuentaIds->all())
+                            ->get();
+
+                        $map = [];
+                        foreach ($rows as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->cuenta_id ?? ''));
+                            if ($k !== '' && isset($map[$k])) {
+                                $it->account_name = $map[$k];
+                                $it->account_hint = 'Clientes · companies (account_id)';
+                            }
+                        }
+                    }
+
+                    // b) fallback por account_ref_id (si viene un UUID ahí)
+                    if ($refIds->isNotEmpty() && $looksUuid((string)$refIds->first())) {
+                        $rows2 = DB::connection('mysql_clientes')
+                            ->table('companies')
+                            ->select(['account_id as k', 'razon_social as n'])
+                            ->whereIn('account_id', $refIds->all())
+                            ->get();
+
+                        $map2 = [];
+                        foreach ($rows2 as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map2[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->account_ref_id ?? ''));
+                            if ($k !== '' && isset($map2[$k])) {
+                                $it->account_name = $map2[$k];
+                                $it->account_hint = 'Clientes · companies (account_id)';
+                            }
+                        }
+                    }
+                }
+
+                                // ================================
+                    // Extra (si existen columnas): email / teléfono
+                    // ================================
+                    $emailCol = null;
+                    foreach (['email','correo','email_contacto','correo_contacto'] as $c) {
+                        try { if ($schema->hasColumn('companies', $c)) { $emailCol = $c; break; } } catch (\Throwable) {}
+                    }
+                    $phoneCol = null;
+                    foreach (['telefono','phone','tel','celular','movil'] as $c) {
+                        try { if ($schema->hasColumn('companies', $c)) { $phoneCol = $c; break; } } catch (\Throwable) {}
+                    }
+
+                    if (($emailCol || $phoneCol) && $cuentaIds->isNotEmpty()) {
+                        $sel = ['account_id as k'];
+                        if ($emailCol) $sel[] = $emailCol.' as e';
+                        else $sel[] = DB::raw("NULL as e");
+                        if ($phoneCol) $sel[] = $phoneCol.' as p';
+                        else $sel[] = DB::raw("NULL as p");
+
+                        $rowsX = DB::connection('mysql_clientes')
+                            ->table('companies')
+                            ->select($sel)
+                            ->whereIn('account_id', $cuentaIds->all())
+                            ->get();
+
+                        $mapX = [];
+                        foreach ($rowsX as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            if ($k === '') continue;
+                            $mapX[$k] = [
+                                'email' => trim((string) ($r->e ?? '')),
+                                'phone' => trim((string) ($r->p ?? '')),
+                            ];
+                        }
+
+                        foreach ($items as $it) {
+                            $k = trim((string) ($it->cuenta_id ?? ''));
+                            if ($k === '' || !isset($mapX[$k])) continue;
+
+                            if (empty($it->account_email) && ($mapX[$k]['email'] ?? '') !== '') {
+                                $it->account_email = $mapX[$k]['email'];
+                            }
+                            if (empty($it->account_phone) && ($mapX[$k]['phone'] ?? '') !== '') {
+                                $it->account_phone = $mapX[$k]['phone'];
+                            }
+                        }
+                    }
+
+            }
+
+            // =========================================================
+            // 2) accounts (id -> razon_social)  [normalmente ID numérico]
+            // =========================================================
+            if ($schema->hasTable('accounts')) {
+                $nameCol = $schema->hasColumn('accounts', 'razon_social') ? 'razon_social' : null;
+
+                if ($nameCol) {
+                    // por cuenta_id (si fuera numérico)
+                    if ($cuentaIds->isNotEmpty() && !$looksUuid((string)$cuentaIds->first())) {
+                        $rows = DB::connection('mysql_clientes')
+                            ->table('accounts')
+                            ->select(['id as k', $nameCol . ' as n'])
+                            ->whereIn('id', $cuentaIds->all())
+                            ->get();
+
+                        $map = [];
+                        foreach ($rows as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->cuenta_id ?? ''));
+                            if ($k !== '' && isset($map[$k])) {
+                                $it->account_name = $map[$k];
+                                $it->account_hint = 'Clientes · accounts (id)';
+                            }
+                        }
+                    }
+
+                    // fallback por account_ref_id (si fuera numérico)
+                    if ($refIds->isNotEmpty() && !$looksUuid((string)$refIds->first())) {
+                        $rows2 = DB::connection('mysql_clientes')
+                            ->table('accounts')
+                            ->select(['id as k', $nameCol . ' as n'])
+                            ->whereIn('id', $refIds->all())
+                            ->get();
+
+                        $map2 = [];
+                        foreach ($rows2 as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map2[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->account_ref_id ?? ''));
+                            if ($k !== '' && isset($map2[$k])) {
+                                $it->account_name = $map2[$k];
+                                $it->account_hint = 'Clientes · accounts (id)';
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================
+            // 3) clientes (id -> razon_social) [por si tu cuenta_id fuera id cliente]
+            // =========================================================
+            if ($schema->hasTable('clientes')) {
+                $nameCol = $schema->hasColumn('clientes', 'razon_social') ? 'razon_social' : null;
+
+                if ($nameCol) {
+                    // por cuenta_id
+                    if ($cuentaIds->isNotEmpty()) {
+                        $rows = DB::connection('mysql_clientes')
+                            ->table('clientes')
+                            ->select(['id as k', $nameCol . ' as n'])
+                            ->whereIn('id', $cuentaIds->all())
+                            ->get();
+
+                        $map = [];
+                        foreach ($rows as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->cuenta_id ?? ''));
+                            if ($k !== '' && isset($map[$k])) {
+                                $it->account_name = $map[$k];
+                                $it->account_hint = 'Clientes · clientes (id)';
+                            }
+                        }
+                    }
+
+                    // por account_ref_id
+                    if ($refIds->isNotEmpty()) {
+                        $rows2 = DB::connection('mysql_clientes')
+                            ->table('clientes')
+                            ->select(['id as k', $nameCol . ' as n'])
+                            ->whereIn('id', $refIds->all())
+                            ->get();
+
+                        $map2 = [];
+                        foreach ($rows2 as $r) {
+                            $k = trim((string) ($r->k ?? ''));
+                            $n = trim((string) ($r->n ?? ''));
+                            if ($k !== '' && $n !== '') $map2[$k] = $n;
+                        }
+
+                        foreach ($items as $it) {
+                            if (!empty($it->account_name)) continue;
+                            $k = trim((string) ($it->account_ref_id ?? ''));
+                            if ($k !== '' && isset($map2[$k])) {
+                                $it->account_name = $map2[$k];
+                                $it->account_hint = 'Clientes · clientes (id)';
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (\Throwable) {
+            // no romper vista
+        }
+
+        return $items;
+    }
 
 
     private function adminAccountsConnection(): ?string
