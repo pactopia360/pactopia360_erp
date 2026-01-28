@@ -167,7 +167,7 @@ class VerificationController extends Controller
                 'verify.email'      => Str::lower((string) ($row->email ?? '')),
             ]);
 
-            // ✅ Forzar persistencia inmediata + espejo best-effort
+            // ✅ Forzar persistencia inmediata + espejo best-effort (FIX INDENT)
             try {
                 session()->save();
             } catch (\Throwable $e) {
@@ -182,7 +182,6 @@ class VerificationController extends Controller
                     'e'          => $e->getMessage(),
                 ]);
             }
-                
         }
 
         if ($resolvedAccountId) {
@@ -222,7 +221,6 @@ class VerificationController extends Controller
             ]);
 
         $resolvedAccountId = null;
-
         $phoneCol = $this->adminPhoneColumn();
 
         if ($this->clientIsAuthenticated()) {
@@ -260,7 +258,7 @@ class VerificationController extends Controller
                 'verify.email'      => Str::lower($emailFromLink),
             ]);
 
-            // ✅ Forzar persistencia inmediata + espejo best-effort
+            // ✅ Forzar persistencia inmediata + espejo best-effort (FIX INDENT)
             try {
                 session()->save();
             } catch (\Throwable $e) {
@@ -275,7 +273,6 @@ class VerificationController extends Controller
                     'e'          => $e->getMessage(),
                 ]);
             }
-
         }
 
         if ($resolvedAccountId) {
@@ -303,12 +300,10 @@ class VerificationController extends Controller
             $email = $sessEmail;
         }
 
-        // IMPORTANTE: esta pantalla SIEMPRE es formulario (no “enlace inválido”)
         return view('cliente.auth.verify_email_resend', [
             'email' => $email !== '' ? Str::lower($email) : '',
         ]);
     }
-
 
     public function resendEmail(Request $request)
     {
@@ -325,7 +320,7 @@ class VerificationController extends Controller
 
         $email = Str::lower((string) $request->email);
 
-        // ✅ FIX: buscar por columnas reales existentes (evita "Unknown column correo_contacto")
+        // ✅ FIX: buscar por columnas reales existentes
         $account = DB::connection(self::CONN_ADMIN)
             ->table('accounts')
             ->where(function ($q) use ($email) {
@@ -348,16 +343,17 @@ class VerificationController extends Controller
 
             try {
                 session()->save();
-                try {
+            } catch (\Throwable $e) {
+                // ignore
+            }
+
+            try {
                 $this->ensureClientesAccountMirror((int) $account->id);
             } catch (\Throwable $e) {
                 Log::warning('[MIRROR] ensureClientesAccountMirror failed (resendEmail)', [
                     'account_id' => (int) $account->id,
-                    'e' => $e->getMessage(),
+                    'e'          => $e->getMessage(),
                 ]);
-            }
-            } catch (\Throwable $e) {
-                // ignore
             }
 
             return redirect()
@@ -378,15 +374,6 @@ class VerificationController extends Controller
 
     /**
      * Resolución FINAL del account_id admin que vamos a usar en todo el flujo.
-     */
-    /**
-     * Resolución FINAL del account_id admin que vamos a usar en todo el flujo.
-     * Robusto para:
-     * - sesión verify.account_id
-     * - query/input account_id
-     * - sesión estándar del portal
-     * - auth:web
-     * - fallback por verify.email (lookup en mysql_admin.accounts)
      */
     private function resolveAccountId(Request $request): ?int
     {
@@ -421,7 +408,14 @@ class VerificationController extends Controller
         }
 
         // 3) sesiones estándar del portal cliente
-        foreach (['cliente.account_id', 'client.account_id', 'account_id', 'cliente.cuenta_id', 'client.cuenta_id', 'cuenta_id'] as $k) {
+        foreach ([
+            'cliente.account_id',
+            'client.account_id',
+            'account_id',
+            'cliente.cuenta_id',
+            'client.cuenta_id',
+            'cuenta_id',
+        ] as $k) {
             $v = (int) session($k, 0);
             if ($v > 0) {
                 Log::debug('[OTP-FLOW][resolveAccountId] from session', ['key' => $k, 'aid' => $v]);
@@ -449,27 +443,21 @@ class VerificationController extends Controller
             Log::warning('[OTP-FLOW][resolveAccountId] auth fallback failed', ['e' => $e->getMessage()]);
         }
 
-        // 5) fallback por email en sesión (MUY importante para cuando llegan directo a /cliente/verificar/telefono)
+        // 5) fallback por email en sesión
         $byEmail = $this->resolveAccountIdFromVerifyEmailSession($request);
         if ($byEmail && $byEmail > 0) {
             return $byEmail;
         }
 
         Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id', [
-            'path' => $request->path(),
-            'full' => $request->fullUrl(),
-            'verify_email' => (string) session('verify.email', ''),
+            'path'        => $request->path(),
+            'full'        => $request->fullUrl(),
+            'verify_email'=> (string) session('verify.email', ''),
         ]);
 
         return null;
     }
 
-    /**
-     * Fallback: si hay verify.email en sesión, intenta resolver account_id en mysql_admin.accounts
-     * usando columnas reales existentes (adminEmailColumns()).
-     *
-     * Esto corrige el caso producción donde abren /cliente/verificar/telefono sin querystring account_id.
-     */
     private function resolveAccountIdFromVerifyEmailSession(Request $request): ?int
     {
         $email = trim((string) session('verify.email', ''));
@@ -499,7 +487,6 @@ class VerificationController extends Controller
 
             $aid = (int) $acc->id;
 
-            // Persistimos para el resto del flujo
             try {
                 session(['verify.account_id' => $aid]);
                 session()->save();
@@ -524,8 +511,6 @@ class VerificationController extends Controller
             return null;
         }
     }
-
-
 
     public function finalizeActivationAndSendCredentialsByRfc(string $rfc): void
     {
@@ -570,7 +555,6 @@ class VerificationController extends Controller
             }
         }
 
-
         if (app()->environment(['local', 'development', 'testing'])) {
             Log::debug('[OTP-FLOW][DEBUG showOtp FINAL]', [
                 'auth_web_id'        => Auth::guard('web')->id(),
@@ -594,13 +578,13 @@ class VerificationController extends Controller
                 ]);
         }
 
-        // ✅ FIX: asegurar espejo antes de mostrar la pantalla
+        // ✅ asegurar espejo antes de mostrar la pantalla
         try {
             $this->ensureClientesAccountMirror((int) $accountId);
         } catch (\Throwable $e) {
             Log::warning('[MIRROR] ensureClientesAccountMirror failed (showOtp)', [
                 'account_id' => (int) $accountId,
-                'e' => $e->getMessage(),
+                'e'          => $e->getMessage(),
             ]);
         }
 
@@ -831,10 +815,10 @@ class VerificationController extends Controller
             DB::connection($otpConn)
                 ->table('phone_otps')
                 ->where('id', $otpRow->id)
-                ->update([
+                ->update($this->filterOtpUpdateColumns($otpConn, [
                     'attempts'   => DB::raw('attempts + 1'),
                     'updated_at' => now(),
-                ]);
+                ]));
 
             // Best-effort mirror a la otra BD (no crítico)
             try {
@@ -860,10 +844,10 @@ class VerificationController extends Controller
         DB::connection($otpConn)
             ->table('phone_otps')
             ->where('id', $otpRow->id)
-            ->update([
+            ->update($this->filterOtpUpdateColumns($otpConn, [
                 'used_at'    => now(),
                 'updated_at' => now(),
-            ]);
+            ]));
 
         // Best-effort mirror a la otra BD (no crítico)
         try {
@@ -883,15 +867,14 @@ class VerificationController extends Controller
                 'updated_at'        => now(),
             ]);
 
-                    try {
+        try {
             $this->ensureClientesAccountMirror((int) $accountId);
         } catch (\Throwable $e) {
             Log::warning('[MIRROR] ensureClientesAccountMirror failed (checkOtp)', [
                 'account_id' => (int) $accountId,
-                'e' => $e->getMessage(),
+                'e'          => $e->getMessage(),
             ]);
         }
-
 
         Log::info('[OTP-FLOW][7] OTP OK, phone_verified_at set', [
             'account_id' => $accountId,
@@ -1051,9 +1034,7 @@ class VerificationController extends Controller
          * ✅ FIX CRÍTICO:
          * Si ya verificó email+tel, el middleware EnsureAccountIsActive no debe seguir viendo
          * estado_cuenta='pendiente'. Marcamos 'activa' en mysql_admin.accounts.
-         *
-         * Importante:
-         * - Respetamos is_blocked=1 (paywall). Si está bloqueada, NO la activamos aquí.
+         * Respetamos is_blocked=1.
          */
         try {
             $isBlocked = (int) ($acc->is_blocked ?? 0);
@@ -1063,7 +1044,6 @@ class VerificationController extends Controller
                     'updated_at' => now(),
                 ];
 
-                // Si existe estado_cuenta, lo ponemos en activa
                 try {
                     if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'estado_cuenta')) {
                         $updAdmin['estado_cuenta'] = 'activa';
@@ -1072,7 +1052,6 @@ class VerificationController extends Controller
                     // ignore
                 }
 
-                // Si existe billing_status, lo ponemos a activa (best-effort)
                 try {
                     if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'billing_status')) {
                         $updAdmin['billing_status'] = 'activa';
@@ -1103,14 +1082,12 @@ class VerificationController extends Controller
             ]);
         }
 
-
-        // ✅ FIX: columna real de email
         $emailCol = $this->adminPrimaryEmailColumn();
         $email    = (string) (data_get($acc, $emailCol) ?? data_get($acc, 'email') ?? '');
         $email    = $email ? Str::lower($email) : null;
 
-        $rfc   = $acc->rfc ?? null;
-        $plan  = strtoupper((string) ($acc->plan ?? 'FREE'));
+        $rfc  = $acc->rfc ?? null;
+        $plan = strtoupper((string) ($acc->plan ?? 'FREE'));
 
         $cuenta = DB::connection(self::CONN_CLIENTE)
             ->table('cuentas_cliente')
@@ -1126,8 +1103,7 @@ class VerificationController extends Controller
             ->table('usuarios_cuenta')
             ->where('cuenta_id', $cuenta->id)
             ->where(function ($q) {
-                $q->where('tipo', 'owner')
-                    ->orWhere('rol', 'owner');
+                $q->where('tipo', 'owner')->orWhere('rol', 'owner');
             })
             ->orderBy('created_at', 'asc')
             ->first();
@@ -1215,7 +1191,6 @@ class VerificationController extends Controller
             ]);
         }
 
-
         return (string) $usuario->id;
     }
 
@@ -1282,10 +1257,17 @@ class VerificationController extends Controller
 
     /**
      * Columna REAL de teléfono en mysql_admin.accounts.
+     *
+     * ✅ FIX PROD:
+     * En producción puede existir BOTH: telefono (NULL) y phone (con valor).
+     * Por eso priorizamos "phone" antes que "telefono".
      */
     private function adminPhoneColumn(): string
     {
-        foreach (['telefono', 'phone', 'tel', 'celular'] as $c) {
+        // Orden de preferencia
+        $candidates = ['phone', 'telefono', 'tel', 'celular'];
+
+        foreach ($candidates as $c) {
             try {
                 if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', $c)) {
                     return $c;
@@ -1295,8 +1277,10 @@ class VerificationController extends Controller
             }
         }
 
-        return 'telefono';
+        // fallback seguro
+        return 'phone';
     }
+
 
     /**
      * Columnas reales de email en mysql_admin.accounts (orden de preferencia).
@@ -1322,7 +1306,6 @@ class VerificationController extends Controller
             }
         }
 
-        // si no detecta, por lo menos intenta con email
         if (empty($found)) {
             $found = ['email'];
         }
@@ -1341,8 +1324,6 @@ class VerificationController extends Controller
 
     /**
      * Aplica WHERE para encontrar una cuenta por email usando las columnas reales existentes.
-     * - Usa adminEmailColumns() (detecta correo_contacto/email/etc)
-     * - Hace comparación case-insensitive (LOWER)
      */
     private function whereAccountEmailMatches($q, string $email): void
     {
@@ -1353,7 +1334,6 @@ class VerificationController extends Controller
             $first = true;
 
             foreach ($cols as $col) {
-                // LOWER(col) = email
                 if ($first) {
                     $qq->whereRaw("LOWER(`{$col}`) = ?", [$email]);
                     $first = false;
@@ -1374,10 +1354,9 @@ class VerificationController extends Controller
         return 'Usuario';
     }
 
-        /* =========================================================
+    /* =========================================================
      * MIRROR: mysql_clientes.accounts (correo_contacto/telefono)
      * ========================================================= */
-
     private function ensureClientesAccountMirror(int $adminAccountId): void
     {
         if ($adminAccountId <= 0) return;
@@ -1398,7 +1377,8 @@ class VerificationController extends Controller
                 if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', $c)) {
                     $select[] = $c;
                 }
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
         }
 
         $select[] = DB::raw("`{$emailCol}` as _email");
@@ -1441,9 +1421,9 @@ class VerificationController extends Controller
             } else {
                 $tmp2 = trim((string) ($acc->estado_cuenta ?? ''));
                 if ($tmp2 !== '') {
-                    if (in_array($tmp2, ['activa','activo','active'], true))  $billingStatus = 'activa';
-                    if (in_array($tmp2, ['pendiente','pending'], true))      $billingStatus = 'pendiente';
-                    if (in_array($tmp2, ['bloqueada','blocked'], true))      $billingStatus = 'bloqueada';
+                    if (in_array($tmp2, ['activa', 'activo', 'active'], true))  $billingStatus = 'activa';
+                    if (in_array($tmp2, ['pendiente', 'pending'], true))      $billingStatus = 'pendiente';
+                    if (in_array($tmp2, ['bloqueada', 'blocked'], true))      $billingStatus = 'bloqueada';
                 }
             }
         }
@@ -1489,18 +1469,18 @@ class VerificationController extends Controller
         }
 
         $ins = [
-            'rfc'              => $rfc,
-            'razon_social'     => $razon,
-            'correo_contacto'  => $email,
-            'telefono'         => $telefono,
-            'plan'             => $planCli,
-            'billing_cycle'    => $cycle,
-            'billing_status'   => $billingStatus,
-            'next_invoice_date'=> null,
-            'is_blocked'       => $isBlocked,
-            'user_code'        => strtoupper(Str::random(8)),
-            'created_at'       => $now,
-            'updated_at'       => $now,
+            'rfc'               => $rfc,
+            'razon_social'      => $razon,
+            'correo_contacto'   => $email,
+            'telefono'          => $telefono,
+            'plan'              => $planCli,
+            'billing_cycle'     => $cycle,
+            'billing_status'    => $billingStatus,
+            'next_invoice_date' => null,
+            'is_blocked'        => $isBlocked,
+            'user_code'         => strtoupper(Str::random(8)),
+            'created_at'        => $now,
+            'updated_at'        => $now,
         ];
 
         $filtered = [];
@@ -1524,11 +1504,10 @@ class VerificationController extends Controller
     private function mapClienteBillingCycleFromAdmin(object $acc): string
     {
         $c = Str::lower(trim((string) ($acc->billing_cycle ?? '')));
-        if (in_array($c, ['monthly','mensual'], true)) return 'monthly';
-        if (in_array($c, ['annual','yearly','anual'], true)) return 'annual';
+        if (in_array($c, ['monthly', 'mensual'], true)) return 'monthly';
+        if (in_array($c, ['annual', 'yearly', 'anual'], true)) return 'annual';
         return 'monthly';
     }
-
 
     /**
      * Genera y guarda un OTP, intenta enviarlo por el canal configurado
@@ -1567,7 +1546,7 @@ class VerificationController extends Controller
             // Source of truth
             $this->insertOtpRowFiltered(self::CONN_ADMIN, $row);
 
-            // Dual-write best-effort a clientes (no rompe flujo si falla)
+            // Dual-write best-effort a clientes
             try {
                 $this->replicateOtpToClientes($row);
             } catch (\Throwable $e) {
@@ -1577,11 +1556,7 @@ class VerificationController extends Controller
                 ]);
             }
 
-            // =========================================================
-            // ENVÍO OTP (robusto)
-            // - En LOCAL: si no hay provider real, simulamos y mostramos el code
-            // - En PROD: usa OtpService real
-            // =========================================================
+            // ENVÍO OTP
             $driver = (string) config('services.otp.driver', '');
 
             $isLocalEnv      = app()->environment(['local', 'development', 'testing']);
@@ -1694,13 +1669,11 @@ class VerificationController extends Controller
 
     /**
      * Replica OTP a mysql_clientes (best-effort).
-     * Nota: Filtra columnas para evitar fallos por esquemas distintos.
      *
      * @param array<string,mixed> $row
      */
     private function replicateOtpToClientes(array $row): void
     {
-        // Si no existe tabla en clientes, no hacemos nada
         try {
             if (!Schema::connection(self::CONN_CLIENTE)->hasTable('phone_otps')) {
                 return;
@@ -1717,7 +1690,6 @@ class VerificationController extends Controller
             return;
         }
 
-        // Evitar duplicar el mismo código reciente
         $exists = DB::connection(self::CONN_CLIENTE)
             ->table('phone_otps')
             ->where('account_id', $accountId)
@@ -1809,8 +1781,7 @@ class VerificationController extends Controller
     }
 
     /**
-     * Inserta un row en phone_otps filtrando columnas por conexión
-     * (para que no truene si el esquema difiere entre mysql_admin y mysql_clientes).
+     * Inserta un row en phone_otps filtrando columnas por conexión.
      *
      * @param array<string,mixed> $row
      */
@@ -1819,7 +1790,6 @@ class VerificationController extends Controller
         $cols = $this->otpColumns($conn);
 
         if (empty($cols)) {
-            // fallback mínimo
             DB::connection($conn)->table('phone_otps')->insert($row);
             return;
         }
@@ -1831,7 +1801,6 @@ class VerificationController extends Controller
             }
         }
 
-        // Asegura timestamps si existen
         if (in_array('created_at', $cols, true) && !array_key_exists('created_at', $filtered)) {
             $filtered['created_at'] = now();
         }
