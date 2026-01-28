@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <title>Pactopia360 · Cliente | Iniciar sesión</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="csrf-token" content="CZYojPhxyYjDJkZcexjCrjSmJOnwejAglPph1AjT">
 
   <script>document.documentElement.classList.add('page-login-client');</script>
-  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}">
+  <link rel="stylesheet" href="http://127.0.0.1:8000/assets/client/css/login.css">
 
   <style>
     /* Oculta headers globales si los hubiera */
@@ -52,24 +52,11 @@
 
   </style>
 
-  <script src="{{ asset('assets/client/js/login.js') }}" defer></script>
+  <script src="http://127.0.0.1:8000/assets/client/js/login.js" defer></script>
 </head>
 
 <body class="theme-light">
-  @php
-    $logoDark  = 'assets/client/logop360dark.png';
-    $lightCandidates = [
-      'assets/client/logop360light.png',
-      'assets/client/logp360light_alt.png',
-      'assets/client/logp360ligjt.png',
-    ];
-    $logoLight = collect($lightCandidates)->first(fn($cand)=>file_exists(public_path($cand))) ?? $lightCandidates[0];
-
-    $urlFree   = Route::has('cliente.registro.free')   ? route('cliente.registro.free')   : '#';
-    $urlPro    = Route::has('cliente.registro.pro')    ? route('cliente.registro.pro')    : '#';
-    $forgotUrl = Route::has('cliente.password.forgot') ? route('cliente.password.forgot') : '#';
-  @endphp
-
+  
   <div class="theme-switch">
     <button type="button" class="theme-btn" id="themeToggle" aria-pressed="false">
       <span class="icon">🌙</span><span class="label">Modo oscuro</span>
@@ -77,13 +64,13 @@
   </div>
 
   <div class="shell shell--balanced">
-    {{-- IZQUIERDA --}}
+    
     <section class="brand" aria-label="Beneficios del portal de clientes">
       <div class="brand-inner">
         <header class="brand-top">
           <div class="logo local-brand">
-            <img class="logo-img logo-dark"  src="{{ asset($logoDark)  }}" alt="Pactopia360">
-            <img class="logo-img logo-light" src="{{ asset($logoLight) }}" alt="Pactopia360">
+            <img class="logo-img logo-dark"  src="http://127.0.0.1:8000/assets/client/logop360dark.png" alt="Pactopia360">
+            <img class="logo-img logo-light" src="http://127.0.0.1:8000/assets/client/logp360ligjt.png" alt="Pactopia360">
           </div>
           <h2 class="slogan">Acceso seguro al portal de clientes</h2>
         </header>
@@ -99,13 +86,13 @@
         <div class="extras">
           <div class="extras-title">¿No tienes cuenta?</div>
           <div class="extras-grid">
-            <a class="extra-card free" href="{{ $urlFree }}">
+            <a class="extra-card free" href="http://127.0.0.1:8000/cliente/registro">
               <div class="extra-kicker">Forever Free</div>
               <div class="extra-title">Crea tu cuenta FREE</div>
               <p class="extra-desc">Ideal para comenzar: timbra, guarda XML y suma usuarios.</p>
               <span class="extra-cta">Crear cuenta</span>
             </a>
-            <a class="extra-card pro" href="{{ $urlPro }}">
+            <a class="extra-card pro" href="http://127.0.0.1:8000/cliente/registro/pro">
               <div class="extra-kicker">PRO</div>
               <div class="extra-title">Mejora a PRO</div>
               <p class="extra-desc">Reportes avanzados, capacidad ampliada y soporte priorizado.</p>
@@ -115,68 +102,20 @@
         </div>
 
         <footer class="brand-foot">
-          <div class="foot-note">© {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.</div>
+          <div class="foot-note">© 2026 Pactopia SAPI de CV. Todos los derechos reservados.</div>
         </footer>
       </div>
     </section>
 
-    {{-- DERECHA (FORM) --}}
+    
     <section class="panel" aria-label="Inicio de sesión de cliente">
-      <form class="card card-auto" method="POST" action="{{ route('cliente.login.do') }}" id="loginForm" novalidate autocomplete="on">
-        @csrf
-
+      <form class="card card-auto" method="POST" action="http://127.0.0.1:8000/cliente/login" id="loginForm" novalidate autocomplete="on">
+        <input type="hidden" name="_token" value="CZYojPhxyYjDJkZcexjCrjSmJOnwejAglPph1AjT" autocomplete="off">
         <div class="card-brand"><h1 class="title">Iniciar sesión</h1></div>
 
-        {{-- MENSAJES --}}
+        
         <div aria-live="polite" aria-atomic="true" style="margin-bottom:1rem;">
-          @if (session('logged_out'))  <div class="alert-block alert-info">Cerraste sesión correctamente.</div>@endif
-          @if (session('ok'))          <div class="alert-block alert-success">{{ session('ok') }}</div>@endif
-          @if (session('info'))        <div class="alert-block alert-info">{{ session('info') }}</div>@endif
-          @if (session('error'))       <div class="alert-block alert-error">{{ session('error') }}</div>@endif
-          @if (session('need_verify'))
-          @php
-            $resendUrl = \Illuminate\Support\Facades\Route::has('cliente.verify.email.resend')
-              ? route('cliente.verify.email.resend', ['email' => (string) session('verify_email', old('login', ''))])
-              : url('/cliente/verificar/email/reenviar');
-
-            $emailToShow = (string) session('verify_email', old('login', ''));
-            $emailToShow = trim($emailToShow);
-          @endphp
-
-          <div class="alert-block alert-warn">
-            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-              <div style="min-width:240px; flex:1;">
-                <div>
-                  {{ is_string(session('need_verify')) ? session('need_verify') : 'Verifica tu correo y tu teléfono para activar tu cuenta.' }}
-                </div>
-
-                @if($emailToShow !== '')
-                  <div style="margin-top:.35rem; font-size:.85rem; opacity:.9;">
-                    Correo: <b>{{ $emailToShow }}</b>
-                  </div>
-                @endif
-
-                <div style="margin-top:.5rem; font-size:.85rem; color:#7c2d12;">
-                  ¿No te llegó? Puedes reenviar el enlace de verificación.
-                </div>
-              </div>
-
-              <div style="display:flex; gap:10px; align-items:center;">
-                <a href="{{ $resendUrl }}"
-                  class="btn"
-                  style="padding:.6rem .9rem; font-size:.9rem; border-radius:.65rem; text-decoration:none; display:inline-block;">
-                  Reenviar verificación
-                </a>
-              </div>
-            </div>
-          </div>
-        @endif
-
-
-          @if ($errors->any())
-            <div class="alert-block alert-error">@foreach ($errors->all() as $e)<div>• {{ $e }}</div>@endforeach</div>
-          @endif
-        </div>
+                                                                    </div>
 
         <div class="form-body">
           <div class="form-head">
@@ -189,9 +128,9 @@
           <div class="form-fields">
             <div class="field">
               <label for="login">Correo electrónico o RFC</label>
-              <input class="input @error('login') is-invalid @enderror"
+              <input class="input "
                      id="login" name="login" type="text"
-                     value="{{ old('login') }}"
+                     value=""
                      placeholder="micorreo@dominio.com o TU RFC"
                      required autocomplete="username" maxlength="120" inputmode="email">
               <div id="loginHelp" class="hint" style="margin-top:.25rem;"></div>
@@ -199,7 +138,7 @@
 
             <div class="field pwd-wrap">
               <label for="password">Contraseña</label>
-              <input class="input @error('password') is-invalid @enderror"
+              <input class="input "
                      id="password" type="password" name="password"
                      required autocomplete="current-password"
                      placeholder="********" minlength="6" maxlength="72">
@@ -226,7 +165,7 @@
 
             <div class="row">
               <label class="remember"><input type="checkbox" name="remember" value="1"> Recordarme</label>
-              <a class="link-muted" href="{{ $forgotUrl }}">¿Olvidaste tu contraseña?</a>
+              <a class="link-muted" href="#">¿Olvidaste tu contraseña?</a>
             </div>
           </div>
 
@@ -235,23 +174,12 @@
             <div class="hint">Al continuar aceptas las políticas de seguridad de Pactopia360.</div>
           </div>
 
-          @if(app()->environment('local') && session('diag'))
-            <details class="diag" style="margin-top:1rem;">
-              <summary>🧪 Diagnóstico local</summary>
-              <pre>{{ json_encode(session('diag'), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
-            </details>
-          @endif
-        </div>
+                  </div>
 
         <div class="mini-note-admin" style="margin-top:10px;">
           ¿Eres del equipo Pactopia?<br>
-          @php
-            $adminLoginUrl = \Illuminate\Support\Facades\Route::has('admin.login')
-              ? route('admin.login')
-              : url('/admin/login');
-          @endphp
-
-          <a href="{{ $adminLoginUrl }}">Ir a panel interno</a>
+          
+          <a href="http://127.0.0.1:8000/admin/login">Ir a panel interno</a>
 
         </div>
       </form>

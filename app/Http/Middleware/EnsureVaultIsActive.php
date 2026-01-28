@@ -148,9 +148,26 @@ class EnsureVaultIsActive
             return response()->json(['ok' => false, 'message' => $msg], 402);
         }
 
+        // ✅ Anti-loop definitivo: si estamos en la ruta de bóveda y se niega,
+        // devolvemos un 403 con una vista clara en lugar de redirigir.
+        $routeName = optional($request->route())->getName();
+        if ($routeName === 'cliente.sat.vault' || str_starts_with((string)$routeName, 'cliente.sat.vault.')) {
+            return response()->view('errors.vault_blocked', ['message' => $msg], 403);
+        }
+
+        // ✅ Fallback seguro fuera de bóveda (evita loops)
+        if (\Illuminate\Support\Facades\Route::has('cliente.sat.index')) {
+            return redirect()
+                ->route('cliente.sat.index')
+                ->with('vault_blocked', true)
+                ->with('error', $msg);
+        }
+
         return redirect()
-            ->route('cliente.sat.vault')
+            ->route('cliente.home')
             ->with('vault_blocked', true)
             ->with('error', $msg);
     }
+
+
 }

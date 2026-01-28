@@ -1,27 +1,48 @@
-{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\auth\verify_email.blade.php --}}
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\auth\verify_email.blade.php (v2 · flow-safe) --}}
 @extends('layouts.cliente-auth')
-@section('title','Correo verificado · Pactopia360')
+@section('title','Verificación de correo · Pactopia360')
 
 @push('styles')
 <link rel="stylesheet" href="{{ asset('assets/client/css/verify-flow.css') }}">
 @endpush
 
 @php
+  use Illuminate\Support\Facades\Route;
+
   /**
-   * ✅ AccountId fallback duro:
-   * - 1) session('verify.account_id') (ideal)
-   * - 2) request()->query('account_id') (si venimos con ?account_id=)
-   * - 3) request()->input('account_id') (si venimos por POST redirect)
-   * - 4) $account_id (si algún controller lo manda a la vista)
+   * Inputs del Controller (cuando aplique):
+   * - status: invalid|expired|ok|null
+   * - message: string|null
+   * - email: string|null
+   * - phone_masked: string|null
    */
-  $verifyAccountId = (int) (session('verify.account_id')
+  $status  = (string) ($status ?? request()->query('status', 'ok'));
+  $message = (string) ($message ?? '');
+
+  // ✅ AccountId fallback duro:
+  $verifyAccountId = (int) (
+      session('verify.account_id')
       ?? request()->query('account_id')
       ?? request()->input('account_id')
-      ?? ($account_id ?? 0));
+      ?? ($account_id ?? 0)
+  );
 
-  $phoneUrl = $verifyAccountId > 0
-      ? route('cliente.verify.phone', ['account_id' => $verifyAccountId])
-      : route('cliente.verify.phone');
+  // URLs seguras
+  $resendUrl = Route::has('cliente.verify.email.resend')
+      ? route('cliente.verify.email.resend', $verifyAccountId > 0 ? ['account_id' => $verifyAccountId] : [])
+      : url('/cliente/verificar/email/reenviar');
+
+  $phoneUrl = Route::has('cliente.verify.phone')
+      ? route('cliente.verify.phone', ['account_id' => $verifyAccountId > 0 ? $verifyAccountId : null])
+      : url('/cliente/verificar/telefono' . ($verifyAccountId > 0 ? ('?account_id='.$verifyAccountId) : ''));
+
+  // Normaliza: route() con array que tiene null genera query rara en algunos casos
+  if ($verifyAccountId <= 0) {
+    // si no hay account_id, NO mandamos a teléfono (no tiene cómo resolver)
+    $phoneUrl = $resendUrl;
+  }
+
+  $isInvalid = in_array($status, ['invalid','expired'], true);
 @endphp
 
 @section('content')
@@ -45,35 +66,59 @@
     </div>
 
     <div class="vf-center">
+
+      {{-- Icono --}}
       <div class="vf-check" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
           <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
 
-      <h1 class="vf-title">Correo verificado</h1>
+      @if($isInvalid)
+        <h1 class="vf-title">
+          {{ $status === 'expired' ? 'Enlace expirado' : 'Enlace no válido' }}
+        </h1>
 
-      <p class="vf-sub">
-        Continúa con la verificación de tu teléfono para activar tu cuenta.
-      </p>
-
-      @if($verifyAccountId <= 0)
-        <p class="vf-hint">
-          Nota: no detectamos tu sesión de verificación. Si al continuar no se asocia tu cuenta,
-          solicita un enlace nuevo.
+        <p class="vf-sub">
+          {{ $message !== '' ? $message : 'El enlace no es válido o ya fue usado. Solicita uno nuevo.' }}
         </p>
+
+        <div class="vf-actions">
+          <a class="vf-btn vf-primary" href="{{ $resendUrl }}">
+            Solicitar enlace nuevo
+            <span class="vf-arrow" aria-hidden="true">→</span>
+          </a>
+
+          <a class="vf-btn vf-ghost" href="{{ route('cliente.login') }}">
+            Volver al inicio de sesión
+          </a>
+        </div>
+
+      @else
+        <h1 class="vf-title">Correo verificado</h1>
+
+        <p class="vf-sub">
+          Continúa con la verificación de tu teléfono para activar tu cuenta.
+        </p>
+
+        @if($verifyAccountId <= 0)
+          <p class="vf-hint">
+            Nota: no detectamos tu sesión de verificación. Para continuar necesitamos asociar tu cuenta.
+            Solicita un enlace nuevo (o abre el enlace desde el mismo navegador donde te registraste).
+          </p>
+        @endif
+
+        <div class="vf-actions">
+          <a class="vf-btn vf-primary" id="btnContinuePhone" href="{{ $phoneUrl }}">
+            {{ $verifyAccountId > 0 ? 'Continuar con teléfono' : 'Solicitar enlace nuevo' }}
+            <span class="vf-arrow" aria-hidden="true">→</span>
+          </a>
+
+          <a class="vf-btn vf-ghost" href="{{ route('cliente.login') }}">
+            Volver al inicio de sesión
+          </a>
+        </div>
       @endif
-
-      <div class="vf-actions">
-        <a class="vf-btn vf-primary" id="btnContinuePhone" href="{{ $phoneUrl }}">
-          Continuar con teléfono
-          <span class="vf-arrow" aria-hidden="true">→</span>
-        </a>
-
-        <a class="vf-btn vf-ghost" href="{{ route('cliente.login') }}">
-          Volver al inicio de sesión
-        </a>
-      </div>
 
       <div class="vf-help">
         <span>¿Necesitas ayuda?</span>
@@ -88,7 +133,6 @@
   </div>
 </div>
 
-{{-- Fallback JS: si algún overlay/capa está interceptando clicks, forzamos navegación --}}
 @push('scripts')
 <script>
 (function () {

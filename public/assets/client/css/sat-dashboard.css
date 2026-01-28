@@ -1633,13 +1633,17 @@ html[data-theme="dark"] .sat-rfc-option:hover{
 .sat-modal-backdrop{
   position:fixed;
   inset:0;
-  display:none;
+  display:none; /* estado cerrado */
   align-items:center;
   justify-content:center;
   background:rgba(15,23,42,.45);
   z-index:80;
 }
-.sat-modal-backdrop.is-open{display:flex;}
+
+/* ✅ CRÍTICO: que gane incluso si el HTML trae style="display:none" */
+.sat-modal-backdrop.is-open{
+  display:flex !important;
+}
 
 .sat-modal{
   width:100%;
@@ -4458,4 +4462,80 @@ html[data-theme="dark"] .sat-ui .sat-rfc-actions .btn.primary{
     height: 300px;
     min-height: 300px;
   }
+}
+
+/* ====================================================
+   QUICK CALC MODAL (Guías rápidas)
+   - sat-step-kicker / sat-step-grid / sat-input-pill
+   ==================================================== */
+
+.sat-step-kicker{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.sat-step-kicker span{
+  font-family:'Poppins',system-ui,sans-serif;
+  font-size:12px;
+  font-weight:800;
+  color:var(--ink);
+}
+
+.sat-step-kicker small{
+  font-size:11px;
+  font-weight:600;
+  color:var(--mut);
+}
+
+/* Grid del formulario */
+.sat-step-grid{
+  display:grid;
+  gap:10px 14px;
+  align-items:end;
+}
+
+.sat-step-grid-2col{
+  grid-template-columns:1fr 1fr;
+}
+
+.sat-field-full{
+  grid-column:1 / -1;
+}
+
+/* Inputs estilo pill (consistente con el dashboard) */
+.sat-input-pill{
+  border-radius:999px !important;
+  min-height:36px;
+  border:1px solid var(--line);
+  padding:7px 12px;
+  background:#ffffff;
+  font-size:12px;
+  font-family:'Poppins',system-ui,sans-serif;
+  outline:none;
+  transition:border-color .12s, box-shadow .12s, background .12s;
+}
+
+html[data-theme="dark"] .sat-input-pill{
+  background:#0b1220;
+  border-color:#1f2937;
+  color:var(--ink);
+}
+
+.sat-input-pill:focus{
+  border-color:#2563eb;
+  box-shadow:0 0 0 3px rgba(37,99,235,.16);
+  background:#ffffff;
+}
+
+html[data-theme="dark"] .sat-input-pill:focus{
+  background:#0b1220;
+}
+
+/* Botón pill deshabilitado visible (por si solo le pones clase) */
+.pill.is-disabled{
+  opacity:.55;
+  cursor:not-allowed;
 }

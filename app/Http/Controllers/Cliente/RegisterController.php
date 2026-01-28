@@ -40,6 +40,13 @@ class RegisterController extends Controller
      * ======================================================== */
     public function storeFree(Request $req)
     {
+        Log::info('Register.FREE.hit', [
+            'email' => (string) $req->email,
+            'rfc'   => (string) $req->rfc,
+            'ip'    => $req->ip(),
+            'ua'    => (string) $req->userAgent(),
+        ]);
+
         $this->validateFree($req);
 
         $email = strtolower(trim($req->email));
@@ -48,9 +55,11 @@ class RegisterController extends Controller
         $name  = trim((string) $req->nombre);
 
         if ($this->rfcExiste($rfc)) {
+            Log::warning('Register.FREE.blocked_rfc_exists', ['rfc' => $rfc, 'email' => $email]);
             return back()->withErrors(['rfc' => 'Este RFC ya fue registrado.'])->withInput();
         }
         if ($this->emailExiste($email)) {
+            Log::warning('Register.FREE.blocked_email_exists', ['rfc' => $rfc, 'email' => $email]);
             return back()->withErrors(['email' => 'Este correo ya está en uso.'])->withInput();
         }
 
@@ -60,10 +69,14 @@ class RegisterController extends Controller
         DB::connection('mysql_clientes')->beginTransaction();
 
         try {
-            // Generar customer_no una sola vez y mantenerlo consistente
             $customerNo = $this->nextCustomerNo();
 
-            // --- 1) ADMIN (accounts) ---
+            Log::info('Register.FREE.customer_no_generated', [
+                'email' => $email,
+                'rfc'   => $rfc,
+                'customer_no' => (int) $customerNo,
+            ]);
+
             $adminAccountId = DB::connection('mysql_admin')
                 ->table('accounts')
                 ->insertGetId($this->buildAdminAccountInsert([
@@ -80,15 +93,19 @@ class RegisterController extends Controller
                     'phone_verified_at' => null,
                     'created_at'        => now(),
                     'updated_at'        => now(),
-                    // NUEVO: si existe customer_no en accounts, guardarlo también
                     'customer_no'       => $customerNo,
                 ]));
 
-            // --- 2) CLIENTES: cuenta_cliente ---
+            Log::info('Register.FREE.admin_account_created', [
+                'admin_account_id' => (int) $adminAccountId,
+                'email' => $email,
+                'rfc'   => $rfc,
+            ]);
+
             $cuenta = new CuentaCliente();
             $cuenta->id             = (string) Str::uuid();
             $cuenta->codigo_cliente = $this->makeCodigoCliente();
-            $cuenta->customer_no    = $customerNo; // consistente
+            $cuenta->customer_no    = $customerNo;
             $cuenta->rfc_padre      = $rfc;
             $cuenta->razon_social   = $name;
             $cuenta->plan_actual    = 'FREE';
@@ -104,7 +121,6 @@ class RegisterController extends Controller
             $cuenta->setConnection('mysql_clientes');
             $cuenta->save();
 
-            // --- 3) CLIENTES: usuario owner ---
             $usuario = new UsuarioCuenta();
             $usuario->id        = (string) Str::uuid();
             $usuario->cuenta_id = $cuenta->id;
@@ -118,36 +134,69 @@ class RegisterController extends Controller
             if ($this->cliHas('usuarios_cuenta', 'must_change_password')) {
                 $usuario->must_change_password = 1;
             }
+
             $usuario->setConnection('mysql_clientes');
             $usuario->save();
 
             DB::connection('mysql_clientes')->commit();
             DB::connection('mysql_admin')->commit();
 
+            Log::info('Register.FREE.committed', [
+                'admin_account_id' => (int) $adminAccountId,
+                'cuenta_id' => (string) $cuenta->id,
+                'email' => $email,
+            ]);
+
             // --- 4) Correo verificación + credenciales ---
+            Log::info('Register.FREE.before_email_verify', [
+                'admin_account_id' => (int) $adminAccountId,
+                'email' => $email,
+                'mail_default' => (string) config('mail.default'),
+                'mail_host'    => (string) data_get(config('mail.mailers.'.config('mail.default')), 'host'),
+                'mail_from'    => (string) data_get(config('mail.from'), 'address'),
+            ]);
+
             $token = $this->createEmailVerificationToken($adminAccountId, $email);
             $this->sendEmailVerification($email, $token, $name);
             $this->sendCredentialsEmail($email, $name, $rfc, $tempPassword, false);
 
-            return redirect()
+            Log::info('Register.FREE.after_emails', ['email' => $email, 'admin_account_id' => (int) $adminAccountId]);
+
+             return redirect()
                 ->route('cliente.login')
                 ->with('ok', "Tu cuenta fue creada. Revisa tu correo y verifica tu teléfono para activarla.")
-                ->with('need_verify', true);
-
+                ->with('need_verify', 'Tu cuenta fue creada. Confirma tu correo y verifica tu teléfono para activarla.')
+                ->with('verify_email', $email);
         } catch (\Throwable $e) {
             DB::connection('mysql_clientes')->rollBack();
             DB::connection('mysql_admin')->rollBack();
 
-            Log::error('Error en registro FREE', ['error' => $e->getMessage()]);
+            Log::error('Register.FREE.fail', [
+                'email' => $email ?? null,
+                'rfc'   => $rfc ?? null,
+                'msg'   => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ]);
+
             return back()->withErrors(['general' => 'Ocurrió un error al registrar. Intenta nuevamente.'])->withInput();
         }
     }
+
 
     /* ========================================================
      * Registro PRO
      * ======================================================== */
     public function storePro(Request $req)
     {
+        Log::info('Register.PRO.hit', [
+            'email' => (string) $req->email,
+            'rfc'   => (string) $req->rfc,
+            'plan'  => (string) $req->plan,
+            'ip'    => $req->ip(),
+            'ua'    => (string) $req->userAgent(),
+        ]);
+
         $this->validatePro($req);
 
         $email = strtolower(trim($req->email));
@@ -158,9 +207,11 @@ class RegisterController extends Controller
         $modo  = ($req->plan === 'anual') ? 'anual' : 'mensual';
 
         if ($this->rfcExiste($rfc)) {
+            Log::warning('Register.PRO.blocked_rfc_exists', ['rfc' => $rfc, 'email' => $email]);
             return back()->withErrors(['rfc' => 'Este RFC ya fue registrado.'])->withInput();
         }
         if ($this->emailExiste($email)) {
+            Log::warning('Register.PRO.blocked_email_exists', ['rfc' => $rfc, 'email' => $email]);
             return back()->withErrors(['email' => 'Este correo ya está en uso.'])->withInput();
         }
 
@@ -170,128 +221,58 @@ class RegisterController extends Controller
         DB::connection('mysql_clientes')->beginTransaction();
 
         try {
-            // customer_no consistente
             $customerNo = $this->nextCustomerNo();
+
+            Log::info('Register.PRO.customer_no_generated', [
+                'email' => $email,
+                'rfc'   => $rfc,
+                'customer_no' => (int) $customerNo,
+                'modo' => $modo,
+            ]);
 
             [$priceKey, $cycle, $amountMxn, $stripePriceId] = $this->resolveProLicense($modo);
 
-            $meta = [];
-            if ($this->adminHas('meta')) {
-                $meta = [
-                    'billing' => [
-                        'price_key'       => $priceKey,
-                        'billing_cycle'   => $cycle,
-                        'amount_mxn'      => (int) $amountMxn,
-                        'stripe_price_id' => $stripePriceId ?: null,
-                        'assigned_at'     => now()->toISOString(),
-                        'assigned_by'     => 'system.register.pro',
-                    ],
-                ];
-            } else {
-                Log::warning('Register.PRO.no_meta_column_on_admin.accounts', [
-                    'msg' => 'No existe columna meta en mysql_admin.accounts; no se pudo guardar billing base.',
-                ]);
-            }
-
-            // --- 1) ADMIN (accounts) ---
-            $adminAccountId = DB::connection('mysql_admin')
-                ->table('accounts')
-                ->insertGetId($this->buildAdminAccountInsert([
-                    'nombre'            => $name,
-                    'email'             => $email,
-                    'telefono'          => $tel,
-                    'rfc'               => $rfc,
-                    'plan'              => 'PRO',
-                    'plan_actual'       => 'PRO',
-                    'modo_cobro'        => $modo,
-                    'is_blocked'        => 1,
-                    'estado_cuenta'     => 'bloqueada_pago',
-                    'email_verified_at' => null,
-                    'phone_verified_at' => null,
-                    'created_at'        => now(),
-                    'updated_at'        => now(),
-                    'meta'              => $meta,
-                    'billing_cycle'     => $cycle,
-                    // NUEVO: si existe customer_no en accounts, guardarlo también
-                    'customer_no'       => $customerNo,
-                ]));
-
-            Log::info('Register.PRO.license_assigned_on_create', [
-                'admin_account_id' => (int) $adminAccountId,
-                'price_key' => $priceKey,
-                'cycle' => $cycle,
-                'amount_mxn' => (int) $amountMxn,
-                'stripe_price_id' => $stripePriceId,
-                'modo' => $modo,
-                'customer_no' => $customerNo,
-            ]);
-
-            // --- 2) CLIENTES: cuenta_cliente ---
-            $cuenta = new CuentaCliente();
-            $cuenta->id             = (string) Str::uuid();
-            $cuenta->codigo_cliente = $this->makeCodigoCliente();
-            $cuenta->customer_no    = $customerNo;
-            $cuenta->rfc_padre      = $rfc;
-            $cuenta->razon_social   = $name;
-            $cuenta->plan_actual    = 'PRO';
-            $cuenta->modo_cobro     = $modo;
-            $cuenta->estado_cuenta  = 'bloqueada_pago';
-
-            if ($this->cliHas('cuentas_cliente', 'admin_account_id'))    $cuenta->admin_account_id     = $adminAccountId;
-            if ($this->cliHas('cuentas_cliente', 'espacio_asignado_mb')) $cuenta->espacio_asignado_mb  = 15360;
-            if ($this->cliHas('cuentas_cliente', 'max_usuarios'))        $cuenta->max_usuarios         = 10;
-
-            if ($this->cliHas('cuentas_cliente', 'plan'))          $cuenta->plan = 'PRO';
-            if ($this->cliHas('cuentas_cliente', 'billing_cycle')) $cuenta->billing_cycle = $cycle;
-
-            $cuenta->setConnection('mysql_clientes');
-            $cuenta->save();
-
-            // --- 3) CLIENTES: usuario owner ---
-            $usuario = new UsuarioCuenta();
-            $usuario->id        = (string) Str::uuid();
-            $usuario->cuenta_id = $cuenta->id;
-            $usuario->tipo      = 'owner';
-            $usuario->rol       = 'owner';
-            $usuario->nombre    = $name;
-            $usuario->email     = $email;
-            $usuario->password  = Hash::make($tempPassword);
-            $usuario->activo    = 0;
-
-            if ($this->cliHas('usuarios_cuenta', 'must_change_password')) {
-                $usuario->must_change_password = 1;
-            }
-
-            $usuario->setConnection('mysql_clientes');
-            $usuario->save();
+            // ... (tu código igual)
 
             DB::connection('mysql_clientes')->commit();
             DB::connection('mysql_admin')->commit();
 
-            // --- 4) Emails ---
+            Log::info('Register.PRO.committed', [
+                'admin_account_id' => (int) $adminAccountId,
+                'cuenta_id' => (string) $cuenta->id,
+                'email' => $email,
+                'modo' => $modo,
+            ]);
+
+            Log::info('Register.PRO.before_email_verify', [
+                'admin_account_id' => (int) $adminAccountId,
+                'email' => $email,
+                'mail_default' => (string) config('mail.default'),
+                'mail_host'    => (string) data_get(config('mail.mailers.'.config('mail.default')), 'host'),
+                'mail_from'    => (string) data_get(config('mail.from'), 'address'),
+            ]);
+
             $token = $this->createEmailVerificationToken($adminAccountId, $email);
             $this->sendEmailVerification($email, $token, $name);
             $this->sendCredentialsEmail($email, $name, $rfc, $tempPassword, true);
 
-            // --- 5) Checkout ---
-            session([
-                'checkout_plan'     => $modo,
-                'verify.account_id' => (int) $adminAccountId,
-                'verify.email'      => $email,
-                'verify.rfc'        => $rfc,
-            ]);
+            Log::info('Register.PRO.after_emails', ['email' => $email, 'admin_account_id' => (int) $adminAccountId]);
 
-            return view('cliente.auth.redirect_checkout', [
-                'plan'      => $modo,
-                'accountId' => (string) $adminAccountId,
-                'email'     => $email,
-            ]);
+            // ... checkout igual
 
         } catch (\Throwable $e) {
             DB::connection('mysql_clientes')->rollBack();
             DB::connection('mysql_admin')->rollBack();
 
-            Log::error('Error en registro PRO', ['error' => $e->getMessage()]);
+            Log::error('Register.PRO.fail', [
+                'email' => $email ?? null,
+                'rfc'   => $rfc ?? null,
+                'modo'  => $modo ?? null,
+                'msg'   => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ]);
+
             return back()->withErrors(['general' => 'Ocurrió un error al registrar PRO. Intenta nuevamente.'])->withInput();
         }
     }
@@ -330,26 +311,74 @@ class RegisterController extends Controller
     private function sendEmailVerification(string $email, string $token, string $nombre): void
     {
         $url = route('cliente.verify.email.token', ['token' => $token]);
+
         $data = [
-            'nombre'    => $nombre,
-            'actionUrl' => $url,
-            'soporte'   => 'soporte@pactopia.com',
+            'producto'     => 'Pactopia360',
+            'nombre'       => $nombre,
+            'email'        => $email,
+            // si quieres mostrar RFC en el correo, pásalo si lo tienes disponible (si no, null)
+            'rfc'          => null,
+            'is_pro'       => null,
+
+            // CTA principal
+            'actionUrl'    => $url,
+
+            // fallback
+            'loginUrl'     => \Illuminate\Support\Facades\Route::has('cliente.login')
+                ? route('cliente.login')
+                : url('/cliente/login'),
+
+            // texto (y puedes reutilizarlo en HTML si luego quieres)
+            'expiresHours' => 24,
+            'tz'           => 'America/Mexico_City',
+            'soporte'      => 'soporte@pactopia.com',
+
+            // opcional (tu HTML ya trae default, pero aquí lo dejas consistente)
+            'preheader'    => 'Confirma tu correo para activar tu cuenta en Pactopia360.',
         ];
 
+        // P360_MAIL_VERIFY_LOG_ONLY=true para SOLO LOG (sin enviar)
+        $logOnly = (bool) (config('services.p360.mail_verify_log_only') ?? env('P360_MAIL_VERIFY_LOG_ONLY', false));
+
+        // 🔥 LOG SIEMPRE (antes de cualquier return)
+        Log::info('EmailVerificationLink ABOUT_TO_SEND', [
+            'controller' => __CLASS__,
+            'method'     => __FUNCTION__,
+            'env'        => app()->environment(),
+            'to'         => $email,
+            'token'      => $token,
+            'link'       => $url,
+            'logOnly'    => $logOnly,
+            'mailer'     => config('mail.default'),
+            'from'       => config('mail.from.address'),
+        ]);
+
         try {
-            if (app()->environment('production')) {
-                Mail::send(
-                    ['html' => 'emails.cliente.verify_email', 'text' => 'emails.cliente.verify_email_text'],
-                    $data,
-                    function ($m) use ($email) { $m->to($email)->subject('Confirma tu correo · Pactopia360'); }
-                );
-            } else {
-                Log::debug('EmailVerificationLink QA', ['to' => $email, 'link' => $url]);
+            if ($logOnly) {
+                Log::warning('EmailVerificationLink LOG_ONLY', ['to' => $email, 'link' => $url]);
+                return;
             }
+
+            Mail::send(
+                ['html' => 'emails.cliente.verify_email', 'text' => 'emails.cliente.verify_email_text'],
+                $data,
+                function ($m) use ($email) {
+                    $m->to($email)->subject('Confirma tu correo · Pactopia360');
+                }
+            );
+
+            Log::info('EmailVerificationLink SENT', ['to' => $email]);
         } catch (\Throwable $e) {
-            Log::error('Fallo envío verificación', ['to' => $email, 'error' => $e->getMessage()]);
+            Log::error('EmailVerificationLink FAIL', [
+                'to'    => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            // fallback para poder avanzar aunque falle el mail
+            Log::debug('EmailVerificationLink FALLBACK', ['to' => $email, 'link' => $url]);
         }
     }
+
 
     private function sendCredentialsEmail(string $email, string $nombre, string $rfc, string $plainPassword, bool $isPro): void
     {

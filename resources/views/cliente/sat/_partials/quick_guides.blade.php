@@ -72,7 +72,8 @@
 </div>
 
 {{-- MODAL: CALCULADORA RÁPIDA (GUÍAS RÁPIDAS) · SIN RFC · SOLO COTIZA + PDF --}}
-<div class="sat-modal-backdrop" id="modalQuickCalc" style="display:none;">
+<div class="sat-modal-backdrop" id="modalQuickCalc" data-modal="modal-quick-calc">
+
   <div class="sat-modal sat-modal-lg">
     <div class="sat-modal-header">
       <div>
@@ -155,7 +156,6 @@
         type="button"
         class="btn soft"
         id="btnQcRecalc"
-        data-open="modal-quick-calc"
         data-calc-url="{{ $rtQuickCalc ?: '' }}"
       >
         Recalcular
@@ -165,11 +165,11 @@
         type="button"
         class="btn primary"
         id="btnQcPdf"
-        data-open="modal-quick-calc"
         data-pdf-url="{{ $rtQuickPdf ?: '' }}"
       >
         Generar PDF
       </button>
+
     </div>
   </div>
 </div>

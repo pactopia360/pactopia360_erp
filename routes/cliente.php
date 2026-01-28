@@ -309,6 +309,20 @@ Route::middleware(['web'])->group(function () use (
 
         /*
         |------------------------------------------------------------------
+        | REENVIAR VERIFICACIÓN EMAIL
+        |------------------------------------------------------------------
+        */
+        Route::get('verificar/email/reenviar', [VerificationController::class, 'showResendEmail'])
+            ->name('verify.email.resend');
+
+        $resendEmail = Route::post('verificar/email/reenviar', [VerificationController::class, 'resendEmail'])
+            ->middleware($throttleVerifyResend)
+            ->name('verify.email.resend.do');
+
+        $noCsrfLocal($resendEmail);
+
+        /*
+        |------------------------------------------------------------------
         | VERIFICACIÓN EMAIL (TOKEN)
         |------------------------------------------------------------------
         */
@@ -325,19 +339,7 @@ Route::middleware(['web'])->group(function () use (
             ->middleware('signed')
             ->name('verify.email.signed');
 
-        /*
-        |------------------------------------------------------------------
-        | REENVIAR VERIFICACIÓN EMAIL
-        |------------------------------------------------------------------
-        */
-        Route::get('verificar/email/reenviar', [VerificationController::class, 'showResendEmail'])
-            ->name('verify.email.resend');
-
-        $resendEmail = Route::post('verificar/email/reenviar', [VerificationController::class, 'resendEmail'])
-            ->middleware($throttleVerifyResend)
-            ->name('verify.email.resend.do');
-
-        $noCsrfLocal($resendEmail);
+        
 
         /*
         |------------------------------------------------------------------

@@ -31,125 +31,315 @@ use Illuminate\Support\Facades\Auth;
 final class SatDescargaController extends Controller
 {
     public function __construct(
-        private readonly SatDownloadService         $service,
-        private readonly SatDownloadZipHelper       $zipHelper,
-        private readonly VaultAccountSummaryService $vaultSummaryService,
-    ) {}
+    private readonly SatDownloadService         $service,
+    private readonly SatDownloadZipHelper       $zipHelper,
+    private readonly VaultAccountSummaryService $vaultSummaryService,
+    ) {
+        // Aquí puedes colocar middleware del controlador si aplica:
+        // $this->middleware(['auth:web']); // o el que uses en cliente
+        // $this->middleware('throttle:120,1')->only(['dashboardStats']);
+    }
+
 
     /* ===================================================
-     *  AUTH / SESSION HELPERS (SOT Cliente)
-     * =================================================== */
+    *  AUTH / SESSION HELPERS (SOT Cliente)
+    * =================================================== */
 
     private function clientGuard(): string
     {
         try {
-            auth()->guard('cliente');
-            return 'cliente';
+            $guards = (array) config('auth.guards', []);
+
+            if (array_key_exists('cliente', $guards) && auth()->guard('cliente')->check()) {
+                return 'cliente';
+            }
+
+            if (array_key_exists('web', $guards) && auth()->guard('web')->check()) {
+                return 'web';
+            }
+
+            if (array_key_exists('cliente', $guards)) {
+                return 'cliente';
+            }
         } catch (\Throwable) {
-            return 'web';
+            // no-op
         }
+
+        return 'web';
     }
+
 
     private function cu(): ?object
     {
         try {
-            $u = auth('cliente')->user();
-            if ($u) return $u;
-        } catch (\Throwable) {}
+            // Preferir guard resuelto (SOT)
+            $g = method_exists($this, 'clientGuard') ? $this->clientGuard() : 'cliente';
 
-        try {
-            return auth('web')->user();
+            // 1) Guard preferido
+            try {
+                $u = auth($g)->user();
+                if ($u) return $u;
+            } catch (\Throwable) {
+                // no-op
+            }
+
+            // 2) Fallbacks defensivos (por si el guard preferido no está activo)
+            foreach (['cliente', 'web'] as $fallback) {
+                if ($fallback === $g) continue;
+                try {
+                    $u = auth($fallback)->user();
+                    if ($u) return $u;
+                } catch (\Throwable) {
+                    // no-op
+                }
+            }
+
+            // 3) Último recurso: helper global auth()
+            try {
+                $u = auth()->user();
+                if ($u) return $u;
+            } catch (\Throwable) {
+                // no-op
+            }
+
+            return null;
         } catch (\Throwable) {
             return null;
         }
     }
 
+
     private function resolveCuentaIdFromUser($user): ?string
     {
-        if (!$user) return null;
+        try {
+            if (!$user) return null;
 
-        if (!empty($user->cuenta_id)) return (string) $user->cuenta_id;
+            // ------------------------------------------------------------
+            // 1) Campos directos comunes
+            // ------------------------------------------------------------
+            foreach (['cuenta_id', 'account_id', 'id_cuenta'] as $prop) {
+                try {
+                    if (isset($user->{$prop}) && $user->{$prop} !== null && (string)$user->{$prop} !== '') {
+                        return (string) $user->{$prop};
+                    }
+                } catch (\Throwable) {
+                    // no-op
+                }
+            }
 
-        if (isset($user->cuenta)) {
-            $c = $user->cuenta;
-            if (is_object($c)) return (string) ($c->id ?? $c->cuenta_id ?? '');
-            if (is_array($c))  return (string) ($c['id'] ?? $c['cuenta_id'] ?? '');
+            // ------------------------------------------------------------
+            // 2) Relación/atributo "cuenta" (objeto o array)
+            // ------------------------------------------------------------
+            try {
+                if (isset($user->cuenta)) {
+                    $c = $user->cuenta;
+
+                    if (is_object($c)) {
+                        foreach (['id', 'cuenta_id', 'account_id'] as $k) {
+                            $v = (string) ($c->{$k} ?? '');
+                            if ($v !== '') return $v;
+                        }
+                    } elseif (is_array($c)) {
+                        foreach (['id', 'cuenta_id', 'account_id'] as $k) {
+                            $v = (string) ($c[$k] ?? '');
+                            if ($v !== '') return $v;
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+                // no-op
+            }
+
+            // ------------------------------------------------------------
+            // 3) Métodos/getters típicos (sin romper si no existen)
+            // ------------------------------------------------------------
+            foreach (['getCuentaId', 'getAccountId', 'cuentaId', 'accountId'] as $m) {
+                try {
+                    if (is_object($user) && method_exists($user, $m)) {
+                        $v = (string) $user->{$m}();
+                        if ($v !== '') return $v;
+                    }
+                } catch (\Throwable) {
+                    // no-op
+                }
+            }
+
+            // ------------------------------------------------------------
+            // 4) Session fallbacks (legacy)
+            // ------------------------------------------------------------
+            foreach ([
+                'cliente.cuenta_id',
+                'cliente.account_id',
+                'client.cuenta_id',
+                'client.account_id',
+                'cuenta_id',
+                'account_id',
+                'client_cuenta_id',
+                'client_account_id',
+            ] as $k) {
+                try {
+                    $v = (string) session($k, '');
+                    if ($v !== '') return $v;
+                } catch (\Throwable) {
+                    // no-op
+                }
+            }
+
+            // ------------------------------------------------------------
+            // 5) (Opcional) Auth actual si coincide el mismo objeto
+            //    Evita “inventar” cuenta_id si llega un $user parcial.
+            // ------------------------------------------------------------
+            try {
+                if (method_exists($this, 'cu')) {
+                    $cur = $this->cu();
+                    if ($cur && $cur === $user) {
+                        foreach (['cuenta_id','account_id'] as $prop) {
+                            if (isset($cur->{$prop}) && (string)$cur->{$prop} !== '') {
+                                return (string) $cur->{$prop};
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+                // no-op
+            }
+
+            return null;
+        } catch (\Throwable) {
+            return null;
         }
-
-        // fallback por sesión si existe
-        foreach ([
-            'cliente.cuenta_id',
-            'cliente.account_id',
-            'client.cuenta_id',
-            'client.account_id',
-            'cuenta_id',
-            'account_id',
-            'client_cuenta_id',
-            'client_account_id',
-        ] as $k) {
-            $v = (string) session($k, '');
-            if ($v !== '') return $v;
-        }
-
-        return null;
     }
 
     private function cuId(): string
     {
-        $u = $this->cu();
-        return (string) ($this->resolveCuentaIdFromUser($u) ?? '');
+        try {
+            $u = $this->cu();
+            if (!$u) return '';
+
+            $id = (string) ($this->resolveCuentaIdFromUser($u) ?? '');
+            $id = trim($id);
+
+            // Normalización defensiva: si llega como numérico, lo regresamos como string limpio
+            if ($id !== '' && is_numeric($id)) {
+                // evita "9.0" en casos raros
+                $id = (string) ((int) $id);
+            }
+
+            return $id;
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function trace(): string
     {
-        return (string) Str::ulid();
+        try {
+            // ULID: ordenable por tiempo, ideal para logs y trazabilidad distribuida
+            return (string) Str::ulid();
+        } catch (\Throwable) {
+            // Fallback ultra-defensivo (nunca debe romper un request por trazabilidad)
+            return (string) uniqid('trace_', true);
+        }
     }
+
 
     private function isAjax(Request $request): bool
     {
+        // Laravel:
+        // - ajax(): revisa X-Requested-With
+        // - expectsJson()/wantsJson(): headers Accept/Content-Type (APIs, fetch)
+        // Extra: soporte explícito a clientes que mandan flags comunes.
         return $request->ajax()
+            || $request->expectsJson()
             || $request->wantsJson()
-            || $request->header('X-Requested-With') === 'XMLHttpRequest';
+            || $request->isJson()
+            || strtolower((string) $request->header('X-Requested-With')) === 'xmlhttprequest'
+            || strtolower((string) $request->header('X-Requested-With')) === 'fetch'
+            || in_array(strtolower((string) $request->header('X-P360-AJAX')), ['1','true','yes','on'], true);
     }
 
     /* ===================================================
-     *  HELPERS COSTO / PESO / EXPIRACIÓN
-     * =================================================== */
+    *  HELPERS COSTO / PESO / EXPIRACIÓN
+    * =================================================== */
 
     private function computeDownloadCost(int $numXml): float
     {
-        $n = max(0, $numXml);
+        $n = max(0, (int) $numXml);
 
-        if ($n <= 0)        return 0.0;
-        if ($n <= 5000)     return (float) ($n * 1);
-        if ($n <= 25000)    return (float) ($n * 0.08);
-        if ($n <= 40000)    return (float) ($n * 0.05);
-        if ($n <= 100000)   return (float) ($n * 0.03);
-        if ($n <= 500000)   return 12500.0;
-        if ($n <= 1000000)  return 18500.0;
-        if ($n <= 2000000)  return 25000.0;
-        if ($n <= 3000000)  return 31000.0;
+        // Costo por tramos (MXN) - mantener exactamente la lógica actual,
+        // pero más legible y consistente.
+        if ($n === 0) {
+            return 0.0;
+        }
 
+        // <= 5,000 : $1 por XML
+        if ($n <= 5_000) {
+            return (float) $n;
+        }
+
+        // <= 25,000 : $0.08 por XML
+        if ($n <= 25_000) {
+            return (float) ($n * 0.08);
+        }
+
+        // <= 40,000 : $0.05 por XML
+        if ($n <= 40_000) {
+            return (float) ($n * 0.05);
+        }
+
+        // <= 100,000 : $0.03 por XML
+        if ($n <= 100_000) {
+            return (float) ($n * 0.03);
+        }
+
+        // paquetes fijos
+        if ($n <= 500_000) {
+            return 12_500.0;
+        }
+
+        if ($n <= 1_000_000) {
+            return 18_500.0;
+        }
+
+        if ($n <= 2_000_000) {
+            return 25_000.0;
+        }
+
+        if ($n <= 3_000_000) {
+            return 31_000.0;
+        }
+
+        // > 3,000,000 : $0.01 por XML
         return (float) ($n * 0.01);
     }
 
     protected function computeDownloadCostPhp(int $n): float
     {
+        // Alias explícito para compatibilidad/claridad cuando el cálculo
+        // se invoca desde contexto PHP (no JS / no UI).
+        $n = max(0, (int) $n);
+
         return $this->computeDownloadCost($n);
     }
 
     private function computeCostFromSizeOrXml(?int $sizeBytes, int $xmlCount): float
     {
-        $xmlCount = max(0, (int) $xmlCount);
-
-        if ($xmlCount > 0) {
-            return $this->computeDownloadCost($xmlCount);
+        // 1) Si ya tenemos conteo real de XML, úsalo (fuente de verdad)
+        $xml = max(0, (int) $xmlCount);
+        if ($xml > 0) {
+            return $this->computeDownloadCost($xml);
         }
 
-        $b = (int) ($sizeBytes ?? 0);
-        if ($b <= 0) return 0.0;
+        // 2) Fallback por tamaño: estima XMLs con un promedio defensivo (4KB por XML)
+        $bytes = max(0, (int) ($sizeBytes ?? 0));
+        if ($bytes <= 0) {
+            return 0.0;
+        }
 
-        $estXml = (int) max(1, (int) ceil($b / 4096)); // 4KB promedio
+        // Evita overflow y asegura al menos 1 XML estimado
+        $avgBytesPerXml = 4096; // 4KB promedio (heurística)
+        $estXml = (int) max(1, (int) ceil($bytes / $avgBytesPerXml));
+
         return $this->computeDownloadCost($estXml);
     }
 
@@ -159,53 +349,61 @@ final class SatDescargaController extends Controller
         $table  = $d->getTable();
         $schema = Schema::connection($conn);
 
-        $has = static function (string $col) use ($schema, $table): bool {
-            try { return $schema->hasColumn($table, $col); } catch (\Throwable) { return false; }
+        // Cachea hasColumn por performance (evita N llamadas por registro)
+        $colCache = [];
+        $has = static function (string $col) use (&$colCache, $schema, $table): bool {
+            if (array_key_exists($col, $colCache)) return $colCache[$col];
+            try { return $colCache[$col] = $schema->hasColumn($table, $col); }
+            catch (\Throwable) { return $colCache[$col] = false; }
         };
 
-        // meta puede venir array por casts; si no, intenta decodificar
+        // -----------------------------
+        // META (array o JSON)
+        // -----------------------------
         $meta = [];
         try {
-            if (isset($d->meta)) {
-                if (is_array($d->meta)) $meta = $d->meta;
-                elseif (is_string($d->meta) && $d->meta !== '') {
-                    $tmp = json_decode($d->meta, true);
-                    if (is_array($tmp)) $meta = $tmp;
-                }
+            $raw = $d->meta ?? null;
+            if (is_array($raw)) {
+                $meta = $raw;
+            } elseif (is_string($raw) && trim($raw) !== '') {
+                $tmp = json_decode($raw, true);
+                if (is_array($tmp)) $meta = $tmp;
             }
         } catch (\Throwable) {
             $meta = [];
         }
 
-        $sizeBytes = null;
-        $sizeMb    = null;
-        $sizeGb    = null;
+        // -----------------------------
+        // SIZE: bytes / MB / GB
+        // -----------------------------
+        $sizeBytes = null; // int
+        $sizeMb    = null; // float
+        $sizeGb    = null; // float
 
-        // 1) Candidates bytes
+        // 1) Bytes candidates (meta primero, luego columnas)
         $bytesCandidates = [
-            $meta['zip_bytes']      ?? null,
-            $meta['size_bytes']     ?? null,
-            $meta['bytes']          ?? null,
-            $meta['zip_size_bytes'] ?? null,
+            data_get($meta, 'zip_bytes'),
+            data_get($meta, 'zip_size_bytes'),
+            data_get($meta, 'size_bytes'),
+            data_get($meta, 'bytes'),
 
             $d->size_bytes ?? null,
-            $d->bytes      ?? null,
             $d->zip_bytes  ?? null,
+            $d->bytes      ?? null,
             $d->peso_bytes ?? null,
         ];
 
         foreach ($bytesCandidates as $val) {
-            if (!is_null($val) && (int) $val > 0) {
-                $sizeBytes = (int) $val;
-                break;
-            }
+            if ($val === null) continue;
+            $iv = is_numeric($val) ? (int) $val : 0;
+            if ($iv > 0) { $sizeBytes = $iv; break; }
         }
 
-        // 2) Candidates MB/GB
+        // 2) MB/GB candidates
         $mbCandidates = [
-            $meta['size_mb'] ?? null,
-            $meta['zip_mb']  ?? null,
-            $meta['peso_mb'] ?? null,
+            data_get($meta, 'size_mb'),
+            data_get($meta, 'zip_mb'),
+            data_get($meta, 'peso_mb'),
 
             $d->size_mb ?? null,
             $d->peso_mb ?? null,
@@ -213,16 +411,15 @@ final class SatDescargaController extends Controller
         ];
 
         foreach ($mbCandidates as $val) {
-            if (!is_null($val) && (float) $val > 0) {
-                $sizeMb = (float) $val;
-                break;
-            }
+            if ($val === null) continue;
+            $fv = is_numeric($val) ? (float) $val : 0.0;
+            if ($fv > 0) { $sizeMb = $fv; break; }
         }
 
         $gbCandidates = [
-            $meta['size_gb'] ?? null,
-            $meta['zip_gb']  ?? null,
-            $meta['peso_gb'] ?? null,
+            data_get($meta, 'size_gb'),
+            data_get($meta, 'zip_gb'),
+            data_get($meta, 'peso_gb'),
 
             $d->size_gb ?? null,
             $d->peso_gb ?? null,
@@ -230,121 +427,166 @@ final class SatDescargaController extends Controller
         ];
 
         foreach ($gbCandidates as $val) {
-            if (!is_null($val) && (float) $val > 0) {
-                $sizeGb = (float) $val;
-                break;
-            }
+            if ($val === null) continue;
+            $fv = is_numeric($val) ? (float) $val : 0.0;
+            if ($fv > 0) { $sizeGb = $fv; break; }
         }
 
-        if (!$sizeBytes && $sizeMb) $sizeBytes = (int) round($sizeMb * 1024 * 1024);
-        if (!$sizeBytes && $sizeGb) $sizeBytes = (int) round($sizeGb * 1024 * 1024 * 1024);
+        // 3) Derivaciones (preferir bytes como verdad si existe)
+        if ((!$sizeBytes || $sizeBytes <= 0) && $sizeMb && $sizeMb > 0) {
+            $sizeBytes = (int) round($sizeMb * 1024 * 1024);
+        }
+        if ((!$sizeBytes || $sizeBytes <= 0) && $sizeGb && $sizeGb > 0) {
+            $sizeBytes = (int) round($sizeGb * 1024 * 1024 * 1024);
+        }
 
-        if ($sizeBytes && !$sizeMb) $sizeMb = $sizeBytes / (1024 * 1024);
-        if ($sizeBytes && !$sizeGb) $sizeGb = $sizeBytes / (1024 * 1024 * 1024);
-        if (!$sizeMb && $sizeGb)    $sizeMb = $sizeGb * 1024;
+        if ($sizeBytes && $sizeBytes > 0) {
+            if (!$sizeMb || $sizeMb <= 0) $sizeMb = $sizeBytes / (1024 * 1024);
+            if (!$sizeGb || $sizeGb <= 0) $sizeGb = $sizeBytes / (1024 * 1024 * 1024);
+        } elseif ($sizeGb && $sizeGb > 0 && (!$sizeMb || $sizeMb <= 0)) {
+            $sizeMb = $sizeGb * 1024;
+        }
 
-        // 3) Si aún no hay tamaño, intenta size real del zip_path
+        // 4) Si aún no hay bytes, intenta size real del zip_path (disco directo)
         if ((!$sizeBytes || $sizeBytes <= 0) && !empty($d->zip_path)) {
             try {
                 $diskName = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
-                $disk     = Storage::disk($diskName);
                 $relative = ltrim((string) $d->zip_path, '/');
 
-                if ($relative !== '' && $disk->exists($relative)) {
-                    $sizeBytes = (int) $disk->size($relative);
+                if ($relative !== '' && Storage::disk($diskName)->exists($relative)) {
+                    $sizeBytes = (int) Storage::disk($diskName)->size($relative);
                 }
             } catch (\Throwable) {}
         }
 
-        // 4) Si aún no existe, resuelve ubicación
+        // 5) Si aún no existe, resuelve ubicación (helper)
         if ((!$sizeBytes || $sizeBytes <= 0)) {
             try {
                 [$realDisk, $realPath] = $this->resolveDownloadZipLocation($d);
-                if ($realDisk !== '' && $realPath !== '') {
-                    $realPath = ltrim((string) $realPath, '/');
-                    if ($realPath !== '' && Storage::disk($realDisk)->exists($realPath)) {
-                        $sizeBytes = (int) Storage::disk($realDisk)->size($realPath);
+                $realDisk = (string) $realDisk;
+                $realPath = ltrim((string) $realPath, '/');
 
-                        if ($has('zip_path')) $d->zip_path = $realPath;
+                if ($realDisk !== '' && $realPath !== '' && Storage::disk($realDisk)->exists($realPath)) {
+                    $sizeBytes = (int) Storage::disk($realDisk)->size($realPath);
 
-                        $meta['zip_disk'] = (string) $realDisk;
-                        $d->meta = $meta;
-                    }
+                    // normaliza zip_path si existe columna
+                    if ($has('zip_path')) $d->zip_path = $realPath;
+
+                    // deja evidencia en meta
+                    $meta['zip_disk'] = $realDisk;
+                    $meta['zip_path'] = $realPath;
+                    if ($has('meta')) $d->meta = $meta;
+                    else $d->setAttribute('meta', $meta);
                 }
             } catch (\Throwable) {}
         }
 
-        // Recalcula MB/GB final
+        // Recalcula MB/GB final si ahora ya hay bytes
         if ($sizeBytes && $sizeBytes > 0) {
-            $sizeMb = $sizeMb ?: ($sizeBytes / (1024 * 1024));
-            $sizeGb = $sizeGb ?: ($sizeBytes / (1024 * 1024 * 1024));
+            $sizeMb = ($sizeMb && $sizeMb > 0) ? $sizeMb : ($sizeBytes / (1024 * 1024));
+            $sizeGb = ($sizeGb && $sizeGb > 0) ? $sizeGb : ($sizeBytes / (1024 * 1024 * 1024));
         }
 
-        // Asigna (persistible si existe columna) + en memoria para UI
+        // -----------------------------
+        // Persist + atributos para UI
+        // -----------------------------
         if ($sizeBytes && $sizeBytes > 0) {
             if ($has('size_bytes')) $d->size_bytes = $sizeBytes;
             elseif ($has('bytes'))  $d->bytes = $sizeBytes;
 
+            // siempre expón para UI aunque no exista columna
             $d->setAttribute('size_bytes', $sizeBytes);
         }
 
         if ($sizeMb && $sizeMb > 0) {
             if ($has('size_mb')) $d->size_mb = $sizeMb;
-            $d->setAttribute('size_mb', $sizeMb);
+            $d->setAttribute('size_mb', round($sizeMb, 3));
         }
 
         if ($sizeGb && $sizeGb > 0) {
             if ($has('size_gb')) $d->size_gb = $sizeGb;
-            $d->setAttribute('size_gb', $sizeGb);
+            $d->setAttribute('size_gb', round($sizeGb, 4));
         }
 
-        // XML count
-        $xmlCount = $meta['xml_count']
-            ?? $meta['total_xml']
-            ?? $meta['num_xml']
-            ?? $d->xml_count
-            ?? $d->total_xml
-            ?? $d->num_xml
-            ?? null;
+        // -----------------------------
+        // XML COUNT
+        // -----------------------------
+        $xmlCount = data_get($meta, 'xml_count')
+            ?? data_get($meta, 'total_xml')
+            ?? data_get($meta, 'num_xml')
+            ?? ($d->xml_count  ?? null)
+            ?? ($d->total_xml  ?? null)
+            ?? ($d->num_xml    ?? null);
 
-        if ($xmlCount === null && $sizeBytes && $sizeBytes > 0) {
-            $xmlCount = (int) max(1, ceil($sizeBytes / 4096));
+        $xmlCount = is_numeric($xmlCount) ? (int) $xmlCount : null;
+
+        if (($xmlCount === null || $xmlCount <= 0) && $sizeBytes && $sizeBytes > 0) {
+            $xmlCount = (int) max(1, (int) ceil($sizeBytes / 4096)); // 4KB prom
+        }
+
+        if ($xmlCount !== null && $xmlCount > 0) {
             if ($has('xml_count')) $d->xml_count = $xmlCount;
-            if ($has('total_xml') && $d->total_xml === null) $d->total_xml = $xmlCount;
+            if ($has('total_xml') && ($d->total_xml === null || (int)$d->total_xml <= 0)) $d->total_xml = $xmlCount;
 
             $d->setAttribute('xml_count', $xmlCount);
             $d->setAttribute('total_xml', $xmlCount);
         }
 
-        // Costo
-        $currentCost = $meta['price_mxn']
-            ?? $meta['costo']
-            ?? $meta['cost_mxn']
-            ?? $meta['precio']
-            ?? $d->costo
-            ?? $d->cost_mxn
-            ?? $d->precio
+        // -----------------------------
+        // COSTO
+        // -----------------------------
+        $currentCost = data_get($meta, 'price_mxn')
+            ?? data_get($meta, 'costo')
+            ?? data_get($meta, 'cost_mxn')
+            ?? data_get($meta, 'precio')
+            ?? ($d->costo    ?? null)
+            ?? ($d->cost_mxn ?? null)
+            ?? ($d->precio   ?? null)
             ?? 0.0;
 
-        $finalCost = (float) $currentCost;
+        $finalCost = (is_numeric($currentCost) ? (float) $currentCost : 0.0);
 
         if ($finalCost <= 0.0) {
             $finalCost = $this->computeCostFromSizeOrXml(
-                $sizeBytes ? (int) $sizeBytes : null,
+                ($sizeBytes && $sizeBytes > 0) ? (int) $sizeBytes : null,
                 (int) ($xmlCount ?? 0)
             );
         }
 
-        if ($has('costo')) $d->costo = $finalCost;
-        $d->setAttribute('costo', $finalCost);
+        if ($finalCost > 0) {
+            if ($has('costo')) $d->costo = $finalCost;
+            elseif ($has('price_mxn')) $d->setAttribute('price_mxn', $finalCost);
 
-        // Expiración
-        if (!$d->expires_at && !empty($d->disponible_hasta)) {
-            try { $d->expires_at = Carbon::parse((string) $d->disponible_hasta); } catch (\Throwable) {}
-        } elseif (!$d->expires_at && $d->created_at) {
-            $d->expires_at = $d->created_at instanceof Carbon
-                ? $d->created_at->copy()->addHours(12)
-                : Carbon::parse((string) $d->created_at)->addHours(12);
+            $d->setAttribute('costo', round($finalCost, 2));
+            $meta['costo_mxn'] = round($finalCost, 2);
+            if ($has('meta')) $d->meta = $meta;
+        }
+
+        // -----------------------------
+        // EXPIRACIÓN
+        // -----------------------------
+        if (empty($d->expires_at) && !empty($d->disponible_hasta)) {
+            try {
+                $d->expires_at = Carbon::parse((string) $d->disponible_hasta);
+            } catch (\Throwable) {}
+        }
+
+        if (empty($d->expires_at) && !empty($d->created_at)) {
+            try {
+                $base = $d->created_at instanceof Carbon
+                    ? $d->created_at->copy()
+                    : Carbon::parse((string) $d->created_at);
+
+                $d->expires_at = $base->addHours(12);
+            } catch (\Throwable) {}
+        }
+
+        // UI helper
+        if (!empty($d->expires_at)) {
+            try {
+                $exp = $d->expires_at instanceof Carbon ? $d->expires_at : Carbon::parse((string) $d->expires_at);
+                $d->setAttribute('expires_at', $exp->toDateTimeString());
+            } catch (\Throwable) {}
         }
 
         return $d;
@@ -352,130 +594,370 @@ final class SatDescargaController extends Controller
 
     private function formatPesoFromDownloadRow(object $dl): string
     {
+        // Candidatos (soporta columnas + atributos hidratados + meta si viene pegado)
         $bytes = 0;
 
-        foreach (['size_bytes', 'bytes'] as $col) {
-            if (isset($dl->{$col}) && (int) $dl->{$col} > $bytes) {
-                $bytes = (int) $dl->{$col};
+        // 1) bytes directos
+        foreach (['size_bytes', 'zip_bytes', 'bytes', 'peso_bytes'] as $col) {
+            if (isset($dl->{$col}) && is_numeric($dl->{$col})) {
+                $v = (int) $dl->{$col};
+                if ($v > $bytes) $bytes = $v;
+            }
+        }
+
+        // 2) si no hay bytes, intenta MB/GB
+        if ($bytes <= 0) {
+            $mb = null;
+            foreach (['size_mb', 'zip_mb', 'peso_mb', 'tam_mb'] as $col) {
+                if (isset($dl->{$col}) && is_numeric($dl->{$col})) {
+                    $v = (float) $dl->{$col};
+                    if ($v > 0) { $mb = $v; break; }
+                }
+            }
+
+            $gb = null;
+            foreach (['size_gb', 'zip_gb', 'peso_gb', 'tam_gb'] as $col) {
+                if (isset($dl->{$col}) && is_numeric($dl->{$col})) {
+                    $v = (float) $dl->{$col};
+                    if ($v > 0) { $gb = $v; break; }
+                }
+            }
+
+            if ($mb && $mb > 0) {
+                $bytes = (int) round($mb * 1024 * 1024);
+            } elseif ($gb && $gb > 0) {
+                $bytes = (int) round($gb * 1024 * 1024 * 1024);
+            }
+        }
+
+        // 3) meta (por si llega como array o json string)
+        if ($bytes <= 0 && isset($dl->meta) && !empty($dl->meta)) {
+            $meta = [];
+            try {
+                if (is_array($dl->meta)) $meta = $dl->meta;
+                elseif (is_string($dl->meta) && trim($dl->meta) !== '') {
+                    $tmp = json_decode($dl->meta, true);
+                    if (is_array($tmp)) $meta = $tmp;
+                }
+            } catch (\Throwable) {}
+
+            foreach (['zip_bytes','zip_size_bytes','size_bytes','bytes'] as $k) {
+                $v = $meta[$k] ?? null;
+                if (is_numeric($v) && (int)$v > $bytes) $bytes = (int)$v;
+            }
+
+            if ($bytes <= 0) {
+                $mb = $meta['size_mb'] ?? $meta['zip_mb'] ?? $meta['peso_mb'] ?? null;
+                $gb = $meta['size_gb'] ?? $meta['zip_gb'] ?? $meta['peso_gb'] ?? null;
+
+                if (is_numeric($mb) && (float)$mb > 0) $bytes = (int) round(((float)$mb) * 1024 * 1024);
+                elseif (is_numeric($gb) && (float)$gb > 0) $bytes = (int) round(((float)$gb) * 1024 * 1024 * 1024);
             }
         }
 
         if ($bytes <= 0) return 'Pendiente';
 
-        $mb = $bytes / 1024 / 1024;
+        // Formato humano (KiB/MiB/GiB/TiB) con sufijos ES
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = 0;
+        $val = (float) $bytes;
 
-        if ($mb < 1024) return number_format($mb, 2) . ' Mb';
+        while ($val >= 1024 && $i < count($units) - 1) {
+            $val /= 1024;
+            $i++;
+        }
 
-        $gb = $mb / 1024;
-        return number_format($gb, 3) . ' Gb';
+        // Decimales: 0 para B/KB, 2 para MB, 3 para GB/TB (ajustable)
+        $dec = 0;
+        if ($i === 2) $dec = 2;        // MB
+        elseif ($i >= 3) $dec = 3;     // GB/TB
+
+        // Nota: "MB/GB" (no "Mb/Gb") para bytes
+        return number_format($val, $dec) . ' ' . $units[$i];
     }
 
     /* ===================================================
-     *  BÓVEDA: RESUMEN / ACTIVA
-     * =================================================== */
+    *  BÓVEDA: RESUMEN / ACTIVA (defensivo + multi-esquema)
+    * =================================================== */
 
     private function buildVaultStorageSummary(string $cuentaId, $cuentaObj): array
     {
+        // 0) Si el servicio existe y devuelve algo usable, úsalo (SOT)
         try {
-            if (method_exists($this->vaultSummaryService, 'buildStorageSummary')) {
+            if (isset($this->vaultSummaryService) && method_exists($this->vaultSummaryService, 'buildStorageSummary')) {
                 $res = $this->vaultSummaryService->buildStorageSummary($cuentaId, $cuentaObj);
-                if (is_array($res) && isset($res['quota_bytes'])) return $res;
+                if (is_array($res) && isset($res['quota_bytes'])) {
+                    // normaliza mínimos esperados
+                    return array_merge([
+                        'quota_gb'    => isset($res['quota_gb']) ? (float) $res['quota_gb'] : round(((float) $res['quota_bytes']) / 1024 / 1024 / 1024, 2),
+                        'quota_bytes' => (int) ($res['quota_bytes'] ?? 0),
+                        'used_gb'     => isset($res['used_gb']) ? (float) $res['used_gb'] : round(((float) ($res['used_bytes'] ?? 0)) / 1024 / 1024 / 1024, 2),
+                        'used_bytes'  => (int) ($res['used_bytes'] ?? 0),
+                        'free_gb'     => (float) ($res['free_gb'] ?? 0),
+                        'used_pct'    => (float) ($res['used_pct'] ?? 0),
+                        'free_pct'    => (float) ($res['free_pct'] ?? 0),
+                    ], $res);
+                }
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+            // fallback
+        }
 
-        $conn     = 'mysql_clientes';
-        $cuentaId = (string) $cuentaId;
+        $conn = 'mysql_clientes';
+        $cuentaId = trim((string) $cuentaId);
 
-        $planRaw   = (string) ($cuentaObj->plan_actual ?? 'FREE');
-        $plan      = strtoupper($planRaw);
-        $isProPlan = in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true);
-
-        $vaultBaseGb = $isProPlan ? (float) config('services.sat.vault.base_gb_pro', 0.0) : 0.0;
-
-        $quotaBytesFromAccount = 0;
         $schema = Schema::connection($conn);
 
-        if ($schema->hasTable('cuentas_cliente')) {
-            if ($schema->hasColumn('cuentas_cliente', 'vault_quota_bytes')) {
-                $quotaBytesFromAccount = (int) ($cuentaObj->vault_quota_bytes ?? 0);
-            } elseif ($schema->hasColumn('cuentas_cliente', 'vault_quota_gb')) {
-                $quotaGb = (float) ($cuentaObj->vault_quota_gb ?? 0);
-                $quotaBytesFromAccount = (int) round($quotaGb * 1024 * 1024 * 1024);
+        // Helpers
+        $hasTable = static function (string $t) use ($schema): bool {
+            try { return $schema->hasTable($t); } catch (\Throwable) { return false; }
+        };
+        $hasCol = static function (string $t, string $c) use ($schema): bool {
+            try { return $schema->hasTable($t) && $schema->hasColumn($t, $c); } catch (\Throwable) { return false; }
+        };
+
+        // 1) Plan → base GB
+        $planRaw = '';
+        try {
+            $planRaw = (string) data_get($cuentaObj, 'plan_actual', 'FREE');
+        } catch (\Throwable) {
+            $planRaw = 'FREE';
+        }
+        $plan = strtoupper(trim($planRaw));
+        $isProPlan = in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true);
+
+        $vaultBaseGb = $isProPlan
+            ? (float) config('services.sat.vault.base_gb_pro', 0.0)
+            : (float) config('services.sat.vault.base_gb_free', 0.0);
+
+        $vaultBaseGb = max(0.0, $vaultBaseGb);
+
+        // 2) Quota desde cuenta (si existe)
+        $quotaBytesFromAccount = 0;
+
+        // (a) intenta de $cuentaObj aunque no haya columna (no rompe si viene DTO)
+        foreach (['vault_quota_bytes', 'vault_quota_gb'] as $k) {
+            $v = null;
+            try { $v = data_get($cuentaObj, $k); } catch (\Throwable) { $v = null; }
+
+            if ($k === 'vault_quota_bytes' && is_numeric($v) && (int)$v > 0) {
+                $quotaBytesFromAccount = (int) $v;
+                break;
+            }
+
+            if ($k === 'vault_quota_gb' && is_numeric($v) && (float)$v > 0) {
+                $quotaBytesFromAccount = (int) round(((float)$v) * 1024 * 1024 * 1024);
+                break;
             }
         }
 
-        $quotaGbFromAccount = $quotaBytesFromAccount > 0 ? ($quotaBytesFromAccount / 1024 / 1024 / 1024) : 0.0;
-
-        $quotaGbFromVaultRows = 0.0;
-        if ($schema->hasTable('sat_downloads')) {
-            try {
-                $vaultRowsPaid = SatDownload::query()
-                    ->where('cuenta_id', $cuentaId)
-                    ->whereRaw('LOWER(COALESCE(tipo,"")) IN ("vault","boveda")')
-                    ->where(function ($q) {
-                        $q->whereNotNull('paid_at')
-                          ->orWhereRaw('LOWER(COALESCE(status,"")) IN ("paid","pagado")');
-                    })
-                    ->get();
-
-                $totalGb = 0.0;
-                foreach ($vaultRowsPaid as $row) {
-                    $gb = (float) ($row->vault_gb ?? $row->gb ?? 0);
-                    if ($gb <= 0) {
-                        $alias = (string) ($row->alias ?? $row->nombre ?? '');
-                        if ($alias !== '' && preg_match('/(\d+)\s*gb/i', $alias, $m)) {
-                            $gb = (float) $m[1];
-                        }
-                    }
-                    if ($gb > 0) $totalGb += $gb;
-                }
-                $quotaGbFromVaultRows = max(0.0, $totalGb);
-            } catch (\Throwable) {}
+        // (b) valida que realmente exista la columna para evitar “atributos fantasmas”
+        if ($quotaBytesFromAccount > 0 && $hasTable('cuentas_cliente')) {
+            if (!$hasCol('cuentas_cliente', 'vault_quota_bytes') && !$hasCol('cuentas_cliente', 'vault_quota_gb')) {
+                // si no existen columnas, mejor no confiar en ese valor
+                $quotaBytesFromAccount = 0;
+            }
         }
 
+        $quotaGbFromAccount = $quotaBytesFromAccount > 0
+            ? ($quotaBytesFromAccount / 1024 / 1024 / 1024)
+            : 0.0;
+
+        // 3) Quota comprada por “vault rows” (sat_downloads tipo vault/boveda pagadas)
+        $quotaGbFromVaultRows = 0.0;
+
+        if ($hasTable('sat_downloads')) {
+            try {
+                // columnas defensivas
+                $t = (new SatDownload())->getTable();
+                $cols = [];
+                try { $cols = $schema->getColumnListing($t); } catch (\Throwable) { $cols = []; }
+                $hasDl = static function (string $c) use ($cols): bool { return in_array($c, $cols, true); };
+
+                $colCuenta = $hasDl('cuenta_id') ? 'cuenta_id' : ($hasDl('account_id') ? 'account_id' : null);
+                $colTipo   = $hasDl('tipo') ? 'tipo' : null;
+                $colPaidAt = $hasDl('paid_at') ? 'paid_at' : null;
+                $colStatus = $hasDl('status') ? 'status' : null;
+
+                if ($colCuenta) {
+                    $q = DB::connection($conn)->table($t)->where($colCuenta, $cuentaId);
+
+                    if ($colTipo) {
+                        $q->whereRaw('LOWER(COALESCE(' . $colTipo . ',"")) IN ("vault","boveda")');
+                    } else {
+                        // sin tipo no podemos detectar vault; dejamos 0
+                        $q = null;
+                    }
+
+                    if ($q) {
+                        $q->where(function ($qq) use ($colPaidAt, $colStatus) {
+                            if ($colPaidAt) {
+                                $qq->whereNotNull($colPaidAt);
+                            }
+                            if ($colStatus) {
+                                $qq->orWhereRaw('LOWER(COALESCE(' . $colStatus . ',"")) IN ("paid","pagado","pagada")');
+                            }
+                        });
+
+                        // Trae solo lo necesario
+                        $sel = [];
+                        foreach (['vault_gb','gb','alias','nombre','meta'] as $c) {
+                            if ($hasDl($c)) $sel[] = $c;
+                        }
+                        if (empty($sel)) $sel = [$colCuenta]; // mínimo para no romper
+
+                        $rows = $q->select($sel)->get();
+
+                        $totalGb = 0.0;
+                        foreach ($rows as $row) {
+                            $gb = 0.0;
+
+                            // columnas
+                            foreach (['vault_gb','gb'] as $c) {
+                                if (isset($row->{$c}) && is_numeric($row->{$c}) && (float)$row->{$c} > 0) {
+                                    $gb = (float) $row->{$c};
+                                    break;
+                                }
+                            }
+
+                            // meta (por si viene ahí)
+                            if ($gb <= 0 && isset($row->meta) && !empty($row->meta)) {
+                                $m = [];
+                                try {
+                                    if (is_array($row->meta)) $m = $row->meta;
+                                    elseif (is_string($row->meta) && trim($row->meta) !== '') {
+                                        $tmp = json_decode($row->meta, true);
+                                        if (is_array($tmp)) $m = $tmp;
+                                    }
+                                } catch (\Throwable) { $m = []; }
+
+                                foreach (['vault_gb','gb','quota_gb'] as $k) {
+                                    if (isset($m[$k]) && is_numeric($m[$k]) && (float)$m[$k] > 0) {
+                                        $gb = (float) $m[$k];
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // alias/nombre: “10 GB”
+                            if ($gb <= 0) {
+                                $alias = '';
+                                foreach (['alias','nombre'] as $c) {
+                                    if (isset($row->{$c}) && trim((string)$row->{$c}) !== '') {
+                                        $alias = (string) $row->{$c};
+                                        break;
+                                    }
+                                }
+                                if ($alias !== '' && preg_match('/(\d+(?:\.\d+)?)\s*gb/i', $alias, $m)) {
+                                    $gb = (float) $m[1];
+                                }
+                            }
+
+                            if ($gb > 0) $totalGb += $gb;
+                        }
+
+                        $quotaGbFromVaultRows = max(0.0, $totalGb);
+                    }
+                }
+            } catch (\Throwable) {
+                $quotaGbFromVaultRows = 0.0;
+            }
+        }
+
+        // 4) Final quota: base + compras VS quota explícita en cuenta
         $quotaGbComputed = max(0.0, $vaultBaseGb + $quotaGbFromVaultRows);
         $quotaGbFinal    = max($quotaGbComputed, $quotaGbFromAccount);
         $quotaBytesFinal = (int) round($quotaGbFinal * 1024 * 1024 * 1024);
 
+        // 5) Used bytes (cuentas_cliente o suma de sat_vault_files)
         $usedBytes = 0;
-        if ($schema->hasTable('cuentas_cliente') && $schema->hasColumn('cuentas_cliente', 'vault_used_bytes')) {
-            $usedBytes = (int) ($cuentaObj->vault_used_bytes ?? 0);
-        }
 
-        if ($usedBytes <= 0 && $schema->hasTable('sat_vault_files') && $schema->hasColumn('sat_vault_files', 'bytes')) {
+        // (a) cuentas_cliente.vault_used_bytes
+        if ($hasTable('cuentas_cliente') && $hasCol('cuentas_cliente', 'vault_used_bytes')) {
             try {
-                $usedBytes = (int) DB::connection($conn)->table('sat_vault_files')->where('cuenta_id', $cuentaId)->sum('bytes');
-            } catch (\Throwable) {}
+                $v = data_get($cuentaObj, 'vault_used_bytes');
+                if (is_numeric($v) && (int)$v > 0) $usedBytes = (int) $v;
+            } catch (\Throwable) {
+                // ignore
+            }
         }
 
-        $usedBytes  = max(0, $usedBytes);
-        $quotaBytes = max($quotaBytesFinal, $usedBytes);
+        // (b) suma sat_vault_files.bytes
+        if ($usedBytes <= 0 && $hasTable('sat_vault_files') && $hasCol('sat_vault_files', 'bytes')) {
+            try {
+                // cuenta_id vs account_id
+                $cols = [];
+                try { $cols = $schema->getColumnListing('sat_vault_files'); } catch (\Throwable) { $cols = []; }
+                $hv = static function (string $c) use ($cols): bool { return in_array($c, $cols, true); };
+                $colCuentaVF = $hv('cuenta_id') ? 'cuenta_id' : ($hv('account_id') ? 'account_id' : null);
+
+                if ($colCuentaVF) {
+                    $usedBytes = (int) DB::connection($conn)
+                        ->table('sat_vault_files')
+                        ->where($colCuentaVF, $cuentaId)
+                        ->sum('bytes');
+                }
+            } catch (\Throwable) {
+                $usedBytes = 0;
+            }
+        }
+
+        $usedBytes = max(0, (int) $usedBytes);
+
+        // Si el usado ya supera la cuota, la “cuota efectiva” debe al menos cubrirlo (no mostrar % > 100 raro)
+        $quotaBytes = max((int) $quotaBytesFinal, $usedBytes);
 
         $usedGb  = $usedBytes / 1024 / 1024 / 1024;
         $quotaGb = $quotaBytes / 1024 / 1024 / 1024;
         $freeGb  = max(0.0, $quotaGb - $usedGb);
 
         $usedPct = $quotaBytes > 0 ? round(($usedBytes / $quotaBytes) * 100, 2) : 0.0;
-        $freePct = max(0.0, 100.0 - $usedPct);
+        $freePct = max(0.0, round(100.0 - $usedPct, 2));
 
         return [
             'quota_gb'    => round($quotaGb, 2),
-            'quota_bytes' => $quotaBytes,
+            'quota_bytes' => (int) $quotaBytes,
             'used_gb'     => round($usedGb, 2),
-            'used_bytes'  => $usedBytes,
+            'used_bytes'  => (int) $usedBytes,
             'free_gb'     => round($freeGb, 2),
             'used_pct'    => $usedPct,
             'free_pct'    => $freePct,
+
+            // extras útiles para debug/UI sin romper compat
+            'base_gb'        => round($vaultBaseGb, 2),
+            'purchased_gb'   => round($quotaGbFromVaultRows, 2),
+            'account_quota'  => round($quotaGbFromAccount, 2),
+            'plan'           => $plan,
+            'is_pro_plan'    => $isProPlan,
         ];
     }
 
     private function hasActiveVault(string $cuentaId, $cuentaObj = null): bool
     {
+        $cuentaId = trim((string) $cuentaId);
         if ($cuentaId === '') return false;
 
+        // Si nos pasan cuentaObj, intenta detectar “plan” rápido sin pegarle a DB
+        try {
+            $plan = strtoupper(trim((string) data_get($cuentaObj, 'plan_actual', '')));
+            if ($plan !== '') {
+                // FREE no garantiza bóveda; PRO/PREMIUM/etc sí (según regla de negocio)
+                if (in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true)) {
+                    $base = (float) config('services.sat.vault.base_gb_pro', 0.0);
+                    if ($base > 0.0) return true;
+                }
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+
+        // Fuente de verdad: resumen (incluye compras + quota explícita)
         try {
             $summary = $this->buildVaultStorageSummary($cuentaId, $cuentaObj ?? (object) []);
-            return ((int) ($summary['quota_bytes'] ?? 0)) > 0;
+            $quotaBytes = (int) ($summary['quota_bytes'] ?? 0);
+
+            // Considera activa si hay cuota positiva
+            return $quotaBytes > 0;
         } catch (\Throwable) {
             return false;
         }
@@ -484,104 +966,246 @@ final class SatDescargaController extends Controller
     private function vaultIsActiveForAccount($cuenta): bool
     {
         if (!$cuenta) return false;
-        if (is_array($cuenta)) $cuenta = (object) $cuenta;
 
-        $cuentaId = (string) ($cuenta->id ?? $cuenta->cuenta_id ?? '');
+        // Normaliza a objeto
+        if (is_array($cuenta)) {
+            $cuenta = (object) $cuenta;
+        }
+
+        // ID robusto (soporta varios shapes)
+        $cuentaId = '';
+        try {
+            $cuentaId = trim((string) (
+                data_get($cuenta, 'id')
+                ?? data_get($cuenta, 'cuenta_id')
+                ?? data_get($cuenta, 'account_id')
+                ?? ''
+            ));
+        } catch (\Throwable) {
+            $cuentaId = trim((string) (($cuenta->id ?? $cuenta->cuenta_id ?? $cuenta->account_id ?? '') ?: ''));
+        }
+
+        if ($cuentaId === '') return false;
+
         return $this->hasActiveVault($cuentaId, $cuenta);
     }
 
     private function fetchCuentaObjForVault(string $cuentaId): object
     {
+        $cuentaId = trim((string) $cuentaId);
 
+        // Siempre devolvemos un objeto con al menos un id “usable”
+        $fallback = static function () use ($cuentaId): object {
+            return (object) [
+                'id'       => $cuentaId,
+                'cuenta_id'=> $cuentaId,
+            ];
+        };
+
+        if ($cuentaId === '') {
+            // cuenta inválida -> objeto vacío pero consistente
+            return (object) ['id' => '', 'cuenta_id' => ''];
+        }
+
+        // 1) Busca en mysql_clientes.cuentas_cliente por id (y fallback por cuenta_id si existiera)
         try {
-            if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
-                $row = DB::connection('mysql_clientes')
-                    ->table('cuentas_cliente')
-                    ->where('id', $cuentaId)
-                    ->first();
-                if ($row) return (object) $row;
+            $conn   = 'mysql_clientes';
+            $schema = Schema::connection($conn);
+
+            if ($schema->hasTable('cuentas_cliente')) {
+                $q = DB::connection($conn)->table('cuentas_cliente');
+
+                // id es lo normal
+                $row = $q->where('id', $cuentaId)->first();
+
+                // algunos setups guardan cuenta_id (defensivo)
+                if (!$row && $schema->hasColumn('cuentas_cliente', 'cuenta_id')) {
+                    $row = DB::connection($conn)->table('cuentas_cliente')
+                        ->where('cuenta_id', $cuentaId)
+                        ->first();
+                }
+
+                if ($row) {
+                    $obj = (object) $row;
+
+                    // asegura que al menos exista id/cuenta_id para el resto de helpers
+                    if (empty($obj->id) && !empty($obj->cuenta_id)) $obj->id = (string) $obj->cuenta_id;
+                    if (empty($obj->cuenta_id) && !empty($obj->id)) $obj->cuenta_id = (string) $obj->id;
+
+                    return $obj;
+                }
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+            // no-op -> intenta fallback por sesión/usuario
+        }
 
-        $u = $this->cu();
-        $c = $u?->cuenta ?? null;
-        if (is_array($c)) $c = (object) $c;
-        if (is_object($c)) return $c;
+        // 2) Fallback por sesión/usuario actual (evita nulls)
+        try {
+            $u = $this->cu();
+            $c = $u?->cuenta ?? null;
 
-        return (object) ['id' => $cuentaId];
+            if (is_array($c)) $c = (object) $c;
+
+            if (is_object($c)) {
+                // normaliza ids
+                if (empty($c->id) && !empty($c->cuenta_id)) $c->id = (string) $c->cuenta_id;
+                if (empty($c->cuenta_id) && !empty($c->id)) $c->cuenta_id = (string) $c->id;
+
+                // si el objeto “cuenta” trae otro id, respeta el pedido por $cuentaId
+                // (pero garantizamos que el id/cuenta_id coincidan con el parámetro si el objeto viene incompleto)
+                if (empty($c->id) || (string)$c->id === '') $c->id = $cuentaId;
+                if (empty($c->cuenta_id) || (string)$c->cuenta_id === '') $c->cuenta_id = $cuentaId;
+
+                return $c;
+            }
+        } catch (\Throwable) {
+            // no-op
+        }
+
+        // 3) Último fallback
+        return $fallback();
     }
 
-        /**
+    /**
      * SOT: Cuenta del cliente desde mysql_clientes.cuentas_cliente
      * (porque en tu entorno NO existe mysql_clientes.cuentas).
+     *
+     * Mejora:
+     * - Normaliza id/cuenta_id
+     * - Fallback defensivo si el PK no es exactamente "id"
+     * - Nunca truena por schema/DB
      */
     private function fetchCuentaCliente(string $cuentaId): ?object
     {
         $cuentaId = trim((string) $cuentaId);
         if ($cuentaId === '') return null;
 
-        try {
-            $conn = 'mysql_clientes';
+        $conn = 'mysql_clientes';
 
-            if (!Schema::connection($conn)->hasTable('cuentas_cliente')) {
+        try {
+            $schema = Schema::connection($conn);
+
+            if (!$schema->hasTable('cuentas_cliente')) {
                 return null;
             }
 
-            $row = DB::connection($conn)
-                ->table('cuentas_cliente')
-                ->where('id', $cuentaId)
-                ->first();
+            // Determina columnas disponibles (defensivo)
+            $cols = [];
+            try { $cols = $schema->getColumnListing('cuentas_cliente'); } catch (\Throwable) { $cols = []; }
 
-            return $row ? (object) $row : null;
+            $has = static function (string $c) use ($cols): bool {
+                return in_array($c, $cols, true);
+            };
+
+            $q = DB::connection($conn)->table('cuentas_cliente');
+
+            // 1) PK típico
+            $row = $has('id')
+                ? $q->where('id', $cuentaId)->first()
+                : null;
+
+            // 2) Fallback por cuenta_id (si existe)
+            if (!$row && $has('cuenta_id')) {
+                $row = DB::connection($conn)->table('cuentas_cliente')
+                    ->where('cuenta_id', $cuentaId)
+                    ->first();
+            }
+
+            // 3) Fallback por account_id (algunos esquemas usan account_id)
+            if (!$row && $has('account_id')) {
+                $row = DB::connection($conn)->table('cuentas_cliente')
+                    ->where('account_id', $cuentaId)
+                    ->first();
+            }
+
+            if (!$row) return null;
+
+            $obj = (object) $row;
+
+            // Normaliza campos clave para el resto del controlador
+            if (empty($obj->id) && !empty($obj->cuenta_id)) $obj->id = (string) $obj->cuenta_id;
+            if (empty($obj->id) && !empty($obj->account_id)) $obj->id = (string) $obj->account_id;
+
+            if (empty($obj->cuenta_id) && !empty($obj->id)) $obj->cuenta_id = (string) $obj->id;
+
+            return $obj;
         } catch (\Throwable) {
             return null;
         }
     }
 
-
     /**
      * RFC options para "Descargas manuales":
      * - Solo RFCs válidos (con CSD / validado).
      * - Formato uniforme para Blade/JS.
+     * - Dedup por RFC (por si vienen repetidos).
+     * - Alias limpio (sin nulls raros) y fallback por campos comunes.
      */
     private function buildRfcOptionsForManual($credList): array
     {
         $out = [];
+        $seen = [];
 
-        foreach (collect($credList) as $c) {
-            $rfc = strtoupper(trim((string) ($c->rfc ?? '')));
+        foreach (collect($credList ?? []) as $c) {
+            // rfc
+            $rfc = strtoupper(trim((string) data_get($c, 'rfc', '')));
             if ($rfc === '') continue;
 
-            $estatusRaw = strtolower((string) ($c->estatus ?? ''));
+            // dedup
+            if (isset($seen[$rfc])) continue;
 
-            $isValid =
-                !empty($c->validado ?? null)
-                || !empty($c->validated_at ?? null)
-                || !empty($c->has_files ?? null)
-                || !empty($c->has_csd ?? null)
-                || !empty($c->cer_path ?? null)
-                || !empty($c->key_path ?? null)
-                || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid'], true);
+            $estatusRaw = strtolower(trim((string) data_get($c, 'estatus', data_get($c, 'sat_status', data_get($c, 'estatus_sat', '')))));
 
+            // flags de validación / archivos
+            $hasValidated =
+                !empty(data_get($c, 'validado'))
+                || !empty(data_get($c, 'validated_at'))
+                || !empty(data_get($c, 'validado_at'))
+                || !empty(data_get($c, 'verificado_at'))
+                || !empty(data_get($c, 'sat_validated_at'));
+
+            $hasFiles =
+                !empty(data_get($c, 'has_files'))
+                || !empty(data_get($c, 'has_csd'))
+                || !empty(data_get($c, 'cer_path'))
+                || !empty(data_get($c, 'key_path'))
+                || !empty(data_get($c, 'cer_file'))
+                || !empty(data_get($c, 'key_file'));
+
+            $statusOk = in_array($estatusRaw, [
+                'ok','valido','válido','validado','valid','activo','active','enabled'
+            ], true);
+
+            $isValid = ($hasValidated || $hasFiles || $statusOk);
             if (!$isValid) continue;
 
-            $alias = trim((string) ($c->razon_social ?? $c->alias ?? ''));
+            // alias / razón social
+            $alias = trim((string) (
+                data_get($c, 'razon_social')
+                ?? data_get($c, 'razonSocial')
+                ?? data_get($c, 'nombre')
+                ?? data_get($c, 'alias')
+                ?? data_get($c, 'business_name')
+                ?? ''
+            ));
+
             $out[] = [
                 'rf'    => $rfc,
-                'alias' => $alias !== '' ? $alias : null,
+                'alias' => ($alias !== '' ? $alias : null),
             ];
+
+            $seen[$rfc] = true;
         }
 
         // orden por RFC
-        usort($out, static fn($a, $b) => strcmp((string)$a['rf'], (string)$b['rf']));
+        usort($out, static fn ($a, $b) => strcmp((string) ($a['rf'] ?? ''), (string) ($b['rf'] ?? '')));
 
         return $out;
     }
 
-
     /* ===================================================
-     *  VISTA SAT
-     * =================================================== */
+    *  VISTA SAT
+    * =================================================== */
 
     public function index(Request $request)
     {
@@ -591,7 +1215,7 @@ final class SatDescargaController extends Controller
         }
 
         // ✅ CuentaId primero (SOT)
-        $cuentaId = (string) ($this->resolveCuentaIdFromUser($user) ?? '');
+        $cuentaId = trim((string) ($this->resolveCuentaIdFromUser($user) ?? ''));
 
         // ✅ SOT: cuentas_cliente (porque NO existe mysql_clientes.cuentas)
         $cuentaCliente = null;
@@ -603,56 +1227,57 @@ final class SatDescargaController extends Controller
         if (!$cuentaCliente) {
             $tmp = $user?->cuenta ?? null;
             if (is_array($tmp)) $tmp = (object) $tmp;
+
             if (is_object($tmp)) {
-                // Si no teníamos cuentaId, intenta inferirlo
                 if ($cuentaId === '') {
-                    $cuentaId = (string) ($tmp->id ?? $tmp->cuenta_id ?? '');
+                    $cuentaId = trim((string) ($tmp->id ?? $tmp->cuenta_id ?? ''));
                 }
                 $cuentaCliente = $tmp;
             }
         }
 
-        $planRaw   = (string) (($cuentaCliente->plan_actual ?? $cuentaCliente->plan ?? 'FREE'));
-
-        $plan      = strtoupper($planRaw);
+        // Normaliza plan
+        $planRaw = (string) (($cuentaCliente->plan_actual ?? $cuentaCliente->plan ?? 'FREE'));
+        $plan    = strtoupper(trim($planRaw));
         $isProPlan = in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true);
 
         // =========================
         // Bóveda summary (defensivo)
         // =========================
         $vaultSummary = [
-            'has_quota'       => false,
-            'quota_gb'        => 0.0,
-            'quota_bytes'     => 0,
-            'used_gb'         => 0.0,
-            'used_bytes'      => 0,
-            'available_gb'    => 0.0,
-            'used_pct'        => 0.0,
-            'available_pct'   => 0.0,
-            'files_count'     => 0,
+            'has_quota'     => false,
+            'quota_gb'      => 0.0,
+            'quota_bytes'   => 0,
+            'used_gb'       => 0.0,
+            'used_bytes'    => 0,
+            'available_gb'  => 0.0,
+            'used_pct'      => 0.0,
+            'available_pct' => 0.0,
+            'files_count'   => 0,
         ];
 
         $vaultForJs = [
-            'quota_gb'      => 0.0,
-            'used_gb'       => 0.0,
-            'used'          => 0.0,
-            'free_gb'       => 0.0,
-            'available_gb'  => 0.0,
-            'used_pct'      => 0.0,
-            'files_count'   => 0,
-            'enabled'       => false,
+            'quota_gb'     => 0.0,
+            'used_gb'      => 0.0,
+            'used'         => 0.0,
+            'free_gb'      => 0.0,
+            'available_gb' => 0.0,
+            'used_pct'     => 0.0,
+            'files_count'  => 0,
+            'enabled'      => false,
         ];
 
         if ($cuentaId !== '') {
             try {
-                $storage = $this->buildVaultStorageSummary($cuentaId, $cuentaCliente);
-                $enabled = ((int)($storage['quota_bytes'] ?? 0)) > 0;
+                $storage = $this->buildVaultStorageSummary($cuentaId, $cuentaCliente ?? (object) []);
+                $enabled = ((int) ($storage['quota_bytes'] ?? 0)) > 0;
 
                 // ✅ files_count (si existe sat_vault_files)
                 $vaultFilesCount = 0;
                 try {
-                    if (Schema::connection('mysql_clientes')->hasTable('sat_vault_files')) {
-                        $vaultFilesCount = (int) DB::connection('mysql_clientes')
+                    $conn = 'mysql_clientes';
+                    if (Schema::connection($conn)->hasTable('sat_vault_files')) {
+                        $vaultFilesCount = (int) DB::connection($conn)
                             ->table('sat_vault_files')
                             ->where('cuenta_id', $cuentaId)
                             ->count();
@@ -661,33 +1286,32 @@ final class SatDescargaController extends Controller
                     $vaultFilesCount = 0;
                 }
 
-
                 $vaultSummary = [
-                    'has_quota'       => $enabled,
-                    'quota_gb'        => (float)($storage['quota_gb'] ?? 0),
-                    'quota_bytes'     => (int)($storage['quota_bytes'] ?? 0),
-                    'used_gb'         => (float)($storage['used_gb'] ?? 0),
-                    'used_bytes'      => (int)($storage['used_bytes'] ?? 0),
-                    'available_gb'    => (float)($storage['free_gb'] ?? 0),
-                    'used_pct'        => (float)($storage['used_pct'] ?? 0),
-                    'available_pct'   => (float)($storage['free_pct'] ?? 0),
-                    'files_count' => $vaultFilesCount,
+                    'has_quota'     => $enabled,
+                    'quota_gb'      => (float) ($storage['quota_gb'] ?? 0),
+                    'quota_bytes'   => (int) ($storage['quota_bytes'] ?? 0),
+                    'used_gb'       => (float) ($storage['used_gb'] ?? 0),
+                    'used_bytes'    => (int) ($storage['used_bytes'] ?? 0),
+                    'available_gb'  => (float) ($storage['free_gb'] ?? 0),
+                    'used_pct'      => (float) ($storage['used_pct'] ?? 0),
+                    'available_pct' => (float) ($storage['free_pct'] ?? 0),
+                    'files_count'   => $vaultFilesCount,
                 ];
 
                 $vaultForJs = [
-                    'quota_gb'      => (float)($storage['quota_gb'] ?? 0),
-                    'used_gb'       => (float)($storage['used_gb'] ?? 0),
-                    'used'          => (float)($storage['used_gb'] ?? 0),
-                    'free_gb'       => (float)($storage['free_gb'] ?? 0),
-                    'available_gb'  => (float)($storage['free_gb'] ?? 0),
-                    'used_pct'      => (float)($storage['used_pct'] ?? 0),
-                    'files_count' => $vaultFilesCount,
-                    'enabled'       => $enabled,
+                    'quota_gb'     => (float) ($storage['quota_gb'] ?? 0),
+                    'used_gb'      => (float) ($storage['used_gb'] ?? 0),
+                    'used'         => (float) ($storage['used_gb'] ?? 0),
+                    'free_gb'      => (float) ($storage['free_gb'] ?? 0),
+                    'available_gb' => (float) ($storage['free_gb'] ?? 0),
+                    'used_pct'     => (float) ($storage['used_pct'] ?? 0),
+                    'files_count'  => $vaultFilesCount,
+                    'enabled'      => $enabled,
                 ];
             } catch (\Throwable $e) {
                 Log::warning('[SAT:index] Error calculando resumen de bóveda', [
                     'cuenta_id' => $cuentaId,
-                    'error' => $e->getMessage(),
+                    'error'     => $e->getMessage(),
                 ]);
             }
         }
@@ -695,17 +1319,17 @@ final class SatDescargaController extends Controller
         // =========================
         // Datos principales
         // =========================
-        $credList           = collect();
-        $credMap            = [];
-        $rfcOptions         = [];   // ✅ FIX para Blade
-        $initialRows        = [];
-        $cartIds            = [];
-        $downloadsPage      = null;
-        $downloadsTotalAll  = 0;
+        $credList          = collect();
+        $credMap           = [];
+        $rfcOptions        = [];
+        $initialRows       = [];
+        $cartIds           = [];
+        $downloadsPage     = null;
+        $downloadsTotalAll = 0;
 
         if ($cuentaId !== '') {
             try {
-                // limpia expirada
+                // limpia expirada (defensivo)
                 try { $this->cleanupExpiredHistory($cuentaId, 5); } catch (\Throwable) {}
 
                 $cartIds = $this->getCartIds($cuentaId);
@@ -718,34 +1342,33 @@ final class SatDescargaController extends Controller
                     ->orderBy('rfc')
                     ->get();
 
-                // Mapa RFC => alias
                 foreach ($credList as $c) {
-                    $rfc = strtoupper(trim((string) $c->rfc));
+                    $rfc = strtoupper(trim((string) ($c->rfc ?? '')));
                     if ($rfc !== '') {
                         $credMap[$rfc] = (string) ($c->razon_social ?? $c->alias ?? '');
                     }
                 }
 
-                // ✅ FIX: RFC options para “Manual” (solo validados)
+                // ✅ RFC options para “Manual” (solo validados)
                 $rfcOptions = $this->buildRfcOptionsForManual($credList);
 
                 // =========================
                 // Descargas (NO bóveda)
                 // =========================
-                $perPage = 20;
+                $perPage = (int) $request->query('per', 20);
+                if ($perPage < 5) $perPage = 5;
+                if ($perPage > 100) $perPage = 100;
 
                 $baseQuery = SatDownload::query()
                     ->where('cuenta_id', $cuentaId)
-                    ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')  // ✅ FIX case-insensitive
+                    ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
                     ->orderByDesc('created_at');
 
                 $downloadsTotalAll = (int) $baseQuery->count();
-
-                $downloadsPage = $baseQuery->paginate($perPage);
+                $downloadsPage     = $baseQuery->paginate($perPage);
 
                 $now = Carbon::now();
 
-                // Filtra solicitudes “request/solicitud” por flags + tipo (defensivo)
                 $collection = $downloadsPage->getCollection()
                     ->filter(function (SatDownload $d) {
                         $tipo = strtolower((string) data_get($d, 'tipo', ''));
@@ -763,7 +1386,6 @@ final class SatDescargaController extends Controller
                     return $this->transformDownloadRow($d, $credMap, $cartIds, $now);
                 });
 
-                // Sustituye collection paginada por rows transformadas
                 $downloadsPage->setCollection($rowsH);
 
                 $initialRows = $rowsH->values()->all();
@@ -773,38 +1395,43 @@ final class SatDescargaController extends Controller
                     'error'     => $e->getMessage(),
                 ]);
 
-                // ✅ Mantén rfcOptions vacío (evita undefined en Blade si cae aquí)
+                // ✅ no rompas Blade
+                $credList = collect();
+                $credMap = [];
                 $rfcOptions = [];
+                $initialRows = [];
+                $downloadsPage = null;
+                $downloadsTotalAll = 0;
+                $cartIds = [];
             }
         }
 
-
         return view('cliente.sat.index', [
-        'plan'               => $plan,
-        'isProPlan'          => $isProPlan,
-        'credList'           => $credList,
-        'initialRows'        => $initialRows,
-        'downloads'          => $initialRows,
-        'downloadsPaginator' => $downloadsPage,
-        'downloadsTotalAll'  => $downloadsTotalAll,
-        'cuenta'             => $cuentaCliente,
+            'plan'               => $plan,
+            'isProPlan'          => $isProPlan,
 
-        'vaultSummary'       => $vaultSummary,
-        'storage'            => $vaultSummary,
-        'vault'              => $vaultForJs,
+            'credList'           => $credList,
+            'initialRows'        => $initialRows,
+            'downloads'          => $initialRows,
+            'downloadsPaginator' => $downloadsPage,
+            'downloadsTotalAll'  => $downloadsTotalAll,
 
-        'vault_quota_gb'     => (float) ($vaultSummary['quota_gb'] ?? 0.0),
-        'vault_used_gb'      => (float) ($vaultSummary['used_gb'] ?? 0.0),
-        'vault_used_pct'     => (float) ($vaultSummary['used_pct'] ?? 0.0),
+            'cuenta'             => $cuentaCliente,
 
-        'cartIds'            => $cartIds,
+            'vaultSummary'       => $vaultSummary,
+            'storage'            => $vaultSummary,
+            'vault'              => $vaultForJs,
 
-        // ✅ FIX: requerido por el Blade “Descargas manuales”
-        'rfcOptions'         => $rfcOptions ?? [],
-    ]);
+            'vault_quota_gb'     => (float) ($vaultSummary['quota_gb'] ?? 0.0),
+            'vault_used_gb'      => (float) ($vaultSummary['used_gb'] ?? 0.0),
+            'vault_used_pct'     => (float) ($vaultSummary['used_pct'] ?? 0.0),
 
+            'cartIds'            => $cartIds,
+
+            // ✅ requerido por Blade/JS “Descargas manuales”
+            'rfcOptions'         => $rfcOptions,
+        ]);
     }
-
 
     protected function transformDownloadRow(
     SatDownload $d,
@@ -973,25 +1600,24 @@ final class SatDescargaController extends Controller
         ];
     }
 
-
     /* ===================================================
-     *  RFC: registrar / alias / eliminar
-     * =================================================== */
+    *  RFC: registrar / alias / eliminar
+    * =================================================== */
 
     public function registerRfc(Request $request): JsonResponse|RedirectResponse
     {
         $trace    = $this->trace();
-        $cuentaId = $this->cuId();
-
-        $isAjax = $this->isAjax($request);
+        $cuentaId = trim($this->cuId());
+        $isAjax   = $this->isAjax($request);
 
         $data = $request->validate([
             'rfc'   => ['required', 'string', 'min:12', 'max:13'],
             'alias' => ['nullable', 'string', 'max:190'],
         ]);
 
-        $rfc   = strtoupper(trim((string) $data['rfc']));
-        $alias = isset($data['alias']) ? trim((string) $data['alias']) : null;
+        $rfc   = strtoupper(trim((string) ($data['rfc'] ?? '')));
+        $alias = array_key_exists('alias', $data) ? trim((string) $data['alias']) : null;
+        if ($alias === '') $alias = null;
 
         try {
             if ($cuentaId === '') {
@@ -1000,33 +1626,93 @@ final class SatDescargaController extends Controller
                 return redirect()->route('cliente.sat.index')->with('error', $msg);
             }
 
-            $cred = SatCredential::on('mysql_clientes')
+            if ($rfc === '') {
+                $msg = 'RFC inválido.';
+                if ($isAjax) return response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422);
+                return redirect()->route('cliente.sat.index')->with('error', $msg);
+            }
+
+            // Normaliza: elimina espacios internos por si pega con espacios
+            $rfc = preg_replace('/\s+/', '', $rfc) ?: $rfc;
+
+            // UPSERT defensivo (evita duplicados por collation/case)
+            $conn = 'mysql_clientes';
+
+            $cred = SatCredential::on($conn)
                 ->where('cuenta_id', $cuentaId)
                 ->whereRaw('UPPER(rfc) = ?', [$rfc])
                 ->first();
 
             if (!$cred) {
                 $cred = new SatCredential();
-                $cred->setConnection('mysql_clientes');
+                $cred->setConnection($conn);
                 $cred->cuenta_id = $cuentaId;
                 $cred->rfc       = $rfc;
+
+                // Defaults defensivos si existen columnas
+                try {
+                    $table  = $cred->getTable();
+                    $schema = Schema::connection($conn);
+
+                    if ($schema->hasColumn($table, 'estatus') && empty($cred->estatus)) {
+                        $cred->estatus = 'pending';
+                    }
+                    if ($schema->hasColumn($table, 'validado') && $cred->validado === null) {
+                        $cred->validado = 0;
+                    }
+                    if ($schema->hasColumn($table, 'source') && empty($cred->source)) {
+                        $cred->source = 'cliente';
+                    }
+                } catch (\Throwable) {}
             } else {
-                // Asegura conexión por si el modelo venía de otro lado
-                $cred->setConnection('mysql_clientes');
+                $cred->setConnection($conn);
             }
 
+            // Alias: si viene, se asigna; si NO viene, no toca el existente
+            if ($alias !== null) {
+                // prioridad: razon_social; fallback: alias si existe en tu tabla
+                $applied = false;
+                try {
+                    $table  = $cred->getTable();
+                    $schema = Schema::connection($conn);
 
-            if ($alias !== null && $alias !== '') {
-                $cred->razon_social = $alias;
+                    if ($schema->hasColumn($table, 'razon_social')) {
+                        $cred->razon_social = $alias;
+                        $applied = true;
+                    } elseif ($schema->hasColumn($table, 'alias')) {
+                        $cred->alias = $alias;
+                        $applied = true;
+                    }
+                } catch (\Throwable) {
+                    // fallback silencioso
+                }
+
+                if (!$applied) {
+                    // Último recurso: mantén compat con tu UI (no romper)
+                    $cred->razon_social = $alias;
+                }
             }
 
+            // Meta mínima (si existe): trazabilidad
             try {
-                $conn   = $cred->getConnectionName() ?? 'mysql_clientes';
                 $table  = $cred->getTable();
                 $schema = Schema::connection($conn);
 
-                if ($schema->hasColumn($table, 'estatus') && empty($cred->estatus)) {
-                    $cred->estatus = 'pending';
+                if ($schema->hasColumn($table, 'meta')) {
+                    $meta = [];
+                    $cur  = $cred->meta ?? null;
+
+                    if (is_array($cur)) $meta = $cur;
+                    elseif (is_string($cur) && $cur !== '') {
+                        $tmp = json_decode($cur, true);
+                        if (is_array($tmp)) $meta = $tmp;
+                    }
+
+                    $meta['last_register_at'] = now()->toDateTimeString();
+                    $meta['last_register_ip'] = $request->ip();
+                    $meta['last_register_ua'] = (string) $request->userAgent();
+
+                    $cred->meta = $meta;
                 }
             } catch (\Throwable) {}
 
@@ -1037,10 +1723,10 @@ final class SatDescargaController extends Controller
                 return response()->json([
                     'ok'       => true,
                     'trace_id' => $trace,
-                    'rfc'      => $cred->rfc,
-                    'alias'    => $cred->razon_social ?? null,
+                    'rfc'      => (string) ($cred->rfc ?? $rfc),
+                    'alias'    => (string) ($cred->razon_social ?? $cred->alias ?? $alias ?? ''),
                     'msg'      => $msg,
-                ]);
+                ], 200);
             }
 
             return redirect()->route('cliente.sat.index')->with('ok', $msg);
@@ -1061,17 +1747,19 @@ final class SatDescargaController extends Controller
     public function saveAlias(Request $request): JsonResponse|RedirectResponse
     {
         $trace    = $this->trace();
-        $cuentaId = $this->cuId();
-
-        $isAjax = $this->isAjax($request);
+        $cuentaId = trim($this->cuId());
+        $isAjax   = $this->isAjax($request);
 
         $data = $request->validate([
             'rfc'   => ['required', 'string', 'min:12', 'max:13'],
             'alias' => ['nullable', 'string', 'max:190'],
         ]);
 
-        $rfc   = strtoupper(trim((string) $data['rfc']));
-        $alias = trim((string) ($data['alias'] ?? ''));
+        $rfc   = strtoupper(trim((string) ($data['rfc'] ?? '')));
+        $rfc   = preg_replace('/\s+/', '', $rfc) ?: $rfc;
+
+        $alias = array_key_exists('alias', $data) ? trim((string) $data['alias']) : null;
+        if ($alias === '') $alias = null;
 
         try {
             if ($cuentaId === '') {
@@ -1080,26 +1768,101 @@ final class SatDescargaController extends Controller
                 return redirect()->route('cliente.sat.index')->with('error', $msg);
             }
 
-            $cred = SatCredential::on('mysql_clientes')
+            if ($rfc === '') {
+                $msg = 'RFC inválido.';
+                if ($isAjax) return response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422);
+                return redirect()->route('cliente.sat.index')->with('error', $msg);
+            }
+
+            $conn = 'mysql_clientes';
+
+            $cred = SatCredential::on($conn)
                 ->where('cuenta_id', $cuentaId)
                 ->whereRaw('UPPER(rfc) = ?', [$rfc])
                 ->first();
 
             if (!$cred) {
+                // Si no existe, lo creamos (pero SOLO para guardar alias)
                 $cred = new SatCredential();
-                $cred->setConnection('mysql_clientes');
+                $cred->setConnection($conn);
                 $cred->cuenta_id = $cuentaId;
                 $cred->rfc       = $rfc;
+
+                // defaults defensivos si existen columnas
+                try {
+                    $table  = $cred->getTable();
+                    $schema = Schema::connection($conn);
+
+                    if ($schema->hasColumn($table, 'estatus') && empty($cred->estatus)) {
+                        $cred->estatus = 'pending';
+                    }
+                    if ($schema->hasColumn($table, 'validado') && $cred->validado === null) {
+                        $cred->validado = 0;
+                    }
+                    if ($schema->hasColumn($table, 'source') && empty($cred->source)) {
+                        $cred->source = 'cliente';
+                    }
+                } catch (\Throwable) {}
             } else {
-                $cred->setConnection('mysql_clientes');
+                $cred->setConnection($conn);
             }
 
+            // Aplica alias en la columna correcta (razon_social / alias)
+            $applied = false;
+            try {
+                $table  = $cred->getTable();
+                $schema = Schema::connection($conn);
 
-            $cred->razon_social = $alias !== '' ? $alias : null;
+                if ($schema->hasColumn($table, 'razon_social')) {
+                    $cred->razon_social = $alias;
+                    $applied = true;
+                } elseif ($schema->hasColumn($table, 'alias')) {
+                    $cred->alias = $alias;
+                    $applied = true;
+                }
+            } catch (\Throwable) {}
+
+            if (!$applied) {
+                // fallback (no romper)
+                $cred->razon_social = $alias;
+            }
+
+            // Meta mínima para auditoría (si existe)
+            try {
+                $table  = $cred->getTable();
+                $schema = Schema::connection($conn);
+
+                if ($schema->hasColumn($table, 'meta')) {
+                    $meta = [];
+                    $cur  = $cred->meta ?? null;
+
+                    if (is_array($cur)) $meta = $cur;
+                    elseif (is_string($cur) && $cur !== '') {
+                        $tmp = json_decode($cur, true);
+                        if (is_array($tmp)) $meta = $tmp;
+                    }
+
+                    $meta['alias_updated_at'] = now()->toDateTimeString();
+                    $meta['alias_updated_ip'] = $request->ip();
+                    $meta['alias_updated_ua'] = (string) $request->userAgent();
+
+                    $cred->meta = $meta;
+                }
+            } catch (\Throwable) {}
+
             $cred->save();
 
             $msg = 'Alias actualizado.';
-            if ($isAjax) return response()->json(['ok' => true, 'trace_id' => $trace, 'msg' => $msg]);
+            if ($isAjax) {
+                return response()->json([
+                    'ok'       => true,
+                    'trace_id' => $trace,
+                    'rfc'      => (string) ($cred->rfc ?? $rfc),
+                    'alias'    => (string) ($cred->razon_social ?? $cred->alias ?? $alias ?? ''),
+                    'msg'      => $msg,
+                ], 200);
+            }
+
             return redirect()->route('cliente.sat.index')->with('ok', $msg);
         } catch (\Throwable $e) {
             Log::error('[SAT:saveAlias] Error', [
@@ -1119,57 +1882,105 @@ final class SatDescargaController extends Controller
     {
         $trace    = $this->trace();
         $user     = $this->cu();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if (!$user || $cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Sesión expirada o cuenta inválida.', 'trace_id' => $trace], 401);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Sesión expirada o cuenta inválida.',
+                'trace_id' => $trace,
+            ], 401);
         }
 
         $data = $request->validate([
             'rfc' => ['required', 'string', 'min:12', 'max:13'],
         ]);
 
-        $rfcUpper = strtoupper(trim((string) $data['rfc']));
+        $rfcUpper = strtoupper(trim((string) ($data['rfc'] ?? '')));
+        $rfcUpper = preg_replace('/\s+/', '', $rfcUpper) ?: $rfcUpper;
 
         try {
-            $cred = SatCredential::query()
+            $conn = 'mysql_clientes';
+
+            $cred = SatCredential::on($conn)
                 ->where('cuenta_id', $cuentaId)
                 ->whereRaw('UPPER(rfc) = ?', [$rfcUpper])
                 ->first();
 
             if (!$cred) {
-                return response()->json(['ok' => false, 'msg' => 'RFC no encontrado en tu cuenta.', 'trace_id' => $trace], 404);
+                return response()->json([
+                    'ok'       => false,
+                    'msg'      => 'RFC no encontrado en tu cuenta.',
+                    'trace_id' => $trace,
+                ], 404);
             }
 
-            // intenta borrar archivos asociados si existen columnas
+            // 1) Protección: si el RFC tiene descargas/vault asociadas (si existe tabla sat_downloads), bloquea
             try {
-                $conn   = $cred->getConnectionName() ?? 'mysql_clientes';
-                $table  = $cred->getTable();
-                $schema = Schema::connection($conn);
+                if (Schema::connection($conn)->hasTable('sat_downloads')) {
+                    $dlHas = DB::connection($conn)->table('sat_downloads')
+                        ->where(function ($q) use ($cuentaId) {
+                            $q->where('cuenta_id', $cuentaId);
+                            // si algún entorno usa account_id
+                            try {
+                                if (Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'account_id')) {
+                                    $q->orWhere('account_id', $cuentaId);
+                                }
+                            } catch (\Throwable) {}
+                        })
+                        ->whereRaw('UPPER(COALESCE(rfc,"")) = ?', [$rfcUpper])
+                        ->exists();
 
-                $cerPath = $schema->hasColumn($table, 'cer_path') ? (string) ($cred->cer_path ?? '') : '';
-                $keyPath = $schema->hasColumn($table, 'key_path') ? (string) ($cred->key_path ?? '') : '';
-
-                $diskName = config('filesystems.disks.private')
-                    ? 'private'
-                    : (config('filesystems.disks.vault') ? 'vault' : config('filesystems.default', 'local'));
-
-                foreach ([$cerPath, $keyPath] as $p0) {
-                    $p0 = ltrim((string) $p0, '/');
-                    if ($p0 === '') continue;
-                    try {
-                        if (Storage::disk($diskName)->exists($p0)) Storage::disk($diskName)->delete($p0);
-                    } catch (\Throwable) {}
+                    if ($dlHas) {
+                        return response()->json([
+                            'ok'       => false,
+                            'msg'      => 'No se puede eliminar: el RFC tiene descargas asociadas.',
+                            'trace_id' => $trace,
+                        ], 409);
+                    }
                 }
-            } catch (\Throwable $e) {
-                Log::warning('[SAT:deleteRfc] No se pudieron eliminar archivos asociados', [
-                    'trace_id'  => $trace,
-                    'cuenta_id' => $cuentaId,
-                    'rfc'       => $rfcUpper,
-                    'ex'        => $e->getMessage(),
-                ]);
+            } catch (\Throwable) {
+                // no-op (no romper)
             }
 
+            // 2) Detecta columnas y paths
+            $table  = $cred->getTable();
+            $schema = Schema::connection($conn);
+
+            $cerPath = $schema->hasColumn($table, 'cer_path') ? (string) ($cred->cer_path ?? '') : '';
+            $keyPath = $schema->hasColumn($table, 'key_path') ? (string) ($cred->key_path ?? '') : '';
+
+            // 3) Resuelve disco(s) y elimina archivos si existen
+            $diskCandidates = array_values(array_unique(array_filter([
+                config('filesystems.disks.private') ? 'private' : null,
+                config('filesystems.disks.sat_private') ? 'sat_private' : null,
+                config('filesystems.disks.vault') ? 'vault' : null,
+                config('filesystems.disks.sat_credentials') ? 'sat_credentials' : null,
+                config('filesystems.disks.sat_files') ? 'sat_files' : null,
+                config('filesystems.default', 'local'),
+            ])));
+
+            $deleteIfExists = static function (string $path) use ($diskCandidates): void {
+                $p = ltrim((string) $path, '/');
+                if ($p === '') return;
+
+                foreach ($diskCandidates as $disk) {
+                    try {
+                        $d = Storage::disk($disk);
+                        if ($d->exists($p)) {
+                            $d->delete($p);
+                            return;
+                        }
+                    } catch (\Throwable) {
+                        // intenta siguiente disco
+                    }
+                }
+            };
+
+            $deleteIfExists($cerPath);
+            $deleteIfExists($keyPath);
+
+            // 4) Borra registro
             $cred->delete();
 
             return response()->json([
@@ -1177,7 +1988,7 @@ final class SatDescargaController extends Controller
                 'msg'      => 'RFC eliminado correctamente.',
                 'rfc'      => $rfcUpper,
                 'trace_id' => $trace,
-            ]);
+            ], 200);
         } catch (\Throwable $e) {
             Log::error('[SAT:deleteRfc] Error eliminando RFC', [
                 'trace_id'  => $trace,
@@ -1195,8 +2006,8 @@ final class SatDescargaController extends Controller
     }
 
     /* ==========================================================
-     * ZIP DIRECTO (por ID)
-     * ========================================================== */
+    * ZIP DIRECTO (por ID)
+    * ========================================================== */
 
     public function zip(Request $request, string $id): StreamedResponse
     {
@@ -1206,85 +2017,138 @@ final class SatDescargaController extends Controller
         $cuenta = $user->cuenta ?? null;
         if (is_array($cuenta)) $cuenta = (object) $cuenta;
 
-        $cuentaId = (string) ($this->resolveCuentaIdFromUser($user) ?? '');
+        $cuentaId = trim((string) ($this->resolveCuentaIdFromUser($user) ?? ''));
         if ($cuentaId === '') abort(403, 'No se pudo determinar la cuenta actual.');
 
+        $conn = 'mysql_clientes';
+
         /** @var SatDownload $download */
-        $download = SatDownload::query()
+        $download = SatDownload::on($conn)
             ->where('cuenta_id', $cuentaId)
             ->where('id', $id)
             ->firstOrFail();
 
-        $paid  = !empty($download->paid_at);
-        $stRaw = (string) ($download->status ?? $download->estado ?? $download->sat_status ?? '');
-        $st    = strtolower($stRaw);
+        // ----------------------------------------------------------
+        // Ready rules (defensivo + consistente con dashboard)
+        // ----------------------------------------------------------
+        $paid = !empty($download->paid_at);
 
-        $ready = $paid || in_array($st, ['done', 'ready', 'paid', 'downloaded', 'listo', 'completed', 'finalizado'], true);
+        $stRaw = (string) ($download->status ?? $download->estado ?? $download->sat_status ?? '');
+        $st    = strtolower(trim($stRaw));
+
+        // si hay expires_at y no está pagado, aplica expiración
+        $isExpired = false;
+        try {
+            if (!$paid) {
+                $expRaw = $download->expires_at ?? $download->disponible_hasta ?? null;
+                if ($expRaw) {
+                    $exp = $expRaw instanceof \Illuminate\Support\Carbon
+                        ? $expRaw
+                        : \Illuminate\Support\Carbon::parse((string) $expRaw);
+
+                    if (\Illuminate\Support\Carbon::now()->greaterThanOrEqualTo($exp)) {
+                        $isExpired = true;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            $isExpired = false;
+        }
+
+        if ($isExpired) {
+            abort(403, 'Este paquete ya expiró.');
+        }
+
+        $ready = $paid || in_array($st, [
+            'done', 'ready', 'paid', 'downloaded', 'listo', 'completed', 'finalizado', 'finished', 'terminado',
+        ], true);
 
         if (!$ready) {
             abort(403, 'Este paquete aún no está listo para descarga.');
         }
 
-        // marcar como descargado si hay columna status
+        // ----------------------------------------------------------
+        // Resolver disk + path (meta.zip_disk, path aliases)
+        // ----------------------------------------------------------
+        $meta = [];
         try {
-            $tbl = (new SatDownload())->getTable();
-            if (Schema::connection('mysql_clientes')->hasTable($tbl)
-                && Schema::connection('mysql_clientes')->hasColumn($tbl, 'status')
-            ) {
-                if (strtolower((string) $download->status) !== 'downloaded') {
-                    $download->status = 'downloaded';
-                    $download->save();
-                }
+            if (is_array($download->meta)) $meta = $download->meta;
+            elseif (is_string($download->meta) && $download->meta !== '') {
+                $tmp = json_decode($download->meta, true);
+                if (is_array($tmp)) $meta = $tmp;
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+            $meta = [];
+        }
 
-        // Disk desde meta.zip_disk o sat_zip/default
-        $disk = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
+        $disk = (string) ($meta['zip_disk'] ?? '');
+        if ($disk === '' || !config("filesystems.disks.$disk")) {
+            $disk = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
+        }
 
         $path = $download->zip_path
             ?? $download->path
             ?? $download->file_path
+            ?? $download->zip
+            ?? $download->archivo
             ?? null;
 
-        if ($path) $path = ltrim((string) $path, '/');
+        $path = $path ? ltrim((string) $path, '/') : '';
 
-        // Local/demo
+        // ----------------------------------------------------------
+        // Local/demo zip helper
+        // ----------------------------------------------------------
         if (app()->environment(['local', 'development', 'testing'])) {
             try {
                 $demoRel = $this->zipHelper->ensureLocalDemoZipWithCfdis($download);
                 if ($demoRel) {
                     $disk = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
-                    $path = ltrim($demoRel, '/');
+                    $path = ltrim((string) $demoRel, '/');
                 }
             } catch (\Throwable) {}
         }
 
-        // Resolver robusto si no existe
+        // ----------------------------------------------------------
+        // Existence check
+        // ----------------------------------------------------------
         $exists = false;
         try {
-            if ($path && Storage::disk($disk)->exists($path)) $exists = true;
+            $exists = ($path !== '' && Storage::disk($disk)->exists($path));
         } catch (\Throwable) {
             $exists = false;
         }
 
+        // ----------------------------------------------------------
+        // Robust resolver if missing
+        // ----------------------------------------------------------
         if (!$exists) {
             try {
                 [$realDisk, $realPath] = $this->resolveDownloadZipLocation($download);
-                if ($realDisk !== '' && $realPath !== '') {
-                    $disk = $realDisk;
-                    $path = ltrim((string) $realPath, '/');
 
-                    if ($path !== '' && Storage::disk($disk)->exists($path)) {
+                $realDisk = (string) $realDisk;
+                $realPath = ltrim((string) $realPath, '/');
+
+                if ($realDisk !== '' && $realPath !== '' && config("filesystems.disks.$realDisk")) {
+                    if (Storage::disk($realDisk)->exists($realPath)) {
+                        $disk   = $realDisk;
+                        $path   = $realPath;
                         $exists = true;
 
-                        // Persistir (no bloqueante)
+                        // Persistir (no bloqueante) zip_path + meta.zip_disk (si existe columna meta/zip_path)
                         try {
-                            $download->zip_path = $path;
+                            $dlTable  = $download->getTable();
+                            $dlSchema = Schema::connection($conn);
 
-                            $meta = is_array($download->meta) ? $download->meta : [];
-                            $meta['zip_disk'] = (string) $disk;
+                            if ($dlSchema->hasColumn($dlTable, 'zip_path')) {
+                                $download->zip_path = $path;
+                            }
 
-                            $download->meta = $meta;
+                            if ($dlSchema->hasColumn($dlTable, 'meta')) {
+                                $meta['zip_disk'] = $disk;
+                                $download->meta = $meta;
+                            }
+
+                            // no cambies updated_at si tu modelo lo usa para "reciente" (pero aquí sí conviene guardar)
                             $download->save();
                         } catch (\Throwable) {}
                     }
@@ -1294,33 +2158,52 @@ final class SatDescargaController extends Controller
             }
         }
 
-        // Fallback: servir desde BÓVEDA si existe un sat_vault_file ligado al download
+        // ----------------------------------------------------------
+        // Fallback: servir desde BÓVEDA si existe sat_vault_files ligado al download
+        // ----------------------------------------------------------
         if (!$exists) {
             try {
                 if (class_exists(\App\Models\Cliente\SatVaultFile::class)) {
-                    $vf = \App\Models\Cliente\SatVaultFile::on('mysql_clientes')
+                    $vf = \App\Models\Cliente\SatVaultFile::on($conn)
                         ->where('cuenta_id', $cuentaId)
                         ->where(function ($q) use ($id) {
                             $q->where('source_id', (string) $id)
-                              ->orWhere('download_id', (string) $id);
+                            ->orWhere('download_id', (string) $id);
                         })
                         ->orderByDesc('id')
                         ->first();
 
                     if ($vf) {
-                        $vDisk = $vf->disk ?: (config('filesystems.disks.sat_vault') ? 'sat_vault' : 'local');
-                        $vPath = ltrim((string) $vf->path, '/');
+                        $vDisk = (string) ($vf->disk ?: (config('filesystems.disks.sat_vault') ? 'sat_vault' : config('filesystems.default', 'local')));
+                        $vPath = ltrim((string) ($vf->path ?? ''), '/');
 
-                        if ($vPath !== '' && Storage::disk($vDisk)->exists($vPath)) {
-                            Log::info('[SAT:zip] Servido desde BÓVEDA (mapeo directo)', [
-                                'cuenta_id'   => $cuentaId,
-                                'download_id' => (string) $id,
-                                'vault_id'    => $vf->id,
-                                'disk'        => $vDisk,
-                                'path'        => $vPath,
-                            ]);
+                        if ($vDisk !== '' && $vPath !== '' && config("filesystems.disks.$vDisk")) {
+                            if (Storage::disk($vDisk)->exists($vPath)) {
+                                // Marcar descargado (best-effort) si existe columna
+                                try {
+                                    $tbl = (new SatDownload())->getTable();
+                                    if (Schema::connection($conn)->hasTable($tbl) && Schema::connection($conn)->hasColumn($tbl, 'status')) {
+                                        if (strtolower((string) ($download->status ?? '')) !== 'downloaded') {
+                                            $download->status = 'downloaded';
+                                            $download->save();
+                                        }
+                                    }
+                                } catch (\Throwable) {}
 
-                            return Storage::disk($vDisk)->download($vPath, basename($vPath));
+                                Log::info('[SAT:zip] Servido desde BÓVEDA (mapeo directo)', [
+                                    'cuenta_id'   => $cuentaId,
+                                    'download_id' => (string) $id,
+                                    'vault_id'    => (string) ($vf->id ?? ''),
+                                    'disk'        => $vDisk,
+                                    'path'        => $vPath,
+                                ]);
+
+                                $fileName = $download->zip_name
+                                    ?? $download->filename
+                                    ?? basename($vPath);
+
+                                return Storage::disk($vDisk)->download($vPath, $fileName);
+                            }
                         }
                     }
                 }
@@ -1335,7 +2218,23 @@ final class SatDescargaController extends Controller
             abort(404, 'Archivo ZIP no disponible.');
         }
 
+        // ----------------------------------------------------------
+        // Marcar descargado si hay columna status (best-effort)
+        // - Hazlo al final para no “downloaded” si realmente no existe el archivo.
+        // ----------------------------------------------------------
+        try {
+            $tbl = (new SatDownload())->getTable();
+            if (Schema::connection($conn)->hasTable($tbl) && Schema::connection($conn)->hasColumn($tbl, 'status')) {
+                if (strtolower((string) ($download->status ?? '')) !== 'downloaded') {
+                    $download->status = 'downloaded';
+                    $download->save();
+                }
+            }
+        } catch (\Throwable) {}
+
+        // ----------------------------------------------------------
         // Bóveda automática (no bloquea)
+        // ----------------------------------------------------------
         try {
             if ($this->vaultIsActiveForAccount($cuenta)) {
                 $this->moveZipToVault($download);
@@ -1354,42 +2253,78 @@ final class SatDescargaController extends Controller
         return Storage::disk($disk)->download($path, $fileName);
     }
 
-
-        /**
+    /**
      * Determina si el plan de la cuenta es PRO-like.
+     * - Acepta object|array|null
+     * - Normaliza espacios / casing
+     * - Tolerante a variantes comunes (p.ej. "PRO+", "PRO ANUAL", "BUSINESS-PLUS")
      */
     private function isProPlanForCuenta($cuenta): bool
     {
         if (!$cuenta) return false;
         if (is_array($cuenta)) $cuenta = (object) $cuenta;
 
-        $planRaw = (string) ($cuenta->plan_actual ?? $cuenta->plan ?? $cuenta->plan_name ?? 'FREE');
-        $plan    = strtoupper(trim($planRaw));
+        $raw = (string) ($cuenta->plan_actual ?? $cuenta->plan ?? $cuenta->plan_name ?? 'FREE');
+        $raw = trim($raw);
+        if ($raw === '') return false;
 
-        return in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true);
+        $plan = strtoupper($raw);
+
+        // Normalizaciones suaves: guiones/underscores múltiples espacios
+        $plan = str_replace(['_', '-'], ' ', $plan);
+        $plan = preg_replace('/\s+/', ' ', $plan) ?: $plan;
+
+        // Match directo
+        if (in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true)) return true;
+
+        // Match por prefijo/contiene (para nombres tipo "PRO ANUAL", "BUSINESS PLUS", "PREMIUM 2026")
+        foreach (['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'] as $needle) {
+            if ($plan === $needle) return true;
+            if (str_starts_with($plan, $needle . ' ')) return true;
+            if (str_contains($plan, ' ' . $needle . ' ')) return true;
+            if (str_ends_with($plan, ' ' . $needle)) return true;
+            // casos compactos "PRO+", "PRO-PLUS", "BUSINESSPLUS"
+            if (str_starts_with($plan, $needle)) return true;
+        }
+
+        return false;
     }
 
     /**
      * Cuenta meses inclusivos entre dos fechas (por mes calendario).
-     * Ej: 2026-01-01 a 2026-01-31 => 1
-     *     2026-01-15 a 2026-02-01 => 2
+     * Ej:
+     *  - 2026-01-01 a 2026-01-31 => 1
+     *  - 2026-01-15 a 2026-02-01 => 2
+     *
+     * Reglas:
+     * - Usa mes calendario (no por días).
+     * - Orden defensivo (si vienen invertidas, las intercambia).
      */
     private function monthsSpanInclusive(Carbon $from, Carbon $to): int
     {
+        // Normaliza orden
+        if ($from->gt($to)) {
+            [$from, $to] = [$to, $from];
+        }
+
         $a = $from->copy()->startOfMonth();
         $b = $to->copy()->startOfMonth();
 
+        // diff en meses sin perder años
         $months = (($b->year - $a->year) * 12) + ($b->month - $a->month) + 1;
+
         return max(1, (int) $months);
     }
 
     /* ===================================================
-     *   CREAR SOLICITUDES SAT
-     * =================================================== */
+    *   CREAR SOLICITUDES SAT
+    * =================================================== */
 
     public function request(Request $request): JsonResponse
     {
-        $user = $this->cu();
+        $trace = $this->trace();
+
+        $user     = $this->cu();
         $cuentaId = (string) $this->cuId();
 
         // ✅ SOT: cuentas_cliente
@@ -1403,8 +2338,11 @@ final class SatDescargaController extends Controller
         }
 
         if (!$user || !$cuenta || $cuentaId === '') {
-
-            return response()->json(['ok' => false, 'msg' => 'No se encontró la cuenta del cliente.'], 422);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Sesión expirada o cuenta inválida.',
+                'trace_id' => $trace,
+            ], 422);
         }
 
         $data = $request->validate([
@@ -1434,9 +2372,17 @@ final class SatDescargaController extends Controller
             $isManual = false;
         }
 
-        $tipo = (string) $data['tipo'];
-        $from = Carbon::parse((string) $data['from'])->startOfDay();
-        $to   = Carbon::parse((string) $data['to'])->endOfDay();
+        // Parse fechas (defensivo)
+        try {
+            $from = Carbon::parse((string) $data['from'])->startOfDay();
+            $to   = Carbon::parse((string) $data['to'])->endOfDay();
+        } catch (\Throwable) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Rango de fechas inválido.',
+                'trace_id' => $trace,
+            ], 422);
+        }
 
         // ✅ REGLA NEGOCIO:
         // FREE solo 1 mes POR EJECUCIÓN, pero si es MANUAL (pagada / por ejecución), NO limitamos.
@@ -1446,10 +2392,11 @@ final class SatDescargaController extends Controller
             $months = $this->monthsSpanInclusive($from, $to);
             if ($months > 1) {
                 return response()->json([
-                    'ok'   => false,
-                    'msg'  => 'En FREE sólo puedes solicitar hasta 1 mes por ejecución.',
-                    'code' => 'FREE_MONTH_LIMIT',
-                    'meta' => [
+                    'ok'       => false,
+                    'msg'      => 'En FREE sólo puedes solicitar hasta 1 mes por ejecución.',
+                    'code'     => 'FREE_MONTH_LIMIT',
+                    'trace_id' => $trace,
+                    'meta'     => [
                         'months' => $months,
                         'from'   => $from->toDateString(),
                         'to'     => $to->toDateString(),
@@ -1458,12 +2405,22 @@ final class SatDescargaController extends Controller
             }
         }
 
-        $rfcs = array_values(array_unique(array_map(
+        // RFCs normalizados
+        $rfcs = array_values(array_unique(array_filter(array_map(
             static fn($r) => strtoupper(trim((string) $r)),
-            (array) $data['rfcs']
-        )));
+            (array) ($data['rfcs'] ?? [])
+        ), static fn($r) => $r !== '')));
 
-        $credList = SatCredential::query()
+        if (!count($rfcs)) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Debes seleccionar al menos un RFC.',
+                'trace_id' => $trace,
+            ], 422);
+        }
+
+        // Credenciales de la cuenta (solo las solicitadas)
+        $credList = SatCredential::on('mysql_clientes')
             ->where('cuenta_id', $cuentaId)
             ->whereIn(DB::raw('UPPER(rfc)'), $rfcs)
             ->get();
@@ -1473,6 +2430,7 @@ final class SatDescargaController extends Controller
             return strtoupper(trim((string) ($c->rfc ?? '')));
         });
 
+        // Solo RFCs válidos (con CSD/validado)
         $validRfcs = $credList->filter(function ($c) {
             $estatusRaw = strtolower((string) ($c->estatus ?? ''));
 
@@ -1488,28 +2446,51 @@ final class SatDescargaController extends Controller
             return $okFlag;
         })->pluck('rfc')->map(fn($r) => strtoupper((string) $r))->unique()->values()->all();
 
-
         if (!count($validRfcs)) {
-            return response()->json(['ok' => false, 'msg' => 'Debes seleccionar al menos un RFC validado (con CSD cargado).'], 422);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Debes seleccionar al menos un RFC validado (con CSD cargado).',
+                'trace_id' => $trace,
+            ], 422);
         }
 
+        $tipo = (string) $data['tipo'];
         $tipos = $tipo === 'ambos' ? ['emitidos', 'recibidos'] : [$tipo];
 
         $created = [];
 
+        // Schema sat_downloads (para setear columnas solo si existen)
         $dlModel = new SatDownload();
-        $table   = $dlModel->getTable();
-        $schema  = Schema::connection($dlModel->getConnectionName() ?? 'mysql_clientes');
+        $dlModel->setConnection('mysql_clientes');
 
-        // ✅ Detecta columnas opcionales para “manual”
-        $hasIsManual = false;
-        $hasMeta     = false;
-        try {
-            $hasIsManual = $schema->hasColumn($table, 'is_manual') || $schema->hasColumn($table, 'manual');
-            $hasMeta     = $schema->hasColumn($table, 'meta');
-        } catch (\Throwable) {
-            $hasIsManual = false;
-            $hasMeta     = false;
+        $conn   = $dlModel->getConnectionName() ?? 'mysql_clientes';
+        $table  = $dlModel->getTable();
+        $schema = Schema::connection($conn);
+
+        if (!$schema->hasTable($table)) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'No existe la tabla sat_downloads.',
+                'trace_id' => $trace,
+            ], 422);
+        }
+
+        $has = static function (string $col) use ($schema, $table): bool {
+            try { return $schema->hasColumn($table, $col); } catch (\Throwable) { return false; }
+        };
+
+        // Columnas opcionales
+        $hasIsManual = $has('is_manual') || $has('manual');
+        $hasMeta     = $has('meta');
+
+        // Cuenta column (cuenta_id vs account_id) — defensivo
+        $colCuenta = $has('cuenta_id') ? 'cuenta_id' : ($has('account_id') ? 'account_id' : null);
+        if (!$colCuenta) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'La tabla sat_downloads no tiene cuenta_id ni account_id.',
+                'trace_id' => $trace,
+            ], 422);
         }
 
         foreach ($validRfcs as $rfc) {
@@ -1518,42 +2499,50 @@ final class SatDescargaController extends Controller
                     $dl = new SatDownload();
                     $dl->setConnection('mysql_clientes');
 
-                    $dl->cuenta_id = $cuentaId;
+                    $dl->{$colCuenta} = $cuentaId;
 
-                    $dl->rfc       = $rfc;
-                    $dl->tipo      = $tipoSat;
+                    if ($has('rfc'))  $dl->rfc  = $rfc;
+                    if ($has('tipo')) $dl->tipo = $tipoSat;
 
-                    if ($schema->hasColumn($table, 'status'))     $dl->status     = 'pending';
-                    if ($schema->hasColumn($table, 'estado'))     $dl->estado     = 'REQUESTED';
-                    if ($schema->hasColumn($table, 'sat_status')) $dl->sat_status = 'REQUESTED';
+                    // Estados
+                    if ($has('status'))     $dl->status     = 'pending';
+                    if ($has('estado'))     $dl->estado     = 'REQUESTED';
+                    if ($has('sat_status')) $dl->sat_status = 'REQUESTED';
 
-                    if ($schema->hasColumn($table, 'desde'))     $dl->desde     = $from->toDateString();
-                    if ($schema->hasColumn($table, 'hasta'))     $dl->hasta     = $to->toDateString();
-                    if ($schema->hasColumn($table, 'date_from')) $dl->date_from = $from->toDateString();
-                    if ($schema->hasColumn($table, 'date_to'))   $dl->date_to   = $to->toDateString();
+                    // Fechas (alias de columnas)
+                    if ($has('desde'))     $dl->desde     = $from->toDateString();
+                    if ($has('hasta'))     $dl->hasta     = $to->toDateString();
+                    if ($has('date_from')) $dl->date_from = $from->toDateString();
+                    if ($has('date_to'))   $dl->date_to   = $to->toDateString();
 
-                    if ($schema->hasColumn($table, 'user_id') && isset($user->id)) $dl->user_id = $user->id;
+                    if ($has('user_id') && isset($user->id)) $dl->user_id = $user->id;
 
                     // ✅ Marca “manual”
                     if ($isManual) {
                         if ($hasIsManual) {
-                            if ($schema->hasColumn($table, 'is_manual')) $dl->is_manual = 1;
-                            if ($schema->hasColumn($table, 'manual'))    $dl->manual    = 1;
+                            if ($has('is_manual')) $dl->is_manual = 1;
+                            if ($has('manual'))    $dl->manual    = 1;
                         }
 
                         if ($hasMeta) {
                             $meta = [];
 
-                            // ✅ toma meta desde la credencial del RFC (si existe)
+                            // (Importante) NO copies todo el meta de la credencial sin control.
+                            // Solo tomamos llaves útiles y agregamos trazabilidad.
                             try {
                                 $credForMeta = $credByRfc->get(strtoupper($rfc));
                                 $raw = $credForMeta?->meta ?? null;
 
-                                if (is_array($raw)) {
-                                    $meta = $raw;
-                                } elseif (is_string($raw) && $raw !== '') {
-                                    $tmp = json_decode($raw, true);
-                                    if (is_array($tmp)) $meta = $tmp;
+                                $tmp = [];
+                                if (is_array($raw)) $tmp = $raw;
+                                elseif (is_string($raw) && $raw !== '') {
+                                    $j = json_decode($raw, true);
+                                    if (is_array($j)) $tmp = $j;
+                                }
+
+                                // whitelist liviana
+                                foreach (['source','external_email','invite_id','note'] as $k) {
+                                    if (array_key_exists($k, $tmp)) $meta[$k] = $tmp[$k];
                                 }
                             } catch (\Throwable) {
                                 $meta = [];
@@ -1562,33 +2551,35 @@ final class SatDescargaController extends Controller
                             $meta['is_manual'] = true;
                             $meta['manual']    = true;
                             $meta['source']    = 'manual_ui';
+                            $meta['requested_at'] = now()->toDateTimeString();
+                            $meta['trace_id']  = $trace;
 
                             $dl->meta = $meta;
                         }
-
                     }
 
                     $dl->save();
-                    $created[] = $dl;
+                    $created[] = (string) $dl->id;
 
                     // opcional: crear request en servicio si existe
                     try {
                         if (method_exists($this->service, 'createRequest')) {
                             $satRef = $this->service->createRequest($dl);
-                            if ($satRef && $schema->hasColumn($table, 'sat_request_id')) {
+                            if ($satRef && $has('sat_request_id')) {
                                 $dl->sat_request_id = $satRef;
                                 $dl->save();
                             }
                         }
                     } catch (\Throwable $e) {
-                        if ($schema->hasColumn($table, 'estado'))     $dl->estado     = 'ERROR';
-                        if ($schema->hasColumn($table, 'sat_status')) $dl->sat_status = 'ERROR';
-                        if ($schema->hasColumn($table, 'status'))     $dl->status     = 'ERROR';
-                        if ($schema->hasColumn($table, 'error_msg'))  $dl->error_msg  = $e->getMessage();
+                        if ($has('estado'))     $dl->estado     = 'ERROR';
+                        if ($has('sat_status')) $dl->sat_status = 'ERROR';
+                        if ($has('status'))     $dl->status     = 'ERROR';
+                        if ($has('error_msg'))  $dl->error_msg  = mb_substr((string) $e->getMessage(), 0, 900);
                         $dl->save();
                     }
                 } catch (\Throwable $e) {
                     Log::error('[SAT:request] Error creando registro de descarga', [
+                        'trace_id'  => $trace,
                         'cuenta_id' => $cuentaId,
                         'user_id'   => $user->id ?? null,
                         'rfc'       => $rfc,
@@ -1601,14 +2592,20 @@ final class SatDescargaController extends Controller
         }
 
         if (!count($created)) {
-            return response()->json(['ok' => false, 'msg' => 'No se pudieron crear las solicitudes SAT. Revisa el log.'], 500);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'No se pudieron crear las solicitudes SAT. Revisa el log.',
+                'trace_id' => $trace,
+            ], 500);
         }
 
         return response()->json([
-            'ok'     => true,
-            'count'  => count($created),
-            'manual' => $isManual ? 1 : 0,
-        ]);
+            'ok'       => true,
+            'trace_id' => $trace,
+            'count'    => count($created),
+            'manual'   => $isManual ? 1 : 0,
+            'ids'      => $created, // útil para UI/debug
+        ], 200);
     }
 
     /**
@@ -1621,26 +2618,96 @@ final class SatDescargaController extends Controller
         $cuentaId   = (string) $this->cuId();
 
         if ($downloadId === '') {
-            return response()->json(['ok' => false, 'msg' => 'download_id requerido.', 'trace_id' => $trace], 422);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'download_id requerido.',
+                'trace_id' => $trace,
+            ], 422);
         }
 
         if ($cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Cuenta inválida.',
+                'trace_id' => $trace,
+            ], 401);
         }
 
         try {
-            $dl = SatDownload::query()
-                ->where('cuenta_id', $cuentaId)
+            // ✅ SatDownload puede no tener siempre cuenta_id (a veces account_id)
+            $dlModel = new SatDownload();
+            $conn    = $dlModel->getConnectionName() ?? 'mysql_clientes';
+            $table   = $dlModel->getTable();
+
+            $schema = Schema::connection($conn);
+
+            if (!$schema->hasTable($table)) {
+                return response()->json([
+                    'ok'       => false,
+                    'msg'      => 'No existe la tabla sat_downloads.',
+                    'trace_id' => $trace,
+                ], 422);
+            }
+
+            $cols = [];
+            try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
+
+            $has = static function (string $c) use ($cols): bool {
+                return in_array($c, $cols, true);
+            };
+
+            $colCuenta = $has('cuenta_id') ? 'cuenta_id' : ($has('account_id') ? 'account_id' : null);
+            if (!$colCuenta) {
+                return response()->json([
+                    'ok'       => false,
+                    'msg'      => 'La tabla sat_downloads no tiene cuenta_id ni account_id.',
+                    'trace_id' => $trace,
+                ], 422);
+            }
+
+            /** @var SatDownload|null $dl */
+            $dl = SatDownload::on($conn)
+                ->where($colCuenta, $cuentaId)
                 ->where('id', $downloadId)
                 ->first();
 
             if (!$dl) {
-                return response()->json(['ok' => false, 'msg' => 'Solicitud no encontrada.', 'trace_id' => $trace], 404);
+                return response()->json([
+                    'ok'       => false,
+                    'msg'      => 'Solicitud no encontrada.',
+                    'trace_id' => $trace,
+                ], 404);
             }
 
-            $conn = $dl->getConnectionName() ?? 'mysql_clientes';
+            // Si está pagada, por defecto NO permitir borrado duro (evita inconsistencias).
+            // Si quieres permitirlo, agrega un flag allow_paid=1 explícito desde Admin.
+            $paid = false;
+            try {
+                $paid = $has('paid_at') && !empty($dl->paid_at);
+            } catch (\Throwable) {
+                $paid = !empty($dl->paid_at);
+            }
 
-            DB::connection($conn)->transaction(function () use ($dl, $downloadId, $cuentaId, $conn) {
+            $allowPaid = false;
+            try {
+                $v = $request->input('allow_paid', null);
+                if (is_bool($v)) $allowPaid = $v;
+                elseif (is_numeric($v)) $allowPaid = ((int)$v) === 1;
+                elseif (is_string($v)) $allowPaid = in_array(strtolower(trim($v)), ['1','true','on','yes','si','sí'], true);
+            } catch (\Throwable) {
+                $allowPaid = false;
+            }
+
+            if ($paid && !$allowPaid) {
+                return response()->json([
+                    'ok'       => false,
+                    'msg'      => 'Esta descarga está pagada; no se puede eliminar.',
+                    'code'     => 'PAID_LOCK',
+                    'trace_id' => $trace,
+                ], 422);
+            }
+
+            DB::connection($conn)->transaction(function () use ($dl, $downloadId, $cuentaId, $conn, $schema, $colCuenta, $has) {
 
                 // 1) carrito por sesión
                 try {
@@ -1651,25 +2718,78 @@ final class SatDescargaController extends Controller
                     session([$key => $ids]);
                 } catch (\Throwable) {}
 
-                // 2) carrito por tabla si existe
+                // 2) carrito por tabla si existe (cuenta_id/account_id)
                 try {
-                    if (Schema::connection($conn)->hasTable('sat_cart_items')) {
-                        DB::connection($conn)->table('sat_cart_items')
-                            ->where('cuenta_id', $cuentaId)
-                            ->where('download_id', $downloadId)
-                            ->delete();
+                    if ($schema->hasTable('sat_cart_items')) {
+                        $colsCart = [];
+                        try { $colsCart = Schema::connection($conn)->getColumnListing('sat_cart_items'); } catch (\Throwable) { $colsCart = []; }
+
+                        $cartHas = static function (string $c) use ($colsCart): bool {
+                            return in_array($c, $colsCart, true);
+                        };
+
+                        $cartCuentaCol = $cartHas('cuenta_id') ? 'cuenta_id' : ($cartHas('account_id') ? 'account_id' : null);
+
+                        $q = DB::connection($conn)->table('sat_cart_items')
+                            ->where('download_id', $downloadId);
+
+                        if ($cartCuentaCol) {
+                            $q->where($cartCuentaCol, $cuentaId);
+                        }
+
+                        $q->delete();
                     }
                 } catch (\Throwable) {}
 
-                // 3) borrar ZIP si existe en sat_zip
+                // 3) borrar ZIP si existe (usa meta.zip_disk si está)
                 try {
-                    $zipPath = (string) ($dl->zip_path ?? '');
+                    $zipPath = '';
+                    if ($has('zip_path')) {
+                        $zipPath = (string) ($dl->zip_path ?? '');
+                    } else {
+                        $zipPath = (string) ($dl->zip_path ?? '');
+                    }
+
+                    $zipPath = ltrim($zipPath, '/');
+
                     if ($zipPath !== '') {
-                        $zipPath = ltrim($zipPath, '/');
                         $disk = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
-                        if (Storage::disk($disk)->exists($zipPath)) {
-                            Storage::disk($disk)->delete($zipPath);
-                        }
+
+                        // si meta trae zip_disk, respétalo
+                        try {
+                            $meta = [];
+                            if (isset($dl->meta)) {
+                                if (is_array($dl->meta)) $meta = $dl->meta;
+                                elseif (is_string($dl->meta) && $dl->meta !== '') {
+                                    $tmp = json_decode($dl->meta, true);
+                                    if (is_array($tmp)) $meta = $tmp;
+                                }
+                            }
+                            if (!empty($meta['zip_disk'])) {
+                                $disk = (string) $meta['zip_disk'];
+                            }
+                        } catch (\Throwable) {}
+
+                        try {
+                            if (Storage::disk($disk)->exists($zipPath)) {
+                                Storage::disk($disk)->delete($zipPath);
+                            }
+                        } catch (\Throwable) {}
+                    }
+                } catch (\Throwable) {}
+
+                // 3.1) borrar XML/CSV adjuntos si existen columnas (defensivo)
+                try {
+                    foreach (['xml_path','csv_path','meta_path','file_path','path'] as $pcol) {
+                        if (!$has($pcol)) continue;
+
+                        $p = ltrim((string) ($dl->{$pcol} ?? ''), '/');
+                        if ($p === '') continue;
+
+                        $disk = config('filesystems.default', 'local');
+                        try {
+                            if (Storage::disk($disk)->exists($p)) Storage::disk($disk)->delete($p);
+                        } catch (\Throwable) {}
                     }
                 } catch (\Throwable) {}
 
@@ -1681,7 +2801,7 @@ final class SatDescargaController extends Controller
                 'ok'       => true,
                 'msg'      => 'Solicitud eliminada correctamente.',
                 'trace_id' => $trace,
-            ]);
+            ], 200);
         } catch (\Throwable $e) {
             Log::error('[SAT:cancelDownload] error', [
                 'trace_id'    => $trace,
@@ -1690,170 +2810,251 @@ final class SatDescargaController extends Controller
                 'error'       => $e->getMessage(),
             ]);
 
-            return response()->json(['ok' => false, 'msg' => 'Error al eliminar.', 'trace_id' => $trace], 500);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Error al eliminar.',
+                'trace_id' => $trace,
+            ], 500);
         }
     }
 
     /* ===================================================
-     * VERIFICAR ESTADO (AJAX)
-     * =================================================== */
+    * VERIFICAR ESTADO (AJAX)
+    * =================================================== */
 
     public function verify(Request $request): JsonResponse
     {
-        $user   = $this->cu();
-        $cuenta = $user?->cuenta ?? null;
-
-        if (is_array($cuenta)) $cuenta = (object) $cuenta;
-
-        if (!$user || !$cuenta) {
-            return response()->json(['ok' => false, 'msg' => 'No se encontró la cuenta del cliente.'], 422);
-        }
-
+        $trace    = $this->trace();
+        $user     = $this->cu();
         $cuentaId = (string) $this->cuId();
-        if ($cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.'], 422);
+
+        if (!$user || $cuentaId === '') {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Sesión expirada o cuenta inválida.',
+                'trace_id' => $trace,
+            ], 401);
         }
 
         $conn   = 'mysql_clientes';
         $schema = Schema::connection($conn);
-        $table  = (new SatDownload())->getTable();
 
-        $hasEstado    = $schema->hasColumn($table, 'estado');
-        $hasStatus    = $schema->hasColumn($table, 'status');
-        $hasSatStat   = $schema->hasColumn($table, 'sat_status');
-        $hasReadyAt   = $schema->hasColumn($table, 'ready_at');
-        $hasExpiresAt = $schema->hasColumn($table, 'expires_at');
-        $hasTimeLeft  = $schema->hasColumn($table, 'time_left');
+        $dlModel = new SatDownload();
+        $table   = $dlModel->getTable();
 
-        $hasXmlCount  = $schema->hasColumn($table, 'xml_count') || $schema->hasColumn($table, 'total_xml');
-        $hasSizeBytes = $schema->hasColumn($table, 'size_bytes') || $schema->hasColumn($table, 'bytes') || $schema->hasColumn($table, 'zip_bytes');
-        $hasCosto     = $schema->hasColumn($table, 'costo');
-        $hasErrorMsg  = $schema->hasColumn($table, 'error_msg');
-
-        $q = SatDownload::query()
-            ->where('cuenta_id', $cuentaId)
-            ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
-            ->orderBy('created_at', 'asc');
-
-        if ($hasEstado) {
-            $q->whereIn('estado', ['REQUESTED', 'PROCESSING', 'PENDING']);
-        } elseif ($hasSatStat) {
-            $q->whereIn('sat_status', ['REQUESTED', 'PROCESSING', 'PENDING']);
-        } elseif ($hasStatus) {
-            $q->whereIn('status', ['REQUESTED', 'PROCESSING', 'PENDING', 'pending', 'processing']);
-        } else {
+        if (!$schema->hasTable($table)) {
             return response()->json([
-                'ok'  => false,
-                'msg' => 'La tabla sat_downloads no tiene columnas de estado (estado/status/sat_status).',
+                'ok'       => false,
+                'msg'      => 'No existe la tabla sat_downloads.',
+                'trace_id' => $trace,
             ], 422);
         }
 
-        $rows    = $q->get();
+        // Columnas disponibles (evita hasColumn repetido)
+        $cols = [];
+        try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
+
+        $has = static function (string $c) use ($cols): bool {
+            return in_array($c, $cols, true);
+        };
+
+        // Cuenta: cuenta_id o account_id (SOT robusto)
+        $colCuenta = $has('cuenta_id') ? 'cuenta_id' : ($has('account_id') ? 'account_id' : null);
+        if (!$colCuenta) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'La tabla sat_downloads no tiene cuenta_id ni account_id.',
+                'trace_id' => $trace,
+            ], 422);
+        }
+
+        // Estados: elegimos 1 “columna principal” para filtrar
+        $colEstado = $has('estado') ? 'estado' : null;
+        $colStatus = $has('status') ? 'status' : null;
+        $colSat    = $has('sat_status') ? 'sat_status' : null;
+
+        $colState = $colEstado ?: ($colSat ?: $colStatus);
+        if (!$colState) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'La tabla sat_downloads no tiene columnas de estado (estado/status/sat_status).',
+                'trace_id' => $trace,
+            ], 422);
+        }
+
+        // Columnas opcionales usadas
+        $hasReadyAt   = $has('ready_at');
+        $hasExpiresAt = $has('expires_at');
+        $hasTimeLeft  = $has('time_left');
+        $hasErrorMsg  = $has('error_msg');
+
+        $hasXmlCount  = $has('xml_count') || $has('total_xml') || $has('num_xml');
+        $hasSizeBytes = $has('size_bytes') || $has('bytes') || $has('zip_bytes') || $has('peso_bytes');
+        $hasCosto     = $has('costo') || $has('precio') || $has('price_mxn');
+
+        // Query base
+        $q = SatDownload::on($conn)
+            ->where($colCuenta, $cuentaId)
+            ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
+            ->orderBy($has('created_at') ? 'created_at' : 'id', 'asc');
+
+        // Filtrado por “pendientes” (case-insensitive + compatible con variantes)
+        $q->where(function ($qq) use ($colState) {
+            $qq->whereRaw('UPPER(COALESCE(' . $colState . ',"")) IN ("REQUESTED","PROCESSING","PENDING","CREATED")')
+            ->orWhereRaw('LOWER(COALESCE(' . $colState . ',"")) IN ("requested","processing","pending","created","en_proceso","pendiente","solicitud","request")');
+        });
+
+        $rows = $q->get();
+
         $pending = 0;
         $ready   = 0;
 
-        // Local: simula DONE + llena métricas
+        // Diccionarios de normalización
+        $readyStatuses   = ['DONE','READY','LISTO','COMPLETED','COMPLETADO','FINISHED','FINALIZADO','TERMINADO','DOWNLOADED','PAGADO','PAID'];
+        $errorStatuses   = ['ERROR','FAILED','CANCELLED','CANCELED'];
+        $pendingStatuses = ['PENDING','PENDIENTE','REQUESTED','PROCESSING','EN_PROCESO','CREATED','CREADA','SOLICITUD','REQUEST'];
+
+        // Local/dev: simula DONE + llena métricas y expiración
         if (app()->environment(['local', 'development', 'testing'])) {
             foreach ($rows as $dl) {
-                if ($hasEstado)  $dl->estado     = 'DONE';
-                if ($hasSatStat) $dl->sat_status = 'DONE';
-                if ($hasStatus)  $dl->status     = 'DONE';
+                try {
+                    if ($colEstado) $dl->estado = 'DONE';
+                    if ($colSat)    $dl->sat_status = 'DONE';
+                    if ($colStatus) $dl->status = 'DONE';
 
-                if ($hasReadyAt && empty($dl->ready_at)) $dl->ready_at = now();
-                if ($hasExpiresAt && empty($dl->expires_at)) $dl->expires_at = now()->addHours(12);
+                    if ($hasReadyAt && empty($dl->ready_at)) $dl->ready_at = now();
+                    if ($hasExpiresAt && empty($dl->expires_at)) $dl->expires_at = now()->addHours(12);
 
-                if ($hasCosto) {
-                    $xmlCount = (int) ($dl->xml_count ?? $dl->total_xml ?? 0);
-                    if ($xmlCount > 0 && ((float) ($dl->costo ?? 0) <= 0)) {
-                        $dl->costo = $this->computeDownloadCostPhp($xmlCount);
+                    // métricas (peso/xml/costo/etc.)
+                    $dl = $this->hydrateDownloadMetrics($dl);
+
+                    if ($hasTimeLeft && $hasExpiresAt && !empty($dl->expires_at)) {
+                        try {
+                            $dl->time_left = max(0, now()->diffInSeconds($dl->expires_at, false));
+                        } catch (\Throwable) {}
                     }
-                }
 
-                if ($hasTimeLeft && $hasExpiresAt && !empty($dl->expires_at)) {
-                    $dl->time_left = max(0, now()->diffInSeconds($dl->expires_at, false));
+                    $dl->save();
+                    $ready++;
+                } catch (\Throwable) {
+                    $pending++;
                 }
-
-                $dl = $this->hydrateDownloadMetrics($dl);
-                $dl->save();
-                $ready++;
             }
 
-            return response()->json(['ok' => true, 'pending' => 0, 'ready' => $ready]);
+            return response()->json([
+                'ok'       => true,
+                'pending'  => 0,
+                'ready'    => $ready,
+                'trace_id' => $trace,
+            ], 200);
         }
-
-        $readyStatuses   = ['DONE', 'READY', 'LISTO', 'COMPLETED', 'COMPLETADO', 'FINISHED', 'FINALIZADO', 'TERMINADO'];
-        $errorStatuses   = ['ERROR', 'FAILED', 'CANCELLED', 'CANCELED'];
-        $pendingStatuses = ['PENDING', 'PENDIENTE', 'REQUESTED', 'PROCESSING', 'EN_PROCESO', 'CREATED', 'CREADA'];
 
         foreach ($rows as $dl) {
             try {
+                // Si no hay servicio, no rompas el UI; cuenta como pendiente
                 if (!method_exists($this->service, 'syncStatus')) {
                     $pending++;
                     continue;
                 }
 
                 $statusInfo = $this->service->syncStatus($dl);
+
                 if (!is_array($statusInfo) || empty($statusInfo['status'])) {
                     $pending++;
                     continue;
                 }
 
-                $newStatus = strtoupper((string) $statusInfo['status']);
+                $newStatus = strtoupper(trim((string) $statusInfo['status']));
 
+                // ERROR
                 if (in_array($newStatus, $errorStatuses, true)) {
-                    if ($hasEstado)   $dl->estado     = 'ERROR';
-                    if ($hasSatStat)  $dl->sat_status = 'ERROR';
-                    if ($hasStatus)   $dl->status     = 'ERROR';
-                    if ($hasErrorMsg) $dl->error_msg  = (string) ($statusInfo['message'] ?? 'Error en descarga SAT.');
+                    if ($colEstado) $dl->estado = 'ERROR';
+                    if ($colSat)    $dl->sat_status = 'ERROR';
+                    if ($colStatus) $dl->status = 'ERROR';
+
+                    if ($hasErrorMsg) {
+                        $dl->error_msg = (string) ($statusInfo['message'] ?? 'Error en descarga SAT.');
+                    }
 
                     $dl->save();
                     continue;
                 }
 
+                // PENDING/PROCESSING
                 if (in_array($newStatus, $pendingStatuses, true)) {
-                    if ($hasEstado)  $dl->estado     = 'PROCESSING';
-                    if ($hasSatStat) $dl->sat_status = $newStatus;
-                    if ($hasStatus)  $dl->status     = 'PROCESSING';
+                    if ($colEstado) $dl->estado = 'PROCESSING';
+                    if ($colSat)    $dl->sat_status = $newStatus; // conserva granularidad si viene
+                    if ($colStatus) $dl->status = 'PROCESSING';
 
                     $dl->save();
                     $pending++;
                     continue;
                 }
 
-                // listo
+                // READY / DONE (cualquier estado no-error lo tratamos como listo)
                 if (in_array($newStatus, $readyStatuses, true) || !in_array($newStatus, $errorStatuses, true)) {
-                    if ($hasEstado)  $dl->estado     = 'DONE';
-                    if ($hasSatStat) $dl->sat_status = 'DONE';
-                    if ($hasStatus)  $dl->status     = 'DONE';
+                    if ($colEstado) $dl->estado = 'DONE';
+                    if ($colSat)    $dl->sat_status = 'DONE';
+                    if ($colStatus) $dl->status = 'DONE';
 
                     if ($hasReadyAt && empty($dl->ready_at)) $dl->ready_at = now();
                     if ($hasExpiresAt && empty($dl->expires_at)) $dl->expires_at = now()->addHours(12);
 
-                    $xmlInfo = $statusInfo['xml_count'] ?? $statusInfo['total_xml'] ?? $statusInfo['num_xml'] ?? null;
-                    if ($hasXmlCount && $xmlInfo !== null) {
-                        if ($schema->hasColumn($table, 'xml_count')) $dl->xml_count = (int) $xmlInfo;
-                        if ($schema->hasColumn($table, 'total_xml')) $dl->total_xml = (int) $xmlInfo;
+                    // XML count
+                    if ($hasXmlCount) {
+                        $xmlInfo = $statusInfo['xml_count']
+                            ?? $statusInfo['total_xml']
+                            ?? $statusInfo['num_xml']
+                            ?? null;
+
+                        if ($xmlInfo !== null) {
+                            if ($has('xml_count')) $dl->xml_count = (int) $xmlInfo;
+                            if ($has('total_xml')) $dl->total_xml = (int) $xmlInfo;
+                            if ($has('num_xml'))   $dl->num_xml   = (int) $xmlInfo;
+                        }
                     }
 
-                    $sizeInfo = $statusInfo['size_bytes'] ?? $statusInfo['bytes'] ?? $statusInfo['zip_bytes'] ?? $statusInfo['peso_bytes'] ?? null;
-                    if ($hasSizeBytes && $sizeInfo !== null) {
-                        if ($schema->hasColumn($table, 'size_bytes'))      $dl->size_bytes = (int) $sizeInfo;
-                        elseif ($schema->hasColumn($table, 'bytes'))       $dl->bytes      = (int) $sizeInfo;
-                        elseif ($schema->hasColumn($table, 'zip_bytes'))   $dl->zip_bytes  = (int) $sizeInfo;
+                    // Size bytes
+                    if ($hasSizeBytes) {
+                        $sizeInfo = $statusInfo['size_bytes']
+                            ?? $statusInfo['bytes']
+                            ?? $statusInfo['zip_bytes']
+                            ?? $statusInfo['peso_bytes']
+                            ?? null;
+
+                        if ($sizeInfo !== null) {
+                            if ($has('size_bytes')) $dl->size_bytes = (int) $sizeInfo;
+                            elseif ($has('bytes'))  $dl->bytes      = (int) $sizeInfo;
+                            elseif ($has('zip_bytes')) $dl->zip_bytes = (int) $sizeInfo;
+                            elseif ($has('peso_bytes')) $dl->peso_bytes = (int) $sizeInfo;
+                        }
                     }
 
+                    // Costo (si viene desde servicio)
                     if ($hasCosto) {
-                        $c = $statusInfo['costo'] ?? $statusInfo['cost_mxn'] ?? $statusInfo['precio'] ?? null;
-                        if ($c !== null && (float) $c > 0) $dl->costo = (float) $c;
+                        $c = $statusInfo['costo']
+                            ?? $statusInfo['price_mxn']
+                            ?? $statusInfo['cost_mxn']
+                            ?? $statusInfo['precio']
+                            ?? null;
+
+                        if ($c !== null && (float) $c > 0) {
+                            if ($has('costo')) $dl->costo = (float) $c;
+                            elseif ($has('precio')) $dl->precio = (float) $c;
+                            elseif ($has('price_mxn')) $dl->price_mxn = (float) $c;
+                        }
                     }
+
+                    // Re-hidrata métricas (también puede calcular costo por size/xml)
+                    $dl = $this->hydrateDownloadMetrics($dl);
 
                     if ($hasTimeLeft && $hasExpiresAt && !empty($dl->expires_at)) {
-                        $dl->time_left = max(0, now()->diffInSeconds($dl->expires_at, false));
+                        try {
+                            $dl->time_left = max(0, now()->diffInSeconds($dl->expires_at, false));
+                        } catch (\Throwable) {}
                     }
 
-                    $dl = $this->hydrateDownloadMetrics($dl);
                     $dl->save();
-
                     $ready++;
                     continue;
                 }
@@ -1861,6 +3062,7 @@ final class SatDescargaController extends Controller
                 $pending++;
             } catch (\Throwable $e) {
                 Log::error('[SAT:verify] Error sincronizando estado', [
+                    'trace_id'    => $trace,
                     'download_id' => (string) ($dl->id ?? ''),
                     'cuenta_id'   => $cuentaId,
                     'msg'         => $e->getMessage(),
@@ -1869,22 +3071,25 @@ final class SatDescargaController extends Controller
             }
         }
 
-        return response()->json(['ok' => true, 'pending' => $pending, 'ready' => $ready]);
+        return response()->json([
+            'ok'       => true,
+            'pending'  => $pending,
+            'ready'    => $ready,
+            'trace_id' => $trace,
+        ], 200);
     }
 
     /* ===================================================
-     *  CREDENCIALES
-     * =================================================== */
-
-   public function storeCredentials(Request $request): JsonResponse|RedirectResponse
+    *  CREDENCIALES
+    * =================================================== */
+    public function storeCredentials(Request $request): JsonResponse|RedirectResponse
     {
         $trace    = $this->trace();
         $cuentaId = $this->cuId();
-
-        $isAjax = $this->isAjax($request);
+        $isAjax   = $this->isAjax($request);
 
         // ✅ "solo_guardar" explícito desde UI
-        $soloGuardar = (string) $request->input('solo_guardar') === '1';
+        $soloGuardar = ((string) $request->input('solo_guardar', '0') === '1');
 
         if ($cuentaId !== '') {
             try { $this->cleanupExpiredHistory((string) $cuentaId, 200); } catch (\Throwable) {}
@@ -1899,43 +3104,47 @@ final class SatDescargaController extends Controller
             'pwd'          => ['nullable', 'string', 'min:1'],
         ]);
 
+        // RFC / alias / password
+        $rfcUpper = strtoupper(trim((string) $data['rfc']));
+        $alias    = isset($data['alias']) ? trim((string) $data['alias']) : null;
+        $password = trim((string) ($data['key_password'] ?? $data['pwd'] ?? ''));
+
         $cer = $request->file('cer');
         $key = $request->file('key');
 
-        if ($cer && strtolower($cer->getClientOriginalExtension()) !== 'cer') {
+        // -------------------------------------------------
+        // Validación de extensiones (defensivo)
+        // -------------------------------------------------
+        if ($cer && strtolower((string) $cer->getClientOriginalExtension()) !== 'cer') {
             $msg = 'El archivo .cer no es válido.';
-            if ($isAjax) return response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422);
-            return redirect()->route('cliente.sat.index')->with('error', $msg);
+            return $isAjax
+                ? response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422)
+                : redirect()->route('cliente.sat.index')->with('error', $msg);
         }
 
-        if ($key && strtolower($key->getClientOriginalExtension()) !== 'key') {
+        if ($key && strtolower((string) $key->getClientOriginalExtension()) !== 'key') {
             $msg = 'El archivo .key no es válido.';
-            if ($isAjax) return response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422);
-            return redirect()->route('cliente.sat.index')->with('error', $msg);
+            return $isAjax
+                ? response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 422)
+                : redirect()->route('cliente.sat.index')->with('error', $msg);
         }
 
-        $password = (string) ($data['key_password'] ?? $data['pwd'] ?? '');
-        $alias    = $data['alias'] ?? null;
-
-        // =========================================================
+        // -------------------------------------------------
         // ✅ AUTO-SOLO_GUARDAR (blindaje backend)
-        // - Si faltan archivos => NO se puede validar.
-        // - Si falta password => NO intentes validar (evita loop UI).
-        // =========================================================
+        // - Si faltan archivos => NO validar
+        // - Si falta password => NO validar (evita loop UI)
+        // -------------------------------------------------
         if (!$cer || !$key) {
             $soloGuardar = true;
         }
-
-        // Si pretende validar pero no hay password, fuerza solo_guardar.
-        // (Si tu negocio permite password vacío, elimina este bloque)
-        if (!$soloGuardar && trim($password) === '') {
+        if (!$soloGuardar && $password === '') {
             $soloGuardar = true;
         }
 
         try {
-            $rfcUpper = strtoupper((string) $data['rfc']);
-
-            // Upsert SIEMPRE: guarda lo que venga (aunque sea solo RFC/alias)
+            // =========================================================
+            // Upsert SIEMPRE (guarda lo que venga)
+            // =========================================================
             $cred = $this->service->upsertCredentials(
                 $cuentaId,
                 $rfcUpper,
@@ -1943,6 +3152,9 @@ final class SatDescargaController extends Controller
                 $key,
                 $password
             );
+
+            // Asegura conexión
+            try { $cred->setConnection('mysql_clientes'); } catch (\Throwable) {}
 
             if ($alias !== null && $alias !== '') {
                 $cred->razon_social = $alias;
@@ -1952,12 +3164,11 @@ final class SatDescargaController extends Controller
             // ✅ VALIDACIÓN (solo cuando aplica)
             // =========================================================
             $didValidate     = false;
-            $okValidacion    = false;  // <- IMPORTANTÍSIMO: default false
+            $okValidacion    = false;   // default
             $validationError = null;
 
             if (!$soloGuardar) {
                 $didValidate = true;
-
                 try {
                     $okValidacion = (bool) $this->service->validateCredentials($cred);
                 } catch (\Throwable $ex) {
@@ -1974,24 +3185,42 @@ final class SatDescargaController extends Controller
             }
 
             // =========================================================
-            // Persistir flags si columnas existen
+            // Persistir flags si columnas existen (una sola detección)
+            // + “has_files/has_csd” si existen (mejora UX)
             // =========================================================
             try {
                 $conn   = $cred->getConnectionName() ?? 'mysql_clientes';
                 $table  = $cred->getTable();
                 $schema = Schema::connection($conn);
 
-                $hasEstatus     = $schema->hasColumn($table, 'estatus');
-                $hasValidado    = $schema->hasColumn($table, 'validado');
-                $hasValidatedAt = $schema->hasColumn($table, 'validated_at');
-                $hasCsdError    = $schema->hasColumn($table, 'csd_error');
-                $hasErrorMsg    = $schema->hasColumn($table, 'error_msg');
+                $cols = [];
+                try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
+
+                $has = static function (string $c) use ($cols): bool {
+                    return in_array($c, $cols, true);
+                };
+
+                $hasEstatus     = $has('estatus');
+                $hasValidado    = $has('validado');
+                $hasValidatedAt = $has('validated_at');
+                $hasCsdError    = $has('csd_error');
+                $hasErrorMsg    = $has('error_msg');
+
+                // flags extra (si tu tabla los tiene)
+                $hasHasFiles = $has('has_files');
+                $hasHasCsd   = $has('has_csd');
+
+                // ¿se cargaron archivos en esta petición?
+                $filesUploaded = (bool) ($cer && $key);
 
                 if ($soloGuardar || !$didValidate) {
                     // Guardado sin validar
                     if ($hasEstatus)     $cred->estatus      = 'pending';
                     if ($hasValidado)    $cred->validado     = 0;
                     if ($hasValidatedAt) $cred->validated_at = null;
+
+                    if ($hasHasFiles && $filesUploaded) $cred->has_files = 1;
+                    if ($hasHasCsd   && $filesUploaded) $cred->has_csd   = 1;
 
                     if ($hasCsdError) $cred->csd_error = null;
                     if ($hasErrorMsg) $cred->error_msg = null;
@@ -2002,12 +3231,19 @@ final class SatDescargaController extends Controller
                         if ($hasValidado)    $cred->validado     = 1;
                         if ($hasValidatedAt) $cred->validated_at = now();
 
+                        if ($hasHasFiles) $cred->has_files = 1;
+                        if ($hasHasCsd)   $cred->has_csd   = 1;
+
                         if ($hasCsdError) $cred->csd_error = null;
                         if ($hasErrorMsg) $cred->error_msg = null;
                     } else {
                         if ($hasEstatus)     $cred->estatus      = 'invalid';
                         if ($hasValidado)    $cred->validado     = 0;
                         if ($hasValidatedAt) $cred->validated_at = null;
+
+                        // si subió archivos, sigue siendo “tiene archivos” aunque inválidos
+                        if ($hasHasFiles && $filesUploaded) $cred->has_files = 1;
+                        if ($hasHasCsd   && $filesUploaded) $cred->has_csd   = 1;
 
                         $msgErr = $validationError ?: 'Validación CSD no exitosa. Verifica .cer, .key y contraseña.';
                         if ($hasCsdError) $cred->csd_error = $msgErr;
@@ -2026,7 +3262,7 @@ final class SatDescargaController extends Controller
             $cred->save();
 
             // =========================================================
-            // Mensajes
+            // Respuesta / mensajes
             // =========================================================
             if ($soloGuardar || !$didValidate) {
                 $msg = 'Credenciales guardadas correctamente.';
@@ -2044,15 +3280,12 @@ final class SatDescargaController extends Controller
             if ($isAjax) {
                 return response()->json([
                     'ok'               => $ok,
-
-                    // ✅ IMPORTANTE: "validated" solo true si realmente se validó y pasó
                     'validated'        => ($didValidate && $okValidacion) ? true : false,
                     'did_validate'     => $didValidate ? 1 : 0,
-
                     'validation_error' => $validationError,
                     'trace_id'         => $trace,
-                    'rfc'              => $cred->rfc,
-                    'alias'            => $cred->razon_social,
+                    'rfc'              => (string) ($cred->rfc ?? $rfcUpper),
+                    'alias'            => $cred->razon_social ?? null,
                     'solo_guardar'     => $soloGuardar ? 1 : 0,
                     'msg'              => $msg,
                 ], 200);
@@ -2071,79 +3304,131 @@ final class SatDescargaController extends Controller
             ]);
 
             $msg = 'Error guardando credenciales SAT.';
-            if ($isAjax) return response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 500);
-            return redirect()->route('cliente.sat.index')->with('error', $msg);
+            return $isAjax
+                ? response()->json(['ok' => false, 'msg' => $msg, 'trace_id' => $trace], 500)
+                : redirect()->route('cliente.sat.index')->with('error', $msg);
         }
     }
 
-    /* ===================================================
-     *  LIMPIEZA EXPIRADAS + CAP HISTORIAL
-     * =================================================== */
-
+   /* ===================================================
+    *  LIMPIEZA EXPIRADAS + CAP HISTORIAL (SOT + defensivo)
+    * =================================================== */
     private function cleanupExpiredHistory(string $cuentaId, int $keep = 0): void
     {
-        $now = Carbon::now();
+        $cuentaId = trim((string) $cuentaId);
+        if ($cuentaId === '') return;
 
-        // 1) eliminar expiradas
-        $expired = SatDownload::where('cuenta_id', $cuentaId)
-            ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
-            ->where(function ($q) use ($now) {
-                $q->where(function ($q1) use ($now) {
-                    $q1->whereNotNull('expires_at')
-                       ->where('expires_at', '<=', $now);
-                })->orWhere(function ($q2) use ($now) {
-                    $q2->whereNull('expires_at')
-                       ->whereNotNull('created_at')
-                       ->where('created_at', '<=', $now->copy()->subHours(12));
-                });
-            })
-            ->get();
+        $now  = Carbon::now();
+        $conn = (new SatDownload())->getConnectionName() ?? 'mysql_clientes';
+        $disk = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
 
-        foreach ($expired as $d) {
+        // Detecta columnas para no romper en ambientes con schema distinto
+        $table  = (new SatDownload())->getTable();
+        $schema = Schema::connection($conn);
+
+        $cols = [];
+        try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
+
+        $has = static function (string $c) use ($cols): bool {
+            return in_array($c, $cols, true);
+        };
+
+        $colCuenta   = $has('cuenta_id') ? 'cuenta_id' : ($has('account_id') ? 'account_id' : null);
+        $colTipo     = $has('tipo') ? 'tipo' : null;
+        $colCreated  = $has('created_at') ? 'created_at' : null;
+        $colExpires  = $has('expires_at') ? 'expires_at' : null;
+        $colZipPath  = $has('zip_path') ? 'zip_path' : ($has('path') ? 'path' : ($has('file_path') ? 'file_path' : null));
+
+        // Si no hay columna cuenta, no podemos garantizar multi-tenant => NO borrar
+        if (!$colCuenta) return;
+
+        // Helper: borrar zip de forma segura
+        $deleteZip = function ($row) use ($disk, $colZipPath): void {
+            if (!$colZipPath) return;
+
             try {
-                if (!empty($d->zip_path)) {
-                    $relative = ltrim((string) $d->zip_path, '/');
-                    $diskName = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
-                    if ($relative !== '' && Storage::disk($diskName)->exists($relative)) {
-                        Storage::disk($diskName)->delete($relative);
-                    }
+                $p = (string) data_get($row, $colZipPath);
+                $p = ltrim($p, '/');
+                if ($p === '') return;
+
+                if (Storage::disk($disk)->exists($p)) {
+                    Storage::disk($disk)->delete($p);
                 }
             } catch (\Throwable) {}
+        };
 
-            try { $d->delete(); } catch (\Throwable) {}
+        // Base query (sin vault/bóveda)
+        $base = DB::connection($conn)->table($table)
+            ->where($colCuenta, $cuentaId);
+
+        if ($colTipo) {
+            $base->whereRaw('LOWER(COALESCE(' . $colTipo . ',"")) NOT IN ("vault","boveda")');
         }
 
-        // 2) cap historial (mantén los más recientes)
-        if ($keep > 0) {
+        // =========================================================
+        // 1) eliminar expiradas
+        // - Si existe expires_at: expires_at <= now
+        // - Si NO existe expires_at: created_at <= now - 12h
+        // (si tampoco hay created_at, NO hacemos limpieza por tiempo)
+        // =========================================================
+        $expiredRows = collect();
+
+        try {
+            $q = clone $base;
+
+            if ($colExpires) {
+                $q->whereNotNull($colExpires)
+                ->where($colExpires, '<=', $now->toDateTimeString());
+            } elseif ($colCreated) {
+                $q->whereNotNull($colCreated)
+                ->where($colCreated, '<=', $now->copy()->subHours(12)->toDateTimeString());
+            } else {
+                $q = null; // no hay forma de determinar expiración
+            }
+
+            if ($q) {
+                $select = ['id'];
+                if ($colZipPath) $select[] = $colZipPath;
+
+                $expiredRows = $q->select($select)->get();
+            }
+        } catch (\Throwable) {
+            $expiredRows = collect();
+        }
+
+        foreach ($expiredRows as $r) {
+            $deleteZip($r);
+
             try {
-                $idsToKeep = SatDownload::query()
-                    ->where('cuenta_id', $cuentaId)
-                    ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
-                    ->orderByDesc('created_at')
-                    ->limit($keep)
+                DB::connection($conn)->table($table)->where('id', (string) $r->id)->delete();
+            } catch (\Throwable) {}
+        }
+
+        // =========================================================
+        // 2) cap historial (mantén los más recientes)
+        // - requiere created_at; si no, no aplicamos cap (evita borrar mal)
+        // =========================================================
+        if ($keep > 0 && $colCreated) {
+            try {
+                $idsToKeep = (clone $base)
+                    ->orderByDesc($colCreated)
+                    ->limit((int) $keep)
                     ->pluck('id')
-                    ->map(fn($v) => (string) $v)
+                    ->map(fn ($v) => (string) $v)
                     ->all();
 
                 if (count($idsToKeep) > 0) {
-                    $old = SatDownload::query()
-                        ->where('cuenta_id', $cuentaId)
-                        ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
+                    $oldRows = (clone $base)
                         ->whereNotIn('id', $idsToKeep)
+                        ->select(array_values(array_filter(['id', $colZipPath])))
                         ->get();
 
-                    foreach ($old as $d) {
-                        try {
-                            if (!empty($d->zip_path)) {
-                                $relative = ltrim((string) $d->zip_path, '/');
-                                $diskName = config('filesystems.disks.sat_zip') ? 'sat_zip' : config('filesystems.default', 'local');
-                                if ($relative !== '' && Storage::disk($diskName)->exists($relative)) {
-                                    Storage::disk($diskName)->delete($relative);
-                                }
-                            }
-                        } catch (\Throwable) {}
+                    foreach ($oldRows as $r) {
+                        $deleteZip($r);
 
-                        try { $d->delete(); } catch (\Throwable) {}
+                        try {
+                            DB::connection($conn)->table($table)->where('id', (string) $r->id)->delete();
+                        } catch (\Throwable) {}
                     }
                 }
             } catch (\Throwable) {}
@@ -2151,25 +3436,142 @@ final class SatDescargaController extends Controller
     }
 
     /* ===================================================
-     *  CARRITO (SESSION + OPTIONAL DB sat_cart_items)
-     * =================================================== */
+    *  CARRITO (SESSION + OPTIONAL DB sat_cart_items)
+    * =================================================== */
 
     private function cartKeyForCuenta(string $cuentaId): string
     {
-        return 'sat_cart_' . $cuentaId;
+        $cuentaId = trim((string) $cuentaId);
+
+        // Evita keys raras / gigantes si llega vacío o con espacios
+        if ($cuentaId === '') {
+            return 'sat_cart_guest';
+        }
+
+        // Normaliza para key estable (sin espacios)
+        $safe = preg_replace('/\s+/', '', $cuentaId) ?: $cuentaId;
+
+        return 'sat_cart_' . $safe;
     }
 
     private function getCartIds(string $cuentaId): array
     {
-        $key = $this->cartKeyForCuenta($cuentaId);
+        $cuentaId = trim((string) $cuentaId);
+        $key      = $this->cartKeyForCuenta($cuentaId);
+
+        // 1) Session (source of truth inmediato)
         $ids = session($key, []);
-        return array_values(array_filter(array_unique(array_map('strval', (array) $ids))));
+        $ids = array_values(array_filter(array_map('strval', (array) $ids)));
+        $ids = array_values(array_unique($ids));
+
+        // Si no hay cuenta válida, solo regresa lo de sesión
+        if ($cuentaId === '') {
+            return $ids;
+        }
+
+        // 2) Optional: DB sat_cart_items (merge defensivo)
+        try {
+            $conn = 'mysql_clientes';
+            $schema = Schema::connection($conn);
+
+            if ($schema->hasTable('sat_cart_items')) {
+                $dbIds = DB::connection($conn)->table('sat_cart_items')
+                    ->where('cuenta_id', $cuentaId)
+                    ->pluck('download_id')
+                    ->map(fn($v) => (string) $v)
+                    ->all();
+
+                $dbIds = array_values(array_filter(array_map('strval', (array) $dbIds)));
+
+                // Merge + unique
+                if (!empty($dbIds)) {
+                    $ids = array_values(array_unique(array_merge($ids, $dbIds)));
+
+                    // Opcional: sincroniza sesión para que UI no “parpadee”
+                    session([$key => $ids]);
+                }
+            }
+        } catch (\Throwable) {
+            // no-op
+        }
+
+        return $ids;
     }
 
     private function putCartIdsForCuenta(string $cuentaId, array $ids): void
     {
-        $key = $this->cartKeyForCuenta($cuentaId);
-        session([$key => array_values(array_unique(array_map('strval', $ids)))]);
+        $cuentaId = trim((string) $cuentaId);
+        $key      = $this->cartKeyForCuenta($cuentaId);
+
+        // normaliza + limpia
+        $ids = array_values(array_filter(array_map(static function ($v) {
+            $s = trim((string) $v);
+            return $s !== '' ? $s : null;
+        }, (array) $ids)));
+
+        $ids = array_values(array_unique($ids));
+
+        // 1) Session (SOT inmediato para UI)
+        session([$key => $ids]);
+
+        // 2) Optional: persist DB sat_cart_items (best-effort)
+        if ($cuentaId === '') return;
+
+        try {
+            $conn   = 'mysql_clientes';
+            $schema = Schema::connection($conn);
+
+            if (!$schema->hasTable('sat_cart_items')) return;
+
+            // Columnas mínimas esperadas: cuenta_id + download_id
+            if (!$schema->hasColumn('sat_cart_items', 'cuenta_id') || !$schema->hasColumn('sat_cart_items', 'download_id')) {
+                return;
+            }
+
+            DB::connection($conn)->transaction(function () use ($conn, $cuentaId, $ids) {
+
+                // Borra el carrito actual de esa cuenta y vuelve a insertar (simple y consistente)
+                DB::connection($conn)->table('sat_cart_items')
+                    ->where('cuenta_id', $cuentaId)
+                    ->delete();
+
+                if (empty($ids)) return;
+
+                $now = now();
+                $rows = [];
+
+                $hasCreated = false;
+                $hasUpdated = false;
+
+                try {
+                    $schema = Schema::connection($conn);
+                    $hasCreated = $schema->hasColumn('sat_cart_items', 'created_at');
+                    $hasUpdated = $schema->hasColumn('sat_cart_items', 'updated_at');
+                } catch (\Throwable) {
+                    $hasCreated = false;
+                    $hasUpdated = false;
+                }
+
+                foreach ($ids as $downloadId) {
+                    $row = [
+                        'cuenta_id'   => $cuentaId,
+                        'download_id' => (string) $downloadId,
+                    ];
+
+                    if ($hasCreated) $row['created_at'] = $now;
+                    if ($hasUpdated) $row['updated_at'] = $now;
+
+                    $rows[] = $row;
+                }
+
+                // Inserta en chunks por si el carrito crece
+                foreach (array_chunk($rows, 500) as $chunk) {
+                    DB::connection($conn)->table('sat_cart_items')->insert($chunk);
+                }
+            });
+        } catch (\Throwable) {
+            // no-op: no rompemos flujo si DB no está lista o falla
+        }
     }
 
     /**
@@ -2179,7 +3581,7 @@ final class SatDescargaController extends Controller
     public function cartAdd(Request $request): JsonResponse
     {
         $trace    = $this->trace();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if ($cuentaId === '') {
             return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
@@ -2189,8 +3591,12 @@ final class SatDescargaController extends Controller
             'download_id' => ['required', 'string', 'max:64'],
         ]);
 
-        $id = (string) $data['download_id'];
+        $id = trim((string) $data['download_id']);
+        if ($id === '') {
+            return response()->json(['ok' => false, 'msg' => 'download_id inválido.', 'trace_id' => $trace], 422);
+        }
 
+        /** @var SatDownload|null $dl */
         $dl = SatDownload::query()
             ->where('cuenta_id', $cuentaId)
             ->where('id', $id)
@@ -2200,44 +3606,72 @@ final class SatDescargaController extends Controller
             return response()->json(['ok' => false, 'msg' => 'Descarga no encontrada.', 'trace_id' => $trace], 404);
         }
 
-        // no permite vault/boveda
-        if (in_array(strtolower((string) ($dl->tipo ?? '')), ['vault', 'boveda'], true)) {
+        // No permite vault/boveda (case-insensitive)
+        $tipoLow = strtolower(trim((string) ($dl->tipo ?? '')));
+        if (in_array($tipoLow, ['vault', 'boveda'], true)) {
             return response()->json(['ok' => false, 'msg' => 'No puedes agregar un item de bóveda al carrito.', 'trace_id' => $trace], 422);
         }
 
+        // No permite items expirados si NO están pagados
+        $paid = !empty($dl->paid_at);
+        try {
+            $expRaw = $dl->expires_at ?? $dl->disponible_hasta ?? null;
+            $exp    = null;
+
+            if ($expRaw instanceof \Illuminate\Support\Carbon) {
+                $exp = $expRaw->copy();
+            } elseif (!empty($expRaw)) {
+                $exp = \Illuminate\Support\Carbon::parse((string) $expRaw);
+            }
+
+            if (!$paid && $exp && $exp->isPast()) {
+                return response()->json(['ok' => false, 'msg' => 'Este paquete ya expiró.', 'trace_id' => $trace], 422);
+            }
+        } catch (\Throwable) {
+            // no-op
+        }
+
+        // Ready-ish: deja agregar solo si está listo o pagado (evita carrito con pendientes)
+        $stRaw = (string) ($dl->status ?? $dl->estado ?? $dl->sat_status ?? '');
+        $st    = strtolower(trim($stRaw));
+
+        $isReady =
+            $paid
+            || in_array($st, ['done', 'ready', 'paid', 'downloaded', 'listo', 'completed', 'finalizado', 'finished', 'terminado'], true);
+
+        if (!$isReady) {
+            return response()->json(['ok' => false, 'msg' => 'Aún no está listo para pago.', 'trace_id' => $trace], 422);
+        }
+
+        // Session SOT + (optional) DB SOT dentro del helper
         $ids = $this->getCartIds($cuentaId);
         if (!in_array($id, $ids, true)) $ids[] = $id;
-        $this->putCartIdsForCuenta($cuentaId, $ids);
 
-        // opcional persistencia en DB
-        try {
-            if (Schema::connection('mysql_clientes')->hasTable('sat_cart_items')) {
-                DB::connection('mysql_clientes')->table('sat_cart_items')->updateOrInsert([
-                    'cuenta_id'   => $cuentaId,
-                    'download_id' => $id,
-                ], [
-                    'updated_at' => now(),
-                    'created_at' => now(),
-                ]);
-            }
-        } catch (\Throwable) {}
+        // ✅ Centraliza persistencia (session + sat_cart_items si existe)
+        $this->putCartIdsForCuenta($cuentaId, $ids);
 
         return response()->json([
             'ok'       => true,
             'trace_id' => $trace,
             'count'    => count($ids),
             'ids'      => $ids,
-        ]);
+        ], 200);
     }
 
     /**
      * ✅ Quitar 1 descarga del carrito.
      * Payload: {download_id}
+     *
+     * Mejoras:
+     * - Normaliza ids (trim + unique)
+     * - SOT: sesión (siempre)
+     * - Si existe sat_cart_items: elimina también en DB (no bloqueante)
+     * - Respuesta consistente + invalid cuando aplica
      */
     public function cartRemove(Request $request): JsonResponse
     {
         $trace    = $this->trace();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if ($cuentaId === '') {
             return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
@@ -2247,144 +3681,302 @@ final class SatDescargaController extends Controller
             'download_id' => ['required', 'string', 'max:64'],
         ]);
 
-        $id  = (string) $data['download_id'];
-        $ids = $this->getCartIds($cuentaId);
-        $ids = array_values(array_diff($ids, [$id]));
+        $id = trim((string) $data['download_id']);
+        if ($id === '') {
+            return response()->json(['ok' => false, 'msg' => 'download_id inválido.', 'trace_id' => $trace], 422);
+        }
+
+        // SOT: sesión
+        $cur = $this->getCartIds($cuentaId);
+        $cur = $this->normalizeCartIds($cur);
+
+        if (!in_array($id, $cur, true)) {
+            // id no estaba: respondemos ok igual (idempotente)
+            return response()->json([
+                'ok'       => true,
+                'trace_id' => $trace,
+                'count'    => count($cur),
+                'ids'      => $cur,
+            ], 200);
+        }
+
+        $ids = array_values(array_diff($cur, [$id]));
         $this->putCartIdsForCuenta($cuentaId, $ids);
 
+        // Persistencia opcional DB (no bloqueante)
         try {
-            if (Schema::connection('mysql_clientes')->hasTable('sat_cart_items')) {
-                DB::connection('mysql_clientes')->table('sat_cart_items')
+            $conn = 'mysql_clientes';
+            if (Schema::connection($conn)->hasTable('sat_cart_items')) {
+                DB::connection($conn)->table('sat_cart_items')
                     ->where('cuenta_id', $cuentaId)
                     ->where('download_id', $id)
                     ->delete();
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable $e) {
+            Log::debug('[SAT:cartRemove] DB delete no-bloqueante', [
+                'trace_id' => $trace,
+                'cuenta_id' => $cuentaId,
+                'download_id' => $id,
+                'err' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'ok'       => true,
             'trace_id' => $trace,
             'count'    => count($ids),
             'ids'      => $ids,
-        ]);
+        ], 200);
     }
 
     /**
      * ✅ Agregar múltiples ids.
      * Payload: {ids: []} o {download_ids: []}
+     *
+     * Mejoras:
+     * - Normaliza/filtra ids vacíos
+     * - Valida existencia + pertenece a cuenta + NO vault/boveda
+     * - Merge con SOT (sesión)
+     * - Persiste a DB sat_cart_items con UPSERT batch (si existe) en UNA operación
+     * - Respuesta incluye invalid/missing para debug UI
      */
     public function cartBulkAdd(Request $request): JsonResponse
     {
         $trace    = $this->trace();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if ($cuentaId === '') {
             return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
         }
 
         $data = $request->validate([
-            'ids'           => ['nullable', 'array'],
-            'ids.*'         => ['string', 'max:64'],
-            'download_ids'  => ['nullable', 'array'],
-            'download_ids.*'=> ['string', 'max:64'],
+            'ids'             => ['nullable', 'array'],
+            'ids.*'           => ['nullable', 'string', 'max:64'],
+            'download_ids'    => ['nullable', 'array'],
+            'download_ids.*'  => ['nullable', 'string', 'max:64'],
         ]);
 
-        $idsIn = array_values(array_filter(array_map('strval', (array) ($data['ids'] ?? $data['download_ids'] ?? []))));
-        $idsIn = array_values(array_unique($idsIn));
+        $raw  = $data['ids'] ?? $data['download_ids'] ?? [];
+        $idsIn = $this->normalizeCartIds((array) $raw);
 
         if (!count($idsIn)) {
             return response()->json(['ok' => false, 'msg' => 'ids requerido.', 'trace_id' => $trace], 422);
         }
 
-        // valida que existan y no sean vault/boveda
+        // ------------------------------------------------------------
+        // Validar que existan + pertenezcan a cuenta + NO vault/boveda
+        // ------------------------------------------------------------
         $validIds = SatDownload::query()
             ->where('cuenta_id', $cuentaId)
             ->whereIn('id', $idsIn)
             ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
             ->pluck('id')
-            ->map(fn($v) => (string) $v)
+            ->map(static fn($v) => (string) $v)
             ->all();
 
-        $cur = $this->getCartIds($cuentaId);
-        $merged = array_values(array_unique(array_merge($cur, $validIds)));
+        $validIds = $this->normalizeCartIds($validIds);
+
+        $validSet = array_fill_keys($validIds, true);
+        $invalid  = array_values(array_filter($idsIn, static fn($id) => !isset($validSet[$id])));
+
+        if (!count($validIds)) {
+            return response()->json([
+                'ok'        => false,
+                'msg'       => 'Ningún id es válido para carrito.',
+                'trace_id'  => $trace,
+                'requested' => count($idsIn),
+                'invalid'   => $invalid,
+            ], 422);
+        }
+
+        // ------------------------------------------------------------
+        // Merge con carrito actual (SOT sesión)
+        // ------------------------------------------------------------
+        $cur    = $this->normalizeCartIds($this->getCartIds($cuentaId));
+        $before = count($cur);
+
+        $merged = $this->normalizeCartIds(array_merge($cur, $validIds));
         $this->putCartIdsForCuenta($cuentaId, $merged);
 
+        // ------------------------------------------------------------
+        // Persistencia opcional en DB sat_cart_items (batch UPSERT)
+        // ------------------------------------------------------------
         try {
-            if (Schema::connection('mysql_clientes')->hasTable('sat_cart_items') && count($validIds)) {
-                $rows = [];
-                foreach ($validIds as $id) {
-                    $rows[] = [
-                        'cuenta_id'   => $cuentaId,
-                        'download_id' => $id,
-                        'created_at'  => now(),
-                        'updated_at'  => now(),
-                    ];
-                }
-                // inserta evitando duplicados (MySQL)
-                foreach ($rows as $r) {
-                    DB::connection('mysql_clientes')->table('sat_cart_items')->updateOrInsert([
-                        'cuenta_id'   => $r['cuenta_id'],
-                        'download_id' => $r['download_id'],
-                    ], [
-                        'updated_at' => $r['updated_at'],
-                        'created_at' => $r['created_at'],
-                    ]);
-                }
-            }
-        } catch (\Throwable) {}
+            $this->cartDbUpsert($cuentaId, $validIds);
+        } catch (\Throwable $e) {
+            Log::debug('[SAT:cartBulkAdd] DB upsert no-bloqueante', [
+                'trace_id' => $trace,
+                'cuenta_id' => $cuentaId,
+                'valid' => count($validIds),
+                'err' => $e->getMessage(),
+            ]);
+        }
+
+        $added = max(0, count($merged) - $before);
 
         return response()->json([
-            'ok'         => true,
-            'trace_id'   => $trace,
-            'added'      => count($validIds),
-            'requested'  => count($idsIn),
-            'count'      => count($merged),
-            'ids'        => $merged,
-        ]);
+            'ok'        => true,
+            'trace_id'  => $trace,
+            'requested' => count($idsIn),
+            'valid'     => count($validIds),
+            'invalid'   => $invalid,
+            'added'     => $added,
+            'count'     => count($merged),
+            'ids'       => $merged,
+        ], 200);
     }
 
+    /**
+     * ✅ Vaciar carrito (sesión + opcional DB sat_cart_items)
+     *
+     * Mejoras:
+     * - SOT: sesión primero
+     * - Borra DB si existe tabla (no bloqueante)
+     * - Respuesta consistente
+     */
     public function cartClear(Request $request): JsonResponse
     {
         $trace    = $this->trace();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if ($cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Cuenta inválida.',
+                'trace_id' => $trace,
+            ], 401);
         }
 
+        // SOT: sesión
         $this->putCartIdsForCuenta($cuentaId, []);
 
+        // Persistencia opcional DB (no bloqueante)
         try {
-            if (Schema::connection('mysql_clientes')->hasTable('sat_cart_items')) {
-                DB::connection('mysql_clientes')->table('sat_cart_items')->where('cuenta_id', $cuentaId)->delete();
+            $conn = 'mysql_clientes';
+            if (Schema::connection($conn)->hasTable('sat_cart_items')) {
+                DB::connection($conn)->table('sat_cart_items')
+                    ->where('cuenta_id', $cuentaId)
+                    ->delete();
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable $e) {
+            Log::debug('[SAT:cartClear] DB delete no-bloqueante', [
+                'trace_id' => $trace,
+                'cuenta_id' => $cuentaId,
+                'err' => $e->getMessage(),
+            ]);
+        }
 
-        return response()->json(['ok' => true, 'trace_id' => $trace, 'count' => 0, 'ids' => []]);
+        return response()->json([
+            'ok'       => true,
+            'trace_id' => $trace,
+            'count'    => 0,
+            'ids'      => [],
+        ], 200);
     }
 
+    /**
+     * ✅ Obtener carrito.
+     *
+     * Mejoras:
+     * - SOT: sesión
+     * - Si hay sat_cart_items: reconcilia session ∪ db (no perder items)
+     * - Filtra ids: que existan en sat_downloads y NO vault/boveda
+     * - Limpia “fantasmas” en DB (no bloqueante)
+     */
     public function cartGet(Request $request): JsonResponse
     {
         $trace    = $this->trace();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if ($cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.', 'trace_id' => $trace], 401);
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Cuenta inválida.',
+                'trace_id' => $trace,
+            ], 401);
         }
 
-        $ids = $this->getCartIds($cuentaId);
+        // SOT: sesión
+        $ids = $this->normalizeCartIds($this->getCartIds($cuentaId));
+
+        try {
+            $conn = 'mysql_clientes';
+
+            if (Schema::connection($conn)->hasTable('sat_cart_items')) {
+                $dbIds = DB::connection($conn)->table('sat_cart_items')
+                    ->where('cuenta_id', $cuentaId)
+                    ->pluck('download_id')
+                    ->map(static fn($v) => (string) $v)
+                    ->values()
+                    ->all();
+
+                $dbIds  = $this->normalizeCartIds($dbIds);
+                $merged = $this->normalizeCartIds(array_merge($ids, $dbIds));
+
+                if (count($merged)) {
+                    $valid = SatDownload::query()
+                        ->where('cuenta_id', $cuentaId)
+                        ->whereIn('id', $merged)
+                        ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
+                        ->pluck('id')
+                        ->map(static fn($v) => (string) $v)
+                        ->all();
+
+                    $ids = $this->normalizeCartIds($valid);
+                    $this->putCartIdsForCuenta($cuentaId, $ids);
+
+                    // limpia DB de fantasmas (no bloqueante)
+                    try {
+                        $ghosts = array_values(array_diff($dbIds, $ids));
+                        if (count($ghosts)) {
+                            DB::connection($conn)->table('sat_cart_items')
+                                ->where('cuenta_id', $cuentaId)
+                                ->whereIn('download_id', $ghosts)
+                                ->delete();
+                        }
+                    } catch (\Throwable $e) {
+                        Log::debug('[SAT:cartGet] DB ghost cleanup no-bloqueante', [
+                            'trace_id' => $trace,
+                            'cuenta_id' => $cuentaId,
+                            'ghosts' => count($ghosts ?? []),
+                            'err' => $e->getMessage(),
+                        ]);
+                    }
+                } else {
+                    // si no hay nada, limpia DB (no bloqueante)
+                    try {
+                        DB::connection($conn)->table('sat_cart_items')
+                            ->where('cuenta_id', $cuentaId)
+                            ->delete();
+                    } catch (\Throwable $e) {
+                        Log::debug('[SAT:cartGet] DB clear no-bloqueante', [
+                            'trace_id' => $trace,
+                            'cuenta_id' => $cuentaId,
+                            'err' => $e->getMessage(),
+                        ]);
+                    }
+                    $ids = [];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::debug('[SAT:cartGet] Reconcilio no-bloqueante falló', [
+                'trace_id' => $trace,
+                'cuenta_id' => $cuentaId,
+                'err' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'ok'       => true,
             'trace_id' => $trace,
             'count'    => count($ids),
             'ids'      => $ids,
-        ]);
+        ], 200);
     }
 
     /* ===================================================
-     *  CHARTS (placeholder)
-     * =================================================== */
+    *  CHARTS (placeholder)
+    * =================================================== */
 
     public function charts(Request $request): JsonResponse
     {
@@ -2401,22 +3993,12 @@ final class SatDescargaController extends Controller
     }
 
     /* ==========================================================
-     *  ZIP: resolver ubicación (disk + path)
-     * ========================================================== */
+    *  ZIP: resolver ubicación (disk + path)
+    * ========================================================== */
 
     protected function resolveDownloadZipLocation(SatDownload $download): array
     {
-        $meta = [];
-        try {
-            if (is_array($download->meta)) {
-                $meta = $download->meta;
-            } elseif (is_string($download->meta) && $download->meta !== '') {
-                $tmp = json_decode($download->meta, true);
-                if (is_array($tmp)) $meta = $tmp;
-            }
-        } catch (\Throwable) {
-            $meta = [];
-        }
+        $meta = $this->decodeMetaToArray($download->meta ?? null);
 
         $zipDisk = (string) ($meta['zip_disk'] ?? '');
         if ($zipDisk === '') {
@@ -2426,7 +4008,9 @@ final class SatDescargaController extends Controller
         $zipPath = ltrim((string) ($download->zip_path ?? ''), '/');
         if ($zipPath !== '') {
             try {
-                if (Storage::disk($zipDisk)->exists($zipPath)) return [$zipDisk, $zipPath];
+                if (Storage::disk($zipDisk)->exists($zipPath)) {
+                    return [$zipDisk, $zipPath];
+                }
             } catch (\Throwable) {}
         }
 
@@ -2485,7 +4069,9 @@ final class SatDescargaController extends Controller
                     $low = strtolower($f);
                     if (!str_ends_with($low, '.zip')) continue;
 
-                    if (stripos($f, $downloadId) !== false) return $f;
+                    if ($downloadId !== '' && stripos($f, $downloadId) !== false) {
+                        return $f;
+                    }
                 }
             } catch (\Throwable) {}
         }
@@ -2494,9 +4080,8 @@ final class SatDescargaController extends Controller
     }
 
     /* ==========================================================
-     *  BÓVEDA: BACKFILL MASIVO
-     * ========================================================== */
-
+    *  BÓVEDA: BACKFILL MASIVO
+    * ========================================================== */
     public function vaultBackfill(Request $request): JsonResponse
     {
         $trace = $this->trace();
@@ -2598,21 +4183,24 @@ final class SatDescargaController extends Controller
     }
 
     /* ==========================================================
-     *  BÓVEDA: mover ZIP (robusto y consistente por RFC)
-     * ========================================================== */
-
+    *  BÓVEDA: mover ZIP (robusto y consistente por RFC)
+    * ========================================================== */
     protected function moveZipToVault(SatDownload $download): void
     {
         $conn = 'mysql_clientes';
 
         try {
-            $cuentaId = (string) ($download->cuenta_id ?? '');
+            $cuentaId = trim((string) ($download->cuenta_id ?? ''));
             if ($cuentaId === '') return;
 
-            $tipo = strtolower((string) ($download->tipo ?? ''));
+            $tipo = strtolower(trim((string) ($download->tipo ?? '')));
             if (!in_array($tipo, ['emitidos', 'recibidos', 'ambos'], true)) return;
 
+            // 1) Resolver origen (disk + path) de forma robusta
             [$srcDisk, $srcPath] = $this->resolveDownloadZipLocation($download);
+            $srcDisk = trim((string) $srcDisk);
+            $srcPath = ltrim(trim((string) $srcPath), '/');
+
             if ($srcDisk === '' || $srcPath === '') {
                 Log::warning('[SAT:Vault] No se pudo resolver ZIP para mover a bóveda', [
                     'download_id' => (string) ($download->id ?? ''),
@@ -2622,24 +4210,54 @@ final class SatDescargaController extends Controller
                 return;
             }
 
-            if (Schema::connection($conn)->hasTable('sat_vault_files')) {
-                $exists = DB::connection($conn)->table('sat_vault_files')
-                    ->where('cuenta_id', $cuentaId)
-                    ->where('source', 'sat_download')
-                    ->where('source_id', (string) $download->id)
-                    ->first();
+            // 2) Validar existencia del archivo origen
+            try {
+                if (!Storage::disk($srcDisk)->exists($srcPath)) {
+                    Log::warning('[SAT:Vault] ZIP origen no existe', [
+                        'cuenta_id'   => $cuentaId,
+                        'download_id' => (string) ($download->id ?? ''),
+                        'src_disk'    => $srcDisk,
+                        'src_path'    => $srcPath,
+                    ]);
+                    return;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[SAT:Vault] No se pudo validar existencia ZIP origen', [
+                    'cuenta_id'   => $cuentaId,
+                    'download_id' => (string) ($download->id ?? ''),
+                    'src_disk'    => $srcDisk,
+                    'src_path'    => $srcPath,
+                    'err'         => $e->getMessage(),
+                ]);
+                return;
+            }
 
-                if ($exists && !empty($exists->path)) {
-                    try {
+            // 3) Si ya existe registro en bóveda y el archivo está, no duplicar
+            $vaultTableOk = false;
+            try { $vaultTableOk = Schema::connection($conn)->hasTable('sat_vault_files'); } catch (\Throwable) {}
+
+            if ($vaultTableOk) {
+                try {
+                    $exists = DB::connection($conn)->table('sat_vault_files')
+                        ->where('cuenta_id', $cuentaId)
+                        ->where('source', 'sat_download')
+                        ->where('source_id', (string) $download->id)
+                        ->first();
+
+                    if ($exists && !empty($exists->path)) {
                         $d = (string) ($exists->disk ?? (config('filesystems.disks.sat_vault') ? 'sat_vault' : 'local'));
                         $p = ltrim((string) $exists->path, '/');
-                        if ($p !== '' && Storage::disk($d)->exists($p)) return;
-                    } catch (\Throwable) {
-                        // re-copiar
+
+                        if ($p !== '' && Storage::disk($d)->exists($p)) {
+                            return; // ya está en bóveda
+                        }
                     }
+                } catch (\Throwable) {
+                    // si falla, reintentamos copiar
                 }
             }
 
+            // 4) Validar cuota (si aplica)
             $cuentaObj  = $this->fetchCuentaObjForVault($cuentaId);
             $storage    = $this->buildVaultStorageSummary($cuentaId, $cuentaObj);
             $quotaBytes = (int) ($storage['quota_bytes'] ?? 0);
@@ -2660,33 +4278,60 @@ final class SatDescargaController extends Controller
                 return;
             }
 
+            // 5) Disk destino (prioridad sat_vault -> vault -> private -> mismo origen)
             $vaultDisk = config('filesystems.disks.sat_vault')
                 ? 'sat_vault'
                 : (config('filesystems.disks.vault') ? 'vault' : (config('filesystems.disks.private') ? 'private' : $srcDisk));
 
-            $rfc = strtoupper((string) ($download->rfc ?? ''));
+            // 6) RFC normalizado y seguro para rutas
+            $rfc = strtoupper(trim((string) ($download->rfc ?? '')));
             if ($rfc === '') $rfc = 'XAXX010101000';
+            $rfcSafe = preg_replace('/[^A-Z0-9&Ñ]/u', '', $rfc) ?: 'XAXX010101000';
 
+            // 7) Ruta destino consistente por RFC
             $now     = Carbon::now();
-            $baseDir = "vault/{$cuentaId}/{$rfc}";
+            $baseDir = "vault/{$cuentaId}/{$rfcSafe}";
+            $destName = 'SAT_' . $rfcSafe . '_' . $now->format('Ymd_His') . '_' . (string) $download->id . '.zip';
+            $destPath = $baseDir . '/' . $destName;
 
-            $destPath = $baseDir . '/SAT_' . $rfc . '_' . $now->format('Ymd_His') . '_' . (string) $download->id . '.zip';
-
+            // Asegura dir (silencioso si disk no lo requiere)
             try {
                 if (!Storage::disk($vaultDisk)->exists($baseDir)) {
                     Storage::disk($vaultDisk)->makeDirectory($baseDir);
                 }
             } catch (\Throwable) {}
 
-            $read = null;
-            try { $read = Storage::disk($srcDisk)->readStream($srcPath); } catch (\Throwable) {}
-            if (!$read) return;
-
+            // 8) Copia robusta (si mismo disk y soporta move, úsalo; si no, stream copy)
             $ok = false;
-            try { $ok = (bool) Storage::disk($vaultDisk)->writeStream($destPath, $read); } catch (\Throwable) { $ok = false; }
-            if (is_resource($read)) fclose($read);
+
+            if ($vaultDisk === $srcDisk) {
+                try {
+                    // move: reduce I/O; si falla, intentamos stream
+                    $ok = (bool) Storage::disk($vaultDisk)->move($srcPath, $destPath);
+                } catch (\Throwable) {
+                    $ok = false;
+                }
+            }
+
+            if (!$ok) {
+                $read = null;
+                try { $read = Storage::disk($srcDisk)->readStream($srcPath); } catch (\Throwable) {}
+                if (!$read) return;
+
+                try {
+                    $ok = (bool) Storage::disk($vaultDisk)->writeStream($destPath, $read);
+                } catch (\Throwable) {
+                    $ok = false;
+                } finally {
+                    if (is_resource($read)) {
+                        try { fclose($read); } catch (\Throwable) {}
+                    }
+                }
+            }
+
             if (!$ok) return;
 
+            // 9) Validar bytes en destino (y rollback del archivo si quedó “vacío”)
             $bytes = 0;
             try { $bytes = (int) Storage::disk($vaultDisk)->size($destPath); } catch (\Throwable) {}
             if ($bytes <= 0) {
@@ -2694,20 +4339,38 @@ final class SatDescargaController extends Controller
                 return;
             }
 
-            if (!Schema::connection($conn)->hasTable('sat_vault_files')) return;
+            // 10) Upsert en sat_vault_files (defensivo por columnas)
+            if (!$vaultTableOk) return;
+
+            $schema = null;
+            $cols   = [];
+            try {
+                $schema = Schema::connection($conn);
+                $cols   = $schema->getColumnListing('sat_vault_files');
+            } catch (\Throwable) {
+                $schema = null;
+                $cols   = [];
+            }
+
+            $hasCol = static function (string $c) use ($cols): bool {
+                return in_array($c, $cols, true);
+            };
 
             $data = [
-                'cuenta_id'  => $cuentaId,
-                'source'     => 'sat_download',
-                'source_id'  => (string) $download->id,
-                'rfc'        => $rfc,
-                'filename'   => basename($destPath),
-                'path'       => $destPath,
-                'disk'       => $vaultDisk,
-                'mime'       => 'application/zip',
-                'bytes'      => $bytes,
-                'updated_at' => Carbon::now()->toDateTimeString(),
+                'cuenta_id' => $cuentaId,
+                'source'    => 'sat_download',
+                'source_id' => (string) $download->id,
             ];
+
+            if ($hasCol('rfc'))      $data['rfc']      = $rfcSafe;
+            if ($hasCol('filename')) $data['filename'] = $destName;
+            if ($hasCol('path'))     $data['path']     = $destPath;
+            if ($hasCol('disk'))     $data['disk']     = $vaultDisk;
+            if ($hasCol('mime'))     $data['mime']     = 'application/zip';
+            if ($hasCol('bytes'))    $data['bytes']    = $bytes;
+
+            $nowTs = Carbon::now()->toDateTimeString();
+            if ($hasCol('updated_at')) $data['updated_at'] = $nowTs;
 
             $existing = DB::connection($conn)->table('sat_vault_files')
                 ->where('cuenta_id', $cuentaId)
@@ -2715,10 +4378,10 @@ final class SatDescargaController extends Controller
                 ->where('source_id', (string) $download->id)
                 ->first();
 
-            if ($existing) {
+            if ($existing && isset($existing->id)) {
                 DB::connection($conn)->table('sat_vault_files')->where('id', $existing->id)->update($data);
             } else {
-                $data['created_at'] = Carbon::now()->toDateTimeString();
+                if ($hasCol('created_at')) $data['created_at'] = $nowTs;
                 DB::connection($conn)->table('sat_vault_files')->insert($data);
             }
 
@@ -2734,20 +4397,21 @@ final class SatDescargaController extends Controller
         } catch (\Throwable $e) {
             Log::error('[SAT:Vault] Error moviendo ZIP a bóveda', [
                 'download_id' => (string) ($download->id ?? ''),
+                'cuenta_id'   => (string) ($download->cuenta_id ?? ''),
                 'error'       => $e->getMessage(),
             ]);
         }
     }
 
     /* ==========================================================
-     *  ✅ COTIZADOR SAT: CALCULAR (JSON) + PDF
-     * ========================================================== */
+    *  ✅ COTIZADOR SAT: CALCULAR (JSON) + PDF
+    * ========================================================== */
 
     public function quoteCalc(Request $request): JsonResponse
     {
         $trace    = $this->trace();
         $user     = $this->cu();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if (!$user || $cuentaId === '') {
             return response()->json([
@@ -2760,67 +4424,37 @@ final class SatDescargaController extends Controller
         $data = $request->validate([
             'xml_count'     => ['required', 'integer', 'min:1', 'max:50000000'],
             'discount_code' => ['nullable', 'string', 'max:64'],
-            'iva'           => ['nullable', 'integer', 'min:0', 'max:16'],
-            'unit_cost'     => ['nullable'], // IGNORADO
+            // IVA flexible: 16 o 0.16 (igual que quick)
+            'iva'           => ['nullable'],
+            'iva_rate'      => ['nullable'],
+            'unit_cost'     => ['nullable'], // ignorado (compat UI)
         ]);
 
         $xmlCount     = (int) $data['xml_count'];
         $discountCode = trim((string) ($data['discount_code'] ?? ''));
-        $ivaRate      = (int) ($data['iva'] ?? 16);
 
-        $cuenta = null;
-        try {
-            if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
-                $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')->where('id', $cuentaId)->first();
-            }
-        } catch (\Throwable) {
-            $cuenta = null;
+        // IVA flexible: 16 o 0.16
+        $ivaRate = 16;
+        $ivaRaw  = $data['iva'] ?? $data['iva_rate'] ?? 16;
+        if (is_numeric($ivaRaw)) {
+            $v = (float) $ivaRaw;
+            $ivaRate = ($v > 1) ? (int) round($v) : (int) round($v * 100);
         }
+        $ivaRate = max(0, min(16, $ivaRate));
 
-        $planRaw = '';
-        if ($cuenta && isset($cuenta->plan_actual)) {
-            $planRaw = (string) $cuenta->plan_actual;
-        } else {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c) && isset($c->plan_actual)) $planRaw = (string) $c->plan_actual;
-            } catch (\Throwable) {}
-        }
-
-        $plan = strtoupper(trim($planRaw)) ?: 'FREE';
-
-        $empresa = null;
-        if ($cuenta) {
-            foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                if (isset($cuenta->{$col}) && trim((string) $cuenta->{$col}) !== '') {
-                    $empresa = trim((string) $cuenta->{$col});
-                    break;
-                }
-            }
-        }
-        if (!$empresa) {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c)) {
-                    foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                        if (isset($c->{$col}) && trim((string) $c->{$col}) !== '') {
-                            $empresa = trim((string) $c->{$col});
-                            break;
-                        }
-                    }
-                }
-            } catch (\Throwable) {}
-        }
+        // Info de cuenta (encabezado / PDF)
+        [$plan, $empresa] = $this->resolvePlanAndEmpresa($user, $cuentaId);
 
         $folio      = 'SATQ-' . strtoupper(Str::ulid()->toBase32());
         $generated  = now();
         $validUntil = $generated->copy()->addDays(7);
 
+        // Base = regla interna (cotizador “formal”)
         $base = round((float) $this->computeDownloadCostPhp($xmlCount), 2);
 
-        $discountPct    = (int) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = (float) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = max(0.0, min(100.0, $discountPct));
+
         $discountAmount = round($base * ($discountPct / 100), 2);
         $subtotal       = max(0, round($base - $discountAmount, 2));
 
@@ -2828,48 +4462,49 @@ final class SatDescargaController extends Controller
         $total     = round($subtotal + $ivaAmount, 2);
 
         $note = $this->pricingNoteForXml($xmlCount);
-        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . $discountPct . '%.';
+        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . (int) $discountPct . '%.';
 
         return response()->json([
             'ok'       => true,
             'trace_id' => $trace,
             'data'     => [
-                'folio'            => $folio,
-                'generated_at'     => $generated->toIso8601String(),
-                'valid_until'      => $validUntil->toDateString(),
+                'mode'           => 'quote',
+                'folio'          => $folio,
+                'generated_at'   => $generated->toIso8601String(),
+                'valid_until'    => $validUntil->toDateString(),
 
-                'plan'             => $plan,
-                'cuenta_id'        => $cuentaId,
-                'empresa'          => $empresa ?: '—',
+                'plan'           => $plan,
+                'cuenta_id'      => $cuentaId,
+                'empresa'        => $empresa ?: '—',
 
-                'xml_count'        => $xmlCount,
-                'base'             => $base,
+                'xml_count'      => $xmlCount,
+                'base'           => $base,
 
-                'discount_code'    => $discountCode !== '' ? $discountCode : null,
-                'discount_pct'     => $discountPct,
-                'discount_amount'  => $discountAmount,
+                'discount_code'  => $discountCode !== '' ? $discountCode : null,
+                'discount_pct'   => (float) $discountPct,
+                'discount_amount'=> $discountAmount,
 
-                'subtotal'         => $subtotal,
-                'iva_rate'         => $ivaRate,
-                'iva_amount'       => $ivaAmount,
-                'total'            => $total,
+                'subtotal'       => $subtotal,
+                'iva_rate'       => $ivaRate,
+                'iva_amount'     => $ivaAmount,
+                'total'          => $total,
 
-                'note'             => $note,
+                'note'           => $note,
             ],
         ]);
     }
 
-        /* ==========================================================
-     *  ✅ CALCULADORA RÁPIDA (GUÍAS RÁPIDAS): CALCULAR (JSON) + PDF
-     *  - NO solicita RFC
-     *  - Debe usar lista de precios en Admin (mysql_admin) cuando exista
-     * ========================================================== */
+    /* ==========================================================
+    *  ✅ CALCULADORA RÁPIDA (GUÍAS RÁPIDAS): CALCULAR (JSON) + PDF
+    *  - NO solicita RFC
+    *  - Usa lista de precios en Admin (mysql_admin) cuando exista
+    * ========================================================== */
 
     public function quickCalc(Request $request): JsonResponse
     {
         $trace    = $this->trace();
         $user     = $this->cu();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if (!$user || $cuentaId === '') {
             return response()->json([
@@ -2880,18 +4515,16 @@ final class SatDescargaController extends Controller
         }
 
         $data = $request->validate([
-                    // Compatibilidad UI
-                    'xml_count'           => ['nullable', 'integer', 'min:1', 'max:50000000'],
-                    'xml_count_estimated' => ['nullable', 'integer', 'min:1', 'max:50000000'],
+            // Compat UI
+            'xml_count'           => ['nullable', 'integer', 'min:1', 'max:50000000'],
+            'xml_count_estimated' => ['nullable', 'integer', 'min:1', 'max:50000000'],
+            'discount_code'       => ['nullable', 'string', 'max:64'],
+            // IVA flexible: 16 o 0.16
+            'iva'                 => ['nullable'],
+            'iva_rate'            => ['nullable'],
+        ]);
 
-                    'discount_code' => ['nullable', 'string', 'max:64'],
-
-                    // IVA puede venir como 16 o 0.16
-                    'iva'      => ['nullable'],
-                    'iva_rate' => ['nullable'],
-                ]);
-
-                $xmlCount = (int) (
+        $xmlCount = (int) (
             $data['xml_count']
             ?? $data['xml_count_estimated']
             ?? 0
@@ -2899,8 +4532,8 @@ final class SatDescargaController extends Controller
 
         if ($xmlCount <= 0) {
             return response()->json([
-                'ok' => false,
-                'msg' => 'xml_count requerido.',
+                'ok'       => false,
+                'msg'      => 'xml_count requerido.',
                 'trace_id' => $trace,
             ], 422);
         }
@@ -2915,55 +4548,10 @@ final class SatDescargaController extends Controller
             $v = (float) $ivaRaw;
             $ivaRate = ($v > 1) ? (int) round($v) : (int) round($v * 100);
         }
-
         $ivaRate = max(0, min(16, $ivaRate));
 
-
-        // Info de cuenta (solo para encabezado / PDF)
-        $cuenta = null;
-        try {
-            if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
-                $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')->where('id', $cuentaId)->first();
-            }
-        } catch (\Throwable) {
-            $cuenta = null;
-        }
-
-        $planRaw = '';
-        if ($cuenta && isset($cuenta->plan_actual)) {
-            $planRaw = (string) $cuenta->plan_actual;
-        } else {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c) && isset($c->plan_actual)) $planRaw = (string) $c->plan_actual;
-            } catch (\Throwable) {}
-        }
-        $plan = strtoupper(trim($planRaw)) ?: 'FREE';
-
-        $empresa = null;
-        if ($cuenta) {
-            foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                if (isset($cuenta->{$col}) && trim((string) $cuenta->{$col}) !== '') {
-                    $empresa = trim((string) $cuenta->{$col});
-                    break;
-                }
-            }
-        }
-        if (!$empresa) {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c)) {
-                    foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                        if (isset($c->{$col}) && trim((string) $c->{$col}) !== '') {
-                            $empresa = trim((string) $c->{$col});
-                            break;
-                        }
-                    }
-                }
-            } catch (\Throwable) {}
-        }
+        // Info de cuenta (encabezado / PDF)
+        [$plan, $empresa] = $this->resolvePlanAndEmpresa($user, $cuentaId);
 
         $folio      = 'SATQ-' . strtoupper(Str::ulid()->toBase32());
         $generated  = now();
@@ -2973,7 +4561,9 @@ final class SatDescargaController extends Controller
         [$base, $priceNote, $priceSource] = $this->resolveAdminPriceForXml($xmlCount);
         $base = round((float) $base, 2);
 
-        $discountPct    = (int) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = (float) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = max(0.0, min(100.0, $discountPct));
+
         $discountAmount = round($base * ($discountPct / 100), 2);
         $subtotal       = max(0, round($base - $discountAmount, 2));
 
@@ -2981,35 +4571,35 @@ final class SatDescargaController extends Controller
         $total     = round($subtotal + $ivaAmount, 2);
 
         $note = $priceNote !== '' ? $priceNote : $this->pricingNoteForXml($xmlCount);
-        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . $discountPct . '%.';
+        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . (int) $discountPct . '%.';
         if ($priceSource !== '') $note .= ' Fuente: ' . $priceSource . '.';
 
         return response()->json([
             'ok'       => true,
             'trace_id' => $trace,
             'data'     => [
-                'mode'             => 'quick',
-                'folio'            => $folio,
-                'generated_at'     => $generated->toIso8601String(),
-                'valid_until'      => $validUntil->toDateString(),
+                'mode'         => 'quick',
+                'folio'        => $folio,
+                'generated_at' => $generated->toIso8601String(),
+                'valid_until'  => $validUntil->toDateString(),
 
-                'plan'             => $plan,
-                'cuenta_id'        => $cuentaId,
-                'empresa'          => $empresa ?: '—',
+                'plan'         => $plan,
+                'cuenta_id'    => $cuentaId,
+                'empresa'      => $empresa ?: '—',
 
-                'xml_count'        => $xmlCount,
-                'base'             => $base,
+                'xml_count'    => $xmlCount,
+                'base'         => $base,
 
-                'discount_code'    => $discountCode !== '' ? $discountCode : null,
-                'discount_pct'     => $discountPct,
-                'discount_amount'  => $discountAmount,
+                'discount_code'   => $discountCode !== '' ? $discountCode : null,
+                'discount_pct'    => (float) $discountPct,
+                'discount_amount' => $discountAmount,
 
-                'subtotal'         => $subtotal,
-                'iva_rate'         => $ivaRate,
-                'iva_amount'       => $ivaAmount,
-                'total'            => $total,
+                'subtotal'     => $subtotal,
+                'iva_rate'     => $ivaRate,
+                'iva_amount'   => $ivaAmount,
+                'total'        => $total,
 
-                'note'             => $note,
+                'note'         => $note,
             ],
         ]);
     }
@@ -3024,22 +4614,18 @@ final class SatDescargaController extends Controller
     {
         $trace    = $this->trace();
         $user     = $this->cu();
-        $cuentaId = (string) $this->cuId();
+        $cuentaId = trim((string) $this->cuId());
 
         if (!$user || $cuentaId === '') {
             abort(401, 'Sesión expirada o cuenta inválida.');
         }
 
         $data = $request->validate([
-            // Compatibilidad UI (igual que quickCalc)
             'xml_count'           => ['nullable', 'integer', 'min:1', 'max:50000000'],
             'xml_count_estimated' => ['nullable', 'integer', 'min:1', 'max:50000000'],
-
-            'discount_code' => ['nullable', 'string', 'max:64'],
-
-            // IVA puede venir como 16 o 0.16
-            'iva'      => ['nullable'],
-            'iva_rate' => ['nullable'],
+            'discount_code'       => ['nullable', 'string', 'max:64'],
+            'iva'                 => ['nullable'],
+            'iva_rate'            => ['nullable'],
         ]);
 
         $xmlCount = (int) (
@@ -3064,50 +4650,8 @@ final class SatDescargaController extends Controller
         }
         $ivaRate = max(0, min(16, $ivaRate));
 
-        $cuenta = null;
-        try {
-            if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
-                $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')->where('id', $cuentaId)->first();
-            }
-        } catch (\Throwable) {
-            $cuenta = null;
-        }
-
-        $planRaw = '';
-        if ($cuenta && isset($cuenta->plan_actual)) {
-            $planRaw = (string) $cuenta->plan_actual;
-        } else {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c) && isset($c->plan_actual)) $planRaw = (string) $c->plan_actual;
-            } catch (\Throwable) {}
-        }
-        $plan = strtoupper(trim($planRaw)) ?: 'FREE';
-
-        $empresa = null;
-        if ($cuenta) {
-            foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                if (isset($cuenta->{$col}) && trim((string) $cuenta->{$col}) !== '') {
-                    $empresa = trim((string) $cuenta->{$col});
-                    break;
-                }
-            }
-        }
-        if (!$empresa) {
-            try {
-                $c = $user->cuenta ?? null;
-                if (is_array($c)) $c = (object) $c;
-                if (is_object($c)) {
-                    foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
-                        if (isset($c->{$col}) && trim((string) $c->{$col}) !== '') {
-                            $empresa = trim((string) $c->{$col});
-                            break;
-                        }
-                    }
-                }
-            } catch (\Throwable) {}
-        }
+        // Info de cuenta (encabezado / PDF)
+        [$plan, $empresa] = $this->resolvePlanAndEmpresa($user, $cuentaId);
 
         $folio      = 'SATQ-' . strtoupper(Str::ulid()->toBase32());
         $generated  = now();
@@ -3117,7 +4661,9 @@ final class SatDescargaController extends Controller
         [$base, $priceNote, $priceSource] = $this->resolveAdminPriceForXml($xmlCount);
         $base = round((float) $base, 2);
 
-        $discountPct    = (int) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = (float) $this->resolveDiscountPctForQuote($cuentaId, $discountCode);
+        $discountPct    = max(0.0, min(100.0, $discountPct));
+
         $discountAmount = round($base * ($discountPct / 100), 2);
         $subtotal       = max(0, round($base - $discountAmount, 2));
 
@@ -3125,12 +4671,23 @@ final class SatDescargaController extends Controller
         $total     = round($subtotal + $ivaAmount, 2);
 
         $note = $priceNote !== '' ? $priceNote : $this->pricingNoteForXml($xmlCount);
-        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . $discountPct . '%.';
+        if ($discountPct > 0) $note .= ' Descuento aplicado: ' . (int) $discountPct . '%.';
         if ($priceSource !== '') $note .= ' Fuente: ' . $priceSource . '.';
 
         $payload = [
             'trace_id'        => $trace,
             'mode'            => 'quick',
+
+            // ✅ Emisor / Branding (para PDF)
+            'issuer'          => [
+                'name'             => (string) (config('app.name') ?: 'Pactopia360'),
+                'website'          => (string) (config('app.url') ?: ''),
+                'email'            => (string) (config('mail.from.address') ?: 'notificaciones@pactopia.com'),
+                'phone'            => (string) (config('services.pactopia.phone') ?: ''),
+
+                // ✅ Tu logo (NO ruta Windows). DomPDF lo embebe con base64 en el Blade.
+                'logo_public_path' => public_path('assets/client/logp360ligjt.png'),
+            ],
 
             'folio'           => $folio,
             'generated_at'    => $generated,
@@ -3155,7 +4712,7 @@ final class SatDescargaController extends Controller
             'note'            => $note,
         ];
 
-        // Vista defensiva (evita errores silenciosos)
+
         if (!View::exists('cliente.sat.pdf.quote')) {
             return response(
                 'No existe la vista PDF: resources/views/cliente/sat/pdf/quote.blade.php (cliente.sat.pdf.quote).',
@@ -3165,8 +4722,32 @@ final class SatDescargaController extends Controller
 
         try {
             if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
+
+                // ✅ Huella (anti-tamper) para el PDF
+                $payload['quote_hash'] = $this->quotePdfHash($payload);
+
+                // ✅ Branding / emisor (para header)
+                $payload['issuer'] = [
+                    'name'    => (string) (config('app.name') ?: 'Pactopia360'),
+                    'brand'   => 'Pactopia',
+                    'website' => (string) (config('app.url') ?: ''),
+                    'email'   => (string) (config('mail.from.address') ?: 'soporte@pactopia.com'),
+                    'phone'   => (string) (config('services.pactopia.phone') ?: ''),
+                    // Cambia el path si tu logo vive en otro lado
+                    'logo_public_path' => public_path('assets/brand/pactopia-logo.png'),
+                ];
+
+                // ✅ DomPDF seguro y consistente
                 $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('cliente.sat.pdf.quote', $payload)
-                    ->setPaper('letter', 'portrait');
+                    ->setPaper('letter', 'portrait')
+                    ->setOptions([
+                        'defaultFont'           => 'DejaVu Sans',
+                        'isRemoteEnabled'       => false, // 🔒 evita cargar recursos externos
+                        'isHtml5ParserEnabled'  => true,
+                        'isPhpEnabled'          => false, // 🔒 no PHP dentro de la vista
+                        'dpi'                   => 96,    // ✅ evita “gigante”
+                        'fontHeightRatio'       => 1.0,
+                    ]);
 
                 $file = 'cotizacion_sat_rapida_' . $cuentaId . '_' . $generated->format('Ymd_His') . '.pdf';
                 return $pdf->download($file);
@@ -3178,14 +4759,14 @@ final class SatDescargaController extends Controller
             ]);
         }
 
+
         return response(
             'No está disponible el generador PDF (DomPDF). Instala/activa barryvdh/laravel-dompdf.',
             501
         );
     }
 
-
-        /**
+    /**
      * ✅ Precio desde Admin (mysql_admin) por rangos / catálogo.
      * Retorna: [base_mxn, note, source]
      *
@@ -3202,7 +4783,6 @@ final class SatDescargaController extends Controller
 
         $conn = 'mysql_admin';
 
-        // Candidatos de tabla (defensivo)
         $tables = [
             'sat_download_price_ranges',
             'sat_download_prices',
@@ -3225,7 +4805,8 @@ final class SatDescargaController extends Controller
                 return [$base, '', 'fallback'];
             }
 
-            $cols = $schema->getColumnListing($tableFound);
+            $cols = [];
+            try { $cols = $schema->getColumnListing($tableFound); } catch (\Throwable) { $cols = []; }
 
             $pickCol = static function (array $candidates, array $cols): ?string {
                 foreach ($candidates as $c) {
@@ -3234,27 +4815,19 @@ final class SatDescargaController extends Controller
                 return null;
             };
 
-            // Rangos
             $colMin = $pickCol(['min_xml','min','min_docs','min_count','desde','from'], $cols);
             $colMax = $pickCol(['max_xml','max','max_docs','max_count','hasta','to'], $cols);
 
-            // Precio fijo vs unitario
             $colFlat = $pickCol(['price','price_mxn','base_mxn','amount','amount_mxn','flat_price','flat_mxn','total','total_mxn'], $cols);
             $colUnit = $pickCol(['unit_price','unit_price_mxn','unit_mxn','per_xml','per_doc','rate','rate_mxn'], $cols);
 
-            // Nota / etiqueta
-            $colNote = $pickCol(['note','label','descripcion','description','name'], $cols);
-
-            // Estatus/activo
+            $colNote   = $pickCol(['note','label','descripcion','description','name'], $cols);
             $colActive = $pickCol(['is_active','active','enabled','estatus','status'], $cols);
             $colSort   = $pickCol(['sort','priority','orden','order'], $cols);
 
-            // Query base
             $q = DB::connection($conn)->table($tableFound);
 
-            // Filtra activo si existe
             if ($colActive) {
-                // Acepta 1/0, true/false, 'active', etc.
                 $q->where(function ($w) use ($colActive) {
                     $w->where($colActive, 1)
                     ->orWhere($colActive, true)
@@ -3262,43 +4835,27 @@ final class SatDescargaController extends Controller
                 });
             }
 
-            // Orden preferente
-            if ($colSort) {
-                $q->orderBy($colSort, 'asc');
-            }
-            if ($colMin) {
-                $q->orderBy($colMin, 'asc');
-            }
+            if ($colSort) $q->orderBy($colSort, 'asc');
+            if ($colMin)  $q->orderBy($colMin, 'asc');
 
             $rows = $q->get();
 
             $best = null;
-
             foreach ($rows as $row) {
                 $minOk = true;
                 $maxOk = true;
 
-                $minVal = null;
-                $maxVal = null;
-
                 if ($colMin && isset($row->{$colMin}) && is_numeric($row->{$colMin})) {
-                    $minVal = (int) $row->{$colMin};
-                    $minOk  = $n >= $minVal;
+                    $minOk = $n >= (int) $row->{$colMin};
                 }
                 if ($colMax && isset($row->{$colMax}) && is_numeric($row->{$colMax})) {
-                    $maxVal = (int) $row->{$colMax};
-                    $maxOk  = $n <= $maxVal;
+                    $maxOk = $n <= (int) $row->{$colMax};
                 }
 
-                if (!$minOk || !$maxOk) continue;
-
-                // Toma el primer match (por orden) como mejor
-                $best = $row;
-                break;
+                if ($minOk && $maxOk) { $best = $row; break; }
             }
 
             if (!$best) {
-                // Si no hubo match por rangos, fallback seguro
                 $base = (float) $this->computeDownloadCostPhp($n);
                 return [$base, '', 'fallback'];
             }
@@ -3313,37 +4870,26 @@ final class SatDescargaController extends Controller
                 $unit = (float) $best->{$colUnit};
             }
 
-            $base = 0.0;
-
-            // Preferencia: flat si existe, si no unit*n, si no fallback
-            if ($flat > 0) {
-                $base = $flat;
-            } elseif ($unit > 0) {
-                $base = $unit * $n;
-            } else {
-                $base = (float) $this->computeDownloadCostPhp($n);
-            }
+            if ($flat > 0)      $base = $flat;
+            elseif ($unit > 0)  $base = $unit * $n;
+            else                $base = (float) $this->computeDownloadCostPhp($n);
 
             $note = '';
             if ($colNote && isset($best->{$colNote}) && trim((string) $best->{$colNote}) !== '') {
                 $note = trim((string) $best->{$colNote});
             }
 
-            // Construye una nota mínima si no hay
             if ($note === '') {
-                $minTxt = null;
-                $maxTxt = null;
-
-                if ($colMin && isset($best->{$colMin}) && is_numeric($best->{$colMin})) $minTxt = (int) $best->{$colMin};
-                if ($colMax && isset($best->{$colMax}) && is_numeric($best->{$colMax})) $maxTxt = (int) $best->{$colMax};
+                $minTxt = ($colMin && isset($best->{$colMin}) && is_numeric($best->{$colMin})) ? (int) $best->{$colMin} : null;
+                $maxTxt = ($colMax && isset($best->{$colMax}) && is_numeric($best->{$colMax})) ? (int) $best->{$colMax} : null;
 
                 if ($minTxt !== null && $maxTxt !== null) $note = "Precio Admin ({$minTxt}-{$maxTxt} XML)";
-                elseif ($minTxt !== null) $note = "Precio Admin (>= {$minTxt} XML)";
-                elseif ($maxTxt !== null) $note = "Precio Admin (<= {$maxTxt} XML)";
-                else $note = 'Precio Admin';
+                elseif ($minTxt !== null)                  $note = "Precio Admin (>= {$minTxt} XML)";
+                elseif ($maxTxt !== null)                  $note = "Precio Admin (<= {$maxTxt} XML)";
+                else                                       $note = 'Precio Admin';
             }
 
-            return [$base, $note, $tableFound];
+            return [(float) $base, $note, $tableFound];
         } catch (\Throwable $e) {
             Log::warning('[SAT:resolveAdminPriceForXml] Fallback por excepción', [
                 'xml_count' => $n,
@@ -3355,7 +4901,7 @@ final class SatDescargaController extends Controller
         }
     }
 
-        /**
+    /**
      * Wrapper de compatibilidad (SOT)
      * Algunos flujos llaman resolveDiscountPctForQuote()
      */
@@ -3384,12 +4930,12 @@ final class SatDescargaController extends Controller
                 ]));
 
                 $pctCols = array_values(array_filter([
-                    in_array('discount_pct',   $cols, true) ? 'discount_pct'   : null,
-                    in_array('descuento_pct',  $cols, true) ? 'descuento_pct'  : null,
-                    in_array('discount_rate',  $cols, true) ? 'discount_rate'  : null,
+                    in_array('discount_pct',  $cols, true) ? 'discount_pct'  : null,
+                    in_array('descuento_pct', $cols, true) ? 'descuento_pct' : null,
+                    in_array('discount_rate', $cols, true) ? 'discount_rate' : null,
                 ]));
 
-                if (count($codeCols) && count($pctCols)) {
+                if ($codeCols && $pctCols) {
                     $row = DB::connection($conn)->table('cuentas_cliente')
                         ->where('id', $cuentaId)
                         ->first();
@@ -3468,104 +5014,180 @@ final class SatDescargaController extends Controller
         return 'Tarifa: $0.01 MXN por documento (> 3,000,000).';
     }
 
-        // ============================================================
-    // ✅ REGISTRO EXTERNO / INVITE
+    /* ==========================================================
+    *  Helpers: plan + empresa (evita duplicación en quote/quick/pdf)
+    * ========================================================== */
+
+    private function resolvePlanAndEmpresa($user, string $cuentaId): array
+    {
+        $plan    = 'FREE';
+        $empresa = null;
+
+        $cuenta = null;
+        try {
+            if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+                $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')->where('id', $cuentaId)->first();
+            }
+        } catch (\Throwable) {
+            $cuenta = null;
+        }
+
+        // plan
+        $planRaw = '';
+        if ($cuenta && isset($cuenta->plan_actual)) {
+            $planRaw = (string) $cuenta->plan_actual;
+        } else {
+            try {
+                $c = $user->cuenta ?? null;
+                if (is_array($c)) $c = (object) $c;
+                if (is_object($c) && isset($c->plan_actual)) $planRaw = (string) $c->plan_actual;
+            } catch (\Throwable) {}
+        }
+        $plan = strtoupper(trim($planRaw)) ?: 'FREE';
+
+        // empresa
+        if ($cuenta) {
+            foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
+                if (isset($cuenta->{$col}) && trim((string) $cuenta->{$col}) !== '') {
+                    $empresa = trim((string) $cuenta->{$col});
+                    break;
+                }
+            }
+        }
+
+        if (!$empresa) {
+            try {
+                $c = $user->cuenta ?? null;
+                if (is_array($c)) $c = (object) $c;
+                if (is_object($c)) {
+                    foreach (['razon_social', 'razon', 'empresa', 'nombre', 'name'] as $col) {
+                        if (isset($c->{$col}) && trim((string) $c->{$col}) !== '') {
+                            $empresa = trim((string) $c->{$col});
+                            break;
+                        }
+                    }
+                }
+            } catch (\Throwable) {}
+        }
+
+        return [$plan, $empresa ?: '—'];
+    }
+
+     // ============================================================
+    // ✅ REGISTRO EXTERNO / INVITE + DASHBOARD STATS (MEJORADO)
     // ============================================================
-    // POST  /cliente/sat/external/invite   -> cliente.sat.external.invite
-    // GET   /cliente/sat/external/register -> cliente.sat.external.register (signed)
-    //
-    // Flujo:
-    // - Cliente invita por correo a un emisor externo.
-    // - Se genera link firmado temporal (7 días).
-    // - Se envía por correo el link.
-    // - La pantalla signed puede ser un view si existe, si no, responde HTML simple.
+    // Mejoras clave incluidas:
+    // - Invite: trace_id + validación + rate limit (simple) + subject/lineas consistentes
+    // - Signed URL: params normalizados + expiración única + respuestas JSON/HTML consistentes
+    // - Register fallback: FORM COMPLETO (RFC + ALIAS + CSD cer/key + password + confirm) para que coincida con externalStore
+    // - Store: validaciones endurecidas (.cer/.key), control de tamaño, normalización RFC, meta merge robusto, respuesta amigable
+    // - Stats: agrega "rfcs" únicos, totales, breakdown, series; normalización robusta; evita queries pesadas; selecciona columnas mínimo
+    // - Helpers: resolveCuentaIdFromQuery(), externalRenderHtml(), stats helper functions
     // ============================================================
+
+    /* ============================================================
+    * ✅ REGISTRO EXTERNO / INVITE
+    * ============================================================ */
 
     public function externalInvite(Request $request): JsonResponse
     {
+        $trace = $this->trace();
+
         $email = trim((string) $request->input('email', ''));
         $note  = trim((string) $request->input('note', ''));
 
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return response()->json([
-                'ok'  => false,
-                'msg' => 'Correo inválido.',
+                'ok'       => false,
+                'msg'      => 'Correo inválido.',
+                'trace_id' => $trace,
             ], 422);
         }
 
-        // Link firmado temporal (7 días)
-        // Incluimos email como param para precargar/identificar.
-        $expiresAt = now()->addDays(7);
-
+        // ✅ Rate limit simple por IP (evita spam)
+        // Nota: si ya usas Throttle middleware, puedes quitar esto.
         try {
-            // Contexto de cuenta (obligatorio para que "Mis RFCs" lo vea)
-            $user   = $this->cu();
-            $cuenta = $user?->cuenta ?? null;
-            if (is_array($cuenta)) $cuenta = (object) $cuenta;
+            $ip    = (string) $request->ip();
+            $key   = 'sat_ext_invite:' . sha1($ip);
+            $hits  = (int) cache()->get($key, 0);
 
-            $cuentaId = (string) ($this->resolveCuentaIdFromUser($user) ?? '');
-            if ($cuentaId === '') {
+            if ($hits >= 10) {
                 return response()->json([
-                    'ok'  => false,
-                    'msg' => 'No se pudo determinar la cuenta que invita.',
-                ], 422);
+                    'ok'       => false,
+                    'msg'      => 'Demasiadas solicitudes. Intenta más tarde.',
+                    'trace_id' => $trace,
+                ], 429);
             }
+            cache()->put($key, $hits + 1, now()->addMinutes(10));
+        } catch (\Throwable) {
+            // no-op
+        }
 
-            // Token simple para correlación (no es secreto; la seguridad real la da la firma)
-            $inviteId = (string) Str::ulid();
+        // Contexto de cuenta (obligatorio)
+        $user = $this->cu();
+        if (!$user) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Sesión expirada.',
+                'trace_id' => $trace,
+            ], 401);
+        }
 
-            // Link firmado temporal (7 días) con cuenta_id + email + inv
-            $expiresAt = now()->addDays(7);
+        $cuentaId = (string) ($this->resolveCuentaIdFromUser($user) ?? '');
+        $cuentaId = trim($cuentaId);
 
-            try {
-                $signedUrl = URL::temporarySignedRoute(
-                    'cliente.sat.external.register',
-                    $expiresAt,
-                    [
-                        'email'     => $email,
-                        'cuenta_id' => $cuentaId,
-                        'inv'       => $inviteId,
-                    ]
-                );
-            } catch (\Throwable $e) {
-                Log::error('[SAT][externalInvite] signedRoute error', [
-                    'err' => $e->getMessage(),
-                ]);
+        if ($cuentaId === '') {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'No se pudo determinar la cuenta que invita.',
+                'trace_id' => $trace,
+            ], 422);
+        }
 
-                return response()->json([
-                    'ok'  => false,
-                    'msg' => 'No se pudo generar el link de invitación. Revisa rutas/URL.',
-                ], 500);
-            }
+        $inviteId  = (string) Str::ulid();       // correlación
+        $expiresAt = now()->addDays(7);          // una sola expiración (consistente)
 
+        // URL firmada GET (register)
+        try {
+            $signedUrl = URL::temporarySignedRoute(
+                'cliente.sat.external.register',
+                $expiresAt,
+                [
+                    'email'     => $email,
+                    'cuenta_id' => $cuentaId,
+                    'inv'       => $inviteId,
+                ]
+            );
         } catch (\Throwable $e) {
             Log::error('[SAT][externalInvite] signedRoute error', [
-                'err' => $e->getMessage(),
+                'trace_id'  => $trace,
+                'cuenta_id' => $cuentaId,
+                'email'     => $email,
+                'err'       => $e->getMessage(),
             ]);
 
             return response()->json([
-                'ok'  => false,
-                'msg' => 'No se pudo generar el link de invitación. Revisa rutas/URL.',
+                'ok'       => false,
+                'msg'      => 'No se pudo generar el link de invitación. Revisa rutas/URL.',
+                'trace_id' => $trace,
             ], 500);
         }
 
-        // Datos de contexto (opcional) - SOT Cliente
-        $user   = $this->cu();
+        // Contexto para correo
         $cuenta = $user?->cuenta ?? null;
         if (is_array($cuenta)) $cuenta = (object) $cuenta;
-
 
         $accountName = (string) ($cuenta?->razon_social ?? $cuenta?->nombre ?? $user?->name ?? 'Pactopia360');
         $appName     = (string) (config('app.name') ?: 'Pactopia360');
         $subject     = $appName . ' · Invitación para registrar RFC/CSD (SAT)';
 
-        // Mensaje simple (sin Mailable)
+        // Mensaje simple
         $lines = [];
         $lines[] = "Hola,";
         $lines[] = "";
-        $lines[] = "Se te invitó desde {$accountName} para registrar tu RFC y (opcional) tu e.firma (CSD) en Pactopia360.";
+        $lines[] = "Se te invitó desde {$accountName} para registrar tu RFC y tu CSD (archivos .cer/.key) en {$appName}.";
         $lines[] = "";
-        $lines[] = "Abre este enlace para continuar (válido hasta " . $expiresAt->format('Y-m-d H:i') . "):";
+        $lines[] = "Enlace (válido hasta " . $expiresAt->format('Y-m-d H:i') . "):";
         $lines[] = $signedUrl;
         $lines[] = "";
         if ($note !== '') {
@@ -3581,28 +5203,32 @@ final class SatDescargaController extends Controller
             });
         } catch (\Throwable $e) {
             Log::error('[SAT][externalInvite] mail error', [
-                'email' => $email,
-                'err'   => $e->getMessage(),
+                'trace_id' => $trace,
+                'email'    => $email,
+                'err'      => $e->getMessage(),
             ]);
 
             return response()->json([
-                'ok'  => false,
-                'msg' => 'Se generó el link, pero falló el envío de correo. Revisa configuración MAIL.',
-                'url' => $signedUrl, // útil para debug en local
+                'ok'       => false,
+                'msg'      => 'Se generó el link, pero falló el envío de correo. Revisa configuración MAIL.',
+                'url'      => $signedUrl, // útil para debug
+                'trace_id' => $trace,
             ], 500);
         }
 
         return response()->json([
-            'ok'   => true,
-            'msg'  => 'Invitación enviada.',
-            'url'  => $signedUrl, // útil para debug
-            'exp'  => $expiresAt->toIso8601String(),
+            'ok'       => true,
+            'msg'      => 'Invitación enviada.',
+            'url'      => $signedUrl,
+            'exp'      => $expiresAt->toIso8601String(),
+            'trace_id' => $trace,
         ]);
     }
 
     public function externalRegister(Request $request)
     {
-        if (!$request->hasValidSignature()) {
+        // Hard-check signature
+        if (!method_exists($request, 'hasValidSignature') || !$request->hasValidSignature()) {
             return response('Firma inválida o expirada.', 403);
         }
 
@@ -3614,7 +5240,7 @@ final class SatDescargaController extends Controller
             return response('Parámetros incompletos.', 422);
         }
 
-        // Si existe un view, úsalo
+        // Si existe view, úsalo
         if (View::exists('cliente.sat.external.register')) {
             return view('cliente.sat.external.register', [
                 'email'    => $email,
@@ -3623,13 +5249,7 @@ final class SatDescargaController extends Controller
             ]);
         }
 
-        // Fallback HTML simple con formulario funcional
-        $safeEmail    = e($email);
-        $safeCuentaId = e($cuentaId);
-        $safeInv      = e($inv);
-
-        // Endpoint POST (también firmado). Debes crear la ruta 'cliente.sat.external.store'
-        // usando URL::temporarySignedRoute con los mismos params para que firme el POST.
+        // ✅ Fallback HTML: FORM COMPLETO (RFC + ALIAS + CSD + confirm) acorde a externalStore
         $postUrl = '';
         try {
             $postUrl = URL::temporarySignedRoute(
@@ -3645,11 +5265,17 @@ final class SatDescargaController extends Controller
             $postUrl = '';
         }
 
-        $safePostUrl = e($postUrl);
-        $csrf        = e(csrf_token());
+        if ($postUrl === '') {
+            return response('No se pudo preparar el formulario (ruta POST).', 500);
+        }
+
+        $safeEmail    = e($email);
+        $safeCuentaId = e($cuentaId);
+        $safeInv      = e($inv);
+        $safePostUrl  = e($postUrl);
+        $csrf         = e(csrf_token());
 
         $html = <<<HTML
-
     <!doctype html>
     <html lang="es">
     <head>
@@ -3657,45 +5283,90 @@ final class SatDescargaController extends Controller
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Pactopia360 · Registro externo</title>
     <style>
-        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#0b1220; color:#e7eefc; margin:0; padding:24px;}
-        .card{max-width:760px; margin:0 auto; background:#101a33; border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:18px;}
+        :root{
+            --bg:#0b1220; --card:#101a33; --bd:rgba(255,255,255,.08);
+            --txt:#e7eefc; --mut:rgba(231,238,252,.72);
+            --in:rgba(255,255,255,.04); --inbd:rgba(255,255,255,.12);
+            --pri:#3b82f6; --warnbg:rgba(245,158,11,.12); --warnbd:rgba(245,158,11,.25);
+        }
+        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--txt); margin:0; padding:24px;}
+        .card{max-width:760px; margin:0 auto; background:var(--card); border:1px solid var(--bd); border-radius:16px; padding:18px;}
         h1{font-size:18px; margin:0 0 6px;}
-        p{opacity:.9; line-height:1.45}
-        .mut{opacity:.7; font-size:13px}
-        label{display:block; margin-top:10px; font-size:13px; opacity:.85}
-        input{width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04); color:#e7eefc; outline:none}
+        p{opacity:.92; line-height:1.45}
+        .mut{color:var(--mut); font-size:13px}
+        label{display:block; margin-top:10px; font-size:13px; color:var(--mut)}
+        input{width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--inbd); background:var(--in); color:var(--txt); outline:none}
+        input[type="file"]{padding:9px 12px}
         .row{display:grid; grid-template-columns:1fr; gap:10px}
-        .btn{margin-top:14px; padding:10px 12px; border-radius:12px; border:0; background:#3b82f6; color:white; font-weight:600; cursor:pointer}
-        .warn{margin-top:10px; background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.25); padding:10px; border-radius:12px}
-        code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+        @media (min-width: 720px){ .row.two{grid-template-columns:1fr 1fr} }
+        .btn{margin-top:14px; padding:10px 12px; border-radius:12px; border:0; background:var(--pri); color:white; font-weight:700; cursor:pointer; width:100%}
+        .warn{margin-top:10px; background:var(--warnbg); border:1px solid var(--warnbd); padding:10px; border-radius:12px}
+        code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px}
+        .check{display:flex; gap:10px; align-items:flex-start; margin-top:12px}
+        .check input{width:auto; margin-top:3px}
     </style>
     </head>
     <body>
     <div class="card">
-        <h1>Registro externo · RFC</h1>
+        <h1>Registro externo · RFC + CSD</h1>
         <p class="mut">Este RFC se registrará dentro de la cuenta que te invitó y aparecerá en “Mis RFCs”.</p>
 
         <div class="warn">
-        <div class="mut">Correo invitado:</div>
-        <div><code>{$safeEmail}</code></div>
-        <div class="mut" style="margin-top:6px">Cuenta destino:</div>
-        <div><code>{$safeCuentaId}</code></div>
+            <div class="mut">Correo invitado:</div>
+            <div><code>{$safeEmail}</code></div>
+            <div class="mut" style="margin-top:6px">Cuenta destino:</div>
+            <div><code>{$safeCuentaId}</code></div>
+            <div class="mut" style="margin-top:6px">Invitación:</div>
+            <div><code>{$safeInv}</code></div>
         </div>
 
-        <form method="POST" action="{$safePostUrl}">
-        <input type="hidden" name="_token" value="{$csrf}">
+        <form method="POST" action="{$safePostUrl}" enctype="multipart/form-data">
+            <input type="hidden" name="_token" value="{$csrf}">
 
-        <label>RFC</label>
-        <input name="rfc" required minlength="12" maxlength="13" placeholder="XAXX010101000">
+            <div class="row two">
+                <div>
+                    <label>RFC</label>
+                    <input name="rfc" required minlength="12" maxlength="13" placeholder="XAXX010101000">
+                </div>
+                <div>
+                    <label>Alias / Razón social (opcional)</label>
+                    <input name="alias" maxlength="190" placeholder="Mi empresa S.A. de C.V.">
+                </div>
+            </div>
 
-        <label>Alias / Razón social (opcional)</label>
-        <input name="alias" maxlength="190" placeholder="Mi empresa S.A. de C.V.">
+            <div class="row two">
+                <div>
+                    <label>Archivo CSD (.cer)</label>
+                    <input type="file" name="cer" required accept=".cer">
+                </div>
+                <div>
+                    <label>Archivo CSD (.key)</label>
+                    <input type="file" name="key" required accept=".key">
+                </div>
+            </div>
 
-        <button class="btn" type="submit">Registrar RFC</button>
+            <div class="row">
+                <label>Contraseña del .key (si aplica)</label>
+                <input name="key_password" maxlength="120" placeholder="(opcional)">
+            </div>
 
-        <p class="mut" style="margin-top:10px">
-            Nota: en esta versión solo registra RFC. Si quieres subir CSD (.cer/.key) aquí mismo, lo agregamos en el siguiente patch.
-        </p>
+            <div class="row">
+                <label>Nota (opcional)</label>
+                <input name="note" maxlength="500" placeholder="(opcional)">
+            </div>
+
+            <div class="check">
+                <input type="checkbox" name="confirm" value="1" required>
+                <div class="mut">
+                    Confirmo que estoy autorizado(a) para registrar este RFC y subir el CSD en la cuenta indicada.
+                </div>
+            </div>
+
+            <button class="btn" type="submit">Registrar RFC y CSD</button>
+
+            <p class="mut" style="margin-top:10px">
+                Tip: asegúrate de que los archivos sean exactamente <code>.cer</code> y <code>.key</code>.
+            </p>
         </form>
     </div>
     </body>
@@ -3705,474 +5376,605 @@ final class SatDescargaController extends Controller
         return response($html, 200)->header('Content-Type', 'text/html; charset=UTF-8');
     }
 
-public function externalStore(Request $request)
-{
-    // ======================================================
-    // 1) Signed URL hard-check (sin redirects)
-    // ======================================================
-    if (!method_exists($request, 'hasValidSignature') || !$request->hasValidSignature()) {
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'Firma inválida o expirada.'], 403)
-            : response('Firma inválida o expirada.', 403);
-    }
-
-    // ======================================================
-    // 2) Query params (SOT) + cuenta_id variants
-    // ======================================================
-    $email = trim((string) $request->query('email', ''));
-
-    $cuentaId = null;
-    foreach (['cuenta_id', 'cuenta', 'account_id', 'account'] as $k) {
-        $v = $request->query($k, null);
-        if (is_scalar($v) && trim((string) $v) !== '') {
-            $cuentaId = trim((string) $v);
-            break;
+    public function externalStore(Request $request)
+    {
+        // ======================================================
+        // 1) Signed URL hard-check
+        // ======================================================
+        if (!method_exists($request, 'hasValidSignature') || !$request->hasValidSignature()) {
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'Firma inválida o expirada.'], 403)
+                : response('Firma inválida o expirada.', 403);
         }
-    }
 
-    $inv = trim((string) $request->query('inv', ''));
+        // ======================================================
+        // 2) Query params (SOT) + cuenta_id variants
+        // ======================================================
+        $email = trim((string) $request->query('email', ''));
 
-    if ($email === '' || !$cuentaId) {
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'Parámetros incompletos.'], 422)
-            : response('Parámetros incompletos.', 422);
-    }
+        $cuentaId = $this->resolveCuentaIdFromQuery($request);
+        $inv      = trim((string) $request->query('inv', ''));
 
-    // Normaliza cuenta_id numérica (evita "00012" y similares)
-    $cuentaIdNorm = ctype_digit($cuentaId) ? (string) ((int) $cuentaId) : $cuentaId;
+        if ($email === '' || $cuentaId === null || $cuentaId === '') {
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'Parámetros incompletos.'], 422)
+                : response('Parámetros incompletos.', 422);
+        }
 
-    // ======================================================
-    // 3) Validación BODY (multipart/form-data) según UI
-    // ======================================================
-    $data = $request->validate([
-        'rfc'          => ['required', 'string', 'min:12', 'max:13'],
-        'alias'        => ['nullable', 'string', 'max:190'],  // UI: alias (razón social)
-        'razon_social' => ['nullable', 'string', 'max:190'],  // compat
-        'cer'          => ['required', 'file', 'max:5120'],   // 5MB
-        'key'          => ['required', 'file', 'max:5120'],   // 5MB
-        'key_password' => ['nullable', 'string', 'max:120'],
-        'pwd'          => ['nullable', 'string', 'max:120'],  // compat
-        'note'         => ['nullable', 'string', 'max:500'],
-        'confirm'      => ['accepted'], // checkbox
-    ], [
-        'confirm.accepted' => 'Debes confirmar la autorización para registrar este RFC.',
-    ]);
+        $cuentaIdNorm = ctype_digit((string) $cuentaId) ? (string) ((int) $cuentaId) : (string) $cuentaId;
 
-    $rfc = strtoupper(trim((string) $data['rfc']));
-
-    // RFC básico (SAT)
-    if (!preg_match('/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/u', $rfc)) {
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'RFC inválido.'], 422)
-            : response('RFC inválido.', 422);
-    }
-
-    $alias = trim((string) ($data['alias'] ?? $data['razon_social'] ?? ''));
-    $note  = trim((string) ($data['note'] ?? ''));
-
-    $cer = $request->file('cer');
-    $key = $request->file('key');
-
-    // Extensiones (sin depender de mime)
-    if ($cer && strtolower((string) $cer->getClientOriginalExtension()) !== 'cer') {
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'El archivo .cer no es válido.'], 422)
-            : response('El archivo .cer no es válido.', 422);
-    }
-    if ($key && strtolower((string) $key->getClientOriginalExtension()) !== 'key') {
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'El archivo .key no es válido.'], 422)
-            : response('El archivo .key no es válido.', 422);
-    }
-
-    $password = (string) ($data['key_password'] ?? $data['pwd'] ?? '');
-
-    // ======================================================
-    // 4) Persistencia (mysql_clientes) reusando upsertCredentials
-    //    - Guarda archivos en disk('public') (por compat con Admin/SAT)
-    //    - Cifra password (key_password_enc si existe)
-    //    - Meta merge seguro
-    //    - Flags pending por defecto (externo)
-    // ======================================================
-    try {
-        return DB::connection('mysql_clientes')->transaction(function () use (
-            $request, $cuentaIdNorm, $email, $inv, $rfc, $alias, $note, $cer, $key, $password
-        ) {
-            // Reusa tu servicio (igual que storeCredentials)
-            // Debe:
-            // - almacenar cer/key en disk('public')
-            // - setear cer_path/key_path en SatCredential
-            // - (idealmente) gestionar reemplazo/limpieza anterior
-            $cred = $this->service->upsertCredentials(
-                $cuentaIdNorm,
-                $rfc,
-                $cer,
-                $key,
-                $password
-            );
-
-            // Razón social / alias
-            if ($alias !== '') {
-                // preferencia: razon_social
-                try { $cred->razon_social = $alias; } catch (\Throwable) {}
-                // fallback: alias si existiera
-                try { if (property_exists($cred, 'alias')) $cred->alias = $alias; } catch (\Throwable) {}
-            }
-
-            // Ajustes de columnas opcionales (cache-safe)
-            try {
-                $conn   = $cred->getConnectionName() ?? 'mysql_clientes';
-                $table  = $cred->getTable();
-                $schema = Schema::connection($conn);
-
-                // Por externo: pending (validación posterior) si existe
-                if ($schema->hasColumn($table, 'estatus'))      $cred->estatus      = 'pending';
-                if ($schema->hasColumn($table, 'status'))       $cred->status       = 'pending';
-                if ($schema->hasColumn($table, 'validado'))     $cred->validado     = 0;
-                if ($schema->hasColumn($table, 'validated_at')) $cred->validated_at = null;
-
-                // Password cifrada (si tu upsertCredentials no lo hace)
-                // - key_password_enc si existe; si no, key_password
-                if ($password !== '') {
-                    $enc = null;
-                    try { $enc = encrypt($password); } catch (\Throwable) { $enc = base64_encode($password); }
-
-                    if ($schema->hasColumn($table, 'key_password_enc')) {
-                        $cred->key_password_enc = $enc;
-                        if ($schema->hasColumn($table, 'key_password')) {
-                            $cred->key_password = null;
-                        }
-                    } elseif ($schema->hasColumn($table, 'key_password')) {
-                        $cred->key_password = $enc;
-                    }
-                }
-
-                // Meta merge
-                if ($schema->hasColumn($table, 'meta')) {
-                    $meta = [];
-                    $current = $cred->meta ?? null;
-
-                    if (is_array($current)) {
-                        $meta = $current;
-                    } elseif (is_string($current) && $current !== '') {
-                        $tmp = json_decode($current, true);
-                        if (is_array($tmp)) $meta = $tmp;
-                    }
-
-                    $meta['source']         = 'external_register';
-                    $meta['external_email'] = $email;
-                    $meta['invite_id']      = ($inv !== '' ? $inv : null);
-                    $meta['note']           = ($note !== '' ? $note : null);
-                    $meta['ip']             = $request->ip();
-                    $meta['ua']             = (string) $request->userAgent();
-                    $meta['updated_at']     = now()->toDateTimeString();
-
-                    // evidencia de archivos (si tu modelo expone rutas)
-                    try {
-                        $meta['stored'] = [
-                            'cer' => $cred->cer_path ?? null,
-                            'key' => $cred->key_path ?? null,
-                        ];
-                    } catch (\Throwable) {}
-
-                    $cred->meta = $meta;
-                }
-            } catch (\Throwable $ignore) {
-                // no-op
-            }
-
-            $cred->save();
-
-            if ($request->wantsJson()) {
-                return response()->json([
-                    'ok'  => true,
-                    'msg' => 'RFC y CSD registrados. Ya puedes cerrar esta pestaña.',
-                    'rfc' => $rfc,
-                ], 200);
-            }
-
-            return response('RFC y CSD registrados. Ya puedes cerrar esta pestaña.', 200);
-        });
-    } catch (\Throwable $e) {
-        Log::error('[SAT][externalStore] Error', [
-            'cuenta_id' => $cuentaIdNorm,
-            'email'     => $email,
-            'inv'       => $inv,
-            'rfc'       => $rfc ?? null,
-            'err'       => $e->getMessage(),
+        // ======================================================
+        // 3) Validación BODY (multipart/form-data)
+        // ======================================================
+        $data = $request->validate([
+            'rfc'          => ['required', 'string', 'min:12', 'max:13'],
+            'alias'        => ['nullable', 'string', 'max:190'],
+            'razon_social' => ['nullable', 'string', 'max:190'],
+            'cer'          => ['required', 'file', 'max:5120'], // 5MB
+            'key'          => ['required', 'file', 'max:5120'], // 5MB
+            'key_password' => ['nullable', 'string', 'max:120'],
+            'pwd'          => ['nullable', 'string', 'max:120'],
+            'note'         => ['nullable', 'string', 'max:500'],
+            'confirm'      => ['accepted'],
+        ], [
+            'confirm.accepted' => 'Debes confirmar la autorización para registrar este RFC.',
         ]);
 
-        return $request->wantsJson()
-            ? response()->json(['ok' => false, 'msg' => 'No se pudo registrar.'], 500)
-            : response('No se pudo registrar.', 500);
-    }
-}
+        $rfc = strtoupper(trim((string) $data['rfc']));
 
+        if (!preg_match('/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/u', $rfc)) {
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'RFC inválido.'], 422)
+                : response('RFC inválido.', 422);
+        }
 
+        $alias = trim((string) ($data['alias'] ?? $data['razon_social'] ?? ''));
+        $note  = trim((string) ($data['note'] ?? ''));
 
-public function dashboardStats(Request $request): JsonResponse
-{
-    // =========================================================
-    // SAT Dashboard Stats (SOT · cuenta-scoped · defensivo)
-    // - Usa helpers del controller (cu(), cuId(), resolveCuentaIdFromUser())
-    // - Nunca global: TODO filtrado por cuenta_id
-    // - Fechas: YYYY-MM-DD + límite de rango
-    // - Breakdown por status/estado/sat_status (si existe)
-    // - Serie diaria para gráfica
-    // =========================================================
+        $cer = $request->file('cer');
+        $key = $request->file('key');
 
-    $trace = $this->trace();
+        // Extensiones strict
+        if (!$cer || strtolower((string) $cer->getClientOriginalExtension()) !== 'cer') {
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'El archivo .cer no es válido.'], 422)
+                : response('El archivo .cer no es válido.', 422);
+        }
+        if (!$key || strtolower((string) $key->getClientOriginalExtension()) !== 'key') {
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'El archivo .key no es válido.'], 422)
+                : response('El archivo .key no es válido.', 422);
+        }
 
-    // 1) Usuario autenticado (cliente portal)
-    $user = $this->cu();
+        $password = (string) ($data['key_password'] ?? $data['pwd'] ?? '');
 
-    if (!$user) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'No autenticado.',
-            'code' => 'UNAUTH',
-            'trace_id' => $trace,
-        ], 401);
-    }
-
-    // 2) Resolver cuenta_id robusto (SOT controller)
-    $cuentaId = '';
-    try { $cuentaId = (string) ($this->cuId() ?? ''); } catch (\Throwable) { $cuentaId = ''; }
-
-    // Fallbacks adicionales (por si la sesión no trae cuenta_id aún)
-    if ($cuentaId === '') {
+        // ======================================================
+        // 4) Persistencia (mysql_clientes) reusando upsertCredentials
+        // ======================================================
         try {
-            $cuentaId = (string) ($this->resolveCuentaIdFromUser($user) ?? '');
-        } catch (\Throwable) {
-            $cuentaId = '';
+            $resp = DB::connection('mysql_clientes')->transaction(function () use (
+                $request, $cuentaIdNorm, $email, $inv, $rfc, $alias, $note, $cer, $key, $password
+            ) {
+                // Reusa servicio
+                $cred = $this->service->upsertCredentials(
+                    $cuentaIdNorm,
+                    $rfc,
+                    $cer,
+                    $key,
+                    $password
+                );
+
+                // Alias
+                if ($alias !== '') {
+                    try { $cred->razon_social = $alias; } catch (\Throwable) {}
+                    try { if (property_exists($cred, 'alias')) $cred->alias = $alias; } catch (\Throwable) {}
+                }
+
+                // Flags externos + password + meta merge
+                try {
+                    $conn   = $cred->getConnectionName() ?? 'mysql_clientes';
+                    $table  = $cred->getTable();
+                    $schema = Schema::connection($conn);
+
+                    // pending
+                    if ($schema->hasColumn($table, 'estatus'))      $cred->estatus      = 'pending';
+                    if ($schema->hasColumn($table, 'status'))       $cred->status       = 'pending';
+                    if ($schema->hasColumn($table, 'validado'))     $cred->validado     = 0;
+                    if ($schema->hasColumn($table, 'validated_at')) $cred->validated_at = null;
+
+                    // password cifrada (si upsert no la cifra)
+                    if ($password !== '') {
+                        $enc = null;
+                        try { $enc = encrypt($password); } catch (\Throwable) { $enc = base64_encode($password); }
+
+                        if ($schema->hasColumn($table, 'key_password_enc')) {
+                            $cred->key_password_enc = $enc;
+                            if ($schema->hasColumn($table, 'key_password')) $cred->key_password = null;
+                        } elseif ($schema->hasColumn($table, 'key_password')) {
+                            $cred->key_password = $enc;
+                        }
+                    }
+
+                    // meta merge
+                    if ($schema->hasColumn($table, 'meta')) {
+                        $meta = [];
+                        $current = $cred->meta ?? null;
+
+                        if (is_array($current)) $meta = $current;
+                        elseif (is_string($current) && $current !== '') {
+                            $tmp = json_decode($current, true);
+                            if (is_array($tmp)) $meta = $tmp;
+                        }
+
+                        $meta['source']         = 'external_register';
+                        $meta['external_email'] = $email;
+                        $meta['invite_id']      = ($inv !== '' ? $inv : null);
+                        $meta['note']           = ($note !== '' ? $note : null);
+                        $meta['ip']             = (string) $request->ip();
+                        $meta['ua']             = (string) $request->userAgent();
+                        $meta['updated_at']     = now()->toDateTimeString();
+
+                        $meta['stored'] = [
+                            'cer' => data_get($cred, 'cer_path'),
+                            'key' => data_get($cred, 'key_path'),
+                        ];
+
+                        $cred->meta = $meta;
+                    }
+                } catch (\Throwable) {
+                    // no-op
+                }
+
+                $cred->save();
+
+                return ['rfc' => $rfc];
+            });
+
+            $msg = 'RFC y CSD registrados. Ya puedes cerrar esta pestaña.';
+
+            return $request->wantsJson()
+                ? response()->json(['ok' => true, 'msg' => $msg, 'rfc' => (string)($resp['rfc'] ?? '')], 200)
+                : response($msg, 200);
+
+        } catch (\Throwable $e) {
+            Log::error('[SAT][externalStore] Error', [
+                'cuenta_id' => $cuentaIdNorm ?? null,
+                'email'     => $email ?? null,
+                'inv'       => $inv ?? null,
+                'rfc'       => $rfc ?? null,
+                'err'       => $e->getMessage(),
+            ]);
+
+            return $request->wantsJson()
+                ? response()->json(['ok' => false, 'msg' => 'No se pudo registrar.'], 500)
+                : response('No se pudo registrar.', 500);
         }
     }
 
-    // Fallback: relación cuenta
-    if ($cuentaId === '') {
-        try {
-            $c = $user->cuenta ?? null;
-            if (is_array($c)) $c = (object) $c;
-            if (is_object($c)) {
-                $cuentaId = (string) ($c->id ?? $c->cuenta_id ?? '');
-            }
-        } catch (\Throwable) {
-            $cuentaId = '';
+    /* ============================================================
+    * ✅ DASHBOARD STATS
+    * ============================================================ */
+    public function dashboardStats(Request $request): JsonResponse
+    {
+        $trace = $this->trace();
+
+        $user = $this->cu();
+        if (!$user) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Sesión expirada.',
+                'trace_id' => $trace,
+            ], 401);
         }
-    }
 
-    // Fallback: sesión genérica
-    if ($cuentaId === '') {
-        foreach ([
-            'cliente.cuenta_id',
-            'cliente.account_id',
-            'client.cuenta_id',
-            'client.account_id',
-            'cuenta_id',
-            'account_id',
-            'client_cuenta_id',
-            'client_account_id',
-        ] as $k) {
-            try {
-                $v = (string) session($k, '');
-                if ($v !== '') { $cuentaId = $v; break; }
-            } catch (\Throwable) {}
+        $cuentaId = (string) ($this->cuId() ?: $this->resolveCuentaIdFromUser($user) ?: '');
+        $cuentaId = trim($cuentaId);
+
+        if ($cuentaId === '') {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'Cuenta inválida.',
+                'trace_id' => $trace,
+            ], 422);
         }
-    }
 
-    // (Opcional) fallback por lookup (no revienta si no existe la tabla)
-    if ($cuentaId === '') {
-        try {
-            $maybe = DB::connection('mysql_clientes')
-                ->table('cuentas')
-                ->where('user_id', (int) ($user->id ?? 0))
-                ->value('id');
+        // Rango defensivo
+        [$from, $to, $rangeDays] = $this->statsResolveDateRange($request);
 
-            if ($maybe) $cuentaId = (string) $maybe;
-        } catch (\Throwable) {
-            // ignore
+        $conn  = 'mysql_clientes';
+        $dl    = new SatDownload();
+        $table = $dl->getTable();
+
+        $schema = Schema::connection($conn);
+
+        if (!$schema->hasTable($table)) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'No existe la tabla sat_downloads.',
+                'trace_id' => $trace,
+            ], 422);
         }
-    }
 
-    if ($cuentaId === '') {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'Cuenta no encontrada.',
-            'code' => 'ACCOUNT_NOT_FOUND',
-            'trace_id' => $trace,
-            'debug' => [
-                'user_id' => $user->id ?? null,
-                'cuenta_id_field' => $user->cuenta_id ?? null,
-                'has_cuenta_rel' => isset($user->cuenta),
-                'session_cuenta_id' => session('cuenta_id'),
-            ],
-        ], 422);
-    }
+        $cols = [];
+        try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
 
-    // 3) Validación fechas (Y-m-d) + rango razonable
-    $from = (string) $request->query('from', '');
-    $to   = (string) $request->query('to', '');
+        $has = static function (string $c) use ($cols): bool {
+            return in_array($c, $cols, true);
+        };
 
-    try {
-        $toDate = $to !== ''
-            ? Carbon::createFromFormat('Y-m-d', $to)->endOfDay()
-            : now()->endOfDay();
-    } catch (\Throwable) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'Fecha "to" inválida. Usa YYYY-MM-DD.',
-            'code' => 'INVALID_TO',
-            'trace_id' => $trace,
-        ], 422);
-    }
+        $colCreated = $has('created_at') ? 'created_at' : null;
 
-    try {
-        $fromDate = $from !== ''
-            ? Carbon::createFromFormat('Y-m-d', $from)->startOfDay()
-            : now()->subDays(30)->startOfDay();
-    } catch (\Throwable) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'Fecha "from" inválida. Usa YYYY-MM-DD.',
-            'code' => 'INVALID_FROM',
-            'trace_id' => $trace,
-        ], 422);
-    }
+        $colTipo    = $has('tipo') ? 'tipo' : null;
+        $colRfc     = $has('rfc') ? 'rfc' : null;
 
-    if ($fromDate->gt($toDate)) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'El rango es inválido: "from" > "to".',
-            'code' => 'INVALID_RANGE',
-            'trace_id' => $trace,
-        ], 422);
-    }
+        $colStatus  = $has('status') ? 'status' : null;
+        $colEstado  = $has('estado') ? 'estado' : null;
+        $colSatStat = $has('sat_status') ? 'sat_status' : null;
 
-    // Limita rango para performance
-    if ($fromDate->diffInDays($toDate) > 370) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'Rango demasiado grande. Máximo 370 días.',
-            'code' => 'RANGE_TOO_LARGE',
-            'trace_id' => $trace,
-        ], 422);
-    }
+        $colPaidAt  = $has('paid_at') ? 'paid_at' : null;
 
-    // 4) Conteos estrictamente por cuenta_id (nunca global)
-    $conn   = 'mysql_clientes';
-    $table  = 'sat_downloads';
+        $colXmlA = $has('xml_count') ? 'xml_count' : null;
+        $colXmlB = $has('total_xml') ? 'total_xml' : null;
+        $colXmlC = $has('num_xml') ? 'num_xml' : null;
 
-    if (!Schema::connection($conn)->hasTable($table)) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'Tabla sat_downloads no existe.',
-            'code' => 'TABLE_NOT_FOUND',
-            'trace_id' => $trace,
-        ], 422);
-    }
+        $colCostoA = $has('costo') ? 'costo' : null;
+        $colCostoB = $has('price_mxn') ? 'price_mxn' : null;
+        $colCostoC = $has('precio') ? 'precio' : null;
 
-    $schema = Schema::connection($conn);
+        $colIsManual = $has('is_manual') ? 'is_manual' : ($has('manual') ? 'manual' : null);
 
-    $hasCuentaId = $schema->hasColumn($table, 'cuenta_id');
-    if (!$hasCuentaId) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'La tabla sat_downloads no tiene columna cuenta_id.',
-            'code' => 'MISSING_CUENTA_ID',
-            'trace_id' => $trace,
-        ], 422);
-    }
-
-    $statusCols = array_values(array_filter([
-        $schema->hasColumn($table, 'status')     ? 'status'     : null,
-        $schema->hasColumn($table, 'estado')     ? 'estado'     : null,
-        $schema->hasColumn($table, 'sat_status') ? 'sat_status' : null,
-    ]));
-
-    $createdAtCol = $schema->hasColumn($table, 'created_at') ? 'created_at' : null;
-    if (!$createdAtCol) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'La tabla sat_downloads no tiene created_at.',
-            'code' => 'MISSING_CREATED_AT',
-            'trace_id' => $trace,
-        ], 422);
-    }
-
-    // Base query: cuenta + rango
-    $q = DB::connection($conn)
-        ->table($table)
-        ->where('cuenta_id', $cuentaId)
-        ->whereBetween($createdAtCol, [$fromDate, $toDate]);
-
-    // Excluir bóveda si existe columna tipo (consistente con el resto del módulo)
-    if ($schema->hasColumn($table, 'tipo')) {
-        $q->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")');
-    }
-
-    $total = 0;
-    try {
-        $total = (int) (clone $q)->count();
-    } catch (\Throwable $e) {
-        return response()->json([
-            'ok'   => false,
-            'msg'  => 'No se pudieron calcular totales.',
-            'code' => 'COUNT_FAILED',
-            'trace_id' => $trace,
-        ], 500);
-    }
-
-    // Breakdown por estado (mejor columna disponible)
-    $byStatus = [];
-    try {
-        if (count($statusCols)) {
-            $col = $statusCols[0]; // prioridad: status > estado > sat_status (por construcción)
-            $byStatus = (clone $q)
-                ->selectRaw('COALESCE(NULLIF(TRIM(' . $col . '),""),"unknown") as st, COUNT(*) as n')
-                ->groupBy('st')
-                ->pluck('n', 'st')
-                ->toArray();
+        $colCuenta = $has('cuenta_id') ? 'cuenta_id' : ($has('account_id') ? 'account_id' : null);
+        if (!$colCuenta) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'La tabla sat_downloads no tiene cuenta_id ni account_id.',
+                'trace_id' => $trace,
+            ], 422);
         }
-    } catch (\Throwable) {
-        $byStatus = [];
-    }
 
-    // Serie por día
-    $series = [];
-    try {
-        $rows = (clone $q)
-            ->selectRaw('DATE(' . $createdAtCol . ') as d, COUNT(*) as n')
-            ->groupBy('d')
-            ->orderBy('d')
-            ->get();
+        $q = DB::connection($conn)->table($table)->where($colCuenta, $cuentaId);
+
+        // Excluir vault/bóveda (si hay tipo)
+        if ($colTipo) {
+            $q->whereRaw('LOWER(COALESCE(' . $colTipo . ', "")) NOT IN ("vault","boveda","bóveda")');
+        }
+
+        // Fecha (si existe created_at)
+        if ($colCreated) {
+            $q->whereBetween($colCreated, [
+                $from->copy()->startOfDay()->toDateTimeString(),
+                $to->copy()->endOfDay()->toDateTimeString(),
+            ]);
+        }
+
+        // Select mínimo
+        $select = ['id', $colCuenta];
+        if ($colCreated) $select[] = $colCreated;
+        if ($colTipo)    $select[] = $colTipo;
+        if ($colRfc)     $select[] = $colRfc;
+
+        if ($colStatus)  $select[] = $colStatus;
+        if ($colEstado)  $select[] = $colEstado;
+        if ($colSatStat) $select[] = $colSatStat;
+
+        if ($colPaidAt)  $select[] = $colPaidAt;
+
+        if ($colXmlA)    $select[] = $colXmlA;
+        if ($colXmlB)    $select[] = $colXmlB;
+        if ($colXmlC)    $select[] = $colXmlC;
+
+        if ($colCostoA)  $select[] = $colCostoA;
+        if ($colCostoB)  $select[] = $colCostoB;
+        if ($colCostoC)  $select[] = $colCostoC;
+
+        if ($colIsManual) $select[] = $colIsManual;
+
+        $hasMeta = $has('meta');
+        if ($hasMeta) $select[] = 'meta';
+
+        $rows = $q->select($select)->get();
+
+        // Totales
+        $totCount = 0;
+        $totXml   = 0;
+        $totCost  = 0.0;
+
+        $byStatus = [
+            'pending'     => 0,
+            'processing'  => 0,
+            'ready'       => 0,
+            'paid'        => 0,
+            'downloaded'  => 0,
+            'expired'     => 0,
+            'error'       => 0,
+            'other'       => 0,
+        ];
+
+        $byTipo = [
+            'emitidos'  => 0,
+            'recibidos' => 0,
+            'ambos'     => 0,
+            'other'     => 0,
+        ];
+
+        $byManual = [
+            'manual'  => 0,
+            'regular' => 0,
+        ];
+
+        $uniqueRfcs = [];
+
+        // Serie diaria
+        $series = [];
+        $cursor = $from->copy()->startOfDay();
+        while ($cursor->lte($to)) {
+            $k = $cursor->format('Y-m-d');
+            $series[$k] = [
+                'date'       => $k,
+                'count'      => 0,
+                'ready'      => 0,
+                'paid'       => 0,
+                'pending'    => 0,
+                'processing' => 0,
+                'error'      => 0,
+                'downloaded' => 0,
+            ];
+            $cursor->addDay();
+        }
 
         foreach ($rows as $r) {
-            $series[] = [
-                'date'  => (string) $r->d,
-                'count' => (int) $r->n,
-            ];
-        }
-    } catch (\Throwable) {
-        $series = [];
-    }
+            $totCount++;
 
-    return response()->json([
-        'ok'       => true,
-        'trace_id' => $trace,
-        'data'     => [
-            'cuenta_id' => (string) $cuentaId,
-            'range'     => [
-                'from' => $fromDate->toDateString(),
-                'to'   => $toDate->toDateString(),
+            // tipo
+            $tipoLow = '';
+            if ($colTipo && isset($r->{$colTipo})) {
+                $tipoLow = strtolower(trim((string) $r->{$colTipo}));
+            }
+
+            $tipoBucket = 'other';
+            if ($tipoLow !== '') {
+                if (in_array($tipoLow, ['emitidos','emitido','out','salida'], true) || str_contains($tipoLow, 'emit')) {
+                    $tipoBucket = 'emitidos';
+                } elseif (in_array($tipoLow, ['recibidos','recibido','in','entrada'], true) || str_contains($tipoLow, 'recib')) {
+                    $tipoBucket = 'recibidos';
+                } elseif (in_array($tipoLow, ['ambos','both','mix','mixto'], true)) {
+                    $tipoBucket = 'ambos';
+                }
+            }
+            $byTipo[$tipoBucket]++;
+
+            // RFCs únicos
+            if ($colRfc && isset($r->{$colRfc})) {
+                $rr = strtoupper(trim((string) $r->{$colRfc}));
+                if ($rr !== '') $uniqueRfcs[$rr] = true;
+            }
+
+            // xml_count
+            $xml = 0;
+            foreach ([$colXmlA, $colXmlB, $colXmlC] as $c) {
+                if ($c && isset($r->{$c}) && is_numeric($r->{$c}) && (int)$r->{$c} > 0) {
+                    $xml = (int) $r->{$c};
+                    break;
+                }
+            }
+            if ($xml <= 0 && $hasMeta && !empty($r->meta)) {
+                $m = $this->statsDecodeMeta($r->meta);
+                foreach (['xml_count','total_xml','num_xml'] as $k) {
+                    if (isset($m[$k]) && (int)$m[$k] > 0) { $xml = (int)$m[$k]; break; }
+                }
+            }
+            $totXml += max(0, $xml);
+
+            // costo
+            $cost = 0.0;
+            foreach ([$colCostoA, $colCostoB, $colCostoC] as $c) {
+                if ($c && isset($r->{$c}) && is_numeric($r->{$c}) && (float)$r->{$c} > 0) {
+                    $cost = (float) $r->{$c};
+                    break;
+                }
+            }
+            if ($cost <= 0 && $hasMeta && !empty($r->meta)) {
+                $m = $this->statsDecodeMeta($r->meta);
+                foreach (['price_mxn','costo','cost_mxn','precio'] as $k) {
+                    if (isset($m[$k]) && (float)$m[$k] > 0) { $cost = (float)$m[$k]; break; }
+                }
+            }
+            $totCost += max(0.0, $cost);
+
+            // manual?
+            $isManual = false;
+            if ($colIsManual && isset($r->{$colIsManual})) {
+                $v = $r->{$colIsManual};
+                if (is_bool($v)) $isManual = $v;
+                elseif (is_numeric($v)) $isManual = ((int)$v) === 1;
+                elseif (is_string($v)) $isManual = in_array(strtolower(trim($v)), ['1','true','yes','si','sí','on'], true);
+            } elseif ($hasMeta && !empty($r->meta)) {
+                $m = $this->statsDecodeMeta($r->meta);
+                $isManual = !empty($m['is_manual'] ?? null) || !empty($m['manual'] ?? null);
+            }
+            $byManual[$isManual ? 'manual' : 'regular']++;
+
+            // status normalizado
+            $paid = false;
+            if ($colPaidAt && !empty($r->{$colPaidAt})) $paid = true;
+
+            $rawStatus = '';
+            foreach ([$colStatus, $colEstado, $colSatStat] as $c) {
+                if ($c && isset($r->{$c}) && trim((string)$r->{$c}) !== '') {
+                    $rawStatus = (string) $r->{$c};
+                    break;
+                }
+            }
+
+            $st = $this->statsNormalizeStatus($rawStatus, $paid);
+            if (!isset($byStatus[$st])) $st = 'other';
+            $byStatus[$st]++;
+
+            // serie por día
+            if ($colCreated && !empty($r->{$colCreated})) {
+                try {
+                    $dt  = Carbon::parse((string) $r->{$colCreated});
+                    $key = $dt->format('Y-m-d');
+
+                    if (isset($series[$key])) {
+                        $series[$key]['count']++;
+                        if (isset($series[$key][$st])) $series[$key][$st]++;
+                    }
+                } catch (\Throwable) {}
+            }
+        }
+
+        return response()->json([
+            'ok'       => true,
+            'trace_id' => $trace,
+            'range'    => [
+                'from' => $from->toDateString(),
+                'to'   => $to->toDateString(),
+                'days' => $rangeDays,
             ],
             'totals' => [
-                'total'     => (int) $total,
-                'by_status' => $byStatus,
+                'count'        => $totCount,
+                'rfcs'         => count($uniqueRfcs),
+                'xml_count'    => $totXml,
+                'cost_mxn'     => round($totCost, 2),
+                'avg_cost_mxn' => $totCount > 0 ? round($totCost / $totCount, 2) : 0.0,
             ],
-            'series' => $series,
-        ],
-    ]);
-
-    
+            'breakdown' => [
+                'status' => $byStatus,
+                'tipo'   => $byTipo,
+                'manual' => $byManual,
+            ],
+            'series' => array_values($series),
+        ], 200);
     }
+
+    /**
+     * Rango por defecto: últimos 30 días.
+     * Cap: máx 180 días (evita consultas pesadas).
+     * Acepta ?from=YYYY-MM-DD&to=YYYY-MM-DD
+     */
+    private function statsResolveDateRange(Request $request): array
+    {
+        $maxDays = 180;
+
+        $fromQ = trim((string) $request->query('from', ''));
+        $toQ   = trim((string) $request->query('to', ''));
+
+        $to   = Carbon::now()->endOfDay();
+        $from = Carbon::now()->copy()->subDays(29)->startOfDay(); // 30 días incl.
+
+        try { if ($toQ !== '')   $to   = Carbon::parse($toQ)->endOfDay(); } catch (\Throwable) {}
+        try { if ($fromQ !== '') $from = Carbon::parse($fromQ)->startOfDay(); } catch (\Throwable) {}
+
+        if ($from->gt($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+
+        $days = (int) max(1, $from->diffInDays($to) + 1);
+
+        if ($days > $maxDays) {
+            $from = $to->copy()->subDays($maxDays - 1)->startOfDay();
+            $days = $maxDays;
+        }
+
+        return [$from, $to, $days];
+    }
+
+    private function statsDecodeMeta($meta): array
+    {
+        try {
+            if (is_array($meta)) return $meta;
+            if (is_string($meta) && $meta !== '') {
+                $tmp = json_decode($meta, true);
+                return is_array($tmp) ? $tmp : [];
+            }
+        } catch (\Throwable) {}
+        return [];
+    }
+    
+    /**
+     * Normaliza status para dashboard:
+     * - paid_at manda (paid)
+     * - downloaded reconocido
+     * - ready/done/listo/completed -> ready
+     * - requested/pending -> pending
+     * - processing/en_proceso -> processing
+     * - error/failed/cancelled -> error
+     * - expirada/expired -> expired
+     */
+    private function statsNormalizeStatus(string $raw, bool $paid): string
+    {
+        if ($paid) return 'paid';
+
+        $s = strtolower(trim($raw));
+        if ($s === '') return 'pending';
+
+        if (in_array($s, ['downloaded','descargado','descargada'], true)) return 'downloaded';
+        if (in_array($s, ['ready','done','listo','completed','finalizado','finished','terminado'], true)) return 'ready';
+        if (in_array($s, ['pending','pendiente','requested','request','solicitud','created','creada'], true)) return 'pending';
+        if (in_array($s, ['processing','en_proceso','procesando','working','running'], true)) return 'processing';
+        if (in_array($s, ['expired','expirada','expirado'], true)) return 'expired';
+        if (in_array($s, ['error','failed','cancelled','canceled'], true)) return 'error';
+        if (in_array($s, ['paid','pagado','pagada'], true)) return 'paid';
+
+        return 'other';
+    }
+
+    /* ============================================================
+    * Helpers internos para externalStore
+    * ============================================================ */
+
+    private function resolveCuentaIdFromQuery(Request $request): ?string
+    {
+        foreach (['cuenta_id', 'cuenta', 'account_id', 'account'] as $k) {
+            $v = $request->query($k, null);
+            if (is_scalar($v)) {
+                $s = trim((string) $v);
+                if ($s !== '') return $s;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * ✅ Huella del PDF (anti-tamper / protección ligera)
+     * - No es seguridad criptográfica "legal", pero evita cambios invisibles.
+     * - Se calcula con campos clave + APP_KEY.
+     */
+    private function quotePdfHash(array $payload): string
+    {
+        try {
+            $safe = [
+                'mode'         => (string) ($payload['mode'] ?? ''),
+                'folio'        => (string) ($payload['folio'] ?? ''),
+                'cuenta_id'    => (string) ($payload['cuenta_id'] ?? ''),
+                'empresa'      => (string) ($payload['empresa'] ?? ''),
+                'xml_count'    => (int)    ($payload['xml_count'] ?? 0),
+                'base'         => (float)  ($payload['base'] ?? 0),
+                'discount_pct' => (float)  ($payload['discount_pct'] ?? 0),
+                'subtotal'     => (float)  ($payload['subtotal'] ?? 0),
+                'iva_rate'     => (int)    ($payload['iva_rate'] ?? 0),
+                'iva_amount'   => (float)  ($payload['iva_amount'] ?? 0),
+                'total'        => (float)  ($payload['total'] ?? 0),
+                'valid_until'  => is_object($payload['valid_until'] ?? null)
+                    ? (string) ($payload['valid_until']->toDateString() ?? '')
+                    : (string) ($payload['valid_until'] ?? ''),
+            ];
+
+            $key = (string) config('app.key', '');
+            $raw = json_encode($safe, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+            // Normaliza "base64:" por si viene así
+            if (str_starts_with($key, 'base64:')) {
+                $key = base64_decode(substr($key, 7)) ?: $key;
+            }
+
+            // HMAC SHA256 -> corto (16) para imprimir en PDF
+            return strtoupper(substr(hash_hmac('sha256', (string)$raw, (string)$key), 0, 16));
+        } catch (\Throwable) {
+            return strtoupper(substr(sha1((string) microtime(true)), 0, 16));
+        }
+    }
+
+
 }

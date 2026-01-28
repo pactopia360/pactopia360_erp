@@ -26,6 +26,9 @@ class VerificationController extends Controller
     /** @var array<string, array<int,string>> */
     private array $otpColumnsCache = [];
 
+    /** @var array<string, array<int,string>> */
+    private array $accountsColumnsCache = [];
+
     /* =========================
      * Helpers de guard unificado
      * ========================= */
@@ -195,16 +198,13 @@ class VerificationController extends Controller
             abort(404);
         }
 
+        $emailFromLink = trim($emailFromLink);
+
         DB::connection(self::CONN_ADMIN)
             ->table('accounts')
             ->where('id', $accountIdFromLink)
             ->where(function ($q) use ($emailFromLink) {
-                $q->where('correo_contacto', $emailFromLink)
-                    ->orWhere('correo_contacto', Str::lower($emailFromLink))
-                    ->orWhere('correo_contacto', Str::upper($emailFromLink))
-                    ->orWhere('email', $emailFromLink)
-                    ->orWhere('email', Str::lower($emailFromLink))
-                    ->orWhere('email', Str::upper($emailFromLink));
+                $this->whereAccountEmailMatches($q, $emailFromLink);
             })
             ->update([
                 'email_verified_at' => now(),
@@ -271,10 +271,23 @@ class VerificationController extends Controller
     /* =========================================================
      * Reenviar verificación de correo
      * ========================================================= */
-    public function showResendEmail()
+    public function showResendEmail(Request $request)
     {
-        return view('cliente.auth.verify_email_resend');
+        // Prefill si viene por query (ej. ?email=...).
+        $email = trim((string) $request->query('email', ''));
+
+        // Si ya hay una sesión de verify.email, úsala.
+        $sessEmail = (string) session('verify.email', '');
+        if ($email === '' && $sessEmail !== '') {
+            $email = $sessEmail;
+        }
+
+        // IMPORTANTE: esta pantalla SIEMPRE es formulario (no “enlace inválido”)
+        return view('cliente.auth.verify_email_resend', [
+            'email' => $email !== '' ? Str::lower($email) : '',
+        ]);
     }
+
 
     public function resendEmail(Request $request)
     {
@@ -291,10 +304,12 @@ class VerificationController extends Controller
 
         $email = Str::lower((string) $request->email);
 
+        // ✅ FIX: buscar por columnas reales existentes (evita "Unknown column correo_contacto")
         $account = DB::connection(self::CONN_ADMIN)
             ->table('accounts')
-            ->where('correo_contacto', $email)
-            ->orWhere('email', $email)
+            ->where(function ($q) use ($email) {
+                $this->whereAccountEmailMatches($q, $email);
+            })
             ->orderByDesc('id')
             ->first();
 
@@ -419,7 +434,7 @@ class VerificationController extends Controller
         $schemaAdmin = Schema::connection(self::CONN_ADMIN);
         $emailCol    = $schemaAdmin->hasColumn('accounts', 'correo_contacto')
             ? 'correo_contacto'
-            : ($schemaAdmin->hasColumn('accounts', 'email') ? 'email' : 'correo_contacto');
+            : ($schemaAdmin->hasColumn('accounts', 'email') ? 'email' : 'email');
 
         $acc = DB::connection(self::CONN_ADMIN)
             ->table('accounts')
@@ -820,9 +835,11 @@ class VerificationController extends Controller
 
         // AUDITORÍA (archivo)
         try {
+            $emailCol = $this->adminPrimaryEmailColumn();
+
             $accInfo = DB::connection(self::CONN_ADMIN)
                 ->table('accounts')
-                ->select('rfc', 'razon_social', 'correo_contacto', 'plan')
+                ->select('rfc', 'razon_social', "{$emailCol} as correo", 'plan')
                 ->where('id', $accountId)
                 ->first();
 
@@ -833,7 +850,7 @@ class VerificationController extends Controller
                 'usuario_id'   => $uid,
                 'rfc'          => $accInfo->rfc ?? null,
                 'razon_social' => $accInfo->razon_social ?? null,
-                'correo'       => $accInfo->correo_contacto ?? null,
+                'correo'       => $accInfo->correo ?? null,
                 'plan'         => $accInfo->plan ?? null,
                 'ip'           => $request->ip(),
                 'user_agent'   => $request->userAgent(),
@@ -891,7 +908,11 @@ class VerificationController extends Controller
             return null;
         }
 
-        $email = $acc->correo_contacto ?? $acc->email ?? null;
+        // ✅ FIX: columna real de email
+        $emailCol = $this->adminPrimaryEmailColumn();
+        $email    = (string) (data_get($acc, $emailCol) ?? data_get($acc, 'email') ?? '');
+        $email    = $email ? Str::lower($email) : null;
+
         $rfc   = $acc->rfc ?? null;
         $plan  = strtoupper((string) ($acc->plan ?? 'FREE'));
 
@@ -1069,6 +1090,72 @@ class VerificationController extends Controller
         }
 
         return 'telefono';
+    }
+
+    /**
+     * Columnas reales de email en mysql_admin.accounts (orden de preferencia).
+     *
+     * @return array<int,string>
+     */
+    private function adminEmailColumns(): array
+    {
+        if (isset($this->accountsColumnsCache['email_cols'])) {
+            return $this->accountsColumnsCache['email_cols'];
+        }
+
+        $candidates = ['correo_contacto', 'email', 'correo', 'email_contacto'];
+        $found = [];
+
+        foreach ($candidates as $c) {
+            try {
+                if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', $c)) {
+                    $found[] = $c;
+                }
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        // si no detecta, por lo menos intenta con email
+        if (empty($found)) {
+            $found = ['email'];
+        }
+
+        return $this->accountsColumnsCache['email_cols'] = $found;
+    }
+
+    /**
+     * Columna primaria de email (la primera disponible).
+     */
+    private function adminPrimaryEmailColumn(): string
+    {
+        $cols = $this->adminEmailColumns();
+        return (string) ($cols[0] ?? 'email');
+    }
+
+    /**
+     * Aplica WHERE para encontrar una cuenta por email usando las columnas reales existentes.
+     * - Usa adminEmailColumns() (detecta correo_contacto/email/etc)
+     * - Hace comparación case-insensitive (LOWER)
+     */
+    private function whereAccountEmailMatches($q, string $email): void
+    {
+        $email = Str::lower(trim($email));
+        $cols  = $this->adminEmailColumns();
+
+        $q->where(function ($qq) use ($cols, $email) {
+            $first = true;
+
+            foreach ($cols as $col) {
+                // LOWER(col) = email
+                if ($first) {
+                    $qq->whereRaw("LOWER(`{$col}`) = ?", [$email]);
+                    $first = false;
+                } else {
+                    $qq->orWhereRaw("LOWER(`{$col}`) = ?", [$email]);
+                }
+            }
+        });
     }
 
     private function adminDisplayName(object $account): string

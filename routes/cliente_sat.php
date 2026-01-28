@@ -18,13 +18,11 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Request;
 
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 use App\Http\Controllers\Cliente\Sat\SatDescargaController;
-use App\Http\Controllers\Cliente\Sat\SatDashboardController;
 use App\Http\Controllers\Cliente\Sat\SatReporteController;
 use App\Http\Controllers\Cliente\Sat\ExcelViewerController;
 use App\Http\Controllers\Cliente\Sat\DiotController;
@@ -32,12 +30,6 @@ use App\Http\Controllers\Cliente\Sat\VaultController;
 use App\Http\Controllers\Cliente\Sat\SatCartController;
 use App\Http\Controllers\Cliente\Sat\SatZipController;
 use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -46,8 +38,11 @@ use Illuminate\Support\Str;
 | Prefijo final: /cliente/sat/...
 | Names final:   cliente.sat.*  (por as('cliente.') en web.php + as('sat.') aquí)
 |
-| Middleware base:
-| - auth:web
+| IMPORTANTE:
+| - Este archivo YA está envuelto por middleware('cliente') en routes/web.php.
+| - Por eso aquí NO debemos declarar auth:* (evita loops /cliente/login).
+|
+| Middleware base sugerido aquí:
 | - session.cliente
 | - account.active
 |
@@ -111,11 +106,11 @@ $thrVaultExport = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 // =========================
 // Grupo base SAT (interno)
 // =========================
-Route::middleware(['auth:web', 'session.cliente', 'account.active'])
+// OJO: NO auth:* aquí, porque ya viene desde web.php (middleware('cliente'))
+Route::middleware(['session.cliente', 'account.active'])
     ->prefix('sat')
     ->as('sat.')
     ->group(function () use (
-        $isLocal,
         $noCsrfLocal,
         $onlyIfMethod,
         $thrCredsAlias,
@@ -131,9 +126,9 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
     ) {
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Dashboard SAT
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | GET /cliente/sat
         */
         Route::get('/', [SatDescargaController::class, 'index'])->name('index');
@@ -142,28 +137,25 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         |--------------------------------------------------------------------------
         | Dashboard SAT (JSON)
         |--------------------------------------------------------------------------
-        | GET /cliente/sat/dashboard/stats  -> cliente.sat.dashboard.stats
-        | (Filtrado por cuenta del usuario autenticado)
+        | GET /cliente/sat/dashboard/stats -> cliente.sat.dashboard.stats
         */
         Route::get('/dashboard/stats', [SatDescargaController::class, 'dashboardStats'])
-        ->middleware($thrVerify)
-        ->name('dashboard.stats');
+            ->middleware($thrVerify)
+            ->name('dashboard.stats');
 
         /*
-        |----------------------------------------------------------------------
-        | ✅ DESCARGAS MANUALES (cliente.sat.manual.*) — cache-safe
-        |----------------------------------------------------------------------
-        | Nota: Route::redirect usa RedirectController (NO closure), compatible con route:cache.
-        | Redirige a un fragment fijo /cliente/sat#... (estable por tu montaje en web.php).
+        |--------------------------------------------------------------------------
+        | ✅ DESCARGAS MANUALES (cache-safe)
+        |--------------------------------------------------------------------------
         */
         Route::redirect('/manual',        '/cliente/sat#block-manual-downloads', 302)->name('manual.index');
         Route::redirect('/manual/quote',  '/cliente/sat#block-manual-downloads', 302)->name('manual.quote');
         Route::redirect('/manual/create', '/cliente/sat#block-manual-downloads', 302)->name('manual.create');
 
         /*
-        |----------------------------------------------------------------------
-        | ✅ CALCULADORA RÁPIDA (GUÍAS RÁPIDAS) — SIN RFC (quick.*)
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
+        | ✅ CALCULADORA RÁPIDA (quick.*)
+        |--------------------------------------------------------------------------
         */
         $onlyIfMethod(SatDescargaController::class, 'quickCalc', function () use ($thrRequest) {
             return Route::post('/quick/calc', [SatDescargaController::class, 'quickCalc'])
@@ -178,18 +170,18 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         });
 
         /*
-        |----------------------------------------------------------------------
-        | Modo demo/prod (cookie sat_mode) — cache-safe
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
+        | Modo demo/prod (cookie sat_mode)
+        |--------------------------------------------------------------------------
         */
         $mode = Route::post('/mode', [SatExternalPublicController::class, 'toggleMode'])
             ->name('mode');
         $noCsrfLocal($mode);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | RFC / Credenciales / Alias
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         $credStore = Route::post('/credenciales/store', [SatDescargaController::class, 'storeCredentials'])
             ->middleware($thrCredsAlias)
@@ -211,70 +203,43 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
             ->name('rfc.delete');
         $noCsrfLocal($rfcDelete);
 
-      
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | ✅ REGISTRO EXTERNO / INVITE (cliente.sat.external.*)
-        |----------------------------------------------------------------------
-        | POST /cliente/sat/external/invite    -> cliente.sat.external.invite
-        | GET  /cliente/sat/external/register  -> cliente.sat.external.register (SIGNED, sin login)
-        | POST /cliente/sat/external/register  -> cliente.sat.external.register.store (SIGNED, sin login)
-        |
-        | FIXES:
-        | - Evita 500 si falta la vista: usa view()->exists() + fallback HTML mínimo.
-        | - Unifica password a key_password (misma convención que módulo interno).
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
+        | GET  /cliente/sat/external/register  -> firmado (SIN LOGIN)
+        | POST /cliente/sat/external/register  -> firmado (SIN LOGIN)
         */
-
-        // GET invite: si lo abren en navegador, 405 explícito (route:cache safe)
         Route::get('/external/invite', [SatExternalPublicController::class, 'externalInviteGet'])
-             ->name('external.invite.get');
+            ->name('external.invite.get');
 
-        // POST invite (desde UI interna)
         if (method_exists(SatDescargaController::class, 'externalInvite')) {
-
             $rInvite = Route::post('/external/invite', [SatDescargaController::class, 'externalInvite'])
                 ->middleware($thrCredsAlias)
                 ->name('external.invite');
             $noCsrfLocal($rInvite);
-
         } else {
-
             $rInvite = Route::post('/external/invite', [SatExternalPublicController::class, 'externalInviteFallback'])
                 ->middleware($thrCredsAlias)
                 ->name('external.invite');
-
             $noCsrfLocal($rInvite);
         }
 
-        /**
-         * GET register (SIGNED) — UI Pactopia + formulario
-         * SIN LOGIN: removemos middlewares del grupo.
-         */
+        // SIN LOGIN: removemos middlewares del grupo (session/account) y el middleware('cliente') del web.php debe permitir signed guest
         Route::get('/external/register', [SatExternalPublicController::class, 'externalRegisterForm'])
-            ->withoutMiddleware(['auth:web', 'session.cliente', 'account.active'])
+            ->withoutMiddleware(['session.cliente', 'account.active'])
             ->name('external.register');
 
-
-
-        /**
-         * POST register (SIGNED) — crea SatCredential + guarda CSD
-         * SIN LOGIN: removemos middlewares del grupo.
-         */
         $rRegisterStore = Route::post('/external/register', [SatExternalPublicController::class, 'externalRegisterStore'])
             ->middleware([$thrCredsAlias])
-            ->withoutMiddleware(['auth:web', 'session.cliente', 'account.active'])
+            ->withoutMiddleware(['session.cliente', 'account.active'])
             ->name('external.register.store');
-
         $noCsrfLocal($rRegisterStore);
 
-
-
-
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Descargas masivas SAT
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         $req = Route::post('/request', [SatDescargaController::class, 'request'])
             ->middleware($thrRequest)
@@ -308,29 +273,29 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         }, applyNoCsrfLocal: false);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | BÓVEDA (protegida por vault.active)
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         Route::get('/vault', [VaultController::class, 'index'])
-            ->middleware('vault.active')
+            ->middleware(['vault.active'])
             ->name('vault');
 
         $onlyIfMethod(VaultController::class, 'quick', function () {
             return Route::get('/vault/quick', [VaultController::class, 'quick'])
-                ->middleware('vault.active')
+                ->middleware(['vault.active'])
                 ->name('vault.quick');
         }, applyNoCsrfLocal: false);
 
         $onlyIfMethod(VaultController::class, 'importForm', function () {
             return Route::get('/vault/import', [VaultController::class, 'importForm'])
-                ->middleware('vault.active')
+                ->middleware(['vault.active'])
                 ->name('vault.import.form');
         }, applyNoCsrfLocal: false);
 
         $onlyIfMethod(VaultController::class, 'importStore', function () {
             return Route::post('/vault/import', [VaultController::class, 'importStore'])
-                ->middleware('vault.active')
+                ->middleware(['vault.active'])
                 ->name('vault.import.store');
         });
 
@@ -360,7 +325,7 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
 
         $onlyIfMethod(VaultController::class, 'fromDownload', function () {
             return Route::post('/vault/from-download/{download}', [VaultController::class, 'fromDownload'])
-                ->middleware('vault.active')
+                ->middleware(['vault.active'])
                 ->where('download', '[A-Za-z0-9\-_]+')
                 ->name('vault.fromDownload');
         });
@@ -373,9 +338,9 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         }, applyNoCsrfLocal: false);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Carrito SAT
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         Route::get('/cart', [SatCartController::class, 'index'])->name('cart.index');
 
@@ -409,9 +374,9 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         $noCsrfLocal($cartCheckout);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Reportes SAT
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         Route::get('/reporte', [SatReporteController::class, 'index'])->name('report');
 
@@ -437,9 +402,9 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         $noCsrfLocal($rNotes);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Excel / DIOT
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         $excelPrev = Route::post('/excel/preview', [ExcelViewerController::class, 'preview'])
             ->middleware($thrExcelPrev)
@@ -453,9 +418,9 @@ Route::middleware(['auth:web', 'session.cliente', 'account.active'])
         $noCsrfLocal($diot);
 
         /*
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         | Pago Stripe directo (LEGACY - solo si existe)
-        |----------------------------------------------------------------------
+        |--------------------------------------------------------------------------
         */
         $onlyIfMethod(SatDescargaController::class, 'pay', function () use ($thrDownload, $noCsrfLocal) {
             $pay = Route::post('/pay', [SatDescargaController::class, 'pay'])

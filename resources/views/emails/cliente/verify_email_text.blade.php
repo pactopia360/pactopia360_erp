@@ -1,17 +1,21 @@
 {{-- resources/views/emails/cliente/verify_email_text.blade.php --}}
 @php
-  use Carbon\Carbon;
+  $producto  = $producto ?? 'Pactopia360';
+  $nombre    = $nombre ?? 'Usuario';
+  $soporte   = $soporte ?? 'soporte@pactopia.com';
 
-  $producto     = $producto     ?? 'Pactopia360';
-  $nombre       = $nombre       ?? 'Usuario';
-  $actionUrl    = $actionUrl    ?? ( \Illuminate\Support\Facades\Route::has('cliente.verificar.email')
-                    ? route('cliente.verificar.email')
-                    : url('/cliente/email/verify') );
-  $soporte      = $soporte      ?? 'soporte@pactopia.com';
+  // Si el controller pasa actionUrl, úsalo. Si no, fallback seguro al login.
+  $loginUrl  = $loginUrl ?? (\Illuminate\Support\Facades\Route::has('cliente.login')
+              ? route('cliente.login')
+              : url('/cliente/login'));
+
+  $actionUrl = $actionUrl ?? $loginUrl;
+
   $expiresHours = (int)($expiresHours ?? 24);
   $tz           = $tz ?? 'America/Mexico_City';
-  $expiraEn     = Carbon::now($tz)->addHours($expiresHours)->format('Y-m-d H:i T');
+  $expiraEn     = \Illuminate\Support\Carbon::now($tz)->addHours($expiresHours)->format('Y-m-d H:i T');
 @endphp
+
 
 Confirma tu correo para activar tu cuenta en {{ $producto }}.
 
