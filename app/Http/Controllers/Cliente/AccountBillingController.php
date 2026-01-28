@@ -66,17 +66,26 @@ final class AccountBillingController extends Controller
         ]);
 
         if ($accountId <= 0) {
-            Log::warning('[BILLING] statement: account unresolved', [
+            Log::warning('[BILLING] statement: account unresolved (redirect login)', [
                 'user_id' => $u?->id,
                 'src'     => $src,
-                'sess_client_account_id' => $r->session()->get('client.account_id'),
-                'sess_account_id'        => $r->session()->get('account_id'),
-                'sess_client_cuenta_id'  => $r->session()->get('client.cuenta_id'),
-                'sess_cuenta_id'         => $r->session()->get('cuenta_id'),
-                'sess_client_account_id2'=> $r->session()->get('client_account_id'),
+                'session' => [
+                    'verify.account_id'   => $r->session()->get('verify.account_id'),
+                    'paywall.account_id'  => $r->session()->get('paywall.account_id'),
+                    'client.account_id'   => $r->session()->get('client.account_id'),
+                    'account_id'          => $r->session()->get('account_id'),
+                    'client.cuenta_id'    => $r->session()->get('client.cuenta_id'),
+                    'cuenta_id'           => $r->session()->get('cuenta_id'),
+                    'client_account_id'   => $r->session()->get('client_account_id'),
+                ],
             ]);
-            abort(403, 'Cuenta no seleccionada.');
+
+            // ✅ No 403: manda al login y conserva el destino
+            return redirect()->route('cliente.login', [
+                'next' => '/cliente/estado-de-cuenta',
+            ]);
         }
+
 
         // Datos UI (RFC/Alias)
         [$rfc, $alias] = $this->resolveRfcAliasForUi($r, $accountId);
@@ -2174,57 +2183,78 @@ final class AccountBillingController extends Controller
 
     private function resolveAdminAccountId(Request $req): array
     {
-        $u = Auth::guard('web')->user();
+    $u = Auth::guard('web')->user();
 
-        if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-            try { $u->load('cuenta'); } catch (\Throwable $e) {}
-        }
-
-        $adminId = $u?->cuenta?->admin_account_id ?? null;
-        if ($adminId) return [(string) $adminId, 'user.cuenta.admin_account_id'];
-
-        if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
-            return [(string) $u->admin_account_id, 'user.admin_account_id'];
-        }
-
-        $fallback = $req->session()->get('client.account_id');
-        if ($fallback) return [(string) $fallback, 'session.client.account_id'];
-
-        $fallback2 = $req->session()->get('account_id');
-        if ($fallback2) return [(string) $fallback2, 'session.account_id'];
-
-        $clientCuentaId = $req->session()->get('client.cuenta_id')
-            ?? $req->session()->get('cuenta_id')
-            ?? null;
-
-        if ($clientCuentaId) {
-            try {
-                $cli = config('p360.conn.clients', 'mysql_clientes');
-                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                    $lc   = array_map('strtolower', $cols);
-                    $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                    $sel = ['id'];
-                    foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
-                        if ($has($c)) $sel[] = $c;
-                    }
-
-                    $cc = DB::connection($cli)->table('cuentas_cliente')
-                        ->select(array_values(array_unique($sel)))
-                        ->where('id', $clientCuentaId)
-                        ->first();
-
-                    if ($cc) {
-                        $id = $this->resolveAdminAccountIdFromClientAccount($cc);
-                        if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
-                    }
-                }
-            } catch (\Throwable $e) {}
-        }
-
-        return [null, 'unresolved'];
+    // intenta cargar relación cuenta si existe
+    if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
+        try { $u->load('cuenta'); } catch (\Throwable $e) {}
     }
+
+    // 1) Relación del usuario (mejor fuente)
+    $adminId = $u?->cuenta?->admin_account_id ?? null;
+    if ($adminId) return [(string) $adminId, 'user.cuenta.admin_account_id'];
+
+    // 2) Campo directo en usuario (si existe)
+    if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
+        return [(string) $u->admin_account_id, 'user.admin_account_id'];
+    }
+
+    // 3) ✅ Claves que tú mismo seteas en LoginController
+    $v1 = $req->session()->get('verify.account_id');
+    if ($v1 && is_numeric($v1)) return [(string) $v1, 'session.verify.account_id'];
+
+    $v2 = $req->session()->get('paywall.account_id');
+    if ($v2 && is_numeric($v2)) return [(string) $v2, 'session.paywall.account_id'];
+
+    // 4) Compat: claves antiguas / variantes
+    foreach ([
+        'client.admin_account_id',
+        'client.account_id',
+        'client_account_id',
+        'admin_account_id',
+        'account_id',
+    ] as $k) {
+        $v = $req->session()->get($k);
+        if ($v && is_numeric($v)) return [(string) $v, 'session.'.$k];
+    }
+
+    // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
+    $clientCuentaId = $req->session()->get('client.cuenta_id')
+        ?? $req->session()->get('cuenta_id')
+        ?? null;
+
+    if ($clientCuentaId) {
+        try {
+            $cli = config('p360.conn.clients', 'mysql_clientes');
+
+            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                $lc   = array_map('strtolower', $cols);
+                $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                $sel = ['id'];
+                foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
+                    if ($has($c)) $sel[] = $c;
+                }
+
+                $cc = DB::connection($cli)->table('cuentas_cliente')
+                    ->select(array_values(array_unique($sel)))
+                    ->where('id', $clientCuentaId)
+                    ->first();
+
+                if ($cc) {
+                    $id = $this->resolveAdminAccountIdFromClientAccount($cc);
+                    if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignora
+        }
+    }
+
+    return [null, 'unresolved'];
+    }
+
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
     {
