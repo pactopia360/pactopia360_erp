@@ -1,6 +1,5 @@
-{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\auth\verify_phone.blade.php --}}
-@extends('layouts.guest')
-@section('hide-brand','1')
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\auth\verify_phone.blade.php (v3 · flow-safe) --}}
+@extends('layouts.cliente-auth')
 @section('title','Verificar teléfono · Pactopia360')
 
 @php
@@ -11,20 +10,24 @@
    * @var string $state "otp"|"phone"
    */
 
+  use Illuminate\Support\Facades\Route;
+
   // ✅ Resolver account_id de forma robusta:
-  // 1) account->id (desde controller)
-  // 2) request('account_id') (fallback por query o hidden)
+  // 1) query (?account_id=)
+  // 2) input (POST hidden)
   // 3) session('verify.account_id')
-  $aid = (int) data_get($account, 'id', 0);
+  // 4) account->id (desde controller)
+  $aid = (int) request()->query('account_id', 0);
   if ($aid <= 0) $aid = (int) request()->input('account_id', 0);
   if ($aid <= 0) $aid = (int) session('verify.account_id', 0);
+  if ($aid <= 0) $aid = (int) data_get($account, 'id', 0);
 
-  // Logos (tus rutas reales)
+  // Logos (rutas reales)
   $logoLight = asset('assets/client/p360-black.png'); // modo claro
   $logoDark  = asset('assets/client/p360-white.png'); // modo oscuro
 
   // Normalizar state
-  $state = ($state ?? 'phone');
+  $state = (string) ($state ?? 'phone');
   if (!in_array($state, ['phone','otp'], true)) $state = 'phone';
 
   // Si NO tenemos account_id, forzamos estado phone y mostramos alerta
@@ -32,6 +35,13 @@
   if ($missingAccount) {
     $state = 'phone';
   }
+
+  // URLs seguras
+  $resendEmailUrl = Route::has('cliente.verify.email.resend')
+      ? route('cliente.verify.email.resend')
+      : url('/cliente/verificar/email/reenviar');
+
+  $loginUrl = Route::has('cliente.login') ? route('cliente.login') : url('/cliente/login');
 @endphp
 
 @push('styles')
@@ -55,13 +65,21 @@
     <div class="vf-sub">Verificación en dos pasos (WhatsApp / SMS)</div>
 
     {{-- Alertas --}}
-    @if (session('ok'))      <div class="vf-alert vf-alert-ok">{{ session('ok') }}</div> @endif
-    @if (session('warning')) <div class="vf-alert vf-alert-warn">{{ session('warning') }}</div> @endif
+    @if (session('ok'))       <div class="vf-alert vf-alert-ok">{{ session('ok') }}</div> @endif
+    @if (session('warning'))  <div class="vf-alert vf-alert-warn">{{ session('warning') }}</div> @endif
+    @if (session('info'))     <div class="vf-alert vf-alert-warn">{{ session('info') }}</div> @endif
 
     @if ($missingAccount)
       <div class="vf-alert vf-alert-warn">
-        No pudimos detectar tu sesión de verificación (account_id).<br>
-        Regresa y solicita un enlace nuevo de verificación de correo, o abre el enlace desde el mismo dispositivo/navegador.
+        <strong>No pudimos detectar tu sesión de verificación.</strong><br>
+        Para continuar necesitas solicitar un enlace nuevo de verificación de correo (o abrir el enlace desde el mismo dispositivo/navegador).
+      </div>
+
+      <div class="vf-helper vf-helper-top" style="margin-top:10px;">
+        <a class="vf-resend-btn" href="{{ $resendEmailUrl }}" style="display:inline-flex;align-items:center;gap:8px;">
+          Solicitar enlace nuevo
+          <span aria-hidden="true">→</span>
+        </a>
       </div>
     @endif
 
@@ -71,7 +89,7 @@
       </div>
     @endif
 
-        {{-- DEBUG OTP (solo LOCAL): muestra el código aunque no haya WhatsApp/Twilio --}}
+    {{-- DEBUG OTP (solo LOCAL): muestra el código aunque no haya WhatsApp/Twilio --}}
     @if(app()->environment(['local','development','testing']) && session('otp_debug_code'))
       <div class="vf-alert vf-alert-ok" style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
         <div>
@@ -86,21 +104,20 @@
       </div>
     @endif
 
-
     {{-- Estado: Captura de teléfono --}}
     @if ($state === 'phone')
-      <form method="POST" action="{{ route('cliente.verify.phone.update') }}" class="vf-grid">
+      <form method="POST" action="{{ route('cliente.verify.phone.update') }}" class="vf-grid" autocomplete="on" novalidate>
         @csrf
         <input type="hidden" name="account_id" value="{{ $aid }}">
 
         <label class="vf-field">
           <span class="vf-label">Prefijo de país</span>
-          <input class="vf-control" name="country_code" value="{{ old('country_code','52') }}" maxlength="5" required>
+          <input class="vf-control" name="country_code" value="{{ old('country_code','52') }}" maxlength="5" required @if($missingAccount) disabled @endif>
         </label>
 
         <label class="vf-field">
           <span class="vf-label">Teléfono (WhatsApp / SMS)</span>
-          <input class="vf-control" name="telefono" placeholder="5537747366" value="{{ old('telefono') }}" maxlength="25" required>
+          <input class="vf-control" name="telefono" placeholder="5537747366" value="{{ old('telefono') }}" maxlength="25" required @if($missingAccount) disabled @endif>
         </label>
 
         <button class="vf-btn" type="submit" @if($missingAccount) disabled aria-disabled="true" @endif>
@@ -113,14 +130,19 @@
         Enviamos un código a <strong>{{ $phone_masked }}</strong>. Vence en 10 minutos.
       </div>
 
-      <form id="otpForm" method="POST" action="{{ route('cliente.verify.phone.check') }}" class="vf-grid">
+      <form id="otpForm" method="POST" action="{{ route('cliente.verify.phone.check') }}" class="vf-grid" novalidate>
         @csrf
         <input type="hidden" name="account_id" value="{{ $aid }}">
         <input type="hidden" id="code" name="code" value="">
 
         <div class="vf-otp" aria-label="Código de verificación">
           @for ($i=0; $i<6; $i++)
-            <input inputmode="numeric" pattern="[0-9]*" maxlength="1" class="vf-otp-box" data-i="{{ $i }}" autocomplete="one-time-code">
+            <input inputmode="numeric"
+                   pattern="[0-9]*"
+                   maxlength="1"
+                   class="vf-otp-box"
+                   data-i="{{ $i }}"
+                   autocomplete="one-time-code">
           @endfor
         </div>
 
@@ -136,7 +158,7 @@
 
     <div class="vf-helper">
       ¿Ya tienes acceso?
-      <a href="{{ route('cliente.login') }}">Inicia sesión</a>
+      <a href="{{ $loginUrl }}">Inicia sesión</a>
     </div>
 
   </div>
@@ -190,7 +212,7 @@
     });
   });
 
-  boxes[0].focus();
+  try { boxes[0].focus(); } catch(e) {}
 
   form.addEventListener('submit', (e) => {
     compose();
