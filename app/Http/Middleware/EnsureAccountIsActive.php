@@ -520,6 +520,11 @@ final class EnsureAccountIsActive
             ->with('need_verify', true);
     }
 
+    /**
+     * ✅ FIX LOOP + ✅ FIX PROD:
+     * Cuando hay que “sacar” al usuario a verificación, cerramos sesión para salir del middleware auth.
+     * Pero NO debemos perder verify.account_id / verify.email, porque verify.phone es guest y necesita resolver account_id.
+     */
     private function blockSoftToVerify(Request $request, string $msg)
     {
         $count = (int) $request->session()->get('block_loop_count', 0);
@@ -534,42 +539,54 @@ final class EnsureAccountIsActive
         $isPhoneMsg = Str::contains(Str::lower($msg), ['teléfono', 'telefono', 'whatsapp', 'sms']);
         $isEmailMsg = Str::contains(Str::lower($msg), ['correo', 'email']);
 
+        // ✅ PRESERVAR datos críticos ANTES de invalidar
+        $keep = [
+            'verify.account_id' => (int) $request->session()->get('verify.account_id', 0),
+            'verify.email'      => (string) $request->session()->get('verify.email', ''),
+        ];
+
+        // ✅ logout controlado para salir del middleware auth y evitar guest-loop
         try {
             Auth::guard('web')->logout();
+
+            // invalidamos para evitar sesión sucia, pero luego restauramos verify.*
             $request->session()->invalidate();
             $request->session()->regenerateToken();
+
+            // ✅ RESTAURAR verify.* después del invalidate
+            if (!empty($keep['verify.account_id'])) {
+                $request->session()->put('verify.account_id', (int) $keep['verify.account_id']);
+            }
+            if (!empty($keep['verify.email'])) {
+                $request->session()->put('verify.email', (string) $keep['verify.email']);
+            }
+
+            // best-effort
+            try { $request->session()->save(); } catch (\Throwable) {}
         } catch (\Throwable $e) {
             // no-op
         }
 
+        $aid = (int) ($keep['verify.account_id'] ?? 0);
+
         if ($isEmailMsg) {
             return redirect()
-                ->route('cliente.verify.email.resend')
+                ->route('cliente.verify.email.resend', $aid > 0 ? ['account_id' => $aid] : [])
                 ->with('error', $msg)
                 ->with('need_verify', true);
         }
 
         if ($isPhoneMsg) {
             return redirect()
-                ->route('cliente.verify.phone')
+                ->route('cliente.verify.phone', $aid > 0 ? ['account_id' => $aid] : [])
                 ->with('error', $msg)
                 ->with('need_verify', true);
         }
 
         return redirect()
-            ->route('cliente.verify.phone')
+            ->route('cliente.verify.phone', $aid > 0 ? ['account_id' => $aid] : [])
             ->with('error', $msg)
             ->with('need_verify', true);
     }
 
-    private function isFirstPasswordRoute(Request $request): bool
-    {
-        $name = $request->route()?->getName();
-
-        return in_array($name, [
-            'cliente.password.first',
-            'cliente.password.first.store',
-            'cliente.password.first.do',
-        ], true);
-    }
 }
