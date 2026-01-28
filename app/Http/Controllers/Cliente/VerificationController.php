@@ -167,22 +167,22 @@ class VerificationController extends Controller
                 'verify.email'      => Str::lower((string) ($row->email ?? '')),
             ]);
 
-            // ✅ Forzar persistencia inmediata
+            // ✅ Forzar persistencia inmediata + espejo best-effort
             try {
                 session()->save();
-                            // ✅ FIX: crear/actualizar espejo en mysql_clientes.accounts
+            } catch (\Throwable $e) {
+                // ignore
+            }
+
             try {
                 $this->ensureClientesAccountMirror((int) $resolvedAccountId);
             } catch (\Throwable $e) {
                 Log::warning('[MIRROR] ensureClientesAccountMirror failed (verifyEmail)', [
                     'account_id' => (int) $resolvedAccountId,
-                    'e' => $e->getMessage(),
+                    'e'          => $e->getMessage(),
                 ]);
             }
-
-            } catch (\Throwable $e) {
-                // ignore
-            }
+                
         }
 
         if ($resolvedAccountId) {
@@ -260,20 +260,22 @@ class VerificationController extends Controller
                 'verify.email'      => Str::lower($emailFromLink),
             ]);
 
+            // ✅ Forzar persistencia inmediata + espejo best-effort
             try {
                 session()->save();
-                            try {
+            } catch (\Throwable $e) {
+                // ignore
+            }
+
+            try {
                 $this->ensureClientesAccountMirror((int) $resolvedAccountId);
             } catch (\Throwable $e) {
                 Log::warning('[MIRROR] ensureClientesAccountMirror failed (verifyEmailSigned)', [
                     'account_id' => (int) $resolvedAccountId,
-                    'e' => $e->getMessage(),
+                    'e'          => $e->getMessage(),
                 ]);
             }
 
-            } catch (\Throwable $e) {
-                // ignore
-            }
         }
 
         if ($resolvedAccountId) {
@@ -1045,6 +1047,63 @@ class VerificationController extends Controller
             return null;
         }
 
+        /**
+         * ✅ FIX CRÍTICO:
+         * Si ya verificó email+tel, el middleware EnsureAccountIsActive no debe seguir viendo
+         * estado_cuenta='pendiente'. Marcamos 'activa' en mysql_admin.accounts.
+         *
+         * Importante:
+         * - Respetamos is_blocked=1 (paywall). Si está bloqueada, NO la activamos aquí.
+         */
+        try {
+            $isBlocked = (int) ($acc->is_blocked ?? 0);
+
+            if ($isBlocked === 0) {
+                $updAdmin = [
+                    'updated_at' => now(),
+                ];
+
+                // Si existe estado_cuenta, lo ponemos en activa
+                try {
+                    if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'estado_cuenta')) {
+                        $updAdmin['estado_cuenta'] = 'activa';
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+
+                // Si existe billing_status, lo ponemos a activa (best-effort)
+                try {
+                    if (Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'billing_status')) {
+                        $updAdmin['billing_status'] = 'activa';
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+
+                if (count($updAdmin) > 1) {
+                    DB::connection(self::CONN_ADMIN)
+                        ->table('accounts')
+                        ->where('id', $adminAccountId)
+                        ->update($updAdmin);
+
+                    Log::info('[ACTIVATION] Admin account set activa (post verifications)', [
+                        'account_id' => $adminAccountId,
+                    ]);
+                }
+            } else {
+                Log::info('[ACTIVATION] Admin account is_blocked=1, skipping estado_cuenta activa', [
+                    'account_id' => $adminAccountId,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[ACTIVATION] Could not set estado_cuenta activa in admin', [
+                'account_id' => $adminAccountId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
+
         // ✅ FIX: columna real de email
         $emailCol = $this->adminPrimaryEmailColumn();
         $email    = (string) (data_get($acc, $emailCol) ?? data_get($acc, 'email') ?? '');
@@ -1146,6 +1205,16 @@ class VerificationController extends Controller
                 ]);
             }
         }
+
+        try {
+            $this->ensureClientesAccountMirror($adminAccountId);
+        } catch (\Throwable $e) {
+            Log::warning('[ACTIVATION] ensureClientesAccountMirror failed', [
+                'account_id' => $adminAccountId,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
 
         return (string) $usuario->id;
     }

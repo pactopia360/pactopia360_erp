@@ -54,7 +54,6 @@ final class EnsureAccountIsActive
     {
         /**
          * 0) Rutas que SIEMPRE deben pasar (evita loops de login/verify/stripe/public pdf)
-         *    OJO: aquí usamos nombres con prefijo "cliente." porque tu RouteServiceProvider normalmente lo aplica.
          */
         $routeName = $request->route()?->getName();
 
@@ -180,17 +179,9 @@ final class EnsureAccountIsActive
         }
 
         /**
-         * Estado cliente NO OK => verificación (soft)
-         */
-        if ($estadoCuentaCli !== '' && !in_array($estadoCuentaCli, self::ESTADOS_OK, true)) {
-            return $this->blockSoftToVerify(
-                $request,
-                'Tu cuenta aún no está activa. Verifica tu correo y teléfono o completa el pago.'
-            );
-        }
-
-        /**
-         * Verificación global admin (email / phone)
+         * ✅ IMPORTANTE:
+         * Primero validamos verificación admin (email / phone). Si falta, mandamos a verify.
+         * Así evitamos que 'cuentas_cliente.estado_cuenta=pendiente' bloquee aunque ya esté verificado.
          */
         $requireEmail = filter_var(env('REQUIRE_EMAIL_VERIFIED', true), FILTER_VALIDATE_BOOLEAN);
         $requirePhone = filter_var(env('REQUIRE_PHONE_VERIFIED', true), FILTER_VALIDATE_BOOLEAN);
@@ -202,27 +193,39 @@ final class EnsureAccountIsActive
             }
         }
 
+        /**
+         * ✅ Auto-heal de estado cliente:
+         * Si NO hay paywall y ya pasó verificación, pero 'estado_cuenta' viene raro (pendiente/etc),
+         * lo normalizamos y dejamos pasar.
+         */
+        if ($estadoCuentaCli !== '' && !in_array($estadoCuentaCli, self::ESTADOS_OK, true)) {
+            $healed = $this->tryHealCuentaClienteEstado((string) $cuentaId, $estadoCuentaCli);
+
+            if ($healed) {
+                // si ya sanó, continuamos
+                return $next($request);
+            }
+
+            // si no se pudo sanar, mandamos a verify (soft)
+            return $this->blockSoftToVerify(
+                $request,
+                'Tu cuenta aún no está activa. Verifica tu correo y teléfono o completa el pago.'
+            );
+        }
+
         return $next($request);
     }
 
     /**
-     * Rutas que deben pasar SIEMPRE para evitar loops:
-     * - auth guest endpoints (login/registro)
-     * - verificación (email/phone)
-     * - password first
-     * - ui helpers
-     * - stripe callbacks/webhook
-     * - pdf/pago públicos firmados
+     * Rutas que deben pasar SIEMPRE para evitar loops.
      */
     private function isAlwaysAllowedRoute(?string $name, Request $request): bool
     {
         if (!$name) {
-            // si no hay nombre de ruta, no provocamos loops por seguridad
             return false;
         }
 
         $always = [
-            // Root / Auth
             'cliente.root',
             'cliente.login',
             'cliente.login.do',
@@ -233,7 +236,6 @@ final class EnsureAccountIsActive
             'cliente.registro.pro',
             'cliente.registro.pro.do',
 
-            // Verify (guest en tu archivo de rutas; aquí evitamos loops y, si hace falta, hacemos logout al redirigir)
             'cliente.verify.email.token',
             'cliente.verify.email.signed',
             'cliente.verify.email.resend',
@@ -244,21 +246,17 @@ final class EnsureAccountIsActive
             'cliente.verify.phone.send',
             'cliente.verify.phone.check',
 
-            // First password
             'cliente.password.first',
             'cliente.password.first.store',
             'cliente.password.first.do',
 
-            // UI helpers
             'cliente.ui.demo_mode',
             'cliente.ui.demo_mode.get',
 
-            // Stripe callbacks/webhook
             'cliente.checkout.success',
             'cliente.checkout.cancel',
             'cliente.stripe.webhook',
 
-            // Public signed links
             'cliente.billing.publicPdf',
             'cliente.billing.publicPdfInline',
             'cliente.billing.publicPay',
@@ -268,7 +266,6 @@ final class EnsureAccountIsActive
             return true;
         }
 
-        // También permitimos cualquier ruta "billing.public*" por seguridad
         if (Str::startsWith($name, 'cliente.billing.public')) {
             return true;
         }
@@ -277,7 +274,7 @@ final class EnsureAccountIsActive
     }
 
     /**
-     * Rutas permitidas aun con paywall (para evitar bloqueos de retorno/pago).
+     * Rutas permitidas aun con paywall.
      */
     private function isPaywallAllowedRoute(?string $name, Request $request): bool
     {
@@ -286,7 +283,6 @@ final class EnsureAccountIsActive
         $allowed = [
             'cliente.paywall',
 
-            // checkout pro (si existen en tu StripeController)
             'cliente.checkout.pro.monthly',
             'cliente.checkout.pro.annual',
 
@@ -294,7 +290,6 @@ final class EnsureAccountIsActive
             'cliente.checkout.cancel',
             'cliente.stripe.webhook',
 
-            // estado de cuenta / pago
             'cliente.estado_cuenta',
             'cliente.billing.pdfInline',
             'cliente.billing.pdf',
@@ -305,7 +300,6 @@ final class EnsureAccountIsActive
 
             'cliente.logout',
 
-            // public signed
             'cliente.billing.publicPdf',
             'cliente.billing.publicPdfInline',
             'cliente.billing.publicPay',
@@ -315,7 +309,6 @@ final class EnsureAccountIsActive
             return true;
         }
 
-        // si por alguna razón llegan a endpoints de stripe por path
         $p = '/' . ltrim($request->path(), '/');
         if (Str::contains($p, ['/stripe/webhook', '/checkout/success', '/checkout/cancel'])) {
             return true;
@@ -481,6 +474,36 @@ final class EnsureAccountIsActive
         return 'email';
     }
 
+    private function tryHealCuentaClienteEstado(string $cuentaId, string $estadoActual): bool
+    {
+        // Si viene vacío, no hacemos nada aquí (porque podría ser compat)
+        if ($estadoActual === '') return false;
+
+        // Solo sanamos si la tabla/col existen
+        try {
+            if (!Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) return false;
+            if (!Schema::connection('mysql_clientes')->hasColumn('cuentas_cliente', 'estado_cuenta')) return false;
+        } catch (\Throwable) {
+            return false;
+        }
+
+        // Normalización simple: lo ponemos en "operando" (ya está en ESTADOS_OK).
+        // Si prefieres "activa", cambia a 'activa'.
+        try {
+            DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuentaId)
+                ->update([
+                    'estado_cuenta' => 'operando',
+                    'updated_at'    => now(),
+                ]);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     private function blockHard(Request $request, string $msg)
     {
         if ($request->expectsJson()) {
@@ -497,15 +520,6 @@ final class EnsureAccountIsActive
             ->with('need_verify', true);
     }
 
-    /**
-     * ✅ FIX LOOP:
-     * Tus pantallas de verify están en grupo guest, pero aquí estamos en rutas auth.
-     * Si intentamos redirigir a verify.* estando autenticado, guest:web te manda de regreso a home
-     * y account.active vuelve a redirigir a verify => LOOP.
-     *
-     * Solución: cuando hay que “sacar” al usuario a verificación, cerramos sesión de forma controlada
-     * y lo mandamos a verify.* ya como invitado.
-     */
     private function blockSoftToVerify(Request $request, string $msg)
     {
         $count = (int) $request->session()->get('block_loop_count', 0);
@@ -520,7 +534,6 @@ final class EnsureAccountIsActive
         $isPhoneMsg = Str::contains(Str::lower($msg), ['teléfono', 'telefono', 'whatsapp', 'sms']);
         $isEmailMsg = Str::contains(Str::lower($msg), ['correo', 'email']);
 
-        // ✅ logout controlado para salir del middleware auth y evitar guest-loop
         try {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
@@ -553,10 +566,6 @@ final class EnsureAccountIsActive
     {
         $name = $request->route()?->getName();
 
-        // En tus rutas existen:
-        // cliente.password.first
-        // cliente.password.first.store
-        // cliente.password.first.do
         return in_array($name, [
             'cliente.password.first',
             'cliente.password.first.store',
