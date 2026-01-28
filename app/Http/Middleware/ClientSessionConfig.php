@@ -58,20 +58,31 @@ final class ClientSessionConfig
 
             $accountId = $this->resolveAccountId($user);
 
-            // Si no hay vínculo, usamos defaults (pero igual escribimos sesión para que sidebar funcione)
+            /**
+             * ✅ FIX CRÍTICO (Billing legacy):
+             * Billing y otras piezas aún leen estas keys:
+             * - session('account_id'), session('client.account_id'), session('client_account_id')
+             * y también algunos lugares leen cuenta_id UUID:
+             * - session('cuenta_id'), session('client.cuenta_id'), session('client_cuenta_id')
+             *
+             * Tu SOT moderno vive en p360.account_id, así que espejamos SIEMPRE,
+             * incluso si no hay refresh de módulos (TTL/version).
+             */
+            $this->mirrorLegacyAccountKeys($request, $accountId, $user);
+
             // Gate: refrescar si cambió account_id, cambió "modules_updated_at" en admin, o expiró TTL.
             $lastAccountId = (int) $request->session()->get('p360.account_id', 0);
 
-            $ttlSec    = (int) (config('p360.modules_state_ttl', 60)); // 60s default
-            $lastHydTs = (int) $request->session()->get('p360.modules_synced_at', 0);
-            $nowTs     = time();
+            $ttlSec     = (int) (config('p360.modules_state_ttl', 60)); // 60s default
+            $lastHydTs  = (int) $request->session()->get('p360.modules_synced_at', 0);
+            $nowTs      = time();
             $ttlExpired = ($lastHydTs <= 0) || (($nowTs - $lastHydTs) >= $ttlSec);
 
             // "Version" desde admin: modules_updated_at
-            $adminVersion = $this->readAdminModulesUpdatedAt($accountId); // string|null
-            $lastVersion  = (string) $request->session()->get('p360.modules_version', '');
-
+            $adminVersion  = $this->readAdminModulesUpdatedAt($accountId); // string|null
+            $lastVersion   = (string) $request->session()->get('p360.modules_version', '');
             $versionChanged = false;
+
             if ($adminVersion !== null && $adminVersion !== '' && $adminVersion !== $lastVersion) {
                 $versionChanged = true;
             }
@@ -109,7 +120,6 @@ final class ClientSessionConfig
                     ]);
                 }
             }
-
         } catch (\Throwable $e) {
             Log::warning('ClientSessionConfig: no se pudo cargar módulos', [
                 'err'   => $e->getMessage(),
@@ -123,6 +133,7 @@ final class ClientSessionConfig
 
     private function clearModulesSession(Request $request): void
     {
+        // SOT moderno
         $request->session()->forget('p360.account_id');
         $request->session()->forget('p360.modules_state');
         $request->session()->forget('p360.modules_access');
@@ -130,6 +141,60 @@ final class ClientSessionConfig
         $request->session()->forget('p360.modules');
         $request->session()->forget('p360.modules_synced_at');
         $request->session()->forget('p360.modules_version');
+
+        // ✅ Legacy (evita basura / “unresolved” posterior)
+        $request->session()->forget('account_id');
+        $request->session()->forget('client.account_id');
+        $request->session()->forget('client_account_id');
+
+        $request->session()->forget('cuenta_id');
+        $request->session()->forget('client.cuenta_id');
+        $request->session()->forget('client_cuenta_id');
+    }
+
+    /**
+     * Espeja admin_account_id y cuenta UUID a keys legacy usadas por Billing/otras piezas.
+     */
+    private function mirrorLegacyAccountKeys(Request $request, int $accountId, object $user): void
+    {
+        // admin account id (mysql_admin.accounts.id)
+        if ($accountId > 0) {
+            $request->session()->put('account_id', $accountId);
+            $request->session()->put('client.account_id', $accountId);
+            $request->session()->put('client_account_id', $accountId);
+        } else {
+            // Si no se resuelve, limpiamos para evitar que se quede uno viejo
+            $request->session()->forget('account_id');
+            $request->session()->forget('client.account_id');
+            $request->session()->forget('client_account_id');
+        }
+
+        // cuenta UUID (mysql_clientes.cuentas_cliente.id) si existe en el usuario
+        $cuentaUuid = null;
+
+        try {
+            if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
+                $cuentaUuid = trim((string) $user->cuenta_id);
+            } elseif (isset($user->account_id) && is_string($user->account_id) && trim($user->account_id) !== '') {
+                // en algunos flujos legacy guardaban el UUID en account_id
+                $cuentaUuid = trim((string) $user->account_id);
+            }
+        } catch (\Throwable $e) {
+            $cuentaUuid = null;
+        }
+
+        if ($cuentaUuid) {
+            $request->session()->put('cuenta_id', $cuentaUuid);
+            $request->session()->put('client.cuenta_id', $cuentaUuid);
+            $request->session()->put('client_cuenta_id', $cuentaUuid);
+        } else {
+            $request->session()->forget('cuenta_id');
+            $request->session()->forget('client.cuenta_id');
+            $request->session()->forget('client_cuenta_id');
+        }
+
+        // SOT moderno siempre presente (siempre ponemos aunque sea 0)
+        $request->session()->put('p360.account_id', (int) $accountId);
     }
 
     /**
