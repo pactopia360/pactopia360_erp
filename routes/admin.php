@@ -214,9 +214,10 @@ Route::get('_cfg', function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware([
+    'admin',        // 👈 usa el middlewareGroup admin del Kernel
     'guest:admin',
-    \App\Http\Middleware\AdminSessionConfig::class,
 ])->group(function () use ($isLocal, $thrLogin) {
+
 
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
 
@@ -244,9 +245,10 @@ Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::c
 |--------------------------------------------------------------------------
 */
 Route::middleware([
+    'admin',        // 👈 usa el middlewareGroup admin del Kernel
     'auth:admin',
-    \App\Http\Middleware\AdminSessionConfig::class,
 ])->group(function () use (
+
     $thrHomeStats,
     $thrUiDiag,
     $thrUiBotAsk,
