@@ -350,6 +350,15 @@ class VerificationController extends Controller
     /**
      * Resolución FINAL del account_id admin que vamos a usar en todo el flujo.
      */
+    /**
+     * Resolución FINAL del account_id admin que vamos a usar en todo el flujo.
+     * Robusto para:
+     * - sesión verify.account_id
+     * - query/input account_id
+     * - sesión estándar del portal
+     * - auth:web
+     * - fallback por verify.email (lookup en mysql_admin.accounts)
+     */
     private function resolveAccountId(Request $request): ?int
     {
         // 1) flujo verificación -> session.verify.account_id
@@ -411,13 +420,83 @@ class VerificationController extends Controller
             Log::warning('[OTP-FLOW][resolveAccountId] auth fallback failed', ['e' => $e->getMessage()]);
         }
 
+        // 5) fallback por email en sesión (MUY importante para cuando llegan directo a /cliente/verificar/telefono)
+        $byEmail = $this->resolveAccountIdFromVerifyEmailSession($request);
+        if ($byEmail && $byEmail > 0) {
+            return $byEmail;
+        }
+
         Log::warning('[OTP-FLOW][resolveAccountId] could not resolve account id', [
             'path' => $request->path(),
             'full' => $request->fullUrl(),
+            'verify_email' => (string) session('verify.email', ''),
         ]);
 
         return null;
     }
+
+    /**
+     * Fallback: si hay verify.email en sesión, intenta resolver account_id en mysql_admin.accounts
+     * usando columnas reales existentes (adminEmailColumns()).
+     *
+     * Esto corrige el caso producción donde abren /cliente/verificar/telefono sin querystring account_id.
+     */
+    private function resolveAccountIdFromVerifyEmailSession(Request $request): ?int
+    {
+        $email = trim((string) session('verify.email', ''));
+        if ($email === '') {
+            return null;
+        }
+
+        $email = Str::lower($email);
+
+        try {
+            $acc = DB::connection(self::CONN_ADMIN)
+                ->table('accounts')
+                ->where(function ($q) use ($email) {
+                    $this->whereAccountEmailMatches($q, $email);
+                })
+                ->select('id')
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$acc || empty($acc->id)) {
+                Log::warning('[OTP-FLOW][resolveAccountId] email fallback: account not found', [
+                    'email' => $email,
+                    'path'  => $request->path(),
+                ]);
+                return null;
+            }
+
+            $aid = (int) $acc->id;
+
+            // Persistimos para el resto del flujo
+            try {
+                session(['verify.account_id' => $aid]);
+                session()->save();
+            } catch (\Throwable $e) {
+                Log::warning('[OTP-FLOW][resolveAccountId] email fallback: could not persist session', [
+                    'aid' => $aid,
+                    'e'   => $e->getMessage(),
+                ]);
+            }
+
+            Log::debug('[OTP-FLOW][resolveAccountId] from verify.email fallback', [
+                'aid'   => $aid,
+                'email' => $email,
+            ]);
+
+            return $aid;
+        } catch (\Throwable $e) {
+            Log::warning('[OTP-FLOW][resolveAccountId] email fallback failed', [
+                'email' => $email,
+                'e'     => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+
 
     public function finalizeActivationAndSendCredentialsByRfc(string $rfc): void
     {
@@ -451,6 +530,17 @@ class VerificationController extends Controller
     public function showOtp(Request $request)
     {
         $accountId = $this->resolveAccountId($request);
+
+        // Asegura que quede persistido (evita perder el accountId entre requests)
+        if ($accountId && (int) session('verify.account_id', 0) !== (int) $accountId) {
+            try {
+                session(['verify.account_id' => (int) $accountId]);
+                session()->save();
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
 
         if (app()->environment(['local', 'development', 'testing'])) {
             Log::debug('[OTP-FLOW][DEBUG showOtp FINAL]', [
