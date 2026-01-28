@@ -30,6 +30,7 @@ use App\Http\Controllers\Cliente\MarketplaceController;
 use App\Http\Controllers\Cliente\PerfilController;
 use App\Http\Controllers\Cliente\MiCuentaController;
 use App\Http\Controllers\Cliente\UiController;
+use App\Http\Controllers\Cliente\ImpersonateController;
 
 // ✅ Mi cuenta / Facturas (ZIP estados de cuenta admin SOT)
 use App\Http\Controllers\Cliente\MiCuenta\FacturasController;
@@ -74,7 +75,7 @@ $noCsrfLocal = function ($route) use ($isLocal) {
 | Esto blinda el flujo de verificación (email/telefono) que depende de session().
 | Aunque cliente.php sea montado desde otro archivo/grupo, aquí aseguramos 'web'.
 */
-Route::middleware(['web'])->group(function () use (
+Route::middleware([])->group(function () use (
     $noCsrfLocal,
     $throttleLogin,
     $throttleRegister,
@@ -178,6 +179,24 @@ Route::middleware(['web'])->group(function () use (
             ],
         ]);
     })->middleware(['auth:web'])->name('debug.session');
+
+        /*
+    |----------------------------------------------------------------------
+    | ✅ IMPERSONATE (ADMIN -> CLIENTE)
+    |----------------------------------------------------------------------
+    | - Debe vivir bajo /cliente (este archivo ya tiene prefix('cliente') en web.php)
+    | - Requiere session/cookies => está dentro del middleware(['web'])
+    | - NO requiere auth:web porque justamente aquí se hace el login del cliente
+    | - Protegido con signed (URL::temporarySignedRoute) + throttle
+    */
+    Route::get('impersonate/{token}', [ImpersonateController::class, 'consume'])
+        ->middleware(['signed', 'throttle:30,1'])
+        ->where('token', '[A-Za-z0-9]+')
+        ->name('impersonate.consume');
+
+    Route::get('impersonate/stop', [ImpersonateController::class, 'stop'])
+        ->name('impersonate.stop');
+
 
     /*
     |----------------------------------------------------------------------
