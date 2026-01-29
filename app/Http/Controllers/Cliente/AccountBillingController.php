@@ -2248,130 +2248,197 @@ final class AccountBillingController extends Controller
         return null;
     }
 
- private function resolveAdminAccountId(Request $req): array
-{
-    $u = Auth::guard('web')->user();
+    private function resolveAdminAccountId(Request $req): array
+    {
+        $u = Auth::guard('web')->user();
 
-    // intenta cargar relación cuenta si existe
-    if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-        try { $u->load('cuenta'); } catch (\Throwable $e) {}
-    }
-
-    // 1) Relación del usuario (mejor fuente)
-    $adminId = $u?->cuenta?->admin_account_id ?? null;
-    if ($adminId && is_numeric($adminId)) {
-        $id = (int) $adminId;
-        if ($id > 0) return [(string) $id, 'user.cuenta.admin_account_id'];
-    }
-
-    // 2) Campo directo en usuario (si existe)
-    if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
-        $id = (int) $u->admin_account_id;
-        if ($id > 0) return [(string) $id, 'user.admin_account_id'];
-    }
-
-    // 3) ✅ Claves que tú mismo seteas en LoginController
-    $v1 = $req->session()->get('verify.account_id');
-    if ($v1 && is_numeric($v1) && (int)$v1 > 0) return [(string) ((int)$v1), 'session.verify.account_id'];
-
-    $v2 = $req->session()->get('paywall.account_id');
-    if ($v2 && is_numeric($v2) && (int)$v2 > 0) return [(string) ((int)$v2), 'session.paywall.account_id'];
-
-    // 4) Compat: claves antiguas / variantes
-    foreach ([
-        'client.admin_account_id',
-        'client.account_id',
-        'client_account_id',
-        'admin_account_id',
-        'account_id',
-    ] as $k) {
-        $v = $req->session()->get($k);
-        if ($v && is_numeric($v) && (int)$v > 0) return [(string) ((int)$v), 'session.'.$k];
-    }
-
-    // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
-    $clientCuentaId = $req->session()->get('client.cuenta_id')
-        ?? $req->session()->get('cuenta_id')
-        ?? null;
-
-    if ($clientCuentaId) {
-        $clientCuentaIdStr = is_string($clientCuentaId) ? trim($clientCuentaId) : (string)$clientCuentaId;
-
-        try {
-            $cli = config('p360.conn.clients', 'mysql_clientes');
-
-            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                $lc   = array_map('strtolower', $cols);
-                $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                $sel = ['id'];
-                foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
-                    if ($has($c)) $sel[] = $c;
-                }
-                // (Opcional) para diagnósticos
-                foreach (['rfc', 'codigo_cliente', 'customer_no'] as $c) {
-                    if ($has($c)) $sel[] = $c;
-                }
-
-                $sel = array_values(array_unique($sel));
-
-                // 5.1) Intento por PK "id" (numérico o string/uuid)
-                $cc = null;
-
-                // Si es numérico, busca como int
-                if (is_numeric($clientCuentaIdStr)) {
-                    $cc = DB::connection($cli)->table('cuentas_cliente')
-                        ->select($sel)
-                        ->where('id', (int)$clientCuentaIdStr)
-                        ->first();
-                } else {
-                    // ✅ NUEVO: si NO es numérico, intenta por id como string (UUID)
-                    // Esto cubre esquemas donde cuentas_cliente.id es CHAR/VARCHAR UUID.
-                    $cc = DB::connection($cli)->table('cuentas_cliente')
-                        ->select($sel)
-                        ->where('id', $clientCuentaIdStr)
-                        ->first();
-                }
-
-                // 5.2) Si no encontró, intenta por columnas alternativas (solo si existen)
-                if (!$cc) {
-                    $altCols = [];
-                    foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
-                        if ($has($c)) $altCols[] = $c;
-                    }
-
-                    foreach ($altCols as $col) {
-                        $cc = DB::connection($cli)->table('cuentas_cliente')
-                            ->select($sel)
-                            ->where($col, $clientCuentaIdStr)
-                            ->first();
-                        if ($cc) break;
-                    }
-                }
-
-                if ($cc) {
-                    $id = $this->resolveAdminAccountIdFromClientAccount($cc);
-                    if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
-                }
-            }
-        } catch (\Throwable $e) {
-            // ignora
+        // intenta cargar relación cuenta si existe
+        if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
+            try { $u->load('cuenta'); } catch (\Throwable $e) {}
         }
 
-        // 6) ✅ Si client.cuenta_id es UUID y NO existe en cuentas_cliente, intenta resolver por tabla puente
-        if ($clientCuentaIdStr !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $clientCuentaIdStr)) {
+        // 1) Relación del usuario (mejor fuente)
+        $adminId = $u?->cuenta?->admin_account_id ?? null;
+        if ($adminId && is_numeric($adminId)) {
+            $id = (int) $adminId;
+            if ($id > 0) return [(string) $id, 'user.cuenta.admin_account_id'];
+        }
+
+        // 2) Campo directo en usuario (si existe)
+        if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
+            $id = (int) $u->admin_account_id;
+            if ($id > 0) return [(string) $id, 'user.admin_account_id'];
+        }
+
+        // 3) ✅ Claves que tú mismo seteas en LoginController
+        $v1 = $req->session()->get('verify.account_id');
+        if ($v1 && is_numeric($v1) && (int)$v1 > 0) return [(string) ((int)$v1), 'session.verify.account_id'];
+
+        $v2 = $req->session()->get('paywall.account_id');
+        if ($v2 && is_numeric($v2) && (int)$v2 > 0) return [(string) ((int)$v2), 'session.paywall.account_id'];
+
+        // 4) Compat: claves antiguas / variantes
+        foreach ([
+            'client.admin_account_id',
+            'client.account_id',
+            'client_account_id',
+            'admin_account_id',
+            'account_id',
+        ] as $k) {
+            $v = $req->session()->get($k);
+            if ($v && is_numeric($v) && (int)$v > 0) return [(string) ((int)$v), 'session.'.$k];
+        }
+
+        // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
+        $clientCuentaId = $req->session()->get('client.cuenta_id')
+            ?? $req->session()->get('cuenta_id')
+            ?? null;
+
+        if ($clientCuentaId) {
+            $clientCuentaIdStr = is_string($clientCuentaId) ? trim($clientCuentaId) : (string)$clientCuentaId;
+
+            // =========================================================
+            // 5.A) Intento estándar: mysql_clientes.cuentas_cliente (por PK id, o por uuid cols si existieran)
+            // =========================================================
             try {
-                $aid = (int) $this->resolveAdminAccountIdFromClientUuid($clientCuentaIdStr);
-                if ($aid > 0) return [(string) $aid, 'client_uuid.bridge_lookup'];
+                $cli = config('p360.conn.clients', 'mysql_clientes');
+
+                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                    $lc   = array_map('strtolower', $cols);
+                    $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                    $sel = ['id'];
+                    foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
+                        if ($has($c)) $sel[] = $c;
+                    }
+                    foreach (['rfc', 'codigo_cliente', 'customer_no'] as $c) {
+                        if ($has($c)) $sel[] = $c;
+                    }
+
+                    $sel = array_values(array_unique($sel));
+
+                    // 5.A.1) Si parece NUMÉRICO, intenta por PK id
+                    $cc = null;
+                    if (is_numeric($clientCuentaIdStr)) {
+                        $cc = DB::connection($cli)->table('cuentas_cliente')
+                            ->select($sel)
+                            ->where('id', (int)$clientCuentaIdStr)
+                            ->first();
+                    }
+
+                    // 5.A.2) Si no encontró, intenta por columnas alternativas (solo si existen)
+                    if (!$cc) {
+                        $altCols = [];
+                        foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
+                            if ($has($c)) $altCols[] = $c;
+                        }
+
+                        foreach ($altCols as $col) {
+                            $cc = DB::connection($cli)->table('cuentas_cliente')
+                                ->select($sel)
+                                ->where($col, $clientCuentaIdStr)
+                                ->first();
+                            if ($cc) break;
+                        }
+                    }
+
+                    if ($cc) {
+                        $id = $this->resolveAdminAccountIdFromClientAccount($cc);
+                        if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
+                    }
+                }
             } catch (\Throwable $e) {
                 // ignora
             }
+
+            // =========================================================
+            // 5.B) ✅ FIX REAL (tu caso):
+            // client.cuenta_id es UUID que existe en mysql_clientes.usuarios_cuenta.cuenta_id
+            // -> resolvemos por email hacia mysql_admin.accounts
+            // =========================================================
+            if ($clientCuentaIdStr !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $clientCuentaIdStr)) {
+                try {
+                    $cli = config('p360.conn.clients', 'mysql_clientes');
+                    $adm = config('p360.conn.admin', 'mysql_admin');
+
+                    // 5.B.1) lee email del owner en usuarios_cuenta por cuenta_id (UUID)
+                    $email = null;
+
+                    if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
+                        $ucCols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
+                        $ucLc   = array_map('strtolower', $ucCols);
+                        $ucHas  = fn(string $c) => in_array(strtolower($c), $ucLc, true);
+
+                        // necesita cuenta_id + email
+                        if ($ucHas('cuenta_id') && $ucHas('email')) {
+                            $q = DB::connection($cli)->table('usuarios_cuenta')
+                                ->where('cuenta_id', $clientCuentaIdStr);
+
+                            // Preferir owner si existe la col "rol" o "tipo"
+                            if ($ucHas('rol')) {
+                                $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
+                            } elseif ($ucHas('tipo')) {
+                                $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
+                            } elseif ($ucHas('id')) {
+                                $q->orderByDesc('id');
+                            }
+
+                            $row = $q->first(['email']);
+                            $email = $row?->email ? strtolower(trim((string)$row->email)) : null;
+                        }
+                    }
+
+                    if ($email) {
+                        // 5.B.2) resolver admin account por accounts.email (y fallback meta.billing.email si hay meta)
+                        if (Schema::connection($adm)->hasTable('accounts')) {
+                            $aCols = Schema::connection($adm)->getColumnListing('accounts');
+                            $aLc   = array_map('strtolower', $aCols);
+                            $aHas  = fn(string $c) => in_array(strtolower($c), $aLc, true);
+
+                            $q = DB::connection($adm)->table('accounts');
+
+                            // preferencia: match directo por email si existe
+                            if ($aHas('email')) {
+                                $acc = (clone $q)->whereRaw('LOWER(email)=?', [$email])->orderByDesc($aHas('id') ? 'id' : $aCols[0])->first(['id']);
+                                if ($acc && is_numeric($acc->id ?? null) && (int)$acc->id > 0) {
+                                    return [(string)((int)$acc->id), 'usuarios_cuenta.email -> admin.accounts.email'];
+                                }
+                            }
+
+                            // fallback: buscar dentro de meta si existe (string JSON)
+                            if ($aHas('meta')) {
+                                // Nota: funciona si meta es JSON texto o JSON nativo (MySQL).
+                                // Usamos LIKE para ser compatible en ambos casos.
+                                $acc2 = (clone $q)
+                                    ->where('meta', 'like', '%"email":"'.$email.'"%')
+                                    ->orderByDesc($aHas('id') ? 'id' : $aCols[0])
+                                    ->first(['id']);
+
+                                if ($acc2 && is_numeric($acc2->id ?? null) && (int)$acc2->id > 0) {
+                                    return [(string)((int)$acc2->id), 'usuarios_cuenta.email -> admin.accounts.meta(billing/email)'];
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // ignora
+                }
+
+                // 5.C) Compat: tu lookup bridge genérico (por si en otros clientes hay tablas/columnas adicionales)
+                try {
+                    $aid = (int) $this->resolveAdminAccountIdFromClientUuid($clientCuentaIdStr);
+                    if ($aid > 0) return [(string) $aid, 'client_uuid.bridge_lookup'];
+                } catch (\Throwable $e) {
+                    // ignora
+                }
+            }
         }
+
+        return [null, 'unresolved'];
     }
 
-    return [null, 'unresolved'];
-}
+
 
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
@@ -2401,90 +2468,95 @@ final class AccountBillingController extends Controller
         return $id > 0 ? $id : 0;
     }
 
-    private function resolveAdminAccountIdFromClientUuid(string $clientUuid): int
+    protected function resolveAdminAccountIdFromClientUuid(string $uuid): int
     {
+        $uuid = trim($uuid);
+        if ($uuid === '') return 0;
+
+        // Solo UUID válido (evita queries raros)
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid)) {
+            return 0;
+        }
+
         $cli = config('p360.conn.clients', 'mysql_clientes');
+        $adm = config('p360.conn.admin', 'mysql_admin');
 
-        if ($clientUuid === '') return 0;
+        try {
+            // ==========================================================
+            // 1) Buscar usuario owner/activo por cuenta_id (UUID) en clientes
+            // ==========================================================
+            if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
+                $uqCols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
+                $uqLC   = array_map('strtolower', $uqCols);
+                $hasUq  = fn (string $c) => in_array(strtolower($c), $uqLC, true);
 
-        // Tablas candidatas comunes en clientes (ajustable sin romper)
-        $tables = [
-            'cuentas', 'cuenta', 'cuentas_clientes', 'cuenta_cliente',
-            'usuarios_cuenta', 'usuario_cuentas', 'users', 'usuarios',
-        ];
-
-        foreach ($tables as $t) {
-            if (!Schema::connection($cli)->hasTable($t)) continue;
-
-            try {
-                $cols = Schema::connection($cli)->getColumnListing($t);
-                $lc   = array_map('strtolower', $cols);
-                $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
-
-                // columnas donde podría venir el UUID
-                $uuidCols = array_values(array_filter([
-                    $has('uuid') ? 'uuid' : null,
-                    $has('cuenta_id') ? 'cuenta_id' : null,
-                    $has('account_uuid') ? 'account_uuid' : null,
-                    $has('cuenta_uuid') ? 'cuenta_uuid' : null,
-                    $has('public_id') ? 'public_id' : null,
-                    $has('uid') ? 'uid' : null,
-                ]));
-
-                if (!$uuidCols) continue;
-
-                $row = null;
-                foreach ($uuidCols as $uc) {
-                    $row = DB::connection($cli)->table($t)->where($uc, $clientUuid)->first();
-                    if ($row) break;
+                $sel = [];
+                foreach (['id', 'cuenta_id', 'email', 'rol', 'tipo', 'activo', 'created_at'] as $c) {
+                    if ($hasUq($c)) $sel[] = $c;
                 }
-                if (!$row) continue;
+                if (!$sel) $sel = ['id'];
 
-                // 1) Si la tabla puente ya trae admin_account_id
-                foreach (['admin_account_id', 'account_id'] as $k) {
-                    if ($has($k) && is_numeric($row->{$k} ?? null) && (int)$row->{$k} > 0) {
-                        return (int)$row->{$k};
-                    }
+                $q = DB::connection($cli)->table('usuarios_cuenta')->select($sel);
+
+                // match principal
+                if ($hasUq('cuenta_id')) {
+                    $q->where('cuenta_id', $uuid);
+                } else {
+                    // si no hay cuenta_id, no hay forma
+                    return 0;
                 }
 
-                // 2) Si trae FK hacia cuentas_cliente
-                $fkCandidates = ['cuentas_cliente_id','cuenta_cliente_id','id_cuentas_cliente','cliente_id','cuentascliente_id'];
-                foreach ($fkCandidates as $fk) {
-                    if ($has($fk) && is_numeric($row->{$fk} ?? null) && (int)$row->{$fk} > 0) {
-                        $ccId = (int)$row->{$fk};
+                // prioriza owner/activo si existen columnas
+                if ($hasUq('activo')) $q->where('activo', 1);
 
-                        if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                            $cc = DB::connection($cli)->table('cuentas_cliente')->where('id', $ccId)->first(['admin_account_id']);
-                            if ($cc && is_numeric($cc->admin_account_id ?? null) && (int)$cc->admin_account_id > 0) {
-                                return (int)$cc->admin_account_id;
+                // algunos esquemas usan "rol" y/o "tipo"
+                if ($hasUq('rol'))  $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
+                if ($hasUq('tipo')) $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
+
+                if ($hasUq('created_at')) $q->orderByDesc('created_at');
+
+                $urow = $q->first();
+
+                if ($urow) {
+                    $email = strtolower(trim((string)($urow->email ?? '')));
+
+                    // ==========================================================
+                    // 2) Resolver admin account por email en mysql_admin.accounts
+                    // ==========================================================
+                    if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        if (Schema::connection($adm)->hasTable('accounts')) {
+                            $aCols = Schema::connection($adm)->getColumnListing('accounts');
+                            $aLC   = array_map('strtolower', $aCols);
+                            $hasA  = fn (string $c) => in_array(strtolower($c), $aLC, true);
+
+                            if ($hasA('email')) {
+                                $acc = DB::connection($adm)->table('accounts')
+                                    ->select(['id', 'email'])
+                                    ->whereRaw('LOWER(TRIM(email)) = ?', [$email])
+                                    ->orderByDesc('id')
+                                    ->first();
+
+                                if ($acc && isset($acc->id) && is_numeric($acc->id) && (int)$acc->id > 0) {
+                                    return (int)$acc->id;
+                                }
                             }
                         }
                     }
-                }
 
-                // 3) Si trae "codigo_cliente/customer_no/rfc" para buscar en cuentas_cliente
-                $keys = [];
-                foreach (['codigo_cliente','customer_no','rfc'] as $k) {
-                    if ($has($k) && !empty($row->{$k})) $keys[$k] = (string)$row->{$k};
-                }
-
-                if ($keys && Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $q = DB::connection($cli)->table('cuentas_cliente');
-
-                    $q->where(function($w) use ($keys) {
-                        foreach ($keys as $k => $v) {
-                            $w->orWhere($k, $v);
-                        }
-                    });
-
-                    $cc = $q->orderByDesc('id')->first(['admin_account_id']);
-                    if ($cc && is_numeric($cc->admin_account_id ?? null) && (int)$cc->admin_account_id > 0) {
-                        return (int)$cc->admin_account_id;
+                    // (Opcional) fallback: si algún día agregas admin_account_id directo a usuarios_cuenta
+                    if (isset($urow->admin_account_id) && is_numeric($urow->admin_account_id) && (int)$urow->admin_account_id > 0) {
+                        return (int)$urow->admin_account_id;
                     }
                 }
-            } catch (\Throwable $e) {
-                // ignora tabla y sigue
             }
+
+            // ==========================================================
+            // 3) (Opcional) Si en el futuro existe un bridge en cuentas_cliente/meta, aquí podrías agregarlo
+            // ==========================================================
+            // Por ahora no hacemos nada: tu diagnóstico mostró que NO existe.
+
+        } catch (\Throwable $e) {
+            // ignora y regresa 0
         }
 
         return 0;
