@@ -88,100 +88,86 @@ final class ClientAuth
     }
 
     /**
-     * Resuelve el account_id (mysql_admin.accounts.id) para el cliente autenticado.
+     * Resuelve el admin_account_id (mysql_admin.accounts.id) desde el contexto cliente.
      *
-     * Prioridad:
-     * 1) Session keys (verify/paywall/client/account)
-     * 2) Session cuenta_id -> mysql_clientes.cuentas_cliente -> admin_account_id/account_id/email/rfc
-     * 3) Fallback: si hay email/rfc en sesión, buscar en mysql_admin.accounts
+     * Retorna: [int $adminAccountId, string $src]
      *
-     * @return array{0:int,1:string}  [accountId, src]
+     * Estrategia (orden):
+     * 1) Sesión: client.account_id / account_id
+     * 2) Sesión: client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente.admin_account_id
+     * 3) Auth user: email/rfc -> mysql_admin.accounts
+     * 4) Sesión: email/rfc (si existiera) -> mysql_admin.accounts
      */
     public static function resolveAdminAccountId(): array
     {
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-        $cx  = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+        try {
+            $sess = session();
 
-        // 1) Candidates directos desde sesión
-        $candidates = [
-            Session::get('verify.account_id'),
-            Session::get('paywall.account_id'),
-            Session::get('client.account_id'),
-            Session::get('account_id'),
-            Session::get('client_account_id'),
-        ];
-
-        foreach ($candidates as $v) {
-            $aid = (int) ($v ?? 0);
+            // 1) Ya resuelto y guardado
+            $raw = $sess->get('client.account_id') ?? $sess->get('account_id');
+            $aid = (int) ($raw ?? 0);
             if ($aid > 0) {
-                return [$aid, 'session'];
+                return [$aid, 'session.account_id'];
             }
-        }
 
-        // 2) Resolver por cuenta_id
-        $cuentaId = (string) (Session::get('client.cuenta_id') ?? Session::get('cuenta_id') ?? '');
-        $cuentaId = trim($cuentaId);
+            // 2) Resolver por cuenta_id (UUID) -> cuentas_cliente.admin_account_id
+            $cuentaId = (string) ($sess->get('client.cuenta_id') ?? $sess->get('cuenta_id') ?? '');
+            if ($cuentaId !== '') {
+                $cx = (string) config('p360.conn.clientes', 'mysql_clientes');
 
-        if ($cuentaId !== '' && Schema::connection($cx)->hasTable('cuentas_cliente')) {
+                // IMPORTANTE: no uses Schema aquí (route:cache safe y más rápido); sólo intenta query.
+                try {
+                    $row = \Illuminate\Support\Facades\DB::connection($cx)
+                        ->table('cuentas_cliente')
+                        ->select(['id', 'admin_account_id'])
+                        ->where('id', $cuentaId)
+                        ->first();
+
+                    $aid2 = (int) ($row->admin_account_id ?? 0);
+                    if ($aid2 > 0) {
+                        self::rememberAdminAccountId($aid2);
+                        return [$aid2, 'cuentas_cliente.direct'];
+                    }
+                } catch (\Throwable $e) {
+                    // Si por alguna razón esa tabla no existe en ese entorno, seguimos con fallback.
+                }
+            }
+
+            // 3) Fallback por Auth user (email/rfc) -> mysql_admin.accounts
+            $email = '';
+            $rfc   = '';
             try {
-                $cols = Schema::connection($cx)->getColumnListing('cuentas_cliente');
-                $lc   = array_map('strtolower', $cols);
-                $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
-
-                // Selección segura según columnas existentes
-                $select = [];
-                foreach (['id', 'email', 'rfc', 'admin_account_id', 'account_id', 'accountId'] as $c) {
-                    if ($has($c)) $select[] = $c;
+                $u = auth('web')->user();
+                if ($u) {
+                    $email = strtolower(trim((string) ($u->email ?? '')));
+                    $rfc   = strtoupper(trim((string) ($u->rfc ?? '')));
                 }
-                if (empty($select)) $select = ['id'];
-
-                $row = DB::connection($cx)->table('cuentas_cliente')
-                    ->where($has('id') ? 'id' : $cols[0], $cuentaId)
-                    ->first($select);
-
-                if ($row) {
-                    // 2a) si ya trae admin_account_id/account_id (ideal)
-                    $rawAid =
-                        ($has('admin_account_id') ? ($row->admin_account_id ?? null) : null) ??
-                        ($has('account_id') ? ($row->account_id ?? null) : null) ??
-                        ($has('accountid') ? ($row->accountId ?? null) : null);
-
-                    $aid = (int) ($rawAid ?? 0);
-                    if ($aid > 0) {
-                        self::rememberAdminAccountId($aid);
-                        return [$aid, 'cuentas_cliente.direct'];
-                    }
-
-                    // 2b) lookup por email/rfc hacia mysql_admin.accounts
-                    $email = $has('email') ? strtolower(trim((string) ($row->email ?? ''))) : '';
-                    $rfc   = $has('rfc') ? strtoupper(trim((string) ($row->rfc ?? ''))) : '';
-
-                    $aid = self::findAdminAccountIdByEmailOrRfc($adm, $email, $rfc);
-                    if ($aid > 0) {
-                        self::rememberAdminAccountId($aid);
-                        return [$aid, 'cuentas_cliente.lookup'];
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('[ClientAuth][resolveAdminAccountId] cuentas_cliente error', [
-                    'cuenta_id' => $cuentaId,
-                    'e' => $e->getMessage(),
-                ]);
+            } catch (\Throwable) {
+                // ignore
             }
+
+            // 4) Fallback por sesión (si se guardó en otro lado)
+            if ($email === '') {
+                $email = strtolower(trim((string) ($sess->get('client.email') ?? $sess->get('email') ?? '')));
+            }
+            if ($rfc === '') {
+                $rfc = strtoupper(trim((string) ($sess->get('client.rfc') ?? $sess->get('rfc') ?? '')));
+            }
+
+            if ($email !== '' || $rfc !== '') {
+                $aid3 = self::findAdminAccountIdByEmailOrRfc($email, $rfc);
+                if ($aid3 > 0) {
+                    self::rememberAdminAccountId($aid3);
+                    return [$aid3, 'admin.accounts.by_email_or_rfc'];
+                }
+            }
+
+            return [0, 'unresolved'];
+        } catch (\Throwable $e) {
+            return [0, 'error'];
         }
-
-        // 3) Fallback final por sesión (si existe)
-        $email = strtolower(trim((string) (Session::get('client.email') ?? Session::get('email') ?? '')));
-        $rfc   = strtoupper(trim((string) (Session::get('client.rfc') ?? Session::get('rfc') ?? '')));
-
-        $aid = self::findAdminAccountIdByEmailOrRfc($adm, $email, $rfc);
-        if ($aid > 0) {
-            self::rememberAdminAccountId($aid);
-            return [$aid, 'fallback.email_rfc'];
-        }
-
-        return [0, 'unresolved'];
     }
+
 
     /**
      * Guarda el account_id resuelto en varios keys por compat.
