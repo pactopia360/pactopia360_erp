@@ -142,25 +142,26 @@ $noCookies = [
 ];
 
 Route::prefix('t/billing')
-    ->name('track.billing.')
+    ->name('billing.hub.') // 👈 importante: produce admin.billing.hub.*
     ->middleware('throttle:240,1')
     ->group(function () use ($noCookies) {
 
         Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
-            ->name('open');
+            ->name('track_open');
 
         Route::get('open/{emailId}.gif', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
-            ->name('open_gif');
+            ->name('track_open_gif');
 
         Route::get('click/{emailId}', [BillingStatementsHubController::class, 'trackClick'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
-            ->name('click');
+            ->name('track_click');
     });
+
 
 /*
 |--------------------------------------------------------------------------
@@ -170,7 +171,8 @@ Route::prefix('t/billing')
 Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
     ->middleware('throttle:240,1')
     ->withoutMiddleware($noCookies)
-    ->name('billing.statements_hub.paylink');
+    ->name('billing.hub.paylink'); // 👈 produce admin.billing.hub.paylink
+
 
 /*
 |--------------------------------------------------------------------------

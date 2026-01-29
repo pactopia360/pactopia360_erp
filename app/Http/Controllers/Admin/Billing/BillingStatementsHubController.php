@@ -1628,10 +1628,9 @@ final class BillingStatementsHubController extends Controller
     }
 
     /**
-     * @return arrayng>
+     * @return array<int,string>
      */
     private function parseIdCsv(string $raw): array
-
     {
         $raw = trim($raw);
         if ($raw === '') return [];
@@ -1796,58 +1795,138 @@ final class BillingStatementsHubController extends Controller
         $ins['created_at'] = now();
         $ins['updated_at'] = now();
 
-        return (int) DB::connection($this->adm)->table('billing_email_logs')->insertGetId($ins);
-    } 
-
-    public function payLink(Request $req)
-{
-    $data = $req->validate([
-        'account_id' => 'required|string|max:64',
-        'period'     => ['required', 'regex:/^\d{4}\-(0[1-9]|1[0-2])$/'],
-    ]);
-
-    $accountId = (string) $data['account_id'];
-    $period    = (string) $data['period'];
-
-    $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-    if (!$acc) { return response('Cuenta no encontrada.', 404)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache'); }
-
-    $items = collect();
-    if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-        $items = DB::connection($this->adm)->table('estados_cuenta')
-            ->where('account_id', $accountId)
-            ->where('periodo', $period)
-            ->get();
+           return (int) DB::connection($this->adm)->table('billing_email_logs')->insertGetId($ins);
     }
 
-    $cargoReal = (float) $items->sum('cargo');
-    $abonoEc   = (float) $items->sum('abono');
+    /**
+     * Compat: usado por Cliente/AccountBillingController cuando se apoya en HUB.
+     * Devuelve el costo mensual (en centavos) para un periodo YYYY-MM.
+     *
+     * Regla:
+     * - Si hay monto personalizado (custom/override) lo usa.
+     * - Si no, usa billing.amount_mxn y/o override (resolveEffectiveAmountForPeriodFromMeta).
+     * - Si no se puede resolver, devuelve 0.
+     */
+    public function resolveMonthlyCentsForPeriodFromAdminAccount(
+        int $accountId,
+        string $period,
+        ?string $lastPaid = null,
+        ?string $payAllowed = null
+    ): int {
+        try {
+            if ($accountId <= 0) return 0;
 
-    $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
-    $abono     = $abonoEc + $abonoPay;
+            if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+                $period = now()->format('Y-m');
+            }
 
-    $meta = $this->decodeMeta($acc->meta ?? null);
-    $custom = $this->extractCustomAmountMxn($acc, $meta);
+            if (!Schema::connection($this->adm)->hasTable('accounts')) {
+                return 0;
+            }
 
-    if ($custom !== null && $custom > 0.00001) {
-        $expected = $custom;
-    } else {
-        [$expected] = $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
+            $accCols = Schema::connection($this->adm)->getColumnListing('accounts');
+            $lc = array_map('strtolower', $accCols);
+            $has = static fn(string $c) => in_array(strtolower($c), $lc, true);
+
+            $select = ['id'];
+            foreach (['meta', 'plan', 'plan_actual', 'modo_cobro', 'email', 'rfc', 'razon_social', 'name'] as $c) {
+                if ($has($c)) $select[] = $c;
+            }
+            foreach ([
+                'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
+                'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
+                'billing_amount', 'amount', 'precio', 'monto',
+            ] as $c) {
+                if ($has($c)) $select[] = $c;
+            }
+
+            $acc = DB::connection($this->adm)->table('accounts')
+                ->where('id', $accountId)
+                ->first(array_values(array_unique($select)));
+
+            if (!$acc) return 0;
+
+            $meta = $this->decodeMeta($acc->meta ?? null);
+
+            // 1) custom/override
+            $custom = $this->extractCustomAmountMxn($acc, $meta);
+            if ($custom !== null && $custom > 0.00001) {
+                return max(0, (int) round(((float) $custom) * 100));
+            }
+
+            // 2) base/override por meta
+            [$expected] = $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, $payAllowed);
+
+            $expected = (float) $expected;
+            if ($expected <= 0.00001) return 0;
+
+            return max(0, (int) round($expected * 100));
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
-    $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
-    $saldo = max(0.0, $totalShown - $abono);
+       public function payLink(Request $req): Response|RedirectResponse
+    {
+        $data = $req->validate([
+            'account_id' => 'required|string|max:64',
+            'period'     => ['required', 'regex:/^\d{4}\-(0[1-9]|1[0-2])$/'],
+        ]);
 
-    if ($saldo <= 0.00001) {
-        return response('No hay saldo pendiente para ese periodo.', 200)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache');
-    }
+        $accountId = (string) $data['account_id'];
+        $period    = (string) $data['period'];
 
-    try {
-        [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
-        return redirect()->away((string) $url)->withHeaders(['Cache-Control' => 'no-store, max-age=0, public', 'Pragma' => 'no-cache']);
-    } catch (\Throwable $e) {
-        return response('No se pudo generar liga: ' . $e->getMessage(), 500);
+        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        if (!$acc) {
+            return response('Cuenta no encontrada.', 404)
+                ->header('Cache-Control', 'no-store, max-age=0, public')
+                ->header('Pragma', 'no-cache');
+        }
+
+        $items = collect();
+        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            $items = DB::connection($this->adm)->table('estados_cuenta')
+                ->where('account_id', $accountId)
+                ->where('periodo', $period)
+                ->get();
+        }
+
+        $cargoReal = (float) $items->sum('cargo');
+        $abonoEc   = (float) $items->sum('abono');
+
+        $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
+        $abono     = $abonoEc + $abonoPay;
+
+        $meta   = $this->decodeMeta($acc->meta ?? null);
+        $custom = $this->extractCustomAmountMxn($acc, $meta);
+
+        if ($custom !== null && $custom > 0.00001) {
+            $expected = $custom;
+        } else {
+            [$expected] = $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
+        }
+
+        $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
+        $saldo      = max(0.0, $totalShown - $abono);
+
+        if ($saldo <= 0.00001) {
+            return response('No hay saldo pendiente para ese periodo.', 200)
+                ->header('Cache-Control', 'no-store, max-age=0, public')
+                ->header('Pragma', 'no-cache');
+        }
+
+        try {
+            [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
+
+            return redirect()
+                ->away((string) $url)
+                ->withHeaders([
+                    'Cache-Control' => 'no-store, max-age=0, public',
+                    'Pragma'        => 'no-cache',
+                ]);
+        } catch (\Throwable $e) {
+            return response('No se pudo generar liga: ' . $e->getMessage(), 500);
+        }
     }
-}
 
 }
