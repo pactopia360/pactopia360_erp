@@ -2249,120 +2249,129 @@ final class AccountBillingController extends Controller
     }
 
  private function resolveAdminAccountId(Request $req): array
-    {
-        $u = Auth::guard('web')->user();
+{
+    $u = Auth::guard('web')->user();
 
-        // intenta cargar relación cuenta si existe
-        if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-            try { $u->load('cuenta'); } catch (\Throwable $e) {}
-        }
+    // intenta cargar relación cuenta si existe
+    if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
+        try { $u->load('cuenta'); } catch (\Throwable $e) {}
+    }
 
-        // 1) Relación del usuario (mejor fuente)
-        $adminId = $u?->cuenta?->admin_account_id ?? null;
-        if ($adminId && is_numeric($adminId)) {
-            $id = (int) $adminId;
-            if ($id > 0) return [(string) $id, 'user.cuenta.admin_account_id'];
-        }
+    // 1) Relación del usuario (mejor fuente)
+    $adminId = $u?->cuenta?->admin_account_id ?? null;
+    if ($adminId && is_numeric($adminId)) {
+        $id = (int) $adminId;
+        if ($id > 0) return [(string) $id, 'user.cuenta.admin_account_id'];
+    }
 
-        // 2) Campo directo en usuario (si existe)
-        if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
-            $id = (int) $u->admin_account_id;
-            if ($id > 0) return [(string) $id, 'user.admin_account_id'];
-        }
+    // 2) Campo directo en usuario (si existe)
+    if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
+        $id = (int) $u->admin_account_id;
+        if ($id > 0) return [(string) $id, 'user.admin_account_id'];
+    }
 
-        // 3) ✅ Claves que tú mismo seteas en LoginController
-        $v1 = $req->session()->get('verify.account_id');
-        if ($v1 && is_numeric($v1) && (int)$v1 > 0) return [(string) ((int)$v1), 'session.verify.account_id'];
+    // 3) ✅ Claves que tú mismo seteas en LoginController
+    $v1 = $req->session()->get('verify.account_id');
+    if ($v1 && is_numeric($v1) && (int)$v1 > 0) return [(string) ((int)$v1), 'session.verify.account_id'];
 
-        $v2 = $req->session()->get('paywall.account_id');
-        if ($v2 && is_numeric($v2) && (int)$v2 > 0) return [(string) ((int)$v2), 'session.paywall.account_id'];
+    $v2 = $req->session()->get('paywall.account_id');
+    if ($v2 && is_numeric($v2) && (int)$v2 > 0) return [(string) ((int)$v2), 'session.paywall.account_id'];
 
-        // 4) Compat: claves antiguas / variantes
-        foreach ([
-            'client.admin_account_id',
-            'client.account_id',
-            'client_account_id',
-            'admin_account_id',
-            'account_id',
-        ] as $k) {
-            $v = $req->session()->get($k);
-            if ($v && is_numeric($v) && (int)$v > 0) return [(string) ((int)$v), 'session.'.$k];
-        }
+    // 4) Compat: claves antiguas / variantes
+    foreach ([
+        'client.admin_account_id',
+        'client.account_id',
+        'client_account_id',
+        'admin_account_id',
+        'account_id',
+    ] as $k) {
+        $v = $req->session()->get($k);
+        if ($v && is_numeric($v) && (int)$v > 0) return [(string) ((int)$v), 'session.'.$k];
+    }
 
-        // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
-        $clientCuentaId = $req->session()->get('client.cuenta_id')
-            ?? $req->session()->get('cuenta_id')
-            ?? null;
+    // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
+    $clientCuentaId = $req->session()->get('client.cuenta_id')
+        ?? $req->session()->get('cuenta_id')
+        ?? null;
 
-        if ($clientCuentaId) {
-            $clientCuentaIdStr = is_string($clientCuentaId) ? trim($clientCuentaId) : (string)$clientCuentaId;
+    if ($clientCuentaId) {
+        $clientCuentaIdStr = is_string($clientCuentaId) ? trim($clientCuentaId) : (string)$clientCuentaId;
 
-            try {
-                $cli = config('p360.conn.clients', 'mysql_clientes');
+        try {
+            $cli = config('p360.conn.clients', 'mysql_clientes');
 
-                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                    $lc   = array_map('strtolower', $cols);
-                    $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                $lc   = array_map('strtolower', $cols);
+                $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
-                    $sel = ['id'];
-                    foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
-                        if ($has($c)) $sel[] = $c;
+                $sel = ['id'];
+                foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
+                    if ($has($c)) $sel[] = $c;
+                }
+                // (Opcional) para diagnósticos
+                foreach (['rfc', 'codigo_cliente', 'customer_no'] as $c) {
+                    if ($has($c)) $sel[] = $c;
+                }
+
+                $sel = array_values(array_unique($sel));
+
+                // 5.1) Intento por PK "id" (numérico o string/uuid)
+                $cc = null;
+
+                // Si es numérico, busca como int
+                if (is_numeric($clientCuentaIdStr)) {
+                    $cc = DB::connection($cli)->table('cuentas_cliente')
+                        ->select($sel)
+                        ->where('id', (int)$clientCuentaIdStr)
+                        ->first();
+                } else {
+                    // ✅ NUEVO: si NO es numérico, intenta por id como string (UUID)
+                    // Esto cubre esquemas donde cuentas_cliente.id es CHAR/VARCHAR UUID.
+                    $cc = DB::connection($cli)->table('cuentas_cliente')
+                        ->select($sel)
+                        ->where('id', $clientCuentaIdStr)
+                        ->first();
+                }
+
+                // 5.2) Si no encontró, intenta por columnas alternativas (solo si existen)
+                if (!$cc) {
+                    $altCols = [];
+                    foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
+                        if ($has($c)) $altCols[] = $c;
                     }
-                    // (Opcional) para diagnósticos
-                    foreach (['rfc', 'codigo_cliente', 'customer_no'] as $c) {
-                        if ($has($c)) $sel[] = $c;
-                    }
 
-                    $sel = array_values(array_unique($sel));
-
-                    // 5.1) Si parece NUMÉRICO, primero intenta por PK id
-                    $cc = null;
-                    if (is_numeric($clientCuentaIdStr)) {
+                    foreach ($altCols as $col) {
                         $cc = DB::connection($cli)->table('cuentas_cliente')
                             ->select($sel)
-                            ->where('id', (int)$clientCuentaIdStr)
+                            ->where($col, $clientCuentaIdStr)
                             ->first();
-                    }
-
-                    // 5.2) Si no encontró, intenta por columnas alternativas (solo si existen)
-                    if (!$cc) {
-                        $altCols = [];
-                        foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
-                            if ($has($c)) $altCols[] = $c;
-                        }
-
-                        foreach ($altCols as $col) {
-                            $cc = DB::connection($cli)->table('cuentas_cliente')
-                                ->select($sel)
-                                ->where($col, $clientCuentaIdStr)
-                                ->first();
-                            if ($cc) break;
-                        }
-                    }
-
-                    if ($cc) {
-                        $id = $this->resolveAdminAccountIdFromClientAccount($cc);
-                        if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
+                        if ($cc) break;
                     }
                 }
+
+                if ($cc) {
+                    $id = $this->resolveAdminAccountIdFromClientAccount($cc);
+                    if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignora
+        }
+
+        // 6) ✅ Si client.cuenta_id es UUID y NO existe en cuentas_cliente, intenta resolver por tabla puente
+        if ($clientCuentaIdStr !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $clientCuentaIdStr)) {
+            try {
+                $aid = (int) $this->resolveAdminAccountIdFromClientUuid($clientCuentaIdStr);
+                if ($aid > 0) return [(string) $aid, 'client_uuid.bridge_lookup'];
             } catch (\Throwable $e) {
                 // ignora
             }
-
-            // 6) ✅ Si client.cuenta_id es UUID y NO existe en cuentas_cliente, intenta resolver por tabla puente
-            if ($clientCuentaIdStr !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $clientCuentaIdStr)) {
-                try {
-                    $aid = (int) $this->resolveAdminAccountIdFromClientUuid($clientCuentaIdStr);
-                    if ($aid > 0) return [(string) $aid, 'client_uuid.bridge_lookup'];
-                } catch (\Throwable $e) {
-                    // ignora
-                }
-            }
         }
-
-        return [null, 'unresolved'];
     }
+
+    return [null, 'unresolved'];
+}
 
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
