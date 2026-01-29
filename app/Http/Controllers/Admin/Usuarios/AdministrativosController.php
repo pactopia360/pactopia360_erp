@@ -341,28 +341,30 @@ final class AdministrativosController extends Controller
     }
 
     public function edit(string $id): View
-    {
-        $adm = DB::connection($this->adm);
+{
+    $adm = DB::connection($this->adm);
 
-        $qid = $this->normalizeIdForQuery($id);
-        $row = $adm->table($this->table)->where('id', $qid)->first();
+    $qid = $this->normalizeIdForQuery($id);
+    $row = $adm->table($this->table)->where('id', $qid)->first();
 
-        abort_unless($row, 404);
+    abort_unless($row, 404);
 
-        if (!property_exists($row, 'permisos')) $row->permisos = null;
-
-        // ✅ normaliza estatus vacío para evitar bloqueos sorpresa
-        if ($this->hasCol('estatus')) {
-            $activo    = (int)($row->activo ?? 1);
-            $isBlocked = (int)($row->is_blocked ?? 0);
-            $row->estatus = $this->normalizeEstatus($row->estatus ?? null, $activo, $isBlocked);
-        }
-
-        return view('admin.usuarios.administrativos.form', [
-            'mode' => 'edit',
-            'row'  => $row,
-        ]);
+    if (!property_exists($row, 'permisos')) {
+        $row->permisos = null;
     }
+
+    // ✅ normaliza estatus vacío para evitar bloqueos sorpresa
+    if ($this->hasCol('estatus')) {
+        $activo    = (int) ($row->activo ?? 1);
+        $isBlocked = (int) ($row->is_blocked ?? 0);
+        $row->estatus = $this->normalizeEstatus($row->estatus ?? null, $activo, $isBlocked);
+    }
+
+    return view('admin.usuarios.administrativos.form', [
+        'mode' => 'edit',
+        'row'  => $row,
+    ]);
+}
 
     public function update(Request $req, string $id): RedirectResponse
     {
@@ -490,30 +492,40 @@ final class AdministrativosController extends Controller
     public function resetPassword(Request $req, string $id): RedirectResponse
     {
         $data = $req->validate([
-            'password' => ['nullable','string','min:10'],
+            'password'     => ['nullable','string','min:10'],
             'new_password' => ['nullable','string','min:10'],
         ]);
 
         $adm = DB::connection($this->adm);
 
-        $row = $adm->table($this->table)->where('id', $id)->first();
+        $qid = $this->normalizeIdForQuery($id);
+
+        $row = $adm->table($this->table)->where('id', $qid)->first();
         abort_unless($row, 404);
 
         $plain = (string)($data['password'] ?? $data['new_password'] ?? '');
-        if (trim($plain) === '') $plain = Str::random(14);
+        if (trim($plain) === '') {
+            $plain = Str::random(14);
+        }
 
         $upd = [
             'password' => Hash::make($plain),
         ];
 
-        if ($this->hasCol('force_password_change')) $upd['force_password_change'] = 1;
-        if ($this->hasCol('updated_at')) $upd['updated_at'] = now();
+        if ($this->hasCol('force_password_change')) {
+            $upd['force_password_change'] = 1;
+        }
+
+        if ($this->hasCol('updated_at')) {
+            $upd['updated_at'] = now();
+        }
 
         $adm->table($this->table)->where('id', $qid)->update($upd);
 
-
         return back()->with('ok', 'Password reseteada. Nueva: '.$plain);
     }
+
+
 
     public function destroy(string $id): RedirectResponse
     {
