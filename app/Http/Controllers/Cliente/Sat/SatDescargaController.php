@@ -5403,8 +5403,16 @@ final class SatDescargaController extends Controller
     {
         // =========================================================
         // REGISTRO ZIP FIEL EXTERNO
-        // Guarda EXCLUSIVAMENTE en external_fiel_uploads (mysql_clientes)
-        // usando cuenta_id UUID
+        // Guarda en external_fiel_uploads (mysql_clientes)
+        //
+        // ✅ En producción: external_fiel_uploads.account_id es BIGINT NOT NULL
+        // ✅ En producción: NO existe columna cuenta_id en external_fiel_uploads
+        // ✅ En producción: p360v1_clientes.accounts NO tiene uuid/cuenta_id, solo id bigint + rfc
+        //
+        // Solución:
+        // - Mantener $cuentaId UUID solo para organizar storage path (fiel/external/{cuentaId})
+        // - Resolver $accountId BIGINT por RFC en mysql_clientes.accounts
+        // - Guardar SIEMPRE account_id = $accountId (nunca null)
         // =========================================================
 
         $t0 = microtime(true);
@@ -5425,6 +5433,10 @@ final class SatDescargaController extends Controller
         ));
 
         $notes = trim((string) $request->input('notes', $request->input('nota', '')));
+
+        // Opcionales (si el form los manda)
+        $emailExterno = trim((string) $request->input('email_externo', $request->input('email', '')));
+        $razonSocial  = trim((string) $request->input('razon_social', $request->input('razonSocial', '')));
 
         if ($rfc === '' || !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
             return response()->json(['ok' => false, 'msg' => 'RFC inválido.'], 422);
@@ -5449,7 +5461,7 @@ final class SatDescargaController extends Controller
         }
 
         // -----------------------------
-        // Resolver cuenta (UUID)
+        // Resolver cuenta (UUID) SOLO para storage path
         // -----------------------------
         $cuentaId = '';
 
@@ -5473,16 +5485,34 @@ final class SatDescargaController extends Controller
             $cuentaId = trim((string) $request->input('cuenta_id', $request->input('cuenta', '')));
         }
 
-        if ($cuentaId === '') {
-            return response()->json(['ok' => false, 'msg' => 'Cuenta inválida.'], 422);
-        }
-
-        if (!preg_match('/^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$/', $cuentaId)) {
-            return response()->json(['ok' => false, 'msg' => 'cuenta_id inválido.'], 422);
+        // Si no hay UUID, no bloqueamos el guardado: generamos uno para carpeta.
+        // (Así no dependemos de sesión en casos raros)
+        if ($cuentaId === '' || !preg_match('/^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$/', $cuentaId)) {
+            $cuentaId = (string) \Illuminate\Support\Str::uuid();
         }
 
         // -----------------------------
-        // Guardar ZIP
+        // Resolver account_id BIGINT por RFC (OBLIGATORIO para DB)
+        // -----------------------------
+        $conn  = 'mysql_clientes';
+        $table = 'external_fiel_uploads';
+
+        $accountId = null;
+        try {
+            $accountId = \DB::connection($conn)->table('accounts')->where('rfc', $rfc)->value('id');
+        } catch (\Throwable) {
+            $accountId = null;
+        }
+
+        if (!$accountId) {
+            return response()->json([
+                'ok'  => false,
+                'msg' => 'No existe una cuenta cliente con ese RFC en p360v1_clientes.accounts. Primero registra/crea la cuenta cliente con ese RFC.',
+            ], 422);
+        }
+
+        // -----------------------------
+        // Guardar ZIP (storage)
         // -----------------------------
         $disk = 'public';
         $dir  = "fiel/external/{$cuentaId}";
@@ -5502,9 +5532,6 @@ final class SatDescargaController extends Controller
         // Insertar en external_fiel_uploads (mysql_clientes)
         // -----------------------------
         try {
-            $conn  = 'mysql_clientes';
-            $table = 'external_fiel_uploads';
-
             $schema = \Schema::connection($conn);
             if (!$schema->hasTable($table)) {
                 return response()->json(['ok' => false, 'msg' => 'No existe la tabla external_fiel_uploads.'], 500);
@@ -5518,30 +5545,32 @@ final class SatDescargaController extends Controller
                 'ua'            => (string) $request->userAgent(),
                 'notes'         => $notes,
                 'original_name' => $zip->getClientOriginalName(),
+                'cuenta_id_uuid'=> $cuentaId, // solo auditoría (si existe meta)
             ];
 
             $row = [
-                // UUID principal
-                'cuenta_id'     => $cuentaId,
+                // ✅ requerido en producción
+                'account_id'    => (int) $accountId,
 
-                // fallback legacy (si el entorno exige bigint)
-                // OJO: si $cuentaId es UUID no es numérico, entonces ponemos NULL.
-                'account_id'    => (ctype_digit($cuentaId) ? (int)$cuentaId : null),
-
+                // Opcionales si existen en tabla
+                'email_externo' => ($emailExterno !== '' ? $emailExterno : null),
+                'reference'     => ($ref !== '' ? $ref : null),
                 'rfc'           => $rfc,
-                'reference'     => $ref !== '' ? $ref : null,
+                'razon_social'  => ($razonSocial !== '' ? $razonSocial : null),
+
                 'token'         => $token,
+
                 'file_path'     => $path,
                 'file_name'     => $zip->getClientOriginalName(),
                 'file_size'     => (int) $zip->getSize(),
                 'mime'          => (string) $zip->getClientMimeType(),
+
                 'fiel_password' => \Crypt::encryptString($pass),
                 'status'        => 'uploaded',
                 'uploaded_at'   => now(),
                 'created_at'    => now(),
                 'updated_at'    => now(),
             ];
-
 
             // defensivo por columnas
             $safe = [];
@@ -5561,32 +5590,36 @@ final class SatDescargaController extends Controller
             $id = \DB::connection($conn)->table($table)->insertGetId($safe);
 
             \Log::info('external_fiel_zip_saved', [
-                'id' => $id,
+                'id'        => $id,
+                'account_id'=> (int) $accountId,
                 'cuenta_id' => $cuentaId,
-                'rfc' => $rfc,
-                'ms' => (int) round((microtime(true) - $t0) * 1000),
+                'rfc'       => $rfc,
+                'ms'        => (int) round((microtime(true) - $t0) * 1000),
             ]);
 
             return response()->json([
-                'ok'  => true,
-                'msg' => 'FIEL externa cargada correctamente.',
+                'ok'   => true,
+                'msg'  => 'FIEL externa cargada correctamente.',
                 'data' => [
-                    'id'        => $id,
-                    'cuenta_id' => $cuentaId,
-                    'rfc'       => $rfc,
-                    'file_path' => $path,
+                    'id'         => $id,
+                    'account_id' => (int) $accountId,
+                    'cuenta_id'  => $cuentaId, // solo referencia de storage
+                    'rfc'        => $rfc,
+                    'file_path'  => $path,
                 ],
             ]);
         } catch (\Throwable $e) {
             \Log::error('external_fiel_upload_failed', [
-                'cuenta_id' => $cuentaId,
-                'rfc' => $rfc,
-                'error' => $e->getMessage(),
+                'cuenta_id'  => $cuentaId,
+                'account_id' => (int) $accountId,
+                'rfc'        => $rfc,
+                'error'      => $e->getMessage(),
             ]);
 
             return response()->json(['ok' => false, 'msg' => 'Error al guardar FIEL externa.'], 500);
         }
     }
+
 
     public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     {
