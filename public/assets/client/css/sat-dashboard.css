@@ -4539,3 +4539,15 @@ html[data-theme="dark"] .sat-input-pill:focus{
   opacity:.55;
   cursor:not-allowed;
 }
+
+/* Backdrop modal debe estar por encima del layout */
+.sat-modal-backdrop{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+
+/* Alias: soporta ambas variantes "soft" */
+.sat-external-option-soft { background:#fafafa; }
+.sat-external-option.soft { background:#fafafa; }

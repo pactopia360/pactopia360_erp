@@ -104,3 +104,466 @@
   .sat-kpi-grid{ grid-template-columns: 1fr; }
   .sat-kpi-tile-wide{ grid-column: span 1; }
 }
+
+/* ======================================================
+ * RFC EXTERNO · FLUJOS ALTERNOS
+ * ====================================================== */
+
+.sat-external-flow {
+  border: 1px solid rgba(0,0,0,.06);
+}
+
+.sat-external-head {
+  margin-bottom: 14px;
+}
+
+.sat-external-title {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.sat-external-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.sat-external-kicker {
+  font-size: 12px;
+  letter-spacing: .08em;
+  color: #6b7280;
+}
+
+.sat-external-sub {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.sat-external-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 14px;
+  margin-top: 10px;
+}
+
+@media (max-width: 820px) {
+  .sat-external-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sat-external-option {
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  padding: 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sat-external-option-soft {
+  background: #fafafa;
+}
+
+.sat-external-option-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sat-external-option-icon {
+  font-size: 20px;
+}
+
+.sat-external-option-desc {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.4;
+}
+
+.sat-external-option .btn.full {
+  width: 100%;
+  justify-content: center;
+}
+
+.sat-external-note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+
+/* ======================================================
+ * RFC EXTERNO · ARCHIVOS CARGADOS
+ * ====================================================== */
+
+.sat-external-files {
+  margin-top: 18px;
+}
+
+.sat-external-files-head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+.sat-external-files-sub {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.sat-external-table-wrap {
+  overflow-x: auto;
+}
+
+.sat-external-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sat-external-table th,
+.sat-external-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+
+.sat-external-table thead th {
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.sat-file-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sat-file-badge.ok {
+  background: #e6f7ee;
+  color: #047857;
+}
+
+.sat-file-badge.pending {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.sat-file-badge.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sat-file-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  margin: 0 3px;
+}
+
+.sat-file-btn.danger {
+  color: #dc2626;
+}
+
+.sat-file-btn[disabled] {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* ======================================================
+ * ZIP ORIGEN (INTERNO / EXTERNO)
+ * ====================================================== */
+
+.sat-zip-origin {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.sat-zip-origin.internal {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.sat-zip-origin.external {
+  background: #ecfeff;
+  color: #155e75;
+}
+
+
+/* ======================================================
+ * RFC EXTERNO · CLEAN / FLOATING
+ * ====================================================== */
+
+.sat-external-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 12px;
+}
+
+@media (max-width: 820px) {
+  .sat-external-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sat-external-option {
+  position: relative;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  padding: 18px 14px 14px;
+  background: #fff;
+}
+
+.sat-external-option.soft {
+  background: #fafafa;
+}
+
+.sat-float-label {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  background: #fff;
+  padding: 0 6px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: #6b7280;
+}
+
+.sat-external-files {
+  margin-top: 16px;
+}
+
+.sat-external-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sat-external-table th,
+.sat-external-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+
+.sat-external-table thead th {
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: #6b7280;
+}
+
+.sat-file-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.sat-file-badge.ok {
+  background: #e6f7ee;
+  color: #047857;
+}
+
+.sat-file-badge.pending {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.sat-zip-origin {
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+
+.sat-zip-origin.internal {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.sat-zip-origin.external {
+  background: #ecfeff;
+  color: #155e75;
+}
+
+/* Floating labels minimal */
+.sat-float{position:relative}
+.sat-float > label{
+  position:absolute; left:14px; top:10px;
+  font-size:12px; opacity:.75; pointer-events:none;
+  transform-origin:left top; transition:.16s ease;
+}
+.sat-float > input,
+.sat-float > textarea,
+.sat-float > select{padding-top:20px !important}
+.sat-float > input:focus + label,
+.sat-float > input:not(:placeholder-shown) + label,
+.sat-float > textarea:focus + label,
+.sat-float > textarea:not(:placeholder-shown) + label{
+  transform:translateY(-8px) scale(.92);
+  opacity:.95;
+}
+
+/* Password eye button */
+.sat-pass-wrap{position:relative}
+.sat-pass-toggle{
+  position:absolute; right:10px; top:50%;
+  transform:translateY(-50%);
+  border:0; background:transparent;
+  cursor:pointer; font-size:16px;
+  padding:6px; border-radius:10px;
+}
+.sat-pass-toggle:hover{background:rgba(0,0,0,.05)}
+
+/* =========================================================
+ *  EXTERNAL ZIP MODAL (clean + floating labels)
+ * ========================================================= */
+.sat-exzip-modal { max-width: 980px; }
+.sat-modal-header-compact { padding: 16px 18px; }
+.sat-modal-head-left { display:flex; flex-direction:column; gap:4px; }
+.sat-exzip-body { padding: 18px; }
+
+.sat-exzip-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:14px;
+}
+
+.sat-exzip-file{ grid-column: 1 / -1; }
+.sat-exzip-notes{ grid-column: 1 / -1; }
+
+@media (max-width: 860px){
+  .sat-exzip-grid{ grid-template-columns: 1fr; }
+  .sat-exzip-file, .sat-exzip-notes{ grid-column:auto; }
+}
+
+/* Floating label base */
+.sat-float{ position:relative; background:transparent; }
+.sat-float-input{
+  width:100%;
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:14px;
+  padding:16px 14px 12px 14px;
+  background:#fff;
+  outline:none;
+  font-size:14px;
+  line-height:1.2;
+}
+.sat-float-input:focus{
+  border-color: rgba(59,130,246,.45);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+}
+.sat-float-label{
+  position:absolute;
+  left:12px;
+  top:11px;
+  padding:0 6px;
+  font-size:12px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color: rgba(15,23,42,.55);
+  pointer-events:none;
+  background:#fff;
+  transform-origin:left top;
+  transition: transform .12s ease, top .12s ease, color .12s ease;
+}
+
+/* “Float” when has value/focus */
+.sat-float-input:focus + .sat-float-label,
+.sat-float-input:not(:placeholder-shown) + .sat-float-label{
+  top:-8px;
+  color: rgba(15,23,42,.72);
+  transform: scale(.92);
+}
+
+/* File chip */
+.sat-float-file .sat-float-input{ padding-top:18px; }
+.sat-file-chip{
+  margin-top:8px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px dashed rgba(15,23,42,.14);
+  color: rgba(15,23,42,.72);
+  font-size:13px;
+}
+.sat-file-chip-name{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+.sat-file-chip-size{ opacity:.75; }
+
+/* Password toggle */
+.sat-exzip-pass{ position:relative; }
+.sat-pass-toggle{
+  position:absolute;
+  right:10px;
+  top:10px;
+  height:34px;
+  width:40px;
+  border-radius:12px;
+  border:1px solid rgba(15,23,42,.10);
+  background:#fff;
+  cursor:pointer;
+}
+.sat-pass-toggle:hover{ background: rgba(15,23,42,.03); }
+
+/* Footer actions */
+.sat-exzip-actions{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding-top:14px;
+}
+.sat-exzip-status{
+  min-height:18px;
+  font-size:13px;
+  color: rgba(15,23,42,.70);
+}
+.sat-exzip-buttons{ display:flex; gap:10px; flex-wrap:wrap; }
+
+/* ==========================================================
+ * FIX: External RFC block queda "detrás" / ocupa hacia abajo
+ * Causa típica: stacking context + z-index por position/overflow
+ * ========================================================== */
+
+/* El bloque RFC EXTERNO debe crear su propio stacking context arriba */
+#block-external-zip,
+.sat-external-flow {
+  position: relative !important;
+  z-index: 30 !important;
+  clear: both !important;          /* por si hay floats viejos */
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;     /* evita que lo "recorten" */
+  margin-bottom: 14px !important;   /* separa del siguiente card */
+}
+
+/* Asegura que los cards siguientes no se monten encima */
+#block-manual-downloads,
+#block-requests-section,
+#block-vault-storage-section,
+.sat-section {
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+/* Si algún contenedor padre está creando stacking raro por overflow */
+.sat-ui,
+.sat-ui > .sat-card,
+.sat-ui > section {
+  overflow: visible;
+}
+
+/* La tabla del externo: evita layouts raros en pantallas chicas */
+.sat-external-table-wrap {
+  position: relative;
+  z-index: 1;
+  overflow: auto;
+}
+

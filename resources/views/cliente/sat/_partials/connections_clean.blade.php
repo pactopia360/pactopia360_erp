@@ -1,5 +1,5 @@
 {{-- resources/views/cliente/sat/_partials/connections_clean.blade.php --}}
-{{-- P360 SAT · Conexiones (Login-like) · v3.2 (STACKED + CSS robust load + polished UI) --}}
+{{-- P360 SAT · Conexiones (Login-like) · v3.3 (STACKED + CSS robust load + polished UI + JS robust ready) --}}
 
 @php
   use Illuminate\Support\Str;
@@ -48,7 +48,7 @@
 
     $relPath = is_file($absA) ? $relA : (is_file($absB) ? $relB : $relA);
     $absPath = public_path($relPath);
-    $ver     = is_file($absPath) ? (string) @filemtime($absPath) : '3.2';
+    $ver     = is_file($absPath) ? (string) @filemtime($absPath) : '3.3';
   @endphp
 
   <link rel="stylesheet" href="{{ asset($relPath) }}?v={{ $ver }}">
@@ -85,7 +85,6 @@
             <span aria-hidden="true">↗</span> Invitar
           </button>
         @endif
-
 
         <button type="button" class="btn primary" id="btnOpenAddRfc" data-open="modal-rfc">
           <span aria-hidden="true">＋</span> Agregar RFC
@@ -297,6 +296,7 @@
                       data-action="alias"
                       data-url="{{ $rtAlias }}"
                       data-rfc="{{ $rfc }}"
+                      data-prefill-alias="{{ $alias }}"
                       {{ ($rtAlias !== '#' && $rfc !== '') ? '' : 'disabled' }}
                     >
                       <svg class="sat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -344,6 +344,7 @@
     </div>
   </div>
 </section>
+
 {{-- MODAL: INVITAR (registro externo) --}}
 <div class="sat-modal-backdrop" id="modalInvite" style="display:none;">
   <div class="sat-modal sat-modal-lg">
@@ -393,11 +394,25 @@
   </div>
 </div>
 
-
 @push('scripts')
 <script>
 (function () {
   'use strict';
+
+  // =========================================================
+  // ✅ SOT READY (evita bug cuando el script se inyecta tarde)
+  // =========================================================
+  function ready(fn) {
+    try {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fn, { once: true });
+      } else {
+        fn();
+      }
+    } catch (e) {
+      try { fn(); } catch (_) {}
+    }
+  }
 
   // -------------------------
   // Helpers
@@ -447,7 +462,10 @@
     try { json = txt ? JSON.parse(txt) : null; } catch (e) {}
 
     if (!res.ok) {
-      var msg = (json && (json.message || json.error)) ? (json.message || json.error) : ('Error HTTP ' + res.status);
+      var msg =
+        (json && (json.msg || json.message || json.error))
+          ? (json.msg || json.message || json.error)
+          : ('Error HTTP ' + res.status);
       throw new Error(msg);
     }
 
@@ -478,7 +496,6 @@
     if (!url || url === '#') return toast('Ruta de alias no configurada.', 'error');
     if (!rfc) return toast('RFC inválido.', 'error');
 
-    // Alias actual viene en data-prefill-alias (cuando el botón es el lápiz) o lo inferimos del DOM
     var currentAlias = (btn.getAttribute('data-prefill-alias') || '').trim();
     if (!currentAlias) {
       try {
@@ -489,16 +506,15 @@
     }
 
     var newAlias = prompt('Editar alias para ' + rfc + ':', currentAlias || '');
-    if (newAlias === null) return; // cancel
+    if (newAlias === null) return;
     newAlias = String(newAlias).trim();
 
     try {
-      // Backend típico: rfc + alias
       await postForm(url, { rfc: rfc, alias: newAlias });
       toast('Alias actualizado.', 'success');
       window.location.reload();
     } catch (e) {
-      toast(e.message || 'No se pudo actualizar el alias.', 'error');
+      toast((e && e.message) ? e.message : 'No se pudo actualizar el alias.', 'error');
     }
   }
 
@@ -511,16 +527,18 @@
     if (!confirm('¿Eliminar RFC ' + rfc + '?\n\nEsto quitará la conexión y sus credenciales asociadas.')) return;
 
     try {
-      // Backend típico: rfc
       await postForm(url, { rfc: rfc });
       toast('RFC eliminado.', 'success');
       window.location.reload();
     } catch (e) {
-      toast(e.message || 'No se pudo eliminar el RFC.', 'error');
+      toast((e && e.message) ? e.message : 'No se pudo eliminar el RFC.', 'error');
     }
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
+  // =========================================================
+  // INIT
+  // =========================================================
+  ready(function () {
     // Abrir modal “Agregar RFC”
     var btnAdd = document.getElementById('btnOpenAddRfc');
     if (btnAdd) btnAdd.addEventListener('click', openModalRfc);
@@ -548,106 +566,108 @@
       });
     });
 
+    // =========================
     // Invitar (registro externo)
+    // =========================
     function openModalInvite() {
-  var el = document.getElementById('modalInvite');
-  if (!el) return;
-  el.style.display = 'flex';
-  el.classList.add('is-open');
+      var el = document.getElementById('modalInvite');
+      if (!el) return;
+      el.style.display = 'flex';
+      el.classList.add('is-open');
 
-  // focus email
-  try {
-    var inp = document.getElementById('inviteEmail');
-    if (inp) setTimeout(function(){ inp.focus(); }, 50);
-  } catch (e) {}
-}
-
-function closeModalInvite() {
-  var el = document.getElementById('modalInvite');
-  if (!el) return;
-  el.classList.remove('is-open');
-  el.style.display = 'none';
-}
-
-function isValidEmail(email) {
-  var e = String(email || '').trim();
-  if (!e) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
-}
-
-// Invitar (registro externo) -> abre modal (evita redirect y evita handlers externos por ID)
-var btnInv = document.getElementById('btnExternalInviteOpen');
-if (btnInv) {
-  btnInv.addEventListener('click', function () {
-    openModalInvite();
-  });
-}
-
-// Cerrar modal por data-close
-document.addEventListener('click', function (ev) {
-  var t = ev.target;
-  var closeBtn = t && t.closest ? t.closest('[data-close="modal-invite"]') : null;
-  if (closeBtn) {
-    ev.preventDefault();
-    closeModalInvite();
-  }
-});
-
-// Submit invitación (POST)
-var formInvite = document.getElementById('formInvite');
-if (formInvite) {
-  formInvite.addEventListener('submit', async function (ev) {
-    ev.preventDefault();
-
-    // URL POST desde el botón (misma fuente)
-    var btn = document.getElementById('btnExternalInviteOpen');
-    var url = btn ? (btn.getAttribute('data-url') || '') : '';
-    if (!url || url === '#') return toast('Ruta de invitación no configurada.', 'error');
-
-    var email = '';
-    var note  = '';
-    try {
-      email = String((document.getElementById('inviteEmail') || {}).value || '').trim();
-      note  = String((document.getElementById('inviteNote')  || {}).value || '').trim();
-    } catch (e) {}
-
-    if (!isValidEmail(email)) return toast('Correo inválido.', 'error');
-
-    try {
-      var res = await postForm(url, { email: email, note: note });
-
-      // Normaliza posibles respuestas
-      var ok = true;
-      if (res && typeof res.ok !== 'undefined') ok = !!res.ok;
-
-      if (!ok) {
-        var msg = (res && (res.message || res.error)) ? (res.message || res.error) : 'No se pudo enviar la invitación.';
-        return toast(msg, 'error');
-      }
-
-      toast('Invitación enviada.', 'success');
-      closeModalInvite();
-
-      // si backend devuelve url
-      var link = (res && (res.url || (res.data && res.data.url))) ? (res.url || res.data.url) : '';
-      if (link) {
-        try { await navigator.clipboard.writeText(String(link)); } catch(e) {}
-        window.alert('Liga de invitación:\n\n' + link + '\n\n(Se copió al portapapeles si el navegador lo permitió)');
-      } else if (res && res.message) {
-        // opcional
-      }
-    } catch (e) {
-      toast(e.message || 'No se pudo enviar la invitación.', 'error');
+      try {
+        var inp = document.getElementById('inviteEmail');
+        if (inp) setTimeout(function () { inp.focus(); }, 50);
+      } catch (e) {}
     }
-  });
-}
 
+    function closeModalInvite() {
+      var el = document.getElementById('modalInvite');
+      if (!el) return;
+      el.classList.remove('is-open');
+      el.style.display = 'none';
+    }
 
-    // ✅ Delegación: Editar alias / Eliminar RFC
+    function isValidEmail(email) {
+      var e = String(email || '').trim();
+      if (!e) return false;
+      return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+    }
+
+    // Abrir modal invite
+    var btnInv = document.getElementById('btnExternalInviteOpen');
+    if (btnInv) {
+      btnInv.addEventListener('click', function () {
+        openModalInvite();
+      });
+    }
+
+    // Cerrar modal invite por data-close
+    document.addEventListener('click', function (ev) {
+      var t = ev.target;
+      var closeBtn = t && t.closest ? t.closest('[data-close="modal-invite"]') : null;
+      if (closeBtn) {
+        ev.preventDefault();
+        closeModalInvite();
+      }
+    });
+
+    // Submit invitación (POST)
+    var formInvite = document.getElementById('formInvite');
+    if (formInvite) {
+      formInvite.addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+
+        var btn = document.getElementById('btnExternalInviteOpen');
+        var url = btn ? (btn.getAttribute('data-url') || '') : '';
+        if (!url || url === '#') return toast('Ruta de invitación no configurada.', 'error');
+
+        var email = '';
+        var note  = '';
+        try {
+          email = String((document.getElementById('inviteEmail') || {}).value || '').trim();
+          note  = String((document.getElementById('inviteNote')  || {}).value || '').trim();
+        } catch (e) {}
+
+        if (!isValidEmail(email)) return toast('Correo inválido.', 'error');
+
+        try {
+          var res = await postForm(url, { email: email, note: note });
+
+          var ok = true;
+          if (res && typeof res.ok !== 'undefined') ok = !!res.ok;
+
+          if (!ok) {
+            var msg =
+              (res && (res.msg || res.message || res.error))
+                ? (res.msg || res.message || res.error)
+                : 'No se pudo enviar la invitación.';
+            return toast(msg, 'error');
+          }
+
+          toast('Invitación enviada.', 'success');
+          closeModalInvite();
+
+          var link =
+            (res && (res.url || (res.data && res.data.url)))
+              ? (res.url || res.data.url)
+              : '';
+
+          if (link) {
+            try { await navigator.clipboard.writeText(String(link)); } catch (e) {}
+            window.alert('Liga de invitación:\n\n' + link + '\n\n(Se copió al portapapeles si el navegador lo permitió)');
+          }
+        } catch (e) {
+          toast((e && e.message) ? e.message : 'No se pudo enviar la invitación.', 'error');
+        }
+      });
+    }
+
+    // =========================
+    // Delegación: Editar alias / Eliminar RFC
+    // =========================
     document.addEventListener('click', function (ev) {
       var el = ev.target;
-
-      // soporta click en svg/path dentro del botón
       var btn = el && el.closest ? el.closest('button[data-action]') : null;
       if (!btn) return;
 
@@ -672,5 +692,3 @@ if (formInvite) {
 })();
 </script>
 @endpush
-
-

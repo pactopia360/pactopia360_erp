@@ -533,9 +533,121 @@
   'rtQuickPdf'   => $rtQuickPdf  ?? null,
 ])
 
+{{-- 3.0) RFC Externo · Flujos alternos + ZIPs cargados (REAL) --}}
+<div class="sat-card sat-external-flow" id="block-external-zip" style="margin-top:14px;">
+  <div class="sat-external-head">
+    <div class="sat-external-title">
+      <span class="sat-external-icon">🧾</span>
+      <div>
+        <div class="sat-external-kicker">RFC EXTERNO</div>
+        <h3 style="margin:0;">Registro externo</h3>
+        <div class="sat-external-sub">Carga ZIP/FIEL o invita por correo. Aquí se listan los ZIPs cargados.</div>
+      </div>
+    </div>
+  </div>
 
-    {{-- 3.1) Descargas manuales (FLUJO SEPARADO) --}}
-  <div class="sat-card" id="block-manual-downloads">
+  {{-- Flujos --}}
+  <div class="sat-external-grid">
+    <div class="sat-external-option">
+      <div class="sat-external-option-head">
+        <span class="sat-external-option-icon">📦</span>
+        <h4 style="margin:0;">Subir ZIP / FIEL</h4>
+      </div>
+
+      <div class="sat-external-option-desc">
+        Sube un ZIP con la FIEL del emisor externo (flujo alterno).
+      </div>
+
+      <button
+        type="button"
+        class="btn primary full"
+        id="btnExternalZipOpen"
+        data-open="modal-external-zip"
+      >
+        Subir archivos
+      </button>
+    </div>
+
+    <div class="sat-external-option sat-external-option-soft">
+      <div class="sat-external-option-head">
+        <span class="sat-external-option-icon">✉️</span>
+        <h4 style="margin:0;">Invitar por correo</h4>
+      </div>
+
+      <div class="sat-external-option-desc">
+        Envía un enlace seguro para que el externo suba su ZIP.
+      </div>
+
+      <button
+        type="button"
+        class="btn soft full"
+        id="btnFielInviteOpen"
+        data-open="modal-fiel-invite"
+        {{ empty($rtExternalInvite) ? 'disabled' : '' }}
+      >
+        Enviar invitación
+      </button>
+
+      @if(empty($rtExternalInvite))
+        <div class="sat-external-note">
+          Ruta no configurada: <span class="mono">cliente.sat.fiel.external.invite</span>
+        </div>
+      @endif
+    </div>
+  </div>
+
+  {{-- LISTADO REAL: ZIPs cargados (DENTRO del card para que no “salga del cuadro”) --}}
+  <div class="sat-external-files">
+    <div class="sat-external-files-head" style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h4 style="margin:0;">ZIPs cargados</h4>
+        <div class="sat-external-files-sub">Registros subidos por ZIP/FIEL.</div>
+      </div>
+
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="btn icon-only" id="btnFielRefresh" data-tip="Actualizar listado">
+          <span aria-hidden="true">🔄</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="sat-external-table-wrap" style="margin-top:10px;">
+      <table class="sat-external-table">
+        <thead>
+          <tr>
+            <th>ZIP</th>
+            <th class="t-center">RFC</th>
+            <th>Razón social</th>
+            <th class="t-right">Peso</th>
+            <th class="t-center">Estado</th>
+            <th class="t-center">Acciones</th>
+          </tr>
+        </thead>
+
+        {{-- Empty state (tu JS lo detecta si existe) --}}
+        <tbody id="externalZipEmpty" style="display:none;">
+          <tr>
+            <td colspan="6" class="t-center text-muted" style="padding:14px;">
+              Aún no hay ZIPs cargados.
+            </td>
+          </tr>
+        </tbody>
+
+        <tbody id="fielZipTbody">
+          <tr>
+            <td colspan="6" class="t-center text-muted" style="padding:14px;">
+              Cargando…
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+{{-- 3.1) Descargas manuales (FLUJO SEPARADO) --}}
+<div class="sat-card" id="block-manual-downloads">
     <div class="sat-quick-head">
       <div class="sat-quick-title-wrap">
         <div class="sat-quick-icon" aria-hidden="true">⬇️</div>
@@ -1369,9 +1481,9 @@
     </div>
   </section>
 
-
   {{-- MODAL: AGREGAR RFC / CSD --}}
-  <div class="sat-modal-backdrop" id="modalRfc">
+  <div class="sat-modal-backdrop" id="modalRfc" style="display:none;">
+
     <div class="sat-modal sat-modal-lg">
       <div class="sat-modal-header sat-modal-header-simple">
         <div>
@@ -1653,6 +1765,173 @@
   </div>
 </div>
 
+{{-- MODAL: REGISTRO EXTERNO POR ZIP (UI limpia + floating labels + pass toggle) --}}
+<div class="sat-modal-backdrop" id="modalExternalZip" style="display:none;">
+  <div class="sat-modal sat-modal-xl sat-exzip-modal" role="dialog" aria-modal="true" aria-labelledby="exzipTitle">
+    <div class="sat-modal-header sat-modal-header-compact">
+      <div class="sat-modal-head-left">
+        <div class="sat-modal-kicker">RFC EXTERNO</div>
+        <div class="sat-modal-title" id="exzipTitle">Registro externo por ZIP</div>
+      </div>
+
+      <button type="button"
+              class="sat-modal-close"
+              data-close="modal-external-zip"
+              aria-label="Cerrar">✕</button>
+    </div>
+
+    <div class="sat-modal-body sat-exzip-body">
+      <form id="formExternalZip" class="sat-exzip-form" enctype="multipart/form-data">
+        @csrf
+
+        <div class="sat-exzip-grid">
+          {{-- RFC --}}
+          <div class="sat-float">
+            <input class="sat-float-input mono"
+                   id="extZipRfc"
+                   name="rfc"
+                   type="text"
+                   maxlength="13"
+                   value="{{ $externalRfc ?? '' }}"
+                   placeholder=" "
+                   autocomplete="off">
+            <label class="sat-float-label" for="extZipRfc">RFC externo</label>
+          </div>
+
+          {{-- Referencia --}}
+          <div class="sat-float">
+            <input class="sat-float-input"
+                   id="extZipRef"
+                   name="reference"
+                   type="text"
+                   maxlength="120"
+                   placeholder=" "
+                   autocomplete="off">
+            <label class="sat-float-label" for="extZipRef">Referencia</label>
+          </div>
+
+          {{-- ZIP --}}
+          <div class="sat-float sat-float-file sat-exzip-file">
+            <input class="sat-float-input"
+                   id="extZipFile"
+                   name="zip"
+                   type="file"
+                   accept=".zip,application/zip"
+                   placeholder=" ">
+            <label class="sat-float-label" for="extZipFile">Archivo ZIP</label>
+            <div class="sat-file-chip" id="extZipFileChip" style="display:none;">
+              <span class="sat-file-chip-name" id="extZipFileName">—</span>
+              <span class="sat-file-chip-size" id="extZipFileSize">—</span>
+            </div>
+          </div>
+
+          {{-- Password FIEL --}}
+          <div class="sat-float sat-exzip-pass">
+            <input class="sat-float-input"
+                   id="extZipPass"
+                   name="fiel_password"
+                   type="password"
+                   placeholder=" "
+                   autocomplete="new-password">
+            <label class="sat-float-label" for="extZipPass">Contraseña FIEL</label>
+
+            <button type="button"
+                    class="sat-pass-toggle"
+                    id="btnToggleExtZipPass"
+                    aria-label="Mostrar u ocultar contraseña">
+              👁
+            </button>
+          </div>
+
+          {{-- Notas --}}
+          <div class="sat-float sat-exzip-notes">
+            <textarea class="sat-float-input"
+                      id="extZipNotes"
+                      name="notes"
+                      rows="3"
+                      placeholder=" "></textarea>
+            <label class="sat-float-label" for="extZipNotes">Notas</label>
+          </div>
+        </div>
+
+        <div class="sat-exzip-actions">
+          <div class="sat-exzip-status" id="extZipStatus" aria-live="polite"></div>
+
+          <div class="sat-exzip-buttons">
+            <button type="button"
+                    class="btn soft"
+                    data-close="modal-external-zip"
+                    id="btnExternalZipCancel">
+              Cancelar
+            </button>
+
+            <button type="button"
+                    class="btn primary"
+                    id="btnExternalZipSubmit">
+              Enviar registro
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+{{-- MODAL: INVITAR FIEL POR CORREO --}}
+<div class="sat-modal-backdrop" id="modal-fiel-invite" style="display:none;">
+  <div class="sat-modal sat-modal-md">
+    <div class="sat-modal-header">
+      <div>
+        <div class="sat-modal-kicker">FIEL · Acceso externo</div>
+        <div class="sat-modal-title">Invitar por correo</div>
+        <p class="sat-modal-sub">
+          Se enviará un enlace seguro para que el usuario externo suba un ZIP con su FIEL.
+        </p>
+      </div>
+      <button type="button"
+              class="sat-modal-close"
+              data-close="modal-fiel-invite"
+              aria-label="Cerrar">✕</button>
+    </div>
+
+    <div class="sat-modal-body">
+      <div class="sat-step-card">
+        <div class="sat-step-grid sat-step-grid-1col">
+          <div class="sat-field">
+            <div class="sat-field-label">Correo electrónico</div>
+            <input
+              type="email"
+              class="input sat-input-pill"
+              id="fielInviteEmail"
+              placeholder="correo@ejemplo.com"
+              required
+            >
+          </div>
+
+          <div class="sat-field">
+            <div class="sat-field-label">Referencia (opcional)</div>
+            <input
+              type="text"
+              class="input sat-input-pill"
+              id="fielInviteRef"
+              maxlength="120"
+              placeholder="Ej. Cliente XYZ / Caso 123"
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sat-modal-footer">
+      <button type="button" class="btn" data-close="modal-fiel-invite">Cancelar</button>
+      <button type="button" class="btn primary" id="btnFielInviteSend">
+        Enviar invitación
+      </button>
+    </div>
+  </div>
+</div>
+
 
 </div>
 @endsection
@@ -1665,6 +1944,23 @@
   // ======================================================
   // P360_SAT (SOT) -> serialización segura sin duplicados
   // ======================================================
+
+  // Helper: build "__ID__" pattern from a real route with id=0
+  $makeIdPattern = function (string $routeName): string {
+      if (!\Illuminate\Support\Facades\Route::has($routeName)) return '';
+      try {
+          $u = route($routeName, ['id' => 0]);
+          // Reemplaza el "/0" final por "/__ID__"
+          $u = preg_replace('#/0$#', '/__ID__', $u);
+          return (string) $u;
+      } catch (\Throwable $e) {
+          return '';
+      }
+  };
+
+  // Preferir FIEL externo si existe
+  $hasFielList = \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.list');
+
   $p360SatCfg = [
     'csrf'      => csrf_token(),
     'isProPlan' => (bool) ($isProPlan ?? ($isPro ?? false)),
@@ -1680,25 +1976,23 @@
     'rfcOptions'      => $rfcOptionsAll   ?? ($rfcOptions ?? []),
     'rfcOptionsValid' => $rfcOptionsValid ?? [],
 
+    // Debug/entorno (no rompe nada si no se usa)
+    'env'     => app()->environment(),
+    'baseUrl' => url('/'),
+
     'routes' => [
       // Core
-      'request'        => $rtReqCreate ?: '',
-      'verify'         => $rtVerify    ?: '',
-      'mode'           => $rtMode      ?: '',
-      'download'       => $rtPkgPost   ?: '',
-      'cancel'         => $rtDownloadCancel ?: '',
-      'charts'         => $rtCharts    ?: '',
+      'request'  => $rtReqCreate ?: '',
+      'verify'   => $rtVerify    ?: '',
+      'mode'     => $rtMode      ?: '',
+      'download' => $rtPkgPost   ?: '',
+      'cancel'   => $rtDownloadCancel ?: '',
+      'charts'   => $rtCharts    ?: '',
 
       // Dashboard JSON (Chart/KPIs)
       'dashboardStats' => \Illuminate\Support\Facades\Route::has('cliente.sat.dashboard.stats')
         ? route('cliente.sat.dashboard.stats')
         : '',
-
-      // ✅ Registro externo (invite)
-      // sat-dashboard.js está pidiendo ROUTES.externalInvite
-      // y algunos tests usan externalRfcInvite: exponemos ambas.
-      'externalInvite'    => $rtExternalInvite ?: '',
-      'externalRfcInvite' => $rtExternalInvite ?: '',
 
       // RFC/CSD
       'csdStore'  => $rtCsdStore ?: '',
@@ -1713,7 +2007,7 @@
       'cartRemove'   => $rtCartRemove ?: '',
       'cartCheckout' => $rtCartPay ?: '',
 
-      // ZIP
+      // ZIP (descargas SAT internas)
       'zipPattern' => $zipPattern ?: '',
 
       // Vault
@@ -1732,11 +2026,54 @@
       // Calculadora rápida (sin RFC)
       'quickCalc' => $rtQuickCalc ?: '',
       'quickPdf'  => $rtQuickPdf  ?: '',
+
+      // ======================================================
+      // ✅ RFC EXTERNO (2 módulos posibles)
+      //   1) FIEL externo: cliente.sat.fiel.external.*
+      //   2) External ZIP: cliente.sat.external.zip.*
+      //   - Si existe FIEL externo, lo usamos como fuente principal.
+      // ======================================================
+
+      // Listado “externo ZIP”
+      'externalZipList' => \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.list')
+        ? route('cliente.sat.external.zip.list')
+        : '',
+
+      // Registro externo por ZIP (módulo external)
+      'externalZipRegister' => \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.register')
+        ? route('cliente.sat.external.zip.register')
+        : '',
+
+      // Alias por compatibilidad
+      'externalZipRegisterPost' => \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.register')
+        ? route('cliente.sat.external.zip.register')
+        : '',
+
+      // ======================================================
+      // ✅ FIEL EXTERNA (ZIPs) - RUTAS REALES (usa __ID__ seguro)
+      // ======================================================
+      'fielList' => $hasFielList
+        ? route('cliente.sat.fiel.external.list')
+        : '',
+
+      // Patterns con __ID__ (sin que se rompa la URL)
+      'fielDownload' => $makeIdPattern('cliente.sat.fiel.external.download'),
+      'fielUpdate'   => $makeIdPattern('cliente.sat.fiel.external.update'),
+      'fielDestroy'  => $makeIdPattern('cliente.sat.fiel.external.destroy'),
+
+      // Extra: “ruta preferida” para el listado de la tabla RFC externo.
+      // Tu JS puede usar esta prioridad:
+      // fielExternalList -> fielList -> externalZipList
+      'fielExternalList' => $hasFielList
+        ? route('cliente.sat.fiel.external.list')
+        : '',
     ],
 
     'vault' => $vault ?? [],
   ];
 @endphp
+
+
 
 
 {{-- ✅ SOT: Exponer config global ANTES de cargar cualquier JS del SAT --}}
@@ -1832,12 +2169,348 @@
   $SAT_BOOT_V = is_file($SAT_BOOT_ABS) ? (string) filemtime($SAT_BOOT_ABS) : (string) time();
 @endphp
 
+<script>
+(function () {
+  'use strict';
+
+  const qs  = (s, r=document) => r.querySelector(s);
+
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  function validEmail(email){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  function closeModalById(domId) {
+    const el = document.getElementById(domId);
+    if (!el) return;
+    el.style.display = 'none';
+    document.body.classList.remove('sat-modal-open');
+  }
+
+  // Enviar invitación
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#btnFielInviteSend');
+    if (!btn) return;
+
+    const email = (qs('#fielInviteEmail')?.value || '').trim();
+    const ref   = (qs('#fielInviteRef')?.value || '').trim();
+
+    if (!validEmail(email)) {
+      alert('Ingresa un correo válido.');
+      return;
+    }
+
+    btn.disabled = true;
+    const oldTxt = btn.textContent;
+    btn.textContent = 'Enviando...';
+
+    try {
+      const url = '{{ route("cliente.sat.fiel.external.invite") }}';
+
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrf,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ email, reference: ref })
+      });
+
+      const ct  = (res.headers.get('content-type') || '').toLowerCase();
+      const raw = await res.text();
+      let data  = null;
+
+      if (ct.includes('application/json')) {
+        try { data = JSON.parse(raw); }
+        catch {
+          const preview = raw.slice(0, 300).replace(/\s+/g, ' ').trim();
+          throw new Error('Respuesta JSON inválida (' + res.status + '). Preview: ' + preview);
+        }
+      } else {
+        const preview = raw.slice(0, 300).replace(/\s+/g, ' ').trim();
+
+        if (res.status === 419) throw new Error('419 (CSRF) · Sesión expirada o token inválido. Refresca y reintenta.');
+        if (res.status === 302) throw new Error('302 · Redirección (probable login). El endpoint debe responder JSON. Preview: ' + preview);
+        if (res.status === 401 || res.status === 403) throw new Error(res.status + ' · No autorizado. Preview: ' + preview);
+
+        throw new Error('Respuesta no-JSON (' + res.status + '). Preview: ' + preview);
+      }
+
+      if (!res.ok || !data || !data.ok) {
+        throw new Error((data && data.msg) ? data.msg : ('Error al enviar invitación (HTTP ' + res.status + ')'));
+      }
+
+      alert('Invitación enviada correctamente.');
+
+      // cerrar modal
+      closeModalById('modal-fiel-invite');
+
+      // limpiar campos
+      if (qs('#fielInviteEmail')) qs('#fielInviteEmail').value = '';
+      if (qs('#fielInviteRef'))   qs('#fielInviteRef').value   = '';
+
+    } catch (err) {
+      console.error('[FIEL INVITE]', err);
+      alert(err.message || 'Error inesperado');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldTxt || 'Enviar invitación';
+    }
+  });
+
+})();
+
+</script>
+
+
+<script>
+(function () {
+  'use strict';
+
+  function togglePass(inputId, btnId) {
+    const i = document.getElementById(inputId);
+    const b = document.getElementById(btnId);
+    if (!i || !b) return;
+
+    b.addEventListener('click', function () {
+      const isPass = i.getAttribute('type') === 'password';
+      i.setAttribute('type', isPass ? 'text' : 'password');
+      b.textContent = isPass ? '🙈' : '👁';
+    });
+  }
+
+  function openModal(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = 'flex';
+    document.body.classList.add('sat-modal-open');
+  }
+
+  function closeModal(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = 'none';
+    document.body.classList.remove('sat-modal-open');
+  }
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-open]');
+    if (btn) {
+      const key = btn.getAttribute('data-open');
+
+      if (key === 'modal-edit-zip') {
+        // Cargar datos reales al modal
+        const id    = btn.getAttribute('data-id') || '';
+        const rfc   = btn.getAttribute('data-rfc') || '';
+        const razon = btn.getAttribute('data-razon') || '';
+        const urlUpdate = btn.getAttribute('data-url-update') || '';
+
+        const rfcEl  = document.getElementById('editZipRfc');
+        const razEl  = document.getElementById('editZipRazon');
+        const passEl = document.getElementById('editZipPass');
+        const idEl   = document.getElementById('editZipId');
+        const form   = document.getElementById('formEditZip');
+
+        if (rfcEl) rfcEl.value = rfc;
+        if (razEl) razEl.value = razon;
+        if (passEl) passEl.value = ''; // seguridad: nunca precargar
+        if (idEl) idEl.value = id;
+
+        if (form) {
+          if (urlUpdate) {
+            form.setAttribute('action', urlUpdate);
+          } else {
+            const base = (window.P360_SAT && window.P360_SAT.baseUrl) ? window.P360_SAT.baseUrl : '';
+            form.setAttribute('action', base.replace(/\/$/,'') + '/cliente/sat/fiel/external/' + encodeURIComponent(id));
+          }
+        }
+
+
+        openModal('modalEditZip');
+        return;
+      }
+
+      if (key === 'modal-external-zip') {
+        openModal('modalExternalZip');
+        return;
+      }
+
+      // fallback si manejas otros modales con ids diferentes
+      openModal(key);
+      return;
+    }
+
+    const cls = e.target.closest('[data-close]');
+    if (cls) {
+      const key = cls.getAttribute('data-close');
+
+      if (key === 'modal-edit-zip') { closeModal('modalEditZip'); return; }
+      if (key === 'modal-external-zip') { closeModal('modalExternalZip'); return; }
+
+      // ✅ Fallback: si data-close trae un ID real, ciérralo
+      closeModal(key);
+      return;
+    }
+
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    closeModal('modalEditZip');
+    closeModal('modalExternalZip');
+  });
+
+  // Toggles password (IDs reales en tu markup)
+  togglePass('extZipPass', 'btnToggleExtZipPass');
+  togglePass('editZipPass', 'toggleEditZipPass');
+
+})();
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  const qs  = (s, r=document) => r.querySelector(s);
+
+  function routeWithId(pattern, id) {
+    if (!pattern) return '';
+    return pattern.replace('__ID__', encodeURIComponent(String(id)));
+  }
+
+  function openModal(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = 'flex';
+    document.body.classList.add('sat-modal-open');
+  }
+
+  // ✅ Delegación: acciones en tabla ZIPs externos
+  document.addEventListener('click', function (e) {
+    const withinZipTable = e.target.closest('#fielZipTbody');
+    if (!withinZipTable) return;
+
+    // Intentar detectar botón por data-action o por clase
+    const btn = e.target.closest('button, a, [role="button"]');
+    if (!btn) return;
+
+    const id =
+      btn.getAttribute('data-id')
+      || btn.closest('tr')?.getAttribute('data-id')
+      || '';
+
+    // Detectar acción
+    const action =
+      btn.getAttribute('data-action')
+      || btn.getAttribute('data-fiel-action')
+      || (btn.classList.contains('sat-fiel-edit') ? 'edit' : '')
+      || (btn.classList.contains('sat-fiel-download') ? 'download' : '')
+      || (btn.classList.contains('sat-fiel-delete') ? 'delete' : '');
+
+    // También soporta si el botón ya trae URL
+    const url = btn.getAttribute('data-url') || btn.getAttribute('href') || '';
+
+    // Rutas desde CFG
+    const CFG = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+    const rtUpdate   = CFG.fielUpdate   || '';
+    const rtDownload = CFG.fielDownload || '';
+    const rtDestroy  = CFG.fielDestroy  || '';
+
+    // ---- DOWNLOAD ----
+    if (action === 'download' || btn.classList.contains('sat-btn-download')) {
+      const go = url || routeWithId(rtDownload, id);
+      if (go) window.location.href = go;
+      return;
+    }
+
+    // ---- EDIT ----
+    if (action === 'edit' || btn.classList.contains('sat-btn-edit')) {
+      // Si tu UI usa el modal "modalEditZip", lo abrimos y cargamos datos si vienen
+      const rfc   = btn.getAttribute('data-rfc')   || btn.closest('tr')?.getAttribute('data-rfc')   || '';
+      const razon = btn.getAttribute('data-razon') || btn.closest('tr')?.getAttribute('data-razon') || '';
+
+      // Campos del modal (si existen)
+      const rfcEl  = document.getElementById('editZipRfc');
+      const razEl  = document.getElementById('editZipRazon');
+      const idEl   = document.getElementById('editZipId');
+      const form   = document.getElementById('formEditZip');
+
+      if (rfcEl) rfcEl.value = rfc;
+      if (razEl) razEl.value = razon;
+      if (idEl)  idEl.value  = id;
+
+      if (form) {
+        const actionUrl = url || routeWithId(rtUpdate, id);
+        if (actionUrl) form.setAttribute('action', actionUrl);
+      }
+
+      openModal('modalEditZip');
+      return;
+    }
+
+    // ---- DELETE ----
+    if (action === 'delete' || action === 'destroy' || btn.classList.contains('sat-btn-cancel') || btn.classList.contains('sat-btn-delete')) {
+      const delUrl = url || routeWithId(rtDestroy, id);
+      if (!delUrl) return;
+
+      if (!confirm('¿Eliminar este ZIP?')) return;
+
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+      fetch(delUrl, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {
+          'X-CSRF-TOKEN': csrf,
+          'Accept': 'application/json'
+        }
+      })
+      .then(async (r) => {
+        const raw = await r.text();
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) {}
+        if (!r.ok || !data || !data.ok) {
+          throw new Error((data && data.msg) ? data.msg : ('Error al eliminar (HTTP ' + r.status + ')'));
+        }
+
+        // ✅ refrescar listado: click al botón refresh si existe
+        const refresh = qs('#btnFielRefresh');
+        if (refresh) refresh.click();
+      })
+      .catch((err) => {
+        alert(err.message || 'Error al eliminar');
+      });
+
+      return;
+    }
+  });
+
+})();
+</script>
+
+
+
 {{-- JS principal del dashboard SAT --}}
-<script src="{{ asset('assets/client/js/sat-dashboard.js') }}?v={{ $SAT_DASH_V }}" defer></script>
+<script
+  src="{{ asset('assets/client/js/sat-dashboard.js') }}?v={{ $SAT_DASH_V }}"
+  defer
+  onerror="alert('NO CARGÓ sat-dashboard.js. Revisa public/assets/client/js/sat-dashboard.js');"
+></script>
 
 {{-- BOOTSTRAP extra --}}
-<script src="{{ asset('assets/client/js/sat-index-boot.js') }}?v={{ $SAT_BOOT_V }}" defer></script>
+<script
+  src="{{ asset('assets/client/js/sat-index-boot.js') }}?v={{ $SAT_BOOT_V }}"
+  defer
+  onerror="alert('NO CARGÓ sat-index-boot.js. Revisa public/assets/client/js/sat-index-boot.js');"
+></script>
 
+<script>
+  // ✅ Flag visible en consola para confirmar que la vista llegó hasta aquí
+  window.__SAT_VIEW_LOADED__ = true;
+</script>
 
 @endpush
 

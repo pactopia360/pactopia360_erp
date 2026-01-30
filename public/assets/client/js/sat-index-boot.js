@@ -65,6 +65,58 @@ document.addEventListener('DOMContentLoaded', function () {
     return data;
   }
 
+  
+
+    // =========================================================
+  // POST multipart (ZIP/FIEL) — necesario para enviar archivos
+  // ✅ Sin observers / sin loops pesados
+  // ✅ Timeout para evitar que se quede "pensando"
+  // =========================================================
+  async function postMultipart(url, formData) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45000); // 45s
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': CSRF,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: formData,
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      const msg = (e && e.name === 'AbortError')
+        ? 'Tiempo de espera agotado al subir el ZIP.'
+        : 'Error de red al subir el ZIP.';
+      throw new Error(msg);
+    }
+
+    clearTimeout(timer);
+
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    const isJson = ct.includes('application/json');
+
+    let data = {};
+    try {
+      data = isJson ? await res.json() : { ok: false, msg: (await res.text()).slice(0, 220) };
+    } catch (e) {
+      data = {};
+    }
+
+    if (!res.ok || data.ok === false) {
+      const msg = data.msg || data.message || `Solicitud fallida (${res.status})`;
+      throw new Error(msg);
+    }
+
+    return data;
+  }
+
+
   // =========================
   // Bulk selection bar
   // =========================
@@ -1303,7 +1355,168 @@ document.addEventListener('DOMContentLoaded', function () {
     if (modalRfc && isVisible(modalRfc)) closeRfcModal();
   });
 
+    // =========================================================
+  // MODAL "Registro externo por ZIP" — botón "Subir FIEL" + submit real
+  // ✅ Sin MutationObserver
+  // ✅ Solo actúa cuando haces click en el botón dentro del modal
+  // =========================================================
+  (function bindExternalZipRegisterModalSafe(){
+    if (window.__P360_SAT_ZIP_MODAL_SAFE__) return;
+    window.__P360_SAT_ZIP_MODAL_SAFE__ = true;
 
+    function findZipModal() {
+      const candidates = Array.from(document.querySelectorAll('.modal,[role="dialog"],.p360-modal'));
+      // heurística por título/texto visible
+      return candidates.find(el => String(el.textContent || '').includes('Registro externo por ZIP')) || null;
+    }
+
+    function renameButtonInModal(modal) {
+      try {
+        const btns = Array.from(modal.querySelectorAll('button'));
+        btns.forEach(b => {
+          const t = String(b.textContent || '').trim().toLowerCase();
+          if (t === 'enviar registro' || (t.includes('enviar') && t.includes('registro'))) {
+            b.textContent = 'Subir FIEL';
+            b.setAttribute('data-action', 'external-zip-submit');
+          }
+        });
+      } catch(e) {}
+    }
+
+    function buildFormData(modal, form) {
+      const fd = new FormData(form || undefined);
+
+      const pick = (sel) => modal.querySelector(sel);
+
+      const rfcInp =
+        pick('input[name="rfc"]') ||
+        pick('input[name="rfc_externo"]') ||
+        pick('input[id*="rfc"]');
+
+      const refInp =
+        pick('input[name="ref"]') ||
+        pick('input[name="referencia"]') ||
+        pick('input[id*="ref"]');
+
+      const zipInp =
+        pick('input[type="file"][name="zip"]') ||
+        pick('input[type="file"][name="archivo_zip"]') ||
+        pick('input[type="file"]');
+
+      const passInp =
+        pick('input[type="password"][name="fiel_pass"]') ||
+        pick('input[type="password"][name="password"]') ||
+        pick('input[type="password"]');
+
+      const notesInp =
+        pick('textarea[name="notes"]') ||
+        pick('textarea[name="nota"]') ||
+        pick('textarea');
+
+      const rfc = String(rfcInp?.value || '').trim().toUpperCase();
+      const ref = String(refInp?.value || '').trim();
+      const pass= String(passInp?.value || '').trim();
+      const notes=String(notesInp?.value || '').trim();
+
+      if (rfc && !fd.has('rfc')) fd.set('rfc', rfc);
+      if (ref && !fd.has('ref')) fd.set('ref', ref);
+      if (notes && !fd.has('notes')) fd.set('notes', notes);
+
+      // El backend puede esperar fiel_pass o password; mandamos fiel_pass si no existe
+      if (pass && !fd.has('fiel_pass') && !fd.has('password')) fd.set('fiel_pass', pass);
+
+      let hasZip = false;
+      if (zipInp && zipInp.files && zipInp.files.length) {
+        const file = zipInp.files[0];
+        hasZip = true;
+        if (!fd.has('zip') && !fd.has('archivo_zip')) fd.set('zip', file);
+      }
+
+      return { fd, rfc, pass, hasZip };
+    }
+
+    document.addEventListener('click', async function (ev) {
+      const modal = findZipModal();
+      if (!modal) return;
+
+      // Renombrar siempre que exista el modal (solo adentro del modal)
+      renameButtonInModal(modal);
+
+      const btn = ev.target.closest('button');
+      if (!btn || !modal.contains(btn)) return;
+
+      const txt = String(btn.textContent || '').trim().toLowerCase();
+      const isTarget =
+        btn.getAttribute('data-action') === 'external-zip-submit' ||
+        txt === 'enviar registro' ||
+        (txt.includes('enviar') && txt.includes('registro')) ||
+        txt.includes('subir fiel');
+
+      if (!isTarget) return;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+
+      const form = btn.closest('form') || modal.querySelector('form') || null;
+
+      // ✅ IMPORTANTE:
+      // externalZipRegister = GET (form/pantalla)
+      // externalZipRegisterPost = POST real (subida)
+      const formAction = (form && String(form.getAttribute('action') || '').trim()) || '';
+      const actionPost = String(ROUTES.externalZipRegisterPost || '').trim();
+
+      // Si el form trae action, úsalo SOLO si parece POST real; si no, forzamos el POST route.
+      // (Muchos forms apuntan al GET por error y eso rompe la subida)
+      let action = actionPost || formAction || '';
+
+      if (!action || action === '#') {
+        toast('No hay ruta/action para subir el ZIP (falta ROUTES.externalZipRegisterPost).', 'error');
+        return;
+      }
+
+      // Si por alguna razón action quedó en el GET, lo corregimos a POST
+      if (String(action).includes('/external/zip/register') && actionPost) {
+        action = actionPost;
+      }
+
+
+      btn.disabled = true;
+      btn.textContent = 'Subiendo…';
+
+      try {
+        const { fd, rfc, pass, hasZip } = buildFormData(modal, form);
+
+        // defensivo: si el backend decide por "mode"
+        if (!fd.has('mode')) fd.set('mode', 'zip');
+        if (!fd.has('format')) fd.set('format', 'json');
+
+
+        if (!rfc) throw new Error('RFC externo requerido.');
+        if (!hasZip) throw new Error('Selecciona el archivo ZIP primero.');
+        if (!pass) throw new Error('Contraseña FIEL requerida.');
+
+        const res = await postMultipart(action, fd);
+        toast(res.msg || res.message || 'FIEL subida correctamente.', 'success');
+
+        // si hay botón cerrar en modal, lo intentamos
+        try {
+          const closeBtn =
+            modal.querySelector('[data-close]') ||
+            modal.querySelector('button[aria-label="Close"]') ||
+            modal.querySelector('button[title="Cerrar"]');
+          if (closeBtn) closeBtn.click();
+        } catch(e) {}
+
+      } catch (e) {
+        toast(e?.message || 'No se pudo subir el FIEL (ZIP).', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Subir FIEL';
+      }
+    }, true);
+
+  })();
 
   // init
   updateBulk();
