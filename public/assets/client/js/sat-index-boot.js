@@ -1002,87 +1002,76 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+    // =========================
+  // Registro externo (invite) — FIX FINAL:
+  // - NO hacemos POST aquí (lo hace el modal en Blade).
+  // - Si existe el botón real del modal (#btnExternalInviteOpen), SIEMPRE lo abrimos.
+  // - Evita navegación accidental a GET /cliente/sat/external/invite (405).
+  // - Fallback: si NO hay modal, navegar a la pantalla GET.
   // =========================
-  // Registro externo (invite) — FIX: forzar POST (evita GET 405/419)
-  // Soporta botones en partial RFCs sin saber su markup exacto:
-  // - #btnExternalInvite
-  // - .btn-external-invite
-  // - [data-external-invite]
-  // - <a href=".../external/invite">
-  // =========================
-  function isExternalInviteHref(el) {
-    try {
-      if (!el) return false;
-      if (!ROUTES.externalInvite) return false;
-      const href = (el.getAttribute && el.getAttribute('href')) ? String(el.getAttribute('href')) : '';
-      if (!href) return false;
-      return href.includes('/external/invite') || href === String(ROUTES.externalInvite);
-    } catch (e) { return false; }
-  }
-
-  async function runExternalInvite(triggerEl) {
-    if (!ROUTES.externalInvite) {
-      toast('Ruta externalInvite no configurada (cliente.sat.external.invite).', 'error');
-      return;
+  (function hookExternalInvite(){
+    function pickRoute(keys) {
+      try {
+        const r = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+        for (let i = 0; i < keys.length; i++) {
+          const v = String(r[keys[i]] || '').trim();
+          if (v) return v;
+        }
+      } catch (e) {}
+      return '';
     }
 
-    const ds = triggerEl?.dataset || {};
-    const rfc    = String(ds.rfc || ds.rf || ds.value || '').trim();
-    const id     = String(ds.id || ds.credId || ds.credentialId || '').trim();
-    const credId = String(ds.cred_id || ds.credid || '').trim();
-
-    const payload = {
-      rfc: rfc || undefined,
-      id: id || undefined,
-      cred_id: credId || undefined,
-    };
-
-    Object.keys(payload).forEach(k => (payload[k] === undefined) && delete payload[k]);
-
-    try {
-      const res = await postJson(ROUTES.externalInvite, payload);
-
-      const url =
-        res.url || res.redirect || res.checkout_url ||
-        (res.data && (res.data.url || res.data.redirect || res.data.checkout_url)) ||
-        null;
-
-      toast(res.msg || res.message || 'Invitación externa enviada.', 'success');
-
-      if (url) {
-        window.location.href = url;
-        return;
+    function openInviteModalOrFallback() {
+      // ✅ tu botón real (connections_clean.blade.php)
+      const btnOpen = document.getElementById('btnExternalInviteOpen');
+      if (btnOpen) {
+        try { btnOpen.click(); return true; } catch (e) {}
       }
 
-      setTimeout(() => window.location.reload(), 700);
-    } catch (e) {
-      toast(e?.message || 'No se pudo enviar la invitación externa.', 'error');
-    }
-  }
+      // fallback a pantalla GET (si no existe modal)
+      const urlGet =
+        pickRoute(['externalInviteGet', 'externalInviteScreen', 'externalInvitePage']) ||
+        '/cliente/sat/external/invite';
 
-  document.body.addEventListener('click', function (ev) {
-    const btn =
-      ev.target.closest('#btnExternalInvite') ||
-      ev.target.closest('.btn-external-invite') ||
-      ev.target.closest('[data-external-invite]');
-
-    if (btn) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-      runExternalInvite(btn);
-      return;
+      try { window.location.href = urlGet; } catch (e) {}
+      return true;
     }
 
-    const a = ev.target.closest('a[href]');
-    if (a && isExternalInviteHref(a)) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-      runExternalInvite(a);
-      return;
+    function isInviteHref(el) {
+      try {
+        if (!el || !el.getAttribute) return false;
+        const href = String(el.getAttribute('href') || '').trim();
+        if (!href) return false;
+        return href.includes('/external/invite') || href.includes('sat/external/invite');
+      } catch (e) { return false; }
     }
-  }, true);
+
+    // Captura clicks (incluye tu id real + legacy)
+    document.body.addEventListener('click', function (ev) {
+      const t = ev.target;
+
+      const btn = (t && t.closest) ? (
+        t.closest('#btnExternalInviteOpen') ||    // ✅ el real
+        t.closest('#btnExternalInvite') ||        // legacy
+        t.closest('.btn-external-invite') ||      // legacy
+        t.closest('[data-external-invite]') ||    // legacy
+        null
+      ) : null;
+
+      const a = (t && t.closest) ? t.closest('a[href]') : null;
+
+      if (btn || (a && isInviteHref(a))) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+
+        // ✅ abre modal (y mata el GET 405)
+        openInviteModalOrFallback();
+        return;
+      }
+    }, true);
+  })();
+
 
   // =========================
   // Modal RFC (OPEN + Prefill + Scroll to row)

@@ -5663,14 +5663,12 @@ final class SatDescargaController extends Controller
 
 
 
-    public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
+public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
 {
     // =========================================================
     // LISTADO FIEL/ZIP EXTERNO (AUTH)
-    // ✅ Producción: external_fiel_uploads.account_id (BIGINT) es la llave real
-    // ✅ Respuesta compatible con UI:
-    //    - rows (root)
-    //    - data.rows (root->data)
+    // Tabla: mysql_clientes.external_fiel_uploads
+    // Producción: filtra por account_id BIGINT
     // =========================================================
 
     $t0 = microtime(true);
@@ -5678,112 +5676,99 @@ final class SatDescargaController extends Controller
     $conn  = 'mysql_clientes';
     $table = 'external_fiel_uploads';
 
-    // ---------------------------------------------------------
-    // 1) Resolver account_id BIGINT del cliente logueado
-    //    (y permitir override por request como fallback)
-    // ---------------------------------------------------------
+    // Paginación defensiva
+    $limit  = (int) ($request->input('limit', 10));
+    $offset = (int) ($request->input('offset', 0));
+
+    if ($limit < 1) $limit = 10;
+    if ($limit > 50) $limit = 50;
+    if ($offset < 0) $offset = 0;
+
+    // -----------------------------
+    // Resolver account_id BIGINT (OBLIGATORIO)
+    // -----------------------------
     $accountId = null;
 
-    // (A) por request (por si el front lo manda)
-    foreach (['account_id', 'account', 'cliente_id', 'id'] as $k) {
-        $v = $request->input($k, $request->query($k, null));
-        if (is_scalar($v) && ctype_digit((string) $v)) {
-            $accountId = (int) $v;
-            break;
-        }
-    }
-
-    // (B) por sesión
-    if (!$accountId) {
-        foreach ([
-            'cliente.account_id',
-            'cliente.admin_account_id',
-            'client.account_id',
-            'client.admin_account_id',
-            'account_id',
-            'admin_account_id',
-            'cliente_id',
-        ] as $k) {
-            try {
-                $v = session($k);
-                if (is_scalar($v) && ctype_digit((string) $v)) { $accountId = (int) $v; break; }
-            } catch (\Throwable) {}
-        }
-    }
-
-    // (C) por usuario auth
+    // 1) De usuario logueado
     $u = null;
     try { $u = $request->user(); } catch (\Throwable) { $u = null; }
 
-    if (!$accountId && $u) {
-        foreach (['account_id','admin_account_id','accountId','adminAccountId','id'] as $prop) {
-            try {
-                $v = $u->{$prop} ?? null;
-                if (is_scalar($v) && ctype_digit((string) $v)) { $accountId = (int) $v; break; }
-            } catch (\Throwable) {}
+    try {
+        if ($u && isset($u->account_id)) {
+            $v = $u->account_id;
+            if (is_numeric($v) && (int)$v > 0) $accountId = (int) $v;
         }
+    } catch (\Throwable) {}
+
+    // 2) De sesión
+    if (!$accountId) {
+        try {
+            $sid = session('account_id', null);
+            if (is_numeric($sid) && (int)$sid > 0) $accountId = (int) $sid;
+        } catch (\Throwable) {}
     }
 
-    // (D) lookup en accounts por user_code / correo_contacto / rfc (último recurso)
-    if ((!$accountId || $accountId <= 0) && $u) {
-        $loginEmail    = null;
-        $loginUserCode = null;
-        $loginRfc      = null;
-
-        try { $loginEmail = isset($u->email) ? trim((string) $u->email) : null; } catch (\Throwable) {}
-        try { $loginUserCode = isset($u->user_code) ? trim((string) $u->user_code) : null; } catch (\Throwable) {}
-        try { $loginRfc = isset($u->rfc) ? strtoupper(trim((string) $u->rfc)) : null; } catch (\Throwable) {}
-
+    // 3) Fallback por correo del usuario -> accounts.correo_contacto
+    if (!$accountId) {
         try {
-            if (is_string($loginUserCode) && $loginUserCode !== '') {
-                $accountId = \DB::connection($conn)->table('accounts')->where('user_code', $loginUserCode)->value('id');
+            $email = null;
+            try { $email = ($u && isset($u->email)) ? trim((string) $u->email) : null; } catch (\Throwable) {}
+
+            if (is_string($email) && $email !== '') {
+                $aid = \DB::connection($conn)
+                    ->table('accounts')
+                    ->where('correo_contacto', $email)
+                    ->value('id');
+
+                if (is_numeric($aid) && (int)$aid > 0) {
+                    $accountId = (int) $aid;
+                }
             }
         } catch (\Throwable) {}
-
-        if (!$accountId) {
-            try {
-                if (is_string($loginEmail) && $loginEmail !== '') {
-                    $accountId = \DB::connection($conn)->table('accounts')->where('correo_contacto', $loginEmail)->value('id');
-                }
-            } catch (\Throwable) {}
-        }
-
-        if (!$accountId) {
-            try {
-                if (is_string($loginRfc) && $loginRfc !== '' && preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $loginRfc)) {
-                    $accountId = \DB::connection($conn)->table('accounts')->where('rfc', $loginRfc)->value('id');
-                }
-            } catch (\Throwable) {}
-        }
     }
 
-    if (!$accountId || (int) $accountId <= 0) {
+    // 4) Fallback por RFC (si existiera en user o en request)
+    if (!$accountId) {
+        try {
+            $rfc = '';
+            try {
+                if ($u && isset($u->rfc)) $rfc = strtoupper(trim((string) $u->rfc));
+            } catch (\Throwable) {}
+            if ($rfc === '') {
+                $rfc = strtoupper(trim((string) $request->input('rfc', '')));
+            }
+
+            if ($rfc !== '') {
+                $aid = \DB::connection($conn)
+                    ->table('accounts')
+                    ->where('rfc', $rfc)
+                    ->value('id');
+
+                if (is_numeric($aid) && (int)$aid > 0) {
+                    $accountId = (int) $aid;
+                }
+            }
+        } catch (\Throwable) {}
+    }
+
+    if (!$accountId || (int)$accountId <= 0) {
         \Log::warning('external_fiel_zip_list_no_account', [
-            'ip' => $request->ip(),
-            'ua' => (string) $request->userAgent(),
+            'ip'    => $request->ip(),
+            'ua'    => (string) $request->userAgent(),
+            'email' => (string) ($u->email ?? ''),
         ]);
 
-        // OJO: devolvemos formato compatible con UI
         return response()->json([
             'ok'   => false,
-            'msg'  => 'No se pudo resolver tu cuenta cliente para listar registros.',
+            'msg'  => 'No se pudo resolver tu cuenta cliente. Cierra sesión e inicia de nuevo o contacta soporte.',
             'rows' => [],
             'data' => ['rows' => [], 'count' => 0],
         ], 422);
     }
 
-    $accountId = (int) $accountId;
-
-    // ---------------------------------------------------------
-    // 2) Paginación simple (limit)
-    // ---------------------------------------------------------
-    $limit = (int) $request->input('limit', $request->query('limit', 50));
-    if ($limit <= 0) $limit = 50;
-    if ($limit > 200) $limit = 200;
-
-    // ---------------------------------------------------------
-    // 3) Query
-    // ---------------------------------------------------------
+    // -----------------------------
+    // Query
+    // -----------------------------
     try {
         $schema = \Schema::connection($conn);
         if (!$schema->hasTable($table)) {
@@ -5795,14 +5780,35 @@ final class SatDescargaController extends Controller
             ], 500);
         }
 
-        $rowsDb = \DB::connection($conn)->table($table)
-            ->where('account_id', $accountId)
+        $base = \DB::connection($conn)
+            ->table($table)
+            ->where('account_id', $accountId);
+
+        $count = (int) (clone $base)->count();
+
+        $rows = (clone $base)
+            ->select([
+                'id',
+                'account_id',
+                'email_externo',
+                'reference',
+                'rfc',
+                'razon_social',
+                'file_path',
+                'file_name',
+                'file_size',
+                'mime',
+                'status',
+                'uploaded_at',
+                'created_at',
+            ])
             ->orderByDesc('id')
+            ->offset($offset)
             ->limit($limit)
             ->get();
 
         $out = [];
-        foreach ($rowsDb as $r) {
+        foreach ($rows as $r) {
             $out[] = [
                 'id'           => (int) ($r->id ?? 0),
                 'account_id'   => (int) ($r->account_id ?? 0),
@@ -5812,33 +5818,35 @@ final class SatDescargaController extends Controller
                 'reference'    => (string) ($r->reference ?? ''),
                 'file_path'    => (string) ($r->file_path ?? ''),
                 'file_name'    => (string) ($r->file_name ?? ''),
-                'file_size'    => (int) ($r->file_size ?? 0),
+                'file_size'    => isset($r->file_size) ? (int) $r->file_size : null,
                 'mime'         => (string) ($r->mime ?? ''),
                 'status'       => (string) ($r->status ?? ''),
-                'uploaded_at'  => (string) (($r->uploaded_at ?? null) ?: ($r->created_at ?? '')),
-                'created_at'   => (string) ($r->created_at ?? ''),
+                'uploaded_at'  => $r->uploaded_at ? (string) $r->uploaded_at : null,
+                'created_at'   => $r->created_at ? (string) $r->created_at : null,
             ];
         }
 
         \Log::info('external_fiel_zip_list', [
             'account_id' => $accountId,
-            'count'      => count($out),
+            'count'      => $count,
+            'limit'      => $limit,
+            'offset'     => $offset,
             'ms'         => (int) round((microtime(true) - $t0) * 1000),
         ]);
 
-        // ✅ FORMATO COMPAT: rows + data.rows
+        // ✅ Respuesta compatible con front: rows y data.rows
         return response()->json([
             'ok'   => true,
             'rows' => $out,
             'data' => [
                 'rows'  => $out,
-                'count' => count($out),
+                'count' => $count,
             ],
         ], 200);
 
     } catch (\Throwable $e) {
         \Log::error('external_fiel_zip_list_failed', [
-            'account_id' => $accountId,
+            'account_id' => (int) $accountId,
             'error'      => $e->getMessage(),
         ]);
 
