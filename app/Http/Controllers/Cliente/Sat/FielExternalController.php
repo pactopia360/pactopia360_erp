@@ -398,6 +398,9 @@ class FielExternalController extends Controller
             if ($hasCreatedAt)  $select[] = 'created_at';
             if ($hasUpdatedAt)  $select[] = 'updated_at';
 
+            if ($schema->hasColumn($this->table, 'fiel_password')) $select[] = 'fiel_password';
+
+
             $q = DB::connection($conn)
                 ->table($this->table)
                 ->select($select);
