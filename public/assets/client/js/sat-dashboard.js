@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ✅ Con tu route:list, la real es:
     // GET cliente/sat/fiel/external/list -> name: cliente.sat.fiel.external.list
     const url =
-      pickRouteFirst('fielList', 'fielExternalList', 'externalZipList') ||
+      pickRouteFirst('externalZipList', 'fielList', 'fielExternalList') ||
       String(ROUTES.fielList || '').trim() ||
       String(ROUTES.fielExternalList || '').trim() ||
       String(ROUTES.externalZipList || '').trim() ||
