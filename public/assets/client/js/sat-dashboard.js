@@ -174,33 +174,118 @@ document.addEventListener('DOMContentLoaded', function () {
   // API: listado ZIPs (FIEL preferente)
   // =====================================================
   window.P360_SAT_API.externalZipList = async function (params = {}) {
-    // ✅ Con tu route:list, la real es:
-    // GET cliente/sat/fiel/external/list -> name: cliente.sat.fiel.external.list
-    const url =
-      pickRouteFirst('externalZipList', 'fielList', 'fielExternalList') ||
-      String(ROUTES.fielList || '').trim() ||
-      String(ROUTES.fielExternalList || '').trim() ||
-      String(ROUTES.externalZipList || '').trim() ||
-      '';
+  // =========================================================
+  // External ZIP list (FIEL ZIP)
+  // Objetivo:
+  // - Preferir SIEMPRE ROUTES.externalZipList si existe
+  // - Fallback a fielList solo si externalZipList NO existe
+  // - Normalizar respuesta para que SIEMPRE haya:
+  //     resp.data.rows (Array)
+  //     resp.data.count (Number)
+  // =========================================================
 
-    if (!url) {
-      return { ok:false, status:0, data:{ ok:false, msg:'Ruta de listado no configurada.' } };
+  const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+
+  // 1) Preferencia dura: externalZipList
+  const direct = String(routes.externalZipList || '').trim();
+
+  // 2) Fallback (solo si no existe externalZipList)
+  const fallback =
+    String(routes.fielList || '').trim() ||
+    String(routes.fielExternalList || '').trim() ||
+    '';
+
+  const url = direct || fallback;
+
+  if (!url) {
+    return { ok: false, status: 0, data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0 } };
+  }
+
+  // QS
+  const qs = new URLSearchParams();
+  if (params && typeof params === 'object') {
+    if (params.limit != null)  qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    if (params.status)         qs.set('status', String(params.status));
+    if (params.tipo)           qs.set('tipo', String(params.tipo));
+    if (params.q)              qs.set('q', String(params.q));
+  }
+
+  const finalUrl = qs.toString()
+    ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
+    : url;
+
+  log('externalZipList finalUrl:', finalUrl);
+
+  // Fetch
+  const resp = await satFetchJson(finalUrl, { method: 'GET' });
+
+  // -----------------------------
+  // Normalización de salida
+  // -----------------------------
+  // satFetchJson regresa { ok, status, data }
+  // data puede venir:
+  // - { ok:true, rows:[...], data:{ rows:[...], count:N } }
+  // - { ok:true, rows:[...] }
+  // - { rows:[...] }
+  // - { data:{ rows:[...], count:N } }
+  // - incluso [] (muy raro)
+  const payload = resp && typeof resp === 'object' ? (resp.data ?? null) : null;
+
+  let rows = [];
+  let count = 0;
+
+  try {
+    // Caso: payload es array
+    if (Array.isArray(payload)) {
+      rows = payload;
+      count = payload.length;
+    } else if (payload && typeof payload === 'object') {
+      const r1 = payload?.data?.rows;
+      const r2 = payload?.rows;
+      const r3 = payload?.data; // a veces data puede ser el array directo
+
+      if (Array.isArray(r1)) rows = r1;
+      else if (Array.isArray(r2)) rows = r2;
+      else if (Array.isArray(r3)) rows = r3;
+      else rows = [];
+
+      const c1 = payload?.data?.count;
+      const c2 = payload?.count;
+
+      if (typeof c1 === 'number') count = c1;
+      else if (typeof c2 === 'number') count = c2;
+      else count = rows.length;
+    } else {
+      rows = [];
+      count = 0;
     }
+  } catch (e) {
+    rows = [];
+    count = 0;
+  }
 
-    const qs = new URLSearchParams();
-    if (params && typeof params === 'object') {
-      if (params.limit != null) qs.set('limit', String(params.limit));
-      if (params.status)        qs.set('status', String(params.status));
-      if (params.tipo)          qs.set('tipo', String(params.tipo));
-    }
+  // Asegurar estructura esperada por el front: resp.data.rows / resp.data.count
+  const normalized = (payload && typeof payload === 'object') ? payload : {};
+  normalized.rows = rows;
+  normalized.count = count;
 
-    const finalUrl = qs.toString()
-      ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
-      : url;
+  // Mantener compatibilidad: también poner data.rows / data.count si existía data object
+  if (normalized.data && typeof normalized.data === 'object') {
+    if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
+    if (typeof normalized.data.count !== 'number') normalized.data.count = count;
+  } else {
+    // si no existe normalized.data, crearla para compatibilidad
+    normalized.data = { rows, count };
+  }
 
-    log('externalZipList finalUrl:', finalUrl);
-    return await satFetchJson(finalUrl, { method:'GET' });
-  };
+  const out = Object.assign({}, resp, { data: normalized });
+
+  log('externalZipList normalized:', { status: out?.status, count: out?.data?.count, rowsLen: (out?.data?.rows || []).length });
+
+  return out;
+};
+
 
   // =====================================================
   // UI tabla ZIPs: selects
