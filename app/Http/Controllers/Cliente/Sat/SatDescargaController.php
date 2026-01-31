@@ -5789,70 +5789,161 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
 }
 
 
-/**
- * Resolver account_id BIGINT del cliente logueado.
- * Fuentes:
- * 1) user()->account_id / user()->id (si es bigint)
- * 2) session(account_id)
- * 3) fallback por email: mysql_clientes.accounts.correo_contacto
- */
-private function resolveClientAccountIdBigint(Request $request): ?int
-{
-    $conn = 'mysql_clientes';
+    /**
+     * Resolver account_id BIGINT del cliente logueado.
+     * Fuentes:
+     * 1) user()->account_id / user()->id (si es bigint)
+     * 2) session(account_id)
+     * 3) fallback por email: mysql_clientes.accounts.correo_contacto
+     */
+    private function resolveClientAccountIdBigint(Request $request): ?int
+    {
+        // =========================================================
+        // Resolver account_id BIGINT real de mysql_clientes.accounts
+        // - NUNCA confiar ciegamente en session/user ids
+        // - Validar que exista en accounts
+        // - Fallback por correo_contacto
+        // - Fallback por user_code
+        // =========================================================
 
-    // 1) User
-    try {
-        $u = $request->user();
-        if ($u) {
-            // account_id directo
-            if (isset($u->account_id) && is_scalar($u->account_id) && ctype_digit((string) $u->account_id)) {
-                return (int) $u->account_id;
+        $conn = 'mysql_clientes';
+
+        $user = null;
+        try { $user = $request->user(); } catch (\Throwable) {}
+
+        $candidates = [];
+
+        // 1) Candidatos "directos" (solo si son numéricos)
+        try {
+            $directFields = [
+                'account_id',
+                'cuenta_id',
+                'cuenta',
+                'cliente_account_id',
+                'client_account_id',
+            ];
+
+            if ($user) {
+                foreach ($directFields as $f) {
+                    if (isset($user->{$f}) && $user->{$f} !== null) {
+                        $v = trim((string) $user->{$f});
+                        if ($v !== '' && ctype_digit($v)) $candidates[] = (int) $v;
+                    }
+                }
             }
+        } catch (\Throwable) {}
 
-            // id del user si fuese bigint (algunos setups usan accounts como auth)
-            if (isset($u->id) && is_scalar($u->id) && ctype_digit((string) $u->id)) {
-                return (int) $u->id;
-            }
+        // 2) Sesión (solo si numérico)
+        try {
+            $sid = (string) session('account_id', '');
+            $sid = trim($sid);
+            if ($sid !== '' && ctype_digit($sid)) $candidates[] = (int) $sid;
 
-            // relaciones típicas
+            // OJO: session('cuenta_id') suele ser UUID; ignorar si no es numérico
+            $sid2 = (string) session('cuenta_id', '');
+            $sid2 = trim($sid2);
+            if ($sid2 !== '' && ctype_digit($sid2)) $candidates[] = (int) $sid2;
+        } catch (\Throwable) {}
+
+        // 3) Request input (por si viene en algún flujo)
+        try {
+            $rid = trim((string) $request->input('account_id', $request->input('cuenta_id', '')));
+            if ($rid !== '' && ctype_digit($rid)) $candidates[] = (int) $rid;
+        } catch (\Throwable) {}
+
+        // Dedupe
+        $candidates = array_values(array_unique(array_filter($candidates, fn($x) => is_int($x) && $x > 0)));
+
+        // Helper: validar que exista en accounts
+        $existsInAccounts = function (int $id) use ($conn): bool {
             try {
-                if (isset($u->account) && $u->account && isset($u->account->id) && ctype_digit((string) $u->account->id)) {
-                    return (int) $u->account->id;
+                return \DB::connection($conn)->table('accounts')->where('id', $id)->exists();
+            } catch (\Throwable) {
+                return false;
+            }
+        };
+
+        // 4) Validar candidatos directos
+        foreach ($candidates as $id) {
+            if ($existsInAccounts($id)) {
+                return $id;
+            }
+
+            \Log::warning('resolve_client_account_id_invalid_id', [
+                'bad_id' => $id,
+                'user_id' => $user->id ?? null,
+                'user_email' => $user->email ?? null,
+                'session_account_id' => session('account_id'),
+                'session_cuenta_id' => session('cuenta_id'),
+            ]);
+        }
+
+        // 5) Fallback por correo_contacto (email del user)
+        $email = '';
+        try {
+            $email = $user ? trim((string) ($user->email ?? '')) : '';
+        } catch (\Throwable) {
+            $email = '';
+        }
+
+        if ($email !== '' && str_contains($email, '@')) {
+            try {
+                $id = \DB::connection($conn)->table('accounts')->where('correo_contacto', $email)->value('id');
+                if ($id && (int)$id > 0) {
+                    \Log::info('resolve_client_account_id_by_email', [
+                        'email' => $email,
+                        'account_id' => (int) $id,
+                    ]);
+                    return (int) $id;
                 }
             } catch (\Throwable) {}
         }
-    } catch (\Throwable) {}
 
-    // 2) Session
-    try {
-        $sid = session('account_id', null);
-        if (is_scalar($sid) && ctype_digit((string) $sid)) {
-            return (int) $sid;
-        }
-    } catch (\Throwable) {}
-
-    // 3) Fallback por email contra accounts.correo_contacto
-    try {
-        $email = null;
-        $u = $request->user();
-        if ($u && isset($u->email) && is_string($u->email) && trim($u->email) !== '') {
-            $email = trim($u->email);
-        }
-
-        if ($email) {
-            $id = \DB::connection($conn)
-                ->table('accounts')
-                ->where('correo_contacto', $email)
-                ->value('id');
-
-            if (is_scalar($id) && ctype_digit((string) $id)) {
-                return (int) $id;
+        // 6) Fallback por user_code (si el user lo trae)
+        // accounts.user_code existe y suele ser el vínculo real.
+        $userCode = '';
+        try {
+            if ($user) {
+                foreach (['user_code', 'code', 'codigo', 'cliente_code'] as $f) {
+                    if (!empty($user->{$f})) {
+                        $userCode = trim((string) $user->{$f});
+                        if ($userCode !== '') break;
+                    }
+                }
             }
-        }
-    } catch (\Throwable) {}
+        } catch (\Throwable) {}
 
-    return null;
-}
+        // También intenta desde sesión si existe
+        if ($userCode === '') {
+            try {
+                $userCode = trim((string) session('user_code', ''));
+            } catch (\Throwable) {}
+        }
+
+        if ($userCode !== '') {
+            try {
+                $id = \DB::connection($conn)->table('accounts')->where('user_code', $userCode)->value('id');
+                if ($id && (int)$id > 0) {
+                    \Log::info('resolve_client_account_id_by_user_code', [
+                        'user_code' => $userCode,
+                        'account_id' => (int) $id,
+                    ]);
+                    return (int) $id;
+                }
+            } catch (\Throwable) {}
+        }
+
+        // Nada funcionó
+        \Log::warning('resolve_client_account_id_failed', [
+            'user_id' => $user->id ?? null,
+            'user_email' => $user->email ?? null,
+            'session_account_id' => session('account_id'),
+            'session_cuenta_id' => session('cuenta_id'),
+            'candidates' => $candidates,
+        ]);
+
+        return null;
+    }
 
 
 
