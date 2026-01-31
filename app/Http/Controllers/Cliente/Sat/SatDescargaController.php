@@ -5400,225 +5400,267 @@ final class SatDescargaController extends Controller
      * - Retorna 200 OK para frontend
      */
    public function externalZipRegister(Request $request): \Illuminate\Http\JsonResponse
-    {
-        // =========================================================
-        // REGISTRO ZIP FIEL EXTERNO
-        // Guarda en external_fiel_uploads (mysql_clientes)
-        //
-        // ✅ En producción: external_fiel_uploads.account_id es BIGINT NOT NULL
-        // ✅ En producción: NO existe columna cuenta_id en external_fiel_uploads
-        // ✅ En producción: p360v1_clientes.accounts NO tiene uuid/cuenta_id, solo id bigint + rfc
-        //
-        // Solución:
-        // - Mantener $cuentaId UUID solo para organizar storage path (fiel/external/{cuentaId})
-        // - Resolver $accountId BIGINT por RFC en mysql_clientes.accounts
-        // - Guardar SIEMPRE account_id = $accountId (nunca null)
-        // =========================================================
+{
+    // =========================================================
+    // REGISTRO ZIP FIEL EXTERNO
+    // Guarda en external_fiel_uploads (mysql_clientes)
+    //
+    // ✅ En producción: external_fiel_uploads.account_id es BIGINT NOT NULL
+    // ✅ En producción: NO existe columna cuenta_id en external_fiel_uploads
+    // ✅ El RFC externo NO debe existir como cuenta en accounts
+    //
+    // Solución:
+    // - Resolver SIEMPRE $accountId BIGINT por el CLIENTE LOGUEADO
+    // - Guardar RFC externo como dato (external_fiel_uploads.rfc)
+    // - Mantener $cuentaId UUID solo para carpeta storage/auditoría
+    // =========================================================
 
-        $t0 = microtime(true);
+    $t0 = microtime(true);
 
-        // -----------------------------
-        // Inputs (acepta alternos)
-        // -----------------------------
-        $rfc = strtoupper(trim((string) $request->input('rfc', $request->input('rfc_externo', ''))));
+    $conn  = 'mysql_clientes';
+    $table = 'external_fiel_uploads';
 
-        $pass = trim((string) $request->input(
-            'fiel_pass',
-            $request->input('fiel_password', $request->input('password', ''))
-        ));
+    // -----------------------------
+    // Inputs (acepta alternos)
+    // -----------------------------
+    $rfc = strtoupper(trim((string) $request->input('rfc', $request->input('rfc_externo', ''))));
 
-        $ref = trim((string) $request->input(
-            'reference',
-            $request->input('ref', $request->input('referencia', ''))
-        ));
+    $pass = trim((string) $request->input(
+        'fiel_pass',
+        $request->input('fiel_password', $request->input('password', ''))
+    ));
 
-        $notes = trim((string) $request->input('notes', $request->input('nota', '')));
+    $ref = trim((string) $request->input(
+        'reference',
+        $request->input('ref', $request->input('referencia', ''))
+    ));
 
-        // Opcionales (si el form los manda)
-        $emailExterno = trim((string) $request->input('email_externo', $request->input('email', '')));
-        $razonSocial  = trim((string) $request->input('razon_social', $request->input('razonSocial', '')));
+    $notes = trim((string) $request->input('notes', $request->input('nota', '')));
 
-        if ($rfc === '' || !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
-            return response()->json(['ok' => false, 'msg' => 'RFC inválido.'], 422);
+    // Opcionales (si el form los manda)
+    $emailExterno = trim((string) $request->input('email_externo', $request->input('email', '')));
+    $razonSocial  = trim((string) $request->input('razon_social', $request->input('razonSocial', '')));
+
+    if ($rfc === '' || !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
+        return response()->json(['ok' => false, 'msg' => 'RFC inválido.'], 422);
+    }
+    if ($pass === '') {
+        return response()->json(['ok' => false, 'msg' => 'Contraseña FIEL requerida.'], 422);
+    }
+
+    // fallback: algunos forms mandan "archivo_zip"
+    if (!$request->hasFile('zip') && $request->hasFile('archivo_zip')) {
+        $request->files->set('zip', $request->file('archivo_zip'));
+    }
+
+    if (!$request->hasFile('zip') || !$request->file('zip') || !$request->file('zip')->isValid()) {
+        return response()->json(['ok' => false, 'msg' => 'Archivo ZIP inválido.'], 422);
+    }
+
+    $zip = $request->file('zip');
+
+    if (strtolower((string) $zip->getClientOriginalExtension()) !== 'zip') {
+        return response()->json(['ok' => false, 'msg' => 'El archivo debe ser ZIP.'], 422);
+    }
+
+    // -----------------------------
+    // Resolver account_id BIGINT del CLIENTE LOGUEADO (OBLIGATORIO)
+    // -----------------------------
+    $accountId = null;
+
+    try {
+        $u = $request->user();
+
+        // Intentos de identificación del usuario logueado
+        $loginEmail    = null;
+        $loginUserCode = null;
+
+        try { $loginEmail    = isset($u->email) ? trim((string) $u->email) : null; } catch (\Throwable) {}
+        try { $loginUserCode = isset($u->user_code) ? trim((string) $u->user_code) : null; } catch (\Throwable) {}
+
+        // 1) Preferente: user_code (si existe)
+        if (is_string($loginUserCode) && $loginUserCode !== '') {
+            $accountId = \DB::connection($conn)->table('accounts')
+                ->where('user_code', $loginUserCode)
+                ->value('id');
         }
-        if ($pass === '') {
-            return response()->json(['ok' => false, 'msg' => 'Contraseña FIEL requerida.'], 422);
+
+        // 2) Fallback: correo_contacto = email del usuario
+        if (!$accountId && is_string($loginEmail) && $loginEmail !== '') {
+            $accountId = \DB::connection($conn)->table('accounts')
+                ->where('correo_contacto', $loginEmail)
+                ->value('id');
         }
 
-        // fallback: algunos forms mandan "archivo_zip"
-        if (!$request->hasFile('zip') && $request->hasFile('archivo_zip')) {
-            $request->files->set('zip', $request->file('archivo_zip'));
+        // 3) Fallback adicional: si el usuario trae account_id numérico (raro pero posible)
+        if (!$accountId) {
+            $maybe = null;
+            try { $maybe = $u->account_id ?? null; } catch (\Throwable) {}
+            if (is_scalar($maybe) && ctype_digit((string) $maybe)) {
+                $accountId = (int) $maybe;
+            }
         }
+    } catch (\Throwable) {
+        $accountId = null;
+    }
 
-        if (!$request->hasFile('zip') || !$request->file('zip') || !$request->file('zip')->isValid()) {
-            return response()->json(['ok' => false, 'msg' => 'Archivo ZIP inválido.'], 422);
+    if (!$accountId) {
+        \Log::warning('external_fiel_account_resolve_failed', [
+            'rfc'   => $rfc,
+            'email' => $request->user()?->email ?? null,
+            'ip'    => $request->ip(),
+            'ua'    => (string) $request->userAgent(),
+        ]);
+
+        return response()->json([
+            'ok'  => false,
+            'msg' => 'No se pudo resolver tu cuenta cliente. Cierra sesión e inicia de nuevo o contacta soporte.',
+        ], 422);
+    }
+
+    // -----------------------------
+    // Resolver cuentaId UUID SOLO para storage/auditoría
+    // -----------------------------
+    $cuentaId = '';
+    try {
+        $u = $request->user();
+        if ($u) {
+            if (isset($u->cuenta_id) && is_string($u->cuenta_id) && trim($u->cuenta_id) !== '') $cuentaId = trim((string) $u->cuenta_id);
+            elseif (isset($u->account_id) && is_string($u->account_id) && trim($u->account_id) !== '') $cuentaId = trim((string) $u->account_id);
+            elseif (isset($u->cuenta) && is_string($u->cuenta) && trim($u->cuenta) !== '') $cuentaId = trim((string) $u->cuenta);
         }
+    } catch (\Throwable) {}
 
-        $zip = $request->file('zip');
-
-        if (strtolower((string) $zip->getClientOriginalExtension()) !== 'zip') {
-            return response()->json(['ok' => false, 'msg' => 'El archivo debe ser ZIP.'], 422);
-        }
-
-        // -----------------------------
-        // Resolver cuenta (UUID) SOLO para storage path
-        // -----------------------------
-        $cuentaId = '';
-
+    if ($cuentaId === '') {
         try {
-            $u = $request->user();
-            if ($u) {
-                if (isset($u->cuenta_id) && is_string($u->cuenta_id) && trim($u->cuenta_id) !== '') $cuentaId = trim((string) $u->cuenta_id);
-                elseif (isset($u->account_id) && is_string($u->account_id) && trim($u->account_id) !== '') $cuentaId = trim((string) $u->account_id);
-                elseif (isset($u->cuenta) && is_string($u->cuenta) && trim($u->cuenta) !== '') $cuentaId = trim((string) $u->cuenta);
+            $sid = (string) session('cuenta_id', session('account_id', ''));
+            if (trim($sid) !== '') $cuentaId = trim($sid);
+        } catch (\Throwable) {}
+    }
+
+    if ($cuentaId === '') {
+        $cuentaId = trim((string) $request->input('cuenta_id', $request->input('cuenta', '')));
+    }
+
+    if ($cuentaId === '' || !preg_match('/^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$/', $cuentaId)) {
+        $cuentaId = (string) \Illuminate\Support\Str::uuid();
+    }
+
+    // -----------------------------
+    // Guardar ZIP (storage)
+    // -----------------------------
+    $disk = 'public';
+    $dir  = "fiel/external/{$cuentaId}";
+    $name = 'FIEL-' . preg_replace('/[^A-Z0-9]/', '', $rfc) . '-' . strtoupper(substr(sha1((string) microtime(true)), 0, 12)) . '.zip';
+
+    try {
+        $path = $zip->storeAs($dir, $name, $disk);
+        if (!$path) {
+            return response()->json(['ok' => false, 'msg' => 'No se pudo guardar el ZIP.'], 500);
+        }
+    } catch (\Throwable $e) {
+        \Log::error('external_fiel_zip_store_failed', [
+            'account_id' => (int) $accountId,
+            'cuenta_id'  => $cuentaId,
+            'rfc'        => $rfc,
+            'e'          => $e->getMessage(),
+        ]);
+
+        return response()->json(['ok' => false, 'msg' => 'Error al guardar el ZIP.'], 500);
+    }
+
+    // -----------------------------
+    // Insertar en external_fiel_uploads (mysql_clientes)
+    // -----------------------------
+    try {
+        $schema = \Schema::connection($conn);
+        if (!$schema->hasTable($table)) {
+            return response()->json(['ok' => false, 'msg' => 'No existe la tabla external_fiel_uploads.'], 500);
+        }
+
+        $token = bin2hex(random_bytes(32));
+
+        $meta = [
+            'source'         => 'external_zip_register',
+            'ip'             => $request->ip(),
+            'ua'             => (string) $request->userAgent(),
+            'notes'          => $notes,
+            'original_name'  => $zip->getClientOriginalName(),
+            'cuenta_id_uuid' => $cuentaId, // auditoría/organización de storage
+        ];
+
+        $row = [
+            // ✅ requerido en producción
+            'account_id'    => (int) $accountId,
+
+            // Opcionales si existen en tabla
+            'email_externo' => ($emailExterno !== '' ? $emailExterno : null),
+            'reference'     => ($ref !== '' ? $ref : null),
+            'rfc'           => $rfc,
+            'razon_social'  => ($razonSocial !== '' ? $razonSocial : null),
+
+            'token'         => $token,
+
+            'file_path'     => $path,
+            'file_name'     => $zip->getClientOriginalName(),
+            'file_size'     => (int) $zip->getSize(),
+            'mime'          => (string) $zip->getClientMimeType(),
+
+            'fiel_password' => \Crypt::encryptString($pass),
+            'status'        => 'uploaded',
+            'uploaded_at'   => now(),
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ];
+
+        // defensivo por columnas
+        $safe = [];
+        foreach ($row as $k => $v) {
+            try {
+                if ($schema->hasColumn($table, $k)) $safe[$k] = $v;
+            } catch (\Throwable) {}
+        }
+
+        // meta si existe
+        try {
+            if ($schema->hasColumn($table, 'meta')) {
+                $safe['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
             }
         } catch (\Throwable) {}
 
-        if ($cuentaId === '') {
-            try {
-                $sid = (string) session('cuenta_id', session('account_id', ''));
-                if (trim($sid) !== '') $cuentaId = trim($sid);
-            } catch (\Throwable) {}
-        }
+        $id = \DB::connection($conn)->table($table)->insertGetId($safe);
 
-        if ($cuentaId === '') {
-            $cuentaId = trim((string) $request->input('cuenta_id', $request->input('cuenta', '')));
-        }
+        \Log::info('external_fiel_zip_saved', [
+            'id'         => $id,
+            'account_id' => (int) $accountId,
+            'cuenta_id'  => $cuentaId,
+            'rfc'        => $rfc,
+            'ms'         => (int) round((microtime(true) - $t0) * 1000),
+        ]);
 
-        // Si no hay UUID, no bloqueamos el guardado: generamos uno para carpeta.
-        // (Así no dependemos de sesión en casos raros)
-        if ($cuentaId === '' || !preg_match('/^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$/', $cuentaId)) {
-            $cuentaId = (string) \Illuminate\Support\Str::uuid();
-        }
-
-        // -----------------------------
-        // Resolver account_id BIGINT por RFC (OBLIGATORIO para DB)
-        // -----------------------------
-        $conn  = 'mysql_clientes';
-        $table = 'external_fiel_uploads';
-
-        $accountId = null;
-        try {
-            $accountId = \DB::connection($conn)->table('accounts')->where('rfc', $rfc)->value('id');
-        } catch (\Throwable) {
-            $accountId = null;
-        }
-
-        if (!$accountId) {
-            return response()->json([
-                'ok'  => false,
-                'msg' => 'No existe una cuenta cliente con ese RFC en p360v1_clientes.accounts. Primero registra/crea la cuenta cliente con ese RFC.',
-            ], 422);
-        }
-
-        // -----------------------------
-        // Guardar ZIP (storage)
-        // -----------------------------
-        $disk = 'public';
-        $dir  = "fiel/external/{$cuentaId}";
-        $name = 'FIEL-' . preg_replace('/[^A-Z0-9]/', '', $rfc) . '-' . strtoupper(substr(sha1((string) microtime(true)), 0, 12)) . '.zip';
-
-        try {
-            $path = $zip->storeAs($dir, $name, $disk);
-            if (!$path) {
-                return response()->json(['ok' => false, 'msg' => 'No se pudo guardar el ZIP.'], 500);
-            }
-        } catch (\Throwable $e) {
-            \Log::error('external_fiel_zip_store_failed', ['cuenta_id' => $cuentaId, 'rfc' => $rfc, 'e' => $e->getMessage()]);
-            return response()->json(['ok' => false, 'msg' => 'Error al guardar el ZIP.'], 500);
-        }
-
-        // -----------------------------
-        // Insertar en external_fiel_uploads (mysql_clientes)
-        // -----------------------------
-        try {
-            $schema = \Schema::connection($conn);
-            if (!$schema->hasTable($table)) {
-                return response()->json(['ok' => false, 'msg' => 'No existe la tabla external_fiel_uploads.'], 500);
-            }
-
-            $token = bin2hex(random_bytes(32));
-
-            $meta = [
-                'source'        => 'external_zip_register',
-                'ip'            => $request->ip(),
-                'ua'            => (string) $request->userAgent(),
-                'notes'         => $notes,
-                'original_name' => $zip->getClientOriginalName(),
-                'cuenta_id_uuid'=> $cuentaId, // solo auditoría (si existe meta)
-            ];
-
-            $row = [
-                // ✅ requerido en producción
-                'account_id'    => (int) $accountId,
-
-                // Opcionales si existen en tabla
-                'email_externo' => ($emailExterno !== '' ? $emailExterno : null),
-                'reference'     => ($ref !== '' ? $ref : null),
-                'rfc'           => $rfc,
-                'razon_social'  => ($razonSocial !== '' ? $razonSocial : null),
-
-                'token'         => $token,
-
-                'file_path'     => $path,
-                'file_name'     => $zip->getClientOriginalName(),
-                'file_size'     => (int) $zip->getSize(),
-                'mime'          => (string) $zip->getClientMimeType(),
-
-                'fiel_password' => \Crypt::encryptString($pass),
-                'status'        => 'uploaded',
-                'uploaded_at'   => now(),
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ];
-
-            // defensivo por columnas
-            $safe = [];
-            foreach ($row as $k => $v) {
-                try {
-                    if ($schema->hasColumn($table, $k)) $safe[$k] = $v;
-                } catch (\Throwable) {}
-            }
-
-            // meta si existe
-            try {
-                if ($schema->hasColumn($table, 'meta')) {
-                    $safe['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
-                }
-            } catch (\Throwable) {}
-
-            $id = \DB::connection($conn)->table($table)->insertGetId($safe);
-
-            \Log::info('external_fiel_zip_saved', [
-                'id'        => $id,
-                'account_id'=> (int) $accountId,
-                'cuenta_id' => $cuentaId,
-                'rfc'       => $rfc,
-                'ms'        => (int) round((microtime(true) - $t0) * 1000),
-            ]);
-
-            return response()->json([
-                'ok'   => true,
-                'msg'  => 'FIEL externa cargada correctamente.',
-                'data' => [
-                    'id'         => $id,
-                    'account_id' => (int) $accountId,
-                    'cuenta_id'  => $cuentaId, // solo referencia de storage
-                    'rfc'        => $rfc,
-                    'file_path'  => $path,
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            \Log::error('external_fiel_upload_failed', [
-                'cuenta_id'  => $cuentaId,
+        return response()->json([
+            'ok'   => true,
+            'msg'  => 'FIEL externa cargada correctamente.',
+            'data' => [
+                'id'         => $id,
                 'account_id' => (int) $accountId,
+                'cuenta_id'  => $cuentaId, // solo referencia de storage
                 'rfc'        => $rfc,
-                'error'      => $e->getMessage(),
-            ]);
+                'file_path'  => $path,
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        \Log::error('external_fiel_upload_failed', [
+            'cuenta_id'  => $cuentaId,
+            'account_id' => (int) $accountId,
+            'rfc'        => $rfc,
+            'error'      => $e->getMessage(),
+        ]);
 
-            return response()->json(['ok' => false, 'msg' => 'Error al guardar FIEL externa.'], 500);
-        }
+        return response()->json(['ok' => false, 'msg' => 'Error al guardar FIEL externa.'], 500);
     }
+}
+
 
 
     public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
