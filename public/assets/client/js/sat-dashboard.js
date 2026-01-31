@@ -352,92 +352,148 @@ document.addEventListener('DOMContentLoaded', function () {
   // Render tabla
   // =====================================================
   function renderExternalZipRows(rows, rawPayloadForDebug) {
-    const tbody = findExternalZipTbody();
-    if (!tbody) return;
+  const tbody = findExternalZipTbody();
+  if (!tbody) return;
 
-    const arr = Array.isArray(rows) ? rows : [];
-    if (!arr.length) {
-      log('No rows to render. Raw payload:', rawPayloadForDebug);
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="6" class="t-center text-muted" style="padding:14px;">
-            Sin registros.
-          </td>
-        </tr>
-      `.trim();
-      return;
+  // =========================================================
+  // ✅ Normalizador robusto:
+  // - Acepta "rows" directo
+  // - O resp/data payload completo
+  // - O estructuras: data.rows, data.data.rows, rows, items, data (array)
+  // =========================================================
+  function normalizeRows(inputRows, raw) {
+    try {
+      if (Array.isArray(inputRows) && inputRows.length) return inputRows;
+
+      const p = raw;
+
+      // Si raw ya es array, úsalo
+      if (Array.isArray(p)) return p;
+
+      // Buscar candidatos en distintas estructuras
+      const cand =
+        (p && Array.isArray(p.rows) ? p.rows : null) ||
+        (p && p.data && Array.isArray(p.data.rows) ? p.data.rows : null) ||
+        (p && p.data && p.data.data && Array.isArray(p.data.data.rows) ? p.data.data.rows : null) ||
+        (p && p.data && Array.isArray(p.data.data) ? p.data.data : null) ||
+        (p && Array.isArray(p.data) ? p.data : null) ||
+        (p && p.data && Array.isArray(p.data.items) ? p.data.items : null) ||
+        (p && Array.isArray(p.items) ? p.items : null) ||
+        null;
+
+      return Array.isArray(cand) ? cand : [];
+    } catch (_e) {
+      return [];
     }
-
-    const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
-    const rtDownload = String(routes.fielDownload || '');
-    const rtUpdate   = String(routes.fielUpdate   || '');
-    const rtDestroy  = String(routes.fielDestroy  || '');
-
-    function pickId(r) {
-      const cand = [
-        r.id, r.zip_id, r.fiel_id, r.external_id, r.external_zip_id,
-        r.file_id, r.record_id, r.uuid
-      ].find(v => v !== undefined && v !== null && String(v).trim() !== '');
-      return cand ? String(cand).trim() : '';
-    }
-
-    function buildUrl(pattern, id) {
-      if (!pattern || !id) return '';
-      if (pattern.includes('__ID__')) return pattern.replaceAll('__ID__', encodeURIComponent(id));
-      if (pattern.includes('{id}'))   return pattern.replaceAll('{id}', encodeURIComponent(id));
-      return pattern.replace(/\/$/, '') + '/' + encodeURIComponent(id);
-    }
-
-    function badge(stRaw) {
-      const st = String(stRaw || '').trim();
-      if (!st) return `<span class="badge" style="opacity:.75">—</span>`;
-      const lower = st.toLowerCase();
-      let cls = 'badge';
-      if (lower.includes('ok') || lower.includes('listo') || lower.includes('ready') || lower.includes('done')) cls = 'badge badge-success';
-      else if (lower.includes('pend') || lower.includes('proc') || lower.includes('queue')) cls = 'badge badge-soft';
-      else if (lower.includes('error') || lower.includes('fail') || lower.includes('rech')) cls = 'badge badge-danger';
-      return `<span class="${cls}" style="opacity:.95">${escapeHtml(st)}</span>`;
-    }
-
-    tbody.innerHTML = arr.map((r) => {
-      const id = pickId(r);
-
-      const rfc   = escapeHtml(r.rfc || r.RFC || '');
-      const razon = escapeHtml(r.razon_social || r.razonSocial || r.nombre || r.company || '');
-      const name  = escapeHtml(r.file_name || r.fileName || r.name || r.zip_name || 'ZIP');
-      const size  = fmtBytes(r.file_size || r.size_bytes || r.zip_bytes || r.bytes || r.size || 0);
-      const stRaw = (r.status || r.estado || r.state || r.sat_status || r.estatus || '');
-
-      const urlDownload = buildUrl(rtDownload, id);
-      const urlDestroy  = buildUrl(rtDestroy, id);
-
-      const btnDownload = (id && urlDownload)
-        ? `<button type="button" class="btn icon-only" data-action="fiel-download" data-url="${escapeHtml(urlDownload)}" data-id="${escapeHtml(id)}" data-tip="Descargar">⬇️</button>`
-        : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta download no configurada'}">⬇️</button>`;
-
-      const btnDelete = (id && urlDestroy)
-        ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(r.rfc || '')}" data-tip="Eliminar">🗑️</button>`
-        : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta destroy no configurada'}">🗑️</button>`;
-
-      const actions = `
-        <div class="sat-row-actions" style="display:flex; gap:6px; justify-content:center; align-items:center;">
-          ${btnDownload}
-          ${btnDelete}
-        </div>
-      `.trim();
-
-      return `
-        <tr data-id="${escapeHtml(id)}">
-          <td>${name}</td>
-          <td class="t-center mono">${rfc || '—'}</td>
-          <td>${razon || '—'}</td>
-          <td class="t-right">${size}</td>
-          <td class="t-center">${badge(stRaw)}</td>
-          <td class="t-center">${actions}</td>
-        </tr>
-      `.trim();
-    }).join('');
   }
+
+  const arr = normalizeRows(rows, rawPayloadForDebug);
+
+  if (!arr.length) {
+    log('No rows to render. Raw payload:', rawPayloadForDebug);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="t-center text-muted" style="padding:14px;">
+          Sin registros.
+        </td>
+      </tr>
+    `.trim();
+    return;
+  }
+
+  const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+  const rtDownload = String(routes.fielDownload || '');
+  const rtUpdate   = String(routes.fielUpdate   || '');
+  const rtDestroy  = String(routes.fielDestroy  || '');
+
+  function pickId(r) {
+    const cand = [
+      r.id, r.zip_id, r.fiel_id, r.external_id, r.external_zip_id,
+      r.file_id, r.record_id, r.uuid
+    ].find(v => v !== undefined && v !== null && String(v).trim() !== '');
+    return cand ? String(cand).trim() : '';
+  }
+
+  function buildUrl(pattern, id) {
+    if (!pattern || !id) return '';
+    if (pattern.includes('__ID__')) return pattern.replaceAll('__ID__', encodeURIComponent(id));
+    if (pattern.includes('{id}'))   return pattern.replaceAll('{id}', encodeURIComponent(id));
+    return pattern.replace(/\/$/, '') + '/' + encodeURIComponent(id);
+  }
+
+  function badge(stRaw) {
+    const st = String(stRaw || '').trim();
+    if (!st) return `<span class="badge" style="opacity:.75">—</span>`;
+    const lower = st.toLowerCase();
+    let cls = 'badge';
+    if (lower.includes('ok') || lower.includes('listo') || lower.includes('ready') || lower.includes('done')) cls = 'badge badge-success';
+    else if (lower.includes('pend') || lower.includes('proc') || lower.includes('queue')) cls = 'badge badge-soft';
+    else if (lower.includes('error') || lower.includes('fail') || lower.includes('rech')) cls = 'badge badge-danger';
+    return `<span class="${cls}" style="opacity:.95">${escapeHtml(st)}</span>`;
+  }
+
+  function pickRfc(r) {
+    return String(r.rfc || r.RFC || '').trim();
+  }
+
+  function pickRazon(r) {
+    return String(r.razon_social || r.razonSocial || r.nombre || r.company || '').trim();
+  }
+
+  function pickName(r) {
+    return String(r.file_name || r.fileName || r.name || r.zip_name || r.filename || 'ZIP').trim();
+  }
+
+  function pickSize(r) {
+    const v = (r.file_size ?? r.size_bytes ?? r.zip_bytes ?? r.bytes ?? r.size ?? 0);
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function pickStatus(r) {
+    return String(r.status || r.estado || r.state || r.sat_status || r.estatus || '').trim();
+  }
+
+  tbody.innerHTML = arr.map((r) => {
+    const id = pickId(r);
+
+    const rfc   = escapeHtml(pickRfc(r));
+    const razon = escapeHtml(pickRazon(r));
+    const name  = escapeHtml(pickName(r));
+    const size  = fmtBytes(pickSize(r));
+    const stRaw = pickStatus(r);
+
+    const urlDownload = buildUrl(rtDownload, id);
+    const urlDestroy  = buildUrl(rtDestroy, id);
+
+    const btnDownload = (id && urlDownload)
+      ? `<button type="button" class="btn icon-only" data-action="fiel-download" data-url="${escapeHtml(urlDownload)}" data-id="${escapeHtml(id)}" data-tip="Descargar">⬇️</button>`
+      : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta download no configurada'}">⬇️</button>`;
+
+    const btnDelete = (id && urlDestroy)
+      ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(pickRfc(r))}" data-tip="Eliminar">🗑️</button>`
+      : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta destroy no configurada'}">🗑️</button>`;
+
+    const actions = `
+      <div class="sat-row-actions" style="display:flex; gap:6px; justify-content:center; align-items:center;">
+        ${btnDownload}
+        ${btnDelete}
+      </div>
+    `.trim();
+
+    return `
+      <tr data-id="${escapeHtml(id)}">
+        <td>${name || 'ZIP'}</td>
+        <td class="t-center mono">${rfc || '—'}</td>
+        <td>${razon || '—'}</td>
+        <td class="t-right">${size}</td>
+        <td class="t-center">${badge(stRaw)}</td>
+        <td class="t-center">${actions}</td>
+      </tr>
+    `.trim();
+  }).join('');
+}
+
 
   // Actions
   document.addEventListener('click', function (e) {
