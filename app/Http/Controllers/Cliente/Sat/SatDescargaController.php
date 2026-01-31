@@ -5159,7 +5159,6 @@ final class SatDescargaController extends Controller
         return 0.0;
     }
 
-
     private function pricingNoteForXml(int $xmlCount): string
     {
         $n = max(0, $xmlCount);
@@ -5614,12 +5613,17 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     // LISTADO FIEL/ZIP EXTERNO (AUTH)
     // Tabla: mysql_clientes.external_fiel_uploads
     //
-    // ✅ En producción: external_fiel_uploads.account_id BIGINT NOT NULL
     // Objetivo:
-    // - Resolver SIEMPRE account_id BIGINT del cliente logueado
-    // - Consultar en DB correcta (forzar DB.TABLE si hay desalineación de conexión)
-    // - Respuesta PLANA (evita doble-wrapper en satFetchJson):
-    //      { ok:true, rows:[], count:N }
+    // - Resolver account_id del cliente logueado
+    // - Consultar en DB correcta (forzar DB.TABLE)
+    // - Respuesta PLANA: { ok:true, rows:[], count:N }
+    //
+    // FIX (PROD):
+    // - Hay casos donde external_fiel_uploads.account_id quedó “legacy”
+    //   (p.ej. 18) pero el cliente actual resuelve (p.ej. 21).
+    // - Primero filtramos por account_id (normal).
+    // - Si NO hay resultados, hacemos fallback seguro por RFCs de la cuenta
+    //   (sat_rfcs.account_id = accountId actual) => external_fiel_uploads.rfc IN (...)
     // =========================================================
 
     $t0 = microtime(true);
@@ -5667,10 +5671,8 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     try {
         $schema = \Schema::connection($conn);
 
-        // DB name que Laravel CREE que está usando para mysql_clientes
         $cfgDb = (string) (config("database.connections.{$conn}.database") ?? '');
 
-        // DB name REAL que la conexión trae en runtime
         $runtimeDb = null;
         try {
             $runtimeDb = \DB::connection($conn)->selectOne('select database() as db')->db ?? null;
@@ -5678,10 +5680,8 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
             $runtimeDb = null;
         }
 
-        // Forzar fully-qualified si tenemos cfgDb
         $tableFq = ($cfgDb !== '') ? ($cfgDb . '.' . $table) : $table;
 
-        // Si schema dice que no existe, intentamos validar con raw count (por si schema cache / db distinta)
         if (!$schema->hasTable($table)) {
             try {
                 \Log::error('external_zip_list_table_missing', [
@@ -5700,11 +5700,53 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
             ], 500);
         }
 
+        // --------------------------------------------------
+        // 2.1) Scope primario por account_id (y variantes)
+        // --------------------------------------------------
+        $accountIds = [];
+        $accountIds[] = (int) $accountId;
+        $accountIds[] = (int) (session('account_id') ?? 0);
+        $accountIds[] = (int) (session('cuenta_id') ?? 0);
+
+        try {
+            $u = $request->user();
+            if ($u) {
+                $accountIds[] = (int) ($u->account_id ?? 0);
+                $accountIds[] = (int) ($u->cuenta_id ?? 0);
+            }
+        } catch (\Throwable) {}
+
+        $accountIds = array_values(array_unique(array_filter($accountIds, fn($v) => is_int($v) && $v > 0)));
+
+        // Log de scope (para auditar)
+        try {
+            \Log::info('external_zip_list_scope', [
+                'resolved_account_id' => (int) $accountId,
+                'account_ids' => $accountIds,
+                'session_account_id' => session('account_id'),
+                'session_cuenta_id'  => session('cuenta_id'),
+                'user_id' => optional($request->user())->id ?? null,
+                'user_email' => optional($request->user())->email ?? null,
+                'cfg_db' => $cfgDb,
+                'runtime_db' => $runtimeDb,
+                'table_fq' => $tableFq,
+            ]);
+        } catch (\Throwable) {}
+
+        // Base query
+        $base = \DB::connection($conn)->table($tableFq);
+
         // IMPORTANTE:
-        // NO filtrar por RFC del account logueado (los ZIP externos pueden ser de otro RFC).
-        $qb = \DB::connection($conn)
-            ->table($tableFq)
-            ->where('account_id', (int) $accountId);
+        // NO filtrar por RFC del account logueado (primario),
+        // porque ZIP externos pueden venir de otros RFC.
+        // Pero si count=0, sí haremos fallback seguro por RFCs de la cuenta.
+        $qb = (clone $base);
+
+        if (!empty($accountIds)) {
+            $qb->whereIn('account_id', $accountIds);
+        } else {
+            $qb->where('account_id', (int) $accountId);
+        }
 
         if ($status !== '') {
             $qb->where('status', $status);
@@ -5714,14 +5756,89 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
             $qb->where(function ($w) use ($q) {
                 $like = "%{$q}%";
                 $w->where('rfc', 'like', $like)
-                  ->orWhere('file_name', 'like', $like)
-                  ->orWhere('reference', 'like', $like)
-                  ->orWhere('email_externo', 'like', $like)
-                  ->orWhere('razon_social', 'like', $like);
+                    ->orWhere('file_name', 'like', $like)
+                    ->orWhere('reference', 'like', $like)
+                    ->orWhere('email_externo', 'like', $like)
+                    ->orWhere('razon_social', 'like', $like);
             });
         }
 
         $count = (int) (clone $qb)->count();
+
+        // --------------------------------------------------
+        // 2.2) Fallback seguro: si no hay rows por account_id,
+        //      intentar por RFCs asociados a la cuenta (sat_rfcs)
+        // --------------------------------------------------
+        $usedFallbackByRfc = false;
+
+        if ($count === 0) {
+            $rfcs = [];
+
+            try {
+                if (\Schema::connection($conn)->hasTable('sat_rfcs')) {
+                    // Nota: si tu tabla tiene otra columna distinta, ajustamos después,
+                    // pero normalmente es account_id + rfc.
+                    $rfcs = \DB::connection($conn)->table('sat_rfcs')
+                        ->where('account_id', (int) $accountId)
+                        ->whereNotNull('rfc')
+                        ->pluck('rfc')
+                        ->map(fn($v) => strtoupper(trim((string)$v)))
+                        ->filter(fn($v) => $v !== '')
+                        ->values()
+                        ->all();
+                }
+            } catch (\Throwable) {
+                $rfcs = [];
+            }
+
+            if (!empty($rfcs)) {
+                $qb2 = (clone $base)->whereIn('rfc', $rfcs);
+
+                if ($status !== '') {
+                    $qb2->where('status', $status);
+                }
+
+                if ($q !== '') {
+                    $qb2->where(function ($w) use ($q) {
+                        $like = "%{$q}%";
+                        $w->where('rfc', 'like', $like)
+                            ->orWhere('file_name', 'like', $like)
+                            ->orWhere('reference', 'like', $like)
+                            ->orWhere('email_externo', 'like', $like)
+                            ->orWhere('razon_social', 'like', $like);
+                    });
+                }
+
+                $count2 = (int) (clone $qb2)->count();
+
+                if ($count2 > 0) {
+                    $qb = $qb2;
+                    $count = $count2;
+                    $usedFallbackByRfc = true;
+
+                    try {
+                        \Log::warning('external_zip_list_fallback_rfc_used', [
+                            'account_id' => (int) $accountId,
+                            'rfcs_count' => count($rfcs),
+                        ]);
+                    } catch (\Throwable) {}
+                } else {
+                    try {
+                        \Log::info('external_zip_list_fallback_rfc_empty', [
+                            'account_id' => (int) $accountId,
+                            'rfcs_count' => count($rfcs),
+                        ]);
+                    } catch (\Throwable) {}
+                }
+            } else {
+                try {
+                    \Log::info('external_zip_list_fallback_rfc_no_sat_rfcs', [
+                        'account_id' => (int) $accountId,
+                        'has_sat_rfcs' => \Schema::connection($conn)->hasTable('sat_rfcs'),
+                    ]);
+                } catch (\Throwable) {}
+            }
+        }
 
         $rows = $qb
             ->orderByDesc('id')
@@ -5743,7 +5860,6 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
                 'created_at',
             ]);
 
-        // Normalizar a array (por si el front espera objetos planos)
         $rowsArr = [];
         foreach ($rows as $r) $rowsArr[] = (array) $r;
 
@@ -5762,10 +5878,10 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
                 'cfg_db'     => $cfgDb,
                 'runtime_db' => $runtimeDb,
                 'table_fq'   => $tableFq,
+                'fallback_rfc' => $usedFallbackByRfc ? 1 : 0,
             ]);
         } catch (\Throwable) {}
 
-        // ✅ Respuesta PLANA (satFetchJson ya envuelve con {ok,status,data})
         return response()->json([
             'ok'    => true,
             'rows'  => $rowsArr,
