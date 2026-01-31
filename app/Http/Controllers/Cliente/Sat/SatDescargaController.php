@@ -5668,19 +5668,25 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     // =========================================================
     // LISTADO FIEL/ZIP EXTERNO (AUTH)
     // Tabla: mysql_clientes.external_fiel_uploads
+    //
     // ✅ En producción: external_fiel_uploads.account_id BIGINT NOT NULL
     // Objetivo:
     // - Resolver SIEMPRE account_id BIGINT del cliente logueado
-    // - Fallback robusto por email contra p360v1_clientes.accounts.correo_contacto
-    // - Devolver estructura estable: { ok:true, rows:[], count:N, data:{rows,count} }
+    // - Consultar en DB correcta (forzar DB.TABLE si hay desalineación de conexión)
+    // - Respuesta PLANA (evita doble-wrapper en satFetchJson):
+    //      { ok:true, rows:[], count:N }
     // =========================================================
 
     $t0 = microtime(true);
+
     $conn  = 'mysql_clientes';
     $table = 'external_fiel_uploads';
 
     $limit  = (int) ($request->query('limit', 50));
     $limit  = ($limit <= 0) ? 50 : min($limit, 200);
+
+    $offset = (int) ($request->query('offset', 0));
+    if ($offset < 0) $offset = 0;
 
     $status = trim((string) $request->query('status', ''));
     $q      = trim((string) $request->query('q', ''));
@@ -5691,43 +5697,68 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     $accountId = $this->resolveClientAccountIdBigint($request);
 
     if (!$accountId || $accountId <= 0) {
-        \Log::warning('external_zip_list_no_account', [
-            'ip' => $request->ip(),
-            'ua' => (string) $request->userAgent(),
-            'user_id' => optional($request->user())->id ?? null,
-            'user_email' => optional($request->user())->email ?? null,
-            'session_account_id' => session('account_id'),
-            'session_cuenta_id' => session('cuenta_id'),
-        ]);
+        try {
+            \Log::warning('external_zip_list_no_account', [
+                'ip' => $request->ip(),
+                'ua' => (string) $request->userAgent(),
+                'user_id' => optional($request->user())->id ?? null,
+                'user_email' => optional($request->user())->email ?? null,
+                'session_account_id' => session('account_id'),
+                'session_cuenta_id' => session('cuenta_id'),
+            ]);
+        } catch (\Throwable) {}
 
-        // 👇 Importante: NO regresamos "ok:true rows:[]", porque eso te oculta el problema.
-        // Mejor respuesta clara para soporte.
         return response()->json([
             'ok'    => false,
             'msg'   => 'No se pudo resolver tu cuenta cliente. Cierra sesión e inicia de nuevo o contacta soporte.',
             'rows'  => [],
             'count' => 0,
-            'data'  => ['rows' => [], 'count' => 0],
         ], 422);
     }
 
     // -----------------------------------------
-    // 2) Query listado
+    // 2) Query listado (FORZANDO DB.TABLE)
     // -----------------------------------------
     try {
         $schema = \Schema::connection($conn);
+
+        // DB name que Laravel CREE que está usando para mysql_clientes
+        $cfgDb = (string) (config("database.connections.{$conn}.database") ?? '');
+
+        // DB name REAL que la conexión trae en runtime
+        $runtimeDb = null;
+        try {
+            $runtimeDb = \DB::connection($conn)->selectOne('select database() as db')->db ?? null;
+        } catch (\Throwable) {
+            $runtimeDb = null;
+        }
+
+        // Forzar fully-qualified si tenemos cfgDb
+        $tableFq = ($cfgDb !== '') ? ($cfgDb . '.' . $table) : $table;
+
+        // Si schema dice que no existe, intentamos validar con raw count (por si schema cache / db distinta)
         if (!$schema->hasTable($table)) {
+            try {
+                \Log::error('external_zip_list_table_missing', [
+                    'conn' => $conn,
+                    'table' => $table,
+                    'cfg_db' => $cfgDb,
+                    'runtime_db' => $runtimeDb,
+                ]);
+            } catch (\Throwable) {}
+
             return response()->json([
-                'ok' => false,
-                'msg' => 'No existe la tabla external_fiel_uploads.',
-                'rows' => [],
+                'ok'    => false,
+                'msg'   => 'No existe la tabla external_fiel_uploads en la conexión mysql_clientes.',
+                'rows'  => [],
                 'count' => 0,
-                'data' => ['rows' => [], 'count' => 0],
             ], 500);
         }
 
+        // IMPORTANTE:
+        // NO filtrar por RFC del account logueado (los ZIP externos pueden ser de otro RFC).
         $qb = \DB::connection($conn)
-            ->table($table)
+            ->table($tableFq)
             ->where('account_id', (int) $accountId);
 
         if ($status !== '') {
@@ -5735,12 +5766,13 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
         }
 
         if ($q !== '') {
-            // búsqueda simple por RFC / file_name / reference / email_externo
             $qb->where(function ($w) use ($q) {
-                $w->where('rfc', 'like', "%{$q}%")
-                  ->orWhere('file_name', 'like', "%{$q}%")
-                  ->orWhere('reference', 'like', "%{$q}%")
-                  ->orWhere('email_externo', 'like', "%{$q}%");
+                $like = "%{$q}%";
+                $w->where('rfc', 'like', $like)
+                  ->orWhere('file_name', 'like', $like)
+                  ->orWhere('reference', 'like', $like)
+                  ->orWhere('email_externo', 'like', $like)
+                  ->orWhere('razon_social', 'like', $like);
             });
         }
 
@@ -5748,6 +5780,7 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
 
         $rows = $qb
             ->orderByDesc('id')
+            ->offset($offset)
             ->limit($limit)
             ->get([
                 'id',
@@ -5765,43 +5798,51 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
                 'created_at',
             ]);
 
+        // Normalizar a array (por si el front espera objetos planos)
+        $rowsArr = [];
+        foreach ($rows as $r) $rowsArr[] = (array) $r;
+
         $ms = (int) round((microtime(true) - $t0) * 1000);
 
-        \Log::info('external_zip_list_ok', [
-            'account_id' => (int) $accountId,
-            'count' => $count,
-            'rows' => is_countable($rows) ? count($rows) : null,
-            'limit' => $limit,
-            'status' => $status,
-            'q' => $q,
-            'ms' => $ms,
-        ]);
+        try {
+            \Log::info('external_zip_list_ok', [
+                'account_id' => (int) $accountId,
+                'count'      => $count,
+                'rows'       => count($rowsArr),
+                'limit'      => $limit,
+                'offset'     => $offset,
+                'status'     => $status,
+                'q'          => $q,
+                'ms'         => $ms,
+                'cfg_db'     => $cfgDb,
+                'runtime_db' => $runtimeDb,
+                'table_fq'   => $tableFq,
+            ]);
+        } catch (\Throwable) {}
 
-        // Normalización "anti-nesting": SIEMPRE igual para el front
+        // ✅ Respuesta PLANA (satFetchJson ya envuelve con {ok,status,data})
         return response()->json([
             'ok'    => true,
-            'rows'  => $rows,
+            'rows'  => $rowsArr,
             'count' => $count,
-            'data'  => [
-                'rows'  => $rows,
-                'count' => $count,
-            ],
         ], 200);
     } catch (\Throwable $e) {
-        \Log::error('external_zip_list_failed', [
-            'account_id' => (int) $accountId,
-            'error' => $e->getMessage(),
-        ]);
+        try {
+            \Log::error('external_zip_list_failed', [
+                'account_id' => (int) $accountId,
+                'error'      => $e->getMessage(),
+            ]);
+        } catch (\Throwable) {}
 
         return response()->json([
-            'ok' => false,
-            'msg' => 'Error al listar ZIPs externos.',
-            'rows' => [],
+            'ok'    => false,
+            'msg'   => 'Error al consultar lista de ZIP externos.',
+            'rows'  => [],
             'count' => 0,
-            'data' => ['rows' => [], 'count' => 0],
         ], 500);
     }
 }
+
 
 /**
  * Resolver account_id BIGINT del cliente logueado.
