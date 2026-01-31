@@ -5664,199 +5664,246 @@ final class SatDescargaController extends Controller
 
 
     public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
-    {
-        // =========================================================
-        // LISTADO FIEL/ZIP EXTERNO (AUTH)
-        // Tabla: mysql_clientes.external_fiel_uploads
-        //
-        // ✅ Producción: external_fiel_uploads.account_id BIGINT NOT NULL
-        // ✅ Producción: accounts.id BIGINT
-        //
-        // Objetivo:
-        // - Resolver account_id REAL del cliente logueado (BIGINT)
-        // - Listar por account_id (NO por UUID)
-        // - Respuesta compatible con front: data.rows + data.data.rows
-        // =========================================================
+{
+    // =========================================================
+    // LISTADO FIEL/ZIP EXTERNO (AUTH)
+    // Devuelve registros de external_fiel_uploads para la cuenta
+    //
+    // Problema real (prod):
+    // - external_fiel_uploads.account_id es BIGINT NOT NULL
+    // - el front obtiene 200 pero rows=[]
+    // - causa típica: se está resolviendo MAL el account_id del cliente logueado
+    //
+    // Fix:
+    // - Resolver account_id BIGINT robusto:
+    //    1) user->account_id (num)
+    //    2) session account_id (num) en varias keys
+    //    3) si hay email del user => buscar en p360v1_clientes.accounts por correo_contacto
+    //    4) si viene query account_id => usarlo (num) (solo para debug/admin)
+    // - Loggear la resolución para diagnóstico
+    // - Respuesta plana (NO muñeca rusa): {ok, rows, count}
+    // =========================================================
 
-        $t0 = microtime(true);
+    $t0 = microtime(true);
 
-        $limit  = (int) $request->query('limit', 50);
-        $limit  = ($limit > 0 && $limit <= 200) ? $limit : 50;
+    $conn  = 'mysql_clientes';
+    $table = 'external_fiel_uploads';
 
-        $status = trim((string) $request->query('status', ''));
-        $tipo   = trim((string) $request->query('tipo', '')); // reservado si luego filtras por tipo
+    // -----------------------------
+    // 1) Resolver account_id BIGINT
+    // -----------------------------
+    $accountId = null;
+    $resolver  = 'none';
+    $email     = null;
 
-        $conn  = 'mysql_clientes';
-        $table = 'external_fiel_uploads';
+    try {
+        $u = $request->user();
+        if ($u) {
+            // email
+            try { $email = isset($u->email) ? (string) $u->email : null; } catch (\Throwable) {}
 
-        // -----------------------------
-        // 1) Resolver account_id BIGINT del cliente logueado (OBLIGATORIO)
-        // -----------------------------
-        $accountId = null;
-
-        $u = null;
-        try { $u = $request->user(); } catch (\Throwable) { $u = null; }
-
-        // 1A) Directo desde user (si existe y es numérico)
-        foreach (['account_id', 'cuenta_id', 'id'] as $k) {
+            // account_id directo
             try {
-                $v = $u?->{$k} ?? null;
-                if (is_scalar($v) && trim((string) $v) !== '' && ctype_digit((string) $v)) {
-                    $accountId = (int) $v;
+                $cand = $u->account_id ?? null;
+                if (is_numeric($cand) && (int)$cand > 0) {
+                    $accountId = (int) $cand;
+                    $resolver = 'user.account_id';
+                }
+            } catch (\Throwable) {}
+
+            // a veces guardan "cuenta_id" pero numérico
+            if (!$accountId) {
+                try {
+                    $cand = $u->cuenta_id ?? null;
+                    if (is_numeric($cand) && (int)$cand > 0) {
+                        $accountId = (int) $cand;
+                        $resolver = 'user.cuenta_id_numeric';
+                    }
+                } catch (\Throwable) {}
+            }
+        }
+    } catch (\Throwable) {}
+
+    // session fallbacks
+    if (!$accountId) {
+        foreach ([
+            'cliente.account_id',
+            'client.account_id',
+            'account_id',
+            'accountId',
+            'cliente.cuenta_id',
+            'client.cuenta_id',
+            'cuenta_id',
+        ] as $k) {
+            try {
+                $cand = session($k);
+                if (is_numeric($cand) && (int)$cand > 0) {
+                    $accountId = (int) $cand;
+                    $resolver = 'session:' . $k;
                     break;
                 }
             } catch (\Throwable) {}
         }
+    }
 
-        // 1B) Desde sesión
-        if (!$accountId) {
-            foreach (['account_id', 'cuenta_id', 'cliente.account_id', 'cliente.cuenta_id'] as $k) {
-                try {
-                    $v = session($k);
-                    if (is_scalar($v) && trim((string) $v) !== '' && ctype_digit((string) $v)) {
-                        $accountId = (int) $v;
-                        break;
-                    }
-                } catch (\Throwable) {}
+    // query param (debug/admin)
+    if (!$accountId) {
+        try {
+            $cand = $request->query('account_id', null);
+            if (is_numeric($cand) && (int)$cand > 0) {
+                $accountId = (int) $cand;
+                $resolver = 'query.account_id';
             }
-        }
+        } catch (\Throwable) {}
+    }
 
-        // 1C) Resolver por RFC (si el user lo trae)
-        if (!$accountId) {
-            $rfcCandidate = '';
-            foreach (['rfc', 'RFC'] as $k) {
-                try {
-                    $v = $u?->{$k} ?? null;
-                    if (is_scalar($v) && trim((string) $v) !== '') {
-                        $rfcCandidate = strtoupper(trim((string) $v));
-                        break;
-                    }
-                } catch (\Throwable) {}
+    // email -> accounts.correo_contacto
+    if (!$accountId) {
+        try {
+            if (!$email) {
+                $u = $request->user();
+                if ($u) { $email = (string) ($u->email ?? ''); }
             }
 
-            if ($rfcCandidate !== '') {
-                try {
-                    $aid = \DB::connection($conn)->table('accounts')->where('rfc', $rfcCandidate)->value('id');
-                    if ($aid && ctype_digit((string) $aid)) $accountId = (int) $aid;
-                } catch (\Throwable) {}
-            }
-        }
-
-        // 1D) Resolver por correo del user (correo_contacto)
-        if (!$accountId) {
-            $email = '';
-            try {
-                $email = strtolower(trim((string) ($u?->email ?? '')));
-            } catch (\Throwable) { $email = ''; }
+            $email = trim((string) $email);
 
             if ($email !== '') {
-                try {
-                    $aid = \DB::connection($conn)->table('accounts')->where('correo_contacto', $email)->value('id');
-                    if ($aid && ctype_digit((string) $aid)) $accountId = (int) $aid;
-                } catch (\Throwable) {}
+                $found = \DB::connection($conn)
+                    ->table('accounts')
+                    ->where('correo_contacto', $email)
+                    ->value('id');
+
+                if (is_numeric($found) && (int)$found > 0) {
+                    $accountId = (int) $found;
+                    $resolver = 'accounts.correo_contacto';
+                }
             }
-        }
-
-        // Si aún no, devolvemos 422 (pero con mensaje claro)
-        if (!$accountId) {
-            try {
-                \Log::warning('externalZipList_no_account_id', [
-                    'user_id'   => $u?->id ?? null,
-                    'user_email'=> $u?->email ?? null,
-                    'session'   => [
-                        'account_id' => session('account_id'),
-                        'cuenta_id'  => session('cuenta_id'),
-                    ],
-                ]);
-            } catch (\Throwable) {}
-
-            return response()->json([
-                'ok'   => false,
-                'msg'  => 'No se pudo resolver tu cuenta cliente. Cierra sesión e inicia de nuevo o contacta soporte.',
-                'data' => [
-                    'ok'    => false,
-                    'rows'  => [],
-                    'count' => 0,
-                ],
-            ], 422);
-        }
-
-        // -----------------------------
-        // 2) Consultar tabla external_fiel_uploads por account_id
-        // -----------------------------
-        try {
-            $schema = \Schema::connection($conn);
-            if (!$schema->hasTable($table)) {
-                return response()->json([
-                    'ok'   => false,
-                    'msg'  => 'No existe la tabla external_fiel_uploads.',
-                    'data' => ['ok' => false, 'rows' => [], 'count' => 0],
-                ], 500);
-            }
-
-            $q = \DB::connection($conn)->table($table)->where('account_id', (int) $accountId);
-
-            if ($status !== '' && $schema->hasColumn($table, 'status')) {
-                $q->where('status', $status);
-            }
-
-            // Orden defensivo
-            if ($schema->hasColumn($table, 'uploaded_at')) {
-                $q->orderByDesc('uploaded_at');
-            } else {
-                $q->orderByDesc('id');
-            }
-
-            $rows = $q->limit($limit)->get();
-
-            // Count real (sin limit)
-            $qc = \DB::connection($conn)->table($table)->where('account_id', (int) $accountId);
-            if ($status !== '' && $schema->hasColumn($table, 'status')) {
-                $qc->where('status', $status);
-            }
-            $count = (int) $qc->count();
-
-            $ms = (int) round((microtime(true) - $t0) * 1000);
-
-            try {
-                \Log::info('externalZipList_ok', [
-                    'account_id' => (int) $accountId,
-                    'limit'      => $limit,
-                    'status'     => $status,
-                    'count'      => $count,
-                    'rows_len'   => is_countable($rows) ? count($rows) : null,
-                    'ms'         => $ms,
-                ]);
-            } catch (\Throwable) {}
-
-            // ✅ Respuesta compatible con el front actual
-            $payload = [
-                'ok'    => true,
-                'rows'  => $rows,
-                'data'  => [
-                    'rows'  => $rows,
-                    'count' => $count,
-                ],
-                'count' => $count,
-            ];
-
-            return response()->json(['ok' => true, 'status' => 200, 'data' => $payload], 200);
-
-        } catch (\Throwable $e) {
-            try {
-                \Log::error('externalZipList_failed', [
-                    'account_id' => (int) $accountId,
-                    'error'      => $e->getMessage(),
-                ]);
-            } catch (\Throwable) {}
-
-            return response()->json([
-                'ok'   => false,
-                'msg'  => 'Error al listar ZIP externos.',
-                'data' => ['ok' => false, 'rows' => [], 'count' => 0],
-            ], 500);
-        }
+        } catch (\Throwable) {}
     }
+
+    // Si no se pudo resolver, NO regreses ok:true con rows vacías (eso confunde)
+    if (!$accountId) {
+        \Log::warning('external_zip_list_no_account', [
+            'resolver' => $resolver,
+            'email'    => $email,
+            'ip'       => $request->ip(),
+            'ua'       => (string) $request->userAgent(),
+        ]);
+
+        return response()->json([
+            'ok'    => false,
+            'msg'   => 'No se pudo resolver tu cuenta cliente. Cierra sesión e inicia de nuevo o contacta soporte.',
+            'rows'  => [],
+            'count' => 0,
+        ], 422);
+    }
+
+    // -----------------------------
+    // 2) Leer filas
+    // -----------------------------
+    $limit  = (int) $request->query('limit', 50);
+    $offset = (int) $request->query('offset', 0);
+    $status = trim((string) $request->query('status', ''));
+    $q      = trim((string) $request->query('q', ''));
+
+    $limit  = ($limit < 1) ? 50 : (($limit > 200) ? 200 : $limit);
+    $offset = ($offset < 0) ? 0 : $offset;
+
+    try {
+        $schema = \Schema::connection($conn);
+        if (!$schema->hasTable($table)) {
+            return response()->json(['ok' => false, 'msg' => 'No existe la tabla external_fiel_uploads.', 'rows' => [], 'count' => 0], 500);
+        }
+
+        $qq = \DB::connection($conn)->table($table)->where('account_id', $accountId);
+
+        if ($status !== '') {
+            $qq->where('status', $status);
+        }
+
+        if ($q !== '') {
+            $qq->where(function ($w) use ($q) {
+                $w->where('rfc', 'like', '%' . $q . '%')
+                  ->orWhere('file_name', 'like', '%' . $q . '%')
+                  ->orWhere('reference', 'like', '%' . $q . '%')
+                  ->orWhere('email_externo', 'like', '%' . $q . '%');
+            });
+        }
+
+        $count = (int) (clone $qq)->count();
+
+        $rows = $qq
+            ->orderByDesc('id')
+            ->offset($offset)
+            ->limit($limit)
+            ->get([
+                'id',
+                'account_id',
+                'email_externo',
+                'reference',
+                'rfc',
+                'razon_social',
+                'file_path',
+                'file_name',
+                'file_size',
+                'mime',
+                'uploaded_at',
+                'status',
+                'created_at',
+            ])
+            ->map(function ($r) {
+                // Normalizar a array simple para el front
+                return [
+                    'id'           => (int) ($r->id ?? 0),
+                    'account_id'   => (int) ($r->account_id ?? 0),
+                    'email_externo'=> $r->email_externo ?? null,
+                    'reference'    => $r->reference ?? null,
+                    'rfc'          => $r->rfc ?? null,
+                    'razon_social' => $r->razon_social ?? null,
+                    'file_path'    => $r->file_path ?? null,
+                    'file_name'    => $r->file_name ?? null,
+                    'file_size'    => isset($r->file_size) ? (int) $r->file_size : null,
+                    'mime'         => $r->mime ?? null,
+                    'uploaded_at'  => $r->uploaded_at ? (string) $r->uploaded_at : null,
+                    'status'       => $r->status ?? null,
+                    'created_at'   => $r->created_at ? (string) $r->created_at : null,
+                ];
+            })
+            ->values()
+            ->all();
+
+        \Log::info('external_zip_list_ok', [
+            'account_id' => $accountId,
+            'resolver'   => $resolver,
+            'email'      => $email,
+            'count'      => $count,
+            'rows'       => count($rows),
+            'ms'         => (int) round((microtime(true) - $t0) * 1000),
+        ]);
+
+        // ✅ Respuesta plana (sin nested data)
+        return response()->json([
+            'ok'    => true,
+            'rows'  => $rows,
+            'count' => $count,
+        ], 200);
+
+    } catch (\Throwable $e) {
+        \Log::error('external_zip_list_failed', [
+            'account_id' => $accountId,
+            'resolver'   => $resolver,
+            'email'      => $email,
+            'error'      => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'ok'    => false,
+            'msg'   => 'Error al listar ZIPs externos.',
+            'rows'  => [],
+            'count' => 0,
+        ], 500);
+    }
+}
 
 
     public function externalRegister(Request $request)
