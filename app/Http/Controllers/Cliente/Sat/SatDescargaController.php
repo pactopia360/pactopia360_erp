@@ -5613,17 +5613,15 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
     // LISTADO FIEL/ZIP EXTERNO (AUTH)
     // Tabla: mysql_clientes.external_fiel_uploads
     //
-    // Objetivo:
-    // - Resolver account_id del cliente logueado
-    // - Consultar en DB correcta (forzar DB.TABLE)
-    // - Respuesta PLANA: { ok:true, rows:[], count:N }
+    // Problema real en PROD:
+    // - external_fiel_uploads.account_id quedó "legacy" (ej. 18)
+    // - sesión resuelve otro account_id (ej. 21)
+    // - sat_rfcs NO existe
     //
-    // FIX (PROD):
-    // - Hay casos donde external_fiel_uploads.account_id quedó “legacy”
-    //   (p.ej. 18) pero el cliente actual resuelve (p.ej. 21).
-    // - Primero filtramos por account_id (normal).
-    // - Si NO hay resultados, hacemos fallback seguro por RFCs de la cuenta
-    //   (sat_rfcs.account_id = accountId actual) => external_fiel_uploads.rfc IN (...)
+    // Solución segura:
+    // 1) Scope primario: account_id (y variantes de sesión/user)
+    // 2) Si count=0: fallback por RFCs del account actual obtenidos desde
+    //    sat_credentials (y si no hay, fallback a companies).
     // =========================================================
 
     $t0 = microtime(true);
@@ -5718,30 +5716,19 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
 
         $accountIds = array_values(array_unique(array_filter($accountIds, fn($v) => is_int($v) && $v > 0)));
 
-        // Log de scope (para auditar)
         try {
             \Log::info('external_zip_list_scope', [
                 'resolved_account_id' => (int) $accountId,
                 'account_ids' => $accountIds,
-                'session_account_id' => session('account_id'),
-                'session_cuenta_id'  => session('cuenta_id'),
-                'user_id' => optional($request->user())->id ?? null,
-                'user_email' => optional($request->user())->email ?? null,
                 'cfg_db' => $cfgDb,
                 'runtime_db' => $runtimeDb,
                 'table_fq' => $tableFq,
             ]);
         } catch (\Throwable) {}
 
-        // Base query
         $base = \DB::connection($conn)->table($tableFq);
 
-        // IMPORTANTE:
-        // NO filtrar por RFC del account logueado (primario),
-        // porque ZIP externos pueden venir de otros RFC.
-        // Pero si count=0, sí haremos fallback seguro por RFCs de la cuenta.
         $qb = (clone $base);
-
         if (!empty($accountIds)) {
             $qb->whereIn('account_id', $accountIds);
         } else {
@@ -5756,39 +5743,74 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
             $qb->where(function ($w) use ($q) {
                 $like = "%{$q}%";
                 $w->where('rfc', 'like', $like)
-                    ->orWhere('file_name', 'like', $like)
-                    ->orWhere('reference', 'like', $like)
-                    ->orWhere('email_externo', 'like', $like)
-                    ->orWhere('razon_social', 'like', $like);
+                  ->orWhere('file_name', 'like', $like)
+                  ->orWhere('reference', 'like', $like)
+                  ->orWhere('email_externo', 'like', $like)
+                  ->orWhere('razon_social', 'like', $like);
             });
         }
 
         $count = (int) (clone $qb)->count();
 
         // --------------------------------------------------
-        // 2.2) Fallback seguro: si no hay rows por account_id,
-        //      intentar por RFCs asociados a la cuenta (sat_rfcs)
+        // 2.2) Fallback seguro por RFCs del account actual
+        // Fuente principal: sat_credentials (existe en tu BD)
+        // Fuente secundaria: companies
         // --------------------------------------------------
         $usedFallbackByRfc = false;
+        $fallbackSource = null;
 
         if ($count === 0) {
             $rfcs = [];
 
+            // 1) sat_credentials
             try {
-                if (\Schema::connection($conn)->hasTable('sat_rfcs')) {
-                    // Nota: si tu tabla tiene otra columna distinta, ajustamos después,
-                    // pero normalmente es account_id + rfc.
-                    $rfcs = \DB::connection($conn)->table('sat_rfcs')
+                if (\Schema::connection($conn)->hasTable('sat_credentials')
+                    && \Schema::connection($conn)->hasColumn('sat_credentials', 'account_id')
+                    && \Schema::connection($conn)->hasColumn('sat_credentials', 'rfc')
+                ) {
+                    $rfcs = \DB::connection($conn)->table('sat_credentials')
                         ->where('account_id', (int) $accountId)
                         ->whereNotNull('rfc')
                         ->pluck('rfc')
                         ->map(fn($v) => strtoupper(trim((string)$v)))
                         ->filter(fn($v) => $v !== '')
+                        ->unique()
                         ->values()
                         ->all();
+
+                    if (!empty($rfcs)) {
+                        $fallbackSource = 'sat_credentials';
+                    }
                 }
             } catch (\Throwable) {
                 $rfcs = [];
+            }
+
+            // 2) companies (fallback)
+            if (empty($rfcs)) {
+                try {
+                    if (\Schema::connection($conn)->hasTable('companies')
+                        && \Schema::connection($conn)->hasColumn('companies', 'account_id')
+                        && \Schema::connection($conn)->hasColumn('companies', 'rfc')
+                    ) {
+                        $rfcs = \DB::connection($conn)->table('companies')
+                            ->where('account_id', (int) $accountId)
+                            ->whereNotNull('rfc')
+                            ->pluck('rfc')
+                            ->map(fn($v) => strtoupper(trim((string)$v)))
+                            ->filter(fn($v) => $v !== '')
+                            ->unique()
+                            ->values()
+                            ->all();
+
+                        if (!empty($rfcs)) {
+                            $fallbackSource = 'companies';
+                        }
+                    }
+                } catch (\Throwable) {
+                    $rfcs = [];
+                }
             }
 
             if (!empty($rfcs)) {
@@ -5819,22 +5841,25 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
                     try {
                         \Log::warning('external_zip_list_fallback_rfc_used', [
                             'account_id' => (int) $accountId,
+                            'source' => $fallbackSource,
                             'rfcs_count' => count($rfcs),
+                            'count' => $count2,
                         ]);
                     } catch (\Throwable) {}
                 } else {
                     try {
                         \Log::info('external_zip_list_fallback_rfc_empty', [
                             'account_id' => (int) $accountId,
+                            'source' => $fallbackSource,
                             'rfcs_count' => count($rfcs),
                         ]);
                     } catch (\Throwable) {}
                 }
             } else {
                 try {
-                    \Log::info('external_zip_list_fallback_rfc_no_sat_rfcs', [
+                    \Log::warning('external_zip_list_fallback_rfc_no_rfcs', [
                         'account_id' => (int) $accountId,
-                        'has_sat_rfcs' => \Schema::connection($conn)->hasTable('sat_rfcs'),
+                        'tried' => ['sat_credentials','companies'],
                     ]);
                 } catch (\Throwable) {}
             }
@@ -5879,6 +5904,7 @@ public function externalZipList(Request $request): \Illuminate\Http\JsonResponse
                 'runtime_db' => $runtimeDb,
                 'table_fq'   => $tableFq,
                 'fallback_rfc' => $usedFallbackByRfc ? 1 : 0,
+                'fallback_source' => $fallbackSource,
             ]);
         } catch (\Throwable) {}
 
