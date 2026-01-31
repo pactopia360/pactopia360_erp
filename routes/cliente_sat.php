@@ -21,6 +21,7 @@ use App\Http\Controllers\Cliente\Sat\SatZipController;
 use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
 use App\Http\Controllers\Cliente\Sat\FielExternalController;
 
+
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
 /**
@@ -304,6 +305,9 @@ Route::middleware(['auth:web', 'account.active'])
                 // GET legacy (evita 405 cuando abren /fiel/external/invite en navegador)
                 // ✅ Redirect a la pantalla real /sat/external/invite
                 Route::redirect('/invite', '/cliente/sat/external/invite', 302)->name('invite.get');
+
+                Route::get('/cliente/sat/fiel/external/password/{id}', [FielExternalController::class, 'password'])
+                    ->name('cliente.sat.fiel.external.password');
 
             });
 

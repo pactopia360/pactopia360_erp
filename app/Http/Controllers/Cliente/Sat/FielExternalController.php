@@ -421,7 +421,9 @@ class FielExternalController extends Controller
 
             $q->orderByDesc('id')->limit($limit);
 
-            $rows = $q->get()->map(function ($r) use ($hasFileName, $hasFileSize, $hasStatus, $hasFilePath, $hasUploadedAt, $hasFielPassword) {
+            $hasFielPasswordCol = $schema->hasColumn($this->table, 'fiel_password');
+
+            $rows = $q->get()->map(function ($r) use ($hasFileName, $hasFileSize, $hasStatus, $hasFilePath, $hasUploadedAt, $hasFielPasswordCol) {
                 $rfc  = isset($r->rfc) ? (string) $r->rfc : '';
                 $name = isset($r->razon_social) ? (string) $r->razon_social : '';
                 $ref  = isset($r->reference) ? (string) $r->reference : '';
@@ -430,7 +432,7 @@ class FielExternalController extends Controller
                 $fileName = ($hasFileName && !empty($r->file_name)) ? (string) $r->file_name : '—';
                 $fileSize = ($hasFileSize && isset($r->file_size)) ? (int) $r->file_size : 0;
 
-                // Estado
+                // Estado: si hay status úsalo; si no, infiere si hay file_path o uploaded_at
                 $status = '—';
                 if ($hasStatus && !empty($r->status)) {
                     $status = (string) $r->status;
@@ -441,31 +443,33 @@ class FielExternalController extends Controller
                     $status = $hasUploadSignal ? 'uploaded' : 'invited';
                 }
 
-                // ✅ password flags (sin exponer cifrado)
+                // ✅ NUEVO: señal de password
                 $hasPass = false;
-                if ($hasFielPassword) {
+                if ($hasFielPasswordCol) {
                     try {
-                        $hasPass = isset($r->fiel_password) && trim((string)$r->fiel_password) !== '';
+                        $v = (string)($r->fiel_password ?? '');
+                        $hasPass = trim($v) !== '';
                     } catch (\Throwable) {
                         $hasPass = false;
                     }
                 }
 
                 return [
-                    'id'            => $r->id ?? null,
-                    'rfc'           => $rfc,
-                    'razon_social'  => $name,
-                    'reference'     => $ref,
-                    'email'         => $mail,
-                    'file_name'     => $fileName,
-                    'file_size'     => $fileSize,
-                    'status'        => $status,
-                    'created_at'    => $r->created_at ?? null,
+                    'id'           => $r->id ?? null,
+                    'rfc'          => $rfc,
+                    'razon_social' => $name,
+                    'reference'    => $ref,
+                    'email'        => $mail,
+                    'file_name'    => $fileName,
+                    'file_size'    => $fileSize,
+                    'status'       => $status,
+                    'created_at'   => $r->created_at ?? null,
 
-                    // claves que tu JS ya soporta:
+                    // 👇 NUEVO
                     'has_password'  => $hasPass,
-                    'password_mask' => $hasPass ? $this->passwordMask() : '—',
+                    'password_mask' => $hasPass ? '••••••••' : '—',
                 ];
+
             })->values()->all();
 
             return response()->json([
@@ -823,6 +827,49 @@ class FielExternalController extends Controller
             'msg' => 'Eliminado.',
         ], 200);
     }
+
+    // ======================================================
+    // REVELAR CONTRASEÑA (CLIENTE AUTH) — GET
+    // route name: cliente.sat.fiel.external.password
+    // ======================================================
+    public function password(Request $request, int $id): \Illuminate\Http\JsonResponse
+    {
+        $accountId = $this->accountId($request);
+        if ($accountId <= 0) {
+            return response()->json(['ok' => false, 'msg' => 'No autorizado.'], 403);
+        }
+
+        $conn = $this->resolveConnForTable($this->table);
+
+        if (!$this->hasCol($conn, $this->table, 'fiel_password')) {
+            return response()->json(['ok' => false, 'msg' => 'Columna fiel_password no existe.'], 422);
+        }
+
+        $row = DB::connection($conn)->table($this->table)
+            ->where('id', $id)
+            ->where('account_id', $accountId)
+            ->first();
+
+        if (!$row) {
+            return response()->json(['ok' => false, 'msg' => 'Registro no encontrado.'], 404);
+        }
+
+        $enc = '';
+        try { $enc = (string)($row->fiel_password ?? ''); } catch (\Throwable) { $enc = ''; }
+
+        if (trim($enc) === '') {
+            return response()->json(['ok' => true, 'password' => null], 200);
+        }
+
+        try {
+            $plain = Crypt::decryptString($enc);
+            return response()->json(['ok' => true, 'password' => $plain], 200);
+        } catch (\Throwable $e) {
+            Log::warning('[FIEL-EXTERNAL] password decrypt failed', ['id' => $id, 'err' => $e->getMessage()]);
+            return response()->json(['ok' => false, 'msg' => 'No se pudo descifrar la contraseña.'], 500);
+        }
+    }
+
 
     // ======================================================
     // DESCARGA (ADMIN / INTERNO) — SE MANTIENE
