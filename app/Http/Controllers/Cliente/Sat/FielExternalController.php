@@ -153,6 +153,28 @@ class FielExternalController extends Controller
         return null;
     }
 
+    /**
+     * Helpers password
+     */
+    private function passwordMask(): string
+    {
+        return '••••••••';
+    }
+
+    private function rowHasPassword(object $row, bool $hasPasswordCol): bool
+    {
+        if (!$hasPasswordCol) return false;
+
+        try {
+            $v = $row->fiel_password ?? null;
+            if ($v === null) return false;
+            $s = trim((string)$v);
+            return $s !== '';
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     // ======================================================
     // INVITAR (CLIENTE AUTENTICADO)
     // ======================================================
@@ -309,153 +331,229 @@ class FielExternalController extends Controller
 
     // ======================================================
     // LISTAR REGISTROS (CLIENTE AUTH) — PARA TABLA DEL DASHBOARD
-    // ✅ Compatible con tabla REAL external_fiel_uploads (con o sin columnas de archivo)
+    // ✅ ahora incluye: has_password + password_mask (sin exponer el cifrado)
     // ======================================================
-    public function list(Request $request): \Illuminate\Http\JsonResponse
-{
-    try {
-        $limit = (int) $request->query('limit', 50);
-        if ($limit <= 0) $limit = 50;
-        if ($limit > 200) $limit = 200;
+    public function list(Request $request): JsonResponse
+    {
+        try {
+            $limit = (int) $request->query('limit', 50);
+            if ($limit <= 0) $limit = 50;
+            if ($limit > 200) $limit = 200;
 
-        $accountId = $this->accountId($request);
-        if ($accountId <= 0) {
+            $accountId = $this->accountId($request);
+            if ($accountId <= 0) {
+                return response()->json([
+                    'ok'   => false,
+                    'rows' => [],
+                    'msg'  => 'Cuenta no encontrada.',
+                ], 422);
+            }
+
+            $conn = $this->resolveConnForTable($this->table);
+            $schema = Schema::connection($conn);
+
+            if (!$schema->hasTable($this->table)) {
+                return response()->json([
+                    'ok'   => true,
+                    'rows' => [],
+                    'msg'  => "Tabla {$this->table} no existe en {$conn}.",
+                ], 200);
+            }
+
+            // Columnas reales y opcionales
+            $hasCuentaId   = $schema->hasColumn($this->table, 'cuenta_id');   // UUID
+            $hasAccountId  = $schema->hasColumn($this->table, 'account_id');  // INT
+            $hasCreatedAt  = $schema->hasColumn($this->table, 'created_at');
+            $hasUpdatedAt  = $schema->hasColumn($this->table, 'updated_at');
+
+            $hasFilePath   = $schema->hasColumn($this->table, 'file_path');
+            $hasFileName   = $schema->hasColumn($this->table, 'file_name');
+            $hasFileSize   = $schema->hasColumn($this->table, 'file_size');
+            $hasStatus     = $schema->hasColumn($this->table, 'status');
+            $hasUploadedAt = $schema->hasColumn($this->table, 'uploaded_at');
+
+            // ✅ Password cifrada (opcional)
+            $hasFielPassword = $schema->hasColumn($this->table, 'fiel_password');
+
+            // Select mínimo seguro (solo columnas que existan)
+            $select = ['id'];
+
+            if ($hasCuentaId)  $select[] = 'cuenta_id';
+            if ($hasAccountId) $select[] = 'account_id';
+
+            if ($schema->hasColumn($this->table, 'rfc'))           $select[] = 'rfc';
+            if ($schema->hasColumn($this->table, 'razon_social'))  $select[] = 'razon_social';
+            if ($schema->hasColumn($this->table, 'reference'))     $select[] = 'reference';
+            if ($schema->hasColumn($this->table, 'email_externo')) $select[] = 'email_externo';
+            if ($schema->hasColumn($this->table, 'token'))         $select[] = 'token';
+
+            if ($hasFilePath)   $select[] = 'file_path';
+            if ($hasFileName)   $select[] = 'file_name';
+            if ($hasFileSize)   $select[] = 'file_size';
+            if ($hasStatus)     $select[] = 'status';
+            if ($hasUploadedAt) $select[] = 'uploaded_at';
+
+            if ($hasFielPassword) $select[] = 'fiel_password';
+
+            if ($hasCreatedAt)  $select[] = 'created_at';
+            if ($hasUpdatedAt)  $select[] = 'updated_at';
+
+            $q = DB::connection($conn)
+                ->table($this->table)
+                ->select($select);
+
+            // ✅ FILTRO correcto por account_id (INT)
+            if ($hasAccountId) {
+                $q->where('account_id', (int) $accountId);
+            } elseif ($hasCuentaId) {
+                $q->where('cuenta_id', (string) $accountId);
+            } else {
+                return response()->json([
+                    'ok'   => false,
+                    'rows' => [],
+                    'msg'  => "La tabla {$this->table} no tiene cuenta_id ni account_id para filtrar.",
+                ], 500);
+            }
+
+            if ($hasStatus) {
+                $q->orderByRaw("CASE WHEN status='uploaded' THEN 0 WHEN status='invited' THEN 1 ELSE 2 END");
+            }
+
+            $q->orderByDesc('id')->limit($limit);
+
+            $rows = $q->get()->map(function ($r) use ($hasFileName, $hasFileSize, $hasStatus, $hasFilePath, $hasUploadedAt, $hasFielPassword) {
+                $rfc  = isset($r->rfc) ? (string) $r->rfc : '';
+                $name = isset($r->razon_social) ? (string) $r->razon_social : '';
+                $ref  = isset($r->reference) ? (string) $r->reference : '';
+                $mail = isset($r->email_externo) ? (string) $r->email_externo : '';
+
+                $fileName = ($hasFileName && !empty($r->file_name)) ? (string) $r->file_name : '—';
+                $fileSize = ($hasFileSize && isset($r->file_size)) ? (int) $r->file_size : 0;
+
+                // Estado
+                $status = '—';
+                if ($hasStatus && !empty($r->status)) {
+                    $status = (string) $r->status;
+                } else {
+                    $hasUploadSignal =
+                        ($hasFilePath && !empty($r->file_path)) ||
+                        ($hasUploadedAt && !empty($r->uploaded_at));
+                    $status = $hasUploadSignal ? 'uploaded' : 'invited';
+                }
+
+                // ✅ password flags (sin exponer cifrado)
+                $hasPass = false;
+                if ($hasFielPassword) {
+                    try {
+                        $hasPass = isset($r->fiel_password) && trim((string)$r->fiel_password) !== '';
+                    } catch (\Throwable) {
+                        $hasPass = false;
+                    }
+                }
+
+                return [
+                    'id'            => $r->id ?? null,
+                    'rfc'           => $rfc,
+                    'razon_social'  => $name,
+                    'reference'     => $ref,
+                    'email'         => $mail,
+                    'file_name'     => $fileName,
+                    'file_size'     => $fileSize,
+                    'status'        => $status,
+                    'created_at'    => $r->created_at ?? null,
+
+                    // claves que tu JS ya soporta:
+                    'has_password'  => $hasPass,
+                    'password_mask' => $hasPass ? $this->passwordMask() : '—',
+                ];
+            })->values()->all();
+
+            return response()->json([
+                'ok'    => true,
+                'rows'  => $rows,
+                'count' => count($rows),
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Log::error('[FIEL-EXTERNAL] list() error', [
+                'err'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             return response()->json([
                 'ok'   => false,
                 'rows' => [],
-                'msg'  => 'Cuenta no encontrada.',
-            ], 422);
+                'msg'  => 'Error al cargar registros externos.',
+            ], 500);
+        }
+    }
+
+    // ======================================================
+    // REVELAR PASSWORD (CLIENTE AUTH) — PARA BOTÓN 👁
+    // GET /cliente/sat/fiel/external/password/{id}
+    // Return: { ok:true, password:"..." }
+    // ======================================================
+    public function revealPassword(Request $request, int $id): JsonResponse
+    {
+        $accountId = $this->accountId($request);
+        if ($accountId <= 0) {
+            return response()->json(['ok' => false, 'msg' => 'No autorizado.'], 403);
         }
 
         $conn = $this->resolveConnForTable($this->table);
 
-        $schema = \Illuminate\Support\Facades\Schema::connection($conn);
-
-        if (!$schema->hasTable($this->table)) {
+        if (!$this->hasCol($conn, $this->table, 'fiel_password')) {
             return response()->json([
-                'ok'   => true,
-                'rows' => [],
-                'msg'  => "Tabla {$this->table} no existe en {$conn}.",
-            ], 200);
+                'ok'  => false,
+                'msg' => 'La columna fiel_password no existe en la tabla.',
+            ], 501);
         }
 
-        // Columnas reales y opcionales
-        $hasCuentaId   = $schema->hasColumn($this->table, 'cuenta_id');   // UUID en tu tabla
-        $hasAccountId  = $schema->hasColumn($this->table, 'account_id');  // INT en tu tabla (15)
-        $hasCreatedAt  = $schema->hasColumn($this->table, 'created_at');
-        $hasUpdatedAt  = $schema->hasColumn($this->table, 'updated_at');
+        $row = DB::connection($conn)->table($this->table)
+            ->where('id', $id)
+            ->where('account_id', $accountId)
+            ->first();
 
-        // Opcionales (si existen en otro ambiente/migración)
-        $hasFilePath   = $schema->hasColumn($this->table, 'file_path');
-        $hasFileName   = $schema->hasColumn($this->table, 'file_name');
-        $hasFileSize   = $schema->hasColumn($this->table, 'file_size');
-        $hasStatus     = $schema->hasColumn($this->table, 'status');
-        $hasUploadedAt = $schema->hasColumn($this->table, 'uploaded_at');
+        if (!$row) {
+            return response()->json(['ok' => false, 'msg' => 'Registro no encontrado.'], 404);
+        }
 
-        // Select mínimo seguro (solo columnas que existan)
-        $select = ['id'];
+        $enc = '';
+        try { $enc = (string)($row->fiel_password ?? ''); } catch (\Throwable) { $enc = ''; }
+        $enc = trim($enc);
 
-        if ($hasCuentaId)  $select[] = 'cuenta_id';
-        if ($hasAccountId) $select[] = 'account_id';
+        if ($enc === '') {
+            return response()->json(['ok' => false, 'msg' => 'No hay contraseña guardada.'], 200);
+        }
 
-        // Estas SÍ existen en tu screenshot
-        if ($schema->hasColumn($this->table, 'rfc'))           $select[] = 'rfc';
-        if ($schema->hasColumn($this->table, 'razon_social'))  $select[] = 'razon_social';
-        if ($schema->hasColumn($this->table, 'reference'))     $select[] = 'reference';
-        if ($schema->hasColumn($this->table, 'email_externo')) $select[] = 'email_externo';
-        if ($schema->hasColumn($this->table, 'token'))         $select[] = 'token';
+        try {
+            $plain = Crypt::decryptString($enc);
 
-        // Opcionales
-        if ($hasFilePath)   $select[] = 'file_path';
-        if ($hasFileName)   $select[] = 'file_name';
-        if ($hasFileSize)   $select[] = 'file_size';
-        if ($hasStatus)     $select[] = 'status';
-        if ($hasUploadedAt) $select[] = 'uploaded_at';
+            // log muy ligero (sin password)
+            Log::info('[FIEL-EXTERNAL] revealPassword', [
+                'id'         => $id,
+                'account_id' => $accountId,
+            ]);
 
-        if ($hasCreatedAt)  $select[] = 'created_at';
-        if ($hasUpdatedAt)  $select[] = 'updated_at';
-
-        $q = \Illuminate\Support\Facades\DB::connection($conn)
-            ->table($this->table)
-            ->select($select);
-
-        // ==========================================================
-        // ✅ FIX URGENTE:
-        // Tu sesión usa INT (15) y tu tabla guarda account_id=15.
-        // cuenta_id es UUID, así que NO debemos filtrar por cuenta_id.
-        // ==========================================================
-        if ($hasAccountId) {
-            $q->where('account_id', (int) $accountId);
-        } elseif ($hasCuentaId) {
-            // Fallback solo si NO existe account_id
-            $q->where('cuenta_id', (string) $accountId);
-        } else {
             return response()->json([
-                'ok'   => false,
-                'rows' => [],
-                'msg'  => "La tabla {$this->table} no tiene cuenta_id ni account_id para filtrar.",
+                'ok'       => true,
+                'password' => $plain,
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Log::warning('[FIEL-EXTERNAL] revealPassword decrypt failed', [
+                'id'         => $id,
+                'account_id' => $accountId,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'ok'  => false,
+                'msg' => 'No se pudo descifrar la contraseña.',
             ], 500);
         }
-
-        // ✅ NO filtrar por file_path (tu tabla actual no lo tiene)
-        if ($hasStatus) {
-            $q->orderByRaw("CASE WHEN status='uploaded' THEN 0 WHEN status='invited' THEN 1 ELSE 2 END");
-        }
-
-        $q->orderByDesc('id')->limit($limit);
-
-        $rows = $q->get()->map(function ($r) use ($hasFileName, $hasFileSize, $hasStatus, $hasFilePath, $hasUploadedAt) {
-            $rfc  = isset($r->rfc) ? (string) $r->rfc : '';
-            $name = isset($r->razon_social) ? (string) $r->razon_social : '';
-            $ref  = isset($r->reference) ? (string) $r->reference : '';
-            $mail = isset($r->email_externo) ? (string) $r->email_externo : '';
-
-            $fileName = ($hasFileName && !empty($r->file_name)) ? (string) $r->file_name : '—';
-            $fileSize = ($hasFileSize && isset($r->file_size)) ? (int) $r->file_size : 0;
-
-            // Estado: si hay status úsalo; si no, infiere si hay file_path o uploaded_at
-            $status = '—';
-            if ($hasStatus && !empty($r->status)) {
-                $status = (string) $r->status;
-            } else {
-                $hasUploadSignal =
-                    ($hasFilePath && !empty($r->file_path)) ||
-                    ($hasUploadedAt && !empty($r->uploaded_at));
-                $status = $hasUploadSignal ? 'uploaded' : 'invited';
-            }
-
-            return [
-                'id'           => $r->id ?? null,
-                'rfc'          => $rfc,
-                'razon_social' => $name,
-                'reference'    => $ref,
-                'email'        => $mail,
-                'file_name'    => $fileName,
-                'file_size'    => $fileSize,
-                'status'       => $status,
-                'created_at'   => $r->created_at ?? null,
-            ];
-        })->values()->all();
-
-        return response()->json([
-            'ok'   => true,
-            'rows' => $rows,
-        ], 200);
-
-    } catch (\Throwable $e) {
-        \Illuminate\Support\Facades\Log::error('[FIEL-EXTERNAL] list() error', [
-            'err'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return response()->json([
-            'ok'   => false,
-            'rows' => [],
-            'msg'  => 'Error al cargar registros externos.',
-        ], 500);
     }
-}
 
     // ======================================================
     // DESCARGAR ZIP (CLIENTE AUTH)
@@ -464,9 +562,7 @@ class FielExternalController extends Controller
     {
         $req = request();
 
-        // ======================================================
         // 0) Resolver cuenta
-        // ======================================================
         $accountId = (int) $this->accountId($req);
         if ($accountId <= 0) abort(403);
 
@@ -476,10 +572,7 @@ class FielExternalController extends Controller
         $pathCol = $this->detectPathColumn($conn, $table) ?? 'file_path';
         $nameCol = $this->detectNameColumn($conn, $table) ?? 'file_name';
 
-        // ======================================================
         // 1) RFCs permitidos para el account actual (whitelist)
-        //    Fuente: sat_credentials (preferido) -> companies (fallback)
-        // ======================================================
         $allowedRfcs = [];
         try {
             if (Schema::connection($conn)->hasTable('sat_credentials')
@@ -521,16 +614,13 @@ class FielExternalController extends Controller
             $allowedRfcs = [];
         }
 
-        // ======================================================
         // 2) Buscar por (id + account_id). Si no, fallback por RFC permitido
-        // ======================================================
         $row = DB::connection($conn)->table($table)
             ->where('id', $id)
             ->where('account_id', $accountId)
             ->first();
 
         if (!$row) {
-            // Fallback: buscar solo por id y validar RFC contra whitelist del account actual
             $rowAny = DB::connection($conn)->table($table)
                 ->where('id', $id)
                 ->first();
@@ -567,9 +657,7 @@ class FielExternalController extends Controller
             }
         }
 
-        // ======================================================
         // 3) Resolver path y validar existencia en disco
-        // ======================================================
         $stored = '';
         try { $stored = ltrim((string)($row->{$pathCol} ?? ''), '/'); } catch (\Throwable) { $stored = ''; }
 
@@ -620,9 +708,7 @@ class FielExternalController extends Controller
             abort(404, 'Archivo no encontrado.');
         }
 
-        // ======================================================
         // 4) Descargar stream
-        // ======================================================
         try {
             $stream = Storage::disk($foundDisk)->readStream($foundPath);
             if (!$stream) abort(404, 'No se pudo abrir el archivo.');
@@ -645,8 +731,6 @@ class FielExternalController extends Controller
             abort(500, 'No se pudo descargar el archivo.');
         }
     }
-
-
 
     // ======================================================
     // EDITAR METADATA (CLIENTE AUTH)
@@ -685,7 +769,6 @@ class FielExternalController extends Controller
             $data['fiel_password'] !== null &&
             trim((string)$data['fiel_password']) !== ''
         ) {
-            // Guardar cifrado si existe columna
             if ($this->hasCol($conn, $this->table, 'fiel_password')) {
                 $upd['fiel_password'] = Crypt::encryptString(trim((string)$data['fiel_password']));
             }
@@ -763,7 +846,6 @@ class FielExternalController extends Controller
         try { $fileName = (string)($row->{$nameCol} ?? ''); } catch (\Throwable) { $fileName = ''; }
         if ($fileName === '') $fileName = basename($path);
 
-        // Intentar private primero, luego public
         if (Storage::disk('private')->exists($path)) {
             return Storage::disk('private')->download($path, $fileName);
         }

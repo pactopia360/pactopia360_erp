@@ -618,28 +618,32 @@
             <th>ZIP</th>
             <th class="t-center">RFC</th>
             <th>Razón social</th>
+            <th class="t-center">Contraseña FIEL</th>
             <th class="t-right">Peso</th>
             <th class="t-center">Estado</th>
             <th class="t-center">Acciones</th>
           </tr>
         </thead>
 
+
         {{-- Empty state (tu JS lo detecta si existe) --}}
         <tbody id="externalZipEmpty" style="display:none;">
           <tr>
-            <td colspan="6" class="t-center text-muted" style="padding:14px;">
+            <td colspan="7" class="t-center text-muted" style="padding:14px;">
               Aún no hay ZIPs cargados.
             </td>
           </tr>
         </tbody>
 
+
         <tbody id="fielZipTbody">
           <tr>
-            <td colspan="6" class="t-center text-muted" style="padding:14px;">
+            <td colspan="7" class="t-center text-muted" style="padding:14px;">
               Cargando…
             </td>
           </tr>
         </tbody>
+
       </table>
     </div>
   </div>
@@ -1876,6 +1880,75 @@
     </div>
   </div>
 </div>
+
+{{-- MODAL: EDITAR ZIP EXTERNO (password + razón social) --}}
+<div class="sat-modal-backdrop" id="modalEditZip" style="display:none;">
+  <div class="sat-modal sat-modal-md" role="dialog" aria-modal="true" aria-labelledby="editZipTitle">
+    <div class="sat-modal-header">
+      <div>
+        <div class="sat-modal-kicker">RFC EXTERNO</div>
+        <div class="sat-modal-title" id="editZipTitle">Editar registro ZIP</div>
+        <p class="sat-modal-sub">Actualiza datos del registro. Por seguridad, la contraseña nunca se precarga.</p>
+      </div>
+      <button type="button" class="sat-modal-close" data-close="modal-edit-zip" aria-label="Cerrar">✕</button>
+    </div>
+
+    <div class="sat-modal-body">
+      <form id="formEditZip" method="post" action="">
+        @csrf
+        @method('PUT')
+
+        <input type="hidden" id="editZipId" name="id" value="">
+
+        <div class="sat-step-card">
+          <div class="sat-step-grid sat-step-grid-1col">
+            <div class="sat-field">
+              <div class="sat-field-label">RFC</div>
+              <input class="input sat-input-pill mono" type="text" id="editZipRfc" name="rfc" maxlength="13" readonly>
+              <div class="sat-modal-note" style="margin-top:6px;">El RFC no se modifica.</div>
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Razón social</div>
+              <input class="input sat-input-pill" type="text" id="editZipRazon" name="razon_social" maxlength="190" placeholder="Razón social">
+            </div>
+
+            <div class="sat-field">
+              <div class="sat-field-label">Contraseña FIEL</div>
+              <div style="position:relative;">
+                <input
+                  class="input sat-input-pill"
+                  type="password"
+                  id="editZipPass"
+                  name="fiel_password"
+                  autocomplete="new-password"
+                  placeholder="Nueva contraseña (opcional)"
+                >
+                <button type="button"
+                        class="sat-pass-toggle"
+                        id="toggleEditZipPass"
+                        aria-label="Mostrar u ocultar contraseña"
+                        style="position:absolute; right:10px; top:50%; transform:translateY(-50%);">
+                  👁
+                </button>
+              </div>
+              <div class="sat-modal-note" style="margin-top:6px;">
+                Si dejas vacío, la contraseña actual se mantiene.
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="sat-modal-footer">
+          <button type="button" class="btn" data-close="modal-edit-zip">Cancelar</button>
+          <button type="submit" class="btn primary">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 
 
 {{-- MODAL: INVITAR FIEL POR CORREO --}}

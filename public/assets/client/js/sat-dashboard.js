@@ -5,12 +5,13 @@
 // - Usa P360_SAT.routes.dashboardStats para gráfica/kpis
 // - Usa P360_SAT.routes.fielList (preferente) para listado ZIPs cargados
 //
-// ✅ Robust v5 (2026-01-30):
+// ✅ Robust v6 (2026-01-31):
 // - satFetchJson(): CSRF + JSON/HTML safe + errores normalizados
 // - pickRows(): soporta muchísimas formas de respuesta (paginador, wrapper data/data, payload, etc.)
 // - Debug opcional: si window.P360_SAT.debug === true loguea rutas/respuestas
-// - External ZIP list: prioriza FIEL routes (cliente/sat/fiel/external/list) y cae a externalZipList si existe
-// - Render defensivo: aunque cambien keys, intenta mapear id/rfc/nombre/tamaño/status
+// - External ZIP list: prioriza externalZipList si existe, si no fielList/fielExternalList
+// - Render defensivo: aunque cambien keys, intenta mapear id/rfc/nombre/tamaño/status/password
+// - Columna contraseña + reveal (si hay ruta), botón editar (si hay modal/form)
 // - No rompe si no existe tabla o no existe chart
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -20,6 +21,11 @@ document.addEventListener('DOMContentLoaded', function () {
   const CFG    = window.P360_SAT || {};
   const ROUTES = CFG.routes || {};
   const DEBUG  = !!CFG.debug;
+
+  // =====================================================
+  // Constantes UI
+  // =====================================================
+  const ZIP_TABLE_COLS = 7; // ZIP | RFC | RAZÓN | PASSWORD | TAMAÑO | ESTADO | ACCIONES
 
   // =====================================================
   // Helpers
@@ -79,9 +85,17 @@ document.addEventListener('DOMContentLoaded', function () {
     try { return await res.text(); } catch (e) { return ''; }
   }
 
+  function cssEscape(v) {
+    const s = String(v ?? '');
+    try {
+      if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(s);
+    } catch (e) {}
+    // fallback sencillo para selector attribute
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
   // =====================================================
   // satFetchJson: robusto (JSON + HTML + 501 friendly)
-  // ✅ FIX CRÍTICO: antes siempre devolvía ok:false (y usaba txt no definido)
   // =====================================================
   async function satFetchJson(url, opts = {}) {
     const csrf = getCsrf();
@@ -148,11 +162,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ✅ ÉXITO REAL
-    return {
-      ok: true,
-      status: res.status,
-      data
-    };
+    return { ok:true, status: res.status, data };
   }
 
   // =====================================================
@@ -170,192 +180,132 @@ document.addEventListener('DOMContentLoaded', function () {
     return '';
   }
 
-// =====================================================
-// API: listado ZIPs (FIEL preferente)
-// =====================================================
-window.P360_SAT_API.externalZipList = async function (params = {}) {
-  // =========================================================
-  // External ZIP list (FIEL ZIP)
-  // Objetivo:
-  // - Preferir SIEMPRE ROUTES.externalZipList si existe
-  // - Fallback a fielList/fielExternalList solo si externalZipList NO existe
-  // - Normalizar respuesta para que SIEMPRE haya:
-  //     resp.data.rows (Array)
-  //     resp.data.count (Number)
-  //   y además compat:
-  //     resp.data.data.rows
-  //     resp.data.data.count
-  // =========================================================
+  // =====================================================
+  // API: listado ZIPs (FIEL preferente)
+  // =====================================================
+  window.P360_SAT_API.externalZipList = async function (params = {}) {
+    const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
 
-  const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+    // 1) Preferencia dura: externalZipList
+    const direct = String(routes.externalZipList || '').trim();
 
-  // 1) Preferencia dura: externalZipList
-  const direct = String(routes.externalZipList || '').trim();
+    // 2) Fallback (solo si no existe externalZipList)
+    const fallback =
+      String(routes.fielList || '').trim() ||
+      String(routes.fielExternalList || '').trim() ||
+      '';
 
-  // 2) Fallback (solo si no existe externalZipList)
-  const fallback =
-    String(routes.fielList || '').trim() ||
-    String(routes.fielExternalList || '').trim() ||
-    '';
+    const url = direct || fallback;
 
-  const url = direct || fallback;
-
-  if (!url) {
-    return {
-      ok: false,
-      status: 0,
-      data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0, data: { rows: [], count: 0 } }
-    };
-  }
-
-  // =========================================================
-  // QS: toma params planos sin imponer contrato rígido
-  // (limit, offset, status, tipo, q, debug, etc.)
-  // =========================================================
-  const qs = new URLSearchParams();
-  if (params && typeof params === 'object') {
-    Object.keys(params).forEach((k) => {
-      const v = params[k];
-      if (v === undefined || v === null) return;
-
-      // No serializar objetos anidados (evita "[object Object]")
-      if (typeof v === 'object') return;
-
-      qs.set(String(k), String(v));
-    });
-  }
-
-  const finalUrl = qs.toString()
-    ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
-    : url;
-
-  log('externalZipList finalUrl:', finalUrl);
-
-  // =========================================================
-  // Fetch
-  // satFetchJson típicamente regresa: { ok, status, data }
-  // =========================================================
-  const resp = await satFetchJson(finalUrl, { method: 'GET' });
-
-  // =========================================================
-  // Normalización
-  // Queremos garantizar:
-  // out.data.rows (Array)
-  // out.data.count (Number)
-  // out.data.data.rows / out.data.data.count (compat)
-  //
-  // Y evitar cascadas tipo:
-  // resp.data = { ok, status, data: { ok, rows, data:{rows,count}, count }, rows, count }
-  //
-  // Estrategia:
-  // - Elegir "payload" como el mejor candidato donde viven rows/count
-  // - Extraer rows/count de forma defensiva
-  // - Construir un normalized "plano" con:
-  //     { ok:true|false, rows, count, data:{rows,count}, ...debug }
-  // - Retornar { ...resp, data: normalized }
-  // =========================================================
-
-  // Helper: detecta objeto
-  const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
-
-  // Helper: intenta encontrar el objeto que realmente contiene rows/count
-  function pickPayload(root) {
-    // root suele ser resp.data
-    if (Array.isArray(root)) return root;
-
-    if (!isObj(root)) return root;
-
-    // Si root ya trae rows/count, es candidato.
-    const hasRows = Array.isArray(root.rows) || Array.isArray(root?.data?.rows);
-    const hasCount = typeof root.count === 'number' || typeof root?.data?.count === 'number';
-
-    // Caso: root.data existe y parece ser el "real"
-    // (ej: root = { ok:true, status:200, data:{ ok:true, rows:[], count:0 }, rows:[], count:0 })
-    if (isObj(root.data)) {
-      const d = root.data;
-      const dHasRows = Array.isArray(d.rows) || Array.isArray(d?.data?.rows);
-      const dHasCount = typeof d.count === 'number' || typeof d?.data?.count === 'number';
-
-      // Preferir root.data si tiene señal fuerte
-      if (dHasRows || dHasCount) return d;
+    if (!url) {
+      return {
+        ok: false,
+        status: 0,
+        data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0, data: { rows: [], count: 0 } }
+      };
     }
 
-    // Si root en sí tiene señal, úsalo
-    if (hasRows || hasCount) return root;
+    // QS: params planos
+    const qs = new URLSearchParams();
+    if (params && typeof params === 'object') {
+      Object.keys(params).forEach((k) => {
+        const v = params[k];
+        if (v === undefined || v === null) return;
+        if (typeof v === 'object') return;
+        qs.set(String(k), String(v));
+      });
+    }
 
-    // Si no, regresar root tal cual
-    return root;
-  }
+    const finalUrl = qs.toString()
+      ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
+      : url;
 
-  const root = (resp && typeof resp === 'object') ? (resp.data ?? null) : null;
-  const payload = pickPayload(root);
+    log('externalZipList finalUrl:', finalUrl);
 
-  let rows = [];
-  let count = 0;
+    const resp = await satFetchJson(finalUrl, { method: 'GET' });
 
-  try {
-    // payload puede ser array directo
-    if (Array.isArray(payload)) {
-      rows = payload;
-      count = payload.length;
-    } else if (isObj(payload)) {
-      // filas: prioridad payload.rows -> payload.data.rows -> payload.data (si fuera array)
-      const r1 = payload.rows;
-      const r2 = payload?.data?.rows;
-      const r3 = payload.data; // a veces data puede ser array directo
+    // Normalización
+    const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
-      if (Array.isArray(r1)) rows = r1;
-      else if (Array.isArray(r2)) rows = r2;
-      else if (Array.isArray(r3)) rows = r3;
-      else rows = [];
+    function pickPayload(root) {
+      if (Array.isArray(root)) return root;
+      if (!isObj(root)) return root;
 
-      // count: prioridad payload.count -> payload.data.count -> rows.length
-      const c1 = payload.count;
-      const c2 = payload?.data?.count;
+      const hasRows = Array.isArray(root.rows) || Array.isArray(root?.data?.rows);
+      const hasCount = typeof root.count === 'number' || typeof root?.data?.count === 'number';
 
-      if (typeof c1 === 'number' && Number.isFinite(c1)) count = c1;
-      else if (typeof c2 === 'number' && Number.isFinite(c2)) count = c2;
-      else count = rows.length;
-    } else {
+      if (isObj(root.data)) {
+        const d = root.data;
+        const dHasRows = Array.isArray(d.rows) || Array.isArray(d?.data?.rows);
+        const dHasCount = typeof d.count === 'number' || typeof d?.data?.count === 'number';
+        if (dHasRows || dHasCount) return d;
+      }
+
+      if (hasRows || hasCount) return root;
+      return root;
+    }
+
+    const root = (resp && typeof resp === 'object') ? (resp.data ?? null) : null;
+    const payload = pickPayload(root);
+
+    let rows = [];
+    let count = 0;
+
+    try {
+      if (Array.isArray(payload)) {
+        rows = payload;
+        count = payload.length;
+      } else if (isObj(payload)) {
+        const r1 = payload.rows;
+        const r2 = payload?.data?.rows;
+        const r3 = payload.data;
+
+        if (Array.isArray(r1)) rows = r1;
+        else if (Array.isArray(r2)) rows = r2;
+        else if (Array.isArray(r3)) rows = r3;
+        else rows = [];
+
+        const c1 = payload.count;
+        const c2 = payload?.data?.count;
+
+        if (typeof c1 === 'number' && Number.isFinite(c1)) count = c1;
+        else if (typeof c2 === 'number' && Number.isFinite(c2)) count = c2;
+        else count = rows.length;
+      } else {
+        rows = [];
+        count = 0;
+      }
+    } catch (e) {
       rows = [];
       count = 0;
     }
-  } catch (e) {
-    rows = [];
-    count = 0;
-  }
 
-  // Construir normalized PLANO (sin data.data.data)
-  const normalized = isObj(payload) ? Object.assign({}, payload) : {};
-  normalized.rows = rows;
-  normalized.count = count;
+    const normalized = isObj(payload) ? Object.assign({}, payload) : {};
+    normalized.rows = rows;
+    normalized.count = count;
 
-  // Compat: normalized.data siempre debe existir como {rows,count}
-  if (isObj(normalized.data)) {
-    if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
-    if (typeof normalized.data.count !== 'number' || !Number.isFinite(normalized.data.count)) normalized.data.count = count;
-  } else {
-    normalized.data = { rows, count };
-  }
+    if (isObj(normalized.data)) {
+      if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
+      if (typeof normalized.data.count !== 'number' || !Number.isFinite(normalized.data.count)) normalized.data.count = count;
+    } else {
+      normalized.data = { rows, count };
+    }
 
-  // También asegurar ok (si no existe)
-  if (typeof normalized.ok !== 'boolean') {
-    // si resp.ok existe, úsalo; si no, asume true si HTTP 200
-    normalized.ok = (typeof resp?.ok === 'boolean') ? resp.ok : (resp?.status === 200);
-  }
+    if (typeof normalized.ok !== 'boolean') {
+      normalized.ok = (typeof resp?.ok === 'boolean') ? resp.ok : (resp?.status === 200);
+    }
 
-  const out = Object.assign({}, resp, { data: normalized });
+    const out = Object.assign({}, resp, { data: normalized });
 
-  log('externalZipList normalized:', {
-    status: out?.status,
-    count: out?.data?.count,
-    rowsLen: (out?.data?.rows || []).length,
-    using: direct ? 'externalZipList' : (fallback ? 'fielList/fallback' : 'none')
-  });
+    log('externalZipList normalized:', {
+      status: out?.status,
+      count: out?.data?.count,
+      rowsLen: (out?.data?.rows || []).length,
+      using: direct ? 'externalZipList' : (fallback ? 'fielList/fallback' : 'none')
+    });
 
-  return out;
-};
-
+    return out;
+  };
 
   // =====================================================
   // UI tabla ZIPs: selects
@@ -380,33 +330,26 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
     );
   }
 
-
   // =====================================================
   // pickRows: ultra robust
   // =====================================================
   function pickRows(payload) {
     if (!payload) return [];
-
-    // Si ya es array
     if (Array.isArray(payload)) return payload;
 
-    // Intentos directos
     const directKeys = ['rows', 'items', 'list', 'result', 'results'];
     for (const k of directKeys) {
       if (Array.isArray(payload[k])) return payload[k];
     }
 
-    // data puede ser array o paginator object
     if (Array.isArray(payload.data)) return payload.data;
 
-    // paginator style: { data: { data: [...] } }
     if (payload.data && typeof payload.data === 'object') {
       if (Array.isArray(payload.data.data)) return payload.data.data;
       if (Array.isArray(payload.data.items)) return payload.data.items;
       if (Array.isArray(payload.data.rows)) return payload.data.rows;
     }
 
-    // wrappers comunes
     const wrappers = ['payload', 'response', 'meta', 'body'];
     for (const w of wrappers) {
       if (payload[w]) {
@@ -422,150 +365,198 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
   // Render tabla
   // =====================================================
   function renderExternalZipRows(rows, rawPayloadForDebug) {
-  const tbody = findExternalZipTbody();
-  if (!tbody) return;
+    const tbody = findExternalZipTbody();
+    if (!tbody) return;
 
-  // =========================================================
-  // ✅ Normalizador robusto:
-  // - Acepta "rows" directo
-  // - O resp/data payload completo
-  // - O estructuras: data.rows, data.data.rows, rows, items, data (array)
-  // =========================================================
-  function normalizeRows(inputRows, raw) {
-    try {
-      if (Array.isArray(inputRows) && inputRows.length) return inputRows;
+    function normalizeRows(inputRows, raw) {
+      try {
+        if (Array.isArray(inputRows) && inputRows.length) return inputRows;
 
-      const p = raw;
+        const p = raw;
 
-      // Si raw ya es array, úsalo
-      if (Array.isArray(p)) return p;
+        if (Array.isArray(p)) return p;
 
-      // Buscar candidatos en distintas estructuras
-      const cand =
-        (p && Array.isArray(p.rows) ? p.rows : null) ||
-        (p && p.data && Array.isArray(p.data.rows) ? p.data.rows : null) ||
-        (p && p.data && p.data.data && Array.isArray(p.data.data.rows) ? p.data.data.rows : null) ||
-        (p && p.data && Array.isArray(p.data.data) ? p.data.data : null) ||
-        (p && Array.isArray(p.data) ? p.data : null) ||
-        (p && p.data && Array.isArray(p.data.items) ? p.data.items : null) ||
-        (p && Array.isArray(p.items) ? p.items : null) ||
-        null;
+        const cand =
+          (p && Array.isArray(p.rows) ? p.rows : null) ||
+          (p && p.data && Array.isArray(p.data.rows) ? p.data.rows : null) ||
+          (p && p.data && p.data.data && Array.isArray(p.data.data.rows) ? p.data.data.rows : null) ||
+          (p && p.data && Array.isArray(p.data.data) ? p.data.data : null) ||
+          (p && Array.isArray(p.data) ? p.data : null) ||
+          (p && p.data && Array.isArray(p.data.items) ? p.data.items : null) ||
+          (p && Array.isArray(p.items) ? p.items : null) ||
+          null;
 
-      return Array.isArray(cand) ? cand : [];
-    } catch (_e) {
-      return [];
+        return Array.isArray(cand) ? cand : [];
+      } catch (_e) {
+        return [];
+      }
     }
+
+    const arr = normalizeRows(rows, rawPayloadForDebug);
+
+    if (!arr.length) {
+      log('No rows to render. Raw payload:', rawPayloadForDebug);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="${ZIP_TABLE_COLS}" class="t-center text-muted" style="padding:14px;">
+            Sin registros.
+          </td>
+        </tr>
+      `.trim();
+      return;
+    }
+
+    const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+    const rtDownload   = String(routes.fielDownload || '');
+    const rtUpdate     = String(routes.fielUpdate   || '');
+    const rtDestroy    = String(routes.fielDestroy  || '');
+    const rtPassReveal = String(routes.fielPassword || routes.fielRevealPassword || '').trim();
+
+    function pickId(r) {
+      const cand = [
+        r.id, r.zip_id, r.fiel_id, r.external_id, r.external_zip_id,
+        r.file_id, r.record_id, r.uuid
+      ].find(v => v !== undefined && v !== null && String(v).trim() !== '');
+      return cand ? String(cand).trim() : '';
+    }
+
+    function buildUrl(pattern, id) {
+      if (!pattern || !id) return '';
+      if (pattern.includes('__ID__')) return pattern.replaceAll('__ID__', encodeURIComponent(id));
+      if (pattern.includes('{id}'))   return pattern.replaceAll('{id}', encodeURIComponent(id));
+      return pattern.replace(/\/$/, '') + '/' + encodeURIComponent(id);
+    }
+
+    function badge(stRaw) {
+      const st = String(stRaw || '').trim();
+      if (!st) return `<span class="badge" style="opacity:.75">—</span>`;
+      const lower = st.toLowerCase();
+      let cls = 'badge';
+      if (lower.includes('ok') || lower.includes('listo') || lower.includes('ready') || lower.includes('done')) cls = 'badge badge-success';
+      else if (lower.includes('pend') || lower.includes('proc') || lower.includes('queue')) cls = 'badge badge-soft';
+      else if (lower.includes('error') || lower.includes('fail') || lower.includes('rech')) cls = 'badge badge-danger';
+      return `<span class="${cls}" style="opacity:.95">${escapeHtml(st)}</span>`;
+    }
+
+    function pickRfc(r) {
+      return String(r.rfc || r.RFC || '').trim();
+    }
+
+    function pickRazon(r) {
+      return String(r.razon_social || r.razonSocial || r.nombre || r.company || '').trim();
+    }
+
+    function pickName(r) {
+      return String(r.file_name || r.fileName || r.name || r.zip_name || r.filename || 'ZIP').trim();
+    }
+
+    function pickSize(r) {
+      const v = (r.file_size ?? r.size_bytes ?? r.zip_bytes ?? r.bytes ?? r.size ?? 0);
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function pickStatus(r) {
+      return String(r.status || r.estado || r.state || r.sat_status || r.estatus || '').trim();
+    }
+
+    function pickHasPassword(r) {
+      const v =
+        r.has_password ?? r.hasPass ?? r.password_set ?? r.passwordSet ?? r.has_fiel_password ?? null;
+
+      if (v === true || v === 1 || v === '1') return true;
+      if (v === false || v === 0 || v === '0') return false;
+
+      const m = String(r.password_mask ?? r.fiel_password_mask ?? '').trim();
+      if (m) return true;
+
+      return false;
+    }
+
+    function pickPasswordMask(r) {
+      const m = String(r.password_mask ?? r.fiel_password_mask ?? '').trim();
+      if (m) return m;
+      return pickHasPassword(r) ? '••••••••' : '—';
+    }
+
+    tbody.innerHTML = arr.map((r) => {
+      const id = pickId(r);
+
+      const rfcRaw   = pickRfc(r);
+      const razonRaw = pickRazon(r);
+
+      const rfc   = escapeHtml(rfcRaw);
+      const razon = escapeHtml(razonRaw);
+      const name  = escapeHtml(pickName(r));
+      const size  = fmtBytes(pickSize(r));
+      const stRaw = pickStatus(r);
+
+      const urlDownload   = buildUrl(rtDownload, id);
+      const urlDestroy    = buildUrl(rtDestroy, id);
+      const urlUpdate     = buildUrl(rtUpdate, id);
+      const urlPassReveal = buildUrl(rtPassReveal, id);
+
+      const hasPass  = pickHasPassword(r);
+      const passMask = escapeHtml(pickPasswordMask(r));
+
+      const btnEdit = (id && urlUpdate)
+        ? `<button type="button"
+              class="btn icon-only"
+              data-action="fiel-edit"
+              data-id="${escapeHtml(id)}"
+              data-rfc="${escapeHtml(rfcRaw)}"
+              data-razon="${escapeHtml(razonRaw)}"
+              data-url-update="${escapeHtml(urlUpdate)}"
+              data-tip="Editar">✏️</button>`
+        : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta update no configurada'}">✏️</button>`;
+
+      const btnDownload = (id && urlDownload)
+        ? `<button type="button" class="btn icon-only" data-action="fiel-download" data-url="${escapeHtml(urlDownload)}" data-id="${escapeHtml(id)}" data-tip="Descargar">⬇️</button>`
+        : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta download no configurada'}">⬇️</button>`;
+
+      const btnDelete = (id && urlDestroy)
+        ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(rfcRaw)}" data-tip="Eliminar">🗑️</button>`
+        : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta destroy no configurada'}">🗑️</button>`;
+
+      const btnReveal = (id && urlPassReveal && hasPass)
+        ? `<button type="button"
+              class="btn icon-only"
+              data-action="fiel-pass-toggle"
+              data-id="${escapeHtml(id)}"
+              data-url="${escapeHtml(urlPassReveal)}"
+              data-tip="Ver contraseña">👁</button>`
+        : `<button type="button" class="btn icon-only" disabled data-tip="${!hasPass ? 'Sin contraseña' : 'Ruta password no configurada'}">👁</button>`;
+
+      return `
+        <tr data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(rfcRaw)}" data-razon="${escapeHtml(razonRaw)}">
+          <td>${name || 'ZIP'}</td>
+          <td class="t-center mono">${rfc || '—'}</td>
+          <td>${razon || '—'}</td>
+
+          <td class="t-center">
+            <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
+              <span class="mono" data-pass-mask="${escapeHtml(id)}">${passMask}</span>
+              ${btnReveal}
+            </div>
+          </td>
+
+          <td class="t-right">${size}</td>
+          <td class="t-center">${badge(stRaw)}</td>
+          <td class="t-center">
+            <div class="sat-row-actions" style="display:flex; gap:6px; justify-content:center; align-items:center;">
+              ${btnEdit}
+              ${btnDownload}
+              ${btnDelete}
+            </div>
+          </td>
+        </tr>
+      `.trim();
+    }).join('');
   }
 
-  const arr = normalizeRows(rows, rawPayloadForDebug);
-
-  if (!arr.length) {
-    log('No rows to render. Raw payload:', rawPayloadForDebug);
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="t-center text-muted" style="padding:14px;">
-          Sin registros.
-        </td>
-      </tr>
-    `.trim();
-    return;
-  }
-
-  const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
-  const rtDownload = String(routes.fielDownload || '');
-  const rtUpdate   = String(routes.fielUpdate   || '');
-  const rtDestroy  = String(routes.fielDestroy  || '');
-
-  function pickId(r) {
-    const cand = [
-      r.id, r.zip_id, r.fiel_id, r.external_id, r.external_zip_id,
-      r.file_id, r.record_id, r.uuid
-    ].find(v => v !== undefined && v !== null && String(v).trim() !== '');
-    return cand ? String(cand).trim() : '';
-  }
-
-  function buildUrl(pattern, id) {
-    if (!pattern || !id) return '';
-    if (pattern.includes('__ID__')) return pattern.replaceAll('__ID__', encodeURIComponent(id));
-    if (pattern.includes('{id}'))   return pattern.replaceAll('{id}', encodeURIComponent(id));
-    return pattern.replace(/\/$/, '') + '/' + encodeURIComponent(id);
-  }
-
-  function badge(stRaw) {
-    const st = String(stRaw || '').trim();
-    if (!st) return `<span class="badge" style="opacity:.75">—</span>`;
-    const lower = st.toLowerCase();
-    let cls = 'badge';
-    if (lower.includes('ok') || lower.includes('listo') || lower.includes('ready') || lower.includes('done')) cls = 'badge badge-success';
-    else if (lower.includes('pend') || lower.includes('proc') || lower.includes('queue')) cls = 'badge badge-soft';
-    else if (lower.includes('error') || lower.includes('fail') || lower.includes('rech')) cls = 'badge badge-danger';
-    return `<span class="${cls}" style="opacity:.95">${escapeHtml(st)}</span>`;
-  }
-
-  function pickRfc(r) {
-    return String(r.rfc || r.RFC || '').trim();
-  }
-
-  function pickRazon(r) {
-    return String(r.razon_social || r.razonSocial || r.nombre || r.company || '').trim();
-  }
-
-  function pickName(r) {
-    return String(r.file_name || r.fileName || r.name || r.zip_name || r.filename || 'ZIP').trim();
-  }
-
-  function pickSize(r) {
-    const v = (r.file_size ?? r.size_bytes ?? r.zip_bytes ?? r.bytes ?? r.size ?? 0);
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  function pickStatus(r) {
-    return String(r.status || r.estado || r.state || r.sat_status || r.estatus || '').trim();
-  }
-
-  tbody.innerHTML = arr.map((r) => {
-    const id = pickId(r);
-
-    const rfc   = escapeHtml(pickRfc(r));
-    const razon = escapeHtml(pickRazon(r));
-    const name  = escapeHtml(pickName(r));
-    const size  = fmtBytes(pickSize(r));
-    const stRaw = pickStatus(r);
-
-    const urlDownload = buildUrl(rtDownload, id);
-    const urlDestroy  = buildUrl(rtDestroy, id);
-
-    const btnDownload = (id && urlDownload)
-      ? `<button type="button" class="btn icon-only" data-action="fiel-download" data-url="${escapeHtml(urlDownload)}" data-id="${escapeHtml(id)}" data-tip="Descargar">⬇️</button>`
-      : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta download no configurada'}">⬇️</button>`;
-
-    const btnDelete = (id && urlDestroy)
-      ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(pickRfc(r))}" data-tip="Eliminar">🗑️</button>`
-      : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta destroy no configurada'}">🗑️</button>`;
-
-    const actions = `
-      <div class="sat-row-actions" style="display:flex; gap:6px; justify-content:center; align-items:center;">
-        ${btnDownload}
-        ${btnDelete}
-      </div>
-    `.trim();
-
-    return `
-      <tr data-id="${escapeHtml(id)}">
-        <td>${name || 'ZIP'}</td>
-        <td class="t-center mono">${rfc || '—'}</td>
-        <td>${razon || '—'}</td>
-        <td class="t-right">${size}</td>
-        <td class="t-center">${badge(stRaw)}</td>
-        <td class="t-center">${actions}</td>
-      </tr>
-    `.trim();
-  }).join('');
-}
-
-
+  // =====================================================
   // Actions
+  // =====================================================
   document.addEventListener('click', function (e) {
     const btn = e.target.closest('[data-action="fiel-download"]');
     if (!btn) return;
@@ -574,6 +565,126 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
     window.location.href = url;
   });
 
+  // Edit modal opener (si existe modal)
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-action="fiel-edit"]');
+    if (!btn) return;
+
+    const id  = btn.getAttribute('data-id') || '';
+    const rfc = btn.getAttribute('data-rfc') || '';
+    const razon = btn.getAttribute('data-razon') || '';
+    const urlUpdate = btn.getAttribute('data-url-update') || '';
+
+    const modal = document.getElementById('modalEditZip');
+    const form  = document.getElementById('formEditZip');
+
+    if (!modal || !form) {
+      toast('Modal de edición no está disponible en la vista.', 'info');
+      return;
+    }
+
+    const rfcEl  = document.getElementById('editZipRfc');
+    const razEl  = document.getElementById('editZipRazon');
+    const idEl   = document.getElementById('editZipId');
+    const passEl = document.getElementById('editZipPass');
+
+    if (rfcEl) rfcEl.value = rfc;
+    if (razEl) razEl.value = razon;
+    if (idEl)  idEl.value  = id;
+    if (passEl) passEl.value = '';
+
+    if (urlUpdate) form.setAttribute('action', urlUpdate);
+
+    modal.style.display = 'flex';
+    document.body.classList.add('sat-modal-open');
+  });
+
+  // Reveal password toggle
+  document.addEventListener('click', async function (e) {
+    const btn = e.target.closest('[data-action="fiel-pass-toggle"]');
+    if (!btn) return;
+
+    const id = btn.getAttribute('data-id') || '';
+    const url = btn.getAttribute('data-url') || '';
+    if (!id || !url) return;
+
+    const span = document.querySelector(`[data-pass-mask="${cssEscape(id)}"]`);
+    if (!span) return;
+
+    const current = String(span.textContent || '').trim();
+    const isMasked = (current === '••••••••' || current === '—' || current.includes('•'));
+
+    // si ya está revelado => ocultar
+    if (!isMasked) {
+      span.textContent = '••••••••';
+      return;
+    }
+
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '…';
+
+    try {
+      const resp = await satFetchJson(url, { method: 'GET' });
+      if (!resp || resp.ok !== true) {
+        toast(resp?.data?.msg || 'No se pudo obtener la contraseña.', 'error');
+        return;
+      }
+
+      const pass = String(resp?.data?.password || resp?.data?.data?.password || '').trim();
+      if (!pass) {
+        toast('No hay contraseña guardada para este ZIP.', 'info');
+        span.textContent = '—';
+        return;
+      }
+
+      span.textContent = pass;
+
+      // auto-ocultar
+      setTimeout(() => {
+        try { span.textContent = '••••••••'; } catch (e) {}
+      }, 12000);
+
+    } catch (err) {
+      toast(err?.message || 'Error al obtener contraseña.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old || '👁';
+    }
+  });
+
+  // Submit modal edit (AJAX)
+  document.addEventListener('submit', async function (e) {
+    const form = e.target && e.target.closest ? e.target.closest('#formEditZip') : null;
+    if (!form) return;
+
+    e.preventDefault();
+
+    const action = form.getAttribute('action') || '';
+    if (!action) { toast('Ruta de actualización no configurada.', 'error'); return; }
+
+    const fd = new FormData(form);
+
+    const resp = await satFetchJson(action, {
+      method: 'POST',
+      body: fd
+    });
+
+    if (!resp || resp.ok !== true) {
+      toast(resp?.data?.msg || 'No se pudo guardar.', 'error');
+      return;
+    }
+
+    toast(resp?.data?.msg || 'Actualizado.', 'success');
+
+    const modal = document.getElementById('modalEditZip');
+    if (modal) modal.style.display = 'none';
+    document.body.classList.remove('sat-modal-open');
+
+    loadExternalZipList().catch(()=>{});
+  });
+
+  // Destroy
   document.addEventListener('click', async function (e) {
     const btn = e.target.closest('[data-action="fiel-destroy"]');
     if (!btn) return;
@@ -596,13 +707,15 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
     loadExternalZipList().catch(()=>{});
   });
 
-  // Loader
+  // =====================================================
+  // Loader listado ZIPs
+  // =====================================================
   async function loadExternalZipList() {
     const tbody = findExternalZipTbody();
     if (!tbody) return;
 
     tbody.innerHTML = `
-      <tr><td colspan="6" class="t-center text-muted" style="padding:14px;">Cargando…</td></tr>
+      <tr><td colspan="${ZIP_TABLE_COLS}" class="t-center text-muted" style="padding:14px;">Cargando…</td></tr>
     `.trim();
 
     const resp = await window.P360_SAT_API.externalZipList({ limit: 50 });
@@ -611,7 +724,7 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
 
     if (!resp || resp.ok !== true) {
       tbody.innerHTML = `
-        <tr><td colspan="6" class="t-center text-muted" style="padding:14px;">
+        <tr><td colspan="${ZIP_TABLE_COLS}" class="t-center text-muted" style="padding:14px;">
           ${escapeHtml(resp?.data?.msg || 'No se pudo cargar el listado.')}
         </td></tr>
       `.trim();
@@ -619,7 +732,6 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
     }
 
     const data = resp.data || {};
-    // si el backend NO usa "ok", no lo penalizamos
     const rows = pickRows(data);
 
     renderExternalZipRows(rows, data);
@@ -755,7 +867,6 @@ window.P360_SAT_API.externalZipList = async function (params = {}) {
     setText(elAvailable,  k.available);
     setText(elDownloaded, k.downloaded);
 
-    // serie defensiva
     function normalizeSerie(raw) {
       let labels = [];
       let values = [];
