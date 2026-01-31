@@ -170,18 +170,21 @@ document.addEventListener('DOMContentLoaded', function () {
     return '';
   }
 
-  // =====================================================
-  // API: listado ZIPs (FIEL preferente)
-  // =====================================================
-  window.P360_SAT_API.externalZipList = async function (params = {}) {
+// =====================================================
+// API: listado ZIPs (FIEL preferente)
+// =====================================================
+window.P360_SAT_API.externalZipList = async function (params = {}) {
   // =========================================================
   // External ZIP list (FIEL ZIP)
   // Objetivo:
   // - Preferir SIEMPRE ROUTES.externalZipList si existe
-  // - Fallback a fielList solo si externalZipList NO existe
+  // - Fallback a fielList/fielExternalList solo si externalZipList NO existe
   // - Normalizar respuesta para que SIEMPRE haya:
   //     resp.data.rows (Array)
   //     resp.data.count (Number)
+  //   y además compat:
+  //     resp.data.data.rows
+  //     resp.data.data.count
   // =========================================================
 
   const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
@@ -198,17 +201,28 @@ document.addEventListener('DOMContentLoaded', function () {
   const url = direct || fallback;
 
   if (!url) {
-    return { ok: false, status: 0, data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0 } };
+    return {
+      ok: false,
+      status: 0,
+      data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0, data: { rows: [], count: 0 } }
+    };
   }
 
-  // QS
+  // =========================================================
+  // QS: toma params planos sin imponer contrato rígido
+  // (limit, offset, status, tipo, q, debug, etc.)
+  // =========================================================
   const qs = new URLSearchParams();
   if (params && typeof params === 'object') {
-    if (params.limit != null)  qs.set('limit', String(params.limit));
-    if (params.offset != null) qs.set('offset', String(params.offset));
-    if (params.status)         qs.set('status', String(params.status));
-    if (params.tipo)           qs.set('tipo', String(params.tipo));
-    if (params.q)              qs.set('q', String(params.q));
+    Object.keys(params).forEach((k) => {
+      const v = params[k];
+      if (v === undefined || v === null) return;
+
+      // No serializar objetos anidados (evita "[object Object]")
+      if (typeof v === 'object') return;
+
+      qs.set(String(k), String(v));
+    });
   }
 
   const finalUrl = qs.toString()
@@ -217,44 +231,90 @@ document.addEventListener('DOMContentLoaded', function () {
 
   log('externalZipList finalUrl:', finalUrl);
 
+  // =========================================================
   // Fetch
+  // satFetchJson típicamente regresa: { ok, status, data }
+  // =========================================================
   const resp = await satFetchJson(finalUrl, { method: 'GET' });
 
-  // -----------------------------
-  // Normalización de salida
-  // -----------------------------
-  // satFetchJson regresa { ok, status, data }
-  // data puede venir:
-  // - { ok:true, rows:[...], data:{ rows:[...], count:N } }
-  // - { ok:true, rows:[...] }
-  // - { rows:[...] }
-  // - { data:{ rows:[...], count:N } }
-  // - incluso [] (muy raro)
-  const payload = resp && typeof resp === 'object' ? (resp.data ?? null) : null;
+  // =========================================================
+  // Normalización
+  // Queremos garantizar:
+  // out.data.rows (Array)
+  // out.data.count (Number)
+  // out.data.data.rows / out.data.data.count (compat)
+  //
+  // Y evitar cascadas tipo:
+  // resp.data = { ok, status, data: { ok, rows, data:{rows,count}, count }, rows, count }
+  //
+  // Estrategia:
+  // - Elegir "payload" como el mejor candidato donde viven rows/count
+  // - Extraer rows/count de forma defensiva
+  // - Construir un normalized "plano" con:
+  //     { ok:true|false, rows, count, data:{rows,count}, ...debug }
+  // - Retornar { ...resp, data: normalized }
+  // =========================================================
+
+  // Helper: detecta objeto
+  const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+
+  // Helper: intenta encontrar el objeto que realmente contiene rows/count
+  function pickPayload(root) {
+    // root suele ser resp.data
+    if (Array.isArray(root)) return root;
+
+    if (!isObj(root)) return root;
+
+    // Si root ya trae rows/count, es candidato.
+    const hasRows = Array.isArray(root.rows) || Array.isArray(root?.data?.rows);
+    const hasCount = typeof root.count === 'number' || typeof root?.data?.count === 'number';
+
+    // Caso: root.data existe y parece ser el "real"
+    // (ej: root = { ok:true, status:200, data:{ ok:true, rows:[], count:0 }, rows:[], count:0 })
+    if (isObj(root.data)) {
+      const d = root.data;
+      const dHasRows = Array.isArray(d.rows) || Array.isArray(d?.data?.rows);
+      const dHasCount = typeof d.count === 'number' || typeof d?.data?.count === 'number';
+
+      // Preferir root.data si tiene señal fuerte
+      if (dHasRows || dHasCount) return d;
+    }
+
+    // Si root en sí tiene señal, úsalo
+    if (hasRows || hasCount) return root;
+
+    // Si no, regresar root tal cual
+    return root;
+  }
+
+  const root = (resp && typeof resp === 'object') ? (resp.data ?? null) : null;
+  const payload = pickPayload(root);
 
   let rows = [];
   let count = 0;
 
   try {
-    // Caso: payload es array
+    // payload puede ser array directo
     if (Array.isArray(payload)) {
       rows = payload;
       count = payload.length;
-    } else if (payload && typeof payload === 'object') {
-      const r1 = payload?.data?.rows;
-      const r2 = payload?.rows;
-      const r3 = payload?.data; // a veces data puede ser el array directo
+    } else if (isObj(payload)) {
+      // filas: prioridad payload.rows -> payload.data.rows -> payload.data (si fuera array)
+      const r1 = payload.rows;
+      const r2 = payload?.data?.rows;
+      const r3 = payload.data; // a veces data puede ser array directo
 
       if (Array.isArray(r1)) rows = r1;
       else if (Array.isArray(r2)) rows = r2;
       else if (Array.isArray(r3)) rows = r3;
       else rows = [];
 
-      const c1 = payload?.data?.count;
-      const c2 = payload?.count;
+      // count: prioridad payload.count -> payload.data.count -> rows.length
+      const c1 = payload.count;
+      const c2 = payload?.data?.count;
 
-      if (typeof c1 === 'number') count = c1;
-      else if (typeof c2 === 'number') count = c2;
+      if (typeof c1 === 'number' && Number.isFinite(c1)) count = c1;
+      else if (typeof c2 === 'number' && Number.isFinite(c2)) count = c2;
       else count = rows.length;
     } else {
       rows = [];
@@ -265,23 +325,33 @@ document.addEventListener('DOMContentLoaded', function () {
     count = 0;
   }
 
-  // Asegurar estructura esperada por el front: resp.data.rows / resp.data.count
-  const normalized = (payload && typeof payload === 'object') ? payload : {};
+  // Construir normalized PLANO (sin data.data.data)
+  const normalized = isObj(payload) ? Object.assign({}, payload) : {};
   normalized.rows = rows;
   normalized.count = count;
 
-  // Mantener compatibilidad: también poner data.rows / data.count si existía data object
-  if (normalized.data && typeof normalized.data === 'object') {
+  // Compat: normalized.data siempre debe existir como {rows,count}
+  if (isObj(normalized.data)) {
     if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
-    if (typeof normalized.data.count !== 'number') normalized.data.count = count;
+    if (typeof normalized.data.count !== 'number' || !Number.isFinite(normalized.data.count)) normalized.data.count = count;
   } else {
-    // si no existe normalized.data, crearla para compatibilidad
     normalized.data = { rows, count };
+  }
+
+  // También asegurar ok (si no existe)
+  if (typeof normalized.ok !== 'boolean') {
+    // si resp.ok existe, úsalo; si no, asume true si HTTP 200
+    normalized.ok = (typeof resp?.ok === 'boolean') ? resp.ok : (resp?.status === 200);
   }
 
   const out = Object.assign({}, resp, { data: normalized });
 
-  log('externalZipList normalized:', { status: out?.status, count: out?.data?.count, rowsLen: (out?.data?.rows || []).length });
+  log('externalZipList normalized:', {
+    status: out?.status,
+    count: out?.data?.count,
+    rowsLen: (out?.data?.rows || []).length,
+    using: direct ? 'externalZipList' : (fallback ? 'fielList/fallback' : 'none')
+  });
 
   return out;
 };
