@@ -461,94 +461,181 @@ class FielExternalController extends Controller
 
 
     // ======================================================
-    // DESCARGAR ZIP (CLIENTE AUTH)
-    // ======================================================
-    public function downloadAuth(int $id)
-    {
-        $req = request();
-        $accountId = $this->accountId($req);
-        if ($accountId <= 0) abort(403);
+// DESCARGAR ZIP (CLIENTE AUTH)
+// ======================================================
+public function downloadAuth(int $id)
+{
+    $req = request();
+    $accountId = $this->accountId($req);
+    if ($accountId <= 0) abort(403);
 
-        $conn  = $this->resolveConnForTable($this->table);
-        $table = $this->table;
+    $conn  = $this->resolveConnForTable($this->table);
+    $table = $this->table;
 
-        $pathCol = $this->detectPathColumn($conn, $table) ?? 'file_path';
-        $nameCol = $this->detectNameColumn($conn, $table) ?? 'file_name';
+    $pathCol = $this->detectPathColumn($conn, $table) ?? 'file_path';
+    $nameCol = $this->detectNameColumn($conn, $table) ?? 'file_name';
 
-        $row = DB::connection($conn)->table($table)
-            ->where('id', $id)
-            ->where('account_id', $accountId)
-            ->first();
+    // ------------------------------------------------------
+    // 1) Traer fila por ID (SIN filtrar por account_id)
+    //    para poder validar por RFC cuando hay legacy account_id
+    // ------------------------------------------------------
+    $row = DB::connection($conn)->table($table)
+        ->where('id', $id)
+        ->first();
 
-        if (!$row) abort(404);
+    if (!$row) abort(404);
 
-        $stored = '';
-        try { $stored = ltrim((string)($row->{$pathCol} ?? ''), '/'); } catch (\Throwable) { $stored = ''; }
+    $rowAccountId = 0;
+    try { $rowAccountId = (int) ($row->account_id ?? 0); } catch (\Throwable) { $rowAccountId = 0; }
 
-        if ($stored === '') abort(404);
+    $rowRfc = '';
+    try { $rowRfc = strtoupper(trim((string) ($row->rfc ?? ''))); } catch (\Throwable) { $rowRfc = ''; }
 
-        $fileName = '';
-        try { $fileName = trim((string)($row->{$nameCol} ?? '')); } catch (\Throwable) { $fileName = ''; }
-        if ($fileName === '') $fileName = basename($stored);
+    // ------------------------------------------------------
+    // 2) Autorización segura:
+    //    - OK si account_id coincide
+    //    - Si NO coincide: OK solo si RFC pertenece a la cuenta actual
+    //      (sat_credentials primero, si no hay, companies)
+    // ------------------------------------------------------
+    $authorized = ($rowAccountId > 0 && $rowAccountId === (int) $accountId);
 
-        // Auto-detección de disco
-        $disksToTry = ['private', 'public'];
+    if (!$authorized) {
+        $rfcs = [];
 
-        $candidates = array_values(array_unique(array_filter([
-            $stored,
-            (str_starts_with($stored, 'public/') ? substr($stored, 7) : null),
-            (str_starts_with($stored, 'private/') ? substr($stored, 8) : null),
-        ])));
+        // Fuente principal: sat_credentials
+        try {
+            if (Schema::connection($conn)->hasTable('sat_credentials')
+                && Schema::connection($conn)->hasColumn('sat_credentials', 'account_id')
+                && Schema::connection($conn)->hasColumn('sat_credentials', 'rfc')
+            ) {
+                $rfcs = DB::connection($conn)->table('sat_credentials')
+                    ->where('account_id', (int) $accountId)
+                    ->whereNotNull('rfc')
+                    ->pluck('rfc')
+                    ->map(fn($v) => strtoupper(trim((string) $v)))
+                    ->filter(fn($v) => $v !== '')
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+        } catch (\Throwable) {
+            $rfcs = [];
+        }
 
-        $foundDisk = null;
-        $foundPath = null;
-
-        foreach ($disksToTry as $disk) {
-            foreach ($candidates as $p) {
-                try {
-                    if (Storage::disk($disk)->exists($p)) {
-                        $foundDisk = $disk;
-                        $foundPath = $p;
-                        break 2;
-                    }
-                } catch (\Throwable) {}
+        // Fallback: companies
+        if (empty($rfcs)) {
+            try {
+                if (Schema::connection($conn)->hasTable('companies')
+                    && Schema::connection($conn)->hasColumn('companies', 'account_id')
+                    && Schema::connection($conn)->hasColumn('companies', 'rfc')
+                ) {
+                    $rfcs = DB::connection($conn)->table('companies')
+                        ->where('account_id', (int) $accountId)
+                        ->whereNotNull('rfc')
+                        ->pluck('rfc')
+                        ->map(fn($v) => strtoupper(trim((string) $v)))
+                        ->filter(fn($v) => $v !== '')
+                        ->unique()
+                        ->values()
+                        ->all();
+                }
+            } catch (\Throwable) {
+                $rfcs = [];
             }
         }
 
-        if (!$foundDisk || !$foundPath) {
-            Log::warning('[FIEL-EXTERNAL] downloadAuth file not found', [
-                'id'         => $id,
-                'account_id' => $accountId,
-                'stored'     => $stored,
-                'candidates' => $candidates,
-                'tried_disks'=> $disksToTry,
-            ]);
-            abort(404, 'Archivo no encontrado.');
+        if ($rowRfc !== '' && !empty($rfcs) && in_array($rowRfc, $rfcs, true)) {
+            $authorized = true;
+            try {
+                Log::warning('[FIEL-EXTERNAL] downloadAuth legacy account_id allowed by RFC', [
+                    'id' => $id,
+                    'account_id' => $accountId,
+                    'row_account_id' => $rowAccountId,
+                    'rfc' => $rowRfc,
+                ]);
+            } catch (\Throwable) {}
         }
 
-        try {
-            $stream = Storage::disk($foundDisk)->readStream($foundPath);
-            if (!$stream) abort(404, 'No se pudo abrir el archivo.');
+        // No revelar existencia si no autorizado
+        if (!$authorized) abort(404);
+    }
 
-            return response()->streamDownload(function () use ($stream) {
-                fpassthru($stream);
-                if (is_resource($stream)) fclose($stream);
-            }, $fileName, [
-                'Content-Type'           => 'application/zip',
-                'X-Content-Type-Options' => 'nosniff',
-            ]);
+    // ------------------------------------------------------
+    // 3) Resolver path + name
+    // ------------------------------------------------------
+    $stored = '';
+    try { $stored = ltrim((string)($row->{$pathCol} ?? ''), '/'); } catch (\Throwable) { $stored = ''; }
 
-        } catch (\Throwable $e) {
-            Log::error('[FIEL-EXTERNAL] downloadAuth failed', [
-                'id'         => $id,
-                'account_id' => $accountId,
-                'disk'       => $foundDisk,
-                'path'       => $foundPath,
-                'err'        => $e->getMessage(),
-            ]);
-            abort(500, 'No se pudo descargar el archivo.');
+    if ($stored === '') abort(404);
+
+    $fileName = '';
+    try { $fileName = trim((string)($row->{$nameCol} ?? '')); } catch (\Throwable) { $fileName = ''; }
+    if ($fileName === '') $fileName = basename($stored);
+
+    // ------------------------------------------------------
+    // 4) Auto-detección de disco (como ya lo tenías)
+    // ------------------------------------------------------
+    $disksToTry = ['private', 'public'];
+
+    $candidates = array_values(array_unique(array_filter([
+        $stored,
+        (str_starts_with($stored, 'public/') ? substr($stored, 7) : null),
+        (str_starts_with($stored, 'private/') ? substr($stored, 8) : null),
+    ])));
+
+    $foundDisk = null;
+    $foundPath = null;
+
+    foreach ($disksToTry as $disk) {
+        foreach ($candidates as $p) {
+            try {
+                if (Storage::disk($disk)->exists($p)) {
+                    $foundDisk = $disk;
+                    $foundPath = $p;
+                    break 2;
+                }
+            } catch (\Throwable) {}
         }
     }
+
+    if (!$foundDisk || !$foundPath) {
+        Log::warning('[FIEL-EXTERNAL] downloadAuth file not found', [
+            'id'          => $id,
+            'account_id'  => $accountId,
+            'row_account_id' => $rowAccountId,
+            'rfc'         => $rowRfc,
+            'stored'      => $stored,
+            'candidates'  => $candidates,
+            'tried_disks' => $disksToTry,
+        ]);
+        abort(404, 'Archivo no encontrado.');
+    }
+
+    try {
+        $stream = Storage::disk($foundDisk)->readStream($foundPath);
+        if (!$stream) abort(404, 'No se pudo abrir el archivo.');
+
+        return response()->streamDownload(function () use ($stream) {
+            fpassthru($stream);
+            if (is_resource($stream)) fclose($stream);
+        }, $fileName, [
+            'Content-Type'           => 'application/zip',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+
+    } catch (\Throwable $e) {
+        Log::error('[FIEL-EXTERNAL] downloadAuth failed', [
+            'id'          => $id,
+            'account_id'  => $accountId,
+            'row_account_id' => $rowAccountId,
+            'disk'        => $foundDisk,
+            'path'        => $foundPath,
+            'err'         => $e->getMessage(),
+        ]);
+        abort(500, 'No se pudo descargar el archivo.');
+    }
+}
+
 
     // ======================================================
     // EDITAR METADATA (CLIENTE AUTH)
