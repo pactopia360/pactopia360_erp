@@ -117,16 +117,18 @@ body{
   border-bottom:1px solid #e5e7eb;
   word-wrap:break-word;
   overflow-wrap:break-word;
+  vertical-align:middle; /* ✅ consistente con td */
 }
 
 .tbl td{
-  padding:7px 12px;
+  padding:10px 12px;       /* ✅ IGUAL que th (clave) */
   font-size:12px;
   border-bottom:1px solid #ededed;
-  vertical-align:top;
+  vertical-align:middle;   /* ✅ consistente */
   word-wrap:break-word;
   overflow-wrap:break-word;
 }
+
 .tbl tr:nth-child(even) td{ background:#f8fafc; }
 
 /* Bottom blocks */
