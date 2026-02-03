@@ -183,129 +183,170 @@ document.addEventListener('DOMContentLoaded', function () {
   // =====================================================
   // API: listado ZIPs (FIEL preferente)
   // =====================================================
-  window.P360_SAT_API.externalZipList = async function (params = {}) {
-    const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
+  // =====================================================
+// API: listado ZIPs (FIEL preferente)
+// =====================================================
+window.P360_SAT_API.externalZipList = async function (params = {}) {
+  const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
 
-    // 1) Preferencia dura: externalZipList
-    const direct = String(routes.externalZipList || '').trim();
+  // 1) Preferencia dura: externalZipList
+  const direct = String(routes.externalZipList || '').trim();
 
-    // 2) Fallback (solo si no existe externalZipList)
-    const fallback =
-      String(routes.fielList || '').trim() ||
-      String(routes.fielExternalList || '').trim() ||
-      '';
+  // 2) Fallback (solo si no existe externalZipList)
+  const fallback =
+    String(routes.fielList || '').trim() ||
+    String(routes.fielExternalList || '').trim() ||
+    '';
 
-    const url = direct || fallback;
+  const url = direct || fallback;
 
-    if (!url) {
-      return {
-        ok: false,
-        status: 0,
-        data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0, data: { rows: [], count: 0 } }
-      };
+  if (!url) {
+    return {
+      ok: false,
+      status: 0,
+      data: { ok: false, msg: 'Ruta de listado no configurada.', rows: [], count: 0, data: { rows: [], count: 0 } }
+    };
+  }
+
+  // =====================================================
+  // ✅ Defaults defensivos para evitar 422
+  // Muchos backends validan offset/limit aunque sean GET
+  // =====================================================
+  const safe = Object.assign(
+    { limit: 50, offset: 0, status: '', q: '' },
+    (params && typeof params === 'object') ? params : {}
+  );
+
+  // Normaliza tipos
+  safe.limit  = Number.isFinite(Number(safe.limit))  ? String(Number(safe.limit))  : '50';
+  safe.offset = Number.isFinite(Number(safe.offset)) ? String(Number(safe.offset)) : '0';
+
+  if (safe.status === null || safe.status === undefined) safe.status = '';
+  if (safe.q === null || safe.q === undefined) safe.q = '';
+
+  // QS: params planos (incluye strings vacíos a propósito)
+  const qs = new URLSearchParams();
+  Object.keys(safe).forEach((k) => {
+    const v = safe[k];
+    if (v === undefined || v === null) return;
+    if (typeof v === 'object') return;
+    qs.set(String(k), String(v));
+  });
+
+  const finalUrl = qs.toString()
+    ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
+    : url;
+
+  log('externalZipList finalUrl:', finalUrl);
+
+  let resp = await satFetchJson(finalUrl, { method: 'GET' });
+
+  // =====================================================
+  // ✅ Auto-fallback:
+  // Si usamos externalZipList y responde 422/501/Non-JSON/ok:false,
+  // reintentamos con fielList/fielExternalList.
+  // =====================================================
+  const shouldFallback =
+    !!direct && !!fallback && (
+      resp?.status === 422 ||
+      resp?.status === 501 ||
+      resp?.nonJson === true ||
+      resp?.ok === false
+    );
+
+  if (shouldFallback) {
+    log('externalZipList failed, trying fallback route:', { status: resp?.status, fallback });
+
+    const fallbackUrl = qs.toString()
+      ? (fallback + (fallback.includes('?') ? '&' : '?') + qs.toString())
+      : fallback;
+
+    resp = await satFetchJson(fallbackUrl, { method: 'GET' });
+  }
+
+  // Normalización
+  const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+
+  function pickPayload(root) {
+    if (Array.isArray(root)) return root;
+    if (!isObj(root)) return root;
+
+    const hasRows = Array.isArray(root.rows) || Array.isArray(root?.data?.rows);
+    const hasCount = typeof root.count === 'number' || typeof root?.data?.count === 'number';
+
+    if (isObj(root.data)) {
+      const d = root.data;
+      const dHasRows = Array.isArray(d.rows) || Array.isArray(d?.data?.rows);
+      const dHasCount = typeof d.count === 'number' || typeof d?.data?.count === 'number';
+      if (dHasRows || dHasCount) return d;
     }
 
-    // QS: params planos
-    const qs = new URLSearchParams();
-    if (params && typeof params === 'object') {
-      Object.keys(params).forEach((k) => {
-        const v = params[k];
-        if (v === undefined || v === null) return;
-        if (typeof v === 'object') return;
-        qs.set(String(k), String(v));
-      });
-    }
+    if (hasRows || hasCount) return root;
+    return root;
+  }
 
-    const finalUrl = qs.toString()
-      ? (url + (url.includes('?') ? '&' : '?') + qs.toString())
-      : url;
+  const root = (resp && typeof resp === 'object') ? (resp.data ?? null) : null;
+  const payload = pickPayload(root);
 
-    log('externalZipList finalUrl:', finalUrl);
+  let rows = [];
+  let count = 0;
 
-    const resp = await satFetchJson(finalUrl, { method: 'GET' });
+  try {
+    if (Array.isArray(payload)) {
+      rows = payload;
+      count = payload.length;
+    } else if (isObj(payload)) {
+      const r1 = payload.rows;
+      const r2 = payload?.data?.rows;
+      const r3 = payload.data;
 
-    // Normalización
-    const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+      if (Array.isArray(r1)) rows = r1;
+      else if (Array.isArray(r2)) rows = r2;
+      else if (Array.isArray(r3)) rows = r3;
+      else rows = [];
 
-    function pickPayload(root) {
-      if (Array.isArray(root)) return root;
-      if (!isObj(root)) return root;
+      const c1 = payload.count;
+      const c2 = payload?.data?.count;
 
-      const hasRows = Array.isArray(root.rows) || Array.isArray(root?.data?.rows);
-      const hasCount = typeof root.count === 'number' || typeof root?.data?.count === 'number';
-
-      if (isObj(root.data)) {
-        const d = root.data;
-        const dHasRows = Array.isArray(d.rows) || Array.isArray(d?.data?.rows);
-        const dHasCount = typeof d.count === 'number' || typeof d?.data?.count === 'number';
-        if (dHasRows || dHasCount) return d;
-      }
-
-      if (hasRows || hasCount) return root;
-      return root;
-    }
-
-    const root = (resp && typeof resp === 'object') ? (resp.data ?? null) : null;
-    const payload = pickPayload(root);
-
-    let rows = [];
-    let count = 0;
-
-    try {
-      if (Array.isArray(payload)) {
-        rows = payload;
-        count = payload.length;
-      } else if (isObj(payload)) {
-        const r1 = payload.rows;
-        const r2 = payload?.data?.rows;
-        const r3 = payload.data;
-
-        if (Array.isArray(r1)) rows = r1;
-        else if (Array.isArray(r2)) rows = r2;
-        else if (Array.isArray(r3)) rows = r3;
-        else rows = [];
-
-        const c1 = payload.count;
-        const c2 = payload?.data?.count;
-
-        if (typeof c1 === 'number' && Number.isFinite(c1)) count = c1;
-        else if (typeof c2 === 'number' && Number.isFinite(c2)) count = c2;
-        else count = rows.length;
-      } else {
-        rows = [];
-        count = 0;
-      }
-    } catch (e) {
+      if (typeof c1 === 'number' && Number.isFinite(c1)) count = c1;
+      else if (typeof c2 === 'number' && Number.isFinite(c2)) count = c2;
+      else count = rows.length;
+    } else {
       rows = [];
       count = 0;
     }
+  } catch (e) {
+    rows = [];
+    count = 0;
+  }
 
-    const normalized = isObj(payload) ? Object.assign({}, payload) : {};
-    normalized.rows = rows;
-    normalized.count = count;
+  const normalized = isObj(payload) ? Object.assign({}, payload) : {};
+  normalized.rows = rows;
+  normalized.count = count;
 
-    if (isObj(normalized.data)) {
-      if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
-      if (typeof normalized.data.count !== 'number' || !Number.isFinite(normalized.data.count)) normalized.data.count = count;
-    } else {
-      normalized.data = { rows, count };
-    }
+  if (isObj(normalized.data)) {
+    if (!Array.isArray(normalized.data.rows)) normalized.data.rows = rows;
+    if (typeof normalized.data.count !== 'number' || !Number.isFinite(normalized.data.count)) normalized.data.count = count;
+  } else {
+    normalized.data = { rows, count };
+  }
 
-    if (typeof normalized.ok !== 'boolean') {
-      normalized.ok = (typeof resp?.ok === 'boolean') ? resp.ok : (resp?.status === 200);
-    }
+  if (typeof normalized.ok !== 'boolean') {
+    normalized.ok = (typeof resp?.ok === 'boolean') ? resp.ok : (resp?.status === 200);
+  }
 
-    const out = Object.assign({}, resp, { data: normalized });
+  const out = Object.assign({}, resp, { data: normalized });
 
-    log('externalZipList normalized:', {
-      status: out?.status,
-      count: out?.data?.count,
-      rowsLen: (out?.data?.rows || []).length,
-      using: direct ? 'externalZipList' : (fallback ? 'fielList/fallback' : 'none')
-    });
+  log('externalZipList normalized:', {
+    status: out?.status,
+    count: out?.data?.count,
+    rowsLen: (out?.data?.rows || []).length,
+    using: direct ? 'externalZipList' : (fallback ? 'fielList/fallback' : 'none')
+  });
 
-    return out;
-  };
+  return out;
+};
+
 
   // =====================================================
   // UI tabla ZIPs: selects
@@ -368,6 +409,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const tbody = findExternalZipTbody();
     if (!tbody) return;
 
+    // =========================
+    // Normalizador robusto
+    // =========================
     function normalizeRows(inputRows, raw) {
       try {
         if (Array.isArray(inputRows) && inputRows.length) return inputRows;
@@ -394,11 +438,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const arr = normalizeRows(rows, rawPayloadForDebug);
 
+    // OJO: esta tabla ahora tiene 7 columnas (agregamos contraseña)
+    const COLS = 7;
+
     if (!arr.length) {
       log('No rows to render. Raw payload:', rawPayloadForDebug);
       tbody.innerHTML = `
         <tr>
-          <td colspan="${ZIP_TABLE_COLS}" class="t-center text-muted" style="padding:14px;">
+          <td colspan="${COLS}" class="t-center text-muted" style="padding:14px;">
             Sin registros.
           </td>
         </tr>
@@ -407,10 +454,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     const routes = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
-    const rtDownload   = String(routes.fielDownload || '');
-    const rtUpdate     = String(routes.fielUpdate   || '');
-    const rtDestroy    = String(routes.fielDestroy  || '');
-    const rtPassReveal = String(routes.fielPassword || routes.fielRevealPassword || '').trim();
+    const rtDownload = String(routes.fielDownload || '');
+    const rtUpdate   = String(routes.fielUpdate   || '');
+    const rtDestroy  = String(routes.fielDestroy  || '');
+    const rtPass     = String(routes.fielPassword || routes.fielRevealPassword || '');
 
     function pickId(r) {
       const cand = [
@@ -461,9 +508,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function pickHasPassword(r) {
-      const v =
-        r.has_password ?? r.hasPass ?? r.password_set ?? r.passwordSet ?? r.has_fiel_password ?? null;
-
+      const v = r.has_password ?? r.hasPass ?? r.password_set ?? r.passwordSet ?? r.has_fiel_password ?? null;
       if (v === true || v === 1 || v === '1') return true;
       if (v === false || v === 0 || v === '0') return false;
 
@@ -482,30 +527,27 @@ document.addEventListener('DOMContentLoaded', function () {
     tbody.innerHTML = arr.map((r) => {
       const id = pickId(r);
 
-      const rfcRaw   = pickRfc(r);
-      const razonRaw = pickRazon(r);
-
-      const rfc   = escapeHtml(rfcRaw);
-      const razon = escapeHtml(razonRaw);
+      const rfc   = escapeHtml(pickRfc(r));
+      const razon = escapeHtml(pickRazon(r));
       const name  = escapeHtml(pickName(r));
       const size  = fmtBytes(pickSize(r));
       const stRaw = pickStatus(r);
 
-      const urlDownload   = buildUrl(rtDownload, id);
-      const urlDestroy    = buildUrl(rtDestroy, id);
-      const urlUpdate     = buildUrl(rtUpdate, id);
-      const urlPassReveal = buildUrl(rtPassReveal, id);
+      const urlDownload = buildUrl(rtDownload, id);
+      const urlDestroy  = buildUrl(rtDestroy, id);
+      const urlUpdate   = buildUrl(rtUpdate, id);
 
       const hasPass  = pickHasPassword(r);
       const passMask = escapeHtml(pickPasswordMask(r));
+      const urlPass  = buildUrl(rtPass, id);
 
       const btnEdit = (id && urlUpdate)
         ? `<button type="button"
               class="btn icon-only"
               data-action="fiel-edit"
               data-id="${escapeHtml(id)}"
-              data-rfc="${escapeHtml(rfcRaw)}"
-              data-razon="${escapeHtml(razonRaw)}"
+              data-rfc="${escapeHtml(pickRfc(r))}"
+              data-razon="${escapeHtml(pickRazon(r))}"
               data-url-update="${escapeHtml(urlUpdate)}"
               data-tip="Editar">✏️</button>`
         : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta update no configurada'}">✏️</button>`;
@@ -515,20 +557,20 @@ document.addEventListener('DOMContentLoaded', function () {
         : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta download no configurada'}">⬇️</button>`;
 
       const btnDelete = (id && urlDestroy)
-        ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(rfcRaw)}" data-tip="Eliminar">🗑️</button>`
+        ? `<button type="button" class="btn icon-only" data-action="fiel-destroy" data-url="${escapeHtml(urlDestroy)}" data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(pickRfc(r))}" data-tip="Eliminar">🗑️</button>`
         : `<button type="button" class="btn icon-only" disabled data-tip="${!id ? 'Sin ID' : 'Ruta destroy no configurada'}">🗑️</button>`;
 
-      const btnReveal = (id && urlPassReveal && hasPass)
+      const btnPass = (id && hasPass && urlPass)
         ? `<button type="button"
               class="btn icon-only"
               data-action="fiel-pass-toggle"
               data-id="${escapeHtml(id)}"
-              data-url="${escapeHtml(urlPassReveal)}"
+              data-url="${escapeHtml(urlPass)}"
               data-tip="Ver contraseña">👁</button>`
-        : `<button type="button" class="btn icon-only" disabled data-tip="${!hasPass ? 'Sin contraseña' : 'Ruta password no configurada'}">👁</button>`;
+        : `<button type="button" class="btn icon-only" disabled data-tip="${!hasPass ? 'Sin contraseña' : (!urlPass ? 'Ruta password no configurada' : 'No disponible')}">👁</button>`;
 
       return `
-        <tr data-id="${escapeHtml(id)}" data-rfc="${escapeHtml(rfcRaw)}" data-razon="${escapeHtml(razonRaw)}">
+        <tr data-id="${escapeHtml(id)}">
           <td>${name || 'ZIP'}</td>
           <td class="t-center mono">${rfc || '—'}</td>
           <td>${razon || '—'}</td>
@@ -536,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function () {
           <td class="t-center">
             <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
               <span class="mono" data-pass-mask="${escapeHtml(id)}">${passMask}</span>
-              ${btnReveal}
+              ${btnPass}
             </div>
           </td>
 
@@ -553,6 +595,7 @@ document.addEventListener('DOMContentLoaded', function () {
       `.trim();
     }).join('');
   }
+
 
   // =====================================================
   // Actions
@@ -718,7 +761,7 @@ document.addEventListener('DOMContentLoaded', function () {
       <tr><td colspan="${ZIP_TABLE_COLS}" class="t-center text-muted" style="padding:14px;">Cargando…</td></tr>
     `.trim();
 
-    const resp = await window.P360_SAT_API.externalZipList({ limit: 50 });
+    const resp = await window.P360_SAT_API.externalZipList({ limit: 50, offset: 0, status: '', q: '' });
 
     log('externalZipList response:', resp);
 

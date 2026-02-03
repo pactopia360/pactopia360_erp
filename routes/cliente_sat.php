@@ -306,8 +306,11 @@ Route::middleware(['auth:web', 'account.active'])
                 // ✅ Redirect a la pantalla real /sat/external/invite
                 Route::redirect('/invite', '/cliente/sat/external/invite', 302)->name('invite.get');
 
-                Route::get('/cliente/sat/fiel/external/password/{id}', [FielExternalController::class, 'password'])
-                    ->name('cliente.sat.fiel.external.password');
+                // ✅ Password FIEL (ruta correcta dentro del prefix fiel/external)
+                Route::get('/password/{id}', [FielExternalController::class, 'password'])
+                    ->where('id', '[0-9]+')
+                    ->middleware($thrVerify)
+                    ->name('password');
 
             });
 

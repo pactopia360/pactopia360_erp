@@ -134,274 +134,18 @@
 
   $fmtDate = function($v): string {
     $s = trim((string)$v);
+    
     if ($s === '') return '';
     return $s;
   };
 @endphp
 
 @push('styles')
-<style>
-  .p360-page{ padding:0 !important; }
-
-  :root{
-    --sx-ink: var(--text, #0f172a);
-    --sx-mut: var(--muted, #64748b);
-    --sx-line: color-mix(in oklab, var(--sx-ink) 12%, transparent);
-    --sx-line2: color-mix(in oklab, var(--sx-ink) 8%, transparent);
-    --sx-card: var(--card-bg, #fff);
-    --sx-bg: color-mix(in oklab, var(--sx-card) 90%, #f6f7fb);
-    --sx-shadow: var(--shadow-1, 0 18px 40px rgba(15,23,42,.08));
-    --sx-radius: 22px;
-    --sx-accent: #7c3aed;
-  }
-
-  .sx-wrap{ padding:16px; }
-  .sx-card{
-    background:var(--sx-card);
-    border:1px solid var(--sx-line);
-    border-radius:var(--sx-radius);
-    box-shadow: var(--sx-shadow);
-    overflow:hidden;
-  }
-
-  .sx-head{
-    padding:18px 18px 14px;
-    display:flex;
-    align-items:flex-end;
-    justify-content:space-between;
-    gap:14px;
-    flex-wrap:wrap;
-    border-bottom:1px solid var(--sx-line);
-    background:
-      radial-gradient(1200px 260px at 10% 0%, color-mix(in oklab, var(--sx-accent) 12%, transparent), transparent 60%),
-      linear-gradient(180deg, color-mix(in oklab, var(--sx-card) 94%, transparent), color-mix(in oklab, var(--sx-card) 98%, transparent));
-  }
-  .sx-title{ margin:0; font-size:18px; font-weight:950; letter-spacing:-.01em; color:var(--sx-ink); }
-  .sx-sub{ margin-top:6px; color:var(--sx-mut); font-weight:850; font-size:12px; max-width:980px; line-height:1.35; }
-  .sx-head-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-
-  .sx-filters{
-    padding:12px 18px 16px;
-    border-bottom:1px solid var(--sx-line);
-    background: color-mix(in oklab, var(--sx-card) 96%, transparent);
-  }
-  .sx-grid{
-    display:grid;
-    grid-template-columns: 1.4fr 160px 170px 180px 170px auto;
-    gap:10px;
-    align-items:end;
-  }
-  @media(max-width: 1200px){
-    .sx-grid{ grid-template-columns: 1fr 1fr; }
-  }
-
-  .sx-ctl label{ display:block; font-size:12px; color:var(--sx-mut); font-weight:950; margin-bottom:6px; }
-
-  .sx-in, .sx-sel{
-    width:100%;
-    padding:10px 12px;
-    border-radius:14px;
-    border:1px solid var(--sx-line);
-    background:transparent;
-    color:var(--sx-ink);
-    font-weight:900;
-    outline:none;
-  }
-  .sx-in:focus, .sx-sel:focus{
-    border-color: color-mix(in oklab, var(--sx-accent) 40%, var(--sx-line));
-    box-shadow:0 0 0 3px color-mix(in oklab, var(--sx-accent) 18%, transparent);
-  }
-
-  .sx-btn{
-    padding:10px 12px;
-    border-radius:14px;
-    border:1px solid var(--sx-line);
-    font-weight:950;
-    cursor:pointer;
-    text-decoration:none;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    white-space:nowrap;
-    user-select:none;
-  }
-  .sx-btn-primary{ background:var(--sx-ink); color:#fff; border-color: color-mix(in oklab, var(--sx-ink) 35%, var(--sx-line)); }
-  .sx-btn-soft{ background: color-mix(in oklab, var(--sx-card) 92%, transparent); color:var(--sx-ink); }
-  .sx-btn-ghost{ background:transparent; color:var(--sx-ink); }
-  .sx-btn:disabled{ opacity:.55; cursor:not-allowed; }
-
-  .sx-chips{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .sx-chip{
-    border:1px solid var(--sx-line);
-    background: color-mix(in oklab, var(--sx-card) 94%, transparent);
-    color:var(--sx-ink);
-    font-weight:950;
-    font-size:12px;
-    padding:7px 10px;
-    border-radius:999px;
-    text-decoration:none;
-    display:inline-flex;
-    gap:8px;
-    align-items:center;
-  }
-  .sx-chip .dot{ width:8px; height:8px; border-radius:999px; background: color-mix(in oklab, var(--sx-ink) 25%, transparent); }
-  .sx-chip.on{ background:var(--sx-ink); color:#fff; border-color: color-mix(in oklab, var(--sx-ink) 25%, var(--sx-line)); }
-  .sx-chip.on .dot{ background: rgba(255,255,255,.8); }
-
-  .sx-kpis{
-    padding:16px 18px;
-    display:grid;
-    grid-template-columns: repeat(5, minmax(180px, 1fr));
-    gap:10px;
-    border-bottom:1px solid var(--sx-line);
-    background: linear-gradient(180deg, color-mix(in oklab, var(--sx-card) 94%, transparent), transparent);
-  }
-  @media(max-width: 1200px){ .sx-kpis{ grid-template-columns: repeat(2, minmax(180px, 1fr)); } }
-  .sx-kpi{
-    border:1px solid var(--sx-line2);
-    border-radius:18px;
-    padding:12px;
-    background:
-      radial-gradient(120px 120px at 10% 0%, color-mix(in oklab, var(--sx-accent) 10%, transparent), transparent 60%),
-      color-mix(in oklab, var(--sx-card) 92%, transparent);
-  }
-  .sx-k{ font-size:12px; color:var(--sx-mut); font-weight:950; text-transform:uppercase; letter-spacing:.05em; }
-  .sx-v{ margin-top:6px; font-size:16px; font-weight:950; color:var(--sx-ink); }
-  .sx-mini{ margin-top:6px; font-size:12px; color:var(--sx-mut); font-weight:850; line-height:1.35; }
-  .sx-mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,"Liberation Mono","Courier New", monospace; font-weight:900; }
-
-  .sx-body{ padding:16px 18px 18px; background: var(--sx-bg); }
-  .sx-panel{ background:var(--sx-card); border:1px solid var(--sx-line); border-radius:20px; overflow:hidden; }
-
-  .sx-bulkbar{
-    display:none;
-    padding:12px 14px;
-    border-bottom:1px solid var(--sx-line);
-    background: linear-gradient(90deg, color-mix(in oklab, var(--sx-accent) 10%, var(--sx-card)), color-mix(in oklab, var(--sx-card) 98%, transparent));
-    gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;
-  }
-  .sx-bulkbar.on{ display:flex; }
-  .sx-badge{
-    border:1px solid var(--sx-line);
-    background: color-mix(in oklab, var(--sx-card) 92%, transparent);
-    border-radius:999px;
-    padding:7px 10px;
-    font-weight:950;
-    color:var(--sx-ink);
-  }
-
-  .sx-table-wrap{ width:100%; overflow:auto; }
-  .sx-table{ width:100%; border-collapse:separate; border-spacing:0; min-width: 1220px; }
-  .sx-table th{
-    padding:10px 12px;
-    text-align:left;
-    font-size:12px;
-    color:var(--sx-mut);
-    font-weight:950;
-    text-transform:uppercase;
-    letter-spacing:.05em;
-    border-bottom:1px solid var(--sx-line);
-    background: color-mix(in oklab, var(--sx-card) 96%, transparent);
-    position:sticky; top:0; z-index:2;
-    white-space:nowrap;
-  }
-  .sx-table td{
-    padding:14px 12px;
-    border-bottom:1px solid var(--sx-line2);
-    color:var(--sx-ink);
-    font-weight:850;
-    vertical-align:top;
-    background:transparent;
-  }
-  .sx-table tr:hover td{ background: color-mix(in oklab, var(--sx-card) 92%, transparent); }
-
-  .sx-right{ text-align:right; }
-  .sx-selcol{ width:44px; }
-  .sx-ck{ width:16px; height:16px; accent-color:#111827; }
-
-  .sx-ellipsis{ max-width: 520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
-
-  .sx-subrow{ margin-top:6px; font-size:12px; color:var(--sx-mut); font-weight:850; line-height:1.35; }
-
-  .sx-pill{
-    display:inline-flex; align-items:center; gap:8px;
-    padding:6px 10px; border-radius:999px;
-    border:1px solid transparent;
-    font-weight:950; font-size:12px; white-space:nowrap;
-  }
-  .sx-pill .dot{ width:8px; height:8px; border-radius:999px; }
-  .sx-ok{ background:#dcfce7; color:#166534; border:1px solid #bbf7d0; }
-  .sx-ok .dot{ background:#16a34a; }
-  .sx-warn{ background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
-  .sx-warn .dot{ background:#f59e0b; }
-  .sx-bad{ background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
-  .sx-bad .dot{ background:#ef4444; }
-  .sx-dim{ background: color-mix(in oklab, var(--sx-ink) 6%, transparent); color:var(--sx-mut); border:1px solid var(--sx-line); }
-  .sx-dim .dot{ background: color-mix(in oklab, var(--sx-ink) 30%, transparent); }
-
-  .sx-meta{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
-  .sx-meta .sx-pill{ padding:6px 10px; }
-
-  .sx-actions{
-    display:grid;
-    grid-template-columns: 1fr;
-    gap:10px;
-    justify-items:end;
-  }
-  .sx-actionsBox{
-    width: 320px;
-    border:1px solid var(--sx-line);
-    background: color-mix(in oklab, var(--sx-card) 95%, transparent);
-    border-radius:16px;
-    padding:10px;
-    box-shadow: 0 10px 22px rgba(15,23,42,.06);
-  }
-  .sx-actionsRow{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    justify-content:flex-end;
-    align-items:center;
-  }
-  .sx-actionsRow .sx-btn{ padding:8px 10px; border-radius:999px; font-size:12px; }
-
-  .sx-rowctl{
-    display:grid;
-    grid-template-columns: 1fr;
-    gap:8px;
-  }
-  .sx-rowctl .sx-sel{
-    padding:10px 12px;
-    border-radius:14px;
-    font-weight:950;
-    font-size:12px;
-    background:transparent;
-  }
-  .sx-save{
-    width:100%;
-    justify-content:center;
-    border-radius:14px;
-  }
-
-  @media(max-width: 1100px){
-    .sx-actionsBox{ width: 280px; }
-  }
-
-  .sx-toast{
-    position:fixed; right:18px; bottom:18px;
-    z-index:9999;
-    background:#111827;
-    color:#fff;
-    border:1px solid rgba(255,255,255,.14);
-    padding:10px 12px;
-    border-radius:14px;
-    font-weight:900;
-    display:none;
-    max-width: 420px;
-  }
-  .sx-toast.on{ display:block; }
-</style>
+  @php
+    $sxCssPath = public_path('assets/admin/css/billing-statements.css');
+    $sxCssVer  = @filemtime($sxCssPath) ?: time();
+  @endphp
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/billing-statements.css') }}?v={{ $sxCssVer }}">
 @endpush
 
 @section('content')
@@ -734,10 +478,21 @@
                           @endif
 
                           @if($pdfUrl)
+                            <button class="sx-btn sx-btn-soft"
+                                    type="button"
+                                    data-sx-pdf-preview="1"
+                                    data-url="{{ $pdfUrl }}"
+                                    data-account="{{ e($aid) }}"
+                                    data-period="{{ e($period) }}">
+                              Vista previa
+                            </button>
+
                             <a class="sx-btn sx-btn-soft" target="_blank" href="{{ $pdfUrl }}">PDF</a>
                           @else
+                            <button class="sx-btn sx-btn-soft" type="button" disabled>Vista previa</button>
                             <button class="sx-btn sx-btn-soft" type="button" disabled>PDF</button>
                           @endif
+
 
                           @if($emailUrl)
                             <form method="POST" action="{{ $emailUrl }}" style="display:inline;">
@@ -783,6 +538,31 @@
 </div>
 
 <div id="sxToast" class="sx-toast"></div>
+
+<!-- ===== Modal: Vista previa PDF ===== -->
+<div id="sxPdfModal" class="sx-modal" aria-hidden="true">
+  <div class="sx-modal-card" role="dialog" aria-modal="true" aria-label="Vista previa PDF">
+    <div class="sx-modal-head">
+      <div>
+        <div class="sx-modal-title">
+          Vista previa · Estado de cuenta
+          <span class="sx-modal-sub">Cuenta <span id="sxPdfAccount" class="sx-mono">—</span> · Periodo <span id="sxPdfPeriod" class="sx-mono">—</span></span>
+        </div>
+      </div>
+
+      <div class="sx-modal-actions">
+        <a id="sxPdfOpenNew" class="sx-btn sx-btn-soft" target="_blank" href="#" rel="noopener">Abrir en pestaña</a>
+        <a id="sxPdfDownload" class="sx-btn sx-btn-primary" target="_blank" href="#" rel="noopener">Descargar</a>
+        <button id="sxPdfClose" class="sx-btn sx-btn-ghost" type="button">Cerrar</button>
+      </div>
+    </div>
+
+    <div class="sx-modal-body">
+      <iframe id="sxPdfFrame" class="sx-modal-iframe" src="about:blank"></iframe>
+    </div>
+  </div>
+</div>
+
 
 @push('scripts')
 <script>
@@ -1098,6 +878,106 @@
     const id = el.getAttribute('data-sx-save') || '';
     window.sxSaveRow(id);
   });
+
+    // ===== PDF Preview Modal (Vista previa) =====
+  const pdfModal    = $('sxPdfModal');
+  const pdfFrame    = $('sxPdfFrame');
+  const pdfClose    = $('sxPdfClose');
+  const pdfOpenNew  = $('sxPdfOpenNew');
+  const pdfDownload = $('sxPdfDownload');
+  const pdfAccLbl   = $('sxPdfAccount');
+  const pdfPerLbl   = $('sxPdfPeriod');
+
+  function withParams(url, params){
+    try{
+      const u = new URL(url, window.location.origin);
+      Object.keys(params || {}).forEach(k => {
+        const v = params[k];
+        if (v === null || typeof v === 'undefined') return;
+        u.searchParams.set(k, String(v));
+      });
+      return u.toString();
+    }catch(e){
+      // fallback simple
+      let glue = (url.indexOf('?') >= 0) ? '&' : '?';
+      const q = Object.keys(params||{}).map(k => encodeURIComponent(k)+'='+encodeURIComponent(String(params[k]))).join('&');
+      return url + glue + q;
+    }
+  }
+
+  function openPdfModal(opts){
+    if(!pdfModal || !pdfFrame) return;
+
+    const url    = String((opts && opts.url) || '').trim();
+    const acc    = String((opts && opts.account) || '—');
+    const per    = String((opts && opts.period) || '—');
+
+    if(url === ''){
+      sxToast('No hay URL de PDF para vista previa.', 'bad');
+      return;
+    }
+
+    // ✅ Vista previa debe ser inline para iframe
+    const previewUrl = withParams(url, { inline: 1, modal: 1 });
+
+    // Labels
+    if(pdfAccLbl) pdfAccLbl.textContent = acc || '—';
+    if(pdfPerLbl) pdfPerLbl.textContent = per || '—';
+
+    // Links
+    if(pdfOpenNew)  pdfOpenNew.setAttribute('href', previewUrl);
+    if(pdfDownload) pdfDownload.setAttribute('href', url); // “Descargar” usa el endpoint normal
+
+    // Iframe reload (forzado)
+    pdfFrame.setAttribute('src', 'about:blank');
+    setTimeout(() => pdfFrame.setAttribute('src', previewUrl), 30);
+
+    pdfModal.classList.add('on');
+    pdfModal.setAttribute('aria-hidden','false');
+  }
+
+  function closePdfModal(){
+    if(!pdfModal) return;
+    pdfModal.classList.remove('on');
+    pdfModal.setAttribute('aria-hidden','true');
+    if(pdfFrame) pdfFrame.setAttribute('src', 'about:blank');
+  }
+
+  // Close handlers
+  if(pdfClose){
+    pdfClose.addEventListener('click', function(ev){
+      ev.preventDefault();
+      closePdfModal();
+    });
+  }
+
+  if(pdfModal){
+    pdfModal.addEventListener('click', function(ev){
+      // click fuera del card
+      if(ev.target === pdfModal) closePdfModal();
+    });
+  }
+
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape'){
+      if(pdfModal && pdfModal.classList.contains('on')) closePdfModal();
+    }
+  });
+
+  // Delegación click: botón Vista previa
+  document.addEventListener('click', function(ev){
+    const btn = ev.target.closest('[data-sx-pdf-preview="1"]');
+    if(!btn) return;
+
+    ev.preventDefault();
+
+    const url     = btn.getAttribute('data-url') || '';
+    const account = btn.getAttribute('data-account') || '—';
+    const period  = btn.getAttribute('data-period') || '—';
+
+    openPdfModal({ url, account, period });
+  });
+
 
   // init
   updateBulk();

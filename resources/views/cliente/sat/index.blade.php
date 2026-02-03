@@ -187,8 +187,11 @@
   $rtRfcDelete      = Route::has('cliente.sat.rfc.delete')       ? route('cliente.sat.rfc.delete')       : '#';
   $rtDownloadCancel = Route::has('cliente.sat.download.cancel')  ? route('cliente.sat.download.cancel')  : null;
 
-  // ✅ Registro externo (invite)
-  $rtExternalInvite = Route::has('cliente.sat.external.invite')  ? route('cliente.sat.external.invite')  : null;
+ // ✅ Registro externo (invite) — SOT
+$rtExternalInvite = Route::has('cliente.sat.fiel.external.invite')
+  ? route('cliente.sat.fiel.external.invite')
+  : (Route::has('cliente.sat.external.invite') ? route('cliente.sat.external.invite') : null);
+
 
   // Carrito SAT
   $rtCartIndex  = Route::has('cliente.sat.cart.index')  ? route('cliente.sat.cart.index')  : null;
@@ -2108,9 +2111,13 @@
       // ======================================================
 
       // Listado “externo ZIP”
-      'externalZipList' => \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.list')
-        ? route('cliente.sat.external.zip.list')
-        : '',
+      // ✅ Si ya existe FIEL externo, NO uses externalZipList (evita 422 y fuerza fallback real)
+      'externalZipList' => $hasFielList
+        ? ''
+        : (\Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.list')
+            ? route('cliente.sat.external.zip.list')
+            : ''),
+
 
       // Registro externo por ZIP (módulo external)
       'externalZipRegister' => \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.register')
@@ -2125,14 +2132,27 @@
       // ======================================================
       // ✅ FIEL EXTERNA (ZIPs) - RUTAS REALES (usa __ID__ seguro)
       // ======================================================
-      'fielList' => $hasFielList
+      
+      'fielList'     => \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.list')
         ? route('cliente.sat.fiel.external.list')
         : '',
 
-      // Patterns con __ID__ (sin que se rompa la URL)
-      'fielDownload' => $makeIdPattern('cliente.sat.fiel.external.download'),
-      'fielUpdate'   => $makeIdPattern('cliente.sat.fiel.external.update'),
-      'fielDestroy'  => $makeIdPattern('cliente.sat.fiel.external.destroy'),
+      'fielDownload' => \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.download')
+        ? route('cliente.sat.fiel.external.download', ['id' => '__ID__'])
+        : '',
+
+      'fielUpdate'   => \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.update')
+        ? route('cliente.sat.fiel.external.update', ['id' => '__ID__'])
+        : '',
+
+      'fielDestroy'  => \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.destroy')
+        ? route('cliente.sat.fiel.external.destroy', ['id' => '__ID__'])
+        : '',
+
+      'fielPassword' => \Illuminate\Support\Facades\Route::has('cliente.sat.fiel.external.password')
+        ? route('cliente.sat.fiel.external.password', ['id' => '__ID__'])
+        : '',
+
 
       // Extra: “ruta preferida” para el listado de la tabla RFC externo.
       // Tu JS puede usar esta prioridad:
@@ -2479,18 +2499,22 @@
     const action =
       btn.getAttribute('data-action')
       || btn.getAttribute('data-fiel-action')
+      || (btn.classList.contains('sat-fiel-pass') ? 'password' : '')
       || (btn.classList.contains('sat-fiel-edit') ? 'edit' : '')
       || (btn.classList.contains('sat-fiel-download') ? 'download' : '')
       || (btn.classList.contains('sat-fiel-delete') ? 'delete' : '');
+
 
     // También soporta si el botón ya trae URL
     const url = btn.getAttribute('data-url') || btn.getAttribute('href') || '';
 
     // Rutas desde CFG
     const CFG = (window.P360_SAT && window.P360_SAT.routes) ? window.P360_SAT.routes : {};
-    const rtUpdate   = CFG.fielUpdate   || '';
-    const rtDownload = CFG.fielDownload || '';
-    const rtDestroy  = CFG.fielDestroy  || '';
+    const rtUpdate    = CFG.fielUpdate    || '';
+    const rtDownload  = CFG.fielDownload  || '';
+    const rtDestroy   = CFG.fielDestroy   || '';
+    const rtPassword  = CFG.fielPassword  || '';
+
 
     // ---- DOWNLOAD ----
     if (action === 'download' || btn.classList.contains('sat-btn-download')) {
@@ -2523,6 +2547,41 @@
       openModal('modalEditZip');
       return;
     }
+
+    // ---- PASSWORD ----
+    if (action === 'password') {
+      const passUrl = url || routeWithId(rtPassword, id);
+      if (!passUrl) return;
+
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+      fetch(passUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': csrf
+        }
+      })
+      .then(async (r) => {
+        const raw = await r.text();
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) {}
+
+        if (!r.ok || !data || !data.ok) {
+          throw new Error((data && data.msg) ? data.msg : ('Error al obtener contraseña (HTTP ' + r.status + ')'));
+        }
+
+        // 👇 aquí decides cómo mostrarla
+        alert('Contraseña FIEL: ' + (data.password || '—'));
+      })
+      .catch((err) => {
+        alert(err.message || 'Error al obtener contraseña');
+      });
+
+      return;
+    }
+
 
     // ---- DELETE ----
     if (action === 'delete' || action === 'destroy' || btn.classList.contains('sat-btn-cancel') || btn.classList.contains('sat-btn-delete')) {

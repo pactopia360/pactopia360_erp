@@ -456,13 +456,16 @@ final class BillingStatementsController extends Controller
         ]);
     }
 
-    // =========================================================
-    // PDF / EMAIL DATA
-    // =========================================================
-
-    private function buildStatementData(string $accountId, string $period): array
+        /**
+     * Calcula consumos/abonos/saldo para un periodo (misma lógica del PDF),
+     * pero sin QR ni view. Se usa para sumar "periodo anterior pendiente".
+     *
+     * @return array<string,mixed>
+     */
+    private function computeStatementTotalsForPeriod(string $accountId, string $period): array
     {
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        abort_unless($acc, 404);
 
         $items = DB::connection($this->adm)->table('estados_cuenta')
             ->where('account_id', $accountId)
@@ -494,7 +497,7 @@ final class BillingStatementsController extends Controller
         }
 
         $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
-        $inject = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
+        $inject  = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
 
         $mode = $this->resolveBillingModeFromMetaOrPlan($meta, $acc);
         $serviceName = ($mode === 'anual') ? 'Servicio anual' : 'Servicio mensual';
@@ -512,14 +515,10 @@ final class BillingStatementsController extends Controller
 
         foreach ($items as $it) {
             $cargoIt = is_numeric($it->cargo ?? null) ? (float) $it->cargo : 0.0;
-            if ($cargoIt <= 0.00001) {
-                continue;
-            }
+            if ($cargoIt <= 0.00001) continue;
 
             $concepto = trim((string) ($it->concepto ?? ''));
-            if ($concepto === '') {
-                $concepto = 'Cargo';
-            }
+            if ($concepto === '') $concepto = 'Cargo';
 
             $consumos[] = [
                 'service'   => $concepto,
@@ -530,26 +529,16 @@ final class BillingStatementsController extends Controller
         }
 
         $totalConsumos = 0.0;
-        foreach ($consumos as $c) {
-            $totalConsumos += (float) ($c['subtotal'] ?? 0);
-        }
+        foreach ($consumos as $c) $totalConsumos += (float) ($c['subtotal'] ?? 0);
 
         $cargoShown = round($totalConsumos, 2);
-        $saldo = round(max(0.0, $cargoShown - $abonoTot), 2);
-
-        $qrText = $this->resolveQrTextForStatement($accountId, $period, null);
-        [$qrDataUri, $qrUrl] = $this->makeQrDataForText((string) ($qrText ?? ''));
+        $saldo      = round(max(0.0, $cargoShown - $abonoTot), 2);
 
         return [
             'account'        => $acc,
-            'account_id'     => $accountId,
-            'period'         => $period,
-            'period_label'   => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
-
             'items'          => $items,
 
             'consumos'       => $consumos,
-            'service_items'  => $consumos,
             'consumos_total' => round($totalConsumos, 2),
 
             'cargo_real'     => round($cargoEdo, 2),
@@ -563,13 +552,96 @@ final class BillingStatementsController extends Controller
             'abono_pay'      => round((float) $abonoPay, 2),
             'saldo'          => $saldo,
 
-            'total_due'      => $saldo,
-            'total'          => $saldo,
+            'last_paid'      => $lastPaid,
+            'pay_allowed'    => $payAllowed,
+
+            'statement_cfg'  => $stmtCfg,
+        ];
+    }
+
+
+    // =========================================================
+    // PDF / EMAIL DATA
+    // =========================================================
+
+    private function buildStatementData(string $accountId, string $period): array
+    {
+        // === Totales del periodo actual (misma lógica del PDF) ===
+        $cur = $this->computeStatementTotalsForPeriod($accountId, $period);
+        $acc   = $cur['account'];
+        $items = $cur['items'];
+
+        $cargoShown = (float) ($cur['cargo'] ?? 0);
+        $abonoTot   = (float) ($cur['abono'] ?? 0);
+        $saldoCur   = (float) ($cur['saldo'] ?? 0);
+
+        // === Periodo anterior pendiente (solo 1 mes atrás) ===
+        $prevPeriod = null;
+        $prevSaldo  = 0.0;
+
+        try {
+            $prevPeriod = Carbon::createFromFormat('Y-m', $period)->subMonthNoOverflow()->format('Y-m');
+            if ($this->isValidPeriod($prevPeriod)) {
+                $prev = $this->computeStatementTotalsForPeriod($accountId, $prevPeriod);
+                $prevSaldo = (float) ($prev['saldo'] ?? 0);
+            }
+        } catch (\Throwable $e) {
+            $prevPeriod = null;
+            $prevSaldo  = 0.0;
+        }
+
+        $prevSaldo = round(max(0.0, $prevSaldo), 2);
+
+        // ✅ Total a pagar = saldo actual + saldo anterior pendiente
+        $totalDue = round(max(0.0, $saldoCur + $prevSaldo), 2);
+
+        // QR/PAY base (si luego se reemplaza con Stripe, se recalcula QR)
+        $qrText = $this->resolveQrTextForStatement($accountId, $period, null);
+        [$qrDataUri, $qrUrl] = $this->makeQrDataForText((string) ($qrText ?? ''));
+
+        return [
+            'account'        => $acc,
+            'account_id'     => $accountId,
+            'period'         => $period,
+            'period_label'   => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
+
+            // raw items (por si el blade los usa)
+            'items'          => $items,
+
+            // consumos / service items
+            'consumos'       => $cur['consumos'] ?? [],
+            'service_items'  => $cur['consumos'] ?? [],
+            'consumos_total' => round((float) ($cur['consumos_total'] ?? 0), 2),
+
+            // métricas
+            'cargo_real'     => round((float) ($cur['cargo_real'] ?? 0), 2),
+            'expected_total' => round((float) ($cur['expected_total'] ?? 0), 2),
+            'tarifa_label'   => (string) ($cur['tarifa_label'] ?? '-'),
+            'tarifa_pill'    => (string) ($cur['tarifa_pill'] ?? 'dim'),
+
+            // periodo actual
+            'cargo'              => round($cargoShown, 2),
+            'abono'              => round($abonoTot, 2),
+            'abono_edo'          => round((float) ($cur['abono_edo'] ?? 0), 2),
+            'abono_pay'          => round((float) ($cur['abono_pay'] ?? 0), 2),
+            'saldo'              => round(max(0.0, $saldoCur), 2),
+
+            // ✅ nuevo: anterior
+            'prev_period'        => $prevPeriod,
+            'prev_period_label'  => $prevPeriod ? Str::title(Carbon::parse($prevPeriod . '-01')->translatedFormat('F Y')) : null,
+            'prev_balance'       => $prevPeriod ? $prevSaldo : 0.0,
+
+            // ✅ nuevo: totales para pago
+            'current_period_due' => round(max(0.0, $saldoCur), 2),
+            'total_due'          => $totalDue,
+
+            // compat: total = total_due (Stripe usa total)
+            'total'          => $totalDue,
 
             'generated_at'   => now(),
 
-            'last_paid'      => $lastPaid,
-            'pay_allowed'    => $payAllowed,
+            'last_paid'      => $cur['last_paid'] ?? null,
+            'pay_allowed'    => $cur['pay_allowed'] ?? null,
 
             'pay_url'        => $qrText,
             'qr_data_uri'    => $qrDataUri,
@@ -890,21 +962,56 @@ final class BillingStatementsController extends Controller
 
         $viewName = 'cliente.billing.pdf.statement';
 
+        // ✅ inline soporta ambos flags: inline=1 (canónico) y preview=1 (UI modal)
+        $inline = $req->boolean('inline') || $req->boolean('preview');
+
+        // ✅ DEBUG: devolver HTML crudo para diagnosticar layout (sin DomPDF)
+        if ($req->boolean('html')) {
+            Log::info('[STATEMENT_PDF] debug html', [
+                'view'       => $viewName,
+                'account_id' => $accountId,
+                'period'     => $period,
+            ]);
+
+            $html = view($viewName, $data)->render();
+            return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+        }
+
+        Log::info('[STATEMENT_PDF] rendering', [
+            'view'       => $viewName,
+            'account_id' => $accountId,
+            'period'     => $period,
+            'inline'     => $inline,
+        ]);
+
+        $name = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
+
+        // ✅ DomPDF
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::setOptions([
                 'isRemoteEnabled'      => true,
                 'isHtml5ParserEnabled' => true,
                 'defaultFont'          => 'DejaVu Sans',
                 'dpi'                  => 96,
+
+                // ✅ ayuda mucho a que NO colapse el layout por “encogimiento”
+                'defaultPaperSize'     => 'a4',
             ])->loadView($viewName, $data);
 
-            $name = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
+            // ✅ INLINE (para iframe/modal) vs DOWNLOAD
+            if ($inline) {
+                return $pdf->stream($name);
+            }
+
             return $pdf->download($name);
         }
 
+        // Fallback HTML
         $html = view($viewName, $data)->render();
         return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
     }
+
+
 
     public function email(Request $req, string $accountId, string $period): RedirectResponse
     {
@@ -1453,11 +1560,15 @@ final class BillingStatementsController extends Controller
         $text = trim($text);
         if ($text === '') return [null, null];
 
+        // ✅ Mantener consistente con el blade (qrBox 170x170)
+        $size = 170;
+
         try {
             if (class_exists(Writer::class) && class_exists(GdImageBackEnd::class)) {
-                $renderer = new ImageRenderer(new RendererStyle(260), new GdImageBackEnd());
-                $writer = new Writer($renderer);
-                $png = $writer->writeString($text);
+                // BaconQrCode genera PNG embebible (sin requests remotos)
+                $renderer = new ImageRenderer(new RendererStyle($size), new GdImageBackEnd());
+                $writer   = new Writer($renderer);
+                $png      = $writer->writeString($text);
 
                 if (is_string($png) && $png !== '') {
                     return ['data:image/png;base64,' . base64_encode($png), null];
@@ -1467,9 +1578,14 @@ final class BillingStatementsController extends Controller
             Log::warning('[ADMIN][STATEMENTS] QR local failed (bacon)', ['err' => $e->getMessage()]);
         }
 
-        $qrUrl = 'https://quickchart.io/qr?text=' . urlencode($text) . '&size=260&margin=1&format=png';
+        // Fallback remoto
+        $qrUrl = 'https://quickchart.io/qr?text=' . urlencode($text)
+            . '&size=' . $size
+            . '&margin=1&format=png';
+
         return [null, $qrUrl];
     }
+
 
     private function resolveQrTextForStatement(string $accountId, string $period, ?string $payUrl = null): ?string
     {

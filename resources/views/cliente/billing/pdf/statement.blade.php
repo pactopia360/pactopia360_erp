@@ -5,171 +5,14 @@
   <meta charset="utf-8">
   <title>Estado de cuenta {{ $period ?? '—' }}</title>
 
-  <style>
-    @page { margin: 20px; }
+  @php
+  // DomPDF: incluir CSS local por path absoluto
+  $pdfCssPath = public_path('assets/client/pdf/statement.css');
+  $pdfCss     = is_file($pdfCssPath) ? file_get_contents($pdfCssPath) : '';
+@endphp
 
-    body{
-      font-family: DejaVu Sans, Arial, sans-serif;
-      font-size: 12px;
-      color:#111827;
-      margin:0;
-      padding:0;
-      background:#ffffff;
-    }
+<style>{!! $pdfCss !!}</style>
 
-    /* Helpers */
-    .mut{ color:#6b7280; }
-    .b{ font-weight:900; }
-    .sb{ font-weight:700; }
-    .mono{ font-family: DejaVu Sans Mono, ui-monospace, monospace; }
-    .small{ font-size:11px; }
-    .xs{ font-size:10px; }
-
-    .sp6{ height:6px; }
-    .sp8{ height:8px; }
-    .sp10{ height:10px; }
-    .sp12{ height:12px; }
-    .sp14{ height:14px; }
-    .sp16{ height:16px; }
-    .sp18{ height:18px; }
-    .sp20{ height:20px; }
-
-    /* Cards (DomPDF-safe) */
-    .card{
-      background:#efefef;
-      border-radius:14px;
-      padding:14px 16px;
-      border:1px solid #e5e7eb;
-      page-break-inside: avoid;
-    }
-
-    /* Brand */
-    .brandLogo{ height:54px; display:block; }
-    .brandName{ font-size:18px; font-weight:900; margin-top:6px; }
-    .brandBlock{ font-size:12px; line-height:1.35; }
-    .brandSite{ font-size:14px; font-weight:900; margin-top:8px; }
-
-    /* Total card */
-    .totalCardLbl{ font-size:16px; font-weight:900; }
-    .totalAmt{ font-size:30px; font-weight:900; letter-spacing:.2px; }
-    .totalRowTbl{ width:100%; border-collapse:collapse; }
-    .totalRowTbl td{ vertical-align:middle; }
-    .moneySign{
-      width:18px;
-      text-align:right;
-      font-size:22px;
-      font-weight:900;
-      padding-right:8px;
-    }
-    .totalWords{ margin-top:10px; font-size:12px; color:#111827; text-align:center; }
-
-    /* ID card */
-    .idLbl{ font-size:18px; font-weight:900; }
-    .idVal{ font-size:34px; font-weight:900; letter-spacing:.5px; }
-
-    /* Section title */
-    .hSec{
-      font-size:14px;
-      font-weight:400;
-      margin:0 0 10px;
-      color:#111827;
-    }
-
-    /* Pills */
-    .pill{
-      display:inline-block;
-      padding:4px 10px;
-      border-radius:999px;
-      font-size:10px;
-      font-weight:900;
-      letter-spacing:.2px;
-      border:1px solid #d1d5db;
-      background:#ffffff;
-      color:#111827;
-      white-space:nowrap;
-    }
-    .pill.info{ border-color:#93c5fd; background:#eff6ff; }
-    .pill.ok{ border-color:#86efac; background:#ecfdf5; }
-    .pill.warn{ border-color:#fde68a; background:#fffbeb; }
-    .pill.bad{ border-color:#fca5a5; background:#fef2f2; }
-    .pill.dim{ border-color:#e5e7eb; background:#f9fafb; color:#4b5563; }
-
-    /* Table (DomPDF-safe) */
-    .tblWrap{
-      background:#efefef;
-      border-radius:14px;
-      padding:0;
-      border:1px solid #e5e7eb;
-      /* IMPORTANT: NO overflow:hidden -> DomPDF recorta contenido */
-      page-break-inside: avoid;
-    }
-    .tbl{
-      width:100%;
-      border-collapse:collapse;
-      background:#ffffff;
-      table-layout: fixed; /* evita que se “salga” */
-    }
-    .tbl th{
-      background:#e9e9e9;
-      padding:10px 12px;
-      text-align:left;
-      font-weight:900;
-      font-size:12px;
-      border-bottom:1px solid #d8d8d8;
-      word-wrap:break-word;
-      overflow-wrap:break-word;
-    }
-    .tbl td{
-      padding:7px 12px;
-      font-size:12px;
-      border-bottom:1px solid #ededed;
-      vertical-align:top;
-      word-wrap:break-word;
-      overflow-wrap:break-word;
-    }
-    .tbl tr:nth-child(even) td{ background:#f3f3f3; }
-
-    /* Bottom blocks */
-    .payTitle{ font-size:13px; font-weight:900; margin-bottom:10px; }
-    .smallNote{ font-size:11px; color:#374151; line-height:1.35; }
-
-    /* Payment logos row */
-    .payRow{ width:100%; border-collapse:collapse; }
-    .payRow td{ vertical-align:middle; padding-right:10px; }
-    .payLogo{ height:22px; display:inline-block; vertical-align:middle; }
-
-    /* Social icons */
-    .socialRow{ width:100%; border-collapse:collapse; margin-top:8px; }
-    .socialRow td{ padding-right:10px; vertical-align:middle; }
-    .socialIco{ height:26px; display:inline-block; vertical-align:middle; }
-
-    /* QR */
-    .qrBox{
-      width:170px;
-      height:170px;
-      border-radius:10px;
-      background:#fff;
-      border:1px solid #e5e7eb;
-      margin:0 auto;
-      text-align:center;
-    }
-    .qrBox img{
-      width:170px;
-      height:170px;
-      display:block;
-    }
-
-    /* Links (print safe) */
-    .linkMono{
-      font-size:10px;
-      word-break: break-all;
-      overflow-wrap: anywhere;
-      font-family: DejaVu Sans Mono, ui-monospace, monospace;
-      color:#111827;
-    }
-
-    .hr{ height:1px; background:#e5e7eb; margin:10px 0; }
-  </style>
 </head>
 <body>
 
@@ -188,12 +31,59 @@
    */
   $cargo = (float)($cargo ?? 0);
   $abono = (float)($abono ?? 0);
-  $saldo = (float)($saldo ?? ($total ?? 0));
 
-  // Total mostrado arriba: siempre es "saldo a pagar"
-  $totalPagar = $saldo;
+  // ✅ Saldo del periodo (como antes)
+  $saldoPeriodo = (float)($saldo ?? 0);
+
+  // ✅ Nuevos campos (si vienen del backend)
+  $prevPeriod      = (string)($prev_period ?? '');
+  $prevPeriodLabel = (string)($prev_period_label ?? $prevPeriod);
+  $prevBalance     = (float)($prev_balance ?? 0);
+
+  $currentDue = (float)($current_period_due ?? $saldoPeriodo);
+  $totalDue   = (float)($total_due ?? 0);
+
+  /**
+   * Compatibilidad:
+   * - Si viene total_due, ese es el "Total a pagar" real (saldo periodo + saldo anterior)
+   * - Si no viene, usa la lógica anterior (saldo o total)
+   */
+  $legacySaldo = (float)($saldoPeriodo > 0 ? $saldoPeriodo : (float)($total ?? 0));
+
+  $totalPagar = $totalDue > 0.00001 ? $totalDue : $legacySaldo;
+
+  // Para cards: mostrar saldo anterior SI hay balance > 0 (aunque no venga etiqueta)
+  $showPrev = ($prevBalance > 0.00001);
+
+  // Label defensivo para "periodo anterior"
+  $prevLabelSafe = trim((string)($prevPeriodLabel ?? ''));
+  if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
+  if ($prevLabelSafe === '') $prevLabelSafe = 'Periodo anterior';
+
+  // =========================
+  // Estatus visible (sin backend)
+  // =========================
+  $statusLabel = 'Pendiente';
+  $statusBadge = 'warn';
+
+  if ($totalPagar <= 0.00001) {
+    // si no hay pago requerido: pagado o sin movimientos
+    $statusLabel = ($cargo > 0.00001 || $abono > 0.00001) ? 'Pagado' : 'Sin movimientos';
+    $statusBadge = ($statusLabel === 'Pagado') ? 'ok' : 'dim';
+  } else {
+    // hay total a pagar
+    if ($abono > 0.00001 && ($totalPagar > 0.00001)) {
+      $statusLabel = 'Parcial';
+      $statusBadge = 'warn';
+    } else {
+      $statusLabel = 'Pendiente';
+      $statusBadge = 'warn';
+    }
+  }
+
 
   // Totales esperados / tarifa (si backend lo manda)
+
   $expectedTotal = (float)($expected_total ?? 0);
   $tarifaLabel   = (string)($tarifa_label ?? '');
   $tarifaPill    = (string)($tarifa_pill ?? 'dim');
@@ -215,8 +105,21 @@
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
 
-  // Cliente / datos extra
-  $clienteRazon = (string)($razon_social ?? ($account->razon_social ?? '—'));
+  // Cliente / datos extra (mejor fallback: razon_social -> name -> email)
+  $rs1 = trim((string)($razon_social ?? ''));
+  $rs2 = trim((string)($account->razon_social ?? ''));
+  $nm1 = trim((string)($name ?? ''));
+  $nm2 = trim((string)($account->name ?? ''));
+  $em1 = trim((string)($email ?? ''));
+  $em2 = trim((string)($account->email ?? ''));
+
+  $clienteRazon = $rs1 !== '' ? $rs1
+    : ($rs2 !== '' ? $rs2
+    : ($nm1 !== '' ? $nm1
+    : ($nm2 !== '' ? $nm2
+    : ($em1 !== '' ? $em1
+    : ($em2 !== '' ? $em2 : 'Cliente')))));
+
   $clienteRfc   = (string)($rfc ?? ($account->rfc ?? '—'));
   $clienteEmail = (string)($email ?? ($account->email ?? '—'));
   $clientePlan  = (string)($plan ?? ($account->plan ?? ($account->plan_actual ?? '—')));
@@ -240,6 +143,21 @@
 
   // Assets embebidos (data uris)
   $logoDataUri = $logo_data_uri ?? null;
+
+  // ✅ Fallback robusto: convertir PNG local a Data URI (DomPDF-safe)
+  $logoFilePath = public_path('assets/client/logp360ligjt.png');
+  $logoFileOk   = is_file($logoFilePath);
+
+  if (!$logoDataUri && $logoFileOk) {
+      try {
+          $bin = file_get_contents($logoFilePath);
+          if ($bin !== false && strlen($bin) > 10) {
+              $logoDataUri = 'data:image/png;base64,'.base64_encode($bin);
+          }
+      } catch (\Throwable $e) {
+          // noop
+      }
+  }
 
   $qrDataUri   = $qr_data_uri ?? null;
   $qrUrl       = $qr_url ?? null;
@@ -272,14 +190,43 @@
   } catch (\Throwable $e) {}
 
   // Detalle de consumos (backend: $consumos) o fallback
-  $serviceItems = $consumos ?? ($service_items ?? []);
-  if ($serviceItems instanceof \Illuminate\Support\Collection) $serviceItems = $serviceItems->all();
+  // REGLA: si el backend manda service_items (y trae filas), úsalo SIEMPRE.
+  // $consumos queda solo como compat/fallback.
+  $serviceItems = [];
+
+  // 1) service_items (PRIORIDAD)
+  $si = $service_items ?? null;
+  if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
+  if (is_array($si) && count($si) > 0) {
+      $serviceItems = $si;
+  } else {
+      // 2) consumos (FALLBACK)
+      $consumosRaw = $consumos ?? null;
+      if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
+      $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
+  }
+
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  // Asegurar mínimo 8 filas visuales
-  $minRows   = 8;
+  // =========================================================
+  // ✅ Inyectar "Saldo anterior pendiente" como línea en Detalle
+  // (solo si existe saldo anterior > 0)
+  // =========================================================
+  if ($showPrev) {
+      array_unshift($serviceItems, [
+          'service'   => 'Saldo anterior pendiente (' . $prevLabelSafe . ')',
+          'unit_cost' => round((float)$prevBalance, 2),
+          'qty'       => 1,
+          'subtotal'  => round((float)$prevBalance, 2),
+      ]);
+  }
+
+  // Asegurar mínimo filas visuales
+  $minRows   = 4;
+
   $rowsCount = count($serviceItems);
   $padRows   = max(0, $minRows - $rowsCount);
+
 @endphp
 
 {{-- TOP: izquierda marca / derecha total + id --}}
@@ -291,6 +238,9 @@
       @else
         <div class="b" style="font-size:24px;">PACTOPIA360</div>
       @endif
+
+
+      <div class="hTitle">Estado de cuenta</div>
 
       <div class="sp10"></div>
 
@@ -327,7 +277,13 @@
       <div class="card">
         <table class="totalRowTbl" cellpadding="0" cellspacing="0">
           <tr>
-            <td class="totalCardLbl">Total a pagar:</td>
+            <td class="totalCardLbl">
+              Total a pagar:
+              <span class="badge {{ $statusBadge }}" style="margin-left:8px; vertical-align:middle;">
+                {{ $statusLabel }}
+              </span>
+            </td>
+
             <td class="r">
               <table cellpadding="0" cellspacing="0" style="border-collapse:collapse; width:100%;">
                 <tr>
@@ -343,20 +299,35 @@
         <div class="hr"></div>
 
         {{-- Mejora: resumen saldo/cargo/abono --}}
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        <table class="kv kvTight" cellpadding="0" cellspacing="0">
           <tr>
-            <td class="mut small">Cargo del periodo</td>
-            <td class="r sb small">$ {{ number_format($cargo, 2) }}</td>
+            <td class="k mut small">Cargo del periodo</td>
+            <td class="v sb small">$ {{ number_format($cargo, 2) }}</td>
           </tr>
           <tr>
-            <td class="mut small">Pagos / abonos</td>
-            <td class="r sb small">$ {{ number_format($abono, 2) }}</td>
+            <td class="k mut small">Pagos / abonos</td>
+            <td class="v sb small">$ {{ number_format($abono, 2) }}</td>
           </tr>
+
+          @if($showPrev)
+            <tr>
+              <td class="k mut small">Saldo anterior pendiente ({{ $prevLabelSafe }})</td>
+              <td class="v sb small">$ {{ number_format($prevBalance, 2) }}</td>
+            </tr>
+          @endif
+
           <tr>
-            <td class="mut small">Saldo</td>
-            <td class="r b small">$ {{ number_format($saldo, 2) }}</td>
+            <td class="k mut small">Saldo del periodo</td>
+            <td class="v sb small">$ {{ number_format($currentDue, 2) }}</td>
+          </tr>
+
+          <tr>
+            <td class="k mut small">Total a pagar</td>
+            <td class="v b small">$ {{ number_format($totalPagar, 2) }}</td>
           </tr>
         </table>
+
+
       </div>
 
       <div class="sp12"></div>
@@ -373,7 +344,10 @@
         @if($sessionId !== '')
           <div class="sp8"></div>
           <div class="mut xs">Stripe session:</div>
-          <div class="mono xs">{{ $sessionId }}</div>
+          <div class="mono xs" style="white-space:normal; word-wrap:break-word; word-break:break-all; line-height:1.2;">
+            {{ $sessionId }}
+          </div>
+
         @endif
       </div>
     </td>
@@ -429,7 +403,17 @@
         @if($payUrl !== '')
           <div class="sp12"></div>
           <div class="b small">Enlace de pago:</div>
-          <div class="linkMono">{{ $payUrl }}</div>
+
+          <div style="margin-top:6px; padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#f9fafb;">
+            {{-- DomPDF-safe: forzar wrap de strings largos (Stripe URL) --}}
+            <div class="linkMono" style="
+              white-space: normal;
+              word-wrap: break-word;
+              word-break: break-all;
+              line-height: 1.25;
+              font-size: 9px;
+            ">{{ $payUrl }}</div>
+          </div>
         @endif
       </div>
     </td>
@@ -439,9 +423,11 @@
 <div class="sp18"></div>
 
 {{-- DETALLE --}}
-<div class="hSec">Detalle de consumos</div>
+<div class="hSec" style="margin-left:12px; margin-right:12px; margin-bottom:8px;">
+  Detalle de consumos
+</div>
 
-<div class="tblWrap">
+<div class="tblWrap" style="margin-left:12px; margin-right:12px;">
   <table class="tbl" cellpadding="0" cellspacing="0">
     <thead>
       <tr>
@@ -489,48 +475,25 @@
 
 <div class="sp16"></div>
 
-{{-- BOTTOM: 3 cards (formas pago + QR + desglose) --}}
+{{-- BOTTOM: 3 cards (PAGA EN LINEA + QR + desglose) --}}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
   <tr>
-    {{-- Izquierda: Formas + Redes --}}
+    {{-- Izquierda: PAGA EN LINEA (como maqueta) --}}
     <td width="38%" style="vertical-align:top; padding-right:10px;">
       <div class="card">
-        <div class="payTitle">Formas de pago</div>
+        <div class="payTitle">PAGA EN LINEA</div>
 
-        <table class="payRow" cellpadding="0" cellspacing="0">
-          <tr>
-            <td>@if($payPaypal)<img class="payLogo" src="{{ $payPaypal }}" alt="PayPal">@else <span class="b">PayPal</span> @endif</td>
-            <td>@if($payVisa)<img class="payLogo" src="{{ $payVisa }}" alt="VISA">@else <span class="b">VISA</span> @endif</td>
-            <td>@if($payAmex)<img class="payLogo" src="{{ $payAmex }}" alt="AMEX">@else <span class="b">AMEX</span> @endif</td>
-            <td>@if($payMc)<img class="payLogo" src="{{ $payMc }}" alt="Mastercard">@else <span class="b">MC</span> @endif</td>
-            <td style="padding-right:0;">@if($payOxxo)<img class="payLogo" src="{{ $payOxxo }}" alt="OXXO">@else <span class="b">OXXO</span> @endif</td>
-          </tr>
-        </table>
+        <div class="smallNote">
+          <span class="b">Ingresa a tu cuenta en</span><br>
+          <span class="b">pactopia360.com/cliente/login</span>
+        </div>
 
-        <div class="sp14"></div>
+        <div class="sp12"></div>
 
-        <div class="payTitle" style="margin-bottom:8px;">Síguenos en</div>
-        <table class="socialRow" cellpadding="0" cellspacing="0">
-          <tr>
-            <td>@if($socFb)<img class="socialIco" src="{{ $socFb }}" alt="Facebook">@else <span class="b">f</span> @endif</td>
-            <td>@if($socIn)<img class="socialIco" src="{{ $socIn }}" alt="LinkedIn">@else <span class="b">in</span> @endif</td>
-            <td>@if($socYt)<img class="socialIco" src="{{ $socYt }}" alt="YouTube">@else <span class="b">▶</span> @endif</td>
-            <td style="padding-right:0;">@if($socIg)<img class="socialIco" src="{{ $socIg }}" alt="Instagram">@else <span class="b">◎</span> @endif</td>
-          </tr>
-        </table>
-
-        @if($payUrl !== '')
-          <div class="sp12"></div>
-          <div class="smallNote">
-            <span class="b">Pago en línea:</span><br>
-            <span class="linkMono">{{ $payUrl }}</span>
-          </div>
-        @else
-          <div class="sp12"></div>
-          <div class="smallNote mut">
-            No hay enlace de pago disponible para este estado de cuenta.
-          </div>
-        @endif
+        <div style="background:#8b0000; color:#ffffff; border-radius:10px; padding:10px 12px; font-size:10px; font-weight:900; text-align:center;">
+          Si no tienes tus credenciales de acceso solicita a:<br>
+          soporte@pactopia.com
+        </div>
       </div>
     </td>
 
@@ -547,7 +510,7 @@
           @elseif($qrUrl)
             <img src="{{ $qrUrl }}" alt="QR">
           @else
-            <div style="padding-top:78px;" class="mut b">QR no disponible</div>
+            <div style="padding-top:66px;" class="mut b">QR no disponible</div>
           @endif
         </div>
 
@@ -564,24 +527,36 @@
         <div class="payTitle">Desglose del importe a pagar</div>
         <div class="sp10"></div>
 
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        <table class="kv" cellpadding="0" cellspacing="0">
+          @if($showPrev)
+            <tr>
+              <td class="k sb">Saldo anterior pendiente:</td>
+              <td class="v">$ {{ number_format($prevBalance, 2) }}</td>
+            </tr>
+            <tr>
+              <td class="k sb">Saldo del periodo:</td>
+              <td class="v">$ {{ number_format($currentDue, 2) }}</td>
+            </tr>
+            <tr><td colspan="2" style="height:8px;"></td></tr>
+          @endif
+
           <tr>
-            <td class="sb">Subtotal:</td>
-            <td class="r">$ {{ number_format($subtotal, 2) }}</td>
+            <td class="k sb">Subtotal:</td>
+            <td class="v">$ {{ number_format($subtotal, 2) }}</td>
           </tr>
           <tr>
-            <td class="sb">IVA 16%:</td>
-            <td class="r">$ {{ number_format($iva, 2) }}</td>
+            <td class="k sb">IVA 16%:</td>
+            <td class="v">$ {{ number_format($iva, 2) }}</td>
           </tr>
           <tr>
-            <td class="sb">Total:</td>
-            <td class="r b">$ {{ number_format($totalPagar, 2) }}</td>
+            <td class="k sb">Total:</td>
+            <td class="v b">$ {{ number_format($totalPagar, 2) }}</td>
           </tr>
         </table>
 
+
         <div class="hr"></div>
 
-        {{-- Mejora: notas de estado --}}
         <div class="smallNote">
           <span class="b">Nota:</span> Si ya realizaste tu pago, el saldo puede tardar unos minutos en reflejarse.
         </div>

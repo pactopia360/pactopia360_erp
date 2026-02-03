@@ -1201,41 +1201,53 @@ final class AccountBillingController extends Controller
 
         $forceInline = ((string) $r->query('inline', '0') === '1');
 
-        $found = $this->findAdminPdfForPeriod((int) $accountId, $period);
-        if ($found && !empty($found['disk']) && !empty($found['path'])) {
-            $disk = (string) $found['disk'];
-            $path = (string) $found['path'];
-            $fname = (string) ($found['filename'] ?? "estado_cuenta_{$period}.pdf");
+        // ✅ FORZAR REGENERACIÓN (bypass PDF almacenado)
+        // Usa ?regen=1 para ignorar billing_views y renderizar el Blade nuevo
+        $regen = ((string) $r->query('regen', '0') === '1');
 
-            try {
-                if (Storage::disk($disk)->exists($path)) {
-                    try {
-                        $abs = Storage::disk($disk)->path($path);
+        if (!$regen) {
+            $found = $this->findAdminPdfForPeriod((int) $accountId, $period);
+            if ($found && !empty($found['disk']) && !empty($found['path'])) {
+                $disk = (string) $found['disk'];
+                $path = (string) $found['path'];
+                $fname = (string) ($found['filename'] ?? "estado_cuenta_{$period}.pdf");
 
-                        if ($forceInline) {
-                            return response()->file($abs, [
+                try {
+                    if (Storage::disk($disk)->exists($path)) {
+                        try {
+                            $abs = Storage::disk($disk)->path($path);
+
+                            if ($forceInline) {
+                                return response()->file($abs, [
+                                    'Content-Type'        => 'application/pdf',
+                                    'Content-Disposition' => 'inline; filename="'.$fname.'"',
+                                ]);
+                            }
+
+                            return response()->download($abs, $fname, ['Content-Type' => 'application/pdf']);
+                        } catch (\Throwable $e) {
+                            $headers = [
                                 'Content-Type'        => 'application/pdf',
-                                'Content-Disposition' => 'inline; filename="'.$fname.'"',
-                            ]);
+                                'Content-Disposition' => ($forceInline ? 'inline' : 'attachment') . '; filename="'.$fname.'"',
+                            ];
+
+                            return Storage::disk($disk)->response($path, $fname, $headers);
                         }
-
-                        return response()->download($abs, $fname, ['Content-Type' => 'application/pdf']);
-                    } catch (\Throwable $e) {
-                        $headers = [
-                            'Content-Type'        => 'application/pdf',
-                            'Content-Disposition' => ($forceInline ? 'inline' : 'attachment') . '; filename="'.$fname.'"',
-                        ];
-
-                        return Storage::disk($disk)->response($path, $fname, $headers);
                     }
+                } catch (\Throwable $e) {
+                    Log::warning('[BILLING] serve admin pdf failed', [
+                        'disk' => $disk,
+                        'path' => $path,
+                        'err'  => $e->getMessage(),
+                    ]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning('[BILLING] serve admin pdf failed', [
-                    'disk' => $disk,
-                    'path' => $path,
-                    'err'  => $e->getMessage(),
-                ]);
             }
+        } else {
+            Log::info('[BILLING] publicPdf regen bypass enabled', [
+                'account_id' => (int)$accountId,
+                'period'     => $period,
+                'inline'     => $forceInline,
+            ]);
         }
 
         // Fallback HTML/PDF
@@ -1252,12 +1264,41 @@ final class AccountBillingController extends Controller
 
         $monthlyMxn = round($monthlyCents / 100, 2);
 
+        // ==========================================================
+        // ✅ Saldo anterior (periodo - 1) + totales estado de cuenta
+        // ==========================================================
+        $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int)$accountId, $period);
+        $prevBalanceMxn   = round($prevBalanceCents / 100, 2);
+
+        try {
+            $prevPeriod = Carbon::createFromFormat('Y-m', $period)->subMonthNoOverflow()->format('Y-m');
+        } catch (\Throwable $e) {
+            $prevPeriod = '';
+        }
+
+        $prevPeriodLabel = '';
+        try {
+            if ($prevPeriod !== '' && preg_match('/^\d{4}-\d{2}$/', $prevPeriod)) {
+                $prevPeriodLabel = Carbon::parse($prevPeriod.'-01')->translatedFormat('F Y');
+                $prevPeriodLabel = Str::ucfirst($prevPeriodLabel);
+            }
+        } catch (\Throwable $e) {
+            $prevPeriodLabel = $prevPeriod;
+        }
+
+
+        $currentDueMxn = (float) $monthlyMxn;
+        $totalDueMxn   = round($currentDueMxn + $prevBalanceMxn, 2);
+
+        // ==========================================================
+        // ✅ Detectar si el PERIODO ACTUAL está pagado (NO el total)
+        // ==========================================================
         $isPaid = false;
         try {
             $adm = config('p360.conn.admin', 'mysql_admin');
             if (Schema::connection($adm)->hasTable('accounts')) {
                 $acc = DB::connection($adm)->table('accounts')
-                    ->select(['id', 'meta'])
+                    ->select(['id', 'email', 'razon_social', 'rfc', 'meta'])
                     ->where('id', (int) $accountId)
                     ->first();
 
@@ -1313,27 +1354,61 @@ final class AccountBillingController extends Controller
         $qrDataUri   = $this->qrToDataUri($qrPayload, 150);
 
         $data = [
-            'period'     => $period,
-            'account_id' => (int) $accountId,
+            'period'       => $period,
+            'account_id'   => (int) $accountId,
             'rfc'          => $rfc,
             'razon_social' => $alias,
-            'email'        => Auth::guard('web')->user()?->email ?? '—',
-            'total' => (float) $monthlyMxn,
-            'cargo' => (float) $monthlyMxn,
-            'abono' => $isPaid ? (float) $monthlyMxn : 0.0,
-            'service_items' => [
-                [
-                    'name'       => 'Licencia Pactopia360 (mensualidad)',
-                    'unit_price' => (float) $monthlyMxn,
+
+            // ✅ Email del account (si existe) / si no, usa el del usuario logueado / si no, —
+            'email'        => (string) (
+                ($acc->email ?? null)
+                ?: (Auth::guard('web')->user()?->email ?? '—')
+            ),
+
+            // ======================================================
+            // ✅ Estado de cuenta: anterior + actual
+            // ======================================================
+            'prev_period'        => $prevPeriod ?: null,
+            'prev_period_label'  => $prevPeriodLabel !== '' ? $prevPeriodLabel : ($prevPeriod ?: null),
+            'prev_balance'       => (float) $prevBalanceMxn,
+            'current_period_due' => (float) $currentDueMxn,
+            'total_due'          => (float) $totalDueMxn,
+
+
+            // Compat (tu PDF usa estos campos):
+            // - cargo = cargo del periodo (mensualidad actual)
+            // - abono = pagos aplicados (si el periodo está pagado, al menos la mensualidad)
+            // - saldo = saldo del periodo (para legacy UI dentro del blade)
+            'total' => (float) $totalDueMxn,              // Total a pagar (incluye saldo anterior)
+            'cargo' => (float) $currentDueMxn,            // Cargo del periodo (solo el periodo actual)
+            'abono' => $isPaid ? (float) $currentDueMxn : 0.0, // Si el periodo actual ya está pagado, refleja ese abono
+            'saldo' => (float) $currentDueMxn,            // Saldo del periodo (para fallback legacy)
+
+             // ✅ Hard-kill legacy para que el Blade no priorice consumos por accidente
+            'consumos' => [],
+
+            // Líneas de servicio (incluye saldo anterior si aplica)
+            'service_items' => array_values(array_filter([
+                ($prevBalanceMxn > 0.0001 && $prevPeriod) ? [
+                    'name'       => 'Saldo anterior pendiente ('.$prevPeriod.')',
+                    'unit_price' => (float) $prevBalanceMxn,
                     'qty'        => 1,
-                    'subtotal'   => (float) $monthlyMxn,
+                    'subtotal'   => (float) $prevBalanceMxn,
+                ] : null,
+                [
+                    'name'       => 'Licencia Pactopia360 (mensualidad) · '.$period,
+                    'unit_price' => (float) $currentDueMxn,
+                    'qty'        => 1,
+                    'subtotal'   => (float) $currentDueMxn,
                 ],
-            ],
-            'generated_at' => now()->toISOString(),
-            'due_at'       => now()->addDays(4)->toISOString(),
+            ])),
+
+            'generated_at'  => now()->toISOString(),
+            'due_at'        => now()->addDays(4)->toISOString(),
             'logo_data_uri' => $logoDataUri,
             'qr_data_uri'   => $qrDataUri,
         ];
+
 
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('cliente.billing.pdf.statement', $data);
@@ -1448,7 +1523,12 @@ final class AccountBillingController extends Controller
     // - ui/original: $monthlyCents (ej. 100)
     // - cobro real en Stripe: $stripeCents (mínimo 1000)
     // ==========================================================
-    $originalCents = (int) $monthlyCents;
+    $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int)$accountId, $period);
+
+    // ✅ total a pagar = mensualidad actual + saldo anterior (solo 1 periodo anterior)
+    $originalCents = (int) max(0, (int)$monthlyCents + (int)$prevBalanceCents);
+
+    // Stripe mínimo
     $stripeCents   = (int) max($originalCents, 1000);
 
     $amountMxnOriginal = round($originalCents / 100, 2);
@@ -1867,6 +1947,83 @@ final class AccountBillingController extends Controller
         } catch (\Throwable $e) {
             Log::warning('[BILLING] resolveMonthlyCentsFromClientesEstadosCuenta failed', [
                 'account_id' => $accountId,
+                'err'        => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
+
+    /**
+     * ✅ Saldo anterior pendiente (cents) para un periodo.
+     * Regla: solo integra 1 mes anterior (period-1), como estado de cuenta clásico.
+     *
+     * Prioridad:
+     * 1) mysql_clientes.estados_cuenta.saldo del periodo anterior
+     * 2) mysql_admin.billing_statements: max(0, total_cents - paid_cents) del periodo anterior
+     */
+    private function resolvePrevBalanceCentsForPeriod(int $accountId, string $period): int
+    {
+        if (!$this->isValidPeriod($period)) return 0;
+
+        try {
+            $prev = Carbon::createFromFormat('Y-m', $period)->subMonthNoOverflow()->format('Y-m');
+        } catch (\Throwable $e) {
+            return 0;
+        }
+
+        // 1) clientes.estados_cuenta.saldo (fuente más directa)
+        try {
+            $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+            if (Schema::connection($cli)->hasTable('estados_cuenta')) {
+                $row = DB::connection($cli)->table('estados_cuenta')
+                    ->where('account_id', $accountId)
+                    ->where('periodo', $prev)
+                    ->orderByDesc('periodo')
+                    ->first(['cargo','abono','saldo','periodo']);
+
+                if ($row) {
+                    $saldo = is_numeric($row->saldo ?? null) ? (float)$row->saldo : null;
+
+                    // Si no hay saldo explícito, calcula cargo-abono
+                    if ($saldo === null) {
+                        $cargo = is_numeric($row->cargo ?? null) ? (float)$row->cargo : 0.0;
+                        $abono = is_numeric($row->abono ?? null) ? (float)$row->abono : 0.0;
+                        $saldo = max(0.0, $cargo - $abono);
+                    }
+
+                    $cents = (int) round(max(0.0, (float)$saldo) * 100);
+                    if ($cents > 0) return $cents;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] resolvePrevBalanceCentsForPeriod clientes failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        // 2) admin.billing_statements (total - paid)
+        try {
+            $t = $this->resolveStatementTotalsCents($accountId, $prev);
+            $total = (int) ($t['total_cents'] ?? 0);
+
+            // si no hay total, intenta subtotal+iva
+            if ($total <= 0) {
+                $sub = (int) ($t['subtotal_cents'] ?? 0);
+                $tax = (int) ($t['tax_cents'] ?? 0);
+                $total = $sub + $tax;
+            }
+
+            $paid = (int) ($t['paid_cents'] ?? 0);
+
+            $due = max(0, $total - $paid);
+            return $due > 0 ? (int)$due : 0;
+
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] resolvePrevBalanceCentsForPeriod admin failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
                 'err'        => $e->getMessage(),
             ]);
             return 0;

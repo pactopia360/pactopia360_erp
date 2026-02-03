@@ -375,7 +375,22 @@
     let slowTimer = null;
 
     function withPdfViewerPrefs(url){
-      return url + '#toolbar=0&navpanes=0&scrollbar=1';
+      try {
+        const u = new URL(url, window.location.origin);
+
+        // ✅ Inline (evita download en iframe) + cache buster para pruebas
+        u.searchParams.set('inline', '1');
+        u.searchParams.set('_ts', String(Date.now()));
+
+        // Preferencias del visor PDF del navegador
+        u.hash = 'toolbar=0&navpanes=0&scrollbar=1';
+
+        return u.toString();
+      } catch (e) {
+        // fallback defensivo
+        const sep = url.includes('?') ? '&' : '?';
+        return url + sep + 'inline=1&_ts=' + Date.now() + '#toolbar=0&navpanes=0&scrollbar=1';
+      }
     }
 
     function showLoader(msg){
@@ -409,7 +424,8 @@
       metaEl.textContent  = metaText || '—';
 
       download.href = (downloadUrl && downloadUrl !== '#') ? downloadUrl : viewUrl;
-      openTab.href  = viewUrl;
+      openTab.href  = withPdfViewerPrefs(viewUrl);
+
 
       // ✅ abrir modal primero para que el loader pinte visualmente
       modal.classList.add('is-open');
