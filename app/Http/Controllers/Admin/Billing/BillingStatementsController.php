@@ -1295,7 +1295,7 @@ final class BillingStatementsController extends Controller
             $row['status'] = 'pending';
         }
         if ($has('due_date')) {
-            $row['due_date'] = now();
+            $row['due_date'] = now()->addDays(4);
         }
 
         if ($has('period')) {
@@ -2448,9 +2448,8 @@ final class BillingStatementsController extends Controller
         }
         if ($has('due_date')) {
             // SOT: due_date debe ser "límite de pago", no "ahorita"
-            $row['due_date'] = now()->addDays(4);
+            $payload['due_date'] = now()->addDays(4);
         }
-
 
         if ($has('concept')) {
             $payload['concept'] = 'Pago manual (admin) · Estado de cuenta ' . $period;
