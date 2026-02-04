@@ -1864,27 +1864,47 @@ final class BillingStatementsController extends Controller
 
     private function isOverdue(string $period, mixed $dueDate, Carbon $now): bool
     {
-        try {
-            if ($dueDate instanceof \DateTimeInterface) {
-                return Carbon::instance($dueDate)->startOfDay()->lt($now->copy()->startOfDay());
-            }
-
-            if (is_string($dueDate) && trim($dueDate) !== '') {
-                $d = Carbon::parse($dueDate)->startOfDay();
-                return $d->lt($now->copy()->startOfDay());
-            }
-
-            if ($this->isValidPeriod($period)) {
-                $p   = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
-                $cur = $now->copy()->startOfMonth();
-                return $p->lt($cur);
-            }
-        } catch (\Throwable $e) {
-            // ignore
+        // =========================================================
+        // Regla GLOBAL (SOT):
+        // - El periodo ACTUAL (YYYY-MM) NUNCA se marca como vencido.
+        // - Solo periodos ANTERIORES pueden ser vencidos.
+        // =========================================================
+        $p = trim((string) $period);
+        if (!preg_match('/^\d{4}-\d{2}$/', $p)) {
+            return false;
         }
 
-        return false;
+        $currentPeriod = $now->format('Y-m');
+        if ($p >= $currentPeriod) {
+            // Mes actual o futuro => NO vencido
+            return false;
+        }
+
+        // =========================================================
+        // 1) Si tenemos due_date válido, úsalo como fuente primaria
+        // =========================================================
+        try {
+            if ($dueDate !== null && $dueDate !== '') {
+                $due = $dueDate instanceof Carbon ? $dueDate : Carbon::parse((string) $dueDate);
+                return $due->lt($now);
+            }
+        } catch (\Throwable $e) {
+            // Si dueDate es basura / parse falla, caer al fallback por periodo
+        }
+
+        // =========================================================
+        // 2) Fallback robusto por periodo (sin depender de payments):
+        //    - Se considera vencido si ya pasó el fin del mes + 4 días.
+        // =========================================================
+        try {
+            $start = Carbon::createFromFormat('Y-m-d', $p . '-01')->startOfMonth();
+            $cut   = $start->copy()->endOfMonth()->addDays(4)->endOfDay();
+            return $now->gt($cut);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
+
 
     // =========================================================
     // META / PRICING helpers
@@ -2427,8 +2447,10 @@ final class BillingStatementsController extends Controller
             $payload['paid_at'] = now();
         }
         if ($has('due_date')) {
-            $payload['due_date'] = now();
+            // SOT: due_date debe ser "límite de pago", no "ahorita"
+            $row['due_date'] = now()->addDays(4);
         }
+
 
         if ($has('concept')) {
             $payload['concept'] = 'Pago manual (admin) · Estado de cuenta ' . $period;
