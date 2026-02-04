@@ -59,9 +59,66 @@
 
   $saldoPeriodo = $f($saldo ?? 0);
 
-  $prevPeriod      = (string)($prev_period ?? '');
+    $prevPeriod      = (string)($prev_period ?? '');
   $prevPeriodLabel = (string)($prev_period_label ?? $prevPeriod);
-  $prevBalance     = $f($prev_balance ?? 0);
+
+  // ----------------------------------------------------------
+  // ✅ PrevBalance SOT (PDF): recalcular desde payments para evitar "debe" fantasma
+  // ----------------------------------------------------------
+  // Si el controller manda prev_balance, lo tomamos como fallback,
+  // pero la fuente correcta para "saldo anterior pendiente" es payments:
+  // - incluir: pending / expired / unpaid (si existe)
+  // - excluir: cancelled / canceled / paid
+  //
+  // amount está en centavos (payments.amount)
+  // ----------------------------------------------------------
+  $prevBalanceFallback = $f($prev_balance ?? 0);
+  $prevBalance = $prevBalanceFallback;
+
+  try {
+    $prevPeriodOk = is_string($prevPeriod) && preg_match('/^\d{4}-\d{2}$/', $prevPeriod);
+
+    // Solo intentamos DB si hay periodo anterior válido y account_id numérico
+    if ($prevPeriodOk) {
+
+      // Resolver account id (ya lo calculas abajo, pero aquí lo necesitamos)
+      $accountIdRaw2 = $account_id ?? ($accountObj->id ?? 0);
+      $accountIdNum2 = is_numeric($accountIdRaw2) ? (int)$accountIdRaw2 : 0;
+
+      if ($accountIdNum2 > 0) {
+        $admConn = 'mysql_admin';
+
+        if (\Illuminate\Support\Facades\Schema::connection($admConn)->hasTable('payments')) {
+          $cols = \Illuminate\Support\Facades\Schema::connection($admConn)->getColumnListing('payments');
+          $lc   = array_map('strtolower', $cols);
+          $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+          // Debe existir amount y status para hacer el cálculo correcto
+          if ($has('amount') && $has('status') && $has('account_id')) {
+            $validDebt = ['pending','expired','unpaid'];
+            $exclude   = ['paid','cancelled','canceled'];
+
+            $q = \Illuminate\Support\Facades\DB::connection($admConn)->table('payments')
+              ->where('account_id', $accountIdNum2);
+
+            if ($has('period')) {
+              $q->where('period', $prevPeriod);
+            }
+
+            // solo deuda vigente
+            $q->whereIn('status', $validDebt)
+              ->whereNotIn('status', $exclude);
+
+            $prevCents = (int) $q->sum('amount');
+            $prevBalance = round($prevCents / 100, 2);
+          }
+        }
+      }
+    }
+  } catch (\Throwable $e) {
+    // fail-safe: mantener fallback del controller
+    $prevBalance = $prevBalanceFallback;
+  }
 
   // Si controller manda current_period_due / total_due, respetar.
   // Si no, caer a saldoPeriodo/total legacy.
@@ -77,7 +134,9 @@
   // - si no, usa legacy
   $totalPagar = $totalDue > 0.00001 ? $totalDue : (($currentDue > 0.00001) ? $currentDue : $legacySaldo);
 
+  // Mostrar saldo anterior solo si realmente hay deuda vigente
   $showPrev = ($prevBalance > 0.00001);
+
 
   $prevLabelSafe = trim((string)($prevPeriodLabel ?? ''));
   if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
@@ -205,8 +264,8 @@
   }
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  // Inyectar saldo anterior como línea del detalle
-  if ($showPrev) {
+  // Inyectar saldo anterior como línea del detalle (solo si hay deuda vigente real)
+  if ($showPrev && $prevBalance > 0.00001) {
     array_unshift($serviceItems, [
       'service'   => 'Saldo anterior pendiente (' . $prevLabelSafe . ')',
       'unit_cost' => round((float)$prevBalance, 2),
@@ -214,6 +273,7 @@
       'subtotal'  => round((float)$prevBalance, 2),
     ]);
   }
+
 
   $minRows   = 4;
   $rowsCount = count($serviceItems);
