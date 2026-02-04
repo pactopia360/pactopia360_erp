@@ -120,23 +120,17 @@
     $prevBalance = $prevBalanceFallback;
   }
 
-  // Si controller manda current_period_due / total_due, respetar.
-  // Si no, caer a saldoPeriodo/total legacy.
-  $currentDue = $f($current_period_due ?? $saldoPeriodo);
-  $totalDue   = $f($total_due ?? 0);
 
-  // Legacy: algunos flujos mandan total como "saldo"
-  $legacySaldo = $saldoPeriodo > 0.00001 ? $saldoPeriodo : $f($total ?? 0);
+  $currentDue = $f($current_period_due ?? null);
+  if ($currentDue <= 0.00001) {
+    $currentDue = round(max(0.0, $cargo - $abono), 2);
+  } else {
+    $currentDue = round(max(0.0, $currentDue), 2);
+  }
 
-  // Total a pagar:
-  // - si total_due viene bien, úsalo
-  // - si no, usa currentDue si es >0
-  // - si no, usa legacy
-  $totalPagar = $totalDue > 0.00001 ? $totalDue : (($currentDue > 0.00001) ? $currentDue : $legacySaldo);
-
-  // Mostrar saldo anterior solo si realmente hay deuda vigente
   $showPrev = ($prevBalance > 0.00001);
 
+  $totalPagar = round($currentDue + ($showPrev ? $prevBalance : 0.0), 2);
 
   $prevLabelSafe = trim((string)($prevPeriodLabel ?? ''));
   if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
@@ -255,23 +249,39 @@
   $si = $service_items ?? null;
   if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
 
+  $fromController = false;
+
   if (is_array($si) && count($si) > 0) {
     $serviceItems = $si;
+    $fromController = true;
   } else {
     $consumosRaw = $consumos ?? null;
     if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
     $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
+    $fromController = is_array($serviceItems) && count($serviceItems) > 0;
   }
+
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  // Inyectar saldo anterior como línea del detalle (solo si hay deuda vigente real)
-  if ($showPrev && $prevBalance > 0.00001) {
+  // Inyectar saldo anterior como línea del detalle
+  if ($showPrev) {
     array_unshift($serviceItems, [
       'service'   => 'Saldo anterior pendiente (' . $prevLabelSafe . ')',
       'unit_cost' => round((float)$prevBalance, 2),
       'qty'       => 1,
       'subtotal'  => round((float)$prevBalance, 2),
     ]);
+  }
+
+  // ✅ Si NO vienen items del controller (fallback) y hay abonos,
+  //    agregar línea negativa para que el detalle cuadre con el neto.
+  if (!$fromController && $abono > 0.00001) {
+    $serviceItems[] = [
+      'service'   => 'Pagos / abonos aplicados',
+      'unit_cost' => round(-1 * (float)$abono, 2),
+      'qty'       => 1,
+      'subtotal'  => round(-1 * (float)$abono, 2),
+    ];
   }
 
 
