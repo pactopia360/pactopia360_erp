@@ -2361,80 +2361,117 @@ final class BillingStatementsController extends Controller
         ]);
     }
 
-    private function insertManualPaidPaymentForStatement(string $accountId, string $period, float $amountMxn, string $method): void
-    {
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return;
-        }
-
-        $amountMxn = round(max(0.0, $amountMxn), 2);
-        if ($amountMxn <= 0.00001) {
-            return;
-        }
-
-        $cols = Schema::connection($this->adm)->getColumnListing('payments');
-        $lc   = array_map('strtolower', $cols);
-        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-        if (!$has('account_id')) {
-            return;
-        }
-
-        $payload = [];
-        $payload['account_id'] = $accountId;
-
-        if ($has('period')) {
-            $payload['period'] = $period;
-        }
-        if ($has('status')) {
-            $payload['status'] = 'paid';
-        }
-        if ($has('provider')) {
-            $payload['provider'] = 'manual';
-        }
-        if ($has('method')) {
-            $payload['method'] = $method !== '' ? $method : 'manual';
-        }
-
-        if ($has('amount_mxn')) {
-            $payload['amount_mxn'] = $amountMxn;
-        }
-        if ($has('amount')) {
-            $payload['amount'] = (int) round($amountMxn * 100);
-        }
-
-        if ($has('currency')) {
-            $payload['currency'] = 'MXN';
-        }
-        if ($has('paid_at')) {
-            $payload['paid_at'] = now();
-        }
-        if ($has('due_date')) {
-            $payload['due_date'] = now();
-        }
-
-        if ($has('concept')) {
-            $payload['concept'] = 'Pago manual (admin) · Estado de cuenta ' . $period;
-        }
-
-        if ($has('reference')) {
-            $payload['reference'] = 'admin_mark_paid:' . $accountId . ':' . $period . ':' . now()->format('YmdHis');
-        }
-
-        if ($has('meta')) {
-            $payload['meta'] = json_encode([
-                'type'   => 'billing_statement',
-                'period' => $period,
-                'source' => 'admin_statusAjax',
-                'note'   => 'Pago manual para cerrar saldo por override pagado',
-            ], JSON_UNESCAPED_UNICODE);
-        }
-
-        $payload['updated_at'] = now();
-        $payload['created_at'] = now();
-
-        DB::connection($this->adm)->table('payments')->insert($payload);
+   private function insertManualPaidPaymentForStatement(string $accountId, string $period, float $amountMxn, string $method): void
+{
+    if (!Schema::connection($this->adm)->hasTable('payments')) {
+        return;
     }
+
+    $amountMxn = round(max(0.0, $amountMxn), 2);
+    if ($amountMxn <= 0.00001) {
+        return;
+    }
+
+    $cols = Schema::connection($this->adm)->getColumnListing('payments');
+    $lc   = array_map('strtolower', $cols);
+    $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+    if (!$has('account_id')) {
+        return;
+    }
+
+    // ======================================================
+    // FIX: Si vamos a insertar un pago MANUAL en PAID para el periodo,
+    //      cancelamos cualquier payment PENDING del mismo account+period
+    //      (ej. Stripe link viejo) para evitar "saldo fantasma".
+    // ======================================================
+    if ($has('status')) {
+        try {
+            $u = [
+                'status'     => 'cancelled',
+                'updated_at' => now(),
+            ];
+
+            // Si existe meta y la columna es JSON, anotamos motivo (si falla, se ignora).
+            if ($has('meta')) {
+                $u['meta'] = DB::raw(
+                    "JSON_SET(COALESCE(meta,'{}'),'$.note_cancel','Auto-cancel: periodo ya pagado (manual/override)')"
+                );
+            }
+
+            $q = DB::connection($this->adm)->table('payments')
+                ->where('account_id', $accountId);
+
+            if ($has('period')) {
+                $q->where('period', $period);
+            }
+
+            $q->where('status', 'pending')->update($u);
+        } catch (\Throwable $e) {
+            // Si meta NO es JSON o la BD no soporta JSON_SET, no rompemos el flujo.
+            Log::warning('[ADMIN][STATEMENTS] auto-cancel pending payments failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+    }
+
+    $payload = [];
+    $payload['account_id'] = $accountId;
+
+    if ($has('period')) {
+        $payload['period'] = $period;
+    }
+    if ($has('status')) {
+        $payload['status'] = 'paid';
+    }
+    if ($has('provider')) {
+        $payload['provider'] = 'manual';
+    }
+    if ($has('method')) {
+        $payload['method'] = $method !== '' ? $method : 'manual';
+    }
+
+    if ($has('amount_mxn')) {
+        $payload['amount_mxn'] = $amountMxn;
+    }
+    if ($has('amount')) {
+        $payload['amount'] = (int) round($amountMxn * 100);
+    }
+
+    if ($has('currency')) {
+        $payload['currency'] = 'MXN';
+    }
+    if ($has('paid_at')) {
+        $payload['paid_at'] = now();
+    }
+    if ($has('due_date')) {
+        $payload['due_date'] = now();
+    }
+
+    if ($has('concept')) {
+        $payload['concept'] = 'Pago manual (admin) · Estado de cuenta ' . $period;
+    }
+
+    if ($has('reference')) {
+        $payload['reference'] = 'admin_mark_paid:' . $accountId . ':' . $period . ':' . now()->format('YmdHis');
+    }
+
+    if ($has('meta')) {
+        $payload['meta'] = json_encode([
+            'type'   => 'billing_statement',
+            'period' => $period,
+            'source' => 'admin_statusAjax',
+            'note'   => 'Pago manual para cerrar saldo por override pagado',
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    $payload['updated_at'] = now();
+    $payload['created_at'] = now();
+
+    DB::connection($this->adm)->table('payments')->insert($payload);
+}
 
     /**
      * POST admin/billing/statements/status
