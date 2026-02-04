@@ -766,7 +766,7 @@ final class BillingStatementsHubController extends Controller
     // LIGA DIRECTA DE PAGO (Stripe Checkout) + registro pending
     // =========================================================
 
-    public function createPayLink(Request $req): RedirectResponse
+    public function createPayLink(Request $req): Response|RedirectResponse
     {
         $data = $req->validate([
             'account_id' => 'required|string|max:64',
@@ -776,14 +776,18 @@ final class BillingStatementsHubController extends Controller
         $accountId = (string) $data['account_id'];
         $period    = (string) $data['period'];
 
-
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        if (!$acc) { return response('Cuenta no encontrada.', 404)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache'); }
+        if (!$acc) {
+            return back()->withErrors(['pay' => 'Cuenta no encontrada.'])->withInput();
+        }
 
-        $items = DB::connection($this->adm)->table('estados_cuenta')
-            ->where('account_id', $accountId)
-            ->where('periodo', $period)
-            ->get();
+        $items = collect();
+        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            $items = DB::connection($this->adm)->table('estados_cuenta')
+                ->where('account_id', $accountId)
+                ->where('periodo', $period)
+                ->get();
+        }
 
         $cargoReal = (float) $items->sum('cargo');
         $abonoEc   = (float) $items->sum('abono');
@@ -792,7 +796,7 @@ final class BillingStatementsHubController extends Controller
         $abonoPay  = (float) $this->sumPaymentsPaidForAccountPeriod($accountId, $period);
         $abono     = $abonoEc + $abonoPay;
 
-        $meta = $this->decodeMeta($acc->meta ?? null);
+        $meta   = $this->decodeMeta($acc->meta ?? null);
         $custom = $this->extractCustomAmountMxn($acc, $meta);
 
         if ($custom !== null && $custom > 0.00001) {
@@ -802,19 +806,27 @@ final class BillingStatementsHubController extends Controller
         }
 
         $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
-        $saldo = max(0.0, $totalShown - $abono);
+        $saldo      = max(0.0, $totalShown - $abono);
 
         if ($saldo <= 0.00001) {
-            return response('No hay saldo pendiente para ese periodo.', 200)->header("Cache-Control","no-store, max-age=0, public")->header('Pragma','no-cache');
+            return back()->with('ok', 'No hay saldo pendiente para ese periodo.')->withInput();
         }
 
         try {
             [$url, $sessionId] = $this->createStripeCheckoutForStatement($acc, $period, $saldo);
-            return back()->with('ok', 'Liga de pago (Stripe): ' . $url . ' (session=' . $sessionId . ')');
+
+            // UX: redirigir directo a Stripe (en lugar de mostrar la liga)
+            return redirect()
+                ->away((string) $url)
+                ->withHeaders([
+                    'Cache-Control' => 'no-store, max-age=0, public',
+                    'Pragma'        => 'no-cache',
+                ]);
         } catch (\Throwable $e) {
-            return response('No se pudo generar liga: ' . $e->getMessage(), 500);
+            return back()->withErrors(['pay' => 'No se pudo generar liga: ' . $e->getMessage()])->withInput();
         }
     }
+
 
     private function createStripeCheckoutForStatement(object $acc, string $period, float $totalPesos): array
     {

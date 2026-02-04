@@ -1,4 +1,4 @@
-{{-- resources/views/cliente/billing/pdf/statement.blade.php (P360 · PDF Estado de cuenta · DomPDF-safe · layout aligned) --}}
+{{-- resources/views/cliente/billing/pdf/statement.blade.php (P360 · PDF Estado de cuenta · DomPDF-safe · layout aligned · vNext) --}}
 <!doctype html>
 <html lang="es">
 <head>
@@ -6,7 +6,7 @@
   <title>Estado de cuenta {{ $period ?? '—' }}</title>
 
   @php
-    // DomPDF: incluir CSS local por path absoluto
+    // DomPDF: incluir CSS local por path absoluto (evita URLs remotas)
     $pdfCssPath = public_path('assets/client/pdf/statement.css');
     $pdfCss     = is_file($pdfCssPath) ? file_get_contents($pdfCssPath) : '';
   @endphp
@@ -20,23 +20,51 @@
   use Illuminate\Support\Carbon;
   use Illuminate\Support\Str;
 
+  // ----------------------------------------------------------
+  // Helpers mínimos (DomPDF-safe)
+  // ----------------------------------------------------------
+  $f = function ($n): float {
+    if ($n === null) return 0.0;
+    if (is_int($n) || is_float($n)) return (float)$n;
+    if (is_string($n)) {
+      $s = trim($n);
+      if ($s === '') return 0.0;
+      $s = str_replace(['$',',','MXN','mxn',' '], '', $s);
+      return is_numeric($s) ? (float)$s : 0.0;
+    }
+    return is_numeric($n) ? (float)$n : 0.0;
+  };
+
   $periodSafe = (string)($period ?? '—');
 
-  // Totales
-  $cargo = (float)($cargo ?? 0);
-  $abono = (float)($abono ?? 0);
+  // ----------------------------------------------------------
+  // Normalización de datos (evitar null/undefined)
+  // ----------------------------------------------------------
+  $accountObj = (isset($account) && is_object($account)) ? $account : (object)[];
 
-  $saldoPeriodo = (float)($saldo ?? 0);
+  // Totales base
+  $cargo = $f($cargo ?? 0);
+  $abono = $f($abono ?? 0);
+
+  $saldoPeriodo = $f($saldo ?? 0);
 
   $prevPeriod      = (string)($prev_period ?? '');
   $prevPeriodLabel = (string)($prev_period_label ?? $prevPeriod);
-  $prevBalance     = (float)($prev_balance ?? 0);
+  $prevBalance     = $f($prev_balance ?? 0);
 
-  $currentDue = (float)($current_period_due ?? $saldoPeriodo);
-  $totalDue   = (float)($total_due ?? 0);
+  // Si controller manda current_period_due / total_due, respetar.
+  // Si no, caer a saldoPeriodo/total legacy.
+  $currentDue = $f($current_period_due ?? $saldoPeriodo);
+  $totalDue   = $f($total_due ?? 0);
 
-  $legacySaldo = (float)($saldoPeriodo > 0 ? $saldoPeriodo : (float)($total ?? 0));
-  $totalPagar  = $totalDue > 0.00001 ? $totalDue : $legacySaldo;
+  // Legacy: algunos flujos mandan total como "saldo"
+  $legacySaldo = $saldoPeriodo > 0.00001 ? $saldoPeriodo : $f($total ?? 0);
+
+  // Total a pagar:
+  // - si total_due viene bien, úsalo
+  // - si no, usa currentDue si es >0
+  // - si no, usa legacy
+  $totalPagar = $totalDue > 0.00001 ? $totalDue : (($currentDue > 0.00001) ? $currentDue : $legacySaldo);
 
   $showPrev = ($prevBalance > 0.00001);
 
@@ -44,7 +72,9 @@
   if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
   if ($prevLabelSafe === '') $prevLabelSafe = 'Periodo anterior';
 
-  // Estatus visible
+  // ----------------------------------------------------------
+  // Estatus visible (simple y estable)
+  // ----------------------------------------------------------
   $statusLabel = 'Pendiente';
   $statusBadge = 'warn';
 
@@ -52,27 +82,26 @@
     $statusLabel = ($cargo > 0.00001 || $abono > 0.00001) ? 'Pagado' : 'Sin movimientos';
     $statusBadge = ($statusLabel === 'Pagado') ? 'ok' : 'dim';
   } else {
-    if ($abono > 0.00001) {
-      $statusLabel = 'Parcial';
-      $statusBadge = 'warn';
-    } else {
-      $statusLabel = 'Pendiente';
-      $statusBadge = 'warn';
-    }
+    $statusLabel = ($abono > 0.00001) ? 'Parcial' : 'Pendiente';
+    $statusBadge = 'warn';
   }
 
-  // Tarifa (SOLO mostrar esto; eliminar "total esperado")
+  // Tarifa: solo mostrar label (sin “total esperado”)
   $tarifaLabel = (string)($tarifa_label ?? '');
   $tarifaPill  = (string)($tarifa_pill ?? 'dim');
   if (!in_array($tarifaPill, ['info','warn','ok','dim','bad'], true)) $tarifaPill = 'dim';
 
-  // IVA
+  // ----------------------------------------------------------
+  // IVA (se calcula sobre total a pagar)
+  // ----------------------------------------------------------
   $ivaRate  = 0.16;
   $subtotal = $totalPagar > 0 ? round($totalPagar/(1+$ivaRate), 2) : 0.0;
   $iva      = $totalPagar > 0 ? round($totalPagar - $subtotal, 2) : 0.0;
 
+  // ----------------------------------------------------------
   // Cuenta
-  $accountIdRaw = $account_id ?? ($account->id ?? 0);
+  // ----------------------------------------------------------
+  $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
   $idCuentaTxt  = $accountIdNum > 0 ? str_pad((string)$accountIdNum, 6, '0', STR_PAD_LEFT) : '—';
 
@@ -80,13 +109,15 @@
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
 
+  // ----------------------------------------------------------
   // Cliente (razon_social -> name -> email)
+  // ----------------------------------------------------------
   $rs1 = trim((string)($razon_social ?? ''));
-  $rs2 = trim((string)($account->razon_social ?? ''));
+  $rs2 = trim((string)($accountObj->razon_social ?? ''));
   $nm1 = trim((string)($name ?? ''));
-  $nm2 = trim((string)($account->name ?? ''));
+  $nm2 = trim((string)($accountObj->name ?? ''));
   $em1 = trim((string)($email ?? ''));
-  $em2 = trim((string)($account->email ?? ''));
+  $em2 = trim((string)($accountObj->email ?? ''));
 
   $clienteRazon = $rs1 !== '' ? $rs1
     : ($rs2 !== '' ? $rs2
@@ -95,10 +126,10 @@
     : ($em1 !== '' ? $em1
     : ($em2 !== '' ? $em2 : 'Cliente')))));
 
-  $clienteRfc   = (string)($rfc ?? ($account->rfc ?? '—'));
-  $clienteEmail = (string)($email ?? ($account->email ?? '—'));
-  $clientePlan  = (string)($plan ?? ($account->plan ?? ($account->plan_actual ?? '—')));
-  $modoCobro    = (string)($modo_cobro ?? ($account->modo_cobro ?? ($account->billing_cycle ?? '—')));
+  $clienteRfc   = (string)($rfc ?? ($accountObj->rfc ?? '—'));
+  $clienteEmail = (string)($email ?? ($accountObj->email ?? '—'));
+  $clientePlan  = (string)($plan ?? ($accountObj->plan ?? ($accountObj->plan_actual ?? '—')));
+  $modoCobro    = (string)($modo_cobro ?? ($accountObj->modo_cobro ?? ($accountObj->billing_cycle ?? '—')));
 
   // Dirección
   $dir = (array)($cliente_dir ?? []);
@@ -134,7 +165,7 @@
   $payUrl    = (string)($pay_url ?? '');
   $sessionId = (string)($stripe_session_id ?? '');
 
-  // Total letras
+  // Total letras (fallback)
   $cent = (int) round(($totalPagar - floor($totalPagar)) * 100);
   $totalLetras = (string)($total_letras ?? (number_format(floor($totalPagar), 0, '.', ',').' pesos '.str_pad((string)$cent, 2, '0', STR_PAD_LEFT).'/100 MN'));
 
@@ -147,7 +178,9 @@
     }
   } catch (\Throwable $e) {}
 
-  // Detalle items
+  // ----------------------------------------------------------
+  // Detalle items (service_items o consumos)
+  // ----------------------------------------------------------
   $serviceItems = [];
   $si = $service_items ?? null;
   if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
@@ -174,6 +207,9 @@
   $minRows   = 4;
   $rowsCount = count($serviceItems);
   $padRows   = max(0, $minRows - $rowsCount);
+
+  // Para UI: si no hay payUrl, el QR no debe “prometer”
+  $hasPay = trim($payUrl) !== '';
 @endphp
 
 {{-- TOP (2 columnas) --}}
@@ -202,26 +238,21 @@
 
       <div class="sp10"></div>
 
-      {{-- CUADRO CLIENTE (más angosto, no al 100% del bloque izquierdo) --}}
+      {{-- CUADRO CLIENTE (compacto y menos ancho) --}}
       <div class="card" style="
         background:#eeeeee;
         border:0;
-        padding:6px 10px;          /* ✅ compacto */
+        padding:6px 10px;
         border-radius:14px;
         margin-top:8px;
-
-        /* ✅ NUEVO: hacerlo menos ancho */
-        display:inline-block;      /* evita que se estire a 100% */
-        width:320px;               /* ajusta aquí el ancho (300–360 recomendado) */
+        display:inline-block;
+        width:320px;
         max-width:320px;
       ">
-
-        {{-- Cliente --}}
         <div class="sb" style="font-size:11px; line-height:1.05; margin:0 0 3px;">
           {{ $clienteRazon ?: '—' }}
         </div>
 
-        {{-- Dirección / país (1 línea compacta) --}}
         <div class="mut" style="font-size:9px; line-height:1.05; margin:0 0 4px;">
           @php
             $addrParts = [];
@@ -235,25 +266,21 @@
           {{ $addrInline }}
         </div>
 
-        {{-- RFC --}}
         <div style="font-size:9px; line-height:1.05; margin:0 0 2px;">
           <span class="mut">RFC:</span>
           <span class="b mono">{{ $clienteRfc ?: '—' }}</span>
         </div>
 
-        {{-- Plan --}}
         <div style="font-size:9px; line-height:1.05; margin:0 0 2px;">
           <span class="mut">Plan:</span>
           <span class="b">{{ $clientePlan ?: '—' }}</span>
         </div>
 
-        {{-- Email --}}
         <div style="font-size:9px; line-height:1.05; margin:0 0 2px;">
           <span class="mut">Email:</span>
           <span class="b" style="white-space:normal; word-break:break-word;">{{ $clienteEmail ?: '—' }}</span>
         </div>
 
-        {{-- Tarifa --}}
         @if(trim($tarifaLabel) !== '')
           <div style="font-size:9px; line-height:1.05; margin:2px 0 0;">
             <span class="mut">Tarifa:</span>
@@ -263,8 +290,7 @@
           </div>
         @endif
       </div>
-
-
+    </td> {{-- ✅ FIX: cierre TD izquierda --}}
 
     {{-- DERECHA --}}
     <td width="48%" style="vertical-align:top; padding-left:12px;">
@@ -334,7 +360,7 @@
           </tr>
         </table>
 
-        @if($sessionId !== '')
+        @if(trim($sessionId) !== '')
           <div class="sp8"></div>
           <div class="mut xs">Stripe session:</div>
           <div class="mono xs" style="white-space:normal; word-wrap:break-word; word-break:break-all; line-height:1.2;">
@@ -345,7 +371,7 @@
 
       <div class="sp12"></div>
 
-      {{-- 3) PERIODO (mismo ancho y debajo de ID) --}}
+      {{-- 3) PERIODO --}}
       <div class="card">
         <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <tr>
@@ -367,7 +393,7 @@
           </tr>
         </table>
 
-        @if($payUrl !== '')
+        @if($hasPay)
           <div class="sp12"></div>
           <div class="b small">Enlace de pago:</div>
 
@@ -404,11 +430,12 @@
       @if(!empty($serviceItems))
         @foreach($serviceItems as $it)
           @php
-            $row = is_array($it) ? (object)$it : $it;
+            $row  = is_array($it) ? (object)$it : (is_object($it) ? $it : (object)[]);
             $name = (string)($row->service ?? $row->name ?? $row->servicio ?? $row->concepto ?? $row->title ?? 'Servicio mensual');
-            $unit = (float)($row->unit_cost ?? $row->unit_price ?? $row->costo_unit ?? $row->costo ?? $row->importe ?? 0);
-            $qty  = (float)($row->qty ?? $row->cantidad ?? 1);
-            $sub  = (float)($row->subtotal ?? $row->total ?? ($unit * $qty));
+            $unit = $f($row->unit_cost ?? $row->unit_price ?? $row->costo_unit ?? $row->costo ?? $row->importe ?? 0);
+            $qty  = $f($row->qty ?? $row->cantidad ?? 1);
+            if ($qty <= 0) $qty = 1;
+            $sub  = $f($row->subtotal ?? $row->total ?? ($unit * $qty));
           @endphp
           <tr>
             <td class="sb">{{ $name }}</td>
@@ -477,7 +504,7 @@
           @endif
         </div>
 
-        @if($payUrl === '')
+        @if(!$hasPay)
           <div class="sp10"></div>
           <div class="mut xs">QR se habilita cuando existe enlace de pago.</div>
         @endif
