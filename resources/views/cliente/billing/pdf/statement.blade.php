@@ -5,13 +5,24 @@
   <meta charset="utf-8">
   <title>Estado de cuenta {{ $period ?? '—' }}</title>
 
-  @php
-    // DomPDF: incluir CSS local por path absoluto (evita URLs remotas)
-    $pdfCssPath = public_path('assets/client/pdf/statement.css');
-    $pdfCss     = is_file($pdfCssPath) ? file_get_contents($pdfCssPath) : '';
-  @endphp
+ @php
+  // DomPDF: CSS inline (no URLs). Con try/catch y sin warnings.
+  $pdfCssPath = public_path('assets/client/pdf/statement.css');
+  $pdfCss = '';
+  try {
+    if (is_file($pdfCssPath) && is_readable($pdfCssPath)) {
+      $raw = file_get_contents($pdfCssPath);
+      $pdfCss = is_string($raw) ? $raw : '';
+    }
+  } catch (\Throwable $e) {
+    $pdfCss = '';
+  }
+@endphp
 
-  <style>{!! $pdfCss !!}</style>
+<style>
+{!! $pdfCss !!}
+</style>
+
 </head>
 <body>
 <div class="pageGutter">
@@ -494,15 +505,54 @@
           Escanea el QR para<br>pago en línea
         </div>
 
-        <div class="qrBox">
-          @if($qrDataUri)
-            <img src="{{ $qrDataUri }}" alt="QR">
-          @elseif($qrUrl)
-            <img src="{{ $qrUrl }}" alt="QR">
-          @else
-            <div style="padding-top:66px;" class="mut b">QR no disponible</div>
-          @endif
-        </div>
+        @php
+          // DomPDF-safe QR: preferir data URI
+          $qrImg = $qrDataUri ?? null;
+
+          if (!$qrImg && !empty($qrUrl) && is_string($qrUrl)) {
+            $u = trim($qrUrl);
+
+            // 1) Si parece ruta relativa del sitio, convertir a public_path()
+            //    Ej: /assets/... o assets/...
+            $tryLocal = null;
+            if (str_starts_with($u, '/')) {
+              $tryLocal = public_path(ltrim($u, '/'));
+            } elseif (!preg_match('#^https?://#i', $u)) {
+              $tryLocal = public_path(ltrim($u, '/'));
+            }
+
+            // 2) Si existe local, base64
+            if ($tryLocal && is_file($tryLocal) && is_readable($tryLocal)) {
+              try {
+                $bin = file_get_contents($tryLocal);
+                if ($bin !== false && strlen($bin) > 10) {
+                  $qrImg = 'data:image/png;base64,' . base64_encode($bin);
+                }
+              } catch (\Throwable $e) {}
+            } else {
+              // 3) Si es remoto http(s) y dompdf remote está enabled, intentar fetch (puede fallar por SSL)
+              if (preg_match('#^https?://#i', $u)) {
+                try {
+                  $ctx = stream_context_create([
+                    'http' => ['timeout' => 3],
+                    'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+                  ]);
+                  $bin = @file_get_contents($u, false, $ctx);
+                  if ($bin !== false && strlen($bin) > 10) {
+                    $qrImg = 'data:image/png;base64,' . base64_encode($bin);
+                  }
+                } catch (\Throwable $e) {}
+              }
+            }
+          }
+        @endphp
+
+        @if($qrImg)
+          <img src="{{ $qrImg }}" alt="QR">
+        @else
+          <div style="padding-top:66px;" class="mut b">QR no disponible</div>
+        @endif
+
 
         @if(!$hasPay)
           <div class="sp10"></div>
