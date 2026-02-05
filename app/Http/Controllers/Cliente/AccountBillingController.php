@@ -1208,13 +1208,21 @@ final class AccountBillingController extends Controller
         $name = null;
 
         foreach ([
+            // ✅ billing_invoice_requests usa zip_name
+            ['zip_disk','zip_path','zip_name'],
             ['zip_disk','zip_path','zip_filename'],
             ['zip_disk','zip_path','filename'],
+
+            // compat genérico
             ['file_disk','file_path','file_name'],
+            ['disk','zip_path','zip_name'],
             ['disk','zip_path','zip_filename'],
             ['disk','file_path','filename'],
+
+            // otros esquemas
             ['factura_disk','factura_path','factura_filename'],
         ] as $set) {
+
             [$cd,$cp,$cn] = $set;
             if ($has($cp)) {
                 $p = (string) ($row->{$cp} ?? '');
