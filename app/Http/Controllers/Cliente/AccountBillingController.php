@@ -3062,13 +3062,12 @@ final class AccountBillingController extends Controller
 
             $cols = Schema::connection($adm)->getColumnListing('accounts');
             $lc   = array_map('strtolower', $cols);
-            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
             $sel = ['id'];
-            if ($has('modo_cobro')) $sel[] = 'modo_cobro';
-            if ($has('meta'))      $sel[] = 'meta';
-            if ($has('plan'))      $sel[] = 'plan';
-            if ($has('plan_actual')) $sel[] = 'plan_actual';
+            foreach (['modo_cobro', 'meta', 'plan', 'plan_actual'] as $c) {
+                if ($has($c)) $sel[] = $c;
+            }
 
             $acc = DB::connection($adm)->table('accounts')
                 ->select($sel)
@@ -3077,34 +3076,58 @@ final class AccountBillingController extends Controller
 
             if (!$acc) return false;
 
-            // 1) modo_cobro
+            // helper normalize
+            $norm = function ($v): string {
+                $s = strtolower(trim((string) $v));
+                $s = preg_replace('/\s+/', ' ', $s);
+                return $s ?: '';
+            };
+
+            // helper annual matcher
+            $isAnnualToken = function (string $s): bool {
+                if ($s === '') return false;
+                return in_array($s, ['anual','annual','year','yearly','12m','12 meses','12meses','12-month','12 months'], true)
+                    || str_contains($s, 'anual')
+                    || str_contains($s, 'annual')
+                    || str_contains($s, 'year');
+            };
+
+            // 1) modo_cobro directo
             if ($has('modo_cobro')) {
-                $mc = strtolower(trim((string) ($acc->modo_cobro ?? '')));
-                if (in_array($mc, ['anual','annual','year','yearly'], true)) return true;
+                $mc = $norm($acc->modo_cobro ?? '');
+                if ($isAnnualToken($mc)) return true;
             }
 
-            // 1.5) plan / plan_actual (señal fuerte en tu UI: "CUSTOM · ANUAL")
-            if ($has('plan') || $has('plan_actual')) {
-                $p = strtolower(trim((string) (($acc->plan_actual ?? '') ?: ($acc->plan ?? ''))));
-                if ($p !== '' && (str_contains($p, 'anual') || str_contains($p, 'annual') || str_contains($p, 'year'))) {
-                    return true;
-                }
-            }
+            // 2) plan / plan_actual (señal fuerte)
+            $plan = $norm(($acc->plan_actual ?? '') ?: ($acc->plan ?? ''));
+            if ($isAnnualToken($plan)) return true;
 
-            // 2) meta
+            // 3) meta (muchas variantes reales)
             if ($has('meta') && isset($acc->meta)) {
                 $meta = is_string($acc->meta)
-                    ? (json_decode((string)$acc->meta, true) ?: [])
+                    ? (json_decode((string) $acc->meta, true) ?: [])
                     : (array) $acc->meta;
 
-                $cycle = strtolower(trim((string) (
-                    data_get($meta, 'billing.cycle')
-                    ?: data_get($meta, 'stripe.billing_cycle')
-                    ?: data_get($meta, 'subscription.cycle')
-                    ?: ''
-                )));
+                $candidates = [
+                    data_get($meta, 'billing.cycle'),
+                    data_get($meta, 'billing.modo_cobro'),
+                    data_get($meta, 'billing.billing_cycle'),
+                    data_get($meta, 'stripe.billing_cycle'),
+                    data_get($meta, 'stripe.cycle'),
+                    data_get($meta, 'stripe.plan_interval'),
+                    data_get($meta, 'subscription.cycle'),
+                    data_get($meta, 'subscription.interval'),
+                    data_get($meta, 'plan.cycle'),
+                    data_get($meta, 'plan.interval'),
+                    data_get($meta, 'modo_cobro'),
+                    data_get($meta, 'cycle'),
+                    data_get($meta, 'interval'),
+                ];
 
-                if (in_array($cycle, ['anual','annual','year','yearly'], true)) return true;
+                foreach ($candidates as $v) {
+                    $s = $norm($v);
+                    if ($isAnnualToken($s)) return true;
+                }
             }
 
         } catch (\Throwable $e) {
