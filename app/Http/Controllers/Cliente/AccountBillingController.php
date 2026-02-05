@@ -291,9 +291,15 @@ final class AccountBillingController extends Controller
         // Asegura 2 cards SOLO para mensual. En anual NO se fuerza 2 filas.
         $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
+        // ✅ FIX: $monthlyMxn siempre definido para evitar 500 (algunas ramas ya no lo setean)
+        $monthlyMxn = isset($monthlyMxn)
+            ? (float) $monthlyMxn
+            : (float) ($chargesByPeriod[$payAllowed] ?? $refMxn);
+
         if (!$isAnnual) {
             $rows = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $monthlyMxn, (bool)$isAnnual);
         } else {
+
             // defensivo: si por alguna razón vienen >2, deja solo los periodos calculados
             $keep = array_flip($periods);
             $rows = array_values(array_filter($rows, fn ($rr) => isset($keep[(string) ($rr['period'] ?? '')])));
