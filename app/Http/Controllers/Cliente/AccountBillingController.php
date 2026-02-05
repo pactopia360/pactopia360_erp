@@ -19,8 +19,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
-use Illuminate\View\View;
-
 
 final class AccountBillingController extends Controller
 {
@@ -71,7 +69,6 @@ final class AccountBillingController extends Controller
      * ============================================
      */
     public function statement(Request $r)
-
     {
         $u = Auth::guard('web')->user();
 
@@ -115,13 +112,11 @@ final class AccountBillingController extends Controller
 
         // ✅ cachea en sesión para futuras resoluciones (evita "unresolved" si cambia cuenta_id)
         try {
-            $r->session()->put('client.account_id', (string)$accountId);
-            $r->session()->put('account_id', (string)$accountId);
+            $r->session()->put('client.account_id', (string) $accountId);
+            $r->session()->put('account_id', (string) $accountId);
         } catch (\Throwable $e) {
             // ignora
         }
-
-
 
         // Datos UI (RFC/Alias)
         [$rfc, $alias] = $this->resolveRfcAliasForUi($r, $accountId);
@@ -132,16 +127,55 @@ final class AccountBillingController extends Controller
         // ✅ ÚLTIMO PAGADO
         $lastPaid = $this->adminLastPaidPeriod($accountId);
 
-        // Mes permitido
-        $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-            : (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $contractStart) ? $contractStart : now()->format('Y-m'));
+        // ==========================================================
+        // ✅ Ciclo de cobro (mensual/anual)
+        // - mensual: payAllowed = lastPaid + 1 mes
+        // - anual:   payAllowed = lastPaid + 12 meses (renovación)
+        //   y NO mostramos la fila futura hasta que llegue el mes de renovación
+        // ==========================================================
+        $isAnnual = $this->isAnnualBillingCycle($accountId);
 
-        // Siempre 2 periodos: lastPaid + payAllowed
-        $periods = array_values(array_unique(array_filter([$lastPaid, $payAllowed])));
+        // Periodo base cuando no hay lastPaid (inicio contrato)
+        $basePeriod = (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $contractStart) ? $contractStart : now()->format('Y-m'));
+
+        if ($lastPaid) {
+            $payAllowed = $isAnnual
+                ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
+                : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
+        } else {
+            // si no hay lastPaid, el primer cobro permitido es el inicio
+            $payAllowed = $basePeriod;
+        }
+
+        // ✅ Periodos a mostrar:
+        // - Mensual: 2 filas (lastPaid + payAllowed)
+        // - Anual:   1 fila (la vigente/base). Solo agrega renovación cuando ya es el mes de renovación.
+        $periods = [];
+
+        if ($isAnnual) {
+            // fila vigente/base (una sola línea)
+            $periods[] = $lastPaid ?: $basePeriod;
+
+            // ✅ mostrar renovación SOLO cuando se abra ventana (por defecto 30 días antes)
+            try {
+                $winDays  = (int) $this->annualRenewalWindowDays();
+                $renewAt  = Carbon::createFromFormat('Y-m', $payAllowed)->startOfMonth();
+                $openAt   = $renewAt->copy()->subDays(max(0, $winDays));
+
+                if (now()->greaterThanOrEqualTo($openAt)) {
+                    $periods[] = $payAllowed;
+                }
+            } catch (\Throwable $e) {
+                // ignora
+            }
+        } else {
+            $periods = [$lastPaid, $payAllowed];
+        }
+
+        $periods = array_values(array_unique(array_filter($periods)));
 
         // ==========================================================
-        // ✅ PRECIO por periodo (Admin meta.billing)
+        // ✅ PRECIO por periodo (Admin meta.billing + fallbacks)
         // ==========================================================
         $priceInfo = ['per_period' => []];
         foreach ($periods as $p) {
@@ -194,7 +228,28 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // Map MXN por periodo
+        // ==========================================================
+        // ✅ ANUAL: forzar monto ANUAL (1 línea por año)
+        // - usa resolveAnnualCents()
+        // - NO uses "precio_anual/12" para UI anual
+        // ==========================================================
+        if ($isAnnual) {
+            $baseAnnual  = $lastPaid ?: $basePeriod;
+            $annualCents = (int) $this->resolveAnnualCents($accountId, $baseAnnual, $lastPaid, $payAllowed);
+
+            foreach ($periods as $p) {
+                if ($annualCents > 0) {
+                    $priceInfo['per_period'][$p]['cents']  = $annualCents;
+                    $priceInfo['per_period'][$p]['mxn']    = round($annualCents / 100, 2);
+                    $priceInfo['per_period'][$p]['source'] = 'annual';
+                }
+            }
+        }
+
+        // ==========================================================
+        // ✅ FIX CRÍTICO: generar $chargesByPeriod y $sourcesByPeriod
+        // (antes se usaban sin existir y rompía/invalidaba "price_source")
+        // ==========================================================
         $chargesByPeriod = [];
         $sourcesByPeriod = [];
         foreach ($periods as $p) {
@@ -202,7 +257,7 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
-        // Construye filas (2 tarjetas)
+        // Construye filas
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
             $periods,
@@ -224,8 +279,8 @@ final class AccountBillingController extends Controller
             } else {
                 $row['period_range'] = '';
             }
-            $row['rfc']   = (string) ($row['rfc'] ?? $rfc);
-            $row['alias'] = (string) ($row['alias'] ?? $alias);
+            $row['rfc']          = (string) ($row['rfc'] ?? $rfc);
+            $row['alias']        = (string) ($row['alias'] ?? $alias);
             $row['price_source'] = $sourcesByPeriod[$p] ?? 'none';
         }
         unset($row);
@@ -233,9 +288,16 @@ final class AccountBillingController extends Controller
         // ✅ invoice request status (SOT: admin.billing_invoice_requests)
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
-        // Asegura 2 cards (fix defensivo)
+        // Asegura 2 cards SOLO para mensual. En anual NO se fuerza 2 filas.
         $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
-        $rows   = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $refMxn);
+
+        if (!$isAnnual) {
+            $rows = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $refMxn);
+        } else {
+            // defensivo: si por alguna razón vienen >2, deja solo los periodos calculados
+            $keep = array_flip($periods);
+            $rows = array_values(array_filter($rows, fn ($rr) => isset($keep[(string) ($rr['period'] ?? '')])));
+        }
 
         // KPIs
         $pendingBalance = 0.0;
@@ -257,7 +319,7 @@ final class AccountBillingController extends Controller
             'last_paid'       => $lastPaid,
             'pay_allowed'     => $payAllowed,
             'periods_in'      => $periods,
-            'prices'          => array_map(fn($p) => [
+            'prices'          => array_map(fn ($p) => [
                 'period' => $p,
                 'mxn'    => $chargesByPeriod[$p] ?? 0,
                 'source' => $sourcesByPeriod[$p] ?? 'none',
@@ -357,7 +419,7 @@ final class AccountBillingController extends Controller
 
         $cols = Schema::connection($adm)->getColumnListing('accounts');
         $lc   = array_map('strtolower', $cols);
-        $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
         if (!$has('meta')) {
             // fallback: si existen columnas directas, intenta
@@ -380,14 +442,14 @@ final class AccountBillingController extends Controller
             $acc = DB::connection($adm)->table('accounts')->select(['id', 'meta'])->where('id', $accountId)->first();
             if (!$acc) return back()->with('warning', 'No se pudo guardar: cuenta no encontrada.');
 
-            $meta = is_string($acc->meta ?? null) ? (json_decode((string)$acc->meta, true) ?: []) : (array)($acc->meta ?? []);
+            $meta = is_string($acc->meta ?? null) ? (json_decode((string) $acc->meta, true) ?: []) : (array) ($acc->meta ?? []);
             $meta['billing'] = is_array($meta['billing'] ?? null) ? $meta['billing'] : [];
 
-            if (!empty($data['rfc']))          $meta['billing']['rfc'] = trim((string)$data['rfc']);
-            if (!empty($data['razon_social'])) $meta['billing']['razon_social'] = trim((string)$data['razon_social']);
-            if (!empty($data['alias']))        $meta['billing']['alias'] = trim((string)$data['alias']);
-            if (!empty($data['email']))        $meta['billing']['email'] = trim((string)$data['email']);
-            if (!empty($data['phone']))        $meta['billing']['phone'] = trim((string)$data['phone']);
+            if (!empty($data['rfc']))          $meta['billing']['rfc'] = trim((string) $data['rfc']);
+            if (!empty($data['razon_social'])) $meta['billing']['razon_social'] = trim((string) $data['razon_social']);
+            if (!empty($data['alias']))        $meta['billing']['alias'] = trim((string) $data['alias']);
+            if (!empty($data['email']))        $meta['billing']['email'] = trim((string) $data['email']);
+            if (!empty($data['phone']))        $meta['billing']['phone'] = trim((string) $data['phone']);
 
             $upd = [
                 'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE),
@@ -402,7 +464,7 @@ final class AccountBillingController extends Controller
                 'account_id' => $accountId,
                 'err'        => $e->getMessage(),
             ]);
-            return back()->with('warning', 'No se pudo guardar: '.$e->getMessage());
+            return back()->with('warning', 'No se pudo guardar: ' . $e->getMessage());
         }
     }
 
@@ -420,7 +482,7 @@ final class AccountBillingController extends Controller
         try {
             $cols = Schema::connection($adm)->getColumnListing('payments');
             $lc   = array_map('strtolower', $cols);
-            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
             // Requiere al menos estas columnas para filtrar bien
             if (!$has('account_id') || !$has('period')) return 0;
@@ -431,15 +493,15 @@ final class AccountBillingController extends Controller
 
             // Status pagado (soporta variaciones)
             if ($has('status')) {
-                $q->whereIn('status', ['paid','succeeded','complete','completed','captured']);
+                $q->whereIn('status', ['paid', 'succeeded', 'complete', 'completed', 'captured']);
             }
 
             // Provider stripe si existe (pero permite NULL/'')
             if ($has('provider')) {
-                $q->where(function($w){
+                $q->where(function ($w) {
                     $w->whereNull('provider')
-                      ->orWhere('provider','')
-                      ->orWhereIn('provider', ['stripe','Stripe']);
+                        ->orWhere('provider', '')
+                        ->orWhereIn('provider', ['stripe', 'Stripe']);
                 });
             }
 
@@ -449,15 +511,14 @@ final class AccountBillingController extends Controller
 
             $orderCol = $has('paid_at') ? 'paid_at'
                 : ($has('confirmed_at') ? 'confirmed_at'
-                : ($has('updated_at') ? 'updated_at'
-                : ($has('created_at') ? 'created_at'
-                : ($has('id') ? 'id' : $cols[0]))));
+                    : ($has('updated_at') ? 'updated_at'
+                        : ($has('created_at') ? 'created_at'
+                            : ($has('id') ? 'id' : $cols[0]))));
 
             $row = $q->orderByDesc($orderCol)->first([$amountCol]);
 
             $cents = ($row && is_numeric($row->{$amountCol} ?? null)) ? (int) $row->{$amountCol} : 0;
             return $cents > 0 ? $cents : 0;
-
         } catch (\Throwable $e) {
             Log::warning('[BILLING] resolvePaidCentsFromAdminPayments failed', [
                 'account_id' => $accountId,
@@ -485,7 +546,7 @@ final class AccountBillingController extends Controller
 
         $cols = Schema::connection($adm)->getColumnListing('billing_statements');
         $lc   = array_map('strtolower', $cols);
-        $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
         if (!$has('account_id') || !$has('period')) {
             return $out;
@@ -520,7 +581,8 @@ final class AccountBillingController extends Controller
         if ($out['paid_cents'] <= 0) {
             try {
                 $out['paid_cents'] = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
         }
 
         return $out;
@@ -544,7 +606,6 @@ final class AccountBillingController extends Controller
 
             $sum = $sub + $tax;
             return $sum > 0 ? $sum : 0;
-
         } catch (\Throwable $e) {
             Log::warning('[BILLING] resolveChargeCentsFromAdminBillingStatements failed', [
                 'account_id' => $accountId,
@@ -561,7 +622,7 @@ final class AccountBillingController extends Controller
     private function applyAdminPaidAmountOverrides(int $accountId, array $rows): array
     {
         foreach ($rows as &$r) {
-            $p = (string)($r['period'] ?? '');
+            $p = (string) ($r['period'] ?? '');
             if (!$this->isValidPeriod($p)) continue;
 
             $paidCents = $this->resolvePaidCentsFromAdminPayments($accountId, $p);
@@ -596,14 +657,14 @@ final class AccountBillingController extends Controller
             $isPaid = ($lastPaid && $p === $lastPaid);
 
             $rows[$p] = [
-                'period'      => $p,
-                'status'      => $isPaid ? 'paid' : 'pending',
-                'charge'      => round($charge, 2),
-                'paid_amount' => $isPaid ? round($charge, 2) : 0.0,
-                'saldo'       => $isPaid ? 0.0 : round($charge, 2),
-                'can_pay'     => (!$isPaid && $p === $payAllowed),
-                'invoice_request_status' => null,
-                'invoice_has_zip' => false,
+                'period'                => $p,
+                'status'                => $isPaid ? 'paid' : 'pending',
+                'charge'                => round($charge, 2),
+                'paid_amount'           => $isPaid ? round($charge, 2) : 0.0,
+                'saldo'                 => $isPaid ? 0.0 : round($charge, 2),
+                'can_pay'               => (!$isPaid && $p === $payAllowed),
+                'invoice_request_status'=> null,
+                'invoice_has_zip'       => false,
             ];
         }
 
@@ -781,12 +842,36 @@ final class AccountBillingController extends Controller
         if ($lastPaid && $period === $lastPaid) {
             try {
                 $paidAt = $this->resolvePaidAtForPeriod($accountId, $lastPaid); // Carbon|null
-                $paidAt = $paidAt ?: $now;
 
-                $start = $paidAt->copy()->startOfMonth();
-                $end   = $paidAt->copy()->endOfMonth();
+                // ✅ Si no puedo determinar la fecha real de pago, NO permito facturar
+                if (!$paidAt) {
+                    Log::warning('[BILLING] invoice window blocked (paid_at unresolved)', [
+                        'account_id' => $accountId,
+                        'period'     => $period,
+                        'last_paid'  => $lastPaid,
+                        'now'        => $now->toDateTimeString(),
+                        'src'        => $src,
+                    ]);
 
-                $allowed = $now->betweenIncluded($start, $end);
+                    $allowed = false;
+                } else {
+                    $start = $paidAt->copy()->startOfMonth();
+                    $end   = $paidAt->copy()->endOfMonth();
+
+                    $allowed = $now->betweenIncluded($start, $end);
+
+                    Log::info('[BILLING][DEBUG] invoice window check', [
+                        'account_id' => $accountId,
+                        'period'     => $period,
+                        'last_paid'  => $lastPaid,
+                        'paid_at'    => $paidAt->toDateTimeString(),
+                        'window'     => $start->format('Y-m-d') . ' -> ' . $end->format('Y-m-d'),
+                        'now'        => $now->toDateTimeString(),
+                        'allowed'    => $allowed,
+                        'src'        => $src,
+                    ]);
+                }
+
 
                 Log::info('[BILLING][DEBUG] invoice window check', [
                     'account_id' => $accountId,
@@ -814,7 +899,7 @@ final class AccountBillingController extends Controller
 
             return redirect()->route('cliente.estado_cuenta')
                 ->with('invoice_window_error', true)
-                ->with('invoice_window_error_msg', 'Lo sentimos, la solicitud de la factura está fuera del mes de pago.');
+                ->with('invoice_window_error_msg', 'No se pudo validar la fecha real de pago para este periodo. Contacta soporte para facturación.');
         }
 
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
@@ -1189,6 +1274,7 @@ final class AccountBillingController extends Controller
         if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
         if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
 
+        // ✅ Si hay sesión, evita cross-account
         try {
             [$sessAccountIdRaw] = $this->resolveAdminAccountId($r);
             $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
@@ -1205,11 +1291,14 @@ final class AccountBillingController extends Controller
         // Usa ?regen=1 para ignorar billing_views y renderizar el Blade nuevo
         $regen = ((string) $r->query('regen', '0') === '1');
 
+        // ==========================================================
+        // 1) Si existe PDF guardado (admin.billing_views), servirlo
+        // ==========================================================
         if (!$regen) {
             $found = $this->findAdminPdfForPeriod((int) $accountId, $period);
             if ($found && !empty($found['disk']) && !empty($found['path'])) {
-                $disk = (string) $found['disk'];
-                $path = (string) $found['path'];
+                $disk  = (string) $found['disk'];
+                $path  = (string) $found['path'];
                 $fname = (string) ($found['filename'] ?? "estado_cuenta_{$period}.pdf");
 
                 try {
@@ -1230,7 +1319,6 @@ final class AccountBillingController extends Controller
                                 'Content-Type'        => 'application/pdf',
                                 'Content-Disposition' => ($forceInline ? 'inline' : 'attachment') . '; filename="'.$fname.'"',
                             ];
-
                             return Storage::disk($disk)->response($path, $fname, $headers);
                         }
                     }
@@ -1244,39 +1332,49 @@ final class AccountBillingController extends Controller
             }
         } else {
             Log::info('[BILLING] publicPdf regen bypass enabled', [
-                'account_id' => (int)$accountId,
+                'account_id' => (int) $accountId,
                 'period'     => $period,
                 'inline'     => $forceInline,
             ]);
         }
 
-        // Fallback HTML/PDF
+        // ==========================================================
+        // 2) Fallback: renderizar Blade actual (DomPDF) / HTML simple
+        // ==========================================================
         [$rfc, $alias] = $accountId > 0 ? $this->resolveRfcAliasForUi($r, (int) $accountId) : ['—', '—'];
 
         $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
+        $isAnnual = $this->isAnnualBillingCycle((int)$accountId);
+
         $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+            ? (
+                $isAnnual
+                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
+                    : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+            )
             : $period;
 
-        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
+        // ✅ mensualidad (cents)
+        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int) $accountId, $period, $lastPaid, $payAllowed);
         if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
         if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, null, $period);
 
         $monthlyMxn = round($monthlyCents / 100, 2);
 
         // ==========================================================
-        // ✅ Saldo anterior (periodo - 1) + totales estado de cuenta
+        // ✅ Saldo anterior (periodo - 1)
         // ==========================================================
-        $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int)$accountId, $period);
+        $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int) $accountId, $period);
         $prevBalanceMxn   = round($prevBalanceCents / 100, 2);
 
+        $prevPeriod = '';
         try {
             $prevPeriod = Carbon::createFromFormat('Y-m', $period)->subMonthNoOverflow()->format('Y-m');
         } catch (\Throwable $e) {
             $prevPeriod = '';
         }
 
-        $prevPeriodLabel = '';
+        $prevPeriodLabel = $prevPeriod;
         try {
             if ($prevPeriod !== '' && preg_match('/^\d{4}-\d{2}$/', $prevPeriod)) {
                 $prevPeriodLabel = Carbon::parse($prevPeriod.'-01')->translatedFormat('F Y');
@@ -1286,35 +1384,53 @@ final class AccountBillingController extends Controller
             $prevPeriodLabel = $prevPeriod;
         }
 
-
         $currentDueMxn = (float) $monthlyMxn;
         $totalDueMxn   = round($currentDueMxn + $prevBalanceMxn, 2);
 
         // ==========================================================
         // ✅ Detectar si el PERIODO ACTUAL está pagado (NO el total)
+        // - Query a accounts defensiva (columnas variables)
         // ==========================================================
         $isPaid = false;
+        $acc = null;
+
         try {
             $adm = config('p360.conn.admin', 'mysql_admin');
+
             if (Schema::connection($adm)->hasTable('accounts')) {
+                $cols = Schema::connection($adm)->getColumnListing('accounts');
+                $lc   = array_map('strtolower', $cols);
+                $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+                $sel = ['id'];
+                foreach (['email','razon_social','rfc','meta'] as $c) {
+                    if ($has($c)) $sel[] = $c;
+                }
+                $sel = array_values(array_unique($sel));
+
                 $acc = DB::connection($adm)->table('accounts')
-                    ->select(['id', 'email', 'razon_social', 'rfc', 'meta'])
+                    ->select($sel)
                     ->where('id', (int) $accountId)
                     ->first();
 
-                if ($acc && isset($acc->meta)) {
+                // Solo si hay meta usable
+                if ($acc && $has('meta') && isset($acc->meta)) {
                     $meta = is_string($acc->meta)
-                        ? (json_decode((string) $acc->meta, true) ?: [])
+                        ? (json_decode((string)$acc->meta, true) ?: [])
                         : (array) $acc->meta;
 
                     $lp = trim((string) data_get($meta, 'stripe.last_paid_period', ''));
-                    if ($lp !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $lp)) {
+                    if ($lp !== '' && $this->isValidPeriod($lp)) {
                         $isPaid = ($lp === $period);
                     } else {
-                        $lastPaidAt = (string) data_get($meta, 'stripe.last_paid_at', '');
+                        $lastPaidAt = trim((string) data_get($meta, 'stripe.last_paid_at', ''));
                         if ($lastPaidAt !== '') {
-                            $p = Carbon::parse($lastPaidAt)->format('Y-m');
-                            $isPaid = ($p === $period);
+                            try {
+                                $p = Carbon::parse($lastPaidAt)->format('Y-m');
+                                $isPaid = ($p === $period);
+                            } catch (\Throwable $e) {
+                                // ignora
+                            }
                         }
                     }
                 }
@@ -1323,6 +1439,10 @@ final class AccountBillingController extends Controller
             // ignora
         }
 
+
+        // ==========================================================
+        // ✅ QR payload: preferir URL firmada de pago si existe
+        // ==========================================================
         $qrPayload = 'P360|ACC:'.$accountId.'|PER:'.$period;
 
         if (Route::has('cliente.billing.publicPay')) {
@@ -1338,13 +1458,16 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // ✅ Logo: intenta varias rutas para evitar typo/archivo faltante
+        // ==========================================================
+        // ✅ Logo: rutas candidatas (compat)
+        // ==========================================================
         $logoAbsCandidates = [
             public_path('assets/client/logp360ligjt.png'),   // compat (typo histórico)
             public_path('assets/client/logo_p360_light.png'),
             public_path('assets/client/logo-p360-light.png'),
             public_path('assets/client/logo.png'),
         ];
+
         $logoAbs = null;
         foreach ($logoAbsCandidates as $c) {
             if (is_string($c) && $c !== '' && is_file($c) && is_readable($c)) { $logoAbs = $c; break; }
@@ -1353,43 +1476,44 @@ final class AccountBillingController extends Controller
         $logoDataUri = $logoAbs ? $this->imgToDataUri($logoAbs) : null;
         $qrDataUri   = $this->qrToDataUri($qrPayload, 150);
 
+        // ✅ Email del account (si existe) / si no, usa el del usuario logueado / si no, —
+        $email = '—';
+        try {
+            $email = (string) (
+                ($acc && isset($acc->email) && trim((string) $acc->email) !== '') ? (string) $acc->email : (
+                    Auth::guard('web')->user()?->email ?: '—'
+                )
+            );
+        } catch (\Throwable $e) {
+            $email = Auth::guard('web')->user()?->email ?: '—';
+        }
+
         $data = [
             'period'       => $period,
             'account_id'   => (int) $accountId,
             'rfc'          => $rfc,
             'razon_social' => $alias,
+            'email'        => $email,
 
-            // ✅ Email del account (si existe) / si no, usa el del usuario logueado / si no, —
-            'email'        => (string) (
-                ($acc->email ?? null)
-                ?: (Auth::guard('web')->user()?->email ?? '—')
-            ),
-
-            // ======================================================
             // ✅ Estado de cuenta: anterior + actual
-            // ======================================================
-            'prev_period'        => $prevPeriod ?: null,
-            'prev_period_label'  => $prevPeriodLabel !== '' ? $prevPeriodLabel : ($prevPeriod ?: null),
+            'prev_period'        => $prevPeriod !== '' ? $prevPeriod : null,
+            'prev_period_label'  => ($prevPeriodLabel !== '' ? $prevPeriodLabel : ($prevPeriod !== '' ? $prevPeriod : null)),
             'prev_balance'       => (float) $prevBalanceMxn,
             'current_period_due' => (float) $currentDueMxn,
             'total_due'          => (float) $totalDueMxn,
 
+            // Compat (tu PDF usa estos campos)
+            'total' => (float) $totalDueMxn,                    // Total a pagar (incluye saldo anterior)
+            'cargo' => (float) $currentDueMxn,                  // Cargo del periodo (mensualidad actual)
+            'abono' => $isPaid ? (float) $currentDueMxn : 0.0,  // Si el periodo actual ya está pagado
+            'saldo' => (float) $currentDueMxn,                  // legacy fallback
 
-            // Compat (tu PDF usa estos campos):
-            // - cargo = cargo del periodo (mensualidad actual)
-            // - abono = pagos aplicados (si el periodo está pagado, al menos la mensualidad)
-            // - saldo = saldo del periodo (para legacy UI dentro del blade)
-            'total' => (float) $totalDueMxn,              // Total a pagar (incluye saldo anterior)
-            'cargo' => (float) $currentDueMxn,            // Cargo del periodo (solo el periodo actual)
-            'abono' => $isPaid ? (float) $currentDueMxn : 0.0, // Si el periodo actual ya está pagado, refleja ese abono
-            'saldo' => (float) $currentDueMxn,            // Saldo del periodo (para fallback legacy)
-
-             // ✅ Hard-kill legacy para que el Blade no priorice consumos por accidente
+            // ✅ Hard-kill legacy para que el Blade no priorice consumos por accidente
             'consumos' => [],
 
             // Líneas de servicio (incluye saldo anterior si aplica)
             'service_items' => array_values(array_filter([
-                ($prevBalanceMxn > 0.0001 && $prevPeriod) ? [
+                ($prevBalanceMxn > 0.0001 && $prevPeriod !== '') ? [
                     'name'       => 'Saldo anterior pendiente ('.$prevPeriod.')',
                     'unit_price' => (float) $prevBalanceMxn,
                     'qty'        => 1,
@@ -1408,7 +1532,6 @@ final class AccountBillingController extends Controller
             'logo_data_uri' => $logoDataUri,
             'qr_data_uri'   => $qrDataUri,
         ];
-
 
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('cliente.billing.pdf.statement', $data);
@@ -1429,6 +1552,7 @@ final class AccountBillingController extends Controller
                 . ' - ' . Carbon::createFromFormat('Y-m', $period)->endOfMonth()->format('d/m/Y'),
         ]))->header('Content-Type', 'text/html; charset=UTF-8');
     }
+
 
     public function publicPdfInline(Request $r, int $accountId, string $period)
     {
@@ -1483,9 +1607,16 @@ final class AccountBillingController extends Controller
 
     // Regla: solo permitir pagar el "payAllowed"
     $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
+    $isAnnual = $this->isAnnualBillingCycle((int)$accountId);
+
     $payAllowed = $lastPaid
-        ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+        ? (
+            $isAnnual
+                ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
+                : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+        )
         : $period;
+
 
     if ($period !== $payAllowed) {
         Log::warning('[BILLING] publicPay blocked (period not allowed)', [
@@ -1500,9 +1631,16 @@ final class AccountBillingController extends Controller
     }
 
     // Resuelve monto (monto lógico del sistema / UI)
-    $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
-    if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
-    if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
+    $isAnnual = $isAnnual ?? $this->isAnnualBillingCycle((int)$accountId);
+
+    if ($isAnnual) {
+        $baseAnnual = $lastPaid ?: $period;
+        $monthlyCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
+    } else {
+        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
+        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
+        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
+    }
 
     if ($monthlyCents <= 0) {
         Log::error('[BILLING] publicPay blocked (amount unresolved)', [
@@ -2846,49 +2984,223 @@ final class AccountBillingController extends Controller
     }
 
     private function qrToDataUri(string $text, int $size = 150): ?string
-{
-    try {
-        // bacon/bacon-qr-code requerido
-        if (!class_exists(\BaconQrCode\Writer::class) || !class_exists(\BaconQrCode\Renderer\ImageRenderer::class)) {
+    {
+        try {
+            // bacon/bacon-qr-code requerido
+            if (!class_exists(\BaconQrCode\Writer::class) || !class_exists(\BaconQrCode\Renderer\ImageRenderer::class)) {
+                return null;
+            }
+
+            $size = max(80, min(600, $size));
+
+            // 1) Intentar PNG con GD si el backend existe (bacon v3)
+            if (extension_loaded('gd') && class_exists(\BaconQrCode\Renderer\Image\GdImageBackEnd::class)) {
+                $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                    new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
+                    new \BaconQrCode\Renderer\Image\GdImageBackEnd()
+                );
+                $writer = new \BaconQrCode\Writer($renderer);
+
+                $png = $writer->writeString($text);
+                return 'data:image/png;base64,' . base64_encode($png);
+            }
+
+            // 2) Fallback SVG (según versión puede existir)
+            if (class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)) {
+                $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                    new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
+                    new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
+                );
+                $writer = new \BaconQrCode\Writer($renderer);
+
+                $svg = $writer->writeString($text);
+                return 'data:image/svg+xml;base64,' . base64_encode($svg);
+            }
+
+            // Sin backend compatible
+            return null;
+        } catch (\Throwable $e) {
+            \Log::warning('[BILLING] qrToDataUri failed', [
+                'err' => $e->getMessage(),
+                'gd'  => extension_loaded('gd'),
+            ]);
             return null;
         }
-
-        $size = max(80, min(600, $size));
-
-        // 1) Intentar PNG con GD si el backend existe (bacon v3)
-        if (extension_loaded('gd') && class_exists(\BaconQrCode\Renderer\Image\GdImageBackEnd::class)) {
-            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
-                new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
-                new \BaconQrCode\Renderer\Image\GdImageBackEnd()
-            );
-            $writer = new \BaconQrCode\Writer($renderer);
-
-            $png = $writer->writeString($text);
-            return 'data:image/png;base64,' . base64_encode($png);
-        }
-
-        // 2) Fallback SVG (según versión puede existir)
-        if (class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)) {
-            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
-                new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
-                new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
-            );
-            $writer = new \BaconQrCode\Writer($renderer);
-
-            $svg = $writer->writeString($text);
-            return 'data:image/svg+xml;base64,' . base64_encode($svg);
-        }
-
-        // Sin backend compatible
-        return null;
-    } catch (\Throwable $e) {
-        \Log::warning('[BILLING] qrToDataUri failed', [
-            'err' => $e->getMessage(),
-            'gd'  => extension_loaded('gd'),
-        ]);
-        return null;
     }
-}
+
+    /**
+     * Determina si la cuenta está en ciclo ANUAL.
+     * Fuentes:
+     * - admin.accounts.modo_cobro
+     * - admin.accounts.meta.billing.cycle / meta.stripe.billing_cycle
+     */
+    private function isAnnualBillingCycle(int $accountId): bool
+    {
+        if ($accountId <= 0) return false;
+
+        try {
+            $adm = (string) config('p360.conn.admin', 'mysql_admin');
+            if (!Schema::connection($adm)->hasTable('accounts')) return false;
+
+            $cols = Schema::connection($adm)->getColumnListing('accounts');
+            $lc   = array_map('strtolower', $cols);
+            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+            $sel = ['id'];
+            if ($has('modo_cobro')) $sel[] = 'modo_cobro';
+            if ($has('meta'))      $sel[] = 'meta';
+
+            $acc = DB::connection($adm)->table('accounts')
+                ->select($sel)
+                ->where('id', $accountId)
+                ->first();
+
+            if (!$acc) return false;
+
+            // 1) modo_cobro
+            if ($has('modo_cobro')) {
+                $mc = strtolower(trim((string) ($acc->modo_cobro ?? '')));
+                if (in_array($mc, ['anual','annual','year','yearly'], true)) return true;
+            }
+
+            // 2) meta
+            if ($has('meta') && isset($acc->meta)) {
+                $meta = is_string($acc->meta)
+                    ? (json_decode((string)$acc->meta, true) ?: [])
+                    : (array) $acc->meta;
+
+                $cycle = strtolower(trim((string) (
+                    data_get($meta, 'billing.cycle')
+                    ?: data_get($meta, 'stripe.billing_cycle')
+                    ?: data_get($meta, 'subscription.cycle')
+                    ?: ''
+                )));
+
+                if (in_array($cycle, ['anual','annual','year','yearly'], true)) return true;
+            }
+
+        } catch (\Throwable $e) {
+            // ignora
+        }
+
+        return false;
+    }
+
+    /**
+     * Determina si la cuenta es ANUAL (robusto por escenarios).
+     */
+    private function isAnnualAccount(int $accountId): bool
+    {
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+        if (!Schema::connection($adm)->hasTable('accounts')) return false;
+
+        try {
+            $cols = Schema::connection($adm)->getColumnListing('accounts');
+            $lc   = array_map('strtolower', $cols);
+            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+            $sel = ['id'];
+            foreach (['modo_cobro','plan','plan_actual','meta'] as $c) {
+                if ($has($c)) $sel[] = $c;
+            }
+
+            $acc = DB::connection($adm)->table('accounts')->where('id', $accountId)->first($sel);
+            if (!$acc) return false;
+
+            // 1) modo_cobro directo
+            if ($has('modo_cobro')) {
+                $mc = strtolower(trim((string)($acc->modo_cobro ?? '')));
+                if (in_array($mc, ['anual','annual','year','yearly'], true)) return true;
+            }
+
+            // 2) meta.* (billing/subscription)
+            if ($has('meta') && isset($acc->meta)) {
+                $meta = is_string($acc->meta) ? (json_decode((string)$acc->meta, true) ?: []) : (array)$acc->meta;
+
+                $cycle = strtolower(trim((string)(
+                    data_get($meta, 'billing.cycle')
+                    ?: data_get($meta, 'subscription.cycle')
+                    ?: data_get($meta, 'plan.cycle')
+                    ?: data_get($meta, 'cycle')
+                    ?: ''
+                )));
+
+                if (in_array($cycle, ['anual','annual','year','yearly'], true)) return true;
+            }
+
+            // 3) planes.precio_anual como “señal” (si existe)
+            if (Schema::connection($adm)->hasTable('planes') && ($has('plan') || $has('plan_actual'))) {
+                $planKey = trim((string)($acc->plan_actual ?: $acc->plan));
+                if ($planKey !== '') {
+                    $p = DB::connection($adm)->table('planes')
+                        ->where('clave', $planKey)
+                        ->first(['precio_anual','activo']);
+
+                    if ($p && (!isset($p->activo) || (int)$p->activo === 1)) {
+                        $pa = (float)($p->precio_anual ?? 0);
+                        if ($pa > 0) return true;
+                    }
+                }
+            }
+
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] isAnnualAccount failed', ['account_id'=>$accountId,'err'=>$e->getMessage()]);
+        }
+
+        return false;
+    }
+
+    /**
+     * Ventana para mostrar renovación anual (días antes).
+     * Default 30 días.
+     */
+    private function annualRenewalWindowDays(): int
+    {
+        $n = (int) (config('p360.billing.annual_renewal_window_days') ?? 30);
+        return $n > 0 ? $n : 30;
+    }
+
+    /**
+     * Calcula cents ANUALES:
+     * - Preferir planes.precio_anual
+     * - Si no existe, usar mensual * 12
+     */
+    private function resolveAnnualCents(int $accountId, string $basePeriod, ?string $lastPaid, string $payAllowed): int
+    {
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+
+        // 1) intenta precio_anual del plan
+        try {
+            if (Schema::connection($adm)->hasTable('accounts') && Schema::connection($adm)->hasTable('planes')) {
+                $acc = DB::connection($adm)->table('accounts')
+                    ->where('id', $accountId)
+                    ->first(['id','plan','plan_actual']);
+
+                if ($acc) {
+                    $planKey = trim((string)($acc->plan_actual ?: $acc->plan));
+                    if ($planKey !== '') {
+                        $p = DB::connection($adm)->table('planes')
+                            ->where('clave', $planKey)
+                            ->first(['precio_anual','precio_mensual','activo']);
+
+                        if ($p && (!isset($p->activo) || (int)$p->activo === 1)) {
+                            $pa = (float)($p->precio_anual ?? 0);
+                            if ($pa > 0) return (int) round($pa * 100);
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        // 2) fallback: mensual (tu lógica actual) * 12
+        $monthly = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $basePeriod, $lastPaid, $payAllowed);
+        if ($monthly <= 0) $monthly = (int) $this->resolveMonthlyCentsFromPlanesCatalog($accountId);
+        if ($monthly <= 0) $monthly = (int) $this->resolveMonthlyCentsFromClientesEstadosCuenta($accountId, $lastPaid, $payAllowed);
+
+        return $monthly > 0 ? (int) ($monthly * 12) : 0;
+    }
+
+
 
 
     private function renderSimplePdfHtml(array $d): string
@@ -2901,52 +3213,52 @@ final class AccountBillingController extends Controller
         $range  = htmlspecialchars((string) ($d['range'] ?? ''), ENT_QUOTES, 'UTF-8');
 
         return <<<HTML
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Estado de cuenta {$period}</title>
-<style>
-  body{font-family:Arial,Helvetica,sans-serif;color:#111827;margin:24px}
-  .card{border:1px solid #e5e7eb;border-radius:12px;padding:18px}
-  .h{font-size:18px;font-weight:800;margin:0 0 10px}
-  .row{display:flex;gap:16px;flex-wrap:wrap}
-  .col{min-width:220px}
-  .k{font-size:12px;color:#6b7280;font-weight:700}
-  .v{font-size:14px;font-weight:800;margin-top:2px}
-  .amt{font-size:20px;font-weight:900;margin-top:6px}
-  .badge{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;background:#f3f4f6}
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="h">Estado de cuenta · {$period}</div>
-    <div class="row">
-      <div class="col">
-        <div class="k">Alias</div>
-        <div class="v">{$alias}</div>
-      </div>
-      <div class="col">
-        <div class="k">RFC</div>
-        <div class="v">{$rfc}</div>
-      </div>
-      <div class="col">
-        <div class="k">Periodo</div>
-        <div class="v">{$range}</div>
-      </div>
-      <div class="col">
-        <div class="k">Estatus</div>
-        <div class="v"><span class="badge">{$status}</span></div>
-      </div>
-      <div class="col">
-        <div class="k">Importe</div>
-        <div class="amt">{$amount}</div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-HTML;
-    }
+        <!doctype html>
+        <html lang="es">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Estado de cuenta {$period}</title>
+        <style>
+        body{font-family:Arial,Helvetica,sans-serif;color:#111827;margin:24px}
+        .card{border:1px solid #e5e7eb;border-radius:12px;padding:18px}
+        .h{font-size:18px;font-weight:800;margin:0 0 10px}
+        .row{display:flex;gap:16px;flex-wrap:wrap}
+        .col{min-width:220px}
+        .k{font-size:12px;color:#6b7280;font-weight:700}
+        .v{font-size:14px;font-weight:800;margin-top:2px}
+        .amt{font-size:20px;font-weight:900;margin-top:6px}
+        .badge{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;background:#f3f4f6}
+        </style>
+        </head>
+        <body>
+        <div class="card">
+            <div class="h">Estado de cuenta · {$period}</div>
+            <div class="row">
+            <div class="col">
+                <div class="k">Alias</div>
+                <div class="v">{$alias}</div>
+            </div>
+            <div class="col">
+                <div class="k">RFC</div>
+                <div class="v">{$rfc}</div>
+            </div>
+            <div class="col">
+                <div class="k">Periodo</div>
+                <div class="v">{$range}</div>
+            </div>
+            <div class="col">
+                <div class="k">Estatus</div>
+                <div class="v"><span class="badge">{$status}</span></div>
+            </div>
+            <div class="col">
+                <div class="k">Importe</div>
+                <div class="amt">{$amount}</div>
+            </div>
+            </div>
+        </div>
+        </body>
+        </html>
+        HTML;
+            }
 }
