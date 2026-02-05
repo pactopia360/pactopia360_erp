@@ -292,7 +292,7 @@ final class AccountBillingController extends Controller
         $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
         if (!$isAnnual) {
-            $rows = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $refMxn);
+            $rows = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $monthlyMxn, (bool)$isAnnual);
         } else {
             // defensivo: si por alguna razón vienen >2, deja solo los periodos calculados
             $keep = array_flip($periods);
@@ -1874,7 +1874,7 @@ final class AccountBillingController extends Controller
     // =========================
     // Helpers (2 cards)
     // =========================
-    private function enforceTwoCardsOnly(array $rows, ?string $lastPaid, string $payAllowed, float $monthlyMxn): array
+    private function enforceTwoCardsOnly(array $rows, ?string $lastPaid, string $payAllowed, float $monthlyMxn, bool $isAnnual = false): array
     {
         $valid = array_values(array_filter($rows, function ($r) {
             $p = (string) ($r['period'] ?? '');
@@ -1885,7 +1885,7 @@ final class AccountBillingController extends Controller
             $baseRfc = '—';
             $baseAlias = '—';
 
-            $out = [
+             $out = [
                 [
                     'period' => $payAllowed,
                     'status' => 'pending',
@@ -1900,25 +1900,29 @@ final class AccountBillingController extends Controller
                     'invoice_has_zip' => false,
                     'price_source' => 'none',
                 ],
-            ];
+                ];
 
-            $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
-            $out[] = [
-                'period' => $next,
-                'status' => 'pending',
-                'charge' => round($monthlyMxn, 2),
-                'paid_amount' => 0.0,
-                'saldo' => round($monthlyMxn, 2),
-                'can_pay' => false,
-                'period_range' => '',
-                'rfc' => $baseRfc,
-                'alias' => $baseAlias,
-                'invoice_request_status' => null,
-                'invoice_has_zip' => false,
-                'price_source' => 'none',
-            ];
-
-            return array_slice($out, 0, 2);
+                 // ✅ ANUAL: solo 1 card
+                 if ($isAnnual) return array_slice($out, 0, 1);
+                
+                 // Mensual: mantiene 2 cards (siguiente mes)
+                 $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
+                 $out[] = [
+                   'period' => $next,
+                   'status' => 'pending',
+                   'charge' => round($monthlyMxn, 2),
+                   'paid_amount' => 0.0,
+                   'saldo' => round($monthlyMxn, 2),
+                   'can_pay' => false,
+                   'period_range' => '',
+                   'rfc' => $baseRfc,
+                   'alias' => $baseAlias,
+                   'invoice_request_status' => null,
+                   'invoice_has_zip' => false,
+                   'price_source' => 'none',
+                 ];
+                
+                 return array_slice($out, 0, 2);
         }
 
         usort($valid, function ($a, $b) use ($lastPaid, $payAllowed) {
@@ -1955,7 +1959,7 @@ final class AccountBillingController extends Controller
         $baseRfc = (string)($out[0]['rfc'] ?? $valid[0]['rfc'] ?? '—');
         $baseAlias = (string)($out[0]['alias'] ?? $valid[0]['alias'] ?? '—');
 
-        if (count($out) < 2) {
+        if (!$isAnnual && count($out) < 2) {
             $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
             $out[] = [
                 'period' => $next,
@@ -1973,7 +1977,7 @@ final class AccountBillingController extends Controller
             ];
         }
 
-        return array_slice($out, 0, 2);
+        return $isAnnual ? array_slice($out, 0, 1) : array_slice($out, 0, 2);
     }
 
     private function adminLastPaidPeriod(int $accountId): ?string
@@ -3042,7 +3046,7 @@ final class AccountBillingController extends Controller
      * - admin.accounts.modo_cobro
      * - admin.accounts.meta.billing.cycle / meta.stripe.billing_cycle
      */
-    private function isAnnualBillingCycle(int $accountId): bool
+     private function isAnnualBillingCycle(int $accountId): bool
     {
         if ($accountId <= 0) return false;
 
@@ -3057,6 +3061,8 @@ final class AccountBillingController extends Controller
             $sel = ['id'];
             if ($has('modo_cobro')) $sel[] = 'modo_cobro';
             if ($has('meta'))      $sel[] = 'meta';
+            if ($has('plan'))      $sel[] = 'plan';
+            if ($has('plan_actual')) $sel[] = 'plan_actual';
 
             $acc = DB::connection($adm)->table('accounts')
                 ->select($sel)
@@ -3069,6 +3075,14 @@ final class AccountBillingController extends Controller
             if ($has('modo_cobro')) {
                 $mc = strtolower(trim((string) ($acc->modo_cobro ?? '')));
                 if (in_array($mc, ['anual','annual','year','yearly'], true)) return true;
+            }
+
+            // 1.5) plan / plan_actual (señal fuerte en tu UI: "CUSTOM · ANUAL")
+            if ($has('plan') || $has('plan_actual')) {
+                $p = strtolower(trim((string) (($acc->plan_actual ?? '') ?: ($acc->plan ?? ''))));
+                if ($p !== '' && (str_contains($p, 'anual') || str_contains($p, 'annual') || str_contains($p, 'year'))) {
+                    return true;
+                }
             }
 
             // 2) meta
