@@ -281,14 +281,60 @@
     // force email / phone: en tus rutas existe force-email. phone puede existir o no.
     setAction('#mCred_form_force_email', buildFallbackUrl(client, 'force-email'));
 
-    // si tu backend NO tiene force-phone, dejar disabled.
-    // En tu blade traes "mCred_force_phone_missing" y en el hook inline también; aquí lo respetamos.
-    const forcePhoneUrl = buildFallbackUrl(client, 'force-phone');
+        const forcePhoneUrl = buildFallbackUrl(client, 'force-phone');
     setAction('#mCred_form_force_phone', forcePhoneUrl);
 
     const missing = $('#mCred_force_phone_missing');
     if (missing) missing.hidden = true;
+
+    // =========================================================
+    // ✅ Enviar credenciales por correo (acción + defaults + payload)
+    // =========================================================
+    const emailForm = $('#mCred_form_email_creds');
+    const emailMissing = $('#mCred_email_creds_missing');
+
+    // Action (route real desde payload; si no, fallback)
+    const credsUrl = (client.email_creds_url || '').toString().trim();
+    const actionUrl = credsUrl || buildFallbackUrl(client, 'email-credentials');
+    if (emailForm) {
+      setAction(emailForm, credsUrl ? actionUrl : (credsUrl ? actionUrl : actionUrl)); // siempre setea, pero controla "missing"
+      // Mostrar "missing" solo si NO viene ruta en payload (para que detectes si falta route real)
+      if (emailMissing) emailMissing.hidden = !!credsUrl;
+    } else {
+      if (emailMissing) emailMissing.hidden = false;
+    }
+
+    // Defaults destinatarios (REFRESH por cambio de cliente)
+    const to = $('#mCred_to');
+    if (to) {
+      const csv = (client.recips_statement || '').toString().trim();
+      const fallback = (client.email || '').toString().trim();
+      const nextVal = (csv || fallback || '').trim();
+
+      const cid = (client.id || client.rfc || '').toString();
+      const prev = (to.getAttribute('data-last-client') || '').toString();
+
+      if (cid && cid !== prev) {
+        to.value = nextVal;
+        to.setAttribute('data-last-client', cid);
+      } else {
+        if (!to.value.trim()) to.value = nextVal;
+        if (cid) to.setAttribute('data-last-client', cid);
+      }
+    }
+
+    // Hidden payload
+    const user = (client.owner_email || client.email || client.rfc || client.id || '').toString();
+    const pass = (client.temp_pass || client.otp_code || '').toString();
+    const access = (client.access_url || client.token_url || '').toString();
+
+    const hu = $('#mCred_hidden_user'); if (hu) hu.value = user;
+    const hp = $('#mCred_hidden_pass'); if (hp) hp.value = pass;
+    const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
+    const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (client.rfc || '').toString();
+    const hrs = $('#mCred_hidden_rs'); if (hrs) hrs.value = (client.razon_social || '').toString();
   };
+
 
   const fillBillingModal = (client) => {
     if (!client) return;

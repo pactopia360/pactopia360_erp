@@ -168,14 +168,21 @@ Route::get('__session', function () {
 |--------------------------------------------------------------------------
 | - NO requiere auth:web (aquí se hace login del cliente)
 | - Protegido con signed + throttle
+| - ✅ FIX: NO duplicar rutas, NO duplicar names.
+| - STOP canónico: POST (logout), GET solo compat con OTRO name.
 */
 Route::get('impersonate/{token}', [ImpersonateController::class, 'consume'])
     ->middleware(['signed', 'throttle:30,1'])
     ->where('token', '[A-Za-z0-9]+')
     ->name('impersonate.consume');
 
-Route::get('impersonate/stop', [ImpersonateController::class, 'stop'])
+// STOP real (POST)
+Route::post('impersonate/stop', [ImpersonateController::class, 'stop'])
     ->name('impersonate.stop');
+
+// Compat (GET) sin colisionar el name canónico
+Route::get('impersonate/stop', [ImpersonateController::class, 'stop'])
+    ->name('impersonate.stop.get');
 
 /*
 |--------------------------------------------------------------------------

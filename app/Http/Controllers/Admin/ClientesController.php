@@ -903,13 +903,19 @@ class ClientesController extends \App\Http\Controllers\Controller
     return redirect($url);
     }
 
-
-
     public function impersonateStop(): RedirectResponse
     {
-        try { Auth::guard('web')->logout(); } catch (\Throwable $e) {}
-        session()->forget(['impersonated_by_admin', 'impersonated_rfc']);
-        return redirect()->route('admin.clientes.index')->with('ok', 'Sesión de cliente finalizada.');
+        // ⚠️ Admin NO puede cerrar la sesión del portal cliente porque es otra cookie (p360_client_session).
+        // Este endpoint queda como compat para UI/admin: solo manda al usuario al portal cliente a cerrarla.
+        try {
+            $url = \Illuminate\Support\Facades\Route::has('cliente.home')
+                ? route('cliente.home')
+                : url('/cliente');
+
+            return redirect($url)->with('info', 'Para finalizar la impersonación, ciérrala desde el portal cliente (menú usuario).');
+        } catch (\Throwable $e) {
+            return redirect()->route('admin.clientes.index')->with('info', 'Impersonación: usa el portal cliente para finalizarla.');
+        }
     }
 
 

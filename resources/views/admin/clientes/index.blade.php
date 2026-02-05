@@ -1238,8 +1238,23 @@
       if (to) {
         const csv = c && c.recips_statement ? String(c.recips_statement || '') : '';
         const fallback = c && c.email ? String(c.email || '') : '';
-        if (!to.value.trim()) to.value = (csv || fallback || '').trim();
+
+       // ✅ Si cambia el cliente, siempre refrescar el "Para"
+       const cid = c && c.id ? String(c.id) : '';
+       const prev = String(to.getAttribute('data-last-client') || '');
+       const nextVal = (csv || fallback || '').trim();
+
+       if (cid !== '' && cid !== prev) {
+         to.value = nextVal;
+         to.setAttribute('data-last-client', cid);
+       } else {
+         // Si NO cambió cliente, respetar lo que el admin ya escribió,
+         // pero si está vacío, prellenar.
+         if (!to.value.trim()) to.value = nextVal;
+         if (cid !== '') to.setAttribute('data-last-client', cid);
+       }
       }
+
 
       // payload para backend: usuario = owner_email si existe; password = temp_pass si existe
       const user = (c && c.owner_email ? String(c.owner_email) : '') || (c && c.email ? String(c.email) : '') || (c && c.rfc ? String(c.rfc) : '') || '';

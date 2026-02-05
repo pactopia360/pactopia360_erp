@@ -19,17 +19,22 @@ class ImpersonateController extends Controller
      */
     public function consume(Request $request, string $token): RedirectResponse
     {
+        $token = trim((string) $token);
+        if ($token === '') {
+            return redirect()->route('cliente.login')->withErrors([
+                'login' => 'Impersonación inválida.',
+            ]);
+        }
+
+        // ✅ 1-uso atómico: pull = get + delete
         $key  = "impersonate.token.$token";
-        $data = Cache::get($key);
+        $data = Cache::pull($key);
 
         if (!is_array($data) || empty($data['owner_id'])) {
             return redirect()->route('cliente.login')->withErrors([
                 'login' => 'Impersonación inválida o expirada.',
             ]);
         }
-
-        // 1 solo uso
-        Cache::forget($key);
 
         $ownerId = (string) $data['owner_id'];
 
@@ -41,18 +46,34 @@ class ImpersonateController extends Controller
         }
 
         // Limpia cualquier sesión cliente previa
-        try { Auth::guard('web')->logout(); } catch (\Throwable $e) {}
+        try {
+            Auth::guard('web')->logout();
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // ✅ Endurecer contra session fixation
+        try {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        } catch (\Throwable $e) {
+            // ignore (por si la sesión aún no está inicializada en algún edge)
+        }
 
         // ✅ Login bajo cookie cliente (porque ESTA request está en grupo 'cliente')
         Auth::guard('web')->login($owner, false);
 
-        // ✅ Anti session fixation
-        $request->session()->regenerate();
-        $request->session()->regenerateToken();
+        // ✅ Regenera después del login también (doble capa)
+        try {
+            $request->session()->regenerate();
+            $request->session()->regenerateToken();
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
         // Flags de auditoría en sesión CLIENTE
-        session([
-
+        $request->session()->put([
+            'impersonated'          => true,
             'impersonated_by_admin' => (string) ($data['admin_id'] ?? ''),
             'impersonated_rfc'      => (string) (($data['rfc'] ?? '') ?: ($data['account_id'] ?? '')),
         ]);
@@ -66,20 +87,32 @@ class ImpersonateController extends Controller
      */
     public function stop(Request $request): RedirectResponse
     {
-        try { Auth::guard('web')->logout(); } catch (\Throwable $e) {}
+        try {
+            Auth::guard('web')->logout();
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
-        // Limpia flags de impersonación (sin nukear toda la sesión)
-        $request->session()->forget([
-            'impersonated_by_admin',
-            'impersonated_rfc',
-        ]);
+        // Limpia flags de impersonación
+        try {
+            $request->session()->forget([
+                'impersonated',
+                'impersonated_by_admin',
+                'impersonated_rfc',
+            ]);
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
-        // Regenera para seguridad
-        $request->session()->regenerate();
-        $request->session()->regenerateToken();
+        // ✅ Seguridad: invalidar sesión cliente
+        try {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
-        // Importante: admin usa otra cookie (/admin). Al redirigir, el browser enviará la cookie admin.
+        // Admin usa otra cookie (/admin). Al redirigir, el browser enviará la cookie admin.
         return redirect()->route('admin.clientes.index')->with('ok', 'Sesión de cliente finalizada.');
     }
-
 }
