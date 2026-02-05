@@ -865,17 +865,6 @@ final class AccountBillingController extends Controller
                     $end   = $paidAt->copy()->endOfMonth();
 
                     $allowed = $now->betweenIncluded($start, $end);
-
-                    Log::info('[BILLING][DEBUG] invoice window check', [
-                        'account_id' => $accountId,
-                        'period'     => $period,
-                        'last_paid'  => $lastPaid,
-                        'paid_at'    => $paidAt->toDateTimeString(),
-                        'window'     => $start->format('Y-m-d') . ' -> ' . $end->format('Y-m-d'),
-                        'now'        => $now->toDateTimeString(),
-                        'allowed'    => $allowed,
-                        'src'        => $src,
-                    ]);
                 }
 
 
@@ -1644,9 +1633,6 @@ final class AccountBillingController extends Controller
             ->with('warning', 'Este periodo no está habilitado para pago.');
     }
 
-    // Resuelve monto (monto lógico del sistema / UI)
-    $isAnnual = $isAnnual ?? $this->isAnnualBillingCycle((int)$accountId);
-
     if ($isAnnual) {
         $baseAnnual = $lastPaid ?: $period;
         $monthlyCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
@@ -1887,48 +1873,46 @@ final class AccountBillingController extends Controller
             return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
         }));
 
-        if (!$valid) {
-            $baseRfc = '—';
+       if (!$valid) {
+            $baseRfc   = '—';
             $baseAlias = '—';
 
-             $out = [
-                [
-                    'period' => $payAllowed,
-                    'status' => 'pending',
-                    'charge' => round($monthlyMxn, 2),
-                    'paid_amount' => 0.0,
-                    'saldo' => round($monthlyMxn, 2),
-                    'can_pay' => true,
-                    'period_range' => '',
-                    'rfc' => $baseRfc,
-                    'alias' => $baseAlias,
-                    'invoice_request_status' => null,
-                    'invoice_has_zip' => false,
-                    'price_source' => 'none',
-                ],
-                ];
+            $out = [[
+                'period'                => $payAllowed,
+                'status'                => 'pending',
+                'charge'                => round($monthlyMxn, 2),
+                'paid_amount'           => 0.0,
+                'saldo'                 => round($monthlyMxn, 2),
+                'can_pay'               => true,
+                'period_range'          => '',
+                'rfc'                   => $baseRfc,
+                'alias'                 => $baseAlias,
+                'invoice_request_status'=> null,
+                'invoice_has_zip'       => false,
+                'price_source'          => 'none',
+            ]];
 
-                 // ✅ ANUAL: solo 1 card
-                 if ($isAnnual) return array_slice($out, 0, 1);
-                
-                 // Mensual: mantiene 2 cards (siguiente mes)
-                 $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
-                 $out[] = [
-                   'period' => $next,
-                   'status' => 'pending',
-                   'charge' => round($monthlyMxn, 2),
-                   'paid_amount' => 0.0,
-                   'saldo' => round($monthlyMxn, 2),
-                   'can_pay' => false,
-                   'period_range' => '',
-                   'rfc' => $baseRfc,
-                   'alias' => $baseAlias,
-                   'invoice_request_status' => null,
-                   'invoice_has_zip' => false,
-                   'price_source' => 'none',
-                 ];
-                
-                 return array_slice($out, 0, 2);
+            // ✅ ANUAL: solo 1 card
+            if ($isAnnual) return $out;
+
+            // Mensual: mantiene 2 cards (siguiente mes)
+            $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
+            $out[] = [
+                'period'                => $next,
+                'status'                => 'pending',
+                'charge'                => round($monthlyMxn, 2),
+                'paid_amount'           => 0.0,
+                'saldo'                 => round($monthlyMxn, 2),
+                'can_pay'               => false,
+                'period_range'          => '',
+                'rfc'                   => $baseRfc,
+                'alias'                 => $baseAlias,
+                'invoice_request_status'=> null,
+                'invoice_has_zip'       => false,
+                'price_source'          => 'none',
+            ];
+
+            return array_slice($out, 0, 2);
         }
 
         usort($valid, function ($a, $b) use ($lastPaid, $payAllowed) {
@@ -3052,7 +3036,7 @@ final class AccountBillingController extends Controller
      * - admin.accounts.modo_cobro
      * - admin.accounts.meta.billing.cycle / meta.stripe.billing_cycle
      */
-     private function isAnnualBillingCycle(int $accountId): bool
+    private function isAnnualBillingCycle(int $accountId): bool
     {
         if ($accountId <= 0) return false;
 
@@ -3068,6 +3052,7 @@ final class AccountBillingController extends Controller
             foreach (['modo_cobro', 'meta', 'plan', 'plan_actual'] as $c) {
                 if ($has($c)) $sel[] = $c;
             }
+            $sel = array_values(array_unique($sel));
 
             $acc = DB::connection($adm)->table('accounts')
                 ->select($sel)
@@ -3076,57 +3061,132 @@ final class AccountBillingController extends Controller
 
             if (!$acc) return false;
 
-            // helper normalize
-            $norm = function ($v): string {
+            // ---------------------------------------------------------
+            // Normalización robusta
+            // - lower + trim
+            // - colapsa espacios
+            // - normaliza separadores (_ - .) a espacio
+            // ---------------------------------------------------------
+            $norm = static function ($v): string {
                 $s = strtolower(trim((string) $v));
+                if ($s === '') return '';
+                $s = str_replace(["\t", "\n", "\r"], ' ', $s);
+                $s = str_replace(['_', '-', '.'], ' ', $s);
                 $s = preg_replace('/\s+/', ' ', $s);
-                return $s ?: '';
+                return trim((string) $s);
             };
 
-            // helper annual matcher
-            $isAnnualToken = function (string $s): bool {
+            // ---------------------------------------------------------
+            // Matcher anual
+            // - exact tokens
+            // - contains (anual/annual/year/12)
+            // ---------------------------------------------------------
+            $isAnnualToken = static function (string $s) use ($norm): bool {
+                $s = $norm($s);
                 if ($s === '') return false;
-                return in_array($s, ['anual','annual','year','yearly','12m','12 meses','12meses','12-month','12 months'], true)
-                    || str_contains($s, 'anual')
+
+                if (in_array($s, [
+                    'anual', 'annual', 'annually',
+                    'year', 'yearly',
+                    '12m', '12 mes', '12 meses', '12meses',
+                    '12-month', '12 months', '12months',
+                    '1y', '1 year', 'one year',
+                ], true)) {
+                    return true;
+                }
+
+                return str_contains($s, 'anual')
                     || str_contains($s, 'annual')
-                    || str_contains($s, 'year');
+                    || str_contains($s, 'year')
+                    || str_contains($s, '12 mes')
+                    || str_contains($s, '12m');
             };
 
-            // 1) modo_cobro directo
+            // helper: evalúa un valor que puede venir compuesto (ej "billing:yearly|mxn")
+            $isAnnualValue = static function ($v) use ($norm, $isAnnualToken): bool {
+                $s = $norm($v);
+                if ($s === '') return false;
+
+                if ($isAnnualToken($s)) return true;
+
+                // rompe por separadores comunes
+                $parts = preg_split('/[|,:;\/\\\\]/', $s) ?: [];
+                foreach ($parts as $p) {
+                    $p = trim((string) $p);
+                    if ($p !== '' && $isAnnualToken($p)) return true;
+                }
+
+                return false;
+            };
+
+            // 1) modo_cobro directo (si existe)
             if ($has('modo_cobro')) {
                 $mc = $norm($acc->modo_cobro ?? '');
-                if ($isAnnualToken($mc)) return true;
+                if ($isAnnualValue($mc)) return true;
             }
 
             // 2) plan / plan_actual (señal fuerte)
             $plan = $norm(($acc->plan_actual ?? '') ?: ($acc->plan ?? ''));
-            if ($isAnnualToken($plan)) return true;
+            if ($isAnnualValue($plan)) return true;
 
-            // 3) meta (muchas variantes reales)
+            // 3) meta (SOT + variantes reales)
             if ($has('meta') && isset($acc->meta)) {
                 $meta = is_string($acc->meta)
                     ? (json_decode((string) $acc->meta, true) ?: [])
                     : (array) $acc->meta;
 
+                // ✅ prioridad alta: lo que tú ya viste en prod
+                // meta.billing.billing_cycle = "yearly"
                 $candidates = [
-                    data_get($meta, 'billing.cycle'),
-                    data_get($meta, 'billing.modo_cobro'),
+                    // billing.*
                     data_get($meta, 'billing.billing_cycle'),
+                    data_get($meta, 'billing.cycle'),
+                    data_get($meta, 'billing.billingCycle'),
+                    data_get($meta, 'billing.interval'),
+                    data_get($meta, 'billing.modo_cobro'),
+                    data_get($meta, 'billing_cycle'),
+
+                    // stripe.*
                     data_get($meta, 'stripe.billing_cycle'),
                     data_get($meta, 'stripe.cycle'),
+                    data_get($meta, 'stripe.interval'),
                     data_get($meta, 'stripe.plan_interval'),
+
+                    // subscription.*
+                    data_get($meta, 'subscription.billing_cycle'),
                     data_get($meta, 'subscription.cycle'),
                     data_get($meta, 'subscription.interval'),
+
+                    // plan.*
+                    data_get($meta, 'plan.billing_cycle'),
                     data_get($meta, 'plan.cycle'),
                     data_get($meta, 'plan.interval'),
+
+                    // root/meta compat
                     data_get($meta, 'modo_cobro'),
                     data_get($meta, 'cycle'),
                     data_get($meta, 'interval'),
                 ];
 
                 foreach ($candidates as $v) {
-                    $s = $norm($v);
-                    if ($isAnnualToken($s)) return true;
+                    if ($isAnnualValue($v)) return true;
+                }
+
+                // Fallback extra: por si guardas "yearly" en alguna parte libre dentro de meta
+                try {
+                    $raw = json_encode($meta, JSON_UNESCAPED_UNICODE);
+                    $raw = is_string($raw) ? $norm($raw) : '';
+                    if ($raw !== '' && (str_contains($raw, 'yearly') || str_contains($raw, '\"billing_cycle\":\"year'))) {
+                        // match liviano: si el json contiene yearly / year en billing_cycle
+                        if (str_contains($raw, 'yearly') || str_contains($raw, 'billing cycle') || str_contains($raw, 'billing_cycle')) {
+                            // solo activamos si también aparece "year"/"annual"/"anual" cerca de ciclo
+                            if (str_contains($raw, 'year') || str_contains($raw, 'annual') || str_contains($raw, 'anual')) {
+                                return true;
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // ignora
                 }
             }
 
