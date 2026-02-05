@@ -81,7 +81,8 @@ final class BillingStatementsHubController extends Controller
             $alc = array_map('strtolower', $accCols);
             $ahas = static fn(string $c) => in_array(strtolower($c), $alc, true);
 
-            $select = ['accounts.id', 'accounts.email'];
+            $select = ['accounts.id as admin_account_id', 'accounts.id', 'accounts.email'];
+
             foreach (['name', 'razon_social', 'rfc', 'plan', 'plan_actual', 'meta', 'created_at'] as $c) {
                 if ($ahas($c)) $select[] = "accounts.$c";
             }
@@ -114,7 +115,7 @@ final class BillingStatementsHubController extends Controller
 
             // base list (limit duro para evitar cargas gigantes)
             $rows = collect($qb->limit(250)->get());
-            $ids  = $rows->pluck('id')->filter()->values()->all();
+            $ids  = $rows->pluck('admin_account_id')->filter()->values()->all();
 
             // 1) agregados desde estados_cuenta
             $agg = DB::connection($this->adm)->table('estados_cuenta')
@@ -135,6 +136,13 @@ final class BillingStatementsHubController extends Controller
             $trkMap = $this->trackingByAccountForPeriod($ids, $period);
 
             $rows = $rows->map(function ($r) use ($agg, $paidByAcc, $sentMap, $trkMap, $period) {
+
+                $aid = (string) ((int) ($r->admin_account_id ?? $r->id ?? 0));
+                if ($aid !== '') {
+                    // normaliza: en el HUB "id" siempre se tratará como account_id
+                    $r->id = (int) $aid;
+                }
+
                 $a = $agg[$r->id] ?? null;
 
                 $cargoReal = (float) ($a->cargo ?? 0);

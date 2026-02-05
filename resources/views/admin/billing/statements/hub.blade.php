@@ -685,47 +685,141 @@
               </thead>
 
               <tbody>
+
+              @php
+                $p360RouteTry = function(string $name, $id, array $extra = []) {
+                  if (!\Illuminate\Support\Facades\Route::has($name)) return null;
+
+                  $id = (string) $id;
+                  if ($id === '' || !preg_match('/^\d+$/', $id)) return null;
+
+                  // 1) intentos comunes
+                  $keys = ['id','accountId','account_id','account'];
+
+                  foreach ($keys as $k) {
+                    try {
+                      return route($name, array_merge([$k => $id], $extra));
+                    } catch (\Throwable $e) {
+                      // sigue
+                    }
+                  }
+
+                  // 2) intento inteligente: extraer el nombre del parámetro faltante desde la excepción
+                  // Mensaje típico:
+                  // "Missing required parameter for [Route: X] [URI: .../{param}] [Missing parameter: param]."
+                  foreach ($keys as $k) {
+                    // (noop) mantiene compat
+                  }
+
+                  try {
+                    return route($name, array_merge(['id' => $id], $extra));
+                  } catch (\Throwable $e) {
+                    $msg = (string) $e->getMessage();
+
+                    // extrae 1 parámetro faltante
+                    if (preg_match('/Missing parameter:\s*([A-Za-z0-9_]+)/i', $msg, $m)) {
+                      $missing = (string) ($m[1] ?? '');
+                      if ($missing !== '') {
+                        try {
+                          return route($name, array_merge([$missing => $id], $extra));
+                        } catch (\Throwable $e2) {
+                          // sigue
+                        }
+                      }
+                    }
+
+                    // extrae por si viene en URI {.../{param}} (más defensivo)
+                    if (preg_match('/\{([A-Za-z0-9_]+)\}/', $msg, $m2)) {
+                      $missing2 = (string) ($m2[1] ?? '');
+                      if ($missing2 !== '') {
+                        try {
+                          return route($name, array_merge([$missing2 => $id], $extra));
+                        } catch (\Throwable $e3) {
+                          // sigue
+                        }
+                      }
+                    }
+
+                    return null;
+                  }
+                };
+              @endphp
+
+
                 @forelse($rows as $r)
-                  @php
-                    $aid  = (string)($r->id ?? '');
-                    $mail = (string)($r->email ?? '—');
-                    $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
-                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: '—')));
+                    @php
+                      // =========================================================
+                      // ✅ AID (Admin Account ID) — evitar "abro una y abre otra"
+                      // Prioridad: admin_account_id > account_id > aid > id
+                      // Si el valor no es numérico > 0, NO generamos links.
+                      // =========================================================
+                      $aidSrc = 'unresolved';
+                      $aidInt = 0;
 
-                    // Plan / cobro
-                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? '—');
-                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? '—');
+                      $pickAid = function ($v) {
+                        if ($v === null) return 0;
+                        if (is_int($v)) return $v > 0 ? $v : 0;
+                        $s = trim((string)$v);
+                        if ($s === '') return 0;
+                        if (!preg_match('/^[0-9]+$/', $s)) return 0;
+                        $i = (int)$s;
+                        return $i > 0 ? $i : 0;
+                      };
 
-                    // licencia visible (si existiera)
-                    $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
-                    $licShown = $licMonto > 0 ? $fmtMoney($licMonto) : null;
+                      foreach ([
+                        ['admin_account_id', $r->admin_account_id ?? null],
+                        ['account_id',       $r->account_id ?? null],
+                        ['aid',              $r->aid ?? null],
+                        ['id',               $r->id ?? null],
+                      ] as $it) {
+                        [$k,$v] = $it;
+                        $i = $pickAid($v);
+                        if ($i > 0) { $aidInt = $i; $aidSrc = 'row.'.$k; break; }
+                      }
 
-                    // totales
-                    $cargoReal = (float)($r->cargo ?? 0);
-                    $paid      = (float)($r->abono ?? 0);
-                    $expected  = (float)($r->expected_total ?? 0);
+                      $aid  = $aidInt > 0 ? (string)$aidInt : '';
+                      $mail = (string)($r->email ?? '—');
+                      $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
+                      $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: '—')));
 
-                    $totalShown = $cargoReal > 0 ? $cargoReal : $expected;
-                    $saldo      = max(0, $totalShown - $paid);
+                      // Plan / cobro
+                      $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? '—');
+                      $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? '—');
 
-                    $st = (string)($r->status_pago ?? $r->status ?? '');
-                    $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
+                      // licencia visible (si existiera)
+                      $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
+                      $licShown = $licMonto > 0 ? $fmtMoney($licMonto) : null;
 
-                    if($st==='pagado'){ $pill='pill-ok'; }
-                    elseif($st==='vencido'){ $pill='pill-bad'; }
-                    elseif($st==='pendiente' || $st==='parcial'){ $pill='pill-warn'; }
-                    else{ $pill='pill-dim'; }
+                      // totales
+                      $cargoReal = (float)($r->cargo ?? 0);
+                      $paid      = (float)($r->abono ?? 0);
+                      $expected  = (float)($r->expected_total ?? 0);
 
-                    $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
-                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : '—'));
+                      $totalShown = $cargoReal > 0 ? $cargoReal : $expected;
+                      $saldo      = max(0, $totalShown - $paid);
 
-                    $rowAccountUrl = ($hasAccountsShow && $aid) ? route('admin.billing.accounts.show', ['id'=>$aid]) : null;
+                      $st = (string)($r->status_pago ?? $r->status ?? '');
+                      $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
 
-                    $legacyShowUrl = ($hasLegacyStatementShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
-                    $legacyPdfUrl  = ($hasLegacyStatementPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
-                  @endphp
+                      if($st==='pagado'){ $pill='pill-ok'; }
+                      elseif($st==='vencido'){ $pill='pill-bad'; }
+                      elseif($st==='pendiente' || $st==='parcial'){ $pill='pill-warn'; }
+                      else{ $pill='pill-dim'; }
 
-                  <tr class="clickrow" data-aid="{{ e($aid) }}" data-mail="{{ e($mail) }}">
+                      $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
+                      $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : '—'));
+
+                      // ✅ Rutas SIEMPRE con AID válido
+                      $rowAccountUrl = $p360RouteTry('admin.billing.accounts.show', $aid);
+
+                      $legacyShowUrl = $p360RouteTry('admin.billing.statements.show', $aid, ['period'=>$period]);
+                      $legacyPdfUrl  = $p360RouteTry('admin.billing.statements.pdf',  $aid, ['period'=>$period]);
+
+                    @endphp
+
+
+                  <tr class="clickrow" data-aid="{{ e($aid) }}" data-aid-src="{{ e($aidSrc) }}" data-mail="{{ e($mail) }}">
+
                     <td onclick="event.stopPropagation();">
                       <input class="ck ckRow" type="checkbox" value="{{ e($aid) }}" onclick="p360SyncSel()">
                     </td>
@@ -813,11 +907,13 @@
                           <form method="POST" action="{{ route('admin.billing.statements_hub.send_email') }}">
                             @csrf
                             <input type="hidden" name="account_id" value="{{ $aid }}">
-        ar</button>
+                            <input type="hidden" name="period" value="{{ $period }}">
+                            <button class="btn btn-dark" type="submit">Enviar</button>
                           </form>
                         @else
                           <button class="btn btn-dark" type="button" disabled title="Falta ruta send_email">Enviar</button>
                         @endif
+
 
 
                         {{-- Liga Stripe --}}
