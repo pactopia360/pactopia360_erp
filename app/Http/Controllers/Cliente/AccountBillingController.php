@@ -235,16 +235,14 @@ final class AccountBillingController extends Controller
         // - usa resolveAnnualCents()
         // - NO uses "precio_anual/12" para UI anual
         // ==========================================================
+         $annualTotalMxn = 0.0;
         if ($isAnnual) {
-            $baseAnnual  = $lastPaid ?: $basePeriod;
-            $annualCents = (int) $this->resolveAnnualCents($accountId, $baseAnnual, $lastPaid, $payAllowed);
-
-            foreach ($periods as $p) {
-                if ($annualCents > 0) {
-                    $priceInfo['per_period'][$p]['cents']  = $annualCents;
-                    $priceInfo['per_period'][$p]['mxn']    = round($annualCents / 100, 2);
-                    $priceInfo['per_period'][$p]['source'] = 'annual';
-                }
+            try {
+                $baseAnnual  = $lastPaid ?: $basePeriod;
+                $annualCents = (int) $this->resolveAnnualCents($accountId, $baseAnnual, $lastPaid, $payAllowed);
+                if ($annualCents > 0) $annualTotalMxn = round($annualCents / 100, 2);
+            } catch (\Throwable $e) {
+                $annualTotalMxn = 0.0;
             }
         }
 
@@ -348,6 +346,7 @@ final class AccountBillingController extends Controller
             'saldoPendiente'       => $pendingBalance,
             'periodosPagadosTotal' => $paidTotal,
             'mensualidadAdmin'     => $mensualidadAdmin,
+            'annualTotalMxn'       => $annualTotalMxn,
             'rfc'                  => $rfc,
             'alias'                => $alias,
         ]);
@@ -1636,9 +1635,11 @@ final class AccountBillingController extends Controller
     }
 
     if ($isAnnual) {
-        $baseAnnual = $lastPaid ?: $period;
-        $monthlyCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
+        $baseAnnual  = $lastPaid ?: $period;
+        $annualCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
+        $monthlyCents = $annualCents; // para no reescribir todo el flujo abajo
     } else {
+
         $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
         if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
         if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
@@ -3268,38 +3269,77 @@ final class AccountBillingController extends Controller
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
 
-        // 1) intenta precio_anual del plan
+        // 0) Resolver meta desde admin.accounts (SOT)
+        $meta = [];
         try {
-            if (Schema::connection($adm)->hasTable('accounts') && Schema::connection($adm)->hasTable('planes')) {
-                $acc = DB::connection($adm)->table('accounts')
-                    ->where('id', $accountId)
-                    ->first(['id','plan','plan_actual']);
+            $acc = DB::connection($adm)
+                ->table('accounts')
+                ->where('id', $accountId)
+                ->first(['meta']);
 
-                if ($acc) {
-                    $planKey = trim((string)($acc->plan_actual ?: $acc->plan));
-                    if ($planKey !== '') {
-                        $p = DB::connection($adm)->table('planes')
-                            ->where('clave', $planKey)
-                            ->first(['precio_anual','precio_mensual','activo']);
-
-                        if ($p && (!isset($p->activo) || (int)$p->activo === 1)) {
-                            $pa = (float)($p->precio_anual ?? 0);
-                            if ($pa > 0) return (int) round($pa * 100);
-                        }
-                    }
-                }
+            if ($acc && isset($acc->meta)) {
+                $raw  = is_string($acc->meta) ? $acc->meta : json_encode($acc->meta);
+                $meta = is_string($raw) ? (json_decode($raw, true) ?: []) : [];
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            $meta = [];
+        }
 
-        // 2) fallback: mensual (tu lógica actual) * 12
+        // 1) Primero: override anual explícito (si existe)
+        $annualExplicit =
+            data_get($meta, 'billing.override.yearly.amount_mxn')
+            ?? data_get($meta, 'billing.override.annual.amount_mxn')
+            ?? data_get($meta, 'billing.override.annual_amount_mxn')
+            ?? data_get($meta, 'billing.annual_amount_mxn')
+            ?? data_get($meta, 'billing.anual_amount_mxn')
+            ?? data_get($meta, 'billing.amount_mxn_annual')
+            ?? data_get($meta, 'billing.amount_anual_mxn')
+            ?? null;
+
+        if (is_numeric($annualExplicit)) {
+            $mxn = (float) $annualExplicit;
+            if ($mxn > 0) return (int) round($mxn * 100, 0);
+        }
+
+        // 2) ✅ FIX CLAVE: si NO hay override anual, pero SÍ hay billing.override.amount_mxn,
+        //    y el ciclo es anual, entonces ESE override debe tomarse como ANUAL (no *12).
+        $monthlyOverrideMaybe =
+            data_get($meta, 'billing.override.amount_mxn')
+            ?? data_get($meta, 'billing.override.monthly.amount_mxn')
+            ?? null;
+
+        if (is_numeric($monthlyOverrideMaybe)) {
+            $mxn = (float) $monthlyOverrideMaybe;
+            if ($mxn > 0) {
+                // en anual lo tratamos como monto anual efectivo si no hay yearly override
+                return (int) round($mxn * 100, 0);
+            }
+        }
+
+        // 3) Fallback: precio anual de catálogo/config (si existe)
+        //    (evita multiplicar mensual*12 si ya tienes env STRIPE_DISPLAY_PRICE_ANNUAL)
+        try {
+            $annualCfg = config('services.stripe.display_price_annual');
+            if ($annualCfg === null || $annualCfg === '') $annualCfg = env('STRIPE_DISPLAY_PRICE_ANNUAL', null);
+
+            $n = is_numeric($annualCfg)
+                ? (float) $annualCfg
+                : (float) preg_replace('/[^0-9.\-]/', '', (string) $annualCfg);
+
+            if ($n > 0) {
+                return (int) round($n * 100, 0);
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // 4) Último fallback: mensual * 12 (solo si no hay nada más)
         $monthly = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $basePeriod, $lastPaid, $payAllowed);
         if ($monthly <= 0) $monthly = (int) $this->resolveMonthlyCentsFromPlanesCatalog($accountId);
         if ($monthly <= 0) $monthly = (int) $this->resolveMonthlyCentsFromClientesEstadosCuenta($accountId, $lastPaid, $payAllowed);
 
         return $monthly > 0 ? (int) ($monthly * 12) : 0;
     }
-
-
 
 
     private function renderSimplePdfHtml(array $d): string

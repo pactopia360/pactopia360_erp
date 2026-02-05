@@ -430,14 +430,20 @@ class ClientesController extends \App\Http\Controllers\Controller
                 // Si es anual, intentar tomar monto anual explícito desde meta (sin *12 arbitrario)
                 if ($mode === 'anual') {
                     $annualCandidates = [
-                        data_get($meta, 'billing.annual_amount_mxn'),
-                        data_get($meta, 'billing.anual_amount_mxn'),
-                        data_get($meta, 'billing.amount_mxn_annual'),
-                        data_get($meta, 'billing.amount_anual_mxn'),
-                        data_get($meta, 'billing.year_amount_mxn'),
-                        data_get($meta, 'billing.override.annual_amount_mxn'),
-                        data_get($meta, 'billing.override.amount_mxn_annual'),
+                    data_get($meta, 'billing.annual_amount_mxn'),
+                    data_get($meta, 'billing.anual_amount_mxn'),
+                    data_get($meta, 'billing.amount_mxn_annual'),
+                    data_get($meta, 'billing.amount_anual_mxn'),
+
+                    // ✅ NUEVO: override por ciclo real (tu UI guarda monthly|yearly)
+                    data_get($meta, 'billing.override.yearly.amount_mxn'),
+                    data_get($meta, 'billing.override.annual.amount_mxn'), // por compat si algún día lo usas
+
+                    // Overrides legacy/compat
+                    data_get($meta, 'billing.override.annual_amount_mxn'),
+                    data_get($meta, 'billing.override.amount_mxn_annual'),
                     ];
+
 
                     foreach ($annualCandidates as $v) {
                         if (is_numeric($v) && (float) $v > 0) { $amount = (float) $v; break; }
