@@ -827,6 +827,86 @@ final class BillingStatementsHubController extends Controller
         }
     }
 
+    private function paymentsAmountExpr(): string
+    {
+        static $cache = [];
+
+        $conn = (string) ($this->adm ?: (config('p360.conn.admin') ?: 'mysql_admin'));
+        if (isset($cache[$conn])) return $cache[$conn];
+
+        $schema = \Illuminate\Support\Facades\Schema::connection($conn);
+
+        $parts = [];
+        if ($schema->hasColumn('payments', 'amount_mxn')) {
+            $parts[] = "WHEN amount_mxn IS NOT NULL AND amount_mxn != '' THEN amount_mxn";
+        }
+        if ($schema->hasColumn('payments', 'monto_mxn')) {
+            $parts[] = "WHEN monto_mxn IS NOT NULL AND monto_mxn != '' THEN monto_mxn";
+        }
+        if ($schema->hasColumn('payments', 'amount_cents')) {
+            $parts[] = "WHEN amount_cents IS NOT NULL AND amount_cents > 0 THEN (amount_cents/100)";
+        }
+        if ($schema->hasColumn('payments', 'amount')) {
+            $parts[] = "WHEN amount IS NOT NULL AND amount > 0 THEN (amount/100)";
+        }
+
+        // Fallback ultra-defensivo (evita romper)
+        if (!$parts) {
+            $cache[$conn] = "(0)";
+            return $cache[$conn];
+        }
+
+        $cache[$conn] = "(CASE " . implode(' ', $parts) . " ELSE 0 END)";
+        return $cache[$conn];
+    }
+
+    private function sumPaymentsForAccountPeriod(string $accountId, string $period): float
+    {
+        $amtExpr = $this->paymentsAmountExpr();
+
+        $paid = (float) \Illuminate\Support\Facades\DB::connection($this->adm)->table('payments')
+            ->where('account_id', (int) $accountId)
+            ->where('period', (string) $period)
+            ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), ['paid','succeeded','success','completed','complete','pagado','paid_ok','ok'])
+            ->where(function ($w) {
+                $w->whereNull('provider')
+                ->orWhere('provider', '')
+                ->orWhereRaw('LOWER(provider) IN (?,?,?,?)', ['stripe','stripe_checkout','manual','checkout']);
+            })
+            ->selectRaw("SUM($amtExpr) AS s")
+            ->value('s');
+
+        return (float) $paid;
+    }
+
+    private function sumPaymentsForAccountsPeriod(array $accountIds, string $period): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $accountIds)));
+        if (!$ids) return [];
+
+        $amtExpr = $this->paymentsAmountExpr();
+
+        $rows = \Illuminate\Support\Facades\DB::connection($this->adm)->table('payments')
+            ->whereIn('account_id', $ids)
+            ->where('period', (string) $period)
+            ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), ['paid','succeeded','success','completed','complete','pagado','paid_ok','ok'])
+            ->where(function ($w) {
+                $w->whereNull('provider')
+                ->orWhere('provider', '')
+                ->orWhereRaw('LOWER(provider) IN (?,?,?,?)', ['stripe','stripe_checkout','manual','checkout']);
+            })
+            ->selectRaw("account_id, SUM($amtExpr) AS paid_mxn")
+            ->groupBy('account_id')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int)$r->account_id] = (float) ($r->paid_mxn ?? 0);
+        }
+        return $out;
+    }
+
+
 
     private function createStripeCheckoutForStatement(object $acc, string $period, float $totalPesos): array
     {
@@ -1768,6 +1848,8 @@ final class BillingStatementsHubController extends Controller
 
         return null;
     }
+
+
 
     private function insertEmailLog(array $row): int
     {

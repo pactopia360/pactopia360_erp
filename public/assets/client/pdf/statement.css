@@ -1,119 +1,367 @@
-@page { margin: 12px; }
+/* =========================================================
+   P360 · PDF Statement · FIT A4 (DomPDF-safe)
+   FIX: overflow horizontal + compact sizes to always fit
+   ========================================================= */
 
-body{
-  font-family: DejaVu Sans, Arial, sans-serif;
-  font-size: 11px;
-  color:#111827;
+@page{
+  size: A4 portrait;
+  margin: 0;
+}
+
+html, body{
   margin:0;
   padding:0;
   background:#ffffff;
 }
 
-table{ border-collapse: collapse; width:100%; }
+.pdfPage{
+  width: 198mm;        /* ✅ más angosto => todo entra “más a la hoja” */
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.pageGutter{
+  padding: 6mm;              /* ✅ margen real (no duplicado) */
+  box-sizing: border-box;
+  width: 100%;
+}
+
+
+body{
+  font-family: "Poppins", DejaVu Sans, Arial, sans-serif;
+  font-size: 10.0px;
+  color:#111827;
+}
+
+table, th, td{
+  font-family: "Poppins", DejaVu Sans, Arial, sans-serif;
+  font-size: inherit;
+}
+
+/* DomPDF: box sizing estable */
+*{ box-sizing: border-box; }
+
+img{ max-width:100%; height:auto; }
+
+table{
+  border-collapse: collapse;
+  width:100%;
+  max-width:100%;
+  table-layout: fixed;            /* ✅ clave: evita crecimiento por contenido */
+}
 
 /* Helpers */
 .mut{ color:#6b7280; }
 .b{ font-weight:900; }
 .sb{ font-weight:700; }
 .mono{ font-family: DejaVu Sans Mono, ui-monospace, monospace; }
-.small{ font-size:10px; }
-.xs{ font-size:9px; }
+.xs{ font-size: 8.9px; }
 .r{ text-align:right; }
 .c{ text-align:center; }
-.l{ text-align:left; }
 
 .sp6{ height:6px; }
 .sp8{ height:8px; }
 .sp10{ height:10px; }
-.sp12{ height:12px; }
-.sp14{ height:14px; }
-.sp16{ height:16px; }
-.sp18{ height:18px; }
-.sp20{ height:20px; }
 
-/* Cards (maqueta gris suave) */
+/* Cards */
 .card{
   background:#eeeeee;
-  border-radius:14px;
-  padding:12px 14px; /* un poco más compacto para 1 hoja */
+  border-radius:12px;
+  padding:8px 10px;
   border:0;
+  page-break-inside: avoid;
+  overflow:hidden;
+}
+
+
+/* =========================
+   TOP GRID (2 cols)
+   ========================= */
+.grid{
+  width:100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Balance tipo mock (ajuste: acercar columna derecha al logo) */
+.gL{ width:50%; padding-right:6px; vertical-align:top; }
+.gR{ width:50%; padding-left:0; padding-right:0; vertical-align:top; }
+
+/* Header */
+.hLogo{ margin-bottom:0; }
+
+/* ✅ Logo + título más grandes (como imagen) */
+.brandLogo{
+  height:52px;        /* ↑ antes 44 */
+  display:block;
+}
+
+.hTitle{
+  font-size:27px;     /* ↑ antes 22 */
+  padding-top: 10;
+  font-weight:900;
+  margin: 1px 0 0;
+  letter-spacing:.10px;
+  line-height:1.02;
+}
+
+/* Pactopia mini block */
+.pactopiaMini{
+  display:inline-block;
+  width: 245px;
+  max-width: 245px;
+
+  background:#eeeeee;
+  border-radius:12px;
+  padding:7px 9px;
+
+  /* ✅ BAJA los datos de Pactopia respecto al título */
+  margin: 10px 0 0;   /* antes: 2px */
+
+  overflow:hidden;
   page-break-inside: avoid;
 }
 
-/* Header / Brand */
-.hTitle{
-  font-size:26px;
-  font-weight:900;
-  margin: 10px 0 0;
-  letter-spacing:.2px;
-}
-.brandLogo{ height:50px; display:block; }
-.brandName{ font-size:16px; font-weight:900; margin-top:6px; }
-.brandBlock{ font-size:10px; line-height:1.25; }
-.brandSite{ font-size:13px; font-weight:900; margin-top:8px; }
 
-/* Total card (arriba derecha) */
+.brandNameSm{
+  font-size: 11.0px;
+  font-weight: 900;
+  margin: 0 0 2px;
+  line-height: 1.08;
+}
+
+.brandBlockSm{
+  font-size: 8.6px;
+  line-height: 1.10;
+  margin: 0;
+}
+
+.brandBlockSm div{
+  margin: 0;
+  padding: 0;
+}
+
+/* Client card */
+.clientName{ font-size:10.2px; line-height:1.10; margin:0 0 2px; }
+.clientAddr{ font-size:8.6px;  line-height:1.10; margin:0 0 3px; }
+.clientRow { font-size:9.0px;  line-height:1.10; margin:0 0 2px; }
+
+/* ✅ Cliente: padding/aire consistente con cards derechas */
+/* ✅ Cliente: mismo ancho que el bloque de logo/datos pactopia */
+.cardClient{
+  display: inline-block;
+  width: 245px;
+  max-width: 245px;
+}
+
+/* Ajuste de espaciado interno del bloque cliente */
+.cardClient .clientName{ margin: 0 0 4px; }
+.cardClient .clientRow{  margin: 0 0 3px; line-height: 1.12; }
+.cardClient .clientRow:last-child{ margin-bottom: 0; }
+
+
+/* =========================
+   Total a pagar (INLINE, pegado, sin recorte) DomPDF-safe
+   ========================= */
+
+/* ✅ TOTAL + ID: más anchos y pegados a la izquierda */
+.cardTotal{
+  width: 320px;              /* ✅ MÁS ANCHO (ajusta 300–340) */
+  max-width: 320px;
+  display: block;            /* ✅ ocupa su “renglón” y arranca a la izquierda */
+  margin: 0;                 /* ✅ pegado a la izquierda (sin margen derecho) */
+  padding: 9px 12px;
+  text-align: left;          /* ✅ contenido hacia la izquierda */
+}
+
+/* ✅ Total: alinear contenido a la izquierda y bajar el encabezado */
+.totalTop{
+  text-align: left;          /* ✅ pegado a la izquierda */
+  padding-top: 6px;          /* ✅ más abajo (antes 4px) */
+  line-height: 1.0;
+  white-space: nowrap;
+}
+
 .totalCardLbl{
-  font-size:14px;
-  font-weight:900;
-}
-.totalAmt{
-  font-size:30px;      /* más “hero” como maqueta */
-  font-weight:900;
-  letter-spacing:.2px;
-}
-.totalRowTbl{ width:100%; }
-.totalRowTbl td{ vertical-align:top; }
-.moneySign{
-  width:16px;
-  text-align:right;
-  font-size:22px;
-  font-weight:900;
-  padding-right:6px;
-}
-.totalWords{
-  margin-top:6px;
-  font-size:10px;
-  color:#111827;
-  text-align:left;
+  font-size: 12.2px;
+  font-weight: 900;
+  display: inline-block;
+  vertical-align: top;
+
+  width: 130px;        /* ✅ reserva espacio -> el monto se va más a la derecha */
+  margin-right: 0;     /* ✅ ya no necesitamos gap */
 }
 
-/* ID card */
-.idLbl{ font-size:14px; font-weight:900; }
-.idVal{ font-size:30px; font-weight:900; letter-spacing:.4px; }
+/* ✅ aquí queda al lado del label (NO se va a la derecha) */
+.totalMoneyInline{
+  display: inline-block;
+  vertical-align: top;
+
+  position: relative;
+  top: -7px;           /* ✅ más alto (antes -3) */
+  margin-left: 0;      /* ✅ ya no dependemos de margin-left */
+}
+
+
+.moneySign{
+  font-size: 14px;
+  font-weight: 900;
+  display: inline-block;
+  margin-right: 2px;
+  vertical-align: top;
+
+  /* ✅ NUEVO: acompaña al monto hacia arriba */
+  position: relative;
+  top: -2px;
+}
+
+
+.totalAmt{
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: top;
+}
+
+/* letras debajo, como tu referencia */
+.totalWords{
+  margin-top: 4px;
+  font-size: 9.0px;
+  line-height: 1.10;
+  color: #111827;
+  text-align: left;
+  white-space: normal;
+}
+
+/* Pill */
+.pill{
+  display:inline-block;
+  padding:2px 7px;
+  border-radius:999px;
+  font-size:8.6px;
+  font-weight:900;
+  white-space:nowrap;
+}
+.pill.info{ background:#e0f2fe; color:#075985; }
+.pill.warn{ background:#fef3c7; color:#92400e; }
+.pill.ok{ background:#dcfce7; color:#166534; }
+.pill.dim{ background:#e5e7eb; color:#111827; }
+.pill.bad{ background:#fee2e2; color:#991b1b; }
+
+/* ID */
+.idLbl{ font-size:11.2px; font-weight:900; }
+.idVal{
+  font-size:20px;
+  font-weight:900;
+  letter-spacing:.2px;
+  white-space:nowrap;
+}
+
+/* =========================
+   ID Cuenta (como mock)
+   ========================= */
+
+/* Alinea la tarjeta ID con la del Total (misma “columna derecha”) */
+.cardId{
+  width: 320px;
+  max-width: 320px;
+  display: block;
+  margin: 4px 0 0 0;         /* ✅ un pelín arriba, pero NADA abajo */
+  padding: 10px 12px;
+  text-align: left;
+}
+
+/* Centrado interno del ID como mock */
+.cardId .idBox{ text-align:center; }
+
+/* =========================
+   Periodo (alineado a Total/ID)
+   ========================= */
+.cardPeriodo{
+  width: 320px;              /* mismo ancho que Total/ID */
+  max-width: 320px;
+  display: block;
+  margin: 0;                 /* ✅ PEGADO: sin espacio arriba */
+  padding: 10px 12px;
+  text-align: left;
+}
+
+/* Contenedor interno */
+.idBox{ text-align:center; }
+
+/* Título centrado */
+.idLbl2{
+  font-size: 12px;
+  font-weight: 900;
+  margin: 0 0 4px;
+}
+
+/* Valor grande centrado */
+.idVal2{
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+
+/* Key/Value tables */
+.kv{
+  width:100%;
+  table-layout: fixed;
+}
+.kv td{ padding:2px 0; }
+.kv .k{ width:62%; }
+.kv .v{ width:38%; text-align:right; white-space:nowrap; }
+.kvTight td{ padding:1px 0; }
+
+/* Pay link box */
+.payLinkBox{
+  margin-top:4px;
+  background:#ffffff;
+  border-radius:10px;
+  padding:5px 7px;
+  overflow:hidden;
+}
+.linkMono{
+  font-family: DejaVu Sans Mono, ui-monospace, monospace;
+  font-size:8.2px;
+  line-height:1.15;
+  word-break:break-all;
+}
+
+/* Divider */
+.hr{
+  height:1px;
+  background:#d9d9d9;
+  margin:6px 0;
+}
 
 /* Section title */
 .hSec{
-  font-size:12px;
+  font-size:10.7px;
   font-weight:900;
-  margin:10px 0 6px;
+  margin:0 0 5px;
   color:#111827;
+
+  /* ✅ Recorte real para que termine donde termina el borde derecho de las cards */
+  margin-right: 10mm;   /* si falta/ sobra, ajusta 9–12mm */
 }
 
-/* Badges */
-.badge{
-  display:inline-block;
-  padding:4px 10px;
-  border-radius:999px;
-  font-size:9px;
-  font-weight:900;
-  letter-spacing:.2px;
-  background:#fff3cd;
-  color:#111827;
-  vertical-align:middle;
-}
-.badge.ok{ background:#d1fae5; }
-.badge.warn{ background:#fff3cd; }
-.badge.bad{ background:#fee2e2; }
-.badge.dim{ background:#e5e7eb; color:#4b5563; }
-
-/* Tabla detalle */
 .tblWrap{
   background:#eeeeee;
-  border-radius:14px;
-  padding:6px;
+  border-radius:12px;
+  padding:5px;
   page-break-inside: avoid;
+  overflow:hidden;
+
+  /* ✅ Igual que el título */
+  margin-right: 7mm;   /* si falta/ sobra, ajusta 9–12mm */
 }
+
 
 .tbl{
   width:100%;
@@ -124,113 +372,118 @@ table{ border-collapse: collapse; width:100%; }
 
 .tbl th{
   background:#eeeeee;
-  padding:6px 9px;
+  padding:5px 7px;
   text-align:left;
   font-weight:900;
-  font-size:10px;
+  font-size:9.3px;
   border-bottom:1px solid #d9d9d9;
+  white-space:nowrap;
 }
-
-/* ✅ FIX: respetar align en headers (DomPDF) */
 .tbl th.r{ text-align:right !important; }
 .tbl th.c{ text-align:center !important; }
-.tbl th.l{ text-align:left !important; }
-
-/* opcional: homogeneiza caja tipográfica */
-.tbl th, .tbl td{ vertical-align:middle; line-height:1.25; }
 
 .tbl td{
-  padding:6px 9px;
-  font-size:10px;
+  padding:5px 7px;
+  font-size:9.3px;
   border-bottom:1px solid #eeeeee;
   vertical-align:top;
-
-  /* DomPDF: wrapping más estable */
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  word-break: break-word; /* si la versión lo soporta; si no, lo ignora sin romper */
+  word-break: break-word;
 }
-
 
 .tbl tr:nth-child(even) td{ background:#fafafa; }
 
-/* Bottom blocks */
-.payTitle{
-  font-size:11px;
-  font-weight:900;
-  margin-bottom:8px;
-  letter-spacing:.2px;
+.tbl tr.rowPad td{
+  padding:5px 7px;
+  border-bottom:1px solid #f1f1f1;
+  background:#ffffff;
 }
+
+/* =========================
+   Footer grid (3 cols) · MÁS ANGOSTO + SIMÉTRICO (como mock)
+   - Recorta el ancho total y lo centra
+   - Evita que las cards se “estiren”
+   ========================= */
+.footerGrid{
+  width: calc(100% - 18mm);      /* ✅ MÁS ANGOSTO (ajusta 16–22mm si lo quieres aún más) */
+  max-width: calc(100% - 18mm);
+  margin: 0 auto;                /* ✅ centrado */
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+/* Sin padding en TD (DomPDF-safe) */
+.fL, .fC, .fR{
+  vertical-align: top;
+  padding: 0;
+}
+
+/* ✅ 3 columnas simétricas */
+.fL{ width:34%; }
+.fC{ width:32%; }
+.fR{ width:34%; }
+
+/* ✅ Cards NO se estiran a lo bestia: ocupan su columna pero con padding controlado */
+.cardBottom{
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 8px 9px;
+}
+
+/* ✅ Separación entre columnas (más pequeña para que no “infle”) */
+.fL .cardBottom{ margin-right: 8px; margin-left: -30px; } /* ✅ pega “PAGA EN LÍNEA” a la izquierda */
+.fC .cardBottom{ margin: 0 4px; }
+.fR .cardBottom{ margin-right: -10px; margin-left: 8px;  }
+
+/* ✅ El bloque derecho suele empujar: reduce padding lateral */
+.fR .cardBottom{
+  padding-left: 7px;
+  padding-right: 7px;
+}
+
+/* ✅ KV más compacto para que no empuje el borde */
+.fR .kv{ width:100%; table-layout: fixed; }
+.fR .kv .k{ width:62%; }
+.fR .kv .v{ width:38%; white-space: nowrap; }
+
+.payTitle{
+  font-size:9.9px;
+  font-weight:900;
+  margin-bottom:4px;
+  letter-spacing:.15px;
+}
+
 .smallNote{
-  font-size:9.5px;
+  font-size:8.9px;
   color:#111827;
-  line-height:1.25;
+  line-height:1.14;
+}
+
+.alertRed{
+  background:#8b0000;
+  color:#ffffff;
+  border-radius:12px;
+  padding:7px 8px;
+  font-size:8.8px;
+  font-weight:900;
+  text-align:center;
 }
 
 /* QR */
-.qrBox{
-  width:150px;
-  height:150px;
-  border-radius:10px;
-  background:#fff;
-  border:0;
-  margin:0 auto;
-}
-.qrBox img{
-  width:150px;
-  height:150px;
+.qrImg{
+  width:112px;
+  height:112px;
   display:block;
+  margin:0 auto;
+  border-radius:12px;
+  background:#fff;
 }
 
-/* Link mono */
-.linkMono{
-  font-size:9px;
-  word-break: break-all;      /* DomPDF-friendly */
-  word-wrap: break-word;      /* fallback clásico */
-  overflow-wrap: break-word;  /* (si lo soporta, ok) */
-  font-family: DejaVu Sans Mono, ui-monospace, monospace;
-  color:#111827;
+/* Footer line */
+.footerLine{
+  margin-top:6px;
+  line-height:1.12;
+  font-size:8.6px;
 }
 
-
-/* Separador */
-.hr{
-  height:1px;
-  background:#d9d9d9;
-  margin:8px 0;
-}
-
-/* ============================
-   Key/Value tables (alineación)
-   ============================ */
-.kv{
-  width:100%;
-  border-collapse:collapse;
-  table-layout:fixed;
-}
-.kv td{
-  padding:2px 0;
-  vertical-align:middle;
-}
-.kv .k{
-  width:72%;
-  text-align:left;
-  white-space:normal;
-}
-.kv .v{
-  width:28%;
-  text-align:right;
-  white-space:nowrap;
-}
-.kv .k small,
-.kv .v small{ font-size:10px; }
-
-.kvTight td{ padding:1px 0; }
-
-/* ============================
-   GUTTER GLOBAL (alineación)
-   ============================ */
-.pageGutter{
-  padding: 0 12px; /* este 12px es tu “margen” objetivo (igual al que tenías en Detalle) */
-  box-sizing: border-box;
-}
+/* No-break */
+.noBreak{ page-break-inside: avoid; }
