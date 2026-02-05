@@ -110,10 +110,12 @@ final class AccountBillingController extends Controller
             ]);
         }
 
-        // ✅ cachea en sesión para futuras resoluciones (evita "unresolved" si cambia cuenta_id)
+        // ✅ CRÍTICO: NO guardar admin_account_id en llaves genéricas de sesión
+        // (client.account_id / account_id) porque permite cross-account si la sesión queda “contaminada”.
+        // Si se requiere cache, usar llaves namespaced para billing.
         try {
-            $r->session()->put('client.account_id', (string) $accountId);
-            $r->session()->put('account_id', (string) $accountId);
+            $r->session()->put('billing.admin_account_id', (string) $accountId);
+            $r->session()->put('billing.admin_account_src', (string) $src);
         } catch (\Throwable $e) {
             // ignora
         }
@@ -2554,20 +2556,26 @@ final class AccountBillingController extends Controller
             try { $u->load('cuenta'); } catch (\Throwable $e) {}
         }
 
+        // =========================================================
         // 1) Relación del usuario (mejor fuente)
+        // =========================================================
         $adminId = $u?->cuenta?->admin_account_id ?? null;
         if ($adminId && is_numeric($adminId)) {
             $id = (int) $adminId;
             if ($id > 0) return [(string) $id, 'user.cuenta.admin_account_id'];
         }
 
+        // =========================================================
         // 2) Campo directo en usuario (si existe)
+        // =========================================================
         if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
             $id = (int) $u->admin_account_id;
             if ($id > 0) return [(string) $id, 'user.admin_account_id'];
         }
 
+        // =========================================================
         // 3) ✅ Claves que tú mismo seteas en LoginController
+        // =========================================================
         $v1 = $req->session()->get('verify.account_id');
         if ($v1 && is_numeric($v1) && (int) $v1 > 0) {
             return [(string) ((int) $v1), 'session.verify.account_id'];
@@ -2575,25 +2583,13 @@ final class AccountBillingController extends Controller
 
         $v2 = $req->session()->get('paywall.account_id');
         if ($v2 && is_numeric($v2) && (int) $v2 > 0) {
-            // ✅ FIX: el ; va fuera del array
             return [(string) ((int) $v2), 'session.paywall.account_id'];
         }
 
-        // 4) Compat: claves antiguas / variantes
-        foreach ([
-            'client.admin_account_id',
-            'client.account_id',
-            'client_account_id',
-            'admin_account_id',
-            'account_id',
-        ] as $k) {
-            $v = $req->session()->get($k);
-            if ($v && is_numeric($v) && (int) $v > 0) {
-                return [(string) ((int) $v), 'session.' . $k];
-            }
-        }
-
-        // 5) Intentar desde client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente
+        // =========================================================
+        // 4) ✅ Fuente fuerte: client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente.admin_account_id
+        // (Esto DEBE ir ANTES de cualquier "account_id" genérico para evitar cross-account)
+        // =========================================================
         $clientCuentaId = $req->session()->get('client.cuenta_id')
             ?? $req->session()->get('cuenta_id')
             ?? null;
@@ -2601,12 +2597,11 @@ final class AccountBillingController extends Controller
         if ($clientCuentaId) {
             $clientCuentaIdStr = is_string($clientCuentaId) ? trim($clientCuentaId) : (string) $clientCuentaId;
 
-            // =========================================================
-            // 5.A) ✅ Camino principal (tu caso):
-            // mysql_clientes.cuentas_cliente.admin_account_id
-            // =========================================================
+            // ---------------------------------------------------------
+            // 4.A) Camino principal: mysql_clientes.cuentas_cliente.admin_account_id
+            // ---------------------------------------------------------
             try {
-                $cli = config('p360.conn.clients', 'mysql_clientes');
+                $cli = (string) (config('p360.conn.clients') ?: 'mysql_clientes');
 
                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
@@ -2617,6 +2612,7 @@ final class AccountBillingController extends Controller
                     foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
                         if ($has($c)) $sel[] = $c;
                     }
+                    // (solo debug/compat, no rompe si no existen)
                     foreach (['rfc', 'codigo_cliente', 'customer_no'] as $c) {
                         if ($has($c)) $sel[] = $c;
                     }
@@ -2624,7 +2620,7 @@ final class AccountBillingController extends Controller
 
                     $cc = null;
 
-                    // 5.A.1) Intentar por PK id (NUMÉRICO o UUID)
+                    // 4.A.1) Intentar por PK id (NUMÉRICO o UUID)
                     try {
                         if (is_numeric($clientCuentaIdStr)) {
                             $cc = DB::connection($cli)->table('cuentas_cliente')
@@ -2641,7 +2637,7 @@ final class AccountBillingController extends Controller
                         $cc = null;
                     }
 
-                    // 5.A.2) Si no encontró, intenta por columnas alternativas (solo si existen)
+                    // 4.A.2) Si no encontró, intenta por columnas alternativas (solo si existen)
                     if (!$cc) {
                         $altCols = [];
                         foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
@@ -2662,7 +2658,7 @@ final class AccountBillingController extends Controller
                     }
 
                     if ($cc) {
-                        $id = $this->resolveAdminAccountIdFromClientAccount($cc);
+                        $id = (int) $this->resolveAdminAccountIdFromClientAccount($cc);
                         if ($id > 0) return [(string) $id, 'cuentas_cliente.admin_account_id'];
                     }
                 }
@@ -2670,15 +2666,13 @@ final class AccountBillingController extends Controller
                 // ignora
             }
 
-            // =========================================================
-            // 5.B) Fallback (solo si te sirve en otros entornos):
-            // Si client.cuenta_id es UUID y existe en usuarios_cuenta.cuenta_id,
-            // intentar resolver hacia admin por email (accounts.email / accounts.meta)
-            // =========================================================
+            // ---------------------------------------------------------
+            // 4.B) Fallback UUID: usuarios_cuenta.cuenta_id -> email -> admin.accounts (email/meta)
+            // ---------------------------------------------------------
             if ($clientCuentaIdStr !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $clientCuentaIdStr)) {
                 try {
-                    $cli = config('p360.conn.clients', 'mysql_clientes');
-                    $adm = config('p360.conn.admin', 'mysql_admin');
+                    $cli = (string) (config('p360.conn.clients') ?: 'mysql_clientes');
+                    $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
                     $email = null;
 
@@ -2705,16 +2699,14 @@ final class AccountBillingController extends Controller
                         }
                     }
 
-                    if ($email && Schema::connection($adm)->hasTable('accounts')) {
+                    if ($email && filter_var($email, FILTER_VALIDATE_EMAIL) && Schema::connection($adm)->hasTable('accounts')) {
                         $aCols = Schema::connection($adm)->getColumnListing('accounts');
                         $aLc   = array_map('strtolower', $aCols);
                         $aHas  = fn (string $c) => in_array(strtolower($c), $aLc, true);
 
-                        $q = DB::connection($adm)->table('accounts');
-
                         // match directo por email
                         if ($aHas('email')) {
-                            $acc = (clone $q)
+                            $acc = DB::connection($adm)->table('accounts')
                                 ->whereRaw('LOWER(TRIM(email)) = ?', [$email])
                                 ->orderByDesc($aHas('id') ? 'id' : $aCols[0])
                                 ->first(['id']);
@@ -2726,7 +2718,7 @@ final class AccountBillingController extends Controller
 
                         // fallback: buscar el email dentro de meta (por si existiera)
                         if ($aHas('meta')) {
-                            $acc2 = (clone $q)
+                            $acc2 = DB::connection($adm)->table('accounts')
                                 ->where('meta', 'like', '%"email":"'.$email.'"%')
                                 ->orderByDesc($aHas('id') ? 'id' : $aCols[0])
                                 ->first(['id']);
@@ -2740,13 +2732,43 @@ final class AccountBillingController extends Controller
                     // ignora
                 }
 
-                // 5.C) Compat: bridge genérico (por si tienes mapeos en otros clientes)
+                // 4.C) Compat: bridge genérico (si existe en tu instalación)
                 try {
                     $aid = (int) $this->resolveAdminAccountIdFromClientUuid($clientCuentaIdStr);
                     if ($aid > 0) return [(string) $aid, 'client_uuid.bridge_lookup'];
                 } catch (\Throwable $e) {
                     // ignora
                 }
+            }
+        }
+
+        // =========================================================
+        // 5) Compat: llaves de sesión "aceptables" (NO genéricas)
+        // =========================================================
+        foreach ([
+            'client.admin_account_id',
+            'admin_account_id',
+            'client_account_id',
+            'billing.admin_account_id', // cache namespaced si lo usas
+        ] as $k) {
+            $v = $req->session()->get($k);
+            if ($v && is_numeric($v) && (int) $v > 0) {
+                return [(string) ((int) $v), 'session.' . $k];
+            }
+        }
+
+        // =========================================================
+        // 6) ⚠️ ULTRA-LEGACY (último recurso): client.account_id / account_id
+        // Riesgo de cross-account si la sesión está contaminada.
+        // Solo llegamos aquí si NO hubo client.cuenta_id/cuenta_id resoluble.
+        // =========================================================
+        foreach ([
+            'client.account_id',
+            'account_id',
+        ] as $k) {
+            $v = $req->session()->get($k);
+            if ($v && is_numeric($v) && (int) $v > 0) {
+                return [(string) ((int) $v), 'session.' . $k . '.legacy_last_resort'];
             }
         }
 
