@@ -21,7 +21,6 @@ final class ClientAuth
      */
     public static function normalizePassword(string $input): string
     {
-        // Reemplazos de espacios invisibles / raros
         $map = [
             "\u{00A0}" => ' ', // NBSP
             "\u{2007}" => ' ', // Figure space
@@ -33,34 +32,18 @@ final class ClientAuth
         ];
         $s = strtr($input, $map);
 
-        // Normaliza saltos de línea y elimina CR/LF
         $s = str_replace(["\r\n", "\r"], "\n", $s);
         $s = str_replace("\n", '', $s);
-
-        // Colapsa espacios consecutivos al interior (opcional)
-        // $s = preg_replace('/[ \t]{2,}/u', ' ', $s);
 
         return trim($s);
     }
 
-    /**
-     * Hashea con el driver por defecto de Laravel (respetando config/hashing.php)
-     * Siempre normaliza primero.
-     */
     public static function make(string $plain): string
     {
         $norm = self::normalizePassword($plain);
-        // Usamos el driver configurado (bcrypt por defecto en tu proyecto)
         return Hash::make($norm);
     }
 
-    /**
-     * Verifica un password contra un hash o texto plano heredado.
-     * - $2y$ -> password_verify (bcrypt nativo de PHP)
-     * - $argon2* -> Hash::check (driver auto)
-     * - otro (sin prefijo) -> comparación estricta (legado)
-     * Siempre normaliza el input antes de verificar.
-     */
     public static function check(string $plain, string $stored): bool
     {
         $stored = (string) $stored;
@@ -68,22 +51,18 @@ final class ClientAuth
 
         $norm = self::normalizePassword($plain);
 
-        // bcrypt
         if (Str::startsWith($stored, '$2y$')) {
             return password_verify($norm, $stored);
         }
 
-        // argon / argon2id
         if (Str::startsWith($stored, '$argon2')) {
             try {
                 return Hash::check($norm, $stored);
             } catch (\Throwable $e) {
-                // Fallback por si el driver activo no coincide
                 return Hash::driver('argon')->check($norm, $stored);
             }
         }
 
-        // Texto plano legado
         return hash_equals($stored, $norm);
     }
 
@@ -94,80 +73,152 @@ final class ClientAuth
      *
      * Estrategia (orden):
      * 1) Sesión: client.account_id / account_id
-     * 2) Sesión: client.cuenta_id / cuenta_id -> mysql_clientes.cuentas_cliente.admin_account_id
-     * 3) Auth user: email/rfc -> mysql_admin.accounts
-     * 4) Sesión: email/rfc (si existiera) -> mysql_admin.accounts
+     * 2) Sesión: client.cuenta_id / cuenta_id:
+     *    - si es numérico: mysql_clientes.cuentas_cliente.id -> admin_account_id
+     *    - si NO es numérico (UUID): resolver por email/rfc contra cuentas_cliente
+     * 3) Auth user (web): email/rfc -> cuentas_cliente.admin_account_id
+     * 4) Fallback admin: mysql_admin.accounts por email/rfc
      */
     public static function resolveAdminAccountId(): array
     {
         try {
             $sess = session();
 
-            // 1) Ya resuelto y guardado
-            $raw = $sess->get('client.account_id') ?? $sess->get('account_id');
-            $aid = (int) ($raw ?? 0);
+            // ---------------------------
+            // 1) Ya resuelto en sesión
+            // ---------------------------
+            $raw = $sess->get('client.account_id') ?? $sess->get('account_id') ?? $sess->get('client_account_id');
+            $aid = self::toInt($raw);
             if ($aid > 0) {
                 return [$aid, 'session.account_id'];
             }
 
-            // 2) Resolver por cuenta_id (UUID) -> cuentas_cliente.admin_account_id
-            $cuentaId = (string) ($sess->get('client.cuenta_id') ?? $sess->get('cuenta_id') ?? '');
-            if ($cuentaId !== '') {
-                $cx = (string) config('p360.conn.clientes', 'mysql_clientes');
+            // Conexiones (compat: clients vs clientes)
+            $cliConn = (string) (config('p360.conn.clients')
+                ?? config('p360.conn.clientes')
+                ?? 'mysql_clientes');
 
-                // IMPORTANTE: no uses Schema aquí (route:cache safe y más rápido); sólo intenta query.
-                try {
-                    $row = \Illuminate\Support\Facades\DB::connection($cx)
-                        ->table('cuentas_cliente')
-                        ->select(['id', 'admin_account_id'])
-                        ->where('id', $cuentaId)
-                        ->first();
+            $admConn = (string) (config('p360.conn.admin')
+                ?? config('p360.conn.admins')
+                ?? 'mysql_admin');
 
-                    $aid2 = (int) ($row->admin_account_id ?? 0);
+            // ---------------------------
+            // 2) Intentar por sesión client.cuenta_id / cuenta_id
+            // ---------------------------
+            $cuentaIdRaw = (string) ($sess->get('client.cuenta_id') ?? $sess->get('cuenta_id') ?? '');
+            $cuentaIdRaw = trim($cuentaIdRaw);
+
+            if ($cuentaIdRaw !== '') {
+                // 2.A) Si es numérico: buscar por id directo
+                if (ctype_digit($cuentaIdRaw)) {
+                    $aid2 = self::findAdminAccountIdInCuentasClienteById($cliConn, (int) $cuentaIdRaw);
                     if ($aid2 > 0) {
                         self::rememberAdminAccountId($aid2);
-                        return [$aid2, 'cuentas_cliente.direct'];
+                        return [$aid2, 'cuentas_cliente.id'];
                     }
-                } catch (\Throwable $e) {
-                    // Si por alguna razón esa tabla no existe en ese entorno, seguimos con fallback.
+                } else {
+                    // 2.B) Si NO es numérico (UUID), NO intentes where(id=uuid) porque tu tabla NO tiene uuid.
+                    // En su lugar: resolver por email/rfc (si podemos obtenerlos).
+                    [$email, $rfc] = self::readEmailRfcFromAuthOrSession($sess);
+                    $aid2b = self::findAdminAccountIdInCuentasClienteByEmailOrRfc($cliConn, $email, $rfc);
+
+                    if ($aid2b > 0) {
+                        self::rememberAdminAccountId($aid2b);
+                        return [$aid2b, 'cuentas_cliente.by_email_or_rfc'];
+                    }
+
+                    // Log útil: esto explica EXACTO el síntoma que tienes
+                    Log::warning('[ClientAuth] cuenta_id no numérico y no se pudo mapear por email/rfc', [
+                        'cuenta_id_raw' => $cuentaIdRaw,
+                        'email' => $email,
+                        'rfc' => $rfc,
+                        'cliConn' => $cliConn,
+                    ]);
                 }
             }
 
-            // 3) Fallback por Auth user (email/rfc) -> mysql_admin.accounts
-            $email = '';
-            $rfc   = '';
-            try {
-                $u = auth('web')->user();
-                if ($u) {
-                    $email = strtolower(trim((string) ($u->email ?? '')));
-                    $rfc   = strtoupper(trim((string) ($u->rfc ?? '')));
-                }
-            } catch (\Throwable) {
-                // ignore
-            }
-
-            // 4) Fallback por sesión (si se guardó en otro lado)
-            if ($email === '') {
-                $email = strtolower(trim((string) ($sess->get('client.email') ?? $sess->get('email') ?? '')));
-            }
-            if ($rfc === '') {
-                $rfc = strtoupper(trim((string) ($sess->get('client.rfc') ?? $sess->get('rfc') ?? '')));
-            }
-
+            // ---------------------------
+            // 3) Auth user (web) -> cuentas_cliente por email/rfc
+            // ---------------------------
+            [$email, $rfc] = self::readEmailRfcFromAuthOrSession($sess);
             if ($email !== '' || $rfc !== '') {
-                $aid3 = self::findAdminAccountIdByEmailOrRfc($email, $rfc);
+                $aid3 = self::findAdminAccountIdInCuentasClienteByEmailOrRfc($cliConn, $email, $rfc);
                 if ($aid3 > 0) {
                     self::rememberAdminAccountId($aid3);
-                    return [$aid3, 'admin.accounts.by_email_or_rfc'];
+                    return [$aid3, 'cuentas_cliente.auth_user'];
+                }
+            }
+
+            // ---------------------------
+            // 4) Fallback admin.accounts
+            // ---------------------------
+            if ($email !== '' || $rfc !== '') {
+                $aid4 = self::findAdminAccountIdByEmailOrRfc($email, $rfc, $admConn);
+                if ($aid4 > 0) {
+                    self::rememberAdminAccountId($aid4);
+                    return [$aid4, 'admin.accounts.by_email_or_rfc'];
                 }
             }
 
             return [0, 'unresolved'];
         } catch (\Throwable $e) {
+            Log::error('[ClientAuth] resolveAdminAccountId error', [
+                'e' => $e->getMessage(),
+            ]);
             return [0, 'error'];
         }
     }
 
+    // =========================================================
+    // Helpers
+    // =========================================================
+
+    private static function toInt(mixed $v): int
+    {
+        if ($v === null) return 0;
+        if (is_int($v)) return $v > 0 ? $v : 0;
+        if (is_numeric($v)) {
+            $i = (int) $v;
+            return $i > 0 ? $i : 0;
+        }
+        if (is_string($v)) {
+            $v = trim($v);
+            if ($v !== '' && is_numeric($v)) {
+                $i = (int) $v;
+                return $i > 0 ? $i : 0;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Lee email/rfc desde auth('web') o sesión (compat).
+     * Retorna: [email_lower, rfc_upper]
+     */
+    private static function readEmailRfcFromAuthOrSession($sess): array
+    {
+        $email = '';
+        $rfc   = '';
+
+        try {
+            $u = auth('web')->user();
+            if ($u) {
+                $email = strtolower(trim((string) ($u->email ?? '')));
+                $rfc   = strtoupper(trim((string) ($u->rfc ?? '')));
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+
+        if ($email === '') {
+            $email = strtolower(trim((string) ($sess->get('client.email') ?? $sess->get('email') ?? '')));
+        }
+        if ($rfc === '') {
+            $rfc = strtoupper(trim((string) ($sess->get('client.rfc') ?? $sess->get('rfc') ?? '')));
+        }
+
+        return [$email, $rfc];
+    }
 
     /**
      * Guarda el account_id resuelto en varios keys por compat.
@@ -180,10 +231,76 @@ final class ClientAuth
     }
 
     /**
+     * mysql_clientes.cuentas_cliente -> admin_account_id por ID numérico.
+     */
+    private static function findAdminAccountIdInCuentasClienteById(string $cliConn, int $id): int
+    {
+        if ($id <= 0) return 0;
+
+        try {
+            // si no existe la tabla en ese conn, aborta rápido
+            if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return 0;
+
+            $aid = (int) (DB::connection($cliConn)->table('cuentas_cliente')
+                ->where('id', $id)
+                ->value('admin_account_id') ?? 0);
+
+            return $aid > 0 ? $aid : 0;
+        } catch (\Throwable $e) {
+            Log::warning('[ClientAuth] findAdminAccountIdInCuentasClienteById error', [
+                'cliConn' => $cliConn,
+                'id' => $id,
+                'e' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
+
+    /**
+     * mysql_clientes.cuentas_cliente -> admin_account_id por email/rfc (tu tabla SÍ tiene columnas rfc/email).
+     */
+    private static function findAdminAccountIdInCuentasClienteByEmailOrRfc(string $cliConn, string $email, string $rfc): int
+    {
+        try {
+            if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return 0;
+
+            $q = DB::connection($cliConn)->table('cuentas_cliente')->select(['admin_account_id']);
+
+            $didWhere = false;
+
+            // Preferir RFC (más único)
+            if ($rfc !== '') {
+                $q->whereRaw('UPPER(rfc)=?', [$rfc]);
+                $didWhere = true;
+            } elseif ($email !== '') {
+                $q->whereRaw('LOWER(email)=?', [$email]);
+                $didWhere = true;
+            }
+
+            if (!$didWhere) return 0;
+
+            $row = $q->first();
+            $aid = (int) ($row->admin_account_id ?? 0);
+
+            return $aid > 0 ? $aid : 0;
+        } catch (\Throwable $e) {
+            Log::warning('[ClientAuth] findAdminAccountIdInCuentasClienteByEmailOrRfc error', [
+                'cliConn' => $cliConn,
+                'email' => $email,
+                'rfc' => $rfc,
+                'e' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
+
+    /**
      * Busca accounts.id en mysql_admin.accounts por RFC o email (si existen columnas).
      */
-    private static function findAdminAccountIdByEmailOrRfc(string $admConn, string $email, string $rfc): int
+    private static function findAdminAccountIdByEmailOrRfc(string $email, string $rfc, ?string $admConn = null): int
     {
+        $admConn = $admConn ?: 'mysql_admin';
+
         if (!Schema::connection($admConn)->hasTable('accounts')) return 0;
 
         try {
@@ -191,11 +308,10 @@ final class ClientAuth
             $lc   = array_map('strtolower', $cols);
             $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
 
-            // Preferencia: RFC (más único)
+            // Preferencia: RFC
             if ($rfc !== '' && $has('rfc')) {
                 $id = (int) (DB::connection($admConn)->table('accounts')
                     ->whereRaw('UPPER(rfc)=?', [$rfc])
-                    ->orderByDesc($has('id') ? 'id' : $cols[0])
                     ->value('id') ?? 0);
 
                 if ($id > 0) return $id;
@@ -205,13 +321,13 @@ final class ClientAuth
             if ($email !== '' && $has('email')) {
                 $id = (int) (DB::connection($admConn)->table('accounts')
                     ->whereRaw('LOWER(email)=?', [$email])
-                    ->orderByDesc($has('id') ? 'id' : $cols[0])
                     ->value('id') ?? 0);
 
                 if ($id > 0) return $id;
             }
         } catch (\Throwable $e) {
             Log::warning('[ClientAuth][findAdminAccountIdByEmailOrRfc] error', [
+                'admConn' => $admConn,
                 'email' => $email,
                 'rfc' => $rfc,
                 'e' => $e->getMessage(),

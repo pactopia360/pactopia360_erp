@@ -1584,8 +1584,8 @@ final class AccountBillingController extends Controller
      */
     public function publicPay(Request $r, int $accountId, string $period)
     {
-    if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
-    if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
+        if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
+        if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
 
     // Si hay sesión autenticada, evita cross-account.
     try {
@@ -2552,7 +2552,9 @@ final class AccountBillingController extends Controller
     {
         $u = Auth::guard('web')->user();
 
+        // =========================================================
         // Helpers
+        // =========================================================
         $toInt = static function ($v): int {
             if ($v === null) return 0;
             if (is_int($v)) return $v > 0 ? $v : 0;
@@ -2570,6 +2572,12 @@ final class AccountBillingController extends Controller
             return 0;
         };
 
+        $toStr = static function ($v): string {
+            if ($v === null) return '';
+            if (is_string($v)) return trim($v);
+            return trim((string) $v);
+        };
+
         $pickSessionId = function (Request $req, array $keys) use ($toInt): array {
             foreach ($keys as $k) {
                 $v = $req->session()->get($k);
@@ -2580,27 +2588,93 @@ final class AccountBillingController extends Controller
         };
 
         // =========================================================
-        // 0) Capturar "cuenta cliente" activa (la de la sesión)
+        // 0) Param/route explícito (si llega)
+        // =========================================================
+        $routeAccountId = null;
+        try { $routeAccountId = $req->route('account_id'); } catch (\Throwable $e) { $routeAccountId = null; }
+
+        $accountIdFromParam =
+            $toInt($routeAccountId)
+            ?: $toInt($req->query('account_id'))
+            ?: $toInt($req->input('account_id'))
+            ?: $toInt($req->query('aid'))
+            ?: $toInt($req->input('aid'));
+
+        if ($accountIdFromParam > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $accountIdFromParam);
+                $req->session()->put('billing.admin_account_src', 'param.account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $accountIdFromParam, 'param.account_id'];
+        }
+
+        // =========================================================
+        // 1) Resolver "cuenta cliente" (UUID) — PRIORIDAD:
+        //    A) sesión (si existe)
+        //    B) usuarios_cuenta por email del user (PROD-friendly)
         // =========================================================
         $clientCuentaIdRaw =
             $req->session()->get('client.cuenta_id')
             ?? $req->session()->get('cuenta_id')
+            ?? $req->session()->get('client_cuenta_id')
             ?? null;
 
-        $clientCuentaId = is_string($clientCuentaIdRaw)
-            ? trim($clientCuentaIdRaw)
-            : (string) ($clientCuentaIdRaw ?? '');
+        $clientCuentaId = $toStr($clientCuentaIdRaw);
+
+        // B) Si la sesión no trae cuenta_id, intenta desde mysql_clientes.usuarios_cuenta por email
+        if ($clientCuentaId === '') {
+            try {
+                $email = strtolower(trim((string) ($u?->email ?? '')));
+                if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+
+                    if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
+                        $cols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
+                        $lc   = array_map('strtolower', $cols);
+                        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                        // columnas mínimas
+                        if ($has('email') && $has('cuenta_id')) {
+                            $q = DB::connection($cli)->table('usuarios_cuenta')
+                                ->whereRaw('LOWER(TRIM(email)) = ?', [$email]);
+
+                            if ($has('activo')) $q->where('activo', 1);
+
+                            // prioridad owner si existe
+                            if ($has('rol'))  $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
+                            if ($has('tipo')) $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
+
+                            $orderCol = $has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]);
+                            $q->orderByDesc($orderCol);
+
+                            $row = $q->first(['cuenta_id','email']);
+
+                            $cid = $toStr($row?->cuenta_id ?? '');
+                            if ($cid !== '') {
+                                $clientCuentaId = $cid;
+
+                                // cachea en sesión para la siguiente request
+                                try {
+                                    $req->session()->put('client.cuenta_id', $clientCuentaId);
+                                } catch (\Throwable $e) {}
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // ignora
+            }
+        }
 
         // =========================================================
-        // 1) Fuente PRIORITARIA: client.cuenta_id -> mysql_clientes.cuentas_cliente.admin_account_id
-        //    (Evita fuga de cuentas aunque user->cuenta esté mal)
+        // 2) Resolver admin_account_id desde mysql_clientes.cuentas_cliente
         // =========================================================
         $adminFromClientCuenta = 0;
         $adminFromClientSrc    = '';
 
         if ($clientCuentaId !== '') {
             try {
-                $cli = config('p360.conn.clients', 'mysql_clientes');
+                $cli = (string) config('p360.conn.clients', 'mysql_clientes');
 
                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
@@ -2608,141 +2682,138 @@ final class AccountBillingController extends Controller
                     $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
                     $sel = ['id'];
-                    foreach (['admin_account_id', 'account_id', 'meta', 'rfc', 'codigo_cliente', 'customer_no'] as $c) {
+                    foreach (['admin_account_id', 'account_id', 'meta', 'rfc', 'rfc_padre', 'razon_social'] as $c) {
                         if ($has($c)) $sel[] = $c;
                     }
                     $sel = array_values(array_unique($sel));
 
                     $q = DB::connection($cli)->table('cuentas_cliente')->select($sel);
 
-                    // where id
+                    // id es UUID char(36) en PROD, pero puede venir numérico en local: soporta ambos
                     $q->where('id', $clientCuentaId);
 
-                    // columnas alternas solo si existen (NO asumas uuid/public_id)
-                    foreach (['uuid','public_id','cuenta_uuid','uid'] as $c) {
-                        if ($has($c)) {
-                            $q->orWhere($c, $clientCuentaId);
+                    $asInt = $toInt($clientCuentaId);
+                    if ($asInt > 0) $q->orWhere('id', $asInt);
+
+                    // meta JSON (por si algún día guardas uuid alterno)
+                    if ($has('meta')) {
+                        foreach ([
+                            '$.cuenta_uuid',
+                            '$.cuenta.id',
+                            '$.cuenta_id',
+                            '$.uuid',
+                            '$.public_id',
+                            '$.cliente_uuid',
+                        ] as $path) {
+                            $q->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(meta, ?)) = ?", [$path, $clientCuentaId]);
                         }
                     }
 
                     $cc = $q->first();
 
                     if ($cc) {
-                        // 1.A) admin_account_id (preferido)
                         if ($has('admin_account_id')) {
                             $aid = $toInt($cc->admin_account_id ?? null);
                             if ($aid > 0) {
                                 $adminFromClientCuenta = $aid;
-                                $adminFromClientSrc = 'cuentas_cliente.admin_account_id';
+                                $adminFromClientSrc    = 'cuentas_cliente.admin_account_id';
                             }
                         }
 
-                        // 1.B) fallback: account_id (si tu tabla lo usa así)
                         if ($adminFromClientCuenta <= 0 && $has('account_id')) {
                             $aid = $toInt($cc->account_id ?? null);
                             if ($aid > 0) {
                                 $adminFromClientCuenta = $aid;
-                                $adminFromClientSrc = 'cuentas_cliente.account_id';
+                                $adminFromClientSrc    = 'cuentas_cliente.account_id';
                             }
+                        }
+
+                        if ($adminFromClientCuenta <= 0 && $has('meta') && isset($cc->meta)) {
+                            try {
+                                $meta = is_string($cc->meta) ? (json_decode((string)$cc->meta, true) ?: []) : (array)$cc->meta;
+                                $aid  = $toInt(data_get($meta, 'admin_account_id'));
+                                if ($aid > 0) {
+                                    $adminFromClientCuenta = $aid;
+                                    $adminFromClientSrc    = 'cuentas_cliente.meta.admin_account_id';
+                                }
+                            } catch (\Throwable $e) {}
                         }
                     }
                 }
             } catch (\Throwable $e) {
-                // NO rompas el flujo por problemas de esquema
                 $adminFromClientCuenta = 0;
-                $adminFromClientSrc = '';
+                $adminFromClientSrc    = '';
             }
         }
 
         // =========================================================
-        // 2) Otras fuentes (solo fallback)
+        // 3) Fallbacks (solo si lo anterior no resolvió)
         // =========================================================
-
-        // 2.A) user->cuenta->admin_account_id (pero MUY defensivo)
         $adminFromUserRel = 0;
         try {
             if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
                 try { $u->load('cuenta'); } catch (\Throwable $e) {}
             }
-
-            // acceder a $u->cuenta puede detonar carga; protégelo
             $relAdmin = null;
             try { $relAdmin = $u?->cuenta?->admin_account_id ?? null; } catch (\Throwable $e) { $relAdmin = null; }
-
             $adminFromUserRel = $toInt($relAdmin);
         } catch (\Throwable $e) {
             $adminFromUserRel = 0;
         }
 
-        // 2.B) user.admin_account_id (si existe)
         $adminFromUserField = $toInt($u?->admin_account_id ?? null);
 
-        // 2.C) claves directas de sesión (compat)
+        // ✅ MUY IMPORTANTE: NO uses llaves genéricas primero (account_id) porque en PROD puede contaminar.
         [$adminFromSessionDirect, $sessionDirectSrc] = $pickSessionId($req, [
+            'billing.admin_account_id',
             'verify.account_id',
             'paywall.account_id',
             'client.admin_account_id',
-            'client.account_id',
-            'client_account_id',
+
+            // ⚠️ genéricas al final
             'admin_account_id',
             'account_id',
+            'client.account_id',
+            'client_account_id',
         ]);
 
         // =========================================================
-        // 3) Selección final + anti-fuga (mismatch guard)
+        // 4) Selección final + persistencia namespaced
         // =========================================================
-
-        // 3.A) Si pudimos resolver por client.cuenta_id, ESA MANDA.
         if ($adminFromClientCuenta > 0) {
-            // Si hay otra fuente que contradice, LOG CRITICAL (esto es el bug que estás viendo)
-            $others = [
-                'user.cuenta.admin_account_id' => $adminFromUserRel,
-                'user.admin_account_id'        => $adminFromUserField,
-                $sessionDirectSrc ?: 'session.direct' => $adminFromSessionDirect,
-            ];
-
-            foreach ($others as $src => $val) {
-                if ($val > 0 && $val !== $adminFromClientCuenta) {
-                    try {
-                        logger()->critical('[BILLING][SECURITY] admin_account_id mismatch', [
-                            'client_cuenta_id' => $clientCuentaId,
-                            'expected_account_id' => $adminFromClientCuenta,
-                            'expected_src' => $adminFromClientSrc,
-                            'got_account_id' => $val,
-                            'got_src' => $src,
-                            'user_id' => $u?->id,
-                            'session' => [
-                                'client.cuenta_id' => $req->session()->get('client.cuenta_id'),
-                                'cuenta_id'        => $req->session()->get('cuenta_id'),
-                                'client.account_id'=> $req->session()->get('client.account_id'),
-                                'account_id'       => $req->session()->get('account_id'),
-                                'client_account_id'=> $req->session()->get('client_account_id'),
-                            ],
-                        ]);
-                    } catch (\Throwable $e) {}
-                    // Nota: no hacemos abort aquí para no tumbar producción;
-                    // si quieres modo estricto, aquí iría abort(403).
-                }
-            }
-
-            // Alinea sesión para que todo el stack use el mismo ID
             try {
-                $req->session()->put('client.account_id', $adminFromClientCuenta);
-                $req->session()->put('account_id', $adminFromClientCuenta);
+                $req->session()->put('billing.admin_account_id', (string) $adminFromClientCuenta);
+                $req->session()->put('billing.admin_account_src', (string) ($adminFromClientSrc ?: 'cuentas_cliente'));
             } catch (\Throwable $e) {}
-
             return [(string) $adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
         }
 
-        // 3.B) Si no hay client.cuenta_id resoluble, usa fuentes fallback en orden seguro
-        if ($adminFromUserRel > 0) return [(string) $adminFromUserRel, 'user.cuenta.admin_account_id'];
-        if ($adminFromUserField > 0) return [(string) $adminFromUserField, 'user.admin_account_id'];
-        if ($adminFromSessionDirect > 0) return [(string) $adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
+        if ($adminFromUserRel > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromUserRel);
+                $req->session()->put('billing.admin_account_src', 'user.cuenta.admin_account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromUserRel, 'user.cuenta.admin_account_id'];
+        }
+
+        if ($adminFromUserField > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromUserField);
+                $req->session()->put('billing.admin_account_src', 'user.admin_account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromUserField, 'user.admin_account_id'];
+        }
+
+        if ($adminFromSessionDirect > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromSessionDirect);
+                $req->session()->put('billing.admin_account_src', (string) ($sessionDirectSrc ?: 'session.direct'));
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
+        }
 
         return [null, 'unresolved'];
     }
-
-
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
     {

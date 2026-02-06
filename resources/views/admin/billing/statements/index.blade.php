@@ -321,7 +321,10 @@
             <tbody>
               @forelse($rows as $r)
                 @php
-                  $aid   = (string)($r->id ?? $r->account_id ?? '');
+                  $rowId = (string)($r->id ?? '');
+                  $aid   = (string)($r->account_id ?? $r->accountId ?? $r->cuenta_id ?? $rowId ?? '');
+                  $aid   = trim($aid);
+
                   $rfc   = trim((string)($r->rfc ?? $r->codigo ?? ''));
                   $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: '—'));
                   $mail  = trim((string)($r->email ?? $r->correo ?? '—'));
@@ -376,6 +379,11 @@
 
                   <td class="sx-mono">
                     #{{ $aid }}
+
+                    @if($rowId !== '' && $rowId !== $aid)
+                      <div class="sx-subrow">RowID: <span class="sx-mono">#{{ $rowId }}</span></div>
+                    @endif
+
                     @if($rfc !== '')
                       <div class="sx-subrow">RFC: <span class="sx-mono">{{ $rfc }}</span></div>
                     @endif
