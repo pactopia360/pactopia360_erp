@@ -2086,7 +2086,7 @@ final class AccountBillingController extends Controller
         return $isAnnual ? array_slice($out, 0, 1) : array_slice($out, 0, 2);
     }
 
- private function adminLastPaidPeriod(int $accountId): ?string
+    private function adminLastPaidPeriod(int $accountId): ?string
     {
         if ($accountId <= 0) return null;
 
