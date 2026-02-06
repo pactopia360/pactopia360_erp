@@ -47,22 +47,56 @@
     ? route('cliente.mi_cuenta.index')
     : url('/cliente/mi-cuenta');
 
-  /**
-   * ✅ Mensualidad consistente con el PDF:
-   * El PDF normalmente usa el "charge" del periodo (o el monto del periodo),
-   * mientras que el header mostraba $mensualidadAdmin (que puede estar desfasado).
-   * Sin cambiar diseño: mostramos el charge más alto disponible en $rows si existe.
+    /**
+   * ✅ Mensualidad en header (siempre mensual):
+   * - El PDF/Estado por fila muestra el monto del PERIODO (mensual o anual).
+   * - El header "Mensualidad" debe ser mensual (ej. 999) aunque el periodo permitido sea anual (ej. 11988).
+   *
+   * Regla:
+   * - Si viene $mensualidadAdmin (>0) lo usamos como base (normalmente ya es mensual).
+   * - Si no, derivamos del charge del/los periodos.
+   * - Si detectamos ciclo anual (billing_cycle/modo_cobro), dividimos entre 12.
    */
   $mensualidadHeader = (float)($mensualidadAdmin ?? 0);
-  $charges = [];
+
+  $isAnnual = false;
   foreach ($rows as $rr) {
-    $c = (float)($rr['charge'] ?? 0);
-    if ($c > 0) $charges[] = $c;
+    $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? $billing_cycle ?? ''));
+    $modo  = strtolower((string)($rr['modo_cobro'] ?? $modo_cobro ?? ''));
+
+    if (in_array($cycle, ['annual','year','yearly','anual','anualidad'], true) ||
+        in_array($modo,  ['annual','year','yearly','anual','anualidad'], true)) {
+      $isAnnual = true;
+      break;
+    }
   }
-  if (!empty($charges)) {
-    // usamos el charge max para que coincida con el monto que se refleja en el estado/PDF del periodo
-    $mensualidadHeader = max($charges);
+
+  // Derivar mensualidad si no vino desde admin (o vino en 0)
+  if ($mensualidadHeader <= 0) {
+    $charges = [];
+    foreach ($rows as $rr) {
+      $c = (float)($rr['charge'] ?? 0);
+      if ($c > 0) $charges[] = $c;
+    }
+
+    if (!empty($charges)) {
+      $candidate = max($charges);
+
+      // Si el ciclo es anual, el charge suele ser anualidad => convertir a mensual.
+      if ($isAnnual && $candidate > 0) {
+        $candidate = $candidate / 12;
+      }
+
+      // Redondeo defensivo para evitar 998.999999
+      $mensualidadHeader = round($candidate, 2);
+    }
+  } else {
+    // Si por algún motivo mensualidadAdmin viniera anual, corrígela también.
+    if ($isAnnual && $mensualidadHeader > 0) {
+      $mensualidadHeader = round($mensualidadHeader / 12, 2);
+    }
   }
+
 @endphp
 
 <div class="p360-page">

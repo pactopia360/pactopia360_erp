@@ -234,17 +234,43 @@ final class AccountBillingController extends Controller
         // ✅ ANUAL: forzar monto ANUAL (1 línea por año)
         // - usa resolveAnnualCents()
         // - NO uses "precio_anual/12" para UI anual
+        // - IMPORTANTÍSIMO: sobreescribe priceInfo per_period para que
+        //   buildPeriodRows NO use “mensualidad” (evita 999*12 = 11988)
         // ==========================================================
-         $annualTotalMxn = 0.0;
+        $annualTotalMxn   = 0.0;
+        $annualCentsFinal = 0;
+
         if ($isAnnual) {
             try {
-                $baseAnnual  = $lastPaid ?: $basePeriod;
-                $annualCents = (int) $this->resolveAnnualCents($accountId, $baseAnnual, $lastPaid, $payAllowed);
-                if ($annualCents > 0) $annualTotalMxn = round($annualCents / 100, 2);
+                $baseAnnual = $lastPaid ?: $basePeriod;
+
+                $annualCents = (int) $this->resolveAnnualCents(
+                    $accountId,
+                    (string) $baseAnnual,
+                    $lastPaid,
+                    $payAllowed
+                );
+
+                if ($annualCents > 0) {
+                    $annualCentsFinal = $annualCents;
+                    $annualTotalMxn   = round($annualCents / 100, 2);
+
+                    // ✅ FIX: para cuentas ANUALES, el “charge por periodo mostrado”
+                    // debe ser el total ANUAL (no mensual).
+                    foreach ($periods as $p) {
+                        $priceInfo['per_period'][$p] = [
+                            'cents'  => $annualCentsFinal,
+                            'mxn'    => $annualTotalMxn,
+                            'source' => 'annual.resolveAnnualCents',
+                        ];
+                    }
+                }
             } catch (\Throwable $e) {
-                $annualTotalMxn = 0.0;
+                $annualTotalMxn   = 0.0;
+                $annualCentsFinal = 0;
             }
         }
+
 
         // ==========================================================
         // ✅ FIX CRÍTICO: generar $chargesByPeriod y $sourcesByPeriod
@@ -1359,11 +1385,19 @@ final class AccountBillingController extends Controller
             : $period;
 
         // ✅ mensualidad (cents)
-        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int) $accountId, $period, $lastPaid, $payAllowed);
-        if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
-        if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, null, $period);
+        // - Mensual: mensualidad
+        // - Anual: total anual (NO mensual*12)
+        if ($isAnnual) {
+            $baseAnnual   = $lastPaid ?: $period;
+            $monthlyCents = (int) $this->resolveAnnualCents((int) $accountId, (string) $baseAnnual, $lastPaid, $payAllowed);
+        } else {
+            $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int) $accountId, $period, $lastPaid, $payAllowed);
+            if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
+            if ($monthlyCents <= 0 && $accountId > 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, null, $period);
+        }
 
         $monthlyMxn = round($monthlyCents / 100, 2);
+
 
         // ==========================================================
         // ✅ Saldo anterior (periodo - 1)
