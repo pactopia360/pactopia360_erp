@@ -1,5 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\billing\statement.blade.php --}}
-{{-- resources/views/cliente/billing/statement.blade.php (UI: v18.1 · billing_invoice_requests + estatus robustos + loader visible + mensualidad consistente) --}}
+{{-- resources/views/cliente/billing/statement.blade.php (UI: v18.2 · FIX EOF + modales fuera de foreach + invoice chips + loader modal) --}}
 @extends('layouts.cliente')
 
 @section('title', 'Estado de cuenta · Pactopia360')
@@ -13,56 +13,51 @@
 @php
   $mxn = fn($n) => '$' . number_format((float)$n, 2);
 
+  // =========================
+  // Sanitize + limitar a 2 filas
+  // =========================
   $safe = (isset($rows) && is_array($rows)) ? $rows : [];
   $safe = array_values(array_filter($safe, function($r){
     $p = (string)($r['period'] ?? '');
     return (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
   }));
 
-  // Solo 2 filas máximas (lastPaid + payAllowed)
   $final = [];
-  $seen = [];
+  $seen  = [];
   foreach ($safe as $r){
     $p = (string)($r['period'] ?? '');
     if ($p === '' || isset($seen[$p])) continue;
     $seen[$p] = true;
-    $final[] = $r;
+    $final[]  = $r;
     if (count($final) >= 2) break;
   }
   $rows = $final;
 
-  // ✅ IMPORTANTE:
-  // Visualizar (iframe/modal) debe apuntar a la ruta AUTH `billing.pdfInline`
-  // que a su vez genera la signed URL y redirige a `billing.publicPdfInline`.
-  $pdfInlineRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdfInline');
+  // =========================
+  // Rutas (route:cache safe)
+  // =========================
+  $pdfInlineRouteExists   = \Illuminate\Support\Facades\Route::has('cliente.billing.pdfInline');
   $pdfDownloadRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdf');
+  $payRouteExists         = \Illuminate\Support\Facades\Route::has('cliente.billing.pay');
 
-  $payRouteExists       = \Illuminate\Support\Facades\Route::has('cliente.billing.pay.get');
-
-  // Routes de factura (Cliente) — internamente el controller ya apunta a billing_invoice_requests
-  $invoiceRequestRoute  = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.request');
-  $invoiceDownloadRoute = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.download');
+  $invoiceRequestRoute    = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.request');
+  $invoiceDownloadRoute   = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.download');
 
   $rtMiCuenta = \Illuminate\Support\Facades\Route::has('cliente.mi_cuenta.index')
     ? route('cliente.mi_cuenta.index')
     : url('/cliente/mi-cuenta');
 
-    /**
+  /**
    * ✅ Mensualidad en header (siempre mensual):
-   * - El PDF/Estado por fila muestra el monto del PERIODO (mensual o anual).
+   * - El PDF por fila muestra el monto del PERIODO (mensual o anual).
    * - El header "Mensualidad" debe ser mensual (ej. 999) aunque el periodo permitido sea anual (ej. 11988).
-   *
-   * Regla:
-   * - Si viene $mensualidadAdmin (>0) lo usamos como base (normalmente ya es mensual).
-   * - Si no, derivamos del charge del/los periodos.
-   * - Si detectamos ciclo anual (billing_cycle/modo_cobro), dividimos entre 12.
    */
   $mensualidadHeader = (float)($mensualidadAdmin ?? 0);
 
   $isAnnual = false;
   foreach ($rows as $rr) {
-    $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? $billing_cycle ?? ''));
-    $modo  = strtolower((string)($rr['modo_cobro'] ?? $modo_cobro ?? ''));
+    $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? ($billing_cycle ?? '')));
+    $modo  = strtolower((string)($rr['modo_cobro'] ?? ($modo_cobro ?? '')));
 
     if (in_array($cycle, ['annual','year','yearly','anual','anualidad'], true) ||
         in_array($modo,  ['annual','year','yearly','anual','anualidad'], true)) {
@@ -71,32 +66,22 @@
     }
   }
 
-  // Derivar mensualidad si no vino desde admin (o vino en 0)
   if ($mensualidadHeader <= 0) {
     $charges = [];
     foreach ($rows as $rr) {
       $c = (float)($rr['charge'] ?? 0);
       if ($c > 0) $charges[] = $c;
     }
-
     if (!empty($charges)) {
       $candidate = max($charges);
-
-      // Si el ciclo es anual, el charge suele ser anualidad => convertir a mensual.
-      if ($isAnnual && $candidate > 0) {
-        $candidate = $candidate / 12;
-      }
-
-      // Redondeo defensivo para evitar 998.999999
+      if ($isAnnual && $candidate > 0) $candidate = $candidate / 12;
       $mensualidadHeader = round($candidate, 2);
     }
   } else {
-    // Si por algún motivo mensualidadAdmin viniera anual, corrígela también.
     if ($isAnnual && $mensualidadHeader > 0) {
       $mensualidadHeader = round($mensualidadHeader / 12, 2);
     }
   }
-
 @endphp
 
 <div class="p360-page">
@@ -109,6 +94,7 @@
           <path d="M8 12h8M8 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </div>
+
       <div class="p360-toptext">
         <h1 class="p360-title">Estados de cuenta</h1>
         <div class="p360-sub">
@@ -116,6 +102,7 @@
         </div>
       </div>
     </div>
+
     <div class="p360-top-actions">
       <a class="p360-pillbtn" href="{{ $rtMiCuenta }}">Volver a Mi cuenta</a>
     </div>
@@ -130,6 +117,7 @@
             <path d="M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
           </svg>
         </div>
+
         <div style="min-width:0">
           <div class="p360-section-badge">SECCIÓN</div>
           <h2 class="p360-section-h2">Estado de suscripción</h2>
@@ -140,31 +128,32 @@
           </div>
         </div>
       </div>
+
       <span class="p360-chip">P360 Billing</span>
     </div>
 
     <div class="p360-section-body">
       <div class="p360-list">
-        @foreach($rows as $row)
+        @forelse($rows as $row)
           @php
             $period = (string)($row['period'] ?? '');
 
-            // El controller ya normaliza: si payments dice pagado -> status='paid'
             $isPaid = (($row['status'] ?? 'pending') === 'paid');
             $canPay = (bool)($row['can_pay'] ?? false);
 
-            $monthName = $period ? \Illuminate\Support\Carbon::createFromFormat('Y-m', $period)->translatedFormat('F') : '—';
+            $monthName = $period
+              ? \Illuminate\Support\Carbon::createFromFormat('Y-m', $period)->translatedFormat('F')
+              : '—';
             $monthName = \Illuminate\Support\Str::ucfirst($monthName);
 
-            $range = (string)($row['period_range'] ?? '');
-            $rfcV  = (string)($row['rfc'] ?? ($rfc ?? '—'));
-            $aliasV= (string)($row['alias'] ?? ($alias ?? '—'));
+            $range  = (string)($row['period_range'] ?? '');
+            $rfcV   = (string)($row['rfc'] ?? ($rfc ?? '—'));
+            $aliasV = (string)($row['alias'] ?? ($alias ?? '—'));
 
             $paidAmount = (float)($row['paid_amount'] ?? 0);
             $saldo      = (float)($row['saldo'] ?? 0);
             $charge     = (float)($row['charge'] ?? 0);
 
-            // Monto a mostrar (para la fila)
             $amount = $isPaid
               ? ($paidAmount > 0 ? $paidAmount : $charge)
               : ($saldo > 0 ? $saldo : $charge);
@@ -172,11 +161,9 @@
             $statusText  = $isPaid ? 'PAGADO' : 'PENDIENTE';
             $statusClass = $isPaid ? 'paid' : 'pending';
 
-            // ✅ Visualizar: apunta a la ruta AUTH que redirige a signed (evita INVALID SIGNATURE)
             $pdfEnabled  = $pdfInlineRouteExists && $period !== '';
             $payEnabled  = (!$isPaid) && $canPay && $payRouteExists && $period !== '';
 
-            // Solo el último periodo pagado puede facturar
             $isLastPaid = ($lastPaid && $period === $lastPaid);
 
             $invStatus = strtolower((string)($row['invoice_request_status'] ?? ''));
@@ -193,12 +180,10 @@
             $invoiceEnabled    = $isPaid && $isLastPaid && $invoiceRequestRoute && $period !== '';
             $invoiceZipEnabled = $isPaid && $isLastPaid && $invoiceDownloadRoute && $invHasZip;
 
-            // ✅ View URL robusta (AUTH -> redirect signed)
             $pdfViewUrl = $pdfEnabled
               ? route('cliente.billing.pdfInline', ['period' => $period])
               : '#';
 
-            // ✅ Descargar: también pasa por AUTH -> signed
             $pdfDownloadUrl = ($pdfDownloadRouteExists && $period !== '')
               ? route('cliente.billing.pdf', ['period' => $period])
               : '#';
@@ -232,63 +217,97 @@
                 <div class="p360-status {{ $statusClass }}">
                   <span class="p360-dot"></span> {{ $statusText }}
                 </div>
+
+                {{-- ✅ Indicador mini de factura (solo aplica al último pagado) --}}
+                @if($isPaid && $isLastPaid)
+                  @if($invProcessing)
+                    <span class="p360-chip-mini warn">Factura: Facturando</span>
+                  @elseif($invDone || $invHasZip)
+                    <span class="p360-chip-mini ok">Factura: Lista</span>
+                  @else
+                    <span class="p360-chip-mini">Factura: No solicitada</span>
+                  @endif
+                @endif
+
                 <div class="k">{{ $isPaid ? 'Monto pagado' : 'Por pagar' }}</div>
               </div>
+
               <div class="amt">{{ $mxn($amount) }}</div>
             </div>
 
             <div class="p360-actions-right p360-ga-actions">
-              @if($pdfEnabled)
-                <button type="button"
-                        class="p360-btn green js-p360-open-pdf"
-                        data-pdf-view="{{ $pdfViewUrl }}"
-                        data-pdf-download="{{ $pdfDownloadUrl }}">
-                  Visualizar
-                </button>
+              <div class="p360-actions-grid">
+                {{-- PDF --}}
+                @if($pdfEnabled)
+                  <button type="button"
+                          class="p360-btn green js-p360-open-pdf"
+                          data-pdf-view="{{ $pdfViewUrl }}"
+                          data-pdf-download="{{ $pdfDownloadUrl }}">
+                    Visualizar
+                  </button>
 
-                <a class="p360-btn green"
-                   href="{{ $pdfDownloadUrl }}"
-                   target="_blank"
-                   rel="noopener">
-                  Descargar
-                </a>
-              @else
-                <button class="p360-btn green" disabled>Visualizar</button>
-                <button class="p360-btn green" disabled>Descargar</button>
-              @endif
-
-              @if($isPaid)
-                @if($isLastPaid)
-                  @if($invoiceZipEnabled)
-                    <a class="p360-btn blue"
-                       href="{{ route('cliente.billing.factura.download', ['period' => $period]) }}"
+                  @if($pdfDownloadUrl !== '#')
+                    <a class="p360-btn green"
+                       href="{{ $pdfDownloadUrl }}"
                        target="_blank"
                        rel="noopener">
-                      Factura
+                      Descargar
                     </a>
-                  @elseif($invoiceEnabled && ($invProcessing || $invDone))
-                    <button class="p360-btn blue" disabled>Facturando</button>
-                  @elseif($invoiceEnabled)
-                    <form method="POST" action="{{ route('cliente.billing.factura.request', ['period' => $period]) }}" style="display:inline">
-                      @csrf
-                      <button type="submit" class="p360-btn blue">Facturar</button>
-                    </form>
+                  @else
+                    <button class="p360-btn green" disabled>Descargar</button>
+                  @endif
+                @else
+                  <button class="p360-btn green" disabled>Visualizar</button>
+                  <button class="p360-btn green" disabled>Descargar</button>
+                @endif
+
+                {{-- Factura / Pago --}}
+                @if($isPaid)
+                  @if($isLastPaid)
+                    @if($invoiceZipEnabled)
+                      <a class="p360-btn blue"
+                         href="{{ route('cliente.billing.factura.download', ['period' => $period]) }}"
+                         target="_blank"
+                         rel="noopener">
+                        Factura
+                      </a>
+                    @elseif($invoiceEnabled && ($invProcessing || $invDone))
+                      <button class="p360-btn blue" disabled>Facturando</button>
+                    @elseif($invoiceEnabled)
+                      <form method="POST"
+                            action="{{ route('cliente.billing.factura.request', ['period' => $period]) }}"
+                            class="p360-inlineform">
+                        @csrf
+                        <button type="submit" class="p360-btn blue">Facturar</button>
+                      </form>
+                    @else
+                      <button class="p360-btn blue" disabled>Facturar</button>
+                    @endif
                   @else
                     <button class="p360-btn blue" disabled>Facturar</button>
                   @endif
                 @else
-                  <button class="p360-btn blue" disabled>Facturar</button>
+                  @if($payEnabled)
+                    <a class="p360-btn orange" href="{{ route('cliente.billing.pay', ['period' => $period]) }}">
+                      Pagar ahora
+                    </a>
+                  @else
+                    <button class="p360-btn orange" disabled>Pagar ahora</button>
+                  @endif
                 @endif
-              @else
-                @if($payEnabled)
-                  <a class="p360-btn orange" href="{{ route('cliente.billing.pay.get', ['period' => $period]) }}">Pagar ahora</a>
-                @else
-                  <button class="p360-btn orange" disabled>Pagar ahora</button>
-                @endif
-              @endif
+              </div>
             </div>
           </div>
-        @endforeach
+        @empty
+          <div class="p360-row" style="grid-template-columns:1fr;grid-template-areas:'details';">
+            <div class="p360-details p360-ga-details" style="grid-template-columns:1fr;">
+              <div class="p360-col">
+                <div class="k">Estados de cuenta</div>
+                <div class="v">No hay periodos disponibles para mostrar.</div>
+              </div>
+            </div>
+          </div>
+        @endforelse
       </div>
     </div>
   </div>
@@ -330,18 +349,14 @@
         </a>
 
         <a id="p360PdfDownload"
-          class="p360-modal__btn green"
-          href="#"
-          target="_blank"
-          rel="noopener">
+           class="p360-modal__btn green"
+           href="#"
+           target="_blank"
+           rel="noopener">
           Descargar
         </a>
 
-        <button type="button"
-                class="p360-modal__btn ghost"
-                data-close="1">
-          Cerrar
-        </button>
+        <button type="button" class="p360-modal__btn ghost" data-close="1">Cerrar</button>
       </div>
     </div>
 
@@ -411,17 +426,11 @@
     function withPdfViewerPrefs(url){
       try {
         const u = new URL(url, window.location.origin);
-
-        // ✅ Inline (evita download en iframe) + cache buster para pruebas
         u.searchParams.set('inline', '1');
         u.searchParams.set('_ts', String(Date.now()));
-
-        // Preferencias del visor PDF del navegador
         u.hash = 'toolbar=0&navpanes=0&scrollbar=1';
-
         return u.toString();
       } catch (e) {
-        // fallback defensivo
         const sep = url.includes('?') ? '&' : '?';
         return url + sep + 'inline=1&_ts=' + Date.now() + '#toolbar=0&navpanes=0&scrollbar=1';
       }
@@ -435,7 +444,7 @@
 
     function hideLoader(){
       const elapsed = Date.now() - openAt;
-      const wait = Math.max(0, 250 - elapsed); // mínimo para que se alcance a ver
+      const wait = Math.max(0, 250 - elapsed);
       window.setTimeout(function(){
         loader.style.display = 'none';
         frame.style.visibility = 'visible';
@@ -460,8 +469,6 @@
       download.href = (downloadUrl && downloadUrl !== '#') ? downloadUrl : viewUrl;
       openTab.href  = withPdfViewerPrefs(viewUrl);
 
-
-      // ✅ abrir modal primero para que el loader pinte visualmente
       modal.classList.add('is-open');
       modal.setAttribute('aria-hidden','false');
       document.documentElement.classList.add('p360-modal-open');
@@ -469,7 +476,6 @@
 
       showLoader('Cargando estado de cuenta…');
 
-      // reset iframe para forzar repaint y disparar load correctamente
       frame.onload = null;
       frame.src = 'about:blank';
 
@@ -486,7 +492,6 @@
         hideLoader();
       };
 
-      // ✅ Asignar src en el siguiente frame para asegurar que el loader se vea
       window.requestAnimationFrame(function(){
         window.requestAnimationFrame(function(){
           frame.src = withPdfViewerPrefs(viewUrl);
@@ -573,5 +578,4 @@
   }
 })();
 </script>
-
 @endsection

@@ -847,14 +847,20 @@ final class AccountBillingController extends Controller
      */
     public function requestInvoice(Request $r, string $period): RedirectResponse
     {
+        // ==========================================================
+        // ✅ Validación periodo
+        // ==========================================================
         if (!$this->isValidPeriod($period)) {
             return redirect()->route('cliente.estado_cuenta')
                 ->with('invoice_window_error', true)
                 ->with('invoice_window_error_msg', 'Periodo inválido para solicitar factura.');
         }
 
+        // ==========================================================
+        // ✅ Resolver cuenta admin (SOT)
+        // ==========================================================
         [$accountIdRaw, $src] = $this->resolveAdminAccountId($r);
-        $accountId = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
+        $accountId = is_numeric($accountIdRaw) ? (int) $accountIdRaw : 0;
 
         if ($accountId <= 0) {
             return redirect()->route('cliente.estado_cuenta')
@@ -862,21 +868,25 @@ final class AccountBillingController extends Controller
                 ->with('invoice_window_error_msg', 'Cuenta no seleccionada.');
         }
 
+        $now      = now();
         $lastPaid = $this->adminLastPaidPeriod($accountId);
-        $now = now();
 
         /**
-         * ✅ REGLA:
+         * ✅ REGLA (SOT):
          * - Solo se puede pedir factura del ÚLTIMO PERIODO PAGADO (lastPaid)
          * - Ventana: MES CALENDARIO de la FECHA REAL DE PAGO (paid_at)
+         * - Si NO puedo determinar paid_at => NO permito facturar
          */
         $allowed = false;
+        $paidAt  = null;
+        $start   = null;
+        $end     = null;
 
+        // Debe coincidir exactamente con lastPaid
         if ($lastPaid && $period === $lastPaid) {
             try {
                 $paidAt = $this->resolvePaidAtForPeriod($accountId, $lastPaid); // Carbon|null
 
-                // ✅ Si no puedo determinar la fecha real de pago, NO permito facturar
                 if (!$paidAt) {
                     Log::warning('[BILLING] invoice window blocked (paid_at unresolved)', [
                         'account_id' => $accountId,
@@ -888,33 +898,50 @@ final class AccountBillingController extends Controller
 
                     $allowed = false;
                 } else {
-                    $start = $paidAt->copy()->startOfMonth();
-                    $end   = $paidAt->copy()->endOfMonth();
-
+                    $start   = $paidAt->copy()->startOfMonth();
+                    $end     = $paidAt->copy()->endOfMonth();
                     $allowed = $now->betweenIncluded($start, $end);
                 }
 
-
+                // ✅ Log SAFE (no revienta si paidAt es null)
                 Log::info('[BILLING][DEBUG] invoice window check', [
                     'account_id' => $accountId,
                     'period'     => $period,
                     'last_paid'  => $lastPaid,
-                    'paid_at'    => $paidAt->toDateTimeString(),
-                    'window'     => $start->format('Y-m-d') . ' -> ' . $end->format('Y-m-d'),
+                    'paid_at'    => $paidAt ? $paidAt->toDateTimeString() : null,
+                    'window'     => ($start && $end) ? ($start->format('Y-m-d') . ' -> ' . $end->format('Y-m-d')) : null,
                     'now'        => $now->toDateTimeString(),
                     'allowed'    => $allowed,
                     'src'        => $src,
                 ]);
             } catch (\Throwable $e) {
                 $allowed = false;
-            }
-        }
 
-        if (!$allowed) {
-            Log::info('[BILLING] invoice request blocked (out of month)', [
+                Log::warning('[BILLING] invoice window check failed', [
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                    'last_paid'  => $lastPaid,
+                    'src'        => $src,
+                    'err'        => $e->getMessage(),
+                ]);
+            }
+        } else {
+            // Log leve: intentaron facturar un periodo distinto al último pagado
+            Log::info('[BILLING] invoice request blocked (not last paid)', [
                 'account_id' => $accountId,
                 'period'     => $period,
                 'last_paid'  => $lastPaid,
+                'now'        => $now->toDateTimeString(),
+                'src'        => $src,
+            ]);
+        }
+
+        if (!$allowed) {
+            Log::info('[BILLING] invoice request blocked (out of month / not allowed)', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'last_paid'  => $lastPaid,
+                'paid_at'    => $paidAt ? $paidAt->toDateTimeString() : null,
                 'now'        => $now->toDateTimeString(),
                 'src'        => $src,
             ]);
@@ -924,6 +951,9 @@ final class AccountBillingController extends Controller
                 ->with('invoice_window_error_msg', 'No se pudo validar la fecha real de pago para este periodo. Contacta soporte para facturación.');
         }
 
+        // ==========================================================
+        // ✅ Insert en admin.billing_invoice_requests (SOT)
+        // ==========================================================
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
 
         if (!Schema::connection($adm)->hasTable('billing_invoice_requests')) {
@@ -939,11 +969,12 @@ final class AccountBillingController extends Controller
 
         $cols = Schema::connection($adm)->getColumnListing('billing_invoice_requests');
         $lc   = array_map('strtolower', $cols);
-        $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
         if (!$has('account_id') || !$has('period')) {
             Log::warning('[BILLING] billing_invoice_requests missing account_id/period', [
                 'account_id' => $accountId,
+                'period'     => $period,
             ]);
 
             return redirect()->route('cliente.estado_cuenta')
@@ -951,7 +982,9 @@ final class AccountBillingController extends Controller
                 ->with('invoice_window_error_msg', 'No se pudo registrar la solicitud (estructura incompleta).');
         }
 
-        // Evita duplicados
+        // ==========================================================
+        // ✅ Evitar duplicados (idempotencia)
+        // ==========================================================
         try {
             $orderCol = $has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]);
 
@@ -971,26 +1004,38 @@ final class AccountBillingController extends Controller
                     ->with('success', 'Tu solicitud de factura ya fue registrada. Aparecerá como “Facturando” mientras se prepara.');
             }
         } catch (\Throwable $e) {
-            // ignora
+            // no bloquea: solo log
+            Log::warning('[BILLING] invoice request dedupe check failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
         }
 
+        // ==========================================================
+        // ✅ Insert
+        // ==========================================================
         $insert = [
             'account_id' => $accountId,
             'period'     => $period,
         ];
 
-        if ($has('status'))     $insert['status'] = 'requested';
-        if ($has('notes'))      $insert['notes'] = null;
-
+        if ($has('status'))       $insert['status'] = 'requested';
+        if ($has('notes'))        $insert['notes'] = null;
         if ($has('requested_at')) $insert['requested_at'] = $now;
         if ($has('created_at'))   $insert['created_at'] = $now;
         if ($has('updated_at'))   $insert['updated_at'] = $now;
 
         if ($has('meta')) {
             $insert['meta'] = json_encode([
-                'source'       => 'cliente_portal',
-                'user_id'      => Auth::guard('web')->id(),
-                'requested_ip' => (string) $r->ip(),
+                'source'        => 'cliente_portal',
+                'user_id'       => Auth::guard('web')->id(),
+                'requested_ip'  => (string) $r->ip(),
+                'last_paid'     => $lastPaid,
+                'paid_at'       => $paidAt ? $paidAt->toISOString() : null,
+                'window_start'  => ($start instanceof \DateTimeInterface) ? Carbon::instance($start)->toDateString() : null,
+                'window_end'    => ($end instanceof \DateTimeInterface) ? Carbon::instance($end)->toDateString() : null,
+                'resolver_src'  => $src,
             ], JSON_UNESCAPED_UNICODE);
         }
 
@@ -1017,6 +1062,7 @@ final class AccountBillingController extends Controller
                 ->with('invoice_window_error_msg', 'No se pudo registrar la solicitud. Intenta nuevamente.');
         }
     }
+
 
     /**
      * ✅ Determina la fecha real de pago (paid_at) para un periodo, de forma robusta.
