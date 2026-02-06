@@ -1899,11 +1899,17 @@ class ClientesController extends \App\Http\Controllers\Controller
 
             $schemaCli = Schema::connection('mysql_clientes');
 
+            // ✅ FIX PROD: cuentas_cliente.admin_account_id es NOT NULL en producción
+            if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                $payload['admin_account_id'] = (int) $acc->id; // accounts.id (SOT)
+            }
+
             if ($schemaCli->hasColumn('cuentas_cliente', 'codigo_cliente')) $payload['codigo_cliente'] = $this->genCodigoClienteEspejo();
             if ($schemaCli->hasColumn('cuentas_cliente', 'customer_no'))    $payload['customer_no'] = $this->nextCustomerNo();
             if ($schemaCli->hasColumn('cuentas_cliente', 'nombre_comercial')) $payload['nombre_comercial'] = $payload['razon_social'];
             if ($schemaCli->hasColumn('cuentas_cliente', 'activo')) $payload['activo'] = 1;
             if ($schemaCli->hasColumn('cuentas_cliente', 'email'))  $payload['email'] = $acc->email ?: null;
+
 
             if ($schemaCli->hasColumn('cuentas_cliente', 'telefono'))          $payload['telefono'] = null;
             if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))              $payload['plan'] = null;
