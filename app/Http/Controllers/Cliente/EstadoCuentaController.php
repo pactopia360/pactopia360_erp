@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 use Throwable;
 
 class EstadoCuentaController extends Controller
@@ -115,7 +116,7 @@ class EstadoCuentaController extends Controller
             }
         }
 
-        // ===== Movimientos (mysql_admin.estados_cuenta)
+        // ===== Movimientos (mysql_admin.estados_cuenta) -> para balance global
         $movs = collect();
 
         if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
@@ -171,7 +172,7 @@ class EstadoCuentaController extends Controller
             }
         }
 
-        // ===== Resumen de cuenta para la vista
+        // ===== Estado (bloqueo)
         $estadoBloqueado = false;
         $estadoTexto     = null;
 
@@ -193,6 +194,36 @@ class EstadoCuentaController extends Controller
             $estadoBloqueado = ((int) $account->is_blocked) === 1;
         }
 
+        // ===== Resumen tipo Home/Perfil para que el layout pinte PRO correctamente
+        $summary = $this->buildAccountSummary();
+
+        /**
+         * ============================================================
+         * ✅ SOT BILLING: construir "statements" como Admin
+         * ============================================================
+         * Objetivo:
+         * - Si Enero está pagado en Admin, aquí debe verse PAGADO.
+         * - El siguiente mes a cobrar debe ser FEBRERO (no Enero).
+         */
+        [$statements, $billingMeta] = $this->buildStatementsSot(
+            $admConn,
+            $cliConn,
+            $adminAccountId,
+            $rfc
+        );
+
+        // Enriquecer summary con periodos canónicos para que la vista no invente desde "now()"
+        if (!empty($billingMeta['current_period_ym'])) {
+            $summary['current_period_ym'] = $billingMeta['current_period_ym'];
+        }
+        if (!empty($billingMeta['last_paid_ym'])) {
+            $summary['last_paid_ym'] = $billingMeta['last_paid_ym'];
+        }
+        if (!empty($billingMeta['next_due_ym'])) {
+            $summary['next_due_ym'] = $billingMeta['next_due_ym'];
+        }
+
+        // accountInfo: agrega account_id para que la vista muestre ID Cuenta correctamente
         $accountInfo = [
             'email'            => $account->email ?? null,
             'email_verified'   => isset($account->email_verified_at) && !empty($account->email_verified_at),
@@ -203,23 +234,294 @@ class EstadoCuentaController extends Controller
             'estado_cuenta'    => $estadoTexto,
             'is_blocked'       => $estadoBloqueado,
             'admin_account_id' => $adminAccountId,
+            'account_id'       => $adminAccountId, // 👈 clave que tu blade sí usa
             'rfc'              => $rfc,
             'razon_social'     => $account->razon_social ?? ($cuenta->razon_social ?? null),
         ];
 
-        // === Resumen tipo Home/Perfil para que el layout pinte PRO correctamente ===
-        $summary = $this->buildAccountSummary();
-
         return view('cliente.estado_cuenta', [
-            'movs'    => $movs,
-            'balance' => $balance,
-            'account' => $accountInfo,
-            'cuenta'  => $cuenta,
-            'summary' => $summary,
+            'movs'       => $movs,
+            'balance'    => $balance,
+            'account'    => $accountInfo,
+            'cuenta'     => $cuenta,
+            'summary'    => $summary,
+            'statements' => $statements, // 👈 tu blade espera esto
         ]);
     }
 
-    // ===== Helpers =====
+    /**
+     * Construye estados de cuenta (billing statements) usando SOT:
+     * - billing_statements si existe (admin o clientes)
+     * - crea "virtual" del siguiente mes si no existe aún
+     */
+    private function buildStatementsSot(
+        string $admConn,
+        string $cliConn,
+        ?int $adminAccountId,
+        ?string $rfc
+    ): array {
+        $rows = collect();
+        $meta = [
+            'last_paid_ym'    => null,
+            'next_due_ym'     => null,
+            'current_period_ym' => null,
+        ];
+
+        // 1) Detectar tabla billing_statements en admin o clientes
+        $srcConn  = null;
+        $srcTable = null;
+
+        foreach ([$admConn, $cliConn] as $conn) {
+            if (Schema::connection($conn)->hasTable('billing_statements')) {
+                $srcConn  = $conn;
+                $srcTable = 'billing_statements';
+                break;
+            }
+        }
+
+        // 2) Si NO hay billing_statements, no podemos alinear status; regresamos vacío (la UI mostrará "Sin estados")
+        if (!$srcConn || !$srcTable) {
+            return [collect(), $meta];
+        }
+
+        // 3) Columnas flexibles
+        $colPeriod = $this->firstExisting($srcConn, $srcTable, ['period_ym', 'periodo', 'period', 'period_key']);
+        $colStatus = $this->firstExisting($srcConn, $srcTable, ['status', 'estado', 'payment_status']);
+        $colTotal  = $this->firstExisting($srcConn, $srcTable, ['total', 'amount_total', 'monto_total', 'amount']);
+        $colStart  = $this->firstExisting($srcConn, $srcTable, ['period_start', 'starts_at', 'start_date', 'from_date']);
+        $colEnd    = $this->firstExisting($srcConn, $srcTable, ['period_end', 'ends_at', 'end_date', 'to_date']);
+        $colRfc    = Schema::connection($srcConn)->hasColumn($srcTable, 'rfc') ? 'rfc' : null;
+
+        // pdf url/path columnas (si existen)
+        $colPdfUrl = $this->firstExisting($srcConn, $srcTable, ['pdf_url', 'pdf_public_url']);
+        $colPdf    = $this->firstExisting($srcConn, $srcTable, ['pdf_path', 'pdf_file', 'pdf']);
+
+        // account_id/cuenta_id
+        $linkCol = null;
+        if (Schema::connection($srcConn)->hasColumn($srcTable, 'account_id') && $adminAccountId) {
+            $linkCol = 'account_id';
+        } elseif (Schema::connection($srcConn)->hasColumn($srcTable, 'cuenta_id') && $adminAccountId) {
+            $linkCol = 'cuenta_id';
+        }
+
+        // 4) Traer últimos statements (sin traer data ajena)
+        $q = DB::connection($srcConn)->table($srcTable)->limit(24);
+
+        if ($linkCol && $adminAccountId) {
+            $q->where($linkCol, $adminAccountId);
+        } elseif ($colRfc && $rfc) {
+            $q->whereRaw('UPPER(' . $colRfc . ')=?', [strtoupper((string) $rfc)]);
+        } else {
+            $q->whereRaw('1=0');
+        }
+
+        // ordenar por periodo si existe, si no por id
+        if ($colPeriod && Schema::connection($srcConn)->hasColumn($srcTable, $colPeriod)) {
+            $q->orderByDesc($colPeriod);
+        } else {
+            $q->orderByDesc('id');
+        }
+
+        $dbRows = collect($q->get());
+
+        // 5) Normalizar a estructura que tu blade ya entiende
+        $normalized = $dbRows->map(function ($r) use ($colPeriod, $colStatus, $colTotal, $colStart, $colEnd, $colPdfUrl, $colPdf) {
+            $ym = $this->normalizeYm((string) data_get($r, $colPeriod, ''));
+            $st = $this->normalizeStatus((string) data_get($r, $colStatus, 'pending'));
+            $tt = (float) data_get($r, $colTotal, 0);
+
+            $ps = data_get($r, $colStart);
+            $pe = data_get($r, $colEnd);
+
+            // Si no vienen fechas, derivarlas del ym
+            if (!$ps || !$pe) {
+                try {
+                    if ($ym) {
+                        $c = Carbon::createFromFormat('Y-m', $ym)->startOfMonth();
+                        $ps = $ps ?: $c->copy()->startOfMonth()->toDateString();
+                        $pe = $pe ?: $c->copy()->endOfMonth()->toDateString();
+                    }
+                } catch (\Throwable $e) {
+                    // noop
+                }
+            }
+
+            $pdfUrl = '';
+            $u = (string) data_get($r, $colPdfUrl, '');
+            if ($u) $pdfUrl = $u;
+
+            // si solo hay path y no url, lo dejamos vacío (tu UI ya maneja fallback)
+            $path = (string) data_get($r, $colPdf, '');
+            if (!$pdfUrl && $path && Str::startsWith($path, ['http://', 'https://'])) {
+                $pdfUrl = $path;
+            }
+
+            $label = $this->monthLabelFromYm($ym);
+
+            return [
+                'period_ym'    => $ym,
+                'month_label'  => $label ?: ($ym ?: '—'),
+                'period_start' => $ps,
+                'period_end'   => $pe,
+                'status'       => $st,
+                'total'        => $tt,
+                'currency'     => 'MXN',
+                'pdf_url'      => $pdfUrl,
+                'pay_url'      => '', // tu blade prefiere route('cliente.billing.pay', period)
+                'invoice'      => [
+                    'pdf_url' => '',
+                    'xml_url' => '',
+                    'zip_url' => '',
+                ],
+            ];
+        })->filter(fn($r) => !empty($r['period_ym']))->values();
+
+        // 6) Determinar último pagado real
+        $lastPaid = $normalized->first(function ($r) {
+            $s = strtolower((string) ($r['status'] ?? ''));
+            return Str::contains($s, ['paid', 'pagado']);
+        });
+
+        $lastPaidYm = $lastPaid['period_ym'] ?? null;
+        $meta['last_paid_ym'] = $lastPaidYm;
+
+        // 7) Calcular siguiente por pagar (next_due_ym)
+        $nextDueYm = null;
+        if ($lastPaidYm && preg_match('/^\d{4}\-\d{2}$/', $lastPaidYm)) {
+            try {
+                $nextDueYm = Carbon::createFromFormat('Y-m', $lastPaidYm)->addMonth()->format('Y-m');
+            } catch (\Throwable $e) {
+                $nextDueYm = null;
+            }
+        }
+
+        // Si no hay lastPaid, usa el primer pending como "current"
+        if (!$nextDueYm) {
+            $firstPending = $normalized->first(function ($r) {
+                $s = strtolower((string) ($r['status'] ?? ''));
+                return Str::contains($s, ['pending', 'pendiente', 'unpaid', 'por pagar']);
+            });
+            $nextDueYm = $firstPending['period_ym'] ?? null;
+        }
+
+        $meta['next_due_ym'] = $nextDueYm;
+        $meta['current_period_ym'] = $nextDueYm ?: ($lastPaidYm ?: null);
+
+        // 8) Construir lista final SIN DUPLICADOS:
+        // - incluye lastPaid (si existe)
+        // - incluye nextDue (si existe; si no existe en DB, crea virtual pending)
+        $final = collect();
+
+        $pushUnique = function(array $row) use (&$final) {
+            $ym = (string)($row['period_ym'] ?? '');
+            if (!$ym) return;
+            if ($final->firstWhere('period_ym', $ym)) return;
+            $final->push($row);
+        };
+
+        if ($lastPaidYm) {
+            $pushUnique($normalized->firstWhere('period_ym', $lastPaidYm));
+        }
+
+        if ($nextDueYm) {
+            $exists = $normalized->firstWhere('period_ym', $nextDueYm);
+            if ($exists) {
+                $pushUnique($exists);
+            } else {
+                // Virtual: siguiente mes pendiente (total=0, tu UI puede aplicar mensualidad fija si la tienes en summary)
+                $pushUnique($this->makeVirtualPending($nextDueYm));
+            }
+        }
+
+        // Además: agrega otros cercanos (por ejemplo 2 hacia atrás y 2 hacia adelante) para UX
+        foreach ($normalized as $r) {
+            $pushUnique($r);
+        }
+
+        // Ordenar DESC por period_ym
+        $final = $final->sortByDesc('period_ym')->values();
+
+        return [$final, $meta];
+    }
+
+    private function makeVirtualPending(string $ym): array
+    {
+        $ps = null; $pe = null;
+        try {
+            $c  = Carbon::createFromFormat('Y-m', $ym)->startOfMonth();
+            $ps = $c->copy()->startOfMonth()->toDateString();
+            $pe = $c->copy()->endOfMonth()->toDateString();
+        } catch (\Throwable $e) {
+            // noop
+        }
+
+        return [
+            'period_ym'    => $ym,
+            'month_label'  => $this->monthLabelFromYm($ym) ?: $ym,
+            'period_start' => $ps,
+            'period_end'   => $pe,
+            'status'       => 'pending',
+            'total'        => 0.0,
+            'currency'     => 'MXN',
+            'pdf_url'      => '',
+            'pay_url'      => '',
+            'invoice'      => [
+                'pdf_url' => '',
+                'xml_url' => '',
+                'zip_url' => '',
+            ],
+        ];
+    }
+
+    private function normalizeYm(string $v): ?string
+    {
+        $v = trim($v);
+        if ($v === '') return null;
+
+        // ya viene Y-m
+        if (preg_match('/^\d{4}\-\d{2}$/', $v)) return $v;
+
+        // viene como YYYYMM o YYYY/MM
+        if (preg_match('/^(\d{4})[\/\-]?(\d{2})$/', $v, $m)) {
+            return $m[1] . '-' . $m[2];
+        }
+
+        // viene como fecha completa
+        try {
+            $c = Carbon::parse($v);
+            return $c->format('Y-m');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function normalizeStatus(string $s): string
+    {
+        $x = Str::lower(trim($s));
+
+        if ($x === '') return 'pending';
+
+        if (Str::contains($x, ['paid', 'pagado', 'payment_succeeded', 'succeeded', 'ok'])) return 'paid';
+        if (Str::contains($x, ['overdue', 'vencido', 'expired'])) return 'overdue';
+        if (Str::contains($x, ['empty', 'sin_generar', 'no_generado', 'sin generar'])) return 'empty';
+        if (Str::contains($x, ['pending', 'pendiente', 'unpaid', 'por pagar'])) return 'pending';
+
+        // default conservador
+        return $x;
+    }
+
+    private function monthLabelFromYm(?string $ym): ?string
+    {
+        if (!$ym || !preg_match('/^\d{4}\-\d{2}$/', $ym)) return null;
+        try {
+            $m = Carbon::createFromFormat('Y-m', $ym)->locale('es')->translatedFormat('F Y');
+            return Str::title($m);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    // ===== Helpers existentes =====
 
     private function colAdminEmail(): string
     {
