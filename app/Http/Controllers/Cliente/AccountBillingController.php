@@ -131,9 +131,6 @@ final class AccountBillingController extends Controller
 
         // ==========================================================
         // ✅ Ciclo de cobro (mensual/anual)
-        // - mensual: payAllowed = lastPaid + 1 mes
-        // - anual:   payAllowed = lastPaid + 12 meses (renovación)
-        //   y NO mostramos la fila futura hasta que llegue el mes de renovación
         // ==========================================================
         $isAnnual = $this->isAnnualBillingCycle($accountId);
 
@@ -151,11 +148,10 @@ final class AccountBillingController extends Controller
 
         // ✅ Periodos a mostrar:
         // - Mensual: 2 filas (lastPaid + payAllowed)
-        // - Anual:   1 fila (la vigente/base). Solo agrega renovación cuando ya es el mes de renovación.
+        // - Anual:   1 fila (la vigente/base). Solo agrega renovación cuando llegue ventana.
         $periods = [];
 
         if ($isAnnual) {
-            // fila vigente/base (una sola línea)
             $periods[] = $lastPaid ?: $basePeriod;
 
             // ✅ mostrar renovación SOLO cuando se abra ventana (por defecto 30 días antes)
@@ -232,10 +228,6 @@ final class AccountBillingController extends Controller
 
         // ==========================================================
         // ✅ ANUAL: forzar monto ANUAL (1 línea por año)
-        // - usa resolveAnnualCents()
-        // - NO uses "precio_anual/12" para UI anual
-        // - IMPORTANTÍSIMO: sobreescribe priceInfo per_period para que
-        //   buildPeriodRows NO use “mensualidad” (evita 999*12 = 11988)
         // ==========================================================
         $annualTotalMxn   = 0.0;
         $annualCentsFinal = 0;
@@ -255,8 +247,6 @@ final class AccountBillingController extends Controller
                     $annualCentsFinal = $annualCents;
                     $annualTotalMxn   = round($annualCents / 100, 2);
 
-                    // ✅ FIX: para cuentas ANUALES, el “charge por periodo mostrado”
-                    // debe ser el total ANUAL (no mensual).
                     foreach ($periods as $p) {
                         $priceInfo['per_period'][$p] = [
                             'cents'  => $annualCentsFinal,
@@ -271,10 +261,8 @@ final class AccountBillingController extends Controller
             }
         }
 
-
         // ==========================================================
-        // ✅ FIX CRÍTICO: generar $chargesByPeriod y $sourcesByPeriod
-        // (antes se usaban sin existir y rompía/invalidaba "price_source")
+        // ✅ Genera $chargesByPeriod y $sourcesByPeriod
         // ==========================================================
         $chargesByPeriod = [];
         $sourcesByPeriod = [];
@@ -283,7 +271,7 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
-       // Construye filas (puede devolver paid/pending)
+        // Construye filas base (puede devolver paid/pending)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
             $periods,
@@ -292,14 +280,16 @@ final class AccountBillingController extends Controller
             $lastPaid
         );
 
+        // ✅ Backup para fallback si statements filtra a vacío
+        $rowsBase = $rows;
+
         // ✅ billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
         // Construimos "refs" con ambos.
         $statementRefs = [];
         try {
-            $statementRefs[] = (string) $accountId; // admin_account_id como string
-            $statementRefs[] = $accountId;          // admin_account_id como int (por si acaso)
+            $statementRefs[] = (string) $accountId;
+            $statementRefs[] = $accountId;
 
-            // Trae UUIDs de cuentas_cliente ligadas a este admin_account_id
             $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
             if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                 $uuids = DB::connection($cli)->table('cuentas_cliente')
@@ -314,48 +304,50 @@ final class AccountBillingController extends Controller
 
                 foreach ($uuids as $u) $statementRefs[] = $u;
             }
+
+            // normaliza (strings únicos)
+            $statementRefs = array_values(array_unique(array_map(fn($x) => trim((string)$x), $statementRefs)));
+            $statementRefs = array_values(array_filter($statementRefs, fn($x) => $x !== ''));
+
         } catch (\Throwable $e) {
             // ignora
         }
 
+        // ✅ IMPORTANTE: ahora el loader acepta refs mixtos y NO aplasta el array a int
         $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($statementRefs);
 
-
         if (!empty($rowsFromStatements)) {
-            // Mezcla: si existe "override" por payments, se aplica al final
             $rows = $rowsFromStatements;
 
             // Aplica override por payments (si hay pagos más recientes que el statement)
             $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
 
-            // Filtra: SOLO pendientes (si debe enero+febrero salen ambos)
+            // Filtra: SOLO pendientes
             $rows = array_values(array_filter($rows, function ($rr) {
-                $st = strtolower((string)($rr['status'] ?? 'pending'));
+                $st    = strtolower((string)($rr['status'] ?? 'pending'));
                 $saldo = (float)($rr['saldo'] ?? 0);
                 return ($st !== 'paid') && ($saldo > 0.0001);
             }));
 
-            // Ordena por periodo ASC (pagar lo más viejo primero) — UI igual puede mostrar desc si quieres
-            usort($rows, function ($a, $b) {
-                return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
-            });
+            // ✅ Si el filtro dejó vacío => fallback a rowsBase
+            if (empty($rows)) {
+                $rows = $rowsBase;
+                $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+                $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
+            } else {
+                // Ordena por periodo ASC
+                usort($rows, function ($a, $b) {
+                    return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
+                });
 
-            // payAllowed = primer pendiente (el más viejo)
-            $payAllowed = (string)($rows[0]['period'] ?? $payAllowed);
-
+                // payAllowed = primer pendiente (el más viejo)
+                $payAllowed = (string)($rows[0]['period'] ?? $payAllowed);
+            }
         } else {
             // === Fallback viejo (si NO hay billing_statements) ===
-            // Normaliza pagos con admin.payments (SOT)
             $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
-
-            // ❌ Antes: keepOnlyPayAllowedPeriod(...) ocultaba adeudos.
-            // ✅ Ahora: NO ocultamos si existe más de un pendiente por clientes.estados_cuenta.
-            // Si quieres mantener "solo uno" cuando NO hay statements, deja esto como estaba.
-            // Aquí lo dejaremos mostrando solo el habilitado para pago:
             $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
         }
-
-
 
         // Rango + RFC/Alias + fuente precio
         foreach ($rows as &$row) {
@@ -378,14 +370,13 @@ final class AccountBillingController extends Controller
         // ✅ Portal cliente: 1 card (payAllowed) o vacío si ya está pagado.
         $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
-        // defensivo: define monthlyMxn (aunque ya no forcemos 2 cards)
+        // defensivo: define monthlyMxn
         $monthlyMxn = (float) ($chargesByPeriod[$payAllowed] ?? $refMxn);
 
         // Ya filtramos arriba con keepOnlyPayAllowedPeriod(), aquí solo sanity:
         $rows = array_values(array_filter($rows, function ($rr) use ($payAllowed) {
             return ((string)($rr['period'] ?? '') === (string)$payAllowed);
         }));
-
 
         // KPIs
         $pendingBalance = 0.0;
@@ -399,7 +390,6 @@ final class AccountBillingController extends Controller
 
         // ✅ En portal cliente ya no sumamos "pagados" porque no se muestran
         $paidTotal = 0.0;
-
 
         Log::info('[BILLING] statement render', [
             'account_id'      => $accountId,
@@ -420,21 +410,20 @@ final class AccountBillingController extends Controller
         // ✅ compatibilidad blade actual
         $mensualidadAdmin = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
-         return view('cliente.billing.statement', [
-                'accountId'            => $accountId,
-                'contractStart'        => $contractStart,
-                'lastPaid'             => $lastPaid,
-                'payAllowed'           => $payAllowed,
-                'rows'                 => $rows,
-                'saldoPendiente'       => $pendingBalance,
-                'periodosPagadosTotal' => $paidTotal,
-                'mensualidadAdmin'     => $mensualidadAdmin,
-                'annualTotalMxn'       => $annualTotalMxn,
-                'isAnnual'             => (bool) $isAnnual,
-                'rfc'                  => $rfc,
-                'alias'                => $alias,
-            ]);
-
+        return view('cliente.billing.statement', [
+            'accountId'            => $accountId,
+            'contractStart'        => $contractStart,
+            'lastPaid'             => $lastPaid,
+            'payAllowed'           => $payAllowed,
+            'rows'                 => $rows,
+            'saldoPendiente'       => $pendingBalance,
+            'periodosPagadosTotal' => $paidTotal,
+            'mensualidadAdmin'     => $mensualidadAdmin,
+            'annualTotalMxn'       => $annualTotalMxn,
+            'isAnnual'             => (bool) $isAnnual,
+            'rfc'                  => $rfc,
+            'alias'                => $alias,
+        ]);
     }
 
     /**
@@ -2174,64 +2163,79 @@ final class AccountBillingController extends Controller
      * - billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
      * - Por eso aceptamos "account refs" (int|string|array) y consultamos por whereIn.
      */
-    private function loadRowsFromAdminBillingStatements($accountId, int $limit = 24): array
+    private function loadRowsFromAdminBillingStatements($accountRefs, int $limit = 24): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
+        $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
 
-        // =========================================================
-        // ✅ HARDEN FIX (PROD):
-        // En prod se detectó llamada con ARRAY:
-        // loadRowsFromAdminBillingStatements(): Argument #1 must be int, array given
-        // Normalizamos aquí para NO romper el endpoint.
-        // =========================================================
-        try {
-            if (is_array($accountId)) {
-                // soporta ['account_id'=>3] o ['id'=>3] o [3]
-                $candidate = $accountId['account_id'] ?? $accountId['id'] ?? (count($accountId) ? reset($accountId) : 0);
-                $accountId = $candidate;
-            }
-            $accountId = is_numeric($accountId) ? (int) $accountId : 0;
-        } catch (\Throwable $e) {
-            $accountId = 0;
+        if (!Schema::connection($adm)->hasTable('billing_statements')) {
+            return [];
         }
 
-        if ($accountId <= 0) return [];
-        if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
-
         // =========================================================
-        // ✅ FIX: billing_statements.account_id en prod puede ser INT o UUID
-        // - INT = admin_account_id
-        // - UUID = cuentas_cliente.id (char36) asociado al admin_account_id
-        // Por eso armamos refs y hacemos whereIn()
+        // ✅ NORMALIZA REFS (NO perder UUIDs)
+        // Acepta:
+        // - int|string (un solo ref)
+        // - array: [3,'uuid', ...] o ['account_id'=>3] etc.
         // =========================================================
         $refs = [];
         try {
-            $refs[] = (string) $accountId;
-            $refs[] = $accountId; // por si guardaron int puro (pero lo casteamos abajo)
-
-            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                $uuidCols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                if (in_array('id', $uuidCols, true) && in_array('admin_account_id', $uuidCols, true)) {
-                    $uuids = DB::connection($cli)->table('cuentas_cliente')
-                        ->where('admin_account_id', $accountId)
-                        ->pluck('id')
-                        ->map(fn($x) => trim((string) $x))
-                        ->filter()
-                        ->unique()
-                        ->values()
-                        ->all();
-                    $refs = array_merge($refs, $uuids);
+            if (is_array($accountRefs)) {
+                foreach ($accountRefs as $k => $v) {
+                    if (is_string($k) && in_array($k, ['account_id', 'id', 'admin_account_id'], true)) {
+                        $refs[] = $v;
+                        continue;
+                    }
+                    $refs[] = $v;
                 }
+            } else {
+                $refs[] = $accountRefs;
             }
 
-            // normaliza a strings
-            $refs = array_values(array_unique(array_map(fn($x) => trim((string) $x), $refs)));
+            $refs = array_values(array_unique(array_map(fn($x) => trim((string)$x), $refs)));
             $refs = array_values(array_filter($refs, fn($x) => $x !== ''));
-
         } catch (\Throwable $e) {
-            // si falla, al menos intenta con el int
-            $refs = [(string)$accountId];
+            $refs = [];
+        }
+
+        if (empty($refs)) {
+            return [];
+        }
+
+        // =========================================================
+        // ✅ Si existe un admin_account_id numérico, agregamos UUIDs ligados
+        // =========================================================
+        $adminId = 0;
+        foreach ($refs as $r) {
+            if (is_numeric($r)) {
+                $adminId = (int) $r;
+                break;
+            }
+        }
+
+        if ($adminId > 0) {
+            try {
+                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                    $uuidCols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                    if (in_array('id', $uuidCols, true) && in_array('admin_account_id', $uuidCols, true)) {
+                        $uuids = DB::connection($cli)->table('cuentas_cliente')
+                            ->where('admin_account_id', $adminId)
+                            ->pluck('id')
+                            ->map(fn($x) => trim((string)$x))
+                            ->filter()
+                            ->unique()
+                            ->values()
+                            ->all();
+
+                        if (!empty($uuids)) {
+                            $refs = array_values(array_unique(array_merge($refs, $uuids)));
+                            $refs = array_values(array_filter($refs, fn($x) => trim((string)$x) !== ''));
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // no-op
+            }
         }
 
         try {
@@ -2257,7 +2261,7 @@ final class AccountBillingController extends Controller
                 ->get($sel);
 
             Log::info('[BILLING] loadRowsFromAdminBillingStatements', [
-                'admin_account_id' => $accountId,
+                'admin_account_id' => $adminId,
                 'refs'             => $refs,
                 'count'            => $items->count(),
             ]);
@@ -2305,8 +2309,8 @@ final class AccountBillingController extends Controller
 
         } catch (\Throwable $e) {
             Log::warning('[BILLING] loadRowsFromAdminBillingStatements failed', [
-                'account_id' => $accountId,
-                'err'        => $e->getMessage(),
+                'refs' => $refs,
+                'err'  => $e->getMessage(),
             ]);
             return [];
         }
