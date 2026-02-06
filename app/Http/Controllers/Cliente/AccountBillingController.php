@@ -292,13 +292,47 @@ final class AccountBillingController extends Controller
             $lastPaid
         );
 
-        // Normaliza pagos con admin.payments (SOT)
-        $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+        // ==========================================================
+        // ✅ SOT CLIENTE: admin.billing_statements define qué meses existen
+        // y cuáles están PENDIENTES (saldo > 0 o status != paid).
+        // Si hay statements, ignoramos la regla de "solo payAllowed".
+        // ==========================================================
+        $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($accountId);
 
-        // ✅ REGLA CLIENTE (SOT):
-        // - En el portal cliente SOLO se muestra el periodo habilitado para pago (payAllowed)
-        // - Si ese periodo ya está pagado => no hay nada pendiente (rows queda vacío)
-        $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
+        if (!empty($rowsFromStatements)) {
+            // Mezcla: si existe "override" por payments, se aplica al final
+            $rows = $rowsFromStatements;
+
+            // Aplica override por payments (si hay pagos más recientes que el statement)
+            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+
+            // Filtra: SOLO pendientes (si debe enero+febrero salen ambos)
+            $rows = array_values(array_filter($rows, function ($rr) {
+                $st = strtolower((string)($rr['status'] ?? 'pending'));
+                $saldo = (float)($rr['saldo'] ?? 0);
+                return ($st !== 'paid') && ($saldo > 0.0001);
+            }));
+
+            // Ordena por periodo ASC (pagar lo más viejo primero) — UI igual puede mostrar desc si quieres
+            usort($rows, function ($a, $b) {
+                return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
+            });
+
+            // payAllowed = primer pendiente (el más viejo)
+            $payAllowed = (string)($rows[0]['period'] ?? $payAllowed);
+
+        } else {
+            // === Fallback viejo (si NO hay billing_statements) ===
+            // Normaliza pagos con admin.payments (SOT)
+            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+
+            // ❌ Antes: keepOnlyPayAllowedPeriod(...) ocultaba adeudos.
+            // ✅ Ahora: NO ocultamos si existe más de un pendiente por clientes.estados_cuenta.
+            // Si quieres mantener "solo uno" cuando NO hay statements, deja esto como estaba.
+            // Aquí lo dejaremos mostrando solo el habilitado para pago:
+            $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
+        }
+
 
 
         // Rango + RFC/Alias + fuente precio
@@ -1706,17 +1740,41 @@ final class AccountBillingController extends Controller
         : $period;
 
 
-    if ($period !== $payAllowed) {
-        Log::warning('[BILLING] publicPay blocked (period not allowed)', [
-            'account_id'  => $accountId,
-            'period'      => $period,
-            'last_paid'   => $lastPaid,
-            'pay_allowed' => $payAllowed,
-        ]);
+    // ✅ Permitir pagar SOLO periodos pendientes según admin.billing_statements (si existen)
+    $pend = $this->loadRowsFromAdminBillingStatements((int)$accountId, 36);
 
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'Este periodo no está habilitado para pago.');
+    if (!empty($pend)) {
+        $pendPeriods = [];
+        foreach ($pend as $rr) {
+            if (($rr['status'] ?? '') === 'pending' && !empty($rr['period'])) {
+                $pendPeriods[(string)$rr['period']] = true;
+            }
+        }
+
+        if (!isset($pendPeriods[$period])) {
+            Log::warning('[BILLING] publicPay blocked (period not pending)', [
+                'account_id' => $accountId,
+                'period'     => $period,
+            ]);
+
+            return redirect()->route('cliente.estado_cuenta')
+                ->with('warning', 'Este periodo no está pendiente o no está habilitado para pago.');
+        }
+    } else {
+        // Fallback viejo si no hay statements
+        if ($period !== $payAllowed) {
+            Log::warning('[BILLING] publicPay blocked (period not allowed)', [
+                'account_id'  => $accountId,
+                'period'      => $period,
+                'last_paid'   => $lastPaid,
+                'pay_allowed' => $payAllowed,
+            ]);
+
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('warning', 'Este periodo no está habilitado para pago.');
+        }
     }
+
 
     if ($isAnnual) {
         $baseAnnual  = $lastPaid ?: $period;
@@ -2085,6 +2143,88 @@ final class AccountBillingController extends Controller
 
         return $isAnnual ? array_slice($out, 0, 1) : array_slice($out, 0, 2);
     }
+
+    /**
+     * ✅ SOT UI: obtiene filas desde admin.billing_statements.
+     * Regresa rows con: period,status,charge,paid_amount,saldo,can_pay,due_date,paid_at
+     */
+    private function loadRowsFromAdminBillingStatements(int $accountId, int $limit = 24): array
+    {
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+        if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
+
+        try {
+            $cols = Schema::connection($adm)->getColumnListing('billing_statements');
+            $lc   = array_map('strtolower', $cols);
+            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+            if (!$has('account_id') || !$has('period')) return [];
+
+            $sel = ['account_id','period'];
+            foreach (['total_cargo','total_abono','saldo','status','due_date','paid_at'] as $c) {
+                if ($has($c)) $sel[] = $c;
+            }
+
+            $orderCol = $has('period') ? 'period' : ($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]));
+
+            $items = DB::connection($adm)->table('billing_statements')
+                ->where('account_id', $accountId)
+                ->orderByDesc($orderCol)
+                ->limit(max(1, $limit))
+                ->get($sel);
+
+            if ($items->isEmpty()) return [];
+
+            $rows = [];
+            foreach ($items as $it) {
+                $p = trim((string)($it->period ?? ''));
+                if (!$this->isValidPeriod($p)) continue;
+
+                $cargo = is_numeric($it->total_cargo ?? null) ? (float)$it->total_cargo : 0.0;
+                $abono = is_numeric($it->total_abono ?? null) ? (float)$it->total_abono : 0.0;
+
+                $saldo = null;
+                if (is_numeric($it->saldo ?? null)) {
+                    $saldo = (float)$it->saldo;
+                } else {
+                    // fallback: cargo - abono
+                    $saldo = max(0.0, $cargo - $abono);
+                }
+
+                $st = strtolower(trim((string)($it->status ?? 'pending')));
+                $paidAt = $it->paid_at ?? null;
+
+                // Paid robusto:
+                $paid = false;
+                if ($paidAt) $paid = true;
+                if (in_array($st, ['paid','succeeded','success','complete','completed','captured','confirmed'], true)) $paid = true;
+                if ($saldo <= 0.0001) $paid = true;
+
+                $rows[] = [
+                    'period'                 => $p,
+                    'status'                 => $paid ? 'paid' : 'pending',
+                    'charge'                 => round(max(0.0, $cargo), 2),
+                    'paid_amount'            => $paid ? round(max(0.0, $abono > 0 ? $abono : $cargo), 2) : 0.0,
+                    'saldo'                  => $paid ? 0.0 : round(max(0.0, $saldo), 2),
+                    'can_pay'                => !$paid,
+                    'due_date'               => $it->due_date ?? null,
+                    'paid_at'                => $paidAt,
+                    'invoice_request_status' => null,
+                    'invoice_has_zip'        => false,
+                ];
+            }
+
+            return $rows;
+
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] loadRowsFromAdminBillingStatements failed', [
+                'account_id' => $accountId,
+                'err'        => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
 
     private function adminLastPaidPeriod(int $accountId): ?string
     {
