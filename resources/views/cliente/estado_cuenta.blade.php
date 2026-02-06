@@ -105,7 +105,7 @@
       try{ $startYm = Carbon::parse($s['period_start'])->format('Y-m'); }catch(\Throwable $e){}
     }
     if(!$startYm || !preg_match('/^\d{4}\-\d{2}$/', $startYm)){
-      $startYm = now()->format('Y-m');
+      $startYm = (string)($s['next_due_ym'] ?? now()->format('Y-m'));
     }
 
     $base = Carbon::createFromFormat('Y-m', $startYm)->startOfMonth();

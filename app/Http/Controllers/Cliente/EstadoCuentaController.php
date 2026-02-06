@@ -722,4 +722,75 @@ class EstadoCuentaController extends Controller
             'admin_id'     => $adminId,
         ];
     }
+
+        /**
+     * Normaliza periodo a Y-m desde valores tipo:
+     * - 2026-01
+     * - 202601
+     * - 2026/01
+     * - 2026-01-31
+     */
+    private function normalizeYmLoose(?string $v): ?string
+    {
+        $v = trim((string)$v);
+        if ($v === '') return null;
+
+        if (preg_match('/^\d{4}\-\d{2}$/', $v)) return $v;
+
+        if (preg_match('/^(\d{4})[\/\-]?(\d{2})$/', $v, $m)) {
+            return $m[1] . '-' . $m[2];
+        }
+
+        try {
+            return Carbon::parse($v)->format('Y-m');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * A partir de movimientos (estados_cuenta) arma un mapa por periodo:
+     * ['2026-01' => ['cargo'=>..., 'abono'=>..., 'saldo'=>...]]
+     */
+    private function buildMovPeriodMap($movs): array
+    {
+        $map = [];
+
+        foreach ($movs ?? [] as $r) {
+            $ym = $this->normalizeYmLoose((string)($r->periodo ?? ''));
+            if (!$ym) continue;
+
+            $cargo = (float)($r->cargo ?? 0);
+            $abono = (float)($r->abono ?? 0);
+
+            if (!isset($map[$ym])) {
+                $map[$ym] = ['cargo' => 0.0, 'abono' => 0.0];
+            }
+
+            $map[$ym]['cargo'] += $cargo;
+            $map[$ym]['abono'] += $abono;
+        }
+
+        // saldo por periodo = cargo - abono (lo pendiente de ese mes)
+        foreach ($map as $ym => $x) {
+            $map[$ym]['saldo'] = (float)$x['cargo'] - (float)$x['abono'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Determina si un periodo está "pagado" usando movimientos:
+     * - si cargo>0 y saldo<=0 => pagado
+     */
+    private function periodIsPaidFromMov(array $movPeriodMap, string $ym): bool
+    {
+        if (!isset($movPeriodMap[$ym])) return false;
+        $cargo = (float)($movPeriodMap[$ym]['cargo'] ?? 0);
+        $saldo = (float)($movPeriodMap[$ym]['saldo'] ?? 0);
+
+        if ($cargo <= 0.00001) return false;
+        return $saldo <= 0.00001;
+    }
+
 }
