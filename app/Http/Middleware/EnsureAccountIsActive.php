@@ -321,8 +321,8 @@ final class EnsureAccountIsActive
                 }
             }
         } catch (\Throwable) {
-            // En caso de duda, deja pasar para NO romper login por excepción del helper.
-            return true;
+            // ✅ FAIL-CLOSED: si truena el helper, NO asumimos que es ruta permitida
+            return false;
         }
 
         return false;

@@ -2174,9 +2174,27 @@ final class AccountBillingController extends Controller
      * - billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
      * - Por eso aceptamos "account refs" (int|string|array) y consultamos por whereIn.
      */
-    private function loadRowsFromAdminBillingStatements(int $accountId, int $limit = 24): array
+    private function loadRowsFromAdminBillingStatements($accountId, int $limit = 24): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
+
+        // =========================================================
+        // ✅ HARDEN FIX (PROD):
+        // En prod se detectó llamada con ARRAY:
+        // loadRowsFromAdminBillingStatements(): Argument #1 must be int, array given
+        // Normalizamos aquí para NO romper el endpoint.
+        // =========================================================
+        try {
+            if (is_array($accountId)) {
+                // soporta ['account_id'=>3] o ['id'=>3] o [3]
+                $candidate = $accountId['account_id'] ?? $accountId['id'] ?? (count($accountId) ? reset($accountId) : 0);
+                $accountId = $candidate;
+            }
+            $accountId = is_numeric($accountId) ? (int) $accountId : 0;
+        } catch (\Throwable $e) {
+            $accountId = 0;
+        }
+
         if ($accountId <= 0) return [];
         if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
 
@@ -2223,12 +2241,14 @@ final class AccountBillingController extends Controller
 
             if (!$has('account_id') || !$has('period')) return [];
 
-            $sel = ['account_id','period'];
-            foreach (['total_cargo','total_abono','saldo','status','due_date','paid_at'] as $c) {
+            $sel = ['account_id', 'period'];
+            foreach (['total_cargo', 'total_abono', 'saldo', 'status', 'due_date', 'paid_at'] as $c) {
                 if ($has($c)) $sel[] = $c;
             }
 
-            $orderCol = $has('period') ? 'period' : ($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]));
+            $orderCol = $has('period')
+                ? 'period'
+                : ($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]));
 
             $items = DB::connection($adm)->table('billing_statements')
                 ->whereIn('account_id', $refs)
@@ -2249,12 +2269,12 @@ final class AccountBillingController extends Controller
                 $p = trim((string)($it->period ?? ''));
                 if (!$this->isValidPeriod($p)) continue;
 
-                $cargo = is_numeric($it->total_cargo ?? null) ? (float)$it->total_cargo : 0.0;
-                $abono = is_numeric($it->total_abono ?? null) ? (float)$it->total_abono : 0.0;
+                $cargo = is_numeric($it->total_cargo ?? null) ? (float) $it->total_cargo : 0.0;
+                $abono = is_numeric($it->total_abono ?? null) ? (float) $it->total_abono : 0.0;
 
                 $saldo = null;
                 if (is_numeric($it->saldo ?? null)) {
-                    $saldo = (float)$it->saldo;
+                    $saldo = (float) $it->saldo;
                 } else {
                     $saldo = max(0.0, $cargo - $abono);
                 }
@@ -2264,7 +2284,7 @@ final class AccountBillingController extends Controller
 
                 $paid = false;
                 if ($paidAt) $paid = true;
-                if (in_array($st, ['paid','succeeded','success','complete','completed','captured','confirmed'], true)) $paid = true;
+                if (in_array($st, ['paid', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'], true)) $paid = true;
                 if ($saldo <= 0.0001) $paid = true;
 
                 $rows[] = [
