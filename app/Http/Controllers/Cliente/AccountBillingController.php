@@ -2086,11 +2086,110 @@ final class AccountBillingController extends Controller
         return $isAnnual ? array_slice($out, 0, 1) : array_slice($out, 0, 2);
     }
 
-    private function adminLastPaidPeriod(int $accountId): ?string
+ private function adminLastPaidPeriod(int $accountId): ?string
     {
-        // 1) Fuente primaria: meta.stripe.last_paid_period
+        if ($accountId <= 0) return null;
+
+        // =========================================================
+        // Helpers locales
+        // =========================================================
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+
+        $isPaidStatus = static function (string $s): bool {
+            $s = strtolower(trim($s));
+            // soporta variaciones reales en prod
+            return in_array($s, [
+                'paid', 'succeeded', 'success',
+                'complete', 'completed',
+                'captured', 'confirmed',
+            ], true);
+        };
+
+        $normProviderOk = static function ($prov): bool {
+            $p = strtolower(trim((string) $prov));
+            // permite null/'' por compat, y stripe explícito
+            return $p === '' || $p === 'stripe';
+        };
+
+        // =========================================================
+        // 1) ✅ SOT REAL: admin.payments (lo que Admin realmente usa)
+        // =========================================================
         try {
-            $adm = config('p360.conn.admin', 'mysql_admin');
+            if (Schema::connection($adm)->hasTable('payments')) {
+                $cols = Schema::connection($adm)->getColumnListing('payments');
+                $lc   = array_map('strtolower', $cols);
+                $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                if ($has('account_id') && $has('period')) {
+                    $q = DB::connection($adm)->table('payments')
+                        ->where('account_id', $accountId);
+
+                    // status pagado (si existe)
+                    if ($has('status')) {
+                        // no usamos whereIn directo para soportar mayúsculas/espacios
+                        $q->where(function ($w) use ($has) {
+                            $w->whereNull('status')
+                            ->orWhereIn('status', ['paid', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'])
+                            ->orWhereRaw('LOWER(TRIM(status)) IN ("paid","succeeded","success","complete","completed","captured","confirmed")');
+                        });
+                    }
+
+                    // provider stripe (si existe)
+                    if ($has('provider')) {
+                        $q->where(function ($w) {
+                            $w->whereNull('provider')
+                            ->orWhere('provider', '')
+                            ->orWhereRaw('LOWER(TRIM(provider)) = "stripe"');
+                        });
+                    }
+
+                    // debe haber monto > 0 si existe amount
+                    if ($has('amount')) {
+                        $q->where(function ($w) {
+                            $w->whereNull('amount')->orWhere('amount', '>', 0);
+                        });
+                    }
+
+                    // orden robusto (period DESC + fecha/id DESC)
+                    $orderCol = $has('paid_at') ? 'paid_at'
+                        : ($has('confirmed_at') ? 'confirmed_at'
+                            : ($has('captured_at') ? 'captured_at'
+                                : ($has('completed_at') ? 'completed_at'
+                                    : ($has('updated_at') ? 'updated_at'
+                                        : ($has('created_at') ? 'created_at'
+                                            : ($has('id') ? 'id' : 'period'))))));
+
+                    $row = $q->orderByDesc('period')
+                        ->orderByDesc($orderCol)
+                        ->first(['period', $has('status') ? 'status' : DB::raw('NULL as status'), $has('provider') ? 'provider' : DB::raw('NULL as provider')]);
+
+                    if ($row) {
+                        $p = trim((string) ($row->period ?? ''));
+                        if ($p !== '' && $this->isValidPeriod($p)) {
+                            // si hay status/provider, validación extra (defensiva)
+                            $stOk = true;
+                            if (isset($row->status)) $stOk = $isPaidStatus((string) $row->status);
+                            $prOk = true;
+                            if (isset($row->provider)) $prOk = $normProviderOk($row->provider);
+
+                            if ($stOk && $prOk) {
+                                return $p;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] adminLastPaidPeriod payments failed', [
+                'account_id' => $accountId,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        // =========================================================
+        // 2) Fuente secundaria: admin.accounts.meta.stripe (compat)
+        // =========================================================
+        try {
             if (Schema::connection($adm)->hasTable('accounts')) {
                 $acc = DB::connection($adm)->table('accounts')
                     ->select(['id', 'meta'])
@@ -2099,15 +2198,15 @@ final class AccountBillingController extends Controller
 
                 if ($acc && isset($acc->meta)) {
                     $meta = is_string($acc->meta)
-                        ? (json_decode((string)$acc->meta, true) ?: [])
-                        : (array)$acc->meta;
+                        ? (json_decode((string) $acc->meta, true) ?: [])
+                        : (array) $acc->meta;
 
                     $p1 = trim((string) data_get($meta, 'stripe.last_paid_period', ''));
                     if ($p1 !== '' && $this->isValidPeriod($p1)) {
                         return $p1;
                     }
 
-                    // 2) Compat: last_paid_at (fallback)
+                    // compat: last_paid_at
                     $lastPaidAt = data_get($meta, 'stripe.last_paid_at');
                     $p2 = $this->parseToPeriod($lastPaidAt);
                     if ($p2 && $this->isValidPeriod($p2)) {
@@ -2122,9 +2221,11 @@ final class AccountBillingController extends Controller
             ]);
         }
 
-        // 3) Fallback: deducir desde mysql_clientes.estados_cuenta
+        // =========================================================
+        // 3) Fallback final: mysql_clientes.estados_cuenta
+        // =========================================================
         try {
-            $cli = config('p360.conn.clients', 'mysql_clientes');
+            $cli = (string) config('p360.conn.clients', 'mysql_clientes');
             if (!Schema::connection($cli)->hasTable('estados_cuenta')) return null;
 
             $items = DB::connection($cli)->table('estados_cuenta')
@@ -2137,9 +2238,9 @@ final class AccountBillingController extends Controller
                 $p = $this->parseToPeriod($it->periodo ?? null);
                 if (!$p || !$this->isValidPeriod($p)) continue;
 
-                $cargo = (float) ($it->cargo ?? 0);
-                $abono = (float) ($it->abono ?? 0);
-                $saldo = (float) ($it->saldo ?? 0);
+                $cargo = is_numeric($it->cargo ?? null) ? (float) $it->cargo : 0.0;
+                $abono = is_numeric($it->abono ?? null) ? (float) $it->abono : 0.0;
+                $saldo = is_numeric($it->saldo ?? null) ? (float) $it->saldo : max(0.0, $cargo - $abono);
 
                 if ($saldo <= 0.0001 || ($cargo > 0 && $abono >= $cargo)) {
                     return $p;
@@ -2154,6 +2255,7 @@ final class AccountBillingController extends Controller
 
         return null;
     }
+
 
     private function resolveMonthlyCentsFromClientesEstadosCuenta(int $accountId, ?string $lastPaid, ?string $payAllowed): int
     {
