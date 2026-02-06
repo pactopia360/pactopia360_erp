@@ -283,7 +283,7 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
-        // Construye filas
+       // Construye filas (puede devolver paid/pending)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
             $periods,
@@ -292,9 +292,14 @@ final class AccountBillingController extends Controller
             $lastPaid
         );
 
-        // ✅ FIX: si el periodo está "paid" pero el monto quedó en 0,
-        // usa payments (admin) como fuente primaria para charge/paid_amount.
+        // Normaliza pagos con admin.payments (SOT)
         $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+
+        // ✅ REGLA CLIENTE (SOT):
+        // - En el portal cliente SOLO se muestra el periodo habilitado para pago (payAllowed)
+        // - Si ese periodo ya está pagado => no hay nada pendiente (rows queda vacío)
+        $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
+
 
         // Rango + RFC/Alias + fuente precio
         foreach ($rows as &$row) {
@@ -314,22 +319,17 @@ final class AccountBillingController extends Controller
         // ✅ invoice request status (SOT: admin.billing_invoice_requests)
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
-        // Asegura 2 cards SOLO para mensual. En anual NO se fuerza 2 filas.
+        // ✅ Portal cliente: 1 card (payAllowed) o vacío si ya está pagado.
         $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
-        // ✅ FIX: $monthlyMxn siempre definido para evitar 500 (algunas ramas ya no lo setean)
-        $monthlyMxn = isset($monthlyMxn)
-            ? (float) $monthlyMxn
-            : (float) ($chargesByPeriod[$payAllowed] ?? $refMxn);
+        // defensivo: define monthlyMxn (aunque ya no forcemos 2 cards)
+        $monthlyMxn = (float) ($chargesByPeriod[$payAllowed] ?? $refMxn);
 
-        if (!$isAnnual) {
-            $rows = $this->enforceTwoCardsOnly($rows, $lastPaid, $payAllowed, $monthlyMxn, (bool)$isAnnual);
-        } else {
+        // Ya filtramos arriba con keepOnlyPayAllowedPeriod(), aquí solo sanity:
+        $rows = array_values(array_filter($rows, function ($rr) use ($payAllowed) {
+            return ((string)($rr['period'] ?? '') === (string)$payAllowed);
+        }));
 
-            // defensivo: si por alguna razón vienen >2, deja solo los periodos calculados
-            $keep = array_flip($periods);
-            $rows = array_values(array_filter($rows, fn ($rr) => isset($keep[(string) ($rr['period'] ?? '')])));
-        }
 
         // KPIs
         $pendingBalance = 0.0;
@@ -339,10 +339,11 @@ final class AccountBillingController extends Controller
             if (($row['period'] ?? '') === $payAllowed && ($row['status'] ?? '') === 'pending') {
                 $pendingBalance = (float) ($row['saldo'] ?? 0);
             }
-            if (($row['status'] ?? '') === 'paid') {
-                $paidTotal += (float) ($row['paid_amount'] ?? 0);
-            }
         }
+
+        // ✅ En portal cliente ya no sumamos "pagados" porque no se muestran
+        $paidTotal = 0.0;
+
 
         Log::info('[BILLING] statement render', [
             'account_id'      => $accountId,
@@ -363,19 +364,21 @@ final class AccountBillingController extends Controller
         // ✅ compatibilidad blade actual
         $mensualidadAdmin = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
-        return view('cliente.billing.statement', [
-            'accountId'            => $accountId,
-            'contractStart'        => $contractStart,
-            'lastPaid'             => $lastPaid,
-            'payAllowed'           => $payAllowed,
-            'rows'                 => $rows,
-            'saldoPendiente'       => $pendingBalance,
-            'periodosPagadosTotal' => $paidTotal,
-            'mensualidadAdmin'     => $mensualidadAdmin,
-            'annualTotalMxn'       => $annualTotalMxn,
-            'rfc'                  => $rfc,
-            'alias'                => $alias,
-        ]);
+         return view('cliente.billing.statement', [
+                'accountId'            => $accountId,
+                'contractStart'        => $contractStart,
+                'lastPaid'             => $lastPaid,
+                'payAllowed'           => $payAllowed,
+                'rows'                 => $rows,
+                'saldoPendiente'       => $pendingBalance,
+                'periodosPagadosTotal' => $paidTotal,
+                'mensualidadAdmin'     => $mensualidadAdmin,
+                'annualTotalMxn'       => $annualTotalMxn,
+                'isAnnual'             => (bool) $isAnnual,
+                'rfc'                  => $rfc,
+                'alias'                => $alias,
+            ]);
+
     }
 
     /**
@@ -1375,7 +1378,8 @@ final class AccountBillingController extends Controller
             if ($found && !empty($found['disk']) && !empty($found['path'])) {
                 $disk  = (string) $found['disk'];
                 $path  = (string) $found['path'];
-                $fname = (string) ($found['filename'] ?? "estado_cuenta_{$period}.pdf");
+                $fname = (string) ($found['filename'] ?? ($isAnnual ? "estado_cuenta_anual_{$period}.pdf" : "estado_cuenta_{$period}.pdf"));
+
 
                 try {
                     if (Storage::disk($disk)->exists($path)) {
@@ -1604,7 +1608,7 @@ final class AccountBillingController extends Controller
                     'subtotal'   => (float) $prevBalanceMxn,
                 ] : null,
                 [
-                    'name'       => 'Licencia Pactopia360 (mensualidad) · '.$period,
+                    'name'       => 'Licencia Pactopia360 ('.($isAnnual ? 'anualidad' : 'mensualidad').') · '.$period,
                     'unit_price' => (float) $currentDueMxn,
                     'qty'        => 1,
                     'subtotal'   => (float) $currentDueMxn,
@@ -1949,6 +1953,35 @@ final class AccountBillingController extends Controller
     // =========================
     // Helpers (2 cards)
     // =========================
+    /**
+     * ✅ Portal cliente: solo mostrar el periodo habilitado para pago (payAllowed).
+     * - Si payAllowed viene pagado => retorna [] (nada pendiente).
+     * - Nunca muestra periodos "paid" ni futuros.
+     */
+    private function keepOnlyPayAllowedPeriod(array $rows, string $payAllowed): array
+    {
+        if (!$this->isValidPeriod($payAllowed)) return [];
+
+        $picked = null;
+
+        foreach ($rows as $r) {
+            if ((string)($r['period'] ?? '') !== $payAllowed) continue;
+            $picked = $r;
+            break;
+        }
+
+        if (!$picked) return [];
+
+        $st = strtolower((string)($picked['status'] ?? 'pending'));
+        if ($st === 'paid') return [];
+
+        // fuerza can_pay coherente (solo este periodo)
+        $picked['can_pay'] = true;
+
+        return [$picked];
+    }
+
+    
     private function enforceTwoCardsOnly(array $rows, ?string $lastPaid, string $payAllowed, float $monthlyMxn, bool $isAnnual = false): array
     {
         $valid = array_values(array_filter($rows, function ($r) {

@@ -10,32 +10,98 @@
 @endpush
 
 @section('content')
+
 @php
   $mxn = fn($n) => '$' . number_format((float)$n, 2);
 
-  // =========================
-  // Sanitize + limitar a 2 filas
-  // =========================
-  $safe = (isset($rows) && is_array($rows)) ? $rows : [];
-  $safe = array_values(array_filter($safe, function($r){
+  // ==========================================================
+  // 1) Normaliza rows: array + period válido (YYYY-MM)
+  // ==========================================================
+  $rawRows = (isset($rows) && is_array($rows)) ? $rows : [];
+
+  $safe = array_values(array_filter($rawRows, function ($r) {
+    if (!is_array($r)) return false;
     $p = (string)($r['period'] ?? '');
-    return (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
+    return $p !== '' && (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
   }));
 
-  $final = [];
-  $seen  = [];
-  foreach ($safe as $r){
-    $p = (string)($r['period'] ?? '');
-    if ($p === '' || isset($seen[$p])) continue;
-    $seen[$p] = true;
-    $final[]  = $r;
-    if (count($final) >= 2) break;
-  }
-  $rows = $final;
+  // ==========================================================
+  // 2) Dedup por period (toma el "mejor" registro si hay duplicados)
+  //    Prioridad: can_pay=true > mayor saldo > mayor charge > más reciente
+  // ==========================================================
+  $byPeriod = [];
+  foreach ($safe as $r) {
+    $p = (string)$r['period'];
 
-  // =========================
-  // Rutas (route:cache safe)
-  // =========================
+    $canPay = (bool)($r['can_pay'] ?? false);
+    $saldo  = (float)($r['saldo'] ?? 0);
+    $charge = (float)($r['charge'] ?? 0);
+
+    $score = 0;
+    if ($canPay) $score += 1000000;
+    $score += (int)round($saldo * 100);   // centavos
+    $score += (int)round($charge * 10);   // peso relativo
+
+    if (!isset($byPeriod[$p]) || $score > ($byPeriod[$p]['__score'] ?? -INF)) {
+      $r['__score'] = $score;
+      $byPeriod[$p] = $r;
+    }
+  }
+
+  $safe = array_values($byPeriod);
+
+  // Orden por period DESC (más reciente primero)
+  usort($safe, function ($a, $b) {
+    return strcmp((string)($b['period'] ?? ''), (string)($a['period'] ?? ''));
+  });
+
+  // ==========================================================
+  // 3) ✅ FILTRO: SOLO PERIODOS PENDIENTES (NO pagados)
+  //    + elegimos 1 fila final: primero el "pagable" (can_pay),
+  //      si no hay, el que tenga saldo/cargo.
+  // ==========================================================
+  $pending = array_values(array_filter($safe, function ($r) {
+    $status = strtolower((string)($r['status'] ?? 'pending'));
+
+    // Interpretación robusta de pagado
+    $isPaid = in_array($status, ['paid', 'pagado', 'pago', 'paid_ok'], true);
+
+    if ($isPaid) return false;
+
+    // Si viene un flag explícito de "can_pay", se respeta más adelante.
+    // Aquí solo exigimos que sea realmente "un adeudo" si existe info.
+    $saldo  = (float)($r['saldo'] ?? 0);
+    $charge = (float)($r['charge'] ?? 0);
+
+    // Si no hay montos, aún lo dejamos pasar (por si el backend define can_pay)
+    if ($saldo <= 0 && $charge <= 0 && !isset($r['can_pay'])) return false;
+
+    return true;
+  }));
+
+  // Prioriza can_pay=true, luego mayor saldo, luego mayor charge, luego period DESC
+  usort($pending, function ($a, $b) {
+    $aCan = (bool)($a['can_pay'] ?? false);
+    $bCan = (bool)($b['can_pay'] ?? false);
+    if ($aCan !== $bCan) return $aCan ? -1 : 1;
+
+    $aSaldo = (float)($a['saldo'] ?? 0);
+    $bSaldo = (float)($b['saldo'] ?? 0);
+    if ($aSaldo !== $bSaldo) return ($aSaldo > $bSaldo) ? -1 : 1;
+
+    $aCh = (float)($a['charge'] ?? 0);
+    $bCh = (float)($b['charge'] ?? 0);
+    if ($aCh !== $bCh) return ($aCh > $bCh) ? -1 : 1;
+
+    return strcmp((string)($b['period'] ?? ''), (string)($a['period'] ?? ''));
+  });
+
+  // ✅ Resultado final: SOLO 1 periodo pendiente
+  $rows = array_slice($pending, 0, 1);
+
+  // ==========================================================
+  // 4) Rutas (route:cache safe)
+  // ==========================================================
   $pdfInlineRouteExists   = \Illuminate\Support\Facades\Route::has('cliente.billing.pdfInline');
   $pdfDownloadRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdf');
   $payRouteExists         = \Illuminate\Support\Facades\Route::has('cliente.billing.pay');
@@ -48,12 +114,13 @@
     : url('/cliente/mi-cuenta');
 
   /**
-   * ✅ Mensualidad en header (siempre mensual):
-   * - El PDF por fila muestra el monto del PERIODO (mensual o anual).
-   * - El header "Mensualidad" debe ser mensual (ej. 999) aunque el periodo permitido sea anual (ej. 11988).
+   * ✅ Mensualidad en header (SIEMPRE mensual)
+   * - Si llega anual (ej. 11988) normaliza a mensual (999)
+   * - Si no viene, la deriva del cargo/saldo del periodo mostrado
    */
   $mensualidadHeader = (float)($mensualidadAdmin ?? 0);
 
+  // Detecta anualidad por campos si existen
   $isAnnual = false;
   foreach ($rows as $rr) {
     $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? ($billing_cycle ?? '')));
@@ -66,23 +133,41 @@
     }
   }
 
-  if ($mensualidadHeader <= 0) {
-    $charges = [];
-    foreach ($rows as $rr) {
-      $c = (float)($rr['charge'] ?? 0);
-      if ($c > 0) $charges[] = $c;
+  // Cargos del set mostrado (ahora normalmente 1 fila)
+  $charges = [];
+  foreach ($rows as $rr) {
+    $c = (float)($rr['charge'] ?? 0);
+    if ($c > 0) $charges[] = $c;
+  }
+
+  // Heurística 12x (por si no vienen campos)
+  if (!$isAnnual && count($charges) >= 2) {
+    $minC = min($charges);
+    $maxC = max($charges);
+    if ($minC > 0) {
+      $ratio = $maxC / $minC;
+      if (abs($ratio - 12.0) <= 0.35 || abs(($maxC / 12.0) - $minC) <= 1.00) {
+        $isAnnual = true;
+      }
     }
-    if (!empty($charges)) {
-      $candidate = max($charges);
-      if ($isAnnual && $candidate > 0) $candidate = $candidate / 12;
-      $mensualidadHeader = round($candidate, 2);
-    }
+  }
+
+  $ANNUAL_HINT_MIN = 6000.0;
+
+  if ($mensualidadHeader > 0) {
+    $mensualidadHeader = ($mensualidadHeader >= $ANNUAL_HINT_MIN)
+      ? round($mensualidadHeader / 12.0, 2)
+      : round($mensualidadHeader, 2);
   } else {
-    if ($isAnnual && $mensualidadHeader > 0) {
-      $mensualidadHeader = round($mensualidadHeader / 12, 2);
+    if (!empty($charges)) {
+      $c = (float)max($charges);
+      $mensualidadHeader = round(($isAnnual && $c >= $ANNUAL_HINT_MIN) ? ($c / 12.0) : $c, 2);
+    } else {
+      $mensualidadHeader = 0.0;
     }
   }
 @endphp
+
 
 <div class="p360-page">
   <div class="p360-topcard">
