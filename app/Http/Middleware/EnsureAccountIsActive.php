@@ -274,6 +274,61 @@ final class EnsureAccountIsActive
     }
 
     /**
+     * ✅ FIX: método faltante
+     * Permite pasar SOLO las rutas del flujo "first password" / reset / forgot
+     * para evitar loops cuando mustChangePassword() es true.
+     */
+    private function isFirstPasswordRoute(Request $request): bool
+    {
+        try {
+            $route = $request->route();
+            $name  = is_object($route) ? (string) ($route->getName() ?? '') : '';
+            $path  = ltrim((string) $request->path(), '/'); // ej: "cliente/password/first"
+            $act   = is_object($route) ? (string) ($route->getActionName() ?? '') : '';
+
+            // 1) Por nombre de ruta (ideal)
+            if ($name !== '') {
+                // Tus rutas explícitas
+                if (Str::startsWith($name, 'cliente.password.first')) return true;
+
+                // Forgot/reset (compat si existieran)
+                if (Str::contains($name, ['password', 'forgot', 'reset'])) return true;
+
+                // Variantes comunes
+                if (Str::contains($name, 'first') && Str::contains($name, ['password', 'pass'])) return true;
+            }
+
+            // 2) Por path (fallback)
+            if (
+                Str::startsWith($path, 'cliente/password') ||
+                Str::startsWith($path, 'cliente/forgot') ||
+                Str::startsWith($path, 'cliente/reset') ||
+                Str::startsWith($path, 'cliente/first-password') ||
+                Str::startsWith($path, 'cliente/first_password') ||
+                Str::startsWith($path, 'cliente/firstpass') ||
+                Str::startsWith($path, 'cliente/first-pass')
+            ) {
+                return true;
+            }
+
+            // 3) Por action (fallback extra)
+            if ($act !== '') {
+                if (
+                    Str::contains($act, 'PasswordController') &&
+                    (Str::contains($act, ['first', 'forgot', 'reset']))
+                ) {
+                    return true;
+                }
+            }
+        } catch (\Throwable) {
+            // En caso de duda, deja pasar para NO romper login por excepción del helper.
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Rutas permitidas aun con paywall.
      */
     private function isPaywallAllowedRoute(?string $name, Request $request): bool
@@ -588,5 +643,4 @@ final class EnsureAccountIsActive
             ->with('error', $msg)
             ->with('need_verify', true);
     }
-
 }
