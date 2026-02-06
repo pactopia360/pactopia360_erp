@@ -104,20 +104,17 @@ final class AccountBillingController extends Controller
                 ],
             ]);
 
-            // ✅ No 403: manda al login y conserva el destino
             return redirect()->route('cliente.login', [
                 'next' => '/cliente/estado-de-cuenta',
             ]);
         }
 
-        // ✅ CRÍTICO: NO guardar admin_account_id en llaves genéricas de sesión
-        // (client.account_id / account_id) porque permite cross-account si la sesión queda “contaminada”.
-        // Si se requiere cache, usar llaves namespaced para billing.
+        // ✅ CRÍTICO: NO contaminar llaves genéricas de sesión
         try {
             $r->session()->put('billing.admin_account_id', (string) $accountId);
             $r->session()->put('billing.admin_account_src', (string) $src);
         } catch (\Throwable $e) {
-            // ignora
+            // ignore
         }
 
         // Datos UI (RFC/Alias)
@@ -129,42 +126,35 @@ final class AccountBillingController extends Controller
         // ✅ ÚLTIMO PAGADO
         $lastPaid = $this->adminLastPaidPeriod($accountId);
 
-        // ==========================================================
-        // ✅ Ciclo de cobro (mensual/anual)
-        // ==========================================================
+        // ✅ Ciclo (mensual/anual)
         $isAnnual = $this->isAnnualBillingCycle($accountId);
 
-        // Periodo base cuando no hay lastPaid (inicio contrato)
-        $basePeriod = (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $contractStart) ? $contractStart : now()->format('Y-m'));
+        $basePeriod = (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) $contractStart))
+            ? (string) $contractStart
+            : now()->format('Y-m');
 
         if ($lastPaid) {
             $payAllowed = $isAnnual
                 ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
                 : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
         } else {
-            // si no hay lastPaid, el primer cobro permitido es el inicio
             $payAllowed = $basePeriod;
         }
 
-        // ✅ Periodos a mostrar:
-        // - Mensual: 2 filas (lastPaid + payAllowed)
-        // - Anual:   1 fila (la vigente/base). Solo agrega renovación cuando llegue ventana.
+        // Periodos “base” para cálculo de precio/fallback (no necesariamente UI final)
         $periods = [];
-
         if ($isAnnual) {
             $periods[] = $lastPaid ?: $basePeriod;
 
-            // ✅ mostrar renovación SOLO cuando se abra ventana (por defecto 30 días antes)
             try {
-                $winDays  = (int) $this->annualRenewalWindowDays();
-                $renewAt  = Carbon::createFromFormat('Y-m', $payAllowed)->startOfMonth();
-                $openAt   = $renewAt->copy()->subDays(max(0, $winDays));
-
+                $winDays = (int) $this->annualRenewalWindowDays();
+                $renewAt = Carbon::createFromFormat('Y-m', $payAllowed)->startOfMonth();
+                $openAt  = $renewAt->copy()->subDays(max(0, $winDays));
                 if (now()->greaterThanOrEqualTo($openAt)) {
                     $periods[] = $payAllowed;
                 }
             } catch (\Throwable $e) {
-                // ignora
+                // ignore
             }
         } else {
             $periods = [$lastPaid, $payAllowed];
@@ -180,7 +170,6 @@ final class AccountBillingController extends Controller
             $priceInfo['per_period'][$p] = ['cents' => 0, 'mxn' => 0.0, 'source' => 'none'];
         }
 
-        // 1) Admin meta billing (por periodo)
         foreach ($periods as $p) {
             $cents = $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $p, $lastPaid, $payAllowed);
             if ($cents > 0) {
@@ -190,7 +179,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 2) Fallback: catálogo planes
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -202,7 +190,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 3) Fallback: admin.estados_cuenta
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -214,7 +201,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 4) Fallback real: clientes.estados_cuenta.cargo
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -227,7 +213,7 @@ final class AccountBillingController extends Controller
         }
 
         // ==========================================================
-        // ✅ ANUAL: forzar monto ANUAL (1 línea por año)
+        // ✅ ANUAL: forzar monto ANUAL
         // ==========================================================
         $annualTotalMxn   = 0.0;
         $annualCentsFinal = 0;
@@ -261,9 +247,7 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // ==========================================================
-        // ✅ Genera $chargesByPeriod y $sourcesByPeriod
-        // ==========================================================
+        // chargesByPeriod + sourcesByPeriod
         $chargesByPeriod = [];
         $sourcesByPeriod = [];
         foreach ($periods as $p) {
@@ -271,7 +255,7 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
-        // Construye filas base (puede devolver paid/pending)
+        // Fallback base (clientes.estados_cuenta)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
             $periods,
@@ -280,11 +264,9 @@ final class AccountBillingController extends Controller
             $lastPaid
         );
 
-        // ✅ Backup para fallback si statements filtra a vacío
-        $rowsBase = $rows;
-
-        // ✅ billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
-        // Construimos "refs" con ambos.
+        // ==========================================================
+        // ✅ SOT REAL: billing_statements (uuid/int)
+        // ==========================================================
         $statementRefs = [];
         try {
             $statementRefs[] = (string) $accountId;
@@ -294,9 +276,9 @@ final class AccountBillingController extends Controller
             if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                 $uuids = DB::connection($cli)->table('cuentas_cliente')
                     ->where('admin_account_id', $accountId)
-                    ->limit(50)
+                    ->limit(200)
                     ->pluck('id')
-                    ->map(fn($x) => trim((string)$x))
+                    ->map(fn ($x) => trim((string) $x))
                     ->filter()
                     ->unique()
                     ->values()
@@ -304,52 +286,39 @@ final class AccountBillingController extends Controller
 
                 foreach ($uuids as $u) $statementRefs[] = $u;
             }
-
-            // normaliza (strings únicos)
-            $statementRefs = array_values(array_unique(array_map(fn($x) => trim((string)$x), $statementRefs)));
-            $statementRefs = array_values(array_filter($statementRefs, fn($x) => $x !== ''));
-
         } catch (\Throwable $e) {
-            // ignora
+            // ignore
         }
 
-        // ✅ IMPORTANTE: ahora el loader acepta refs mixtos y NO aplasta el array a int
-        $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($statementRefs);
+        $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
 
         if (!empty($rowsFromStatements)) {
             $rows = $rowsFromStatements;
 
-            // Aplica override por payments (si hay pagos más recientes que el statement)
+            // Override por payments (si aplica)
             $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
 
-            // Filtra: SOLO pendientes
+            // Solo pendientes
             $rows = array_values(array_filter($rows, function ($rr) {
-                $st    = strtolower((string)($rr['status'] ?? 'pending'));
-                $saldo = (float)($rr['saldo'] ?? 0);
+                $st    = strtolower((string) ($rr['status'] ?? 'pending'));
+                $saldo = (float) ($rr['saldo'] ?? 0);
                 return ($st !== 'paid') && ($saldo > 0.0001);
             }));
 
-            // ✅ Si el filtro dejó vacío => fallback a rowsBase
-            if (empty($rows)) {
-                $rows = $rowsBase;
-                $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
-                $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
-            } else {
-                // Ordena por periodo ASC
-                usort($rows, function ($a, $b) {
-                    return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
-                });
+            usort($rows, function ($a, $b) {
+                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+            });
 
-                // payAllowed = primer pendiente (el más viejo)
-                $payAllowed = (string)($rows[0]['period'] ?? $payAllowed);
+            // payAllowed = primer pendiente
+            if (!empty($rows)) {
+                $payAllowed = (string) ($rows[0]['period'] ?? $payAllowed);
             }
         } else {
-            // === Fallback viejo (si NO hay billing_statements) ===
             $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
             $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
         }
 
-        // Rango + RFC/Alias + fuente precio
+        // Enriquecimiento UI
         foreach ($rows as &$row) {
             $p = (string) ($row['period'] ?? '');
             if ($p !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p)) {
@@ -364,50 +333,29 @@ final class AccountBillingController extends Controller
         }
         unset($row);
 
-        // ✅ invoice request status (SOT: admin.billing_invoice_requests)
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
-
-        // ✅ Portal cliente: 1 card (payAllowed) o vacío si ya está pagado.
-        $refMxn = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
-
-        // defensivo: define monthlyMxn
-        $monthlyMxn = (float) ($chargesByPeriod[$payAllowed] ?? $refMxn);
-
-        // Ya filtramos arriba con keepOnlyPayAllowedPeriod(), aquí solo sanity:
-        $rows = array_values(array_filter($rows, function ($rr) use ($payAllowed) {
-            return ((string)($rr['period'] ?? '') === (string)$payAllowed);
-        }));
 
         // KPIs
         $pendingBalance = 0.0;
-        $paidTotal = 0.0;
-
         foreach ($rows as $row) {
             if (($row['period'] ?? '') === $payAllowed && ($row['status'] ?? '') === 'pending') {
                 $pendingBalance = (float) ($row['saldo'] ?? 0);
             }
         }
 
-        // ✅ En portal cliente ya no sumamos "pagados" porque no se muestran
         $paidTotal = 0.0;
 
         Log::info('[BILLING] statement render', [
-            'account_id'      => $accountId,
-            'src'             => $src,
-            'contract_start'  => $contractStart,
-            'last_paid'       => $lastPaid,
-            'pay_allowed'     => $payAllowed,
-            'periods_in'      => $periods,
-            'prices'          => array_map(fn ($p) => [
-                'period' => $p,
-                'mxn'    => $chargesByPeriod[$p] ?? 0,
-                'source' => $sourcesByPeriod[$p] ?? 'none',
-            ], $periods),
-            'ui_rfc'          => $rfc,
-            'ui_alias'        => $alias,
+            'account_id'     => $accountId,
+            'src'            => $src,
+            'contract_start' => $contractStart,
+            'last_paid'      => $lastPaid,
+            'pay_allowed'    => $payAllowed,
+            'rows_count'     => is_array($rows) ? count($rows) : 0,
+            'ui_rfc'         => $rfc,
+            'ui_alias'       => $alias,
         ]);
 
-        // ✅ compatibilidad blade actual
         $mensualidadAdmin = (float) ($chargesByPeriod[$payAllowed] ?? ($chargesByPeriod[$lastPaid] ?? 0.0));
 
         return view('cliente.billing.statement', [
@@ -2161,81 +2109,74 @@ final class AccountBillingController extends Controller
      *
      * ⚠️ IMPORTANTE (PROD):
      * - billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
-     * - Por eso aceptamos "account refs" (int|string|array) y consultamos por whereIn.
+     * - Acepta refs (int|string|array) y consulta con whereIn.
      */
-    private function loadRowsFromAdminBillingStatements($accountRefs, int $limit = 24): array
+    private function loadRowsFromAdminBillingStatements($accountId, int $limit = 24): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
-        $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-
-        if (!Schema::connection($adm)->hasTable('billing_statements')) {
-            return [];
-        }
+        if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
 
         // =========================================================
-        // ✅ NORMALIZA REFS (NO perder UUIDs)
-        // Acepta:
-        // - int|string (un solo ref)
-        // - array: [3,'uuid', ...] o ['account_id'=>3] etc.
+        // ✅ NORMALIZA REFS:
+        // - si viene array, se interpreta como lista de refs (uuid/int/string)
+        // - si viene escalar, se vuelve lista de 1
         // =========================================================
         $refs = [];
+
         try {
-            if (is_array($accountRefs)) {
-                foreach ($accountRefs as $k => $v) {
-                    if (is_string($k) && in_array($k, ['account_id', 'id', 'admin_account_id'], true)) {
-                        $refs[] = $v;
-                        continue;
-                    }
-                    $refs[] = $v;
+            if (is_array($accountId)) {
+                // Caso raro: array asociativo tipo ['account_id'=>3]
+                if (array_key_exists('account_id', $accountId) || array_key_exists('id', $accountId)) {
+                    $v = $accountId['account_id'] ?? $accountId['id'] ?? null;
+                    if ($v !== null) $refs[] = $v;
+                } else {
+                    // Lista real: [3,"uuid",...]
+                    foreach ($accountId as $v) $refs[] = $v;
                 }
             } else {
-                $refs[] = $accountRefs;
+                $refs[] = $accountId;
             }
 
-            $refs = array_values(array_unique(array_map(fn($x) => trim((string)$x), $refs)));
-            $refs = array_values(array_filter($refs, fn($x) => $x !== ''));
+            // normaliza a strings limpios
+            $refs = array_values(array_unique(array_map(fn ($x) => trim((string) $x), $refs)));
+            $refs = array_values(array_filter($refs, fn ($x) => $x !== ''));
+
         } catch (\Throwable $e) {
             $refs = [];
         }
 
-        if (empty($refs)) {
-            return [];
-        }
+        if (empty($refs)) return [];
 
         // =========================================================
-        // ✅ Si existe un admin_account_id numérico, agregamos UUIDs ligados
+        // ✅ EXPANDE: si hay admin_account_id numérico, agrega UUIDs ligados
+        // (esto asegura que aunque manden solo "3" se incluyan UUIDs)
         // =========================================================
-        $adminId = 0;
-        foreach ($refs as $r) {
-            if (is_numeric($r)) {
-                $adminId = (int) $r;
-                break;
+        try {
+            $adminIds = [];
+            foreach ($refs as $v) {
+                if (preg_match('/^\d+$/', $v)) $adminIds[] = (int) $v;
             }
-        }
+            $adminIds = array_values(array_unique(array_filter($adminIds, fn ($x) => $x > 0)));
 
-        if ($adminId > 0) {
-            try {
-                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $uuidCols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                    if (in_array('id', $uuidCols, true) && in_array('admin_account_id', $uuidCols, true)) {
-                        $uuids = DB::connection($cli)->table('cuentas_cliente')
-                            ->where('admin_account_id', $adminId)
-                            ->pluck('id')
-                            ->map(fn($x) => trim((string)$x))
-                            ->filter()
-                            ->unique()
-                            ->values()
-                            ->all();
+            if (!empty($adminIds)) {
+                $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+                if (Schema::connection($cli)->hasTable('cuentas_cliente') && Schema::connection($cli)->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                    $uuids = DB::connection($cli)->table('cuentas_cliente')
+                        ->whereIn('admin_account_id', $adminIds)
+                        ->pluck('id')
+                        ->map(fn ($x) => trim((string) $x))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
 
-                        if (!empty($uuids)) {
-                            $refs = array_values(array_unique(array_merge($refs, $uuids)));
-                            $refs = array_values(array_filter($refs, fn($x) => trim((string)$x) !== ''));
-                        }
+                    if (!empty($uuids)) {
+                        $refs = array_values(array_unique(array_merge($refs, $uuids)));
                     }
                 }
-            } catch (\Throwable $e) {
-                // no-op
             }
+        } catch (\Throwable $e) {
+            // ignore
         }
 
         try {
@@ -2261,16 +2202,15 @@ final class AccountBillingController extends Controller
                 ->get($sel);
 
             Log::info('[BILLING] loadRowsFromAdminBillingStatements', [
-                'admin_account_id' => $adminId,
-                'refs'             => $refs,
-                'count'            => $items->count(),
+                'refs'  => $refs,
+                'count' => $items->count(),
             ]);
 
             if ($items->isEmpty()) return [];
 
             $rows = [];
             foreach ($items as $it) {
-                $p = trim((string)($it->period ?? ''));
+                $p = trim((string) ($it->period ?? ''));
                 if (!$this->isValidPeriod($p)) continue;
 
                 $cargo = is_numeric($it->total_cargo ?? null) ? (float) $it->total_cargo : 0.0;
@@ -2283,7 +2223,7 @@ final class AccountBillingController extends Controller
                     $saldo = max(0.0, $cargo - $abono);
                 }
 
-                $st     = strtolower(trim((string)($it->status ?? 'pending')));
+                $st     = strtolower(trim((string) ($it->status ?? 'pending')));
                 $paidAt = $it->paid_at ?? null;
 
                 $paid = false;
