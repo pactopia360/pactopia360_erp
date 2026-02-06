@@ -1,151 +1,168 @@
-{{-- resources/views/cliente/auth/forgot.blade.php (v3) --}}
-@extends('layouts.guest')
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Pactopia360 · Cliente | Recuperar acceso</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
 
-@section('title', 'Recuperar acceso · Pactopia360')
-@section('hide-brand', 'is-hidden')
+  <script>document.documentElement.classList.add('page-login-client');</script>
+  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}">
 
-@push('styles')
-<style>
-  /* ======== Fondo femenino P360 con gradiente ======== */
-  body{
-    background:
-      radial-gradient(40% 50% at 20% 20%, rgba(255,91,126,.45), transparent 65%),
-      radial-gradient(40% 50% at 80% 70%, rgba(255,42,42,.32), transparent 65%),
-      linear-gradient(180deg, #fff8f9 0%, #fff 100%);
-    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
-    font-family: 'Poppins', system-ui, sans-serif;
-  }
-  html.theme-dark body{
-    background:
-      radial-gradient(40% 50% at 15% 25%, rgba(255,91,126,.12), transparent 65%),
-      radial-gradient(40% 50% at 80% 70%, rgba(255,42,42,.12), transparent 65%),
-      linear-gradient(180deg, #0d1524 0%, #111827 100%);
-  }
+  <style>
+    /* Oculta headers globales si los hubiera */
+    html.page-login-client body > header,
+    html.page-login-client header[role="banner"],
+    html.page-login-client header.navbar,
+    html.page-login-client header.site-header,
+    html.page-login-client .topbar .brand { display:none !important; }
 
-  /* ======== Auth shell ======== */
-  .auth-shell{width:min(480px,92vw);margin:auto;position:relative;text-align:center;}
-  .auth-card{
-    position:relative; background:var(--card,#fff);
-    border-radius:20px; padding:28px 26px 26px;
-    box-shadow:0 22px 60px rgba(0,0,0,.15);
-    border:1px solid color-mix(in oklab,var(--bd,#e5e7eb) 85%, transparent);
-    backdrop-filter:saturate(140%) blur(12px);
-  }
-  html.theme-dark .auth-card{
-    background:color-mix(in oklab,#1e293b 92%, transparent);
-    border-color:rgba(255,255,255,.1);
-  }
-  .auth-card::before{
-    content:"";position:absolute;inset:-1px;border-radius:21px;
-    background:linear-gradient(145deg,rgba(255,91,126,.7),rgba(255,42,42,.6));
-    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-    -webkit-mask-composite:xor;mask-composite:exclude;padding:1px;
-  }
+    /* Alertas compactas */
+    .alert-block{border-radius:.6rem;padding:.75rem 1rem;margin-bottom:1rem;font-size:.9rem;line-height:1.4;}
+    .alert-success{background:#dcfce7;border:1px solid #86efac;color:#166534;}
+    .alert-error{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;}
+    .alert-info{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;}
 
-  /* ===== Logo circular ===== */
-  .logo-wrap{
-    width:84px;height:84px;margin:-64px auto 10px;
-    display:grid;place-items:center;border-radius:50%;
-    background:linear-gradient(180deg,#fff,#f6f9fc);
-    border:1px solid color-mix(in oklab,var(--bd,#e5e7eb) 85%, transparent);
-    box-shadow:0 16px 40px rgba(255,91,126,.25),0 6px 18px rgba(0,0,0,.18);
-  }
-  html.theme-dark .logo-wrap{background:linear-gradient(180deg,#1e293b,#111827);border-color:#334155;}
-  .logo-wrap img{width:64px;height:auto;display:block}
+    /* 🔥 FIX: evita overlays “fantasma” que bloquean inputs */
+    .shell, .panel, .card, .form-body, .form-fields, .field { position:relative; z-index:2; }
+    .shell::before, .shell::after,
+    .panel::before, .panel::after,
+    .card::before, .card::after { pointer-events:none !important; }
+    .brand, .brand * { pointer-events:auto; }
+    input, button, a, label, textarea, select { pointer-events:auto !important; }
 
-  /* ===== Title / text ===== */
-  h1{margin:0;font-weight:900;font-size:1.3rem;letter-spacing:.2px}
-  .subtitle{margin:8px 0 16px;color:var(--muted,#6b7280);font-size:.9rem;line-height:1.4}
+    /* Consistencia ancho interno */
+    .card .form-head,
+    .card .form-fields,
+    .card .form-actions{ max-width: min(600px, 100% - 100px); }
+    @media (max-width: 900px){
+      .card .form-head,
+      .card .form-fields,
+      .card .form-actions{ max-width: 100%; }
+    }
 
-  /* ===== Field / input ===== */
-  .field{display:flex;flex-direction:column;align-items:flex-start;text-align:left;margin:10px 0;width:100%;}
-  .field label{font-size:.85rem;font-weight:700;margin-bottom:6px;color:var(--muted,#6b7280);}
-  .input{
-    width:100%;border-radius:12px;padding:12px 14px;
-    background:color-mix(in oklab,var(--card,#fff) 92%, transparent);
-    border:1px solid color-mix(in oklab,var(--bd,#e5e7eb) 85%, transparent);
-    transition:border-color .2s, box-shadow .2s;
-  }
-  .input:focus{
-    border-color:#E11D48;
-    box-shadow:0 0 0 4px rgba(225,29,72,.15);
-    outline:none;
-  }
+    .hint{font-size:.85rem;color:#6b7280;}
+    .link-muted{color:#6b7280;text-decoration:none;font-weight:600;}
+    .link-muted:hover{text-decoration:underline;}
+  </style>
+</head>
 
-  /* ===== Buttons ===== */
-  .btn-submit{
-    width:100%;padding:12px 14px;border-radius:12px;border:0;
-    background:linear-gradient(90deg,#E11D48,#BE123C);
-    color:#fff;font-weight:800;font-size:.95rem;
-    box-shadow:0 10px 20px rgba(190,18,60,.25);
-    cursor:pointer;transition:filter .2s;
-  }
-  .btn-submit:hover{filter:brightness(.96)}
+<body class="theme-light">
+@php
+  $logoDark  = 'assets/client/logop360dark.png';
+  $lightCandidates = [
+    'assets/client/logop360light.png',
+    'assets/client/logp360light_alt.png',
+    'assets/client/logp360ligjt.png',
+  ];
+  $logoLight = collect($lightCandidates)->first(fn($cand)=>file_exists(public_path($cand))) ?? $lightCandidates[0];
 
-  /* ===== Links ===== */
-  .links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px;}
-  .link{color:#E11D48;text-decoration:none;font-weight:700;font-size:.85rem;}
-  .link:hover{text-decoration:underline}
-  .muted{color:var(--muted,#6b7280);font-size:.8rem;}
+  $loginUrl = \Illuminate\Support\Facades\Route::has('cliente.login')
+    ? route('cliente.login')
+    : url('/cliente/login');
 
-  /* ===== Alerts ===== */
-  .alert-ok,.alert-err{border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:.85rem;}
-  .alert-ok{background:#dcfce7;border:1px solid #86efac;color:#166534;}
-  .alert-err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;}
+  $postUrl = \Illuminate\Support\Facades\Route::has('cliente.password.email')
+    ? route('cliente.password.email')
+    : url('/cliente/password/email');
+@endphp
 
-  /* ===== Footer (sticky bottom always visible) ===== */
-  footer{
-    margin-top:48px;padding:10px;text-align:center;font-size:.8rem;color:var(--muted,#64748b);
-  }
-  footer a{color:#E11D48;text-decoration:none;font-weight:600;}
-  footer a:hover{text-decoration:underline;}
-</style>
-@endpush
-
-@section('content')
-  <div class="auth-shell">
-    <div class="logo-wrap" aria-hidden="true">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="{{ asset('assets/client/logop360dark.png') }}">
-        <img src="{{ asset('assets/client/logop360light.png') }}" alt="Pactopia360"
-             onerror="this.src='{{ asset('assets/client/logop360dark.png') }}';">
-      </picture>
-    </div>
-
-    <div class="auth-card">
-      <h1>Recuperar acceso</h1>
-      <p class="subtitle">
-        Escribe tu <strong>correo</strong> o <strong>RFC</strong> y te enviaremos un enlace de restablecimiento.
-      </p>
-
-      @if (session('ok'))
-        <div class="alert-ok">{{ session('ok') }}</div>
-      @endif
-
-      @if ($errors->any())
-        <div class="alert-err">{{ $errors->first() }}</div>
-      @endif
-
-      <form method="POST" action="{{ route('cliente.password.email') }}" novalidate>
-        @csrf
-        <div class="field">
-          <label for="email">Correo o RFC</label>
-          <input id="email" name="email" class="input" type="text"
-                 placeholder="micorreo@dominio.com o RFC"
-                 value="{{ old('email', request('e')) }}" required>
-        </div>
-        <button class="btn-submit" type="submit">Enviar enlace</button>
-      </form>
-
-      <div class="links">
-        <a class="link" href="{{ route('cliente.login') }}">Volver al inicio de sesión</a>
-        <span class="muted">Por seguridad, no indicamos si el correo/RFC existe.</span>
-      </div>
-    </div>
-
-    <footer>
-      © {{ date('Y') }} Pactopia360 ·
-      <a href="https://pactopia.com" target="_blank" rel="noopener">Sitio oficial</a>
-    </footer>
+  <div class="theme-switch">
+    <button type="button" class="theme-btn" id="themeToggle" aria-pressed="false">
+      <span class="icon">🌙</span><span class="label">Modo oscuro</span>
+    </button>
   </div>
-@endsection
+
+  <div class="shell shell--balanced">
+    {{-- IZQUIERDA --}}
+    <section class="brand" aria-label="Recuperar acceso">
+      <div class="brand-inner">
+        <header class="brand-top">
+          <div class="logo local-brand">
+            <img class="logo-img logo-dark"  src="{{ asset($logoDark)  }}" alt="Pactopia360">
+            <img class="logo-img logo-light" src="{{ asset($logoLight) }}" alt="Pactopia360">
+          </div>
+          <h2 class="slogan">Recupera tu acceso en minutos</h2>
+        </header>
+
+        <ul class="points" role="list">
+          <li>🔐 Te enviamos un enlace seguro para crear una nueva contraseña.</li>
+          <li>⏱️ El enlace expira en <b>60 minutos</b>.</li>
+          <li>🧾 Puedes ingresar tu <b>correo</b> o tu <b>RFC</b>.</li>
+          <li>🛡️ Por seguridad, no confirmamos si una cuenta existe.</li>
+        </ul>
+
+        <footer class="brand-foot">
+          <div class="foot-note">© {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.</div>
+        </footer>
+      </div>
+    </section>
+
+    {{-- DERECHA --}}
+    <section class="panel" aria-label="Formulario recuperación">
+      <form class="card card-auto" method="POST" action="{{ $postUrl }}" novalidate autocomplete="on">
+        @csrf
+
+        <div class="card-brand">
+          <h1 class="title">Recuperar acceso</h1>
+        </div>
+
+        <div aria-live="polite" aria-atomic="true" style="margin-bottom:1rem;">
+          @if (session('ok'))   <div class="alert-block alert-success">{{ session('ok') }}</div>@endif
+          @if (session('info')) <div class="alert-block alert-info">{{ session('info') }}</div>@endif
+          @if ($errors->any())
+            <div class="alert-block alert-error">@foreach ($errors->all() as $e)<div>• {{ $e }}</div>@endforeach</div>
+          @endif
+        </div>
+
+        <div class="form-body">
+          <div class="form-head">
+            <p class="subtitle">
+              Escribe tu <b>correo</b> o <b>RFC</b> y te enviaremos un enlace de restablecimiento.
+            </p>
+          </div>
+
+          <div class="form-fields">
+            <div class="field">
+              <label for="login">Correo o RFC</label>
+              <input
+                class="input @error('login') is-invalid @enderror @error('email') is-invalid @enderror"
+                id="login" name="login" type="text"
+                value="{{ old('login', old('email')) }}"
+                placeholder="micorreo@dominio.com o TU RFC"
+                required autocomplete="username" maxlength="150"
+                inputmode="email"
+              />
+
+              {{-- Compat: si backend espera "email", mandamos ambos --}}
+              <input type="hidden" name="email" value="{{ old('login', old('email')) }}">
+
+              <div class="hint" style="margin-top:.35rem;">
+                Si tu cuenta existe, recibirás el enlace por correo.
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn" type="submit">Enviar enlace</button>
+            <div class="hint" style="margin-top:.6rem;">
+              <a class="link-muted" href="{{ $loginUrl }}">← Volver a iniciar sesión</a>
+            </div>
+          </div>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    // Autofocus + FIX click (si había overlay extraño)
+    window.addEventListener('load', () => {
+      const el = document.getElementById('login');
+      if (el) {
+        el.removeAttribute('readonly');
+        el.disabled = false;
+        el.focus({ preventScroll: true });
+      }
+    });
+  </script>
+</body>
+</html>

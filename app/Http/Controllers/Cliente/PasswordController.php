@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 
 class PasswordController extends Controller
 {
@@ -44,12 +45,12 @@ class PasswordController extends Controller
             ]);
         }
 
-        // reemplaza temporal y marca como cambiada
         $usuario->password = Hash::make($request->password);
-        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta','password_temp')) {
+
+        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'password_temp')) {
             $usuario->password_temp = null;
         }
-        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta','password_plain')) {
+        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'password_plain')) {
             $usuario->password_plain = null;
         }
         if (array_key_exists('must_change_password', $usuario->getAttributes())) {
@@ -61,9 +62,8 @@ class PasswordController extends Controller
         return redirect()->route('cliente.home')->with('ok', 'Contraseña actualizada correctamente.');
     }
 
-
     /* ============================================================
-     * 2) Olvidé mi contraseña (cliente)
+     * 2) Olvidé mi contraseña (cliente) — PRO: link firmado con token
      * ============================================================ */
 
     /** GET /cliente/password/forgot */
@@ -74,96 +74,147 @@ class PasswordController extends Controller
 
     /**
      * POST /cliente/password/email
-     * Acepta email o RFC. Si es RFC, buscamos un usuario de esa cuenta.
-     * Guarda token en mysql_clientes.password_reset_tokens y envía correo.
+     * Acepta email o RFC. Si es RFC, resolvemos a emails de usuarios de esa cuenta.
+     * Guardamos token (hasheado) en mysql_clientes.password_reset_tokens y enviamos link.
      */
     public function sendResetLinkEmail(Request $request)
     {
+        // ✅ Compat: acepta login o email
         $request->validate([
-            'email' => 'required|string|max:150',
+            'login' => 'nullable|string|max:150',
+            'email' => 'nullable|string|max:150',
+        ], [
+            'login.max' => 'El valor excede el máximo permitido.',
+            'email.max' => 'El valor excede el máximo permitido.',
         ]);
 
-        $identifier = trim((string)$request->input('email'));
-        $isEmail    = filter_var($identifier, FILTER_VALIDATE_EMAIL) !== false;
-
-        // 1) Resolver usuarios por email o RFC
-        $usuarios = collect();
-
-        if ($isEmail) {
-            $usuarios = UsuarioCuenta::on('mysql_clientes')
-                ->where('email', strtolower($identifier))
-                ->get();
-        } else {
-            $rfcUpper = strtoupper(preg_replace('/\s+/', '', $identifier));
-            $cuentas = CuentaCliente::on('mysql_clientes')
-                ->whereRaw('UPPER(rfc_padre) = ?', [$rfcUpper])
-                ->get();
-
-            if ($cuentas->isNotEmpty()) {
-                $usuarios = UsuarioCuenta::on('mysql_clientes')
-                    ->whereIn('cuenta_id', $cuentas->pluck('id'))
-                    ->get();
-            }
+        $identifier = trim((string) ($request->input('login') ?: $request->input('email') ?: ''));
+        if ($identifier === '') {
+            return back()->withErrors(['login' => 'Ingresa tu correo o RFC.'])->withInput();
         }
 
-        // 2) Respuesta neutra (no revelamos existencia)
-        if ($usuarios->isEmpty()) {
-            return back()->with('ok', 'Si encontramos una cuenta asociada, te enviaremos una contraseña temporal.');
+        // 🔎 Resolver emails
+        [$emails, $normalizedForUi] = $this->resolveEmailsFromIdentifier($identifier);
+
+        // ✅ Log local (debug)
+        if (app()->environment('local')) {
+            \Log::info('[CLIENTE-PASS] request', [
+                'identifier' => $identifier,
+                'resolved_emails_count' => $emails->count(),
+                'resolved_emails' => $emails->values()->all(),
+            ]);
         }
 
-        // 3) Generar una misma clave temporal y setearla como hash en password_temp para todos
-        $plain = $this->makeHumanTemp();
+        // Respuesta neutra
+        if ($emails->isEmpty()) {
+            return back()->with('ok', 'Si encontramos una cuenta asociada, te enviaremos un enlace para restablecer tu contraseña.');
+        }
 
-        foreach ($usuarios as $u) {
-            $u->password_temp = \Illuminate\Support\Facades\Hash::make($plain);
-            if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta','must_change_password')) {
-                $u->must_change_password = true;
+        // ✅ Verifica tabla/columnas antes de insertar (para evitar “no envía” silencioso)
+        try {
+            if (!\Schema::connection('mysql_clientes')->hasTable('password_reset_tokens')) {
+                if (app()->environment('local')) {
+                    \Log::error('[CLIENTE-PASS] missing_table password_reset_tokens');
+                }
+                // En PROD mantenemos neutro; en local mostramos claro para arreglar rápido
+                return app()->environment('local')
+                    ? back()->withErrors(['login' => 'Falta la tabla mysql_clientes.password_reset_tokens.'])->withInput()
+                    : back()->with('ok', 'Si encontramos una cuenta asociada, te enviaremos un enlace para restablecer tu contraseña.');
             }
-            if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta','password_plain')) {
-                $u->password_plain = null;
+
+            $cols = \Schema::connection('mysql_clientes')->getColumnListing('password_reset_tokens');
+            foreach (['email','token','created_at'] as $need) {
+                if (!in_array($need, $cols, true)) {
+                    if (app()->environment('local')) {
+                        \Log::error('[CLIENTE-PASS] bad_schema password_reset_tokens', ['cols' => $cols]);
+                    }
+                    return app()->environment('local')
+                        ? back()->withErrors(['login' => 'La tabla password_reset_tokens no tiene columnas requeridas (email, token, created_at).'])->withInput()
+                        : back()->with('ok', 'Si encontramos una cuenta asociada, te enviaremos un enlace para restablecer tu contraseña.');
+                }
             }
-            // opcional: borrar password para forzar el flujo por temp si aún existía uno legado
-            // $u->password = $u->password; // lo dejamos intacto (si existe) para no romper sesiones actuales
-            $u->save();
+        } catch (\Throwable $e) {
+            if (app()->environment('local')) {
+                \Log::error('[CLIENTE-PASS] schema_check_failed', ['err' => $e->getMessage()]);
+            }
+            return back()->with('ok', 'Si encontramos una cuenta asociada, te enviaremos un enlace para restablecer tu contraseña.');
+        }
+
+        // Genera token seguro (URL-safe) y guarda HASH en DB
+        $plainToken = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $tokenHash  = Hash::make($plainToken);
+        $now        = now();
+
+        foreach ($emails as $email) {
+            $email = strtolower(trim((string) $email));
+            if ($email === '') continue;
 
             try {
-                \Mail::raw(
-                    "Hola,\n\nTu contraseña temporal de Pactopia360 es: {$plain}\n\n" .
-                    "Puedes iniciar sesión con tu CORREO o con tu RFC. " .
-                    "Por seguridad, te pediremos cambiarla al entrar.\n\n— Equipo Pactopia360",
-                    function ($m) use ($u) {
-                        $m->to($u->email)->subject('Acceso temporal - Pactopia360');
+                // limpia tokens previos
+                DB::connection('mysql_clientes')->table('password_reset_tokens')
+                    ->where('email', $email)
+                    ->delete();
+
+                DB::connection('mysql_clientes')->table('password_reset_tokens')->insert([
+                    'email'      => $email,
+                    'token'      => $tokenHash,
+                    'created_at' => $now,
+                ]);
+
+                if (app()->environment('local')) {
+                    \Log::info('[CLIENTE-PASS] token_saved', ['email' => $email]);
+                }
+            } catch (\Throwable $e) {
+                if (app()->environment('local')) {
+                    \Log::error('[CLIENTE-PASS] token_save_failed', ['email' => $email, 'err' => $e->getMessage()]);
+                }
+                // no revelamos al usuario
+                continue;
+            }
+
+            $resetUrl = route('cliente.password.reset', ['token' => $plainToken]) . '?e=' . urlencode($email);
+
+            try {
+                Mail::raw(
+                    "Hola,\n\n" .
+                    "Recibimos una solicitud para restablecer tu contraseña de Pactopia360.\n\n" .
+                    "Abre este enlace para crear una nueva contraseña (válido por 60 minutos):\n" .
+                    $resetUrl . "\n\n" .
+                    "Si tú no solicitaste esto, puedes ignorar este mensaje.\n\n" .
+                    "— Equipo Pactopia360",
+                    function ($m) use ($email) {
+                        $m->to($email)->subject('Restablecer contraseña · Pactopia360');
                     }
                 );
+
+                if (app()->environment('local')) {
+                    \Log::info('[CLIENTE-PASS] mail_sent', ['email' => $email, 'resetUrl' => $resetUrl]);
+                }
             } catch (\Throwable $e) {
-                // silencio para no revelar existencia; se podría loguear en local
+                // Silencioso hacia usuario, visible en log
+                if (app()->environment('local')) {
+                    \Log::warning('[CLIENTE-PASS] mail_failed', [
+                        'email' => $email,
+                        'err' => $e->getMessage(),
+                        'resetUrl' => $resetUrl,
+                    ]);
+                }
             }
         }
 
-        return back()->with('ok', 'Si encontramos una cuenta asociada, te enviamos una contraseña temporal.');
+        return back()->with('ok', 'Si encontramos una cuenta asociada, te enviamos un enlace para restablecer tu contraseña.');
     }
-
-    /** Generador simple, legible y robusto (evita 0/O/I/1) */
-    private function makeHumanTemp(): string
-    {
-        $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-        $pick = function (int $n) use ($alphabet) {
-            $o = '';
-            for ($i=0;$i<$n;$i++) {
-                $o .= $alphabet[random_int(0, strlen($alphabet)-1)];
-            }
-            return $o;
-        };
-        // ejemplo: 4-4-4 (p.ej. Z8DJ-7QGK-2XHM)
-        return $pick(4) . '-' . $pick(4) . '-' . $pick(4);
-    }
-
 
     /** GET /cliente/password/reset/{token} */
     public function showResetForm(string $token, Request $request)
     {
-        $email = $request->query('e');
-        return view('cliente.auth.reset', compact('token', 'email'));
+        $email = (string) $request->query('e', '');
+        $email = strtolower(trim($email));
+
+        return view('cliente.auth.reset', [
+            'token' => $token,
+            'email' => $email,
+        ]);
     }
 
     /** POST /cliente/password/reset */
@@ -184,25 +235,30 @@ class PasswordController extends Controller
             'password.confirmed' => 'La confirmación de contraseña no coincide.',
         ]);
 
-        $email = strtolower(trim($request->email));
-        $token = $request->token;
+        $email = strtolower(trim((string) $request->input('email')));
+        $token = (string) $request->input('token');
 
-        // Validación de token (TTL 60 min)
         $row = DB::connection('mysql_clientes')->table('password_reset_tokens')
             ->where('email', $email)
-            ->where('token', $token)
             ->first();
 
         if (!$row) {
             return back()->withErrors(['token' => 'El enlace de restablecimiento no es válido.'])->withInput();
         }
 
-        $createdAt = optional($row->created_at) ? \Illuminate\Support\Carbon::parse($row->created_at) : now()->subHours(24);
+        // TTL 60 min
+        $createdAt = !empty($row->created_at) ? Carbon::parse($row->created_at) : now()->subHours(24);
         if ($createdAt->lt(now()->subMinutes(60))) {
             DB::connection('mysql_clientes')->table('password_reset_tokens')
                 ->where('email', $email)->delete();
 
-            return back()->withErrors(['token' => 'El enlace de restablecimiento ha expirado. Solicita uno nuevo.']);
+            return back()->withErrors(['token' => 'El enlace de restablecimiento ha expirado. Solicita uno nuevo.'])->withInput();
+        }
+
+        // Token hasheado
+        $tokenHash = (string) ($row->token ?? '');
+        if ($tokenHash === '' || !Hash::check($token, $tokenHash)) {
+            return back()->withErrors(['token' => 'El enlace de restablecimiento no es válido.'])->withInput();
         }
 
         $usuario = UsuarioCuenta::on('mysql_clientes')->where('email', $email)->first();
@@ -211,10 +267,18 @@ class PasswordController extends Controller
             return back()->withErrors(['email' => 'No se encontró el usuario.'])->withInput();
         }
 
-        $usuario->password = Hash::make($request->password);
+        $usuario->password = Hash::make((string) $request->input('password'));
+
+        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'password_temp')) {
+            $usuario->password_temp = null;
+        }
+        if (\Schema::connection('mysql_clientes')->hasColumn('usuarios_cuenta', 'password_plain')) {
+            $usuario->password_plain = null;
+        }
         if (array_key_exists('must_change_password', $usuario->getAttributes())) {
             $usuario->must_change_password = false;
         }
+
         $usuario->save();
 
         DB::connection('mysql_clientes')->table('password_reset_tokens')->where('email', $email)->delete();
@@ -226,10 +290,49 @@ class PasswordController extends Controller
      * Helpers
      * ============================================================ */
 
-    /** Detección básica de RFC (con o sin homoclave). */
-    private function isRfc(string $value): bool
+    /**
+     * Acepta correo o RFC.
+     * - Si es email: devuelve ese email si existe usuario(s) con ese email.
+     * - Si es RFC: busca cuentas por rfc_padre o rfc y devuelve emails de usuarios de esas cuentas.
+     * Nunca debe tirar error, solo colecciones.
+     *
+     * @return array{0:\Illuminate\Support\Collection,1:string}
+     */
+    private function resolveEmailsFromIdentifier(string $identifier): array
     {
-        $v = strtoupper(preg_replace('/\s+/', '', $value));
-        return (bool) preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3}$/', $v);
+        $id = trim((string) $identifier);
+        $isEmail = filter_var($id, FILTER_VALIDATE_EMAIL) !== false;
+
+        if ($isEmail) {
+            $email = strtolower($id);
+
+            $exists = UsuarioCuenta::on('mysql_clientes')
+                ->where('email', $email)
+                ->exists();
+
+            return [$exists ? collect([$email]) : collect(), $email];
+        }
+
+        // RFC
+        $rfc = strtoupper(preg_replace('/\s+/', '', $id));
+        $cuentas = CuentaCliente::on('mysql_clientes')
+            ->whereRaw('UPPER(rfc_padre) = ?', [$rfc])
+            ->orWhereRaw('UPPER(rfc) = ?', [$rfc])
+            ->get(['id']);
+
+        if ($cuentas->isEmpty()) {
+            return [collect(), $rfc];
+        }
+
+        $emails = UsuarioCuenta::on('mysql_clientes')
+            ->whereIn('cuenta_id', $cuentas->pluck('id'))
+            ->whereNotNull('email')
+            ->pluck('email')
+            ->map(fn($e) => strtolower(trim((string) $e)))
+            ->filter(fn($e) => $e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL))
+            ->unique()
+            ->values();
+
+        return [$emails, $rfc];
     }
 }

@@ -67,7 +67,10 @@
 
     $urlFree   = Route::has('cliente.registro.free')   ? route('cliente.registro.free')   : '#';
     $urlPro    = Route::has('cliente.registro.pro')    ? route('cliente.registro.pro')    : '#';
-    $forgotUrl = Route::has('cliente.password.forgot') ? route('cliente.password.forgot') : '#';
+    $forgotUrl = Route::has('cliente.password.forgot')
+    ? route('cliente.password.forgot')
+    : url('/cliente/password/forgot'); // ✅ fallback real, nunca #
+
   @endphp
 
   <div class="theme-switch">

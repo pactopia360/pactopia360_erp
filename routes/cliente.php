@@ -276,8 +276,11 @@ Route::middleware(['guest:web'])->group(function () use (
     $noCsrfLocal,
     $throttleLogin,
     $throttleRegister,
-    $throttleVerifyResend
+    $throttleVerifyResend,
+    $throttlePassEmail,
+    $throttlePassReset
 ) {
+
 
     // AUTH
     Route::get('login', [ClienteLogin::class, 'showLogin'])->name('login');
@@ -324,11 +327,28 @@ Route::middleware(['guest:web'])->group(function () use (
         ->middleware('signed')
         ->name('verify.email.signed');
 
-    // RESET PASSWORD (si existe)
-    // Route::get('password/forgot', [PasswordController::class, 'forgot'])->name('password.forgot');
-    // Route::post('password/email', [PasswordController::class, 'email'])->middleware($throttlePassEmail)->name('password.email');
-    // Route::get('password/reset/{token}', [PasswordController::class, 'reset'])->name('password.reset');
-    // Route::post('password/reset', [PasswordController::class, 'update'])->middleware($throttlePassReset)->name('password.update');
+    // ==========================================================
+    // ✅ RESET PASSWORD (CLIENTE) — PRO (email o RFC) + TTL + throttle
+    // ==========================================================
+    Route::get('password/forgot', [PasswordController::class, 'showLinkRequestForm'])
+        ->name('password.forgot');
+
+    $passEmail = Route::post('password/email', [PasswordController::class, 'sendResetLinkEmail'])
+        ->middleware($throttlePassEmail)
+        ->name('password.email');
+
+    Route::get('password/reset/{token}', [PasswordController::class, 'showResetForm'])
+        ->where('token', '[A-Za-z0-9\-\_]+')
+        ->name('password.reset');
+
+    $passReset = Route::post('password/reset', [PasswordController::class, 'reset'])
+        ->middleware($throttlePassReset)
+        ->name('password.update');
+
+    // En local puedes quitar CSRF si tu flujo lo requiere (tú ya lo usas en login/registro)
+    $noCsrfLocal($passEmail);
+    $noCsrfLocal($passReset);
+
 });
 
 /*
