@@ -2174,36 +2174,47 @@ final class AccountBillingController extends Controller
      * - billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
      * - Por eso aceptamos "account refs" (int|string|array) y consultamos por whereIn.
      */
-    private function loadRowsFromAdminBillingStatements($accountRef, int $limit = 24): array
+    private function loadRowsFromAdminBillingStatements(int $accountId, int $limit = 24): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
+        if ($accountId <= 0) return [];
         if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
 
-        // Normaliza refs a array único de strings (incluye ints como string).
+        // =========================================================
+        // ✅ FIX: billing_statements.account_id en prod puede ser INT o UUID
+        // - INT = admin_account_id
+        // - UUID = cuentas_cliente.id (char36) asociado al admin_account_id
+        // Por eso armamos refs y hacemos whereIn()
+        // =========================================================
         $refs = [];
-        $push = static function (&$refs, $v): void {
-            if ($v === null) return;
-            if (is_bool($v)) return;
-            if (is_int($v)) { $refs[] = (string) $v; return; }
-            if (is_string($v)) {
-                $s = trim($v);
-                if ($s !== '') $refs[] = $s;
-                return;
-            }
-            if (is_numeric($v)) {
-                $refs[] = (string) $v;
-                return;
-            }
-        };
+        try {
+            $refs[] = (string) $accountId;
+            $refs[] = $accountId; // por si guardaron int puro (pero lo casteamos abajo)
 
-        if (is_array($accountRef)) {
-            foreach ($accountRef as $v) $push($refs, $v);
-        } else {
-            $push($refs, $accountRef);
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                $uuidCols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                if (in_array('id', $uuidCols, true) && in_array('admin_account_id', $uuidCols, true)) {
+                    $uuids = DB::connection($cli)->table('cuentas_cliente')
+                        ->where('admin_account_id', $accountId)
+                        ->pluck('id')
+                        ->map(fn($x) => trim((string) $x))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
+                    $refs = array_merge($refs, $uuids);
+                }
+            }
+
+            // normaliza a strings
+            $refs = array_values(array_unique(array_map(fn($x) => trim((string) $x), $refs)));
+            $refs = array_values(array_filter($refs, fn($x) => $x !== ''));
+
+        } catch (\Throwable $e) {
+            // si falla, al menos intenta con el int
+            $refs = [(string)$accountId];
         }
-
-        $refs = array_values(array_unique(array_filter($refs, static fn($x) => is_string($x) && $x !== '')));
-        if (empty($refs)) return [];
 
         try {
             $cols = Schema::connection($adm)->getColumnListing('billing_statements');
@@ -2212,19 +2223,24 @@ final class AccountBillingController extends Controller
 
             if (!$has('account_id') || !$has('period')) return [];
 
-            $sel = ['account_id', 'period'];
+            $sel = ['account_id','period'];
             foreach (['total_cargo','total_abono','saldo','status','due_date','paid_at'] as $c) {
                 if ($has($c)) $sel[] = $c;
             }
 
             $orderCol = $has('period') ? 'period' : ($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]));
 
-            // ✅ PROD safe: account_id puede ser uuid o int; usamos whereIn strings.
             $items = DB::connection($adm)->table('billing_statements')
                 ->whereIn('account_id', $refs)
                 ->orderByDesc($orderCol)
                 ->limit(max(1, $limit))
                 ->get($sel);
+
+            Log::info('[BILLING] loadRowsFromAdminBillingStatements', [
+                'admin_account_id' => $accountId,
+                'refs'             => $refs,
+                'count'            => $items->count(),
+            ]);
 
             if ($items->isEmpty()) return [];
 
@@ -2240,14 +2256,12 @@ final class AccountBillingController extends Controller
                 if (is_numeric($it->saldo ?? null)) {
                     $saldo = (float)$it->saldo;
                 } else {
-                    // fallback: cargo - abono
                     $saldo = max(0.0, $cargo - $abono);
                 }
 
                 $st     = strtolower(trim((string)($it->status ?? 'pending')));
                 $paidAt = $it->paid_at ?? null;
 
-                // Paid robusto:
                 $paid = false;
                 if ($paidAt) $paid = true;
                 if (in_array($st, ['paid','succeeded','success','complete','completed','captured','confirmed'], true)) $paid = true;
@@ -2271,9 +2285,8 @@ final class AccountBillingController extends Controller
 
         } catch (\Throwable $e) {
             Log::warning('[BILLING] loadRowsFromAdminBillingStatements failed', [
-                'account_ref' => is_scalar($accountRef) ? (string)$accountRef : 'array',
-                'refs'        => $refs,
-                'err'         => $e->getMessage(),
+                'account_id' => $accountId,
+                'err'        => $e->getMessage(),
             ]);
             return [];
         }
