@@ -256,7 +256,7 @@ final class AccountBillingController extends Controller
         }
 
         // Fallback base (clientes.estados_cuenta)
-        $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
+        $rowsFallback = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
             $periods,
             $payAllowed,
@@ -292,44 +292,55 @@ final class AccountBillingController extends Controller
 
         $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
 
-        // ✅ DIAGNÓSTICO: confirma si entran statements y qué trae
         Log::info('[BILLING][DEBUG] statements probe', [
-            'account_id'                => $accountId,
-            'statement_refs'            => $statementRefs,
-            'rowsFromStatements_count'  => is_array($rowsFromStatements) ? count($rowsFromStatements) : 0,
-            'rowsFromStatements_sample' => array_slice((array) $rowsFromStatements, 0, 10),
+            'account_id'                  => $accountId,
+            'statement_refs'              => $statementRefs,
+            'rowsFromStatements_count'    => is_array($rowsFromStatements) ? count($rowsFromStatements) : 0,
+            'rowsFromStatements_sample'   => array_slice((array) $rowsFromStatements, 0, 5),
         ]);
 
+        // ==========================================================
+        // ✅ DECISIÓN: usar statements SOLO si dejan pendientes
+        // (en PROD hay "paid" con cargo=0 => no debemos vaciar la UI)
+        // ==========================================================
+        $rows = $rowsFallback;
+
         if (!empty($rowsFromStatements)) {
-            $rows = $rowsFromStatements;
+            $candidate = $rowsFromStatements;
 
             // Override por payments (si aplica)
-            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+            $candidate = $this->applyAdminPaidAmountOverrides($accountId, $candidate);
 
             // Solo pendientes
-            $rows = array_values(array_filter($rows, function ($rr) {
+            $pending = array_values(array_filter($candidate, function ($rr) {
                 $st    = strtolower((string) ($rr['status'] ?? 'pending'));
                 $saldo = (float) ($rr['saldo'] ?? 0);
                 return ($st !== 'paid') && ($saldo > 0.0001);
             }));
 
-            // ✅ DIAGNÓSTICO: confirma cuántos quedan pendientes
             Log::info('[BILLING][DEBUG] pending filter result', [
-                'account_id'          => $accountId,
-                'rows_pending_count'  => is_array($rows) ? count($rows) : 0,
-                'rows_pending_sample' => array_slice((array) $rows, 0, 10),
+                'account_id'        => $accountId,
+                'candidate_count'   => is_array($candidate) ? count($candidate) : 0,
+                'pending_count'     => is_array($pending) ? count($pending) : 0,
+                'pending_sample'    => array_slice((array) $pending, 0, 5),
             ]);
 
-            usort($rows, function ($a, $b) {
-                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
-            });
+            if (!empty($pending)) {
+                usort($pending, function ($a, $b) {
+                    return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+                });
 
-            // payAllowed = primer pendiente
-            if (!empty($rows)) {
-                $payAllowed = (string) ($rows[0]['period'] ?? $payAllowed);
+                // payAllowed = primer pendiente
+                $payAllowed = (string) ($pending[0]['period'] ?? $payAllowed);
+
+                $rows = $pending;
+            } else {
+                // ✅ Si statements no dejan pendientes, usamos fallback y mostramos SOLO payAllowed
+                $rows = $this->applyAdminPaidAmountOverrides($accountId, $rowsFallback);
+                $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
             }
         } else {
-            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rowsFallback);
             $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowed);
         }
 
@@ -388,6 +399,7 @@ final class AccountBillingController extends Controller
             'alias'                => $alias,
         ]);
     }
+
 
 
     /**
