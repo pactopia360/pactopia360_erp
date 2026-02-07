@@ -2348,22 +2348,8 @@ final class AccountBillingController extends Controller
 
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
 
-        $isPaidStatus = static function (string $s): bool {
-            $s = strtolower(trim($s));
-            return in_array($s, [
-                'paid', 'succeeded', 'success',
-                'complete', 'completed',
-                'captured', 'confirmed',
-            ], true);
-        };
-
-        $normProviderOk = static function ($prov): bool {
-            $p = strtolower(trim((string) $prov));
-            return $p === '' || $p === 'stripe';
-        };
-
         // =========================================================
-        // 1) ✅ SOT REAL: admin.payments
+        // 1) ✅ SOT: admin.payments
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('payments')) {
@@ -2407,23 +2393,11 @@ final class AccountBillingController extends Controller
 
                     $row = $q->orderByDesc('period')
                         ->orderByDesc($orderCol)
-                        ->first([
-                            'period',
-                            $has('status') ? 'status' : DB::raw('NULL as status'),
-                            $has('provider') ? 'provider' : DB::raw('NULL as provider'),
-                        ]);
+                        ->first(['period', 'status', 'provider']);
 
                     if ($row) {
                         $p = trim((string) ($row->period ?? ''));
-                        if ($p !== '' && $this->isValidPeriod($p)) {
-                            $stOk = true;
-                            if (isset($row->status)) $stOk = $isPaidStatus((string) $row->status);
-
-                            $prOk = true;
-                            if (isset($row->provider)) $prOk = $normProviderOk($row->provider);
-
-                            if ($stOk && $prOk) return $p;
-                        }
+                        if ($p !== '' && $this->isValidPeriod($p)) return $p;
                     }
                 }
             }
@@ -2435,63 +2409,44 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 1.5) ✅ FALLBACK: admin.billing_statements (MUY IMPORTANTE)
-        // - soporta account_id como INT o UUID
-        // - si aquí existe "paid" / saldo=0 / paid_at => ese es el último pagado real
+        // 1.5) ✅ FALLBACK SOT: admin.billing_statements (INT o UUID)
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('billing_statements')) {
-                // arma refs: adminId + uuids ligados
-                $refs = [(string)$accountId, (string)(int)$accountId];
-
-                $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-                if (Schema::connection($cli)->hasTable('cuentas_cliente') && Schema::connection($cli)->hasColumn('cuentas_cliente', 'admin_account_id')) {
-                    $uuids = DB::connection($cli)->table('cuentas_cliente')
-                        ->where('admin_account_id', $accountId)
-                        ->pluck('id')
-                        ->map(fn($x) => trim((string)$x))
-                        ->filter()
-                        ->unique()
-                        ->values()
-                        ->all();
-
-                    if (!empty($uuids)) $refs = array_merge($refs, $uuids);
-                }
-
-                $refs = array_values(array_unique(array_filter(array_map(fn($x)=>trim((string)$x), $refs))));
+                $refs = $this->billingStatementRefsForAdminAccount($accountId);
 
                 $cols = Schema::connection($adm)->getColumnListing('billing_statements');
                 $lc   = array_map('strtolower', $cols);
                 $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
                 if ($has('account_id') && $has('period')) {
-                    $sel = ['account_id','period'];
-                    foreach (['status','paid_at','saldo','total_cargo','total_abono','created_at','updated_at'] as $c) {
+                    $sel = ['account_id', 'period'];
+                    foreach (['status', 'paid_at', 'saldo', 'total_cargo', 'total_abono', 'created_at', 'updated_at'] as $c) {
                         if ($has($c)) $sel[] = $c;
                     }
 
                     $items = DB::connection($adm)->table('billing_statements')
                         ->whereIn('account_id', $refs)
                         ->orderByDesc('period')
-                        ->limit(48)
+                        ->limit(80)
                         ->get($sel);
 
                     foreach ($items as $it) {
                         $p = trim((string) ($it->period ?? ''));
                         if (!$this->isValidPeriod($p)) continue;
 
-                        $st = strtolower(trim((string)($it->status ?? '')));
+                        $st     = strtolower(trim((string) ($it->status ?? '')));
                         $paidAt = $it->paid_at ?? null;
-                        $saldo = is_numeric($it->saldo ?? null) ? (float)$it->saldo : null;
-                        $cargo = is_numeric($it->total_cargo ?? null) ? (float)$it->total_cargo : 0.0;
-                        $abono = is_numeric($it->total_abono ?? null) ? (float)$it->total_abono : 0.0;
+                        $saldo  = is_numeric($it->saldo ?? null) ? (float) $it->saldo : null;
+                        $cargo  = is_numeric($it->total_cargo ?? null) ? (float) $it->total_cargo : 0.0;
+                        $abono  = is_numeric($it->total_abono ?? null) ? (float) $it->total_abono : 0.0;
 
                         $paid = false;
                         if ($paidAt) $paid = true;
                         if (in_array($st, ['paid','succeeded','success','complete','completed','captured','confirmed'], true)) $paid = true;
                         if ($saldo !== null && $saldo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) $paid = true;
 
-                        if ($paid) return $p;
+                        if ($paid) return $p; // ya viene orderByDesc(period)
                     }
                 }
             }
@@ -2533,10 +2488,10 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 3) mysql_clientes.estados_cuenta
+        // 3) mysql_clientes.estados_cuenta (último recurso)
         // =========================================================
         try {
-            $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
             if (!Schema::connection($cli)->hasTable('estados_cuenta')) return null;
 
             $items = DB::connection($cli)->table('estados_cuenta')
@@ -2564,6 +2519,7 @@ final class AccountBillingController extends Controller
 
         return null;
     }
+
 
 
     private function resolveMonthlyCentsFromClientesEstadosCuenta(int $accountId, ?string $lastPaid, ?string $payAllowed): int
@@ -2834,6 +2790,51 @@ final class AccountBillingController extends Controller
     // =========================
     // (resto de helpers)
     // =========================
+
+    private function billingStatementRefsForAdminAccount(int $adminAccountId): array
+    {
+        $refs = [];
+
+        if ($adminAccountId > 0) {
+            $refs[] = (string) $adminAccountId;     // "3"
+            $refs[] = (string) (int) $adminAccountId; // "3" (redundante, pero ok)
+            $refs[] = $adminAccountId;              // 3 (por si alguien lo usa sin cast)
+        }
+
+        try {
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+
+            if (
+                $adminAccountId > 0 &&
+                Schema::connection($cli)->hasTable('cuentas_cliente') &&
+                Schema::connection($cli)->hasColumn('cuentas_cliente', 'admin_account_id')
+            ) {
+                $uuids = DB::connection($cli)->table('cuentas_cliente')
+                    ->where('admin_account_id', $adminAccountId)
+                    ->limit(500)
+                    ->pluck('id')
+                    ->map(fn ($x) => trim((string) $x))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                foreach ($uuids as $u) $refs[] = $u;
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // normaliza
+        $refs = array_values(array_unique(array_filter(array_map(
+            fn ($x) => trim((string) $x),
+            $refs
+        ))));
+
+        return $refs;
+    }
+
+
     private function resolveRfcAliasForUi(Request $req, int $adminAccountId): array
     {
         $u = Auth::guard('web')->user();
