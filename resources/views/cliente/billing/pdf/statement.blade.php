@@ -446,6 +446,8 @@
 
       {{-- PERIODO (justo debajo de ID) --}}
       <div class="card cardPeriodo">
+
+        {{-- Header: Periodo --}}
         <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <tr>
             <td class="b" style="font-size:12px;">Periodo:</td>
@@ -455,18 +457,39 @@
 
         <div class="sp6"></div>
 
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-          <tr><td class="mut">Impresión</td><td class="r b">{{ $printedAt->translatedFormat('d \\d\\e M Y') }}</td></tr>
-          <tr><td class="mut">Límite</td><td class="r b">{{ $dueAt->translatedFormat('d \\d\\e M Y') }}</td></tr>
-          <tr><td class="mut">Estatus</td><td class="r b">{{ $statusLabel }}</td></tr>
+        {{-- KV: Impresión / Límite / Estatus --}}
+        <table class="periodKv" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+          <tr>
+            <td class="mut">Impresión</td>
+            <td class="r b">{{ $printedAt->translatedFormat('d \\d\\e M Y') }}</td>
+          </tr>
+          <tr>
+            <td class="mut">Límite</td>
+            <td class="r b">{{ $dueAt->translatedFormat('d \\d\\e M Y') }}</td>
+          </tr>
+          <tr>
+            <td class="mut">Estatus</td>
+            <td class="r b">{{ $statusLabel }}</td>
+          </tr>
         </table>
 
+        {{-- ✅ Spacer DomPDF-safe: reparte la altura del cuadro (empuja el link hacia abajo) --}}
+        <div class="periodSpacer"></div>
+
+        {{-- Enlace de pago: inline, sin caja blanca, alineado a la derecha --}}
         @if($hasPay)
-          <div class="sp6"></div>
-          <div class="b xs">Enlace de pago:</div>
-          <div class="payLinkBox"><div class="linkMono">{{ $payUrlShort }}</div></div>
+          <table class="payLinkInlineRow" cellpadding="0" cellspacing="0" style="border-collapse:collapse; width:100%;">
+            <tr>
+              <td class="payLinkK b xs" style="width:92px; white-space:nowrap;">Enlace de pago:</td>
+              <td class="payLinkV r" style="text-align:right;">
+                <a href="{{ $payUrl }}" class="payLinkInlineA">Clic para pagar</a>
+              </td>
+            </tr>
+          </table>
         @endif
+
       </div>
+
     </td>
   </tr>
 </table>
@@ -538,10 +561,33 @@
       <td class="fL" style="vertical-align:top;">
         <div class="card cardBottom">
           <div class="payTitle">PAGA EN LÍNEA</div>
+
+          {{-- ✅ NUEVO: Transferencias (arriba de "Ingresa") --}}
+          <div class="sp6"></div>
+          <div class="transferTitle">TRANSFERENCIAS</div>
+
+          <table class="transferKv" cellpadding="0" cellspacing="0">
+            <tr>
+              <td class="k">Razón Social</td>
+              <td class="v b">PACTOPIA SAPI DE CV</td>
+            </tr>
+            <tr>
+              <td class="k">CTA CLABE</td>
+              <td class="v b mono">699180600008252099</td>
+            </tr>
+            <tr>
+              <td class="k">BANCO</td>
+              <td class="v b">FONDEADORA</td>
+            </tr>
+          </table>
+
+          <div class="sp6"></div>
+
           <div class="smallNote"><span class="b">Ingresa:</span> pactopia360.com/cliente/login</div>
           <div class="sp8"></div>
           <div class="alertRed">Si no tienes credenciales: soporte@pactopia.com</div>
         </div>
+
       </td>
 
       <td class="fC" style="vertical-align:top;">

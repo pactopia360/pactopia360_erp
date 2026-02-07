@@ -280,12 +280,15 @@ table{
    Periodo (alineado a Total/ID)
    ========================= */
 .cardPeriodo{
-  width: 320px;              /* mismo ancho que Total/ID */
+  width: 320px;
   max-width: 320px;
   display: block;
-  margin: 0;                 /* ✅ PEGADO: sin espacio arriba */
+  margin: 0;
   padding: 10px 12px;
   text-align: left;
+
+  /* ✅ Ajuste: menos alto (para igualar con el bloque izquierdo) */
+  min-height: 118px;     /* antes lo tenías muy alto (140/150). Ajusta 112–122 */
 }
 
 /* Contenedor interno */
@@ -427,7 +430,11 @@ table{
   box-sizing: border-box;
   overflow: hidden;
   padding: 8px 9px;
+
+  /* ✅ NUEVO: igualar altura visual de los 3 cuadros */
+  min-height: 172px;     /* si falta/ sobra, ajusta 165–185px */
 }
+
 
 /* ✅ Separación entre columnas (más pequeña para que no “infle”) */
 .fL .cardBottom{ margin-right: 8px; margin-left: -30px; } /* ✅ pega “PAGA EN LÍNEA” a la izquierda */
@@ -445,18 +452,57 @@ table{
 .fR .kv .k{ width:62%; }
 .fR .kv .v{ width:38%; white-space: nowrap; }
 
+/* =========================
+   ✅ Títulos footer centrados (PAGA EN LÍNEA / Desglose del importe)
+   - En Blade ambos usan <div class="payTitle">...</div>
+   ========================= */
 .payTitle{
-  font-size:9.9px;
-  font-weight:900;
-  margin-bottom:4px;
-  letter-spacing:.15px;
+  font-size: 9.9px;
+  font-weight: 900;       /* ✅ negritas */
+  margin-bottom: 4px;
+  letter-spacing: .15px;
+  text-align: center;     /* ✅ centrado */
+  display: block;
+  width: 100%;
 }
 
-.smallNote{
-  font-size:8.9px;
-  color:#111827;
-  line-height:1.14;
+
+/* =========================
+   Transferencias (dentro de PAGA EN LÍNEA)
+   ========================= */
+.transferTitle{
+  font-size:9.2px;
+  font-weight:900;
+  letter-spacing:.15px;
+  margin: 0 0 4px;
 }
+
+.transferKv{
+  width:100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.transferKv td{
+  padding: 1px 0;
+  font-size: 8.6px;
+  line-height: 1.12;
+  vertical-align: top;
+}
+
+.transferKv .k{
+  width: 42%;
+  color:#6b7280;
+  font-weight: 900;
+}
+
+.transferKv .v{
+  width: 58%;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
 
 .alertRed{
   background:#8b0000;
@@ -469,14 +515,23 @@ table{
 }
 
 /* QR */
+/* QR */
 .qrImg{
-  width:112px;
-  height:112px;
-  display:block;
-  margin:0 auto;
-  border-radius:12px;
-  background:#fff;
+  width: 140px;          /* ✅ más grande (si quieres más: 132–140) */
+  height: 140px;
+  display: block;
+  margin: 0 auto;        /* ✅ centrado horizontal */
+  border-radius: 12px;
+  background: #fff;
 }
+
+/* ✅ Centrado vertical del contenido del cuadro QR (DomPDF-safe) */
+.fC .cardBottom{
+  text-align: center;    /* ya lo tienes en Blade, aquí lo reforzamos */
+  padding-top: 10px;     /* empuja contenido hacia el centro visual */
+  padding-bottom: 10px;
+}
+
 
 /* Footer line */
 .footerLine{
@@ -487,3 +542,117 @@ table{
 
 /* No-break */
 .noBreak{ page-break-inside: avoid; }
+
+/* =========================================================
+   ✅ Desglose del importe — distribución real (DomPDF-safe)
+   - Sin absolute
+   - Sin flex
+   - “Llena” el alto con espaciados internos del KV + separadores
+   ========================================================= */
+
+/* 1) Aire arriba/abajo homogéneo del cuadro */
+.fR .cardBottom{
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* 2) KV: más alto por renglón + separación entre filas (esto “rellena” el cuadro) */
+.fR .kv td{
+  padding: 4px 0;
+  line-height: 1.26;      /* leve ajuste para que no se desborde al subir font */
+  font-size: 10px;       /* ✅ más grande */
+}
+
+/* Asegura ancho estable */
+.fR .kv .k{ width: 62%; }
+.fR .kv .v{
+  width: 38%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 3) Separador: que haga “bloque” central y empuje visualmente hacia abajo */
+.fR .hr{
+  margin: 12px 0;          /* ✅ ocupa más espacio (antes 8) */
+  height: 1px;
+}
+
+/* 4) Nota: sin empujar sola; solo un margen pequeño */
+.fR .smallNote{
+  font-size: 10px;       /* ✅ sube un poco */
+  margin-top: 8px;
+  line-height: 1.14;
+}
+
+/* ✅ Link de pago “bonito” en PDF (clicable) */
+.payLinkA{
+  display:block;
+  font-family: "Poppins", DejaVu Sans, Arial, sans-serif;
+  font-size: 9.2px;
+  font-weight: 900;
+  text-decoration: underline;   /* se ve como link */
+  color: #0b57d0;               /* azul link */
+  line-height: 1.15;
+}
+
+.payLinkHint{
+  margin-top: 2px;
+  font-family: DejaVu Sans Mono, ui-monospace, monospace;
+  font-size: 8.2px;
+  color:#6b7280;
+  line-height: 1.10;
+}
+
+/* =========================================================
+   ✅ Enlace de pago INLINE (sin caja blanca) — Card Periodo
+   ========================================================= */
+.payLinkInlineRow{
+  margin-top: 2px;
+}
+
+.payLinkInlineA{
+  display: inline-block;
+  font-size: 9.0px;
+  font-weight: 900;
+  color:#0b57d0;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+
+/* =========================================================
+   ✅ Periodo — distribución vertical (DomPDF-safe)
+   OBJETIVO:
+   - Bajar Impresión/Límite/Estatus (más aire ARRIBA)
+   - Casi cero aire entre Estatus y Enlace (menos aire ABAJO)
+   ========================================================= */
+
+/* separa un poco las filas de Impresión/Límite/Estatus */
+.periodKv td{
+  padding: 2px 0;
+  line-height: 1.18;
+}
+
+/* ✅ NUEVO: baja el bloque de Impresión/Límite/Estatus */
+.periodTopGap{
+  height: 10px;     /* ajusta 8–12 según gusto */
+}
+
+/* ✅ Aire mínimo entre Estatus y Enlace */
+.periodSpacer{
+  height: 20px;      /* antes 20px (demasiado) */
+}
+
+/* Enlace inline alineado a la derecha */
+.payLinkInlineRow{
+  margin-top: 0;    /* evita hueco extra */
+}
+
+.payLinkInlineA{
+  display: inline-block;
+  font-size: 9.2px;
+  font-weight: 900;
+  color:#0b57d0;
+  text-decoration: underline;
+  white-space: nowrap;
+}
