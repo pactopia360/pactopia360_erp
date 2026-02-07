@@ -281,19 +281,56 @@
     }
   } catch (\Throwable $e) {}
 
-  // Service items
-  $serviceItems = [];
-  $si = $service_items ?? null;
-  if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
+    // ======================================================
+    // ✅ Service label SOT (backend lo manda como service_label)
+    // - Evita fallback "Servicio mensual" cuando es anual
+    // ======================================================
+    $serviceLabel = trim((string)($service_label ?? ''));
+    if ($serviceLabel === '') $serviceLabel = 'Servicio mensual';
 
-  if (is_array($si) && count($si) > 0) {
-    $serviceItems = $si;
-  } else {
-    $consumosRaw = $consumos ?? null;
-    if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
-    $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
-  }
-  if (!is_array($serviceItems)) $serviceItems = [];
+    // ======================================================
+    // ✅ Service items (normalización compat)
+    // - Prefiere service_items (moderno)
+    // - Fallback a consumos (legacy)
+    // ======================================================
+    $serviceItems = [];
+    $si = $service_items ?? null;
+    if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
+
+    if (is_array($si) && count($si) > 0) {
+      $serviceItems = $si;
+    } else {
+      $consumosRaw = $consumos ?? null;
+      if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
+      $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
+    }
+    if (!is_array($serviceItems)) $serviceItems = [];
+
+    // Normaliza keys comunes para que la tabla siempre renderice bien
+    // (sin obligarte a cambiar el backend)
+    $serviceItems = array_values(array_map(function ($it) {
+      $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
+
+      // nombre
+      $name = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
+
+      // unit
+      $unit = $row['unit_cost'] ?? $row['unit_price'] ?? $row['costo_unit'] ?? $row['costo'] ?? $row['importe'] ?? 0;
+
+      // qty
+      $qty  = $row['qty'] ?? $row['cantidad'] ?? 1;
+
+      // subtotal
+      $sub  = $row['subtotal'] ?? $row['total'] ?? null;
+
+      return [
+        'name'       => $name,
+        'unit_price' => $unit,
+        'qty'        => $qty,
+        'subtotal'   => $sub,
+      ];
+    }, $serviceItems));
+
 
   // Insert saldo anterior como línea (si aplica)
   if ($showPrev) {
@@ -452,12 +489,16 @@
       @if(!empty($serviceItems))
         @foreach($serviceItems as $it)
           @php
-            $row  = is_array($it) ? (object)$it : (is_object($it) ? $it : (object)[]);
-            $name = (string)($row->service ?? $row->name ?? $row->servicio ?? $row->concepto ?? $row->title ?? 'Servicio');
-            $unit = $f($row->unit_cost ?? $row->unit_price ?? $row->costo_unit ?? $row->costo ?? $row->importe ?? 0);
-            $qty  = $f($row->qty ?? $row->cantidad ?? 1);
+            $rowArr = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
+            $name   = (string)($rowArr['name'] ?? $rowArr['service'] ?? $rowArr['servicio'] ?? $rowArr['concepto'] ?? $rowArr['title'] ?? 'Servicio');
+
+            $unit   = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
+
+            $qty    = $f($rowArr['qty'] ?? $rowArr['cantidad'] ?? 1);
             if ($qty <= 0) $qty = 1;
-            $sub  = $f($row->subtotal ?? $row->total ?? ($unit * $qty));
+
+            $sub    = $f($rowArr['subtotal'] ?? $rowArr['total'] ?? ($unit * $qty));
+
           @endphp
           <tr>
             <td class="sb">{{ $name }}</td>
@@ -468,12 +509,13 @@
         @endforeach
       @else
         <tr>
-          <td class="sb">Servicio mensual</td>
-          <td class="r">$ {{ number_format($totalPagar, 2) }}</td>
+          <td class="sb">{{ $serviceLabel }}</td>
+          <td class="r">$ {{ number_format($currentDue, 2) }}</td>
           <td class="c">1</td>
-          <td class="r">$ {{ number_format($totalPagar, 2) }}</td>
+          <td class="r">$ {{ number_format($currentDue, 2) }}</td>
         </tr>
       @endif
+
 
       {{-- ✅ Pad para llenar alto sin empujar footer --}}
       @for($i=0; $i<$padRows; $i++)
@@ -551,13 +593,22 @@
 
           <table class="kv" cellpadding="0" cellspacing="0">
             @if($showPrev)
-              <tr><td class="k sb">Saldo anterior:</td><td class="v">$ {{ number_format($prevBalance, 2) }}</td></tr>
-              <tr><td class="k sb">Periodo:</td><td class="v">$ {{ number_format($currentDue, 2) }}</td></tr>
+              <tr>
+                <td class="k sb">Saldo anterior:</td>
+                <td class="v">$ {{ number_format($prevBalance, 2) }}</td>
+              </tr>
             @endif
+
+            <tr>
+              <td class="k sb">Periodo actual:</td>
+              <td class="v">$ {{ number_format($currentDue, 2) }}</td>
+            </tr>
+
             <tr><td class="k sb">Subtotal:</td><td class="v">$ {{ number_format($subtotal, 2) }}</td></tr>
             <tr><td class="k sb">IVA 16%:</td><td class="v">$ {{ number_format($iva, 2) }}</td></tr>
             <tr><td class="k sb">Total:</td><td class="v b">$ {{ number_format($totalPagar, 2) }}</td></tr>
           </table>
+
 
           <div class="hr"></div>
           <div class="smallNote"><span class="b">Nota:</span> El reflejo puede tardar minutos.</div>
