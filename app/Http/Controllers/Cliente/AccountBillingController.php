@@ -292,6 +292,14 @@ final class AccountBillingController extends Controller
 
         $rowsFromStatements = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
 
+        // ✅ DIAGNÓSTICO: confirma si entran statements y qué trae
+        Log::info('[BILLING][DEBUG] statements probe', [
+            'account_id'                => $accountId,
+            'statement_refs'            => $statementRefs,
+            'rowsFromStatements_count'  => is_array($rowsFromStatements) ? count($rowsFromStatements) : 0,
+            'rowsFromStatements_sample' => array_slice((array) $rowsFromStatements, 0, 10),
+        ]);
+
         if (!empty($rowsFromStatements)) {
             $rows = $rowsFromStatements;
 
@@ -304,6 +312,13 @@ final class AccountBillingController extends Controller
                 $saldo = (float) ($rr['saldo'] ?? 0);
                 return ($st !== 'paid') && ($saldo > 0.0001);
             }));
+
+            // ✅ DIAGNÓSTICO: confirma cuántos quedan pendientes
+            Log::info('[BILLING][DEBUG] pending filter result', [
+                'account_id'          => $accountId,
+                'rows_pending_count'  => is_array($rows) ? count($rows) : 0,
+                'rows_pending_sample' => array_slice((array) $rows, 0, 10),
+            ]);
 
             usort($rows, function ($a, $b) {
                 return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
@@ -373,6 +388,7 @@ final class AccountBillingController extends Controller
             'alias'                => $alias,
         ]);
     }
+
 
     /**
      * ==========================================================
