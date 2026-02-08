@@ -381,14 +381,65 @@ class LoginController extends Controller
         }
 
 
+                // =========================================================
+        // ✅ AUTENTICAR AL USUARIO EN LARAVEL (faltaba esto)
+        // Si no hacemos login(), SIEMPRE regresará al /cliente/login.
+        // =========================================================
+        try {
+            // Regenera sesión para evitar fixation y asegurar persistencia
+            $request->session()->regenerate();
+
+            // Preferido: login con instancia (requiere Authenticatable)
+            Auth::guard('web')->login($usuario, $remember);
+
+            // Extra: confirma en sesión actual
+            $request->session()->put('p360.auth_ok', true);
+            $request->session()->put('p360.auth_user_id', $usuario->id);
+
+        } catch (\Throwable $e) {
+            // Fallback ultra-safe: login por ID
+            try {
+                $request->session()->regenerate();
+                Auth::guard('web')->loginUsingId($usuario->id, $remember);
+                $request->session()->put('p360.auth_ok', true);
+                $request->session()->put('p360.auth_user_id', $usuario->id);
+            } catch (\Throwable $e2) {
+                // Si esto falla, NO hay forma de sesión auth -> regresará al login
+                Log::error('[CLIENTE_LOGIN] AUTH FAIL', [
+                    'req' => $reqId,
+                    'user_id' => $usuario->id ?? null,
+                    'e1' => $e->getMessage(),
+                    'e2' => $e2->getMessage(),
+                ]);
+
+                $this->hitThrottle($request, $identifier);
+                return $this->failBack(
+                    'No fue posible iniciar sesión (auth).',
+                    $identifier,
+                    $diag,
+                    $reqId,
+                    'E_AUTH_FAIL'
+                );
+            }
+        }
+
         $this->clearThrottle($request, $identifier);
 
+        // Log en PRODUCCIÓN también (no solo local)
+        Log::info('[CLIENTE_LOGIN] OK', [
+            'req' => $reqId,
+            'user_id' => $usuario->id ?? null,
+            'email' => $usuario->email ?? null,
+            'cuenta_id' => $cuenta->id ?? null,
+            'guard_check' => Auth::guard('web')->check(),
+        ]);
 
         $this->d($diag, $reqId, 'LOGIN OK', [
             'user_id' => $usuario->id,
             'email'   => $usuario->email,
             'cuenta'  => $cuenta->id ?? null,
         ]);
+
 
         if ($this->hasCol('mysql_clientes', 'usuarios_cuenta', 'must_change_password') && (bool) ($usuario->must_change_password ?? false)) {
             $this->flashDiag($diag, $reqId);
