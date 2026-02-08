@@ -17,7 +17,7 @@ final class InjectModulesState
 
     public function handle(Request $request, Closure $next)
     {
-        $adminAccountId = (int) (ClientSessionConfig::resolveAdminAccountId() ?: 0);
+        $adminAccountId = (int) (ClientSessionConfig::resolveAdminAccountId($request) ?: 0);
 
         // Default seguro: si no se resuelve cuenta, no bloqueamos UI; se queda vacío.
         $modulesState = [];

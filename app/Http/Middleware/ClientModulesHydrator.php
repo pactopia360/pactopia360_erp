@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
@@ -10,7 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-final class ClientSessionHydrate
+final class ClientModulesHydrator
 {
     private const MOD_ACTIVE   = 'active';
     private const MOD_INACTIVE = 'inactive';
@@ -19,14 +21,26 @@ final class ClientSessionHydrate
 
     public function handle(Request $request, Closure $next)
     {
-        // ✅ Si no hay session store aún, no hacemos nada
-        $hasSessionStore = method_exists($request, 'hasSession') ? $request->hasSession() : false;
-        if (!$hasSessionStore) return $next($request);
+        // =========================================================
+        // BYPASS ADMIN (misma lógica por seguridad)
+        // =========================================================
+        try {
+            $routeName = optional($request->route())->getName();
 
+            if ($request->is('admin', 'admin/*')) return $next($request);
+            if (is_string($routeName) && $routeName !== '' && str_starts_with($routeName, 'admin.')) return $next($request);
+            if (Auth::guard('admin')->check()) return $next($request);
+        } catch (\Throwable $e) {
+            return $next($request);
+        }
+
+        // =========================================================
+        // Desde aquí YA existe session store (porque este middleware
+        // debe correr DESPUÉS de StartSession).
+        // =========================================================
         try {
             $user = Auth::guard('web')->user();
 
-            // ✅ Si no hay usuario: limpiar módulos (evita arrastre)
             if (!$user) {
                 $this->clearModulesSession($request);
                 return $next($request);
@@ -35,18 +49,18 @@ final class ClientSessionHydrate
             // Asegurar relación cuenta para admin_account_id
             try { if (method_exists($user, 'loadMissing')) $user->loadMissing('cuenta'); } catch (\Throwable $e) {}
 
-            $accountId = $this->resolveAccountId($user);
+            $accountId = $this->resolveAdminAccountId($user);
 
-            // ✅ SIEMPRE espejamos keys legacy (aunque no refresquemos módulos)
+            // Espejo legacy (account_id int) + cuenta_id UUID (si aplica)
             $this->mirrorLegacyAccountKeys($request, $accountId, $user);
 
             // Gate refresh
             $lastAccountId = (int) $request->session()->get('p360.account_id', 0);
 
-            $ttlSec     = (int) (config('p360.modules_state_ttl', 60));
-            $lastHydTs  = (int) $request->session()->get('p360.modules_synced_at', 0);
-            $nowTs      = time();
-            $ttlExpired = ($lastHydTs <= 0) || (($nowTs - $lastHydTs) >= $ttlSec);
+            $ttlSec      = (int) (config('p360.modules_state_ttl', 60));
+            $lastHydTs   = (int) $request->session()->get('p360.modules_synced_at', 0);
+            $nowTs       = time();
+            $ttlExpired  = ($lastHydTs <= 0) || (($nowTs - $lastHydTs) >= $ttlSec);
 
             $adminVersion   = $this->readAdminModulesUpdatedAt($accountId);
             $lastVersion    = (string) $request->session()->get('p360.modules_version', '');
@@ -62,29 +76,31 @@ final class ClientSessionHydrate
                 $request->session()->put('p360.modules_access',  $bundle['access']);
                 $request->session()->put('p360.modules_visible', $bundle['visible']);
 
-                // Compat legacy: p360.modules (bool visible)
+                // Compat legacy: p360.modules bool = visible
                 $legacyModules = [];
-                foreach ($bundle['visible'] as $k => $isVisible) $legacyModules[$k] = (bool) $isVisible;
+                foreach ($bundle['visible'] as $k => $isVisible) {
+                    $legacyModules[$k] = (bool) $isVisible;
+                }
                 $request->session()->put('p360.modules', $legacyModules);
 
                 $request->session()->put('p360.modules_synced_at', $nowTs);
                 $request->session()->put('p360.modules_version', (string)($adminVersion ?? ''));
 
-                if (app()->environment(['local','development','testing'])) {
-                    Log::debug('ClientSessionHydrate.modules_bundle', [
-                        'account_id'     => $accountId,
-                        'ttlExpired'     => $ttlExpired,
-                        'versionChanged' => $versionChanged,
-                        'adminVersion'   => $adminVersion,
-                        'lastVersion'    => $lastVersion,
-                        'state_sample'   => array_slice($bundle['state'], 0, 10, true),
-                        'visible_sample' => array_slice($bundle['visible'], 0, 10, true),
-                        'access_sample'  => array_slice($bundle['access'], 0, 10, true),
+                if (app()->environment(['local', 'development', 'testing'])) {
+                    Log::debug('ClientModulesHydrator.bundle', [
+                        'account_id'      => $accountId,
+                        'ttlExpired'      => $ttlExpired,
+                        'versionChanged'  => $versionChanged,
+                        'adminVersion'    => $adminVersion,
+                        'lastVersion'     => $lastVersion,
+                        'state_sample'    => array_slice($bundle['state'], 0, 10, true),
+                        'visible_sample'  => array_slice($bundle['visible'], 0, 10, true),
+                        'access_sample'   => array_slice($bundle['access'], 0, 10, true),
                     ]);
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning('ClientSessionHydrate: no se pudo cargar módulos', [
+            Log::warning('ClientModulesHydrator: no se pudo cargar módulos', [
                 'err'   => $e->getMessage(),
                 'path'  => $request->path(),
                 'route' => optional($request->route())->getName(),
@@ -96,56 +112,41 @@ final class ClientSessionHydrate
 
     private function clearModulesSession(Request $request): void
     {
-        // SOT moderno
-        $request->session()->forget('p360.account_id');
-        $request->session()->forget('p360.modules_state');
-        $request->session()->forget('p360.modules_access');
-        $request->session()->forget('p360.modules_visible');
-        $request->session()->forget('p360.modules');
-        $request->session()->forget('p360.modules_synced_at');
-        $request->session()->forget('p360.modules_version');
+        $request->session()->forget([
+            'p360.account_id',
+            'p360.modules_state',
+            'p360.modules_access',
+            'p360.modules_visible',
+            'p360.modules',
+            'p360.modules_synced_at',
+            'p360.modules_version',
 
-        // Legacy
-        $request->session()->forget('account_id');
-        $request->session()->forget('client.account_id');
-        $request->session()->forget('client_account_id');
+            'account_id',
+            'client.account_id',
+            'client_account_id',
 
-        $request->session()->forget('cuenta_id');
-        $request->session()->forget('client.cuenta_id');
-        $request->session()->forget('client_cuenta_id');
+            'cuenta_id',
+            'client.cuenta_id',
+            'client_cuenta_id',
+        ]);
     }
 
     private function mirrorLegacyAccountKeys(Request $request, int $accountId, object $user): void
     {
+        // admin account id (int)
         if ($accountId > 0) {
             $request->session()->put('account_id', $accountId);
             $request->session()->put('client.account_id', $accountId);
             $request->session()->put('client_account_id', $accountId);
         } else {
-            $request->session()->forget('account_id');
-            $request->session()->forget('client.account_id');
-            $request->session()->forget('client_account_id');
+            $request->session()->forget(['account_id','client.account_id','client_account_id']);
         }
 
+        // cuenta UUID (string) desde usuario_cuenta.cuenta_id
         $cuentaId = null;
-
         try {
             if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
                 $cuentaId = trim((string) $user->cuenta_id);
-            }
-        } catch (\Throwable $e) { $cuentaId = null; }
-
-        try {
-            if (!$cuentaId && isset($user->account_id) && is_string($user->account_id) && trim($user->account_id) !== '') {
-                $maybe = trim((string) $user->account_id);
-                if (ctype_digit($maybe)) {
-                    try {
-                        $exists = CuentaCliente::on('mysql_clientes')->where('id', (int)$maybe)->exists();
-                        if ($exists) $cuentaId = $maybe;
-                    } catch (\Throwable $e) {}
-                } else {
-                    $cuentaId = $maybe;
-                }
             }
         } catch (\Throwable $e) {}
 
@@ -154,55 +155,36 @@ final class ClientSessionHydrate
             $request->session()->put('client.cuenta_id', $cuentaId);
             $request->session()->put('client_cuenta_id', $cuentaId);
         } else {
-            $request->session()->forget('cuenta_id');
-            $request->session()->forget('client.cuenta_id');
-            $request->session()->forget('client_cuenta_id');
+            $request->session()->forget(['cuenta_id','client.cuenta_id','client_cuenta_id']);
         }
 
-        $request->session()->put('p360.account_id', (int)$accountId);
+        $request->session()->put('p360.account_id', (int) $accountId);
     }
 
-    private function resolveAccountId(object $user): int
+    private function resolveAdminAccountId(object $user): int
     {
+        // 1) relación cuenta->admin_account_id
         try {
             if (isset($user->cuenta) && is_object($user->cuenta)) {
                 $adm = $user->cuenta->admin_account_id ?? null;
-                if (is_numeric($adm) && (int)$adm > 0) return (int)$adm;
+                if (is_numeric($adm) && (int) $adm > 0) return (int) $adm;
             }
         } catch (\Throwable $e) {}
 
+        // 2) por cuentas_cliente.id (uuid) -> admin_account_id
         try {
-            $cuentaId = null;
-
+            $cuentaUuid = null;
             if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
-                $cuentaId = trim((string)$user->cuenta_id);
-            } elseif (isset($user->account_id) && is_string($user->account_id) && trim($user->account_id) !== '') {
-                $cuentaId = trim((string)$user->account_id);
+                $cuentaUuid = trim((string) $user->cuenta_id);
             }
 
-            if ($cuentaId && ctype_digit($cuentaId)) {
-                $row = CuentaCliente::on('mysql_clientes')->find((int)$cuentaId);
-                $adm = $row?->admin_account_id ?? null;
-                if (is_numeric($adm) && (int)$adm > 0) return (int)$adm;
-            }
-
-            $email = '';
-            $rfc   = '';
-
-            if (isset($user->email)) $email = strtolower(trim((string)$user->email));
-            if (isset($user->rfc))   $rfc   = strtoupper(trim((string)$user->rfc));
-
-            if ($rfc !== '') {
-                $adm = (int)(CuentaCliente::on('mysql_clientes')->whereRaw('UPPER(rfc)=?', [$rfc])->value('admin_account_id') ?? 0);
-                if ($adm > 0) return $adm;
-            }
-
-            if ($email !== '') {
-                $adm = (int)(CuentaCliente::on('mysql_clientes')->whereRaw('LOWER(email)=?', [$email])->value('admin_account_id') ?? 0);
+            if ($cuentaUuid) {
+                $adm = (int) (CuentaCliente::on('mysql_clientes')->where('id', $cuentaUuid)->value('admin_account_id') ?? 0);
                 if ($adm > 0) return $adm;
             }
         } catch (\Throwable $e) {}
 
+        // 3) prop directa
         if (isset($user->admin_account_id) && is_numeric($user->admin_account_id) && (int)$user->admin_account_id > 0) {
             return (int)$user->admin_account_id;
         }
@@ -214,7 +196,9 @@ final class ClientSessionHydrate
     {
         $defaultsState = $this->catalogDefaultsState();
 
-        if ($accountId <= 0) return $this->bundleFromState($defaultsState);
+        if ($accountId <= 0) {
+            return $this->bundleFromState($defaultsState);
+        }
 
         $cacheKey = 'p360:mods:acct:' . $accountId;
 
@@ -236,45 +220,55 @@ final class ClientSessionHydrate
             $access[$k]  = ($st === self::MOD_ACTIVE);
         }
 
-        return ['state'=>$state,'access'=>$access,'visible'=>$visible];
+        return [
+            'state'   => $state,
+            'access'  => $access,
+            'visible' => $visible,
+        ];
     }
 
     private function normState(mixed $s): string
     {
-        $s = strtolower(trim((string)$s));
-        return in_array($s, [self::MOD_ACTIVE,self::MOD_INACTIVE,self::MOD_HIDDEN,self::MOD_BLOCKED], true)
+        $s = strtolower(trim((string) $s));
+        return in_array($s, [self::MOD_ACTIVE, self::MOD_INACTIVE, self::MOD_HIDDEN, self::MOD_BLOCKED], true)
             ? $s
             : self::MOD_ACTIVE;
     }
 
     private function catalogDefaultsState(): array
     {
-        // ✅ Default conservador: NO “habilitar todo” por default.
-        // Lo que no venga del admin, mejor hidden (evita mostrar chat/otros por error).
         $keys = [
-            'mi_cuenta','estado_cuenta','pagos','facturas',
-            'facturacion','sat_descargas','boveda_fiscal',
-            'nomina','crm','pos','inventario','reportes',
-            'integraciones','chat','alertas','marketplace',
+            'mi_cuenta',
+            'estado_cuenta',
+            'pagos',
+            'facturas',
+
+            'facturacion',
+            'sat_descargas',
+            'boveda_fiscal',
+            'nomina',
+            'crm',
+            'pos',
+            'inventario',
+            'reportes',
+            'integraciones',
+            'chat',
+            'alertas',
+            'marketplace',
             'configuracion_avanzada',
         ];
 
         $out = [];
-        foreach ($keys as $k) $out[$k] = self::MOD_HIDDEN;
-
-        // ✅ Pero estos sí conviene que existan visibles si no hay config (core mínimo)
-        $out['sat_descargas'] = self::MOD_ACTIVE;
-        $out['boveda_fiscal'] = self::MOD_ACTIVE;
-
+        foreach ($keys as $k) $out[$k] = self::MOD_ACTIVE;
         return $out;
     }
 
     private function readModulesStateFromAdminAccounts(int $accountId): array
     {
-        $adm = (string)(config('p360.conn.admin') ?: 'mysql_admin');
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
         $row = DB::connection($adm)->table('accounts')
-            ->select(['id','meta'])
+            ->select(['id', 'meta'])
             ->where('id', $accountId)
             ->first();
 
@@ -301,7 +295,7 @@ final class ClientSessionHydrate
             foreach ($legacy as $k => $v) {
                 $k = is_string($k) ? trim($k) : '';
                 if ($k === '') continue;
-                $out[$k] = ((bool)$v) ? self::MOD_ACTIVE : self::MOD_INACTIVE;
+                $out[$k] = ((bool) $v) ? self::MOD_ACTIVE : self::MOD_INACTIVE;
             }
         }
 
@@ -313,8 +307,8 @@ final class ClientSessionHydrate
         if ($accountId <= 0) return null;
 
         try {
-            $adm  = (string)(config('p360.conn.admin') ?: 'mysql_admin');
-            $meta = DB::connection($adm)->table('accounts')->where('id',$accountId)->value('meta');
+            $adm  = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+            $meta = DB::connection($adm)->table('accounts')->where('id', $accountId)->value('meta');
             if (!is_string($meta) || trim($meta) === '') return null;
 
             $m = json_decode($meta, true);

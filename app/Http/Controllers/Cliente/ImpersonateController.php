@@ -6,113 +6,109 @@ namespace App\Http\Controllers\Cliente;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cliente\UsuarioCuenta;
-use Illuminate\Http\RedirectResponse;
+use App\Support\ClientSessionConfig;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
-class ImpersonateController extends Controller
+final class ImpersonateController extends Controller
 {
     /**
-     * Consume un token (1 solo uso) y hace login del OWNER
-     * bajo el contexto CLIENTE (cookie/path del grupo 'cliente').
+     * Consume token 1-uso generado por Admin\ClientesController@impersonate().
+     * Ruta: cliente.impersonate.consume (signed)
      */
-    public function consume(Request $request, string $token): RedirectResponse
+    public function consume(Request $request, string $token)
     {
+        ClientSessionConfig::applyCookie();
+
         $token = trim((string) $token);
-        if ($token === '') {
-            return redirect()->route('cliente.login')->withErrors([
-                'login' => 'Impersonación inválida.',
-            ]);
-        }
+        if ($token === '') abort(404);
 
-        // ✅ 1-uso atómico: pull = get + delete
         $key  = "impersonate.token.$token";
-        $data = Cache::pull($key);
+        $pack = Cache::get($key);
 
-        if (!is_array($data) || empty($data['owner_id'])) {
-            return redirect()->route('cliente.login')->withErrors([
-                'login' => 'Impersonación inválida o expirada.',
-            ]);
+        if (!is_array($pack)) {
+            abort(403, 'Token inválido o expirado.');
         }
 
-        $ownerId = (string) $data['owner_id'];
+        // 1-uso
+        Cache::forget($key);
+
+        $ownerId   = (string) ($pack['owner_id'] ?? '');
+        $adminId   = (string) ($pack['admin_id'] ?? '');
+        $rfc       = (string) ($pack['rfc'] ?? '');
+        $accountId = (int)    ($pack['account_id'] ?? 0);
+
+        if ($ownerId === '' || $accountId <= 0) {
+            abort(403, 'Token incompleto.');
+        }
 
         $owner = UsuarioCuenta::on('mysql_clientes')->find($ownerId);
-        if (!$owner || !(int) $owner->activo) {
-            return redirect()->route('cliente.login')->withErrors([
-                'login' => 'Usuario owner no disponible.',
-            ]);
-        }
+        abort_if(!$owner, 404, 'Usuario no encontrado.');
+        abort_if(!(int) ($owner->activo ?? 0), 403, 'Usuario inactivo.');
 
-        // Limpia cualquier sesión cliente previa
+        // ✅ CLAVE: borrar llaves de cuenta/módulos ANTES de loguear
+        ClientSessionConfig::hardReset($request);
+
         try {
             Auth::guard('web')->logout();
-        } catch (\Throwable $e) {
-            // ignore
-        }
+        } catch (\Throwable $e) {}
 
-        // ✅ Endurecer contra session fixation
-        try {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        } catch (\Throwable $e) {
-            // ignore (por si la sesión aún no está inicializada en algún edge)
-        }
-
-        // ✅ Login bajo cookie cliente (porque ESTA request está en grupo 'cliente')
         Auth::guard('web')->login($owner, false);
 
-        // ✅ Regenera después del login también (doble capa)
-        try {
-            $request->session()->regenerate();
-            $request->session()->regenerateToken();
-        } catch (\Throwable $e) {
-            // ignore
-        }
+        // Seguridad: nuevo ID de sesión
+        $request->session()->regenerate();
 
-        // Flags de auditoría en sesión CLIENTE
-        $request->session()->put([
-            'impersonated'          => true,
-            'impersonated_by_admin' => (string) ($data['admin_id'] ?? ''),
-            'impersonated_rfc'      => (string) (($data['rfc'] ?? '') ?: ($data['account_id'] ?? '')),
+        // ✅ CLAVE: setear account_id correcto en todas las llaves (p360 + legacy)
+        ClientSessionConfig::setAccountId($request, $accountId);
+
+        // Marca impersonación
+        $request->session()->put('impersonated_by_admin', [
+            'admin_id'   => $adminId,
+            'account_id' => $accountId,
+            'rfc'        => $rfc,
+            'at'         => now()->toISOString(),
+        ]);
+
+        Log::info('cliente.impersonate.consume', [
+            'owner_id'   => $ownerId,
+            'account_id' => $accountId,
+            'admin_id'   => $adminId,
+            'rfc'        => $rfc,
+            'ip'         => $request->ip(),
         ]);
 
         return redirect()->route('cliente.home');
     }
 
     /**
-     * Cierra sesión cliente (impersonación) y regresa al listado admin.
-     * (No intenta restaurar sesión admin, porque son cookies separadas por path).
+     * STOP canónico (POST) + compat (GET) — rutas ya existen en routes/cliente.php
      */
-    public function stop(Request $request): RedirectResponse
+    public function stop(Request $request)
     {
+        ClientSessionConfig::applyCookie();
+
+        // Borra banderas de impersonación + cuenta/módulos
+        try {
+            ClientSessionConfig::hardReset($request);
+        } catch (\Throwable $e) {}
+
+        try {
+            $request->session()->forget('impersonated_by_admin');
+        } catch (\Throwable $e) {}
+
         try {
             Auth::guard('web')->logout();
-        } catch (\Throwable $e) {
-            // ignore
-        }
+        } catch (\Throwable $e) {}
 
-        // Limpia flags de impersonación
-        try {
-            $request->session()->forget([
-                'impersonated',
-                'impersonated_by_admin',
-                'impersonated_rfc',
-            ]);
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        // ✅ Seguridad: invalidar sesión cliente
         try {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-        } catch (\Throwable $e) {
-            // ignore
-        }
+        } catch (\Throwable $e) {}
 
-        // Admin usa otra cookie (/admin). Al redirigir, el browser enviará la cookie admin.
-        return redirect()->route('admin.clientes.index')->with('ok', 'Sesión de cliente finalizada.');
+        return redirect()
+            ->route('cliente.login')
+            ->with('info', 'Impersonación finalizada.');
     }
 }

@@ -52,18 +52,16 @@ class Kernel extends HttpKernel
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
 
-            \App\Http\Middleware\VerifyCsrfToken::class,
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
-
             // ✅ DESPUÉS de StartSession (ya existe session store)
             \App\Http\Middleware\ClientSessionHydrate::class,
 
-            // Tus middlewares de módulos (se quedan igual)
+            \App\Http\Middleware\VerifyCsrfToken::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+
+            // Módulos (se quedan igual)
             \App\Http\Middleware\Cliente\InjectModulesState::class,
             \App\Http\Middleware\ShareClientModules::class,
         ],
-
-
 
         /**
          * ✅ ADMIN: config de sesión ANTES de StartSession
@@ -113,9 +111,14 @@ class Kernel extends HttpKernel
         'auth.admin'       => \App\Http\Middleware\Authenticate::class,
         'auth.web'         => \App\Http\Middleware\Authenticate::class,
 
-        // Aislamiento de sesión por sub-plataforma (alias, por si los sigues usando)
+        // Aislamiento de sesión por sub-plataforma (alias legacy/compat)
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
         'session.cliente'  => \App\Http\Middleware\ClientPortalBootstrap::class,
+
+        // ✅ Alias compat para rutas viejas (si aún existe en routes/cliente.php)
+        // IMPORTANTÍSIMO: evita que “solo se arregle con F5” por no correr hydrate donde lo esperas.
+        'cliente.hydrate_modules' => \App\Http\Middleware\ClientSessionHydrate::class,
+        'cliente.bootstrap'       => \App\Http\Middleware\ClientPortalBootstrap::class,
 
         'phone.verified'   => \App\Http\Middleware\EnsurePhoneVerified::class,
     ];
@@ -145,11 +148,15 @@ class Kernel extends HttpKernel
         'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
         'session.cliente'  => \App\Http\Middleware\ClientPortalBootstrap::class,
 
+        // ✅ Alias compat
+        'cliente.hydrate_modules' => \App\Http\Middleware\ClientSessionHydrate::class,
+        'cliente.bootstrap'       => \App\Http\Middleware\ClientPortalBootstrap::class,
+
         'phone.verified'   => \App\Http\Middleware\EnsurePhoneVerified::class,
     ];
 
     /**
-     * Prioridad (ok dejarla, pero lo importante ya quedó en grupos).
+     * Prioridad.
      */
     protected $middlewarePriority = [
         \App\Http\Middleware\AdminSessionConfig::class,
@@ -164,5 +171,4 @@ class Kernel extends HttpKernel
         \Illuminate\Routing\Middleware\ThrottleRequests::class,
         \Illuminate\Routing\Middleware\SubstituteBindings::class,
     ];
-
 }

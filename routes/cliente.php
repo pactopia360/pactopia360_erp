@@ -431,7 +431,8 @@ Route::view('terminos', 'legal.terminos')->name('terminos');
 |   Ya viene ClientSessionConfig dentro del grupo middleware "cliente"
 |   (y además debe correr ANTES de StartSession).
 */
-Route::middleware(['auth:web', 'account.active', 'cliente.hydrate_modules'])
+Route::middleware(['auth:web', 'account.active'])
+
     ->group(function () use ($throttleBillingPay, $throttleAlerts, $throttleChat, $throttleHomeData) {
 
         // HOME

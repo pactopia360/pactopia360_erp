@@ -1,4 +1,4 @@
-{{-- resources/views/components/client/sidebar.blade.php (v5.2 – Client Sidebar · label+desc + SOT módulos) --}}
+{{-- resources/views/components/client/sidebar.blade.php (v5.3.1 – Client Sidebar · label+desc + SOT módulos · FIX: bootstrapNoSotYet en closure + fallback oculto) --}}
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Str;
@@ -16,42 +16,46 @@
     return null;
   };
 
-  /**
-   * =========================
-   * MÓDULOS desde sesión (SOT Admin)
-   * =========================
-   * p360.modules_state[key]   = active|inactive|hidden|blocked
-   * p360.modules_access[key]  = bool (true SOLO active)
-   * p360.modules_visible[key] = bool (false si hidden)
-   * fallback legacy: p360.modules[key] = bool
-   */
-  $modsState   = session('p360.modules_state', []);
-  $modsAccess  = session('p360.modules_access', []);
-  $modsVisible = session('p360.modules_visible', []);
-  $legacyMods  = session('p360.modules', []);
+  // =========================
+  // MÓDULOS desde sesión (SOT Admin)
+  // =========================
+  // SOT:
+  //   p360.modules_state[key] = active|inactive|hidden|blocked
+  //
+  // fallback legacy:
+  //   p360.modules[key] = bool
+  $modsState  = session('p360.modules_state', []);
+  $legacyMods = session('p360.modules', []);
 
-  $stateOf = function(string $key) use ($modsState, $legacyMods): string {
+  $hasSot    = is_array($modsState) && count($modsState) > 0;
+  $hasLegacy = is_array($legacyMods) && count($legacyMods) > 0;
+
+  // Si no hay SOT ni legacy, NO inventar activos: ocultar módulos (salvo Inicio/Config).
+  $bootstrapNoSotYet = (!$hasSot && !$hasLegacy);
+
+  $stateOf = function (string $key) use ($modsState, $legacyMods, $bootstrapNoSotYet): string {
     if (is_array($modsState) && array_key_exists($key, $modsState)) {
-      $v = strtolower(trim((string)$modsState[$key]));
+      $v = strtolower(trim((string) $modsState[$key]));
       return in_array($v, ['active','inactive','hidden','blocked'], true) ? $v : 'active';
     }
+
     if (is_array($legacyMods) && array_key_exists($key, $legacyMods)) {
-      return ((bool)$legacyMods[$key]) ? 'active' : 'inactive';
+      return ((bool) $legacyMods[$key]) ? 'active' : 'inactive';
     }
-    return 'active';
+
+    // ✅ Bootstrap conservador: oculto hasta que la sesión esté poblada
+    return $bootstrapNoSotYet ? 'hidden' : 'active';
   };
 
-  $isVisible = function(string $key) use ($modsVisible, $stateOf): bool {
-    if (is_array($modsVisible) && array_key_exists($key, $modsVisible)) return (bool)$modsVisible[$key];
+  $isVisible = function (string $key) use ($stateOf): bool {
     return $stateOf($key) !== 'hidden';
   };
 
-  $canAccess = function(string $key) use ($modsAccess, $stateOf): bool {
-    if (is_array($modsAccess) && array_key_exists($key, $modsAccess)) return (bool)$modsAccess[$key];
+  $canAccess = function (string $key) use ($stateOf): bool {
     return $stateOf($key) === 'active';
   };
 
-  $lockTitle = function(string $label, string $state): string {
+  $lockTitle = function (string $label, string $state): string {
     return match($state) {
       'blocked'  => $label.' (Módulo bloqueado por el administrador)',
       'inactive' => $label.' (Módulo deshabilitado por el administrador)',
@@ -72,10 +76,10 @@
   $rtEstadoCta   = $try('cliente.estado_cuenta') ?: url('/cliente/estado-de-cuenta');
   $rtLogout      = $try('cliente.logout') ?: url('/cliente/logout');
 
-  $resolveRoute = function(array $routeTry, ?string $fallback = null) use ($try) {
+  $resolveRoute = function (array $routeTry, ?string $fallback = null) use ($try) {
     foreach ($routeTry as $rn) {
       if (!$rn) continue;
-      $u = $try((string)$rn);
+      $u = $try((string) $rn);
       if ($u) return $u;
     }
     return $fallback;
@@ -105,9 +109,9 @@
   $rtCfgAdv      = $resolveRoute(['cliente.config.avanzada','cliente.configuracion.avanzada','cliente.config.index','cliente.configuracion.index'], null);
 
   // =========================
-  // Activos
+  // Activos (robustos)
   // =========================
-  $isHome     = request()->routeIs('cliente.home');
+  $isHome     = request()->routeIs('cliente.home') || request()->is('cliente/home');
   $isMiCuenta = request()->routeIs('cliente.mi_cuenta.*') || request()->is('cliente/mi-cuenta*');
   $isEstado   = request()->routeIs('cliente.estado_cuenta') || request()->is('cliente/estado-de-cuenta*');
 
@@ -115,6 +119,8 @@
   $isSat      = request()->routeIs('cliente.sat.*') || request()->is('cliente/sat*');
   $isDown     = request()->routeIs('cliente.sat.descargas.*') || request()->is('cliente/sat/descargas*');
   $isVault    = request()->routeIs('cliente.vault.*') || request()->is('cliente/vault*') || request()->is('cliente/boveda*');
+
+  $isCfg      = request()->is('cliente/config*') || request()->is('cliente/configuracion*') || request()->routeIs('cliente.mi_cuenta.*');
 
   // Inicia expanded (layout manda isOpen=true normalmente)
   $dataState = $isOpen ? 'expanded' : 'collapsed';
@@ -169,10 +175,14 @@
     'Cerrar sesión' => 'Salir de la plataforma',
   ];
 
-  // =========================
-  // Render item (label + desc)
-  // =========================
-  $renderItem = function(string $key, string $label, ?string $url, bool $active, string $icon, bool $always = false) use (
+  $renderItem = function (
+    string $key,
+    string $label,
+    ?string $url,
+    bool $active,
+    string $icon,
+    bool $always = false
+  ) use (
     $stateOf, $isVisible, $canAccess, $lockTitle, $routeMissingTitle, $svgLock, $desc
   ) {
     if (!$always && !$isVisible($key)) return '';
@@ -202,16 +212,13 @@
     return '<a href="'.e($url).'" class="tip '.($active?'active':'').'" '.($active?'aria-current="page"':'').' title="'.e($label).'">'.$icon.$tx.'</a>';
   };
 
-  // =========================
-  // Builder de grupos: SOLO renderiza si hay items
-  // =========================
-  $renderGroupIfAny = function(string $title, string $htmlItems, string $titleId, bool $accordion = true) {
+  $renderGroupIfAny = function (string $title, string $htmlItems, string $titleId, bool $accordion = true, bool $open = true) {
     $htmlItems = trim((string)$htmlItems);
     if ($htmlItems === '') return '';
 
     if ($accordion) {
       return '
-        <details class="nav-acc" open>
+        <details class="nav-acc" '.($open?'open':'').'>
           <summary class="nav-title" id="'.e($titleId).'"><span class="pill">'.e($title).'</span></summary>
           '.$htmlItems.'
         </details>
@@ -226,9 +233,7 @@
     ';
   };
 
-  // =========================
-  // Construimos HTML de grupos dinámicos
-  // =========================
+  // Grupos
   $htmlCuenta = '';
   $htmlCuenta .= $renderItem('mi_cuenta','Mi cuenta',$rtMiCuenta,$isMiCuenta,$svgUser,false);
   $htmlCuenta .= $renderItem('estado_cuenta','Estado de cuenta',$rtEstadoCta,$isEstado,$svgBill,false);
@@ -262,6 +267,10 @@
     $svgGear,
     false
   );
+
+  // Open accordions
+  $openCuenta  = (bool) ($isMiCuenta || $isEstado || request()->is('cliente/mi-cuenta*') || request()->is('cliente/estado-de-cuenta*'));
+  $openModulos = (bool) ($isFact || $isSat || $isDown || $isVault);
 @endphp
 
 @once
@@ -298,13 +307,13 @@
         {!! $renderItem('__always__','Inicio',$rtHome,$isHome,$svgHome,true) !!}
       </div>
 
-      {!! $renderGroupIfAny('Cuenta',  $htmlCuenta,  'nav-title-cta', true) !!}
-      {!! $renderGroupIfAny('Módulos', $htmlModulos, 'nav-title-mod', true) !!}
+      {!! $renderGroupIfAny('Cuenta',  $htmlCuenta,  'nav-title-cta', true, $openCuenta) !!}
+      {!! $renderGroupIfAny('Módulos', $htmlModulos, 'nav-title-mod', true, $openModulos) !!}
 
       <div class="nav-group" aria-labelledby="nav-title-cfg">
         <div class="nav-title" id="nav-title-cfg"><span class="pill">Configuración</span></div>
 
-        {!! $renderItem('__always__','Configuración',$rtMiCuenta,$isMiCuenta,$svgGear,true) !!}
+        {!! $renderItem('__always__','Configuración',$rtMiCuenta,$isCfg,$svgGear,true) !!}
         {!! $htmlConfigAdv !!}
 
         <form method="POST" action="{{ $rtLogout }}" id="logoutForm-{{ $id }}-{{ $inst }}">

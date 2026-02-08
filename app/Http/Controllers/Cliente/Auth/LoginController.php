@@ -18,7 +18,11 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Schema as SchemaFacade;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+
 use App\Support\ClientAuth;
+use App\Support\ClientSessionConfig as ClientSess;
+
 
 class LoginController extends Controller
 {
@@ -328,9 +332,57 @@ class LoginController extends Controller
             }
         }
 
-        Auth::guard('web')->login($usuario, $remember);
-        $request->session()->regenerate();
+        // =========================================================
+        // ✅ HARD RESET (selectivo) para evitar "arrastre" de cuenta
+        // - borra p360.* + legacy account_id + módulos
+        // - NO toca url.intended ni CSRF ni throttle
+        // - OJO: NO borres verify/paywall aquí porque tú los seteas arriba.
+        // =========================================================
+        try {
+            ClientSess::forgetAccountAndModulesKeys($request);
+        } catch (\Throwable $e) {
+            // nunca bloquear login por esto
+        }
+
+
+        // =========================================================
+        // ✅ Set inmediato de accountId + HIDRATAR módulos YA
+        // Esto evita el bug: “al primer render salen módulos de más y con F5 se corrige”.
+        // =========================================================
+        try {
+            $adminAccountId = 0;
+
+            if (!empty($accAdmin) && isset($accAdmin->id) && is_numeric($accAdmin->id)) {
+                $adminAccountId = (int) $accAdmin->id;
+            } elseif (!empty($cuenta) && isset($cuenta->admin_account_id) && is_numeric($cuenta->admin_account_id)) {
+                $adminAccountId = (int) $cuenta->admin_account_id;
+            }
+
+            if ($adminAccountId > 0) {
+                // ✅ SOT + legacy (unificado)
+                ClientSess::setAccountId($request, $adminAccountId);
+
+                // ✅ Forzar reload cache por account
+                try { Cache::forget('p360:mods:acct:' . $adminAccountId); } catch (\Throwable) {}
+
+                // ✅ HIDRATAR módulos en sesión en ESTE request (clave del fix)
+                $this->hydrateModulesNow($request, $adminAccountId);
+            } else {
+                // Si no hay admin id, garantizamos que NO quede uno viejo
+                $request->session()->forget([
+                    'p360.account_id','p360.admin_account_id',
+                    'p360.modules_state','p360.modules_access','p360.modules_visible','p360.modules',
+                    'p360.modules_synced_at','p360.modules_version',
+                    'account_id','client.account_id','client_account_id','client_account_id2',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // no bloquear login
+        }
+
+
         $this->clearThrottle($request, $identifier);
+
 
         $this->d($diag, $reqId, 'LOGIN OK', [
             'user_id' => $usuario->id,
@@ -351,6 +403,12 @@ class LoginController extends Controller
     {
         // ✅ Asegura que el logout opere sobre la sesión/cookie del portal cliente
         Config::set('session.cookie', 'p360_client_session');
+
+        // ✅ Limpia llaves de cuenta/módulos/legacy para evitar arrastre al siguiente login
+        try {
+            ClientSessionConfig::forgetAccountAndModulesKeys($request);
+        } catch (\Throwable $e) {}
+
 
         $request->session()->forget('impersonated_by_admin');
 
@@ -778,4 +836,106 @@ class LoginController extends Controller
             'post_verify.remember' => $remember,
         ]);
     }
+
+    /**
+     * ✅ Hidratación inmediata de módulos (SOT) dentro del request de login.
+     * Evita que el primer render de /cliente/home use defaults y muestre módulos ocultos.
+     */
+    private function hydrateModulesNow(Request $request, int $accountId): void
+    {
+        if ($accountId <= 0) return;
+
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        // Defaults: por seguridad, si meta no trae algo, lo consideramos active (igual que middleware),
+        // PERO aquí la clave es que SÍ leamos el meta real en este request.
+        $keys = [
+            'mi_cuenta',
+            'estado_cuenta',
+            'pagos',
+            'facturas',
+            'facturacion',
+            'sat_descargas',
+            'boveda_fiscal',
+            'nomina',
+            'crm',
+            'pos',
+            'inventario',
+            'reportes',
+            'integraciones',
+            'chat',
+            'alertas',
+            'marketplace',
+            'configuracion_avanzada',
+        ];
+
+        $defaultsState = [];
+        foreach ($keys as $k) $defaultsState[$k] = 'active';
+
+        $row = DB::connection($adm)->table('accounts')
+            ->select(['id','meta'])
+            ->where('id', $accountId)
+            ->first();
+
+        $metaArr = [];
+        if ($row && !empty($row->meta) && is_string($row->meta)) {
+            $tmp = json_decode($row->meta, true);
+            if (is_array($tmp)) $metaArr = $tmp;
+        }
+
+        $state = $defaultsState;
+
+        // Preferir SOT: modules_state
+        $ms = $metaArr['modules_state'] ?? null;
+        if (is_array($ms)) {
+            foreach ($ms as $k => $v) {
+                if (!is_string($k) || trim($k) === '') continue;
+                $vv = strtolower(trim((string)$v));
+                if (!in_array($vv, ['active','inactive','hidden','blocked'], true)) $vv = 'active';
+                $state[trim($k)] = $vv;
+            }
+        } else {
+            // Legacy: modules bool
+            $legacy = $metaArr['modules'] ?? null;
+            if (is_array($legacy)) {
+                foreach ($legacy as $k => $v) {
+                    if (!is_string($k) || trim($k) === '') continue;
+                    $state[trim($k)] = ((bool)$v) ? 'active' : 'inactive';
+                }
+            }
+        }
+
+        // Derivados
+        $visible = [];
+        $access  = [];
+        $legacyModulesBool = [];
+
+        foreach ($state as $k => $st) {
+            $st = strtolower(trim((string)$st));
+            if (!in_array($st, ['active','inactive','hidden','blocked'], true)) $st = 'active';
+
+            $visible[$k] = ($st !== 'hidden');
+            $access[$k]  = ($st === 'active');
+            $legacyModulesBool[$k] = (bool) $visible[$k]; // compat v3.x
+        }
+
+        // modules_updated_at para invalidación
+        $ver = '';
+        $mu = $metaArr['modules_updated_at'] ?? null;
+        if (is_string($mu) && trim($mu) !== '') $ver = trim($mu);
+
+        $nowTs = time();
+
+        $request->session()->put('p360.account_id', $accountId);
+        $request->session()->put('p360.admin_account_id', $accountId);
+
+        $request->session()->put('p360.modules_state',   $state);
+        $request->session()->put('p360.modules_access',  $access);
+        $request->session()->put('p360.modules_visible', $visible);
+        $request->session()->put('p360.modules',         $legacyModulesBool);
+
+        $request->session()->put('p360.modules_synced_at', $nowTs);
+        $request->session()->put('p360.modules_version',   $ver);
+    }
+
 }
