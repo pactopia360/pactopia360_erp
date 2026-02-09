@@ -179,7 +179,8 @@ final class BillingStatementsController extends Controller
                 $meta = [];
             }
 
-            $lastPaid = $this->resolveLastPaidPeriodForAccount((int) $r->id, $meta);
+            $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $r->id, $meta);
+
             $payAllowed = $lastPaid
                 ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
                 : $period;
@@ -354,7 +355,8 @@ final class BillingStatementsController extends Controller
             $meta = [];
         }
 
-        $lastPaid = $this->resolveLastPaidPeriodForAccount((int) $accountId, $meta);
+        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
+
         $payAllowed = $lastPaid
             ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
             : $period;
@@ -474,7 +476,8 @@ final class BillingStatementsController extends Controller
             $meta = [];
         }
 
-        $lastPaid = $this->resolveLastPaidPeriodForAccount((int) $accountId, $meta);
+        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
+
         $payAllowed = $lastPaid
             ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
             : $period;
@@ -558,6 +561,51 @@ final class BillingStatementsController extends Controller
         ];
     }
 
+    /**
+     * Saldo anterior real = suma de saldos pendientes de periodos anteriores.
+     * - Si hay lastPaid, NO consideramos periodos <= lastPaid (ya quedaron “cerrados”).
+     * - Escanea hacia atrás hasta $maxMonths (seguridad).
+     *
+     * @return array{prev_period:?string, prev_balance:float}
+     */
+    private function computePrevOpenBalance(string $accountId, string $period, ?string $lastPaid, int $maxMonths = 24): array
+    {
+        $prevBalance = 0.0;
+        $prevPeriodMostRecent = null;
+
+        try {
+            $cur = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+
+            for ($i = 1; $i <= $maxMonths; $i++) {
+                $p = $cur->copy()->subMonthsNoOverflow($i)->format('Y-m');
+                if (!$this->isValidPeriod($p)) continue;
+
+                if ($lastPaid && $this->isValidPeriod($lastPaid) && $p <= $lastPaid) {
+                    break; // todo lo anterior ya no cuenta
+                }
+
+                $tot = $this->computeStatementTotalsForPeriod($accountId, $p);
+                $saldo = (float) ($tot['saldo'] ?? 0);
+
+                if ($saldo > 0.00001) {
+                    $prevBalance += $saldo;
+                    // el más reciente lo vamos guardando
+                    if ($prevPeriodMostRecent === null) $prevPeriodMostRecent = $p;
+                }
+            }
+        } catch (\Throwable $e) {
+            return ['prev_period' => null, 'prev_balance' => 0.0];
+        }
+
+        $prevBalance = round(max(0.0, $prevBalance), 2);
+
+        return [
+            'prev_period'  => $prevPeriodMostRecent,
+            'prev_balance' => $prevBalance,
+        ];
+    }
+
+
     // =========================================================
     // PDF / EMAIL DATA
     // =========================================================
@@ -575,21 +623,11 @@ final class BillingStatementsController extends Controller
         $abonoTot   = (float) ($cur['abono'] ?? 0);
         $saldoCur   = (float) ($cur['saldo'] ?? 0);
 
-        $prevPeriod = null;
-        $prevSaldo  = 0.0;
+        $prevInfo   = $this->computePrevOpenBalance((string)$accountId, (string)$period, $cur['last_paid'] ?? null);
+        $prevPeriod = $prevInfo['prev_period'] ?? null;
+        $prevSaldo  = (float) ($prevInfo['prev_balance'] ?? 0.0);
+        $prevSaldo  = round(max(0.0, $prevSaldo), 2);
 
-        try {
-            $prevPeriod = Carbon::createFromFormat('Y-m', $period)->subMonthNoOverflow()->format('Y-m');
-            if ($this->isValidPeriod($prevPeriod)) {
-                $prev = $this->computeStatementTotalsForPeriod($accountId, $prevPeriod);
-                $prevSaldo = (float) ($prev['saldo'] ?? 0);
-            }
-        } catch (\Throwable $e) {
-            $prevPeriod = null;
-            $prevSaldo  = 0.0;
-        }
-
-        $prevSaldo = round(max(0.0, $prevSaldo), 2);
 
         $totalDue = round(max(0.0, $saldoCur + $prevSaldo), 2);
 
@@ -2039,9 +2077,11 @@ final class BillingStatementsController extends Controller
         }
     }
 
-    private function resolveLastPaidPeriodForAccount(int $accountId, array $meta): ?string
+    private function resolveLastPaidPeriodForAccount(string $accountId, array $meta): ?string
     {
-        $key = (string) $accountId;
+        $key = trim((string)$accountId);
+        if ($key === '') return null;
+
         if (array_key_exists($key, $this->cacheLastPaid)) {
             return $this->cacheLastPaid[$key];
         }
@@ -2058,10 +2098,7 @@ final class BillingStatementsController extends Controller
                 data_get($meta, 'lastPaidAt'),
             ] as $v) {
                 $p = $this->parseToPeriod($v);
-                if ($p) {
-                    $lastPaid = $p;
-                    break;
-                }
+                if ($p) { $lastPaid = $p; break; }
             }
         } catch (\Throwable $e) {
             // ignore
@@ -2075,15 +2112,17 @@ final class BillingStatementsController extends Controller
 
                 if ($has('account_id') && $has('status') && $has('period')) {
                     $q = DB::connection($this->adm)->table('payments')
-                        ->where('account_id', $accountId)
+                        ->where('account_id', $key)
                         ->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
 
                     $row = $q->orderByDesc(
-                        $has('paid_at') ? 'paid_at' : ($has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]))
+                        $has('paid_at') ? 'paid_at'
+                        : ($has('created_at') ? 'created_at'
+                        : ($has('id') ? 'id' : $cols[0]))
                     )->first(['period']);
 
-                    if ($row && !empty($row->period) && $this->isValidPeriod((string) $row->period)) {
-                        $lastPaid = (string) $row->period;
+                    if ($row && !empty($row->period) && $this->isValidPeriod((string)$row->period)) {
+                        $lastPaid = (string)$row->period;
                     }
                 }
             } catch (\Throwable $e) {
@@ -2094,6 +2133,8 @@ final class BillingStatementsController extends Controller
         $this->cacheLastPaid[$key] = $lastPaid;
         return $lastPaid;
     }
+
+
 
     // =========================================================
     // PERIOD helpers
@@ -2302,7 +2343,8 @@ final class BillingStatementsController extends Controller
             $meta = [];
         }
 
-        $lastPaid = $this->resolveLastPaidPeriodForAccount((int) $accountId, $meta);
+        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
+
         $payAllowed = $lastPaid
             ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
             : $period;
