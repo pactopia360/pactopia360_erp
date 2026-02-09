@@ -2024,6 +2024,41 @@ HTML;
 
         $hasNombreComercial = $this->legacyHasColumn('clientes', 'nombre_comercial');
 
+        // ✅ PROD FIX: legacy.clientes exige email NOT NULL (sin default)
+        $hasEmail = $this->legacyHasColumn('clientes', 'email');
+
+        // Resolver email desde payload (puede venir como 'email' o como columna custom tipo 'correo_contacto')
+        $email = '';
+        foreach (['email', 'correo', 'mail', 'correo_contacto', 'contact_email'] as $k) {
+            if (!array_key_exists($k, $payload)) continue;
+            $cand = strtolower(trim((string) $payload[$k]));
+            if ($cand !== '' && filter_var($cand, FILTER_VALIDATE_EMAIL)) {
+                $email = $cand;
+                break;
+            }
+        }
+
+        // Si aún no hay email y el payload trae una key rara (ej: 'correo_contacto' por colEmail())
+        if ($email === '') {
+            foreach ($payload as $k => $v) {
+                if (!is_string($k)) continue;
+                if (!str_contains(strtolower($k), 'mail') && !str_contains(strtolower($k), 'correo') && strtolower($k) !== 'email') {
+                    continue;
+                }
+                $cand = strtolower(trim((string) $v));
+                if ($cand !== '' && filter_var($cand, FILTER_VALIDATE_EMAIL)) {
+                    $email = $cand;
+                    break;
+                }
+            }
+        }
+
+        // Default estable para no romper inserts
+        if ($email === '') {
+            $rfcSafe = preg_replace('/[^A-Z0-9]/', '', $rfc) ?: 'CLIENTE';
+            $email = strtolower($rfcSafe) . '@pactopia.local';
+        }
+
         $exists = DB::connection($this->legacyConn)->table('clientes')->where('rfc', $rfc)->first();
 
         if ($exists) {
@@ -2031,11 +2066,18 @@ HTML;
                 'razon_social' => $rs,
                 'updated_at'   => now(),
             ];
+
             if ($hasNombreComercial) {
                 $upd['nombre_comercial'] = $rs;
             }
 
+            // ✅ si existe columna email, mantenerla llena
+            if ($hasEmail) {
+                $upd['email'] = $email;
+            }
+
             DB::connection($this->legacyConn)->table('clientes')->where('rfc', $rfc)->update($upd);
+
         } else {
             $ins = [
                 'codigo'       => $this->genCodigoCliente(),
@@ -2045,13 +2087,20 @@ HTML;
                 'created_at'   => now(),
                 'updated_at'   => now(),
             ];
+
             if ($hasNombreComercial) {
                 $ins['nombre_comercial'] = $rs;
+            }
+
+            // ✅ CRÍTICO: evitar 1364 "email doesn't have a default value"
+            if ($hasEmail) {
+                $ins['email'] = $email;
             }
 
             DB::connection($this->legacyConn)->table('clientes')->insert($ins);
         }
     }
+
 
     private function genCodigoCliente(): string
     {
