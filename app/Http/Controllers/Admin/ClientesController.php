@@ -2661,23 +2661,29 @@ HTML;
 
             try {
                 $cnt = (int) $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->count();
+
                 if ($cnt > 1) {
                     // necesitamos RFC real para curar; lo resolvemos desde admin.accounts
                     $rfcReal = '';
                     try {
                         $rfcCol = $this->colRfcAdmin();
-                        $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $aid)->first([$rfcCol]);
-                        $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+                        $acc0 = DB::connection($this->adminConn)->table('accounts')->where('id', $aid)->first([$rfcCol]);
+                        $rfcReal = strtoupper(trim((string) ($acc0->{$rfcCol} ?? '')));
                     } catch (\Throwable $e) {
                         $rfcReal = '';
                     }
 
-                    $cuenta = $this->normalizeMirrorCuentaByAdminAccountId($aid, $rfcReal);
+                    // Si existe el normalizador, úsalo; si no, fallback a latest
+                    if (method_exists($this, 'normalizeMirrorCuentaByAdminAccountId')) {
+                        $cuenta = $this->normalizeMirrorCuentaByAdminAccountId($aid, $rfcReal);
+                    } else {
+                        $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->orderByDesc('updated_at')->first();
+                    }
                 } else {
                     $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->first();
                 }
             } catch (\Throwable $e) {
-                $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->first();
+                $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', (int) $accountId)->first();
             }
         }
 
@@ -2685,9 +2691,10 @@ HTML;
         $rfcReal = '';
         try {
             $rfcCol = $this->colRfcAdmin();
-            $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
-            $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+            $acc1 = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol, 'plan', 'plan_actual']);
+            $rfcReal = strtoupper(trim((string) ($acc1->{$rfcCol} ?? '')));
         } catch (\Throwable $e) {
+            $acc1 = null;
             $rfcReal = '';
         }
 
@@ -2719,31 +2726,64 @@ HTML;
 
         $upd = ['updated_at' => now()];
 
-        $plan         = $payload['plan'] ?? null;
+        // -------------------------------------------------------
+        // ✅ PLAN / PLAN_ACTUAL: NUNCA escribir NULL en plan_actual
+        // -------------------------------------------------------
+        $planInput = $payload['plan'] ?? null;
+        $planInput = is_string($planInput) ? trim($planInput) : $planInput;
+
+        // Si viene vacío, intenta resolverlo del SOT admin.accounts
+        if ($planInput === null || $planInput === '') {
+            try {
+                if (!isset($acc1)) {
+                    $acc1 = DB::connection($this->adminConn)->table('accounts')
+                        ->where('id', $accountId)
+                        ->first(['plan', 'plan_actual']);
+                }
+                $cand = (string) (($acc1->plan_actual ?? '') ?: ($acc1->plan ?? ''));
+                $cand = trim($cand);
+                if ($cand !== '') $planInput = $cand;
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        // Si sigue vacío: fallback seguro para NOT NULL (FREE)
+        if ($planInput === null || $planInput === '') {
+            $planInput = 'FREE';
+        }
+
+        // Solo si la tabla tiene columnas, y con valor NO vacío
+        if ($schemaCli->hasColumn('cuentas_cliente', 'plan') && is_string($planInput) && trim($planInput) !== '') {
+            $upd['plan'] = $planInput;
+        }
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual') && is_string($planInput) && trim($planInput) !== '') {
+            $upd['plan_actual'] = $planInput; // ✅ jamás NULL
+        }
+
+        // -------------------------------------------------------
+        // Billing fields (solo si existen)
+        // -------------------------------------------------------
         $billingCycle = $payload['billing_cycle'] ?? null;
+        $billingCycle = is_string($billingCycle) ? trim($billingCycle) : $billingCycle;
+
         $nextInvoice  = $payload['next_invoice_date'] ?? null;
 
-        // ✅ evitar null/'' en columnas NOT NULL (plan_actual)
-        if (is_string($plan)) {
-            $plan = trim($plan);
-            if ($plan === '') $plan = null;
+        if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle')) {
+            $upd['billing_cycle'] = ($billingCycle !== '') ? $billingCycle : ($cuenta->billing_cycle ?? null);
         }
 
-        // ✅ Solo tocar plan/plan_actual si viene un valor real
-        if ($plan !== null) {
-            if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))        $upd['plan'] = $plan;
-            if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) $upd['plan_actual'] = $plan;
+        if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) {
+            $upd['next_invoice_date'] = $nextInvoice ?: ($cuenta->next_invoice_date ?? null);
         }
-
-        if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle'))     $upd['billing_cycle'] = $billingCycle;
-        if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) $upd['next_invoice_date'] = $nextInvoice;
 
         // ✅ Mantener RFC real en espejo si existe la columna
         if ($schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
             try {
                 $rfcCol = $this->colRfcAdmin();
-                $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
-                $rfcReal2 = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+                $acc2 = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
+                $rfcReal2 = strtoupper(trim((string) ($acc2->{$rfcCol} ?? '')));
                 if ($rfcReal2 !== '') $upd['rfc'] = $rfcReal2;
             } catch (\Throwable $e) {
                 // ignore
@@ -2754,8 +2794,6 @@ HTML;
 
         $conn->table('cuentas_cliente')->where('id', $cuenta->id)->update($upd);
     }
-
-
 
     private function decodeMeta(mixed $meta): array
     {
