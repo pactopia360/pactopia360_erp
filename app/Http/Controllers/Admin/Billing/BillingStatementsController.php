@@ -561,6 +561,68 @@ final class BillingStatementsController extends Controller
         ];
     }
 
+     /**
+     * Un periodo solo debe considerarse "emitido" si hay evidencia real:
+     * - movimientos en estados_cuenta, o
+     * - pagos en payments (pending/paid/etc), o
+     * - override en billing_statement_status_overrides
+     */
+    private function hasStatementEvidence(string $accountId, string $period): bool
+    {
+        try {
+            // 1) estados_cuenta
+            if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+                $cnt = (int) DB::connection($this->adm)->table('estados_cuenta')
+                    ->where('account_id', $accountId)
+                    ->where('periodo', $period)
+                    ->count();
+
+                if ($cnt > 0) return true;
+            }
+
+            // 2) payments
+            if (Schema::connection($this->adm)->hasTable('payments')) {
+                $cols = Schema::connection($this->adm)->getColumnListing('payments');
+                $lc   = array_map('strtolower', $cols);
+                $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+                if ($has('account_id')) {
+                    $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
+
+                    if ($has('period')) {
+                        $q->where('period', $period);
+                    }
+
+                    // si no hay status, igual cuenta como evidencia
+                    if ($has('status')) {
+                        $q->whereIn('status', [
+                            'pending','requires_payment_method','requires_confirmation','requires_action','processing',
+                            'paid','succeeded','success','completed','complete','captured','authorized'
+                        ]);
+                    }
+
+                    if ((int) $q->count() > 0) return true;
+                }
+            }
+
+            // 3) overrides
+            if (Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+                $cnt = (int) DB::connection($this->adm)->table($this->overrideTable())
+                    ->where('account_id', $accountId)
+                    ->where('period', $period)
+                    ->count();
+
+                if ($cnt > 0) return true;
+            }
+        } catch (\Throwable $e) {
+            // en caso de error, mejor NO sumar prev para no inflar
+            return false;
+        }
+
+        return false;
+    }
+
+
     /**
      * Saldo anterior real = suma de saldos pendientes de periodos anteriores.
      * - Si hay lastPaid, NO consideramos periodos <= lastPaid (ya quedaron “cerrados”).
@@ -584,14 +646,19 @@ final class BillingStatementsController extends Controller
                     break; // todo lo anterior ya no cuenta
                 }
 
+                // ✅ FIX: no sumar meses "fantasma" sin evidencia real de statement
+                if (!$this->hasStatementEvidence($accountId, $p)) {
+                    continue;
+                }
+
                 $tot = $this->computeStatementTotalsForPeriod($accountId, $p);
                 $saldo = (float) ($tot['saldo'] ?? 0);
 
                 if ($saldo > 0.00001) {
                     $prevBalance += $saldo;
-                    // el más reciente lo vamos guardando
                     if ($prevPeriodMostRecent === null) $prevPeriodMostRecent = $p;
                 }
+
             }
         } catch (\Throwable $e) {
             return ['prev_period' => null, 'prev_balance' => 0.0];
