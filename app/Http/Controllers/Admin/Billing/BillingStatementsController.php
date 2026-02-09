@@ -1802,16 +1802,25 @@ final class BillingStatementsController extends Controller
             $lc   = array_map('strtolower', $cols);
             $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-            if (!$has('account_id')) {
+            if (!$has('account_id') || !$has('period')) {
                 return false;
             }
 
-            $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
+            $q = DB::connection($this->adm)->table('payments')
+                ->where('account_id', $accountId)
+                ->where('period', $period);
 
-            // si existe "period" filtramos; si no existe, no podemos usarlo como evidencia por periodo
-            if ($has('period')) {
-                $q->where('period', $period);
+            // =========================================================
+            // ✅ SOT (prev_balance):
+            // Payments cuentan como evidencia SOLO si están PAGADOS.
+            // Pending/open/incomplete NO deben crear "meses fantasma".
+            // =========================================================
+            if ($has('status')) {
+                $q->whereIn('status', [
+                    'paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized',
+                ]);
             } else {
+                // Si no hay columna status, mejor NO contar payments como evidencia (evita falsos positivos)
                 return false;
             }
 
@@ -1825,6 +1834,8 @@ final class BillingStatementsController extends Controller
             return false;
         }
     }
+
+
 
     private function hasOverrideForAccountPeriod(string $accountId, string $period): bool
     {
