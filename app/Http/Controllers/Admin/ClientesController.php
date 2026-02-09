@@ -553,11 +553,17 @@ HTML;
             if ($row) return $row;
         }
 
-        // 3) fallback: rfc_padre (en tu caso guarda RFC)
-        if ($rfc !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
-            $row = $connCli->table('cuentas_cliente')->whereRaw('UPPER(rfc_padre) = ?', [$rfc])->first();
+        // 3) fallback: rfc_padre (solo como RFC real, NO como accounts.id)
+        if (
+            $rfc !== ''
+            && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')
+        ) {
+            $row = $connCli->table('cuentas_cliente')
+                ->whereRaw('UPPER(rfc_padre) = ?', [$rfc])
+                ->first();
             if ($row) return $row;
         }
+
 
         return null;
     }
@@ -2471,99 +2477,25 @@ HTML;
         $schemaCli = Schema::connection('mysql_clientes');
         $connCli   = DB::connection('mysql_clientes');
 
-        // ================================
-        // ✅ NORMALIZACIÓN ANTI-DUPLICADOS
-        // ================================
-        // Regla: por account_id puede haber basura legacy (rfc_padre="14" etc).
-        // Preferimos SIEMPRE un winner con:
-        //  - admin_account_id = accounts.id
-        //  - y RFC real consistente (rfc o rfc_padre RFC-like)
-        //
-        // Si encontramos 2+ filas ligadas al mismo accountId, elegimos winner y
-        // desasociamos losers (admin_account_id=NULL) + marcamos razon_social.
-        try {
-            if ($schemaCli->hasTable('cuentas_cliente') && $schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
-
-                $dups = $connCli->table('cuentas_cliente')
-                    ->where('admin_account_id', (int) $acc->id)
-                    ->orderByDesc('updated_at')
-                    ->get(['id', 'admin_account_id', 'rfc', 'rfc_padre', 'razon_social', 'updated_at'])
-                    ->toArray();
-
-                if (count($dups) > 1) {
-
-                    $isRfcLike = static function (string $v): bool {
-                        $v = strtoupper(trim($v));
-                        if ($v === '') return false;
-                        if (strlen($v) < 12) return false;
-                        return (bool) (preg_match('/[A-Z]/', $v) && preg_match('/\d/', $v));
-                    };
-
-                    // Winner 1: rfc == rfcReal
-                    $winner = null;
-                    foreach ($dups as $r) {
-                        $rf = strtoupper(trim((string) ($r->rfc ?? '')));
-                        if ($rfcReal !== '' && $rf === $rfcReal) { $winner = $r; break; }
-                    }
-
-                    // Winner 2: rfc no vacío
-                    if (!$winner) {
-                        foreach ($dups as $r) {
-                            $rf = strtoupper(trim((string) ($r->rfc ?? '')));
-                            if ($rf !== '') { $winner = $r; break; }
-                        }
-                    }
-
-                    // Winner 3: rfc_padre RFC-like
-                    if (!$winner) {
-                        foreach ($dups as $r) {
-                            $rp = strtoupper(trim((string) ($r->rfc_padre ?? '')));
-                            if ($isRfcLike($rp)) { $winner = $r; break; }
-                        }
-                    }
-
-                    // Winner 4: el más reciente
-                    if (!$winner) { $winner = $dups[0]; }
-
-                    // Curar winner: amarrar RFC real en rfc y rfc_padre cuando existan
-                    $updW = ['updated_at' => now()];
-
-                    if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
-                        $updW['admin_account_id'] = (int) $acc->id;
-                    }
-                    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
-                        $updW['rfc'] = $rfcReal;
-                    }
-                    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
-                        $updW['rfc_padre'] = $rfcReal;
-                    }
-
-                    $connCli->table('cuentas_cliente')->where('id', (string) $winner->id)->update($updW);
-
-                    // Desasociar losers
-                    foreach ($dups as $r) {
-                        if ((string) $r->id === (string) $winner->id) continue;
-
-                        $updL = ['updated_at' => now()];
-
-                        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
-                            $updL['admin_account_id'] = null;
-                        }
-
-                        $rs = trim((string) ($r->razon_social ?? ''));
-                        if ($schemaCli->hasColumn('cuentas_cliente', 'razon_social')) {
-                            if (!str_starts_with($rs, '[DUPLICATE]')) {
-                                $updL['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('Cuenta ' . (string) $acc->id));
-                            }
-                        }
-
-                        $connCli->table('cuentas_cliente')->where('id', (string) $r->id)->update($updL);
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            // no rompe; solo evita que el admin se caiga
+        // Si normalizeMirrorCuenta devolvió winner, úsalo como cuenta espejo canónica
+        $cuenta = null;
+        if (isset($winner) && $winner) {
+            $cuenta = $winner;
         }
+
+
+        // ================================
+        // ✅ NORMALIZACIÓN ANTI-DUPLICADOS (SOT: normalizeMirrorCuenta)
+        // ================================
+        try {
+            // Normaliza cualquier colisión por admin_account_id / rfc / rfc_padre
+            // y deja un solo "winner" amarrado al accounts.id.
+            $winner = $this->normalizeMirrorCuenta((string)$acc->id, $rfcReal);
+        } catch (\Throwable $e) {
+            // no rompe
+            $winner = null;
+        }
+
 
         // ==========================
         // Resolver cuenta espejo
@@ -2594,13 +2526,18 @@ HTML;
                 ->first();
         }
 
-        // 4) ÚLTIMO: rfc_padre = accounts.id (legacy)
-        if (!$cuenta && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+        // 4) ÚLTIMO (legacy) SOLO si NO existe admin_account_id en schema
+        if (
+            !$cuenta
+            && !$schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')
+            && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')
+        ) {
             $cuenta = $connCli->table('cuentas_cliente')
                 ->where('rfc_padre', (string) $acc->id)
                 ->orderByDesc('updated_at')
                 ->first();
         }
+
 
         // ====== Crear si no existe ======
         if (!$cuenta) {
