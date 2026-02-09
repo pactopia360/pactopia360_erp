@@ -454,7 +454,8 @@ final class BillingStatementsController extends Controller
      *
      * @return array<string,mixed>
      */
-    private function computeStatementTotalsForPeriod(string $accountId, string $period): array
+    private function computeStatementTotalsForPeriod(string $accountId, string $period, bool $forPrevScan = false): array
+
     {
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
         abort_unless($acc, 404);
@@ -493,7 +494,33 @@ final class BillingStatementsController extends Controller
         }
 
         $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
-        $inject  = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
+
+        // =========================================================
+        // ✅ Evidence gating para "prev_balance":
+        // Si estamos escaneando periodos anteriores, NO inyectar servicio
+        // cuando NO existe evidencia real en ese mes.
+        // =========================================================
+        $hasEvidence = $items->count() > 0;
+
+        if (!$hasEvidence) {
+            // payments por periodo (cualquier status) cuentan como evidencia
+            if ($this->hasPaymentsForAccountPeriod($accountId, $period)) {
+                $hasEvidence = true;
+            }
+        }
+
+        if (!$hasEvidence) {
+            // override manual también es evidencia
+            if ($this->hasOverrideForAccountPeriod($accountId, $period)) {
+                $hasEvidence = true;
+            }
+        }
+
+        if ($forPrevScan && !$hasEvidence) {
+            $inject = false; // evita meses fantasma
+        } else {
+            $inject = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
+        }
 
         $mode = $this->resolveBillingModeFromMetaOrPlan($meta, $acc);
         $serviceName = ($mode === 'anual') ? 'Servicio anual' : 'Servicio mensual';
@@ -651,7 +678,8 @@ final class BillingStatementsController extends Controller
                     continue;
                 }
 
-                $tot = $this->computeStatementTotalsForPeriod($accountId, $p);
+                $tot = $this->computeStatementTotalsForPeriod($accountId, $p, true);
+
                 $saldo = (float) ($tot['saldo'] ?? 0);
 
                 if ($saldo > 0.00001) {
@@ -1758,6 +1786,68 @@ final class BillingStatementsController extends Controller
 
         return null;
     }
+
+    // =========================================================
+    // EVIDENCE GATING (prev_balance)
+    // =========================================================
+
+    private function hasPaymentsForAccountPeriod(string $accountId, string $period): bool
+    {
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return false;
+        }
+
+        try {
+            $cols = Schema::connection($this->adm)->getColumnListing('payments');
+            $lc   = array_map('strtolower', $cols);
+            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+            if (!$has('account_id')) {
+                return false;
+            }
+
+            $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
+
+            // si existe "period" filtramos; si no existe, no podemos usarlo como evidencia por periodo
+            if ($has('period')) {
+                $q->where('period', $period);
+            } else {
+                return false;
+            }
+
+            return $q->limit(1)->exists();
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] hasPaymentsForAccountPeriod failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    private function hasOverrideForAccountPeriod(string $accountId, string $period): bool
+    {
+        try {
+            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+                return false;
+            }
+
+            return DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->limit(1)
+                ->exists();
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] hasOverrideForAccountPeriod failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
 
     // =========================================================
     // PAYMENTS (paid)
