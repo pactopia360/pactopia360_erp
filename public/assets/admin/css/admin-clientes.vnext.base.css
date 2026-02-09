@@ -1,0 +1,69 @@
+/* public/assets/admin/css/admin-clientes.vnext.base.css
+   Admin Clientes vNext — Base tokens + controls (NO layout/list)
+*/
+
+.ac-page{
+  --ac-gap:14px;
+  --ac-radius:14px;
+  --ac-border:rgba(15,23,42,.08);
+  --ac-bg:#fff;
+}
+
+.ac-mono,.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Inputs / selects */
+.ac-input,.ac-select,.ac-textarea{
+  width:100%;
+  border:1px solid var(--ac-border);
+  border-radius:12px;
+  padding:10px 12px;
+}
+.ac-textarea{ min-height:90px; resize:vertical; }
+
+/* Buttons */
+.ac-btn{
+  border:1px solid var(--ac-border);
+  background:#fff;
+  border-radius:12px;
+  padding:10px 12px;
+  font-weight:600;
+  font-size:13px;
+  cursor:pointer;
+}
+.ac-btn.primary{ background:#6d28d9; color:#fff; border-color:rgba(109,40,217,.2); }
+.ac-btn.ghost{ background:transparent; }
+.ac-btn.small{ padding:8px 10px; border-radius:10px; font-size:12px; }
+.ac-btn[disabled]{ opacity:.5; cursor:not-allowed; }
+
+/* Pills */
+.ac-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid var(--ac-border);
+  background:#fff;
+  font-size:12px;
+  font-weight:700;
+}
+.ac-pill .mut{ font-weight:600; opacity:.7; }
+
+/* Alerts */
+.ac-alerts{ display:flex; flex-direction:column; gap:10px; }
+.ac-alert{
+  border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius);
+  padding:12px;
+  background:#fff;
+  font-size:13px;
+}
+.ac-alert.ok{ border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.05); }
+.ac-alert.bad{ border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.05); }
+.ac-alert.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.06); }
+.ac-alert.info{ border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.05); }
+
+/* Helpers */
+.ac-hint{ font-size:12px; opacity:.7; margin-top:6px; }

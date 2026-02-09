@@ -368,109 +368,255 @@ Route::middleware([
     /* ---------- Clientes (accounts / soporte) ---------- */
     if (class_exists(\App\Http\Controllers\Admin\ClientesController::class)) {
 
+        /*
+        |----------------------------------------------------------------------
+        | ✅ CLIENTES (accounts / soporte)
+        | - Route-cache safe
+        | - Feature-flag por method_exists en acciones opcionales
+        | - CSRF relax SOLO en local para POST sensibles
+        |----------------------------------------------------------------------
+        */
+
+        // ✅ Crear cliente manual (UI + store)
+        Route::get('clientes/create', [ClientesController::class, 'create'])
+            ->middleware(perm_mw('clientes.editar'))
+            ->name('clientes.create');
+
+        $clientesStore = Route::post('clientes', [ClientesController::class, 'store'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.store');
+
+        if ($isLocal) {
+            $clientesStore->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        // ✅ Listado
         Route::get('clientes', [ClientesController::class, 'index'])
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
 
-        Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
+        // ✅ Guardar (modal editar)
+        $clientesSave = Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.save');
 
-        Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
+        if ($isLocal) {
+            $clientesSave->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Acciones CORE recomendadas (bloquear / desbloquear / baja / reactivar / eliminar)
+        | - Se registran SOLO si existe el método (evita 500/route:cache)
+        | - Names canónicos: admin.clientes.block/unblock/deactivate/reactivate/destroy
+        | - Alias compat: delete
+        |----------------------------------------------------------------------
+        */
+        if (method_exists(ClientesController::class, 'block')) {
+            $rt = Route::post('clientes/{rfc}/block', [ClientesController::class, 'block'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.block');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        if (method_exists(ClientesController::class, 'unblock')) {
+            $rt = Route::post('clientes/{rfc}/unblock', [ClientesController::class, 'unblock'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.unblock');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        // “Dar de baja” (soft) recomendado: cambia estado/billing y opcionalmente bloquea.
+        if (method_exists(ClientesController::class, 'deactivate')) {
+            $rt = Route::post('clientes/{rfc}/deactivate', [ClientesController::class, 'deactivate'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.deactivate');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        if (method_exists(ClientesController::class, 'reactivate')) {
+            $rt = Route::post('clientes/{rfc}/reactivate', [ClientesController::class, 'reactivate'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.reactivate');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        // Eliminación (idealmente soft-delete en controller). POST para compat con forms.
+        if (method_exists(ClientesController::class, 'destroy')) {
+            $rt = Route::post('clientes/{rfc}/destroy', [ClientesController::class, 'destroy'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.destroy');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+
+            // Alias compat por si front usa "delete"
+            $rt2 = Route::post('clientes/{rfc}/delete', [ClientesController::class, 'destroy'])
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.delete');
+
+            if ($isLocal) $rt2->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Verificaciones / OTP
+        |----------------------------------------------------------------------
+        */
+        $resendV = Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmailVerification');
 
-        Route::post('clientes/{rfc}/send-phone-otp', [ClientesController::class, 'sendPhoneOtp'])
+        $sendOtp = Route::post('clientes/{rfc}/send-phone-otp', [ClientesController::class, 'sendPhoneOtp'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.sendPhoneOtp');
 
-        Route::post('clientes/{rfc}/force-email-verified', [ClientesController::class, 'forceEmailVerified'])
+        $forceMail = Route::post('clientes/{rfc}/force-email-verified', [ClientesController::class, 'forceEmailVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forceEmailVerified');
 
-        Route::post('clientes/{rfc}/force-phone-verified', [ClientesController::class, 'forcePhoneVerified'])
+        $forcePhone = Route::post('clientes/{rfc}/force-phone-verified', [ClientesController::class, 'forcePhoneVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
-        // Aliases
-        Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
+        if ($isLocal) {
+            foreach ([$resendV, $sendOtp, $forceMail, $forcePhone] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        // ✅ Aliases (compat)
+        $resendV2 = Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
 
-        Route::post('clientes/{rfc}/send-otp', [ClientesController::class, 'sendPhoneOtp'])
+        $sendOtp2 = Route::post('clientes/{rfc}/send-otp', [ClientesController::class, 'sendPhoneOtp'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.sendOtp');
 
-        Route::post('clientes/{rfc}/force-email', [ClientesController::class, 'forceEmailVerified'])
+        $forceMail2 = Route::post('clientes/{rfc}/force-email', [ClientesController::class, 'forceEmailVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forceEmail');
 
-        Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
+        $forcePhone2 = Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhone');
 
+        if ($isLocal) {
+            foreach ([$resendV2, $sendOtp2, $forceMail2, $forcePhone2] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Reset password + Email credenciales
+        |----------------------------------------------------------------------
+        */
         $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
-
-        if ($isLocal) {
-            $rp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-        }
 
         $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.emailCredentials');
 
         if ($isLocal) {
-            $emailCreds->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            foreach ([$rp, $emailCreds] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
         }
 
-        Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Impersonate
+        |----------------------------------------------------------------------
+        */
+        $imp = Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
 
-        Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
+        $impStop1 = Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
             ->name('clientes.impersonateStop');
 
-        Route::post('clientes/impersonate/stop', [ClientesController::class, 'impersonateStop'])
+        $impStop2 = Route::post('clientes/impersonate/stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
             ->name('clientes.impersonate.stop');
 
-        Route::post('clientes/sync-to-clientes', [ClientesController::class, 'syncToClientes'])
+        if ($isLocal) {
+            foreach ([$imp, $impStop1, $impStop2] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Sync + Bulk
+        |----------------------------------------------------------------------
+        */
+        $sync = Route::post('clientes/sync-to-clientes', [ClientesController::class, 'syncToClientes'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.syncToClientes');
 
-        Route::post('clientes/bulk', [ClientesController::class, 'bulk'])
+        $bulk = Route::post('clientes/bulk', [ClientesController::class, 'bulk'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.bulk');
 
+        if ($isLocal) {
+            foreach ([$sync, $bulk] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        /*
+        |----------------------------------------------------------------------
+        | ✅ Opcionales (feature-flag por método)
+        |----------------------------------------------------------------------
+        */
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
-            Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
+
+            $r1 = Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipientsUpsert');
 
-            Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
+            $r2 = Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipients');
+
+            if ($isLocal) {
+                foreach ([$r1, $r2] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
+            }
         }
 
         if (method_exists(ClientesController::class, 'seedStatement')) {
-            Route::post('clientes/{rfc}/seed-statement', [ClientesController::class, 'seedStatement'])
+            $rt = Route::post('clientes/{rfc}/seed-statement', [ClientesController::class, 'seedStatement'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.seedStatement');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
-            Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+            $rt = Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.sendCredentials');
+
+            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
+
     } else {
+
         Route::get('clientes', fn () => response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200))
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
     }
+
 
     /* ---------- Soporte interno admin ---------- */
     Route::prefix('soporte')->as('soporte.')->group(function () use ($thrAdminPosts, $isLocal) {

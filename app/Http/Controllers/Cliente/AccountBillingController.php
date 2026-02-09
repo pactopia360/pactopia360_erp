@@ -404,8 +404,17 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // Enriquecimiento UI
+        // Enriquecimiento UI + ✅ CANONICALIZACIÓN de account_id (evita mostrar 11988 en vez de 999)
         foreach ($rows as &$row) {
+            // ✅ Guardar referencia original (por debug) si venía diferente
+            if (!isset($row['statement_account_ref'])) {
+                $row['statement_account_ref'] = $row['account_id'] ?? null;
+            }
+
+            // ✅ SIEMPRE mostrar y usar el admin account id canónico en UI/PDF
+            $row['admin_account_id'] = (int) $accountId;
+            $row['account_id']       = (int) $accountId;
+
             $p = (string) ($row['period'] ?? '');
             if ($p !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p)) {
                 $c = Carbon::createFromFormat('Y-m', $p);
@@ -413,6 +422,7 @@ final class AccountBillingController extends Controller
             } else {
                 $row['period_range'] = '';
             }
+
             $row['rfc']          = (string) ($row['rfc'] ?? $rfc);
             $row['alias']        = (string) ($row['alias'] ?? $alias);
             $row['price_source'] = $sourcesByPeriod[$p] ?? 'none';

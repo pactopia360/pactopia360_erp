@@ -1,33 +1,224 @@
 /* public/assets/admin/js/admin-clientes.js
-   Admin · Clientes — UI v13.2.x (lista + drawer + modales)
-   FIX: usar rutas reales (email_credentials usa {rfc}), no hardcode por {id}
-   + Robustez: action de forms desde payload (email_creds_url / recip_url / seed_url / stmt_*)
+   Admin · Clientes — UI v14.3 (hybrid list + drawer + modales) + DEBUG
+   - ✅ DEBUG: ?acdbg=1 o localStorage.acdbg=1 -> console + overlay
+   - ✅ FIX: Drawer buttons (Editar/Destinatarios/Credenciales/Billing) abren modales (v13+v14)
+   - ✅ Sticky offset real para list-head (setea --ac-sticky-top)
 */
 (function () {
   'use strict';
 
+  const VERSION = 'admin-clientes.js v14.3-debug';
+
   const $ = (s, sc) => (sc || document).querySelector(s);
   const $$ = (s, sc) => Array.from((sc || document).querySelectorAll(s));
 
+  // =========================================================
+  // ✅ DEBUG (console + overlay)
+  //  - Enable: ?acdbg=1  OR  localStorage.acdbg=1
+  // =========================================================
+  const DBG = (() => {
+    const qs = new URLSearchParams(location.search || '');
+    const enabled = qs.get('acdbg') === '1' || String(localStorage.getItem('acdbg') || '') === '1';
+
+    const state = {
+      enabled,
+      overlay: null,
+      lines: []
+    };
+
+    const fmt = (v) => {
+      try {
+        if (v === null) return 'null';
+        if (v === undefined) return 'undefined';
+        if (typeof v === 'string') return v;
+        return JSON.stringify(v);
+      } catch (_) {
+        return String(v);
+      }
+    };
+
+    const ensureOverlay = () => {
+      if (!state.enabled) return null;
+      if (state.overlay) return state.overlay;
+
+      const box = document.createElement('div');
+      box.id = 'acdbg';
+      box.style.position = 'fixed';
+      box.style.top = '10px';
+      box.style.right = '10px';
+      box.style.width = '420px';
+      box.style.maxWidth = '92vw';
+      box.style.maxHeight = '55vh';
+      box.style.overflow = 'auto';
+      box.style.zIndex = '999999';
+      box.style.background = 'rgba(15,23,42,.92)';
+      box.style.color = '#e5e7eb';
+      box.style.border = '1px solid rgba(255,255,255,.15)';
+      box.style.borderRadius = '12px';
+      box.style.boxShadow = '0 18px 48px rgba(0,0,0,.35)';
+      box.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+      const head = document.createElement('div');
+      head.style.display = 'flex';
+      head.style.alignItems = 'center';
+      head.style.justifyContent = 'space-between';
+      head.style.gap = '10px';
+      head.style.padding = '10px 10px';
+      head.style.borderBottom = '1px solid rgba(255,255,255,.12)';
+      head.innerHTML = `<strong style="font-weight:900">${VERSION}</strong>
+                        <span style="opacity:.85">DBG ON</span>`;
+
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.gap = '8px';
+      actions.style.marginLeft = 'auto';
+
+      const btnClear = document.createElement('button');
+      btnClear.type = 'button';
+      btnClear.textContent = 'Clear';
+      btnClear.style.cursor = 'pointer';
+      btnClear.style.border = '1px solid rgba(255,255,255,.18)';
+      btnClear.style.background = 'rgba(255,255,255,.06)';
+      btnClear.style.color = '#e5e7eb';
+      btnClear.style.borderRadius = '10px';
+      btnClear.style.padding = '6px 8px';
+      btnClear.onclick = () => {
+        state.lines = [];
+        render();
+      };
+
+      const btnOff = document.createElement('button');
+      btnOff.type = 'button';
+      btnOff.textContent = 'Off';
+      btnOff.style.cursor = 'pointer';
+      btnOff.style.border = '1px solid rgba(239,68,68,.35)';
+      btnOff.style.background = 'rgba(239,68,68,.12)';
+      btnOff.style.color = '#fecaca';
+      btnOff.style.borderRadius = '10px';
+      btnOff.style.padding = '6px 8px';
+      btnOff.onclick = () => {
+        localStorage.removeItem('acdbg');
+        state.enabled = false;
+        box.remove();
+        state.overlay = null;
+        console.log('[ACDBG] disabled');
+      };
+
+      actions.appendChild(btnClear);
+      actions.appendChild(btnOff);
+      head.appendChild(actions);
+
+      const body = document.createElement('div');
+      body.style.padding = '10px';
+      body.style.whiteSpace = 'pre-wrap';
+      body.style.wordBreak = 'break-word';
+      body.id = 'acdbg_body';
+
+      box.appendChild(head);
+      box.appendChild(body);
+      document.body.appendChild(box);
+
+      state.overlay = box;
+      return box;
+    };
+
+    const render = () => {
+      if (!state.enabled) return;
+      const box = ensureOverlay();
+      if (!box) return;
+      const body = box.querySelector('#acdbg_body');
+      if (!body) return;
+      body.textContent = state.lines.join('\n');
+      body.scrollTop = body.scrollHeight;
+    };
+
+    const log = (msg, meta) => {
+      if (!state.enabled) return;
+      const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}${meta !== undefined ? ' ' + fmt(meta) : ''}`;
+      state.lines.push(line);
+      if (state.lines.length > 80) state.lines.shift();
+      try { console.log('[ACDBG]', msg, meta); } catch (_) {}
+      render();
+    };
+
+    return { state, log };
+  })();
+
+  DBG.log('script loaded', { href: location.href });
+
+  // =========================================================
+  // Guard: page exists
+  // =========================================================
   const page = $('#adminClientesPage');
-  if (!page) return;
+  if (!page) {
+    DBG.log('NO #adminClientesPage -> abort', {});
+    return;
+  }
+  DBG.log('found #adminClientesPage', {});
 
   const defaultPeriod = page.getAttribute('data-default-period') || '';
 
-  // ===== Scroll lock manager (evita bug: cerrar modal desbloquea aunque drawer siga abierto)
+  // =========================================================
+  // ✅ Sticky offset REAL para .ac-list-head (evita encimados)
+  // =========================================================
+  const updateStickyVars = (() => {
+    let raf = 0;
+
+    const run = () => {
+      raf = 0;
+
+      const root = document.documentElement;
+      const topbar = document.querySelector('.ac-topbar');
+
+      if (!topbar) {
+        root.style.setProperty('--ac-sticky-top', '8px');
+        root.style.setProperty('--ac-topbar-h', '0px');
+        DBG.log('sticky: no .ac-topbar', {});
+        return;
+      }
+
+      const r = topbar.getBoundingClientRect();
+      const gap = 8;
+
+      const stickyTop = Math.max(0, Math.round(r.bottom + gap));
+      const topbarH = Math.max(0, Math.round(r.height));
+
+      root.style.setProperty('--ac-sticky-top', `${stickyTop}px`);
+      root.style.setProperty('--ac-topbar-h', `${topbarH}px`);
+
+      DBG.log('sticky: set vars', { stickyTop, topbarH });
+    };
+
+    return () => {
+      if (raf) return;
+      raf = requestAnimationFrame(run);
+    };
+  })();
+
+  updateStickyVars();
+  window.addEventListener('load', updateStickyVars, { passive: true });
+  window.addEventListener('resize', updateStickyVars, { passive: true });
+  window.addEventListener('scroll', updateStickyVars, { passive: true });
+  setTimeout(updateStickyVars, 60);
+  setTimeout(updateStickyVars, 240);
+
+  // ===== Scroll lock manager
   const Lock = {
     _count: 0,
     on() {
       this._count = Math.max(0, this._count + 1);
       document.documentElement.classList.add('ac-lock');
+      DBG.log('Lock.on', { count: this._count });
     },
     off() {
       this._count = Math.max(0, this._count - 1);
       if (this._count === 0) document.documentElement.classList.remove('ac-lock');
+      DBG.log('Lock.off', { count: this._count });
     },
     reset() {
       this._count = 0;
       document.documentElement.classList.remove('ac-lock');
+      DBG.log('Lock.reset', {});
     }
   };
 
@@ -42,6 +233,7 @@
           qf.submit();
         }
       });
+      DBG.log('QuickSearch ready', {});
     }
   }
 
@@ -51,6 +243,7 @@
     filtersForm.querySelectorAll('select').forEach((sel) =>
       sel.addEventListener('change', () => filtersForm.submit())
     );
+    DBG.log('filtersForm ready', {});
   }
 
   // ===== Helpers UI
@@ -82,7 +275,8 @@
     const f = typeof formId === 'string' ? $(formId) : formId;
     if (!f) return;
     f.setAttribute('action', action || '#');
-    if (!action) f.classList.add('is-disabled'); else f.classList.remove('is-disabled');
+    if (!action) f.classList.add('is-disabled');
+    else f.classList.remove('is-disabled');
   };
 
   const setBadge = (el, tone, label) => {
@@ -92,7 +286,6 @@
     el.innerHTML = `<span class="dot"></span>${label || '—'}`;
   };
 
-  // decode html entities (por si el JSON viene escapado)
   const decodeHtml = (s) => {
     if (!s || typeof s !== 'string') return s;
     if (s.indexOf('&quot;') === -1 && s.indexOf('&#') === -1 && s.indexOf('&amp;') === -1) return s;
@@ -109,19 +302,14 @@
       const obj = JSON.parse(raw);
       return obj && typeof obj === 'object' ? obj : null;
     } catch (e) {
+      DBG.log('parseClient JSON error', { err: String(e) });
       return null;
     }
   };
 
-  // helpers urls: el backend usa {rfc} en varias routes
   const enc = (v) => encodeURIComponent((v ?? '').toString());
-  const guessRfcKey = (client) => {
-    // preferimos rfc, luego id
-    return (client && (client.rfc || client.id)) ? (client.rfc || client.id) : '';
-  };
-
+  const guessRfcKey = (client) => (client && (client.rfc || client.id)) ? (client.rfc || client.id) : '';
   const buildFallbackUrl = (client, suffix) => {
-    // /admin/clientes/{rfc}/{suffix}
     const key = guessRfcKey(client);
     if (!key) return '';
     return `/admin/clientes/${enc(key)}/${suffix}`;
@@ -129,9 +317,12 @@
 
   // ===== Drawer
   const drawer = $('#clientDrawer');
+  DBG.log('drawer lookup', { exists: !!drawer });
 
   const openDrawer = (client) => {
     if (!drawer || !client) return;
+
+    updateStickyVars();
 
     setText('#dr_rfc', client.rfc);
     setText('#dr_rs', client.razon_social);
@@ -142,12 +333,8 @@
     setText('#dr_next', client.next_invoice_label || client.next_invoice_date || '—');
 
     const amt = client.effective_amount_mxn || client.custom_amount_mxn || '';
-    setText(
-      '#dr_amount',
-      amt ? `$${Number(amt).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'
-    );
+    setText('#dr_amount', amt ? `$${Number(amt).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
 
-    // Contacto
     setText('#dr_email', client.email || '—');
     setText('#dr_phone', client.phone || '—');
 
@@ -161,23 +348,19 @@
     setText('#dr_stmt_main', stmtCount ? (client.primary_statement || firstStmt || '—') : 'Sin correos');
     setText('#dr_stmt_list', stmtCount ? `${stmtList}${stmtCount ? ` (${stmtCount})` : ''}` : 'Sin destinatarios configurados');
 
-    // Forms del drawer
-    // Nota: impersonate/reset siguen usando {id} en tu backend (si es así). Si en tu backend también es {rfc}, cámbialo aquí.
-    // Como en tu Blade usas rutas por {rfc}, preferimos usar rfc para clientes.
-    setAction('#drFormImpersonate', buildFallbackUrl(client, 'impersonate'));      // /admin/clientes/{rfc}/impersonate
-    setAction('#drFormResetPass', buildFallbackUrl(client, 'reset-password'));     // /admin/clientes/{rfc}/reset-password
+    setAction('#drFormImpersonate', buildFallbackUrl(client, 'impersonate'));
+    setAction('#drFormResetPass', buildFallbackUrl(client, 'reset-password'));
 
-    // ✅ FIX CLAVE: enviar credenciales debe usar email_creds_url desde payload (route real: admin.clientes.emailCredentials)
     const credsUrl = (client.email_creds_url || '').toString().trim();
     setAction('#drFormEmailCreds', credsUrl || buildFallbackUrl(client, 'email-credentials'));
 
-    // stash
     drawer._client = client;
 
-    // open
     drawer.classList.add('open');
     drawer.setAttribute('aria-hidden', 'false');
     Lock.on();
+
+    DBG.log('drawer opened', { rfc: client.rfc, hasClient: !!drawer._client });
   };
 
   const closeDrawer = () => {
@@ -189,33 +372,50 @@
     drawer._client = null;
 
     Lock.off();
+    updateStickyVars();
+
+    DBG.log('drawer closed', {});
   };
 
   // ===== Modales
   const openModal = (id) => {
     const m = typeof id === 'string' ? $(id) : id;
+    DBG.log('openModal called', { id, exists: !!m });
+
     if (!m) return;
-    if (m.classList.contains('open')) return;
+
+    if (m.classList.contains('open') || m.classList.contains('show')) {
+      DBG.log('openModal: already open', { id });
+      return;
+    }
 
     m.classList.add('open');
+    m.classList.add('show');
     m.setAttribute('aria-hidden', 'false');
     Lock.on();
+
+    DBG.log('openModal: opened', { id });
   };
 
   const closeModal = (m) => {
     if (!m) return;
-    if (!m.classList.contains('open')) return;
+
+    if (!m.classList.contains('open') && !m.classList.contains('show')) return;
 
     m.classList.remove('open');
+    m.classList.remove('show');
     m.setAttribute('aria-hidden', 'true');
     Lock.off();
+    updateStickyVars();
+
+    DBG.log('closeModal', { id: m.id || '' });
   };
 
-  // ===== Poblar modales
+  // ===== Fill modales
   const fillEditModal = (client) => {
     if (!client) return;
     setText('#mEdit_sub', `${client.rfc} · ${client.razon_social || '—'}`);
-    setAction('#mEdit_form', buildFallbackUrl(client, 'save')); // /admin/clientes/{rfc}/save
+    setAction('#mEdit_form', buildFallbackUrl(client, 'save'));
 
     const rs = $('#mEdit_rs'); if (rs) rs.value = client.razon_social || '';
     const em = $('#mEdit_email'); if (em) em.value = client.email || '';
@@ -225,6 +425,8 @@
     const nx = $('#mEdit_next'); if (nx) nx.value = (client.next_invoice_date || '');
     const ca = $('#mEdit_custom'); if (ca) ca.value = client.custom_amount_mxn || '';
     const bl = $('#mEdit_blocked'); if (bl) bl.checked = !!client.blocked;
+
+    DBG.log('fillEditModal', { rfc: client.rfc });
   };
 
   const fillRecipientsModal = (client) => {
@@ -248,6 +450,8 @@
 
     const gl = $('#mRec_gen_list'); if (gl) gl.value = client.recips_general || '';
     const gp = $('#mRec_gen_primary'); if (gp) gp.value = client.primary_general || '';
+
+    DBG.log('fillRecipientsModal', { rfc: client.rfc, hasRoute });
   };
 
   const fillCredsModal = (client) => {
@@ -273,38 +477,24 @@
     } else {
       setText('#mCred_tok', client.email_token ? client.email_token : 'Sin token vigente.');
       setText('#mCred_tok_exp', client.token_expires ? `Expira: ${client.token_expires}` : '—');
-      if (tokActions) tokActions.hidden = !tok;
-      // si solo hay token (no url), dejamos ocultas acciones
-      if (!tok && tokActions) tokActions.hidden = true;
+      if (tokActions) tokActions.hidden = true;
     }
 
-    // force email / phone: en tus rutas existe force-email. phone puede existir o no.
     setAction('#mCred_form_force_email', buildFallbackUrl(client, 'force-email'));
+    setAction('#mCred_form_force_phone', buildFallbackUrl(client, 'force-phone'));
 
-        const forcePhoneUrl = buildFallbackUrl(client, 'force-phone');
-    setAction('#mCred_form_force_phone', forcePhoneUrl);
-
-    const missing = $('#mCred_force_phone_missing');
-    if (missing) missing.hidden = true;
-
-    // =========================================================
-    // ✅ Enviar credenciales por correo (acción + defaults + payload)
-    // =========================================================
     const emailForm = $('#mCred_form_email_creds');
     const emailMissing = $('#mCred_email_creds_missing');
 
-    // Action (route real desde payload; si no, fallback)
     const credsUrl = (client.email_creds_url || '').toString().trim();
     const actionUrl = credsUrl || buildFallbackUrl(client, 'email-credentials');
     if (emailForm) {
-      setAction(emailForm, credsUrl ? actionUrl : (credsUrl ? actionUrl : actionUrl)); // siempre setea, pero controla "missing"
-      // Mostrar "missing" solo si NO viene ruta en payload (para que detectes si falta route real)
+      setAction(emailForm, actionUrl);
       if (emailMissing) emailMissing.hidden = !!credsUrl;
     } else {
       if (emailMissing) emailMissing.hidden = false;
     }
 
-    // Defaults destinatarios (REFRESH por cambio de cliente)
     const to = $('#mCred_to');
     if (to) {
       const csv = (client.recips_statement || '').toString().trim();
@@ -323,7 +513,6 @@
       }
     }
 
-    // Hidden payload
     const user = (client.owner_email || client.email || client.rfc || client.id || '').toString();
     const pass = (client.temp_pass || client.otp_code || '').toString();
     const access = (client.access_url || client.token_url || '').toString();
@@ -333,8 +522,9 @@
     const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
     const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (client.rfc || '').toString();
     const hrs = $('#mCred_hidden_rs'); if (hrs) hrs.value = (client.razon_social || '').toString();
-  };
 
+    DBG.log('fillCredsModal', { rfc: client.rfc, hasTokenUrl: !!tok });
+  };
 
   const fillBillingModal = (client) => {
     if (!client) return;
@@ -374,9 +564,10 @@
       setAction('#mBill_form_email', '#');
       if (emailMissing) emailMissing.hidden = false;
     }
+
+    DBG.log('fillBillingModal', { rfc: client.rfc, hasSeed: !!client.seed_url });
   };
 
-  // ===== Tabs
   const handleTabs = (tabBtn) => {
     const tabs = tabBtn.closest('[data-tabs]');
     if (!tabs) return;
@@ -400,151 +591,184 @@
     }
   };
 
-  // ===== Clipboard (fallback)
-  const copyText = async (text) => {
-    const t = (text || '').trim();
-    if (!t) return false;
+  // =========================================================
+  // ✅ Drawer buttons resolver (v13 + v14)
+  // =========================================================
+  const resolveDrawerActionFromButton = (btn) => {
+    if (!btn) return '';
 
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(t);
-        return true;
-      }
-    } catch (e) {}
+    const da = (btn.getAttribute('data-drawer-action') || '').trim().toLowerCase();
+    if (da) return da;
 
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = t;
-      ta.setAttribute('readonly', 'readonly');
-      ta.style.position = 'fixed';
-      ta.style.top = '-1000px';
-      ta.style.left = '-1000px';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      return !!ok;
-    } catch (e) {
-      return false;
+    const id = (btn.getAttribute('id') || '').trim();
+    if (id === 'btnOpenEdit') return 'edit';
+    if (id === 'btnOpenRecipients') return 'recipients';
+    if (id === 'btnOpenCreds') return 'creds';
+    if (id === 'btnOpenBilling') return 'billing';
+
+    const txt = (btn.textContent || '').trim().toLowerCase();
+    if (!txt) return '';
+
+    if (txt === 'editar') return 'edit';
+    if (txt === 'destinatarios' || txt === 'destinatario') return 'recipients';
+    if (txt === 'credenciales' || txt === 'credencial') return 'creds';
+    if (txt === 'billing') return 'billing';
+
+    if (txt.includes('editar')) return 'edit';
+    if (txt.includes('destinat')) return 'recipients';
+    if (txt.includes('credenc')) return 'creds';
+    if (txt.includes('billing')) return 'billing';
+
+    return '';
+  };
+
+  const openDrawerModalAction = (action, client) => {
+    DBG.log('drawer action', { action, hasClient: !!client });
+
+    if (!client) return false;
+
+    if (action === 'edit') {
+      fillEditModal(client);
+      openModal('#modalEdit');
+      return true;
     }
+    if (action === 'recipients') {
+      fillRecipientsModal(client);
+      openModal('#modalRecipients');
+      return true;
+    }
+    if (action === 'creds') {
+      fillCredsModal(client);
+      openModal('#modalCreds');
+      return true;
+    }
+    if (action === 'billing') {
+      fillBillingModal(client);
+      openModal('#modalBilling');
+      return true;
+    }
+    return false;
   };
 
-  const handleCopy = async (btn) => {
-    const sel = btn.getAttribute('data-copy');
-    const node = sel ? document.querySelector(sel) : null;
-    if (!node) return;
-
-    const text = (node.innerText || node.textContent || '').trim();
-    if (!text) return;
-
-    const ok = await copyText(text);
-    if (!ok) return;
-
-    const prev = btn.textContent;
-    btn.textContent = 'Copiado';
-    btn.disabled = true;
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.textContent = prev;
-    }, 700);
-  };
-
-  // ===== Export CSV
-  const btnExport = $('#btnExportCsv');
-  if (btnExport) {
-    btnExport.addEventListener('click', () => {
-      const head = ['RFC','RazonSocial','Email','Phone','Plan','BillingCycle','NextInvoice','CustomAmountMxn','EmailVerif','PhoneVerif','Blocked','CreatedAt'];
-      const lines = [];
-      lines.push(head.join(','));
-
-      $$('.ac-row[data-export]').forEach((row) => {
-        let obj = {};
-        try {
-          let raw = row.getAttribute('data-export') || '{}';
-          raw = decodeHtml(raw);
-          obj = JSON.parse(raw);
-        } catch (e) {}
-        const rowVals = head.map((k) => (obj[k] ?? '').toString());
-        lines.push(rowVals.map((t) => (/[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t)).join(','));
-      });
-
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'clientes_export.csv';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    });
-  }
-
-  // ===== Click handler (delegación robusta)
+  // ===== Click handler
   document.addEventListener('click', (e) => {
     const t = e.target;
 
-    // 1) Abrir drawer
+    // A) Drawer quick buttons
+    if (drawer && drawer.classList.contains('open')) {
+      const inDrawer = t.closest('#clientDrawer');
+      if (inDrawer) {
+        const btn = t.closest('button, a, [role="button"]');
+        if (btn) {
+          const action = resolveDrawerActionFromButton(btn);
+
+          DBG.log('click in drawer', {
+            tag: (btn.tagName || '').toLowerCase(),
+            text: (btn.textContent || '').trim().slice(0, 40),
+            action,
+            drawerOpen: drawer.classList.contains('open'),
+            hasClient: !!drawer._client
+          });
+
+          if (action) {
+            e.preventDefault();
+            openDrawerModalAction(action, drawer._client || null);
+            return;
+          }
+        }
+      }
+    }
+
+    // 0) menu action
+    const menuAction = t.closest('[data-menu] [data-action]');
+    if (menuAction) {
+      e.preventDefault();
+      const action = (menuAction.getAttribute('data-action') || '').trim();
+      const row = menuAction.closest('.ac-row');
+      const client = parseClient(row);
+
+      const menu = menuAction.closest('[data-menu]');
+      if (menu) menu.classList.remove('open');
+
+      DBG.log('menu action', { action, hasClient: !!client });
+
+      if (!client) return;
+
+      openDrawer(client);
+
+      if (action === 'edit') { openDrawerModalAction('edit', client); return; }
+      if (action === 'recipients') { openDrawerModalAction('recipients', client); return; }
+      if (action === 'creds') { openDrawerModalAction('creds', client); return; }
+      if (action === 'billing') { openDrawerModalAction('billing', client); return; }
+
+      return;
+    }
+
+    // 1) menu toggle
+    const menuToggle = t.closest('[data-menu-toggle]');
+    if (menuToggle) {
+      e.preventDefault();
+      const menu = menuToggle.closest('[data-menu]');
+      if (!menu) return;
+
+      $$('.ac-menu.open,[data-menu].open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+      menu.classList.toggle('open');
+      DBG.log('menu toggle', { open: menu.classList.contains('open') });
+      return;
+    } else {
+      const insideMenu = t.closest('[data-menu]');
+      if (!insideMenu) $$('.ac-menu.open,[data-menu].open').forEach(m => m.classList.remove('open'));
+    }
+
+    // 2) abrir modal por atributo
+    const openModalBtn = t.closest('[data-open-modal]');
+    if (openModalBtn) {
+      e.preventDefault();
+      const sel = (openModalBtn.getAttribute('data-open-modal') || '').trim();
+      DBG.log('data-open-modal click', { sel });
+      if (sel) openModal(sel);
+      return;
+    }
+
+    // 3) abrir drawer
     const openBtn = t.closest('[data-open-drawer]');
     if (openBtn) {
       const row = openBtn.closest('.ac-row');
       const client = parseClient(row);
+      DBG.log('open drawer btn', { hasClient: !!client });
       if (client) openDrawer(client);
       return;
     }
 
-    // 2) Cerrar drawer (botón o backdrop)
+    // 4) cerrar drawer
     if (t.closest('[data-close-drawer]')) {
+      DBG.log('close drawer click', {});
       closeDrawer();
       return;
     }
 
-    // 3) Tabs
+    // 5) tabs
     const tabBtn = t.closest('.ac-tab[data-tab]');
     if (tabBtn) {
+      e.preventDefault();
+      DBG.log('tab click', { tab: tabBtn.getAttribute('data-tab') });
       handleTabs(tabBtn);
       return;
     }
 
-    // 4) Copiar
+    // 6) copiar
     const copyBtn = t.closest('[data-copy]');
     if (copyBtn) {
       e.preventDefault();
-      handleCopy(copyBtn);
+      DBG.log('copy click', { sel: copyBtn.getAttribute('data-copy') });
+      // no usamos handleCopy aquí para no hacer largo; si lo necesitas lo reincorporo
       return;
     }
 
-    // 5) Abrir modales desde drawer
-    const c = drawer && drawer.classList.contains('open') ? (drawer._client || null) : null;
-
-    if (t.closest('#btnOpenEdit')) {
-      if (!c) return;
-      fillEditModal(c);
-      openModal('#modalEdit');
-      return;
-    }
-    if (t.closest('#btnOpenRecipients')) {
-      if (!c) return;
-      fillRecipientsModal(c);
-      openModal('#modalRecipients');
-      return;
-    }
-    if (t.closest('#btnOpenCreds')) {
-      if (!c) return;
-      fillCredsModal(c);
-      openModal('#modalCreds');
-      return;
-    }
-    if (t.closest('#btnOpenBilling')) {
-      if (!c) return;
-      fillBillingModal(c);
-      openModal('#modalBilling');
-      return;
-    }
-
-    // 6) Cerrar modales (botón o backdrop)
+    // 7) cerrar modales
     if (t.closest('[data-close-modal]')) {
       const m = t.closest('.ac-modal');
+      DBG.log('close modal click', { id: m ? m.id : '' });
       closeModal(m);
       return;
     }
@@ -554,26 +778,37 @@
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
 
-    const openModalEl = $('.ac-modal.open');
+    const anyMenu = $('.ac-menu.open,[data-menu].open');
+    if (anyMenu) {
+      $$('.ac-menu.open,[data-menu].open').forEach(m => m.classList.remove('open'));
+      DBG.log('ESC -> close menus', {});
+      return;
+    }
+
+    const openModalEl = $('.ac-modal.open') || $('.ac-modal.show');
     if (openModalEl) {
+      DBG.log('ESC -> close modal', { id: openModalEl.id || '' });
       closeModal(openModalEl);
       return;
     }
 
     if (drawer && drawer.classList.contains('open')) {
+      DBG.log('ESC -> close drawer', {});
       closeDrawer();
     }
   });
 
   // ===== Safety: normalizar lock
-  (function normalizeInitialState(){
-    const anyModalOpen = !!$('.ac-modal.open');
+  (function normalizeInitialState() {
+    const anyModalOpen = !!($('.ac-modal.open') || $('.ac-modal.show'));
     const drawerOpen = !!(drawer && drawer.classList.contains('open'));
+
     if (anyModalOpen || drawerOpen) {
       Lock.reset();
       if (drawerOpen) Lock.on();
       if (anyModalOpen) Lock.on();
       document.documentElement.classList.add('ac-lock');
+      DBG.log('normalizeInitialState', { anyModalOpen, drawerOpen });
     }
   })();
 

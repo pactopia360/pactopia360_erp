@@ -195,6 +195,340 @@ class ClientesController extends \App\Http\Controllers\Controller
         return view('admin.clientes.index', compact('rows', 'extras', 'creds', 'recipients', 'billingStatuses'));
     }
 
+        // ======================= CREAR (UI SIMPLE) =======================
+    public function create(Request $request): \Illuminate\Http\Response
+    {
+        // UI minimalista inline (no depende de layouts)
+        $csrf = csrf_token();
+        $postUrl = route('admin.clientes.store');
+
+        $html = <<<HTML
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crear cliente · Pactopia360</title>
+  <style>
+    body{font:14px system-ui,Segoe UI,Roboto,sans-serif;background:#0b1020;color:#e5e7eb;margin:0;padding:24px}
+    .wrap{max-width:980px;margin:0 auto}
+    .card{background:#0f172a;border:1px solid #1f2a44;border-radius:14px;padding:18px 18px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:18px}
+    .muted{color:#94a3b8;margin:0 0 14px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    label{display:block;font-size:12px;color:#cbd5e1;margin:0 0 6px}
+    input,select{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #263252;background:#0b1228;color:#e5e7eb;padding:10px 12px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+    .btn{border:1px solid #334155;background:#7c3aed;color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn2{border:1px solid #334155;background:#111827;color:#e5e7eb;border-radius:10px;padding:10px 14px;font-weight:600;text-decoration:none;display:inline-block}
+    .chk{display:flex;gap:8px;align-items:center}
+    .chk input{width:auto}
+    .note{color:#94a3b8;font-size:12px;margin-top:10px}
+    @media (max-width:860px){ .grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Crear cliente manual</h1>
+      <p class="muted">Crea cuenta SOT (admin.accounts) + espejo (mysql_clientes) + owner. Luego podrás verlo en /admin/clientes.</p>
+
+      <form method="POST" action="{$postUrl}">
+        <input type="hidden" name="_token" value="{$csrf}">
+
+        <div class="grid">
+          <div>
+            <label>RFC *</label>
+            <input name="rfc" required maxlength="20" placeholder="XAXX010101000">
+          </div>
+
+          <div>
+            <label>Razón social *</label>
+            <input name="razon_social" required maxlength="190" placeholder="Empresa SA de CV">
+          </div>
+
+          <div>
+            <label>Email (owner)</label>
+            <input name="email" type="email" maxlength="190" placeholder="correo@dominio.com">
+          </div>
+
+          <div>
+            <label>Teléfono</label>
+            <input name="phone" maxlength="25" placeholder="5512345678">
+          </div>
+
+          <div>
+            <label>Plan</label>
+            <select name="plan">
+              <option value="">(vacío)</option>
+              <option value="FREE">FREE</option>
+              <option value="PRO">PRO</option>
+              <option value="PRO_MENSUAL">PRO_MENSUAL</option>
+              <option value="PRO_ANUAL">PRO_ANUAL</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Ciclo</label>
+            <select name="billing_cycle">
+              <option value="">(vacío)</option>
+              <option value="monthly">monthly</option>
+              <option value="yearly">yearly</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Billing status</label>
+            <select name="billing_status">
+              <option value="">(vacío)</option>
+              <option value="active">active</option>
+              <option value="trial">trial</option>
+              <option value="grace">grace</option>
+              <option value="overdue">overdue</option>
+              <option value="suspended">suspended</option>
+              <option value="cancelled">cancelled</option>
+              <option value="demo">demo</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Bloqueado</label>
+            <select name="is_blocked">
+              <option value="0">0 (no)</option>
+              <option value="1">1 (sí)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="chk"><input type="checkbox" name="force_email_verified" value="1"> Marcar email verificado</label>
+          <label class="chk"><input type="checkbox" name="force_phone_verified" value="1"> Marcar teléfono verificado</label>
+          <label class="chk"><input type="checkbox" name="send_credentials" value="1" checked> Enviar credenciales al email</label>
+        </div>
+
+        <div class="row">
+          <button class="btn" type="submit">Crear cliente</button>
+          <a class="btn2" href="{$this->safeAdminClientesIndexUrl()}">Volver a clientes</a>
+        </div>
+
+        <div class="note">
+          Nota: el envío de credenciales usa tu flujo <code>ClientCredentials::resetOwnerByRfc()</code>. Si falla, la cuenta se crea de todas formas.
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
+HTML;
+
+        return response($html, 200)->header('Content-Type', 'text/html; charset=utf-8');
+    }
+
+    // ======================= CREAR (STORE) =======================
+    public function store(Request $request): RedirectResponse
+    {
+        $schemaA = Schema::connection($this->adminConn);
+
+        $emailCol = $this->colEmail();
+        $phoneCol = $this->colPhone();
+        $rfcCol   = $this->colRfcAdmin();
+
+        $rules = [
+            'rfc'               => 'required|string|max:20',
+            'razon_social'      => 'required|string|max:190',
+            'email'             => 'nullable|email|max:190',
+            'phone'             => 'nullable|string|max:25',
+            'plan'              => 'nullable|string|max:50',
+            'billing_cycle'     => ['nullable', Rule::in(['monthly', 'yearly', '', null])],
+            'billing_status'    => 'nullable|string|max:30',
+            'is_blocked'        => 'nullable|boolean',
+            'send_credentials'  => 'nullable|boolean',
+            'force_email_verified' => 'nullable|boolean',
+            'force_phone_verified' => 'nullable|boolean',
+        ];
+
+        $data = validator($request->all(), $rules)->validate();
+
+        $rfc = strtoupper(trim((string) $data['rfc']));
+        $rs  = trim((string) $data['razon_social']);
+        $email = strtolower(trim((string) ($data['email'] ?? '')));
+        $phone = trim((string) ($data['phone'] ?? ''));
+
+        if ($rfc === '' || $rs === '') {
+            return back()->with('error', 'RFC y Razón social son obligatorios.');
+        }
+
+        // ✅ Anti-duplicado por RFC (case-insensitive)
+        $exists = DB::connection($this->adminConn)->table('accounts')
+            ->whereRaw('UPPER(' . $rfcCol . ') = ?', [$rfc])
+            ->first(['id', $rfcCol]);
+
+        if ($exists) {
+            return redirect()->route('admin.clientes.index', ['q' => $rfc])
+                ->with('error', "Ya existe una cuenta con RFC {$rfc} (account_id={$exists->id}).");
+        }
+
+        // Insert payload (solo columnas existentes)
+        $payload = [
+            'razon_social' => $rs,
+            'updated_at'   => now(),
+            'created_at'   => now(),
+        ];
+
+        if ($schemaA->hasColumn('accounts', $rfcCol)) {
+            $payload[$rfcCol] = $rfc;
+        }
+
+        if ($schemaA->hasColumn('accounts', $emailCol)) {
+            $payload[$emailCol] = ($email !== '') ? $email : null;
+        }
+
+        if ($schemaA->hasColumn('accounts', $phoneCol)) {
+            $payload[$phoneCol] = ($phone !== '') ? $phone : null;
+        }
+
+        if ($schemaA->hasColumn('accounts', 'plan')) {
+            $payload['plan'] = $data['plan'] ?? null;
+        }
+
+        if ($schemaA->hasColumn('accounts', 'plan_actual')) {
+            $payload['plan_actual'] = $data['plan'] ?? null;
+        }
+
+        if ($schemaA->hasColumn('accounts', 'billing_cycle')) {
+            $payload['billing_cycle'] = $data['billing_cycle'] ?? null;
+        }
+
+        if ($schemaA->hasColumn('accounts', 'billing_status')) {
+            $payload['billing_status'] = $data['billing_status'] ?? null;
+        }
+
+        if ($schemaA->hasColumn('accounts', 'is_blocked')) {
+            $payload['is_blocked'] = (int) ($data['is_blocked'] ?? 0);
+        }
+
+        // meta default mínimo
+        if ($schemaA->hasColumn('accounts', 'meta')) {
+            $meta = [];
+            $cycle = strtolower(trim((string) ($data['billing_cycle'] ?? '')));
+            if ($cycle === 'monthly') data_set($meta, 'billing.mode', 'mensual');
+            if ($cycle === 'yearly')  data_set($meta, 'billing.mode', 'anual');
+            $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        // ✅ Crear en admin.accounts
+        $accountId = null;
+        try {
+            $accountId = (string) DB::connection($this->adminConn)->table('accounts')->insertGetId($payload);
+        } catch (\Throwable $e) {
+            Log::error('clientes.store insert admin.accounts failed: ' . $e->getMessage(), ['rfc' => $rfc]);
+            return back()->with('error', 'No se pudo crear la cuenta en admin.accounts: ' . $e->getMessage());
+        }
+
+        // ✅ Legacy clientes (por RFC real)
+        try {
+            $this->upsertClienteLegacy($rfc, ['razon_social' => $rs]);
+        } catch (\Throwable $e) {
+            Log::warning('clientes.store upsert legacy failed: ' . $e->getMessage(), ['rfc' => $rfc]);
+        }
+
+        // ✅ Espejo + Owner (mysql_clientes)
+        try {
+            // asegurar espejo + owner
+            $this->ensureMirrorAndOwner($accountId, $rfc);
+
+            // sincronizar plan/ciclo a espejo (tu método ya existe)
+            $this->syncPlanToMirror($accountId, [
+                'plan'           => $data['plan'] ?? null,
+                'billing_cycle'  => $data['billing_cycle'] ?? null,
+                'next_invoice_date' => null,
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::warning('clientes.store ensureMirrorAndOwner failed: ' . $e->getMessage(), [
+                'account_id' => $accountId,
+                'rfc'        => $rfc,
+            ]);
+        }
+
+        // ✅ Forzar verificados si se pidió
+        try {
+            $forceEmail = (bool) ($data['force_email_verified'] ?? false);
+            $forcePhone = (bool) ($data['force_phone_verified'] ?? false);
+
+            if ($forceEmail) {
+                $this->markVerifiedAdminAndMirror($accountId, $rfc, 'email');
+            }
+            if ($forcePhone) {
+                $this->markVerifiedAdminAndMirror($accountId, $rfc, 'phone');
+            }
+        } catch (\Throwable $e) {
+            Log::warning('clientes.store markVerified failed: ' . $e->getMessage(), [
+                'account_id' => $accountId,
+                'rfc'        => $rfc,
+            ]);
+        }
+
+        // ✅ Enviar credenciales (si hay email)
+        $sendCreds = (bool) ($data['send_credentials'] ?? false);
+        if ($sendCreds && $email !== '') {
+            try {
+                // Reusa tu flujo actual: genera pass temp por RFC real y envía
+                $req2 = new Request(['to' => $email]);
+                $this->emailCredentials($accountId, $req2);
+            } catch (\Throwable $e) {
+                Log::warning('clientes.store send credentials failed: ' . $e->getMessage(), [
+                    'account_id' => $accountId,
+                    'rfc'        => $rfc,
+                    'email'      => $email,
+                ]);
+            }
+        }
+
+        return redirect()->route('admin.clientes.index', ['q' => $rfc])
+            ->with('ok', "Cliente creado: RFC {$rfc} (account_id={$accountId}).");
+    }
+
+    private function safeAdminClientesIndexUrl(): string
+    {
+        try {
+            return \Illuminate\Support\Facades\Route::has('admin.clientes.index')
+                ? route('admin.clientes.index')
+                : url('/admin/clientes');
+        } catch (\Throwable $e) {
+            return url('/admin/clientes');
+        }
+    }
+
+    /**
+     * Marca verificación en admin + espejo, y limpia tokens/otps pendientes.
+     * $type: email|phone
+     */
+    private function markVerifiedAdminAndMirror(string $accountId, string $rfcReal, string $type): void
+    {
+        $type = strtolower(trim($type));
+        if (!in_array($type, ['email', 'phone'], true)) return;
+
+        // admin.accounts
+        if ($type === 'email' && $this->hasCol($this->adminConn, 'accounts', 'email_verified_at')) {
+            DB::connection($this->adminConn)->table('accounts')
+                ->where('id', $accountId)
+                ->update(['email_verified_at' => now(), 'updated_at' => now()]);
+            $this->purgeAdminVerificationArtifacts($accountId, 'email');
+        }
+
+        if ($type === 'phone' && $this->hasCol($this->adminConn, 'accounts', 'phone_verified_at')) {
+            DB::connection($this->adminConn)->table('accounts')
+                ->where('id', $accountId)
+                ->update(['phone_verified_at' => now(), 'updated_at' => now()]);
+            $this->purgeAdminVerificationArtifacts($accountId, 'phone');
+        }
+
+        // espejo mysql_clientes (tu helper robusto)
+        $this->forceVerifyInMirror($accountId, $rfcReal, $type);
+    }
+
+
     protected function resolveCuentaClienteFromAdminAccount(?object $acc): ?object
     {
         if (!$acc || empty($acc->id)) return null;
@@ -259,6 +593,10 @@ class ClientesController extends \App\Http\Controllers\Controller
             $phoneCol      => $data['phone'] ?? null,
             'updated_at'   => now(),
         ];
+
+        
+         // ✅ RFC real (solo referencia). El espejo se actualiza en syncPlanToMirror()
+        $rfcRealLocal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
         if ($this->hasCol($this->adminConn, 'accounts', 'plan')) {
             $payload['plan'] = $data['plan'] ?? null;
@@ -1607,15 +1945,29 @@ class ClientesController extends \App\Http\Controllers\Controller
                 $schemaCliHasTipo = false;
             }
 
-            $owners = DB::connection('mysql_clientes')
+            $base = DB::connection('mysql_clientes')
                 ->table('cuentas_cliente as c')
-                ->join('usuarios_cuenta as u', 'u.cuenta_id', '=', 'c.id')
-                ->whereIn('c.rfc_padre', array_map('strval', $accountIds))
+                ->join('usuarios_cuenta as u', 'u.cuenta_id', '=', 'c.id');
+
+            // ✅ Canon: admin_account_id
+            if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                $base->whereIn('c.admin_account_id', array_map('intval', $accountIds));
+            } else {
+                // legacy: rfc_padre
+                $base->whereIn('c.rfc_padre', array_map('strval', $accountIds));
+            }
+
+            $owners = $base
                 ->where(function ($q) use ($schemaCliHasTipo) {
                     $q->where('u.rol', 'owner');
                     if ($schemaCliHasTipo) $q->orWhere('u.tipo', 'owner');
                 })
-                ->select('c.rfc_padre as account_id', 'u.email')
+                ->select(
+                    $schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')
+                        ? 'c.admin_account_id as account_id'
+                        : 'c.rfc_padre as account_id',
+                    'u.email'
+                )
                 ->orderBy('u.created_at', 'asc')
                 ->get()
                 ->groupBy('account_id')
@@ -1857,6 +2209,183 @@ class ClientesController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Normaliza duplicados en mysql_clientes.cuentas_cliente para un account_id.
+     *
+     * Caso real detectado:
+     * - 2 filas con admin_account_id = {accountId}
+     *   - una legacy: "Cuenta {id}" con rfc_padre="{id}" y rfc=null
+     *   - una real: con razon_social real y/o rfc/rfc_padre con RFC real
+     *
+     * Estrategia:
+     * - Elegir "winner" por score (no-legacy + rfc presente + rfc_padre RFC-like + updated_at)
+     * - Asegurar que winner tenga:
+     *    - admin_account_id = accountId (si existe col)
+     *    - rfc = RFC real (si existe col y tenemos rfcReal)
+     *    - rfc_padre = RFC real (si existe col y tenemos rfcReal)
+     * - A los demás: desasociar admin_account_id (y opcional marcar razon_social)
+     *
+     * Devuelve la fila winner (object) o null si no hay tabla/rows.
+     */
+    private function normalizeMirrorCuenta(string $accountId, string $rfcReal): ?object
+    {
+        $accountId = trim((string)$accountId);
+        $rfcReal   = strtoupper(trim((string)$rfcReal));
+
+        $schemaCli = Schema::connection('mysql_clientes');
+        if (!$schemaCli->hasTable('cuentas_cliente')) return null;
+
+        $conn = DB::connection('mysql_clientes');
+
+        // Traer candidatos que suelen colisionar
+        $rows = $conn->table('cuentas_cliente')
+            ->where(function($w) use ($schemaCli, $accountId, $rfcReal){
+                if ($schemaCli->hasColumn('cuentas_cliente','admin_account_id')) {
+                    $w->orWhere('admin_account_id', (int)$accountId);
+                }
+                if ($schemaCli->hasColumn('cuentas_cliente','rfc_padre')) {
+                    $w->orWhere('rfc_padre', (string)$accountId);
+                    if ($rfcReal !== '') $w->orWhereRaw('UPPER(rfc_padre)=?', [$rfcReal]);
+                }
+                if ($schemaCli->hasColumn('cuentas_cliente','rfc') && $rfcReal !== '') {
+                    $w->orWhereRaw('UPPER(rfc)=?', [$rfcReal]);
+                }
+            })
+            ->get(['id','admin_account_id','rfc','rfc_padre','razon_social','updated_at'])
+            ->all();
+
+        if (empty($rows)) return null;
+        if (count($rows) === 1) {
+            $winner = (object) $rows[0];
+            // Curar mínimo
+            $this->healMirrorWinner($winner, $accountId, $rfcReal);
+            return $winner;
+        }
+
+        // Score ganador
+        $best = null; $bestScore = -999999;
+
+        foreach ($rows as $r) {
+            $rs = strtolower(trim((string)($r->razon_social ?? '')));
+            $isLegacyName = ($rs === strtolower('Cuenta '.$accountId)) || str_starts_with($rs, 'cuenta ');
+
+            $score = 0;
+
+            // Preferir NO legacy
+            if (!$isLegacyName) $score += 50;
+
+            // Preferir rfc presente
+            $rfc = strtoupper(trim((string)($r->rfc ?? '')));
+            if ($rfc !== '') $score += 30;
+
+            // Preferir rfc_padre RFC-like (>= 12 chars y contiene letras+numeros)
+            $rp = strtoupper(trim((string)($r->rfc_padre ?? '')));
+            if ($rp !== '' && strlen($rp) >= 12 && preg_match('/[A-Z]/', $rp) && preg_match('/\d/', $rp)) $score += 15;
+
+            // Preferir updated_at más reciente (si se puede parsear)
+            try {
+                $ts = \Illuminate\Support\Carbon::parse($r->updated_at)->timestamp;
+                $score += (int) min(20, max(0, ($ts % 100000) / 5000)); // micro-bias estable
+            } catch (\Throwable $e) {
+                // ignore
+            }
+
+            // Preferir match exacto por RFC real si aplica
+            if ($rfcReal !== '') {
+                if ($rfc === $rfcReal) $score += 40;
+                if ($rp === $rfcReal)  $score += 20;
+            }
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $r;
+            }
+        }
+
+        $winner = (object) $best;
+
+        // Curar winner (admin_account_id / rfc / rfc_padre)
+        $this->healMirrorWinner($winner, $accountId, $rfcReal);
+
+        // Desasociar duplicados (muy importante para que ya no “agarre cualquiera”)
+        foreach ($rows as $r) {
+            if ((string)$r->id === (string)$winner->id) continue;
+
+            $upd = ['updated_at' => now()];
+            if ($schemaCli->hasColumn('cuentas_cliente','admin_account_id')) {
+                // lo desasociamos para que no compita
+                $upd['admin_account_id'] = null;
+            }
+
+            // opcional: marcar para diagnóstico (no borro para no perder datos)
+            if ($schemaCli->hasColumn('cuentas_cliente','razon_social')) {
+                $rs = trim((string)($r->razon_social ?? ''));
+                if (!str_starts_with($rs, '[DUPLICATE]')) {
+                    $upd['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('cuenta '.$accountId));
+                }
+            }
+
+            try {
+                $conn->table('cuentas_cliente')->where('id', $r->id)->update($upd);
+            } catch (\Throwable $e) {
+                // no rompe flujo
+            }
+        }
+
+        // Refrescar winner ya curado
+        try {
+            $winner = $conn->table('cuentas_cliente')->where('id', $winner->id)->first();
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        return $winner ?: (object)$best;
+    }
+
+    /**
+     * Cura winner para que quede consistente.
+     */
+    private function healMirrorWinner(object $winner, string $accountId, string $rfcReal): void
+    {
+        $accountId = trim((string)$accountId);
+        $rfcReal   = strtoupper(trim((string)$rfcReal));
+
+        $schemaCli = Schema::connection('mysql_clientes');
+        if (!$schemaCli->hasTable('cuentas_cliente')) return;
+
+        $conn = DB::connection('mysql_clientes');
+
+        $upd = ['updated_at' => now()];
+
+        if ($schemaCli->hasColumn('cuentas_cliente','admin_account_id')) {
+            if ((string)($winner->admin_account_id ?? '') !== (string)$accountId) {
+                $upd['admin_account_id'] = (int)$accountId;
+            }
+        }
+
+        if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente','rfc')) {
+            $cur = strtoupper(trim((string)($winner->rfc ?? '')));
+            if ($cur !== $rfcReal) $upd['rfc'] = $rfcReal;
+        }
+
+        if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente','rfc_padre')) {
+            $cur = strtoupper(trim((string)($winner->rfc_padre ?? '')));
+            // Si rfc_padre está vacío o es el id legacy, lo curamos a RFC real
+            if ($cur === '' || $cur === (string)$accountId) {
+                $upd['rfc_padre'] = $rfcReal;
+            }
+        }
+
+        if (count($upd) <= 1) return;
+
+        try {
+            $conn->table('cuentas_cliente')->where('id', $winner->id)->update($upd);
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+
+    /**
      * ✅ Asegura mirror por accounts.id (rfc_padre) y owner.
      *    $accountId: accounts.id
      *    $rfcReal: accounts.rfc (real)
@@ -1867,59 +2396,265 @@ class ClientesController extends \App\Http\Controllers\Controller
         $rfcReal   = strtoupper(trim($rfcReal));
 
         abort_unless(
-            Schema::connection('mysql_clientes')->hasTable('cuentas_cliente') &&
-            Schema::connection('mysql_clientes')->hasTable('usuarios_cuenta'),
+            Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')
+            && Schema::connection('mysql_clientes')->hasTable('usuarios_cuenta'),
             500,
             'Faltan tablas espejo (cuentas_cliente / usuarios_cuenta) en mysql_clientes.'
         );
 
+        // ====== Admin SOT ======
         $emailCol = $this->colEmail();
+        $rfcColA  = $this->colRfcAdmin();
+
         $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([
             'id',
-            $this->colRfcAdmin(),
+            $rfcColA,
             'razon_social',
             DB::raw("$emailCol as email"),
         ]);
         abort_if(!$acc, 404, 'Cuenta SOT (admin.accounts) no existe');
 
-        $cuenta = DB::connection('mysql_clientes')->table('cuentas_cliente')
-            ->where('rfc_padre', $acc->id)
-            ->first();
+        // Si no vino RFC, tomamos el del SOT
+        if ($rfcReal === '') {
+            $rfcReal = strtoupper(trim((string) ($acc->{$rfcColA} ?? '')));
+        }
 
+        $schemaCli = Schema::connection('mysql_clientes');
+        $connCli   = DB::connection('mysql_clientes');
+
+        // ================================
+        // ✅ NORMALIZACIÓN ANTI-DUPLICADOS
+        // ================================
+        // Regla: por account_id puede haber basura legacy (rfc_padre="14" etc).
+        // Preferimos SIEMPRE un winner con:
+        //  - admin_account_id = accounts.id
+        //  - y RFC real consistente (rfc o rfc_padre RFC-like)
+        //
+        // Si encontramos 2+ filas ligadas al mismo accountId, elegimos winner y
+        // desasociamos losers (admin_account_id=NULL) + marcamos razon_social.
+        try {
+            if ($schemaCli->hasTable('cuentas_cliente') && $schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+
+                $dups = $connCli->table('cuentas_cliente')
+                    ->where('admin_account_id', (int) $acc->id)
+                    ->orderByDesc('updated_at')
+                    ->get(['id', 'admin_account_id', 'rfc', 'rfc_padre', 'razon_social', 'updated_at'])
+                    ->toArray();
+
+                if (count($dups) > 1) {
+
+                    $isRfcLike = static function (string $v): bool {
+                        $v = strtoupper(trim($v));
+                        if ($v === '') return false;
+                        if (strlen($v) < 12) return false;
+                        return (bool) (preg_match('/[A-Z]/', $v) && preg_match('/\d/', $v));
+                    };
+
+                    // Winner 1: rfc == rfcReal
+                    $winner = null;
+                    foreach ($dups as $r) {
+                        $rf = strtoupper(trim((string) ($r->rfc ?? '')));
+                        if ($rfcReal !== '' && $rf === $rfcReal) { $winner = $r; break; }
+                    }
+
+                    // Winner 2: rfc no vacío
+                    if (!$winner) {
+                        foreach ($dups as $r) {
+                            $rf = strtoupper(trim((string) ($r->rfc ?? '')));
+                            if ($rf !== '') { $winner = $r; break; }
+                        }
+                    }
+
+                    // Winner 3: rfc_padre RFC-like
+                    if (!$winner) {
+                        foreach ($dups as $r) {
+                            $rp = strtoupper(trim((string) ($r->rfc_padre ?? '')));
+                            if ($isRfcLike($rp)) { $winner = $r; break; }
+                        }
+                    }
+
+                    // Winner 4: el más reciente
+                    if (!$winner) { $winner = $dups[0]; }
+
+                    // Curar winner: amarrar RFC real en rfc y rfc_padre cuando existan
+                    $updW = ['updated_at' => now()];
+
+                    if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                        $updW['admin_account_id'] = (int) $acc->id;
+                    }
+                    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
+                        $updW['rfc'] = $rfcReal;
+                    }
+                    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
+                        $updW['rfc_padre'] = $rfcReal;
+                    }
+
+                    $connCli->table('cuentas_cliente')->where('id', (string) $winner->id)->update($updW);
+
+                    // Desasociar losers
+                    foreach ($dups as $r) {
+                        if ((string) $r->id === (string) $winner->id) continue;
+
+                        $updL = ['updated_at' => now()];
+
+                        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                            $updL['admin_account_id'] = null;
+                        }
+
+                        $rs = trim((string) ($r->razon_social ?? ''));
+                        if ($schemaCli->hasColumn('cuentas_cliente', 'razon_social')) {
+                            if (!str_starts_with($rs, '[DUPLICATE]')) {
+                                $updL['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('Cuenta ' . (string) $acc->id));
+                            }
+                        }
+
+                        $connCli->table('cuentas_cliente')->where('id', (string) $r->id)->update($updL);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // no rompe; solo evita que el admin se caiga
+        }
+
+        // ==========================
+        // Resolver cuenta espejo
+        // ==========================
+        $cuenta = null;
+
+        // 1) Canon: admin_account_id
+        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+            $cuenta = $connCli->table('cuentas_cliente')
+                ->where('admin_account_id', (int) $acc->id)
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // 2) rfc = RFC real
+        if (!$cuenta && $rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+            $cuenta = $connCli->table('cuentas_cliente')
+                ->whereRaw('UPPER(rfc) = ?', [$rfcReal])
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // 3) rfc_padre = RFC real
+        if (!$cuenta && $rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $cuenta = $connCli->table('cuentas_cliente')
+                ->whereRaw('UPPER(rfc_padre) = ?', [$rfcReal])
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // 4) ÚLTIMO: rfc_padre = accounts.id (legacy)
+        if (!$cuenta && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $cuenta = $connCli->table('cuentas_cliente')
+                ->where('rfc_padre', (string) $acc->id)
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // ====== Crear si no existe ======
         if (!$cuenta) {
             $cid = (string) Str::uuid();
 
             $payload = [
                 'id'           => $cid,
-                'rfc_padre'    => (string) $acc->id,
                 'razon_social' => $acc->razon_social ?: ('Cuenta ' . (string) $acc->id),
                 'created_at'   => now(),
                 'updated_at'   => now(),
             ];
 
-            $schemaCli = Schema::connection('mysql_clientes');
-
-            // ✅ FIX PROD: cuentas_cliente.admin_account_id es NOT NULL en producción
             if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
-                $payload['admin_account_id'] = (int) $acc->id; // accounts.id (SOT)
+                $payload['admin_account_id'] = (int) $acc->id;
             }
 
-            if ($schemaCli->hasColumn('cuentas_cliente', 'codigo_cliente')) $payload['codigo_cliente'] = $this->genCodigoClienteEspejo();
-            if ($schemaCli->hasColumn('cuentas_cliente', 'customer_no'))    $payload['customer_no'] = $this->nextCustomerNo();
-            if ($schemaCli->hasColumn('cuentas_cliente', 'nombre_comercial')) $payload['nombre_comercial'] = $payload['razon_social'];
-            if ($schemaCli->hasColumn('cuentas_cliente', 'activo')) $payload['activo'] = 1;
-            if ($schemaCli->hasColumn('cuentas_cliente', 'email'))  $payload['email'] = $acc->email ?: null;
+            if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
+                $payload['rfc'] = $rfcReal;
+            }
 
+            if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+                $payload['rfc_padre'] = ($rfcReal !== '') ? $rfcReal : (string) $acc->id;
+            }
+
+            if ($schemaCli->hasColumn('cuentas_cliente', 'codigo_cliente'))    $payload['codigo_cliente'] = $this->genCodigoClienteEspejo();
+            if ($schemaCli->hasColumn('cuentas_cliente', 'customer_no'))       $payload['customer_no'] = $this->nextCustomerNo();
+            if ($schemaCli->hasColumn('cuentas_cliente', 'nombre_comercial'))  $payload['nombre_comercial'] = $payload['razon_social'];
+            if ($schemaCli->hasColumn('cuentas_cliente', 'activo'))            $payload['activo'] = 1;
+            if ($schemaCli->hasColumn('cuentas_cliente', 'email'))             $payload['email'] = $acc->email ?: null;
 
             if ($schemaCli->hasColumn('cuentas_cliente', 'telefono'))          $payload['telefono'] = null;
             if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))              $payload['plan'] = null;
             if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle'))     $payload['billing_cycle'] = null;
             if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) $payload['next_invoice_date'] = null;
 
-            DB::connection('mysql_clientes')->table('cuentas_cliente')->insert($payload);
-            $cuenta = (object) ['id' => $cid, 'rfc_padre' => (string) $acc->id];
+            if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta'))      $payload['estado_cuenta'] = 'activa';
+            if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked'))         $payload['is_blocked'] = 0;
+
+            $connCli->table('cuentas_cliente')->insert($payload);
+
+            $cuenta = $connCli->table('cuentas_cliente')->where('id', $cid)->first();
+            if (!$cuenta) {
+                $cuenta = (object) ['id' => $cid];
+            }
+
+        } else {
+
+            // ====== Cura registro existente (consistencia mínima) ======
+            try {
+                $upd2 = ['updated_at' => now()];
+
+                // admin_account_id obligatorio si existe la columna
+                if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id') && empty($cuenta->admin_account_id)) {
+                    $upd2['admin_account_id'] = (int) $acc->id;
+                }
+
+                // rfc real
+                if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
+                    $cur = strtoupper(trim((string) ($cuenta->rfc ?? '')));
+                    if ($cur !== $rfcReal) $upd2['rfc'] = $rfcReal;
+                }
+
+                // rfc_padre real (si trae "14" u otra cosa corta)
+                if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
+                    $cur = strtoupper(trim((string) ($cuenta->rfc_padre ?? '')));
+                    if ($cur === '' || $cur === strtoupper((string) $acc->id) || strlen($cur) < 12) {
+                        $upd2['rfc_padre'] = $rfcReal;
+                    }
+                }
+
+                // activo=1
+                if ($schemaCli->hasColumn('cuentas_cliente', 'activo') && (int) ($cuenta->activo ?? 1) === 0) {
+                    $upd2['activo'] = 1;
+                }
+
+                // estado_cuenta=activa
+                if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta')) {
+                    $st = strtolower(trim((string) ($cuenta->estado_cuenta ?? '')));
+                    if ($st === '' || $st === 'suspendida' || $st === 'bloqueada') {
+                        $upd2['estado_cuenta'] = 'activa';
+                    }
+                }
+
+                // is_blocked=0
+                if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked') && (int) ($cuenta->is_blocked ?? 0) !== 0) {
+                    $upd2['is_blocked'] = 0;
+                }
+
+                if (count($upd2) > 1) {
+                    $connCli->table('cuentas_cliente')->where('id', $cuenta->id)->update($upd2);
+
+                    // refrescar objeto
+                    foreach ($upd2 as $k => $v) {
+                        if ($k === 'updated_at') continue;
+                        $cuenta->{$k} = $v;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // no rompe
+            }
         }
 
+        // ====== Owner ======
         $ownerObj = $this->upsertOwnerForCuenta($acc, $cuenta, $rfcReal !== '' ? $rfcReal : (string) $acc->id);
 
         return ['cuenta' => $cuenta, 'owner' => $ownerObj];
@@ -1929,12 +2664,72 @@ class ClientesController extends \App\Http\Controllers\Controller
     {
         if (!Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) return;
 
-        $conn   = DB::connection('mysql_clientes');
-        $cuenta = $conn->table('cuentas_cliente')->where('rfc_padre', $accountId)->first();
+        $schemaCli = Schema::connection('mysql_clientes');
+        $conn      = DB::connection('mysql_clientes');
+
+        // ✅ localizar cuenta espejo por admin_account_id cuando exista
+        $cuenta = null;
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+            $aid = (int) $accountId;
+
+            try {
+                $cnt = (int) $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->count();
+                if ($cnt > 1) {
+                    // necesitamos RFC real para curar; lo resolvemos desde admin.accounts
+                    $rfcReal = '';
+                    try {
+                        $rfcCol = $this->colRfcAdmin();
+                        $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $aid)->first([$rfcCol]);
+                        $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+                    } catch (\Throwable $e) { $rfcReal = ''; }
+
+                    $cuenta = $this->normalizeMirrorCuentaByAdminAccountId($aid, $rfcReal);
+                } else {
+                    $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->first();
+                }
+            } catch (\Throwable $e) {
+                $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->first();
+            }
+        }
+
+
+        // fallback por RFC real desde admin.accounts
+        $rfcReal = '';
+        try {
+            $rfcCol = $this->colRfcAdmin();
+            $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
+            $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+        } catch (\Throwable $e) {
+            $rfcReal = '';
+        }
+
+        // 1) rfc = RFC real
+        if (!$cuenta && $rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+            $cuenta = $conn->table('cuentas_cliente')
+                ->whereRaw('UPPER(rfc) = ?', [$rfcReal])
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // 2) rfc_padre = RFC real (tu caso real)
+        if (!$cuenta && $rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $cuenta = $conn->table('cuentas_cliente')
+                ->whereRaw('UPPER(rfc_padre) = ?', [$rfcReal])
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
+        // 3) ÚLTIMO recurso legacy: rfc_padre = accounts.id
+        if (!$cuenta && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $cuenta = $conn->table('cuentas_cliente')
+                ->where('rfc_padre', (string) $accountId)
+                ->orderByDesc('updated_at')
+                ->first();
+        }
+
 
         if (!$cuenta) return;
-
-        $schemaCli = Schema::connection('mysql_clientes');
 
         $upd = ['updated_at' => now()];
 
@@ -1947,10 +2742,23 @@ class ClientesController extends \App\Http\Controllers\Controller
         if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle'))     $upd['billing_cycle'] = $billingCycle;
         if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) $upd['next_invoice_date'] = $nextInvoice;
 
+        // ✅ Mantener RFC real en espejo si existe la columna
+        if ($schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+            try {
+                $rfcCol = $this->colRfcAdmin();
+                $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
+                $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+                if ($rfcReal !== '') $upd['rfc'] = $rfcReal;
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
         if (count($upd) <= 1) return;
 
-        $conn->table('cuentas_cliente')->where('rfc_padre', $accountId)->update($upd);
+        $conn->table('cuentas_cliente')->where('id', $cuenta->id)->update($upd);
     }
+
 
     private function decodeMeta(mixed $meta): array
     {
@@ -2162,5 +2970,85 @@ class ClientesController extends \App\Http\Controllers\Controller
             ]);
         }
     }
+
+    /**
+ * ✅ Normaliza duplicados en mysql_clientes.cuentas_cliente para un admin_account_id:
+ * - winner: fila más “real” (tiene rfc no vacío) o rfc_padre con RFC-like; fallback: más reciente.
+ * - winner queda con admin_account_id correcto + rfc/rfc_padre = RFC real (si existe columna).
+ * - losers: admin_account_id = NULL y razón social marcada [DUPLICATE].
+ *
+ * Regresa la fila winner (object) o null si no hay filas con ese admin_account_id.
+ */
+private function normalizeMirrorCuentaByAdminAccountId(int $adminAccountId, string $rfcReal): ?object
+{
+    $rfcReal = strtoupper(trim($rfcReal));
+
+    $schemaCli = Schema::connection('mysql_clientes');
+    if (!$schemaCli->hasTable('cuentas_cliente')) return null;
+
+    $connCli = DB::connection('mysql_clientes');
+
+    $rows = $connCli->table('cuentas_cliente')
+        ->where('admin_account_id', $adminAccountId)
+        ->orderByDesc('updated_at')
+        ->get(['id','admin_account_id','rfc','rfc_padre','razon_social','updated_at'])
+        ->all();
+
+    if (empty($rows)) return null;
+    if (count($rows) === 1) return $rows[0];
+
+    // winner: rfc lleno
+    $winner = null;
+    foreach ($rows as $r) {
+        $rfc = strtoupper(trim((string)($r->rfc ?? '')));
+        if ($rfc !== '') { $winner = $r; break; }
+    }
+
+    // fallback: rfc_padre RFC-like
+    if (!$winner) {
+        foreach ($rows as $r) {
+            $rp = strtoupper(trim((string)($r->rfc_padre ?? '')));
+            if ($rp !== '' && strlen($rp) >= 12 && preg_match('/[A-Z]/', $rp) && preg_match('/\d/', $rp)) {
+                $winner = $r; break;
+            }
+        }
+    }
+
+    // fallback final: el más reciente (ya viene orderByDesc)
+    if (!$winner) $winner = $rows[0];
+
+    // Curar winner
+    $updW = ['updated_at' => now(), 'admin_account_id' => $adminAccountId];
+    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
+        $updW['rfc'] = $rfcReal;
+    }
+    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
+        $updW['rfc_padre'] = $rfcReal;
+    }
+    $connCli->table('cuentas_cliente')->where('id', $winner->id)->update($updW);
+
+    // Desasociar losers
+    foreach ($rows as $r) {
+        if ((string)$r->id === (string)$winner->id) continue;
+
+        $upd = ['updated_at' => now()];
+        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+            $upd['admin_account_id'] = null;
+        }
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'razon_social')) {
+            $rs = trim((string)($r->razon_social ?? ''));
+            if (!str_starts_with($rs, '[DUPLICATE]')) {
+                $upd['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('Cuenta ' . $adminAccountId));
+            }
+        }
+
+        $connCli->table('cuentas_cliente')->where('id', $r->id)->update($upd);
+    }
+
+    // Re-leer winner ya curado
+    return $connCli->table('cuentas_cliente')->where('id', $winner->id)->first();
+}
+
  
 }
