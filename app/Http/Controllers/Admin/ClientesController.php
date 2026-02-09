@@ -2668,7 +2668,9 @@ HTML;
                         $rfcCol = $this->colRfcAdmin();
                         $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $aid)->first([$rfcCol]);
                         $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
-                    } catch (\Throwable $e) { $rfcReal = ''; }
+                    } catch (\Throwable $e) {
+                        $rfcReal = '';
+                    }
 
                     $cuenta = $this->normalizeMirrorCuentaByAdminAccountId($aid, $rfcReal);
                 } else {
@@ -2678,7 +2680,6 @@ HTML;
                 $cuenta = $conn->table('cuentas_cliente')->where('admin_account_id', $aid)->first();
             }
         }
-
 
         // fallback por RFC real desde admin.accounts
         $rfcReal = '';
@@ -2714,7 +2715,6 @@ HTML;
                 ->first();
         }
 
-
         if (!$cuenta) return;
 
         $upd = ['updated_at' => now()];
@@ -2723,8 +2723,18 @@ HTML;
         $billingCycle = $payload['billing_cycle'] ?? null;
         $nextInvoice  = $payload['next_invoice_date'] ?? null;
 
-        if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))              $upd['plan'] = $plan;
-        if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual'))       $upd['plan_actual'] = $plan;
+        // ✅ evitar null/'' en columnas NOT NULL (plan_actual)
+        if (is_string($plan)) {
+            $plan = trim($plan);
+            if ($plan === '') $plan = null;
+        }
+
+        // ✅ Solo tocar plan/plan_actual si viene un valor real
+        if ($plan !== null) {
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))        $upd['plan'] = $plan;
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) $upd['plan_actual'] = $plan;
+        }
+
         if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle'))     $upd['billing_cycle'] = $billingCycle;
         if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date')) $upd['next_invoice_date'] = $nextInvoice;
 
@@ -2733,8 +2743,8 @@ HTML;
             try {
                 $rfcCol = $this->colRfcAdmin();
                 $acc = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first([$rfcCol]);
-                $rfcReal = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
-                if ($rfcReal !== '') $upd['rfc'] = $rfcReal;
+                $rfcReal2 = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+                if ($rfcReal2 !== '') $upd['rfc'] = $rfcReal2;
             } catch (\Throwable $e) {
                 // ignore
             }
@@ -2744,6 +2754,7 @@ HTML;
 
         $conn->table('cuentas_cliente')->where('id', $cuenta->id)->update($upd);
     }
+
 
 
     private function decodeMeta(mixed $meta): array
