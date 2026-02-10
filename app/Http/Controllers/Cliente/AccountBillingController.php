@@ -912,84 +912,128 @@ final class AccountBillingController extends Controller
     ): array {
         $rows = [];
 
-        // ============================
-        // 🔒 Normalización defensiva
-        // ============================
-        $payAllowed = trim((string) $payAllowed);
-        if ($payAllowed === '') {
-            // fallback seguro: nunca permitir null aquí
-            $payAllowed = now()->format('Y-m');
+        // ==========================================================
+        // 🔒 Normalización defensiva (payAllowed puede venir NULL)
+        // - Si viene vacío/invalid => dedúcelo desde lastPaid (+1 mes)
+        // - Si no se puede => mes actual
+        // ==========================================================
+        $payAllowed = trim((string) ($payAllowed ?? ''));
+
+        if (!$this->isValidPeriod($payAllowed)) {
+            if ($lastPaid && $this->isValidPeriod($lastPaid)) {
+                try {
+                    $payAllowed = \Carbon\Carbon::createFromFormat('Y-m', $lastPaid)
+                        ->addMonthNoOverflow()
+                        ->format('Y-m');
+                } catch (\Throwable $e) {
+                    $payAllowed = now()->format('Y-m');
+                }
+            } else {
+                $payAllowed = now()->format('Y-m');
+            }
         }
 
+        // ==========================================================
+        // 1) Base rows (fallback) con chargesByPeriod
+        // ==========================================================
         foreach ($periods as $p) {
+            $p = trim((string) $p);
             if (!$this->isValidPeriod($p)) continue;
 
             $charge = (float) ($chargesByPeriod[$p] ?? 0.0);
-            $isPaid = ($lastPaid && $p === $lastPaid);
+
+            // paid preliminar por lastPaid (se recalcula si hay estados_cuenta real)
+            $isPaidByLastPaid = ($lastPaid && $this->isValidPeriod($lastPaid) && $p === $lastPaid);
 
             $rows[$p] = [
                 'period'                 => $p,
-                'status'                 => $isPaid ? 'paid' : 'pending',
-                'charge'                 => round($charge, 2),
-                'paid_amount'            => $isPaid ? round($charge, 2) : 0.0,
-                'saldo'                  => $isPaid ? 0.0 : round($charge, 2),
-                'can_pay'                => (!$isPaid && $p === $payAllowed),
+                'status'                 => $isPaidByLastPaid ? 'paid' : 'pending',
+                'charge'                 => round(max(0.0, $charge), 2),
+                'paid_amount'            => $isPaidByLastPaid ? round(max(0.0, $charge), 2) : 0.0,
+                'saldo'                  => $isPaidByLastPaid ? 0.0 : round(max(0.0, $charge), 2),
+                'can_pay'                => false, // se asigna al final
                 'invoice_request_status' => null,
                 'invoice_has_zip'        => false,
             ];
         }
 
+        if (!$rows) return [];
+
         // ==========================================================
-        // Si en clientes.estados_cuenta existe, manda esa info real
+        // 2) Si existe mysql_clientes.estados_cuenta => pisa con datos reales
         // ==========================================================
         try {
-            $cli = config('p360.conn.clients', 'mysql_clientes');
-            if (!Schema::connection($cli)->hasTable('estados_cuenta')) {
-                ksort($rows);
-                return array_values($rows);
-            }
+            $cli = (string) config('p360.conn.clients', 'mysql_clientes');
 
-            $items = DB::connection($cli)->table('estados_cuenta')
-                ->where('account_id', $accountId)
-                ->whereIn('periodo', array_keys($rows))
-                ->get(['periodo', 'cargo', 'abono', 'saldo']);
+            if (Schema::connection($cli)->hasTable('estados_cuenta')) {
+                $items = DB::connection($cli)->table('estados_cuenta')
+                    ->where('account_id', $accountId)
+                    ->whereIn('periodo', array_keys($rows))
+                    ->get(['periodo', 'cargo', 'abono', 'saldo']);
 
-            foreach ($items as $it) {
-                $p = $this->parseToPeriod($it->periodo ?? null);
-                if (!$p || !isset($rows[$p])) continue;
+                foreach ($items as $it) {
+                    $p = $this->parseToPeriod($it->periodo ?? null);
+                    if (!$p || !isset($rows[$p])) continue;
 
-                $fallbackCharge = (float) ($rows[$p]['charge'] ?? 0.0);
+                    $fallbackCharge = (float) ($rows[$p]['charge'] ?? 0.0);
 
-                $cargo = is_numeric($it->cargo ?? null) ? (float) $it->cargo : $fallbackCharge;
-                $abono = is_numeric($it->abono ?? null) ? (float) $it->abono : 0.0;
-                $saldo = is_numeric($it->saldo ?? null)
-                    ? (float) $it->saldo
-                    : max(0.0, $cargo - $abono);
+                    $cargo = is_numeric($it->cargo ?? null) ? (float) $it->cargo : $fallbackCharge;
+                    $abono = is_numeric($it->abono ?? null) ? (float) $it->abono : 0.0;
 
-                $paid = ($saldo <= 0.0001) || ($cargo > 0 && $abono >= $cargo);
+                    $saldo = null;
+                    if (is_numeric($it->saldo ?? null)) {
+                        $saldo = (float) $it->saldo;
+                    } else {
+                        $saldo = max(0.0, $cargo - $abono);
+                    }
 
-                $rows[$p]['charge']      = round(max(0.0, $cargo), 2);
-                $rows[$p]['paid_amount'] = $paid
-                    ? round(max(0.0, $abono > 0 ? $abono : $cargo), 2)
-                    : 0.0;
-                $rows[$p]['saldo']       = $paid ? 0.0 : round(max(0.0, $saldo), 2);
-                $rows[$p]['status']      = $paid ? 'paid' : 'pending';
+                    // paid robusto
+                    $paid = false;
+                    if ($saldo <= 0.0001) $paid = true;
+                    if ($cargo > 0.0001 && $abono >= $cargo) $paid = true;
+
+                    $rows[$p]['charge'] = round(max(0.0, $cargo), 2);
+
+                    $rows[$p]['paid_amount'] = $paid
+                        ? round(max(0.0, ($abono > 0.0001 ? $abono : $cargo)), 2)
+                        : 0.0;
+
+                    $rows[$p]['saldo']  = $paid ? 0.0 : round(max(0.0, $saldo), 2);
+                    $rows[$p]['status'] = $paid ? 'paid' : 'pending';
+                }
             }
         } catch (\Throwable $e) {
-            Log::warning('[BILLING] buildPeriodRowsFromClientEstadosCuenta failed', [
+            \Log::warning('[BILLING] buildPeriodRowsFromClientEstadosCuenta failed', [
                 'account_id' => $accountId,
                 'err'        => $e->getMessage(),
             ]);
         }
 
+        // ==========================================================
+        // 3) can_pay final: solo el payAllowed y solo si está pending
+        // ==========================================================
         foreach ($rows as $p => $_) {
-            $rows[$p]['can_pay'] =
-                (($rows[$p]['status'] ?? 'pending') === 'pending' && $p === $payAllowed);
+            $st = strtolower((string) ($rows[$p]['status'] ?? 'pending'));
+            $rows[$p]['can_pay'] = ($st === 'pending' && $p === $payAllowed);
         }
 
+        // ==========================================================
+        // 4) Orden: por periodo asc (UI estable)
+        // ==========================================================
         ksort($rows);
+
+        // (Opcional) Log útil para prod si vuelve a pasar algo raro
+        \Log::info('[BILLING][DEBUG] buildPeriodRowsFromClientEstadosCuenta', [
+            'account_id'  => $accountId,
+            'last_paid'   => $lastPaid,
+            'pay_allowed' => $payAllowed,
+            'periods_in'  => count($periods),
+            'rows_out'    => count($rows),
+        ]);
+
         return array_values($rows);
     }
+
 
     /**
      * ✅ Resuelve monto mensual (cents) por periodo desde Admin meta.billing.
@@ -3304,7 +3348,6 @@ final class AccountBillingController extends Controller
 
         return $monthly > 0 ? (int) ($monthly * 12) : 0;
     }
-
 
     private function renderSimplePdfHtml(array $d): string
     {
