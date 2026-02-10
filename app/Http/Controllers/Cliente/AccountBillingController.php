@@ -160,8 +160,20 @@ final class AccountBillingController extends Controller
             }
         }
 
-        $periods = array_values(array_unique(array_filter($periods)));
+         $periods = array_values(array_unique(array_filter($periods)));
 
+        // ✅ Hard fallback: si por cualquier razón no quedó ningún periodo, fuerza uno válido
+        // (sin esto, la UI queda sin filas y el flujo se rompe)
+        $periods = array_values(array_filter($periods, fn($x) => is_string($x) && $this->isValidPeriod($x)));
+        if (!$periods) {
+            if (is_string($payAllowed ?? null) && $payAllowed !== '' && $this->isValidPeriod($payAllowed)) {
+                $periods = [$payAllowed];
+            } elseif (is_string($lastPaid ?? null) && $lastPaid !== '' && $this->isValidPeriod($lastPaid)) {
+                $periods = [$lastPaid];
+            } elseif (isset($basePeriod) && is_string($basePeriod) && $basePeriod !== '' && $this->isValidPeriod($basePeriod)) {
+                $periods = [$basePeriod];
+            }
+        }
 
         // ==========================================================
         // ✅ PRECIO por periodo (Admin meta.billing + fallbacks)
