@@ -404,7 +404,8 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // Enriquecimiento UI + ✅ CANONICALIZACIÓN de account_id (evita mostrar 11988 en vez de 999)
+        
+        // Enriquecimiento UI + ✅ CANONICALIZACIÓN de account_id (evita mostrar ID_ANUAL en vez de ID_MENSUAL)
         foreach ($rows as &$row) {
             // ✅ Guardar referencia original (por debug) si venía diferente
             if (!isset($row['statement_account_ref'])) {

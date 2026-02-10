@@ -115,7 +115,7 @@
 
   /**
    * ✅ Mensualidad en header (SIEMPRE mensual)
-   * - Si llega anual (ej. 11988) normaliza a mensual (999)
+   * - Si llega anual (ej. ID_ANUAL) normaliza a mensual (ID_MENSUAL)
    * - Si no viene, la deriva del cargo/saldo del periodo mostrado
    */
   $mensualidadHeader = (float)($mensualidadAdmin ?? 0);
