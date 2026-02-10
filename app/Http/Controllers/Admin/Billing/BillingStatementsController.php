@@ -73,6 +73,74 @@ final class BillingStatementsController extends Controller
             $status = 'all';
         }
 
+                // =========================================================
+        // ✅ FILTRO: SOLO SELECCIONADAS (UI)
+        // - only_selected=1
+        // - ids=1,2,3 (CSV)  ó ids[]=1&ids[]=2
+        // =========================================================
+        $onlySelected = $req->boolean('only_selected')
+            || $req->boolean('onlySelected')
+            || ((string)$req->get('only_selected', '') === '1');
+
+        $selectedIds = [];
+
+        $idsRaw = $req->get('ids', null);
+
+        if (is_array($idsRaw)) {
+            $selectedIds = array_values(array_filter(array_map(static function ($v) {
+                $s = trim((string)$v);
+                if ($s === '') return null;
+
+                // account_id en admin suele ser numérico
+                if (preg_match('/^\d+$/', $s)) return $s;
+
+                // fallback ultra permisivo por si algún día no es int
+                if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
+
+                return null;
+            }, $idsRaw)));
+        } elseif (is_string($idsRaw)) {
+            $parts = array_values(array_filter(array_map('trim', explode(',', $idsRaw))));
+            $selectedIds = array_values(array_filter(array_map(static function ($s) {
+                $s = trim((string)$s);
+                if ($s === '') return null;
+
+                if (preg_match('/^\d+$/', $s)) return $s;
+                if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
+
+                return null;
+            }, $parts)));
+        }
+
+        // límite defensivo (evita URLs enormes)
+        if (count($selectedIds) > 500) {
+            $selectedIds = array_slice($selectedIds, 0, 500);
+        }
+
+        // Si only_selected=1 pero no viene ids, mostramos vacío (sin romper)
+        if ($onlySelected && empty($selectedIds)) {
+            return view('admin.billing.statements.index', [
+                'rows'      => collect(),
+                'q'         => $q,
+                'period'    => $period,
+                'accountId' => $accountId,
+                'status'    => $status,
+                'perPage'   => $perPage,
+                'onlySelected' => true,
+                'idsCsv'       => '',
+                'error'     => 'Filtro "solo seleccionadas" activo, pero no recibí IDs (ids).',
+                'kpis'      => [
+                    'cargo'    => 0,
+                    'abono'    => 0,
+                    'saldo'    => 0,
+                    'accounts' => 0,
+                    'paid_edo' => 0,
+                    'paid_pay' => 0,
+                ],
+            ]);
+        }
+
+
         if (
             !Schema::connection($this->adm)->hasTable('accounts') ||
             !Schema::connection($this->adm)->hasTable('estados_cuenta')
@@ -128,25 +196,36 @@ final class BillingStatementsController extends Controller
             ->select($select)
             ->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id');
 
-        if ($accountId) {
-            $qb->where('accounts.id', $accountId);
+        // ✅ Prioridad: si viene only_selected, filtramos SOLO esos IDs
+        if ($onlySelected) {
+            $qb->whereIn('accounts.id', $selectedIds);
+
+            // En modo "solo seleccionadas" ignoramos los filtros de cuenta exacta y búsqueda
+            // para no "vaciar" la selección por accidente.
+            $accountId = null;
+            $q = '';
+        } else {
+            if ($accountId) {
+                $qb->where('accounts.id', $accountId);
+            }
+
+            if ($q !== '') {
+                $qb->where(function ($w) use ($q, $has) {
+                    $w->where('accounts.id', 'like', "%{$q}%");
+                    if ($has('name')) {
+                        $w->orWhere('accounts.name', 'like', "%{$q}%");
+                    }
+                    if ($has('razon_social')) {
+                        $w->orWhere('accounts.razon_social', 'like', "%{$q}%");
+                    }
+                    if ($has('rfc')) {
+                        $w->orWhere('accounts.rfc', 'like', "%{$q}%");
+                    }
+                    $w->orWhere('accounts.email', 'like', "%{$q}%");
+                });
+            }
         }
 
-        if ($q !== '') {
-            $qb->where(function ($w) use ($q, $has) {
-                $w->where('accounts.id', 'like', "%{$q}%");
-                if ($has('name')) {
-                    $w->orWhere('accounts.name', 'like', "%{$q}%");
-                }
-                if ($has('razon_social')) {
-                    $w->orWhere('accounts.razon_social', 'like', "%{$q}%");
-                }
-                if ($has('rfc')) {
-                    $w->orWhere('accounts.rfc', 'like', "%{$q}%");
-                }
-                $w->orWhere('accounts.email', 'like', "%{$q}%");
-            });
-        }
 
         $rows = $qb->paginate($perPage)->withQueryString();
         $ids  = $rows->pluck('id')->filter()->values()->all();
@@ -293,14 +372,16 @@ final class BillingStatementsController extends Controller
             'accountId' => $accountId,
             'status'    => $status,
             'perPage'   => $perPage,
+            'onlySelected' => $onlySelected,
+            'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
             'error'     => null,
             'kpis'      => [
-                'cargo'    => round($kCargo, 2),
-                'abono'    => round($kAbono, 2),
-                'saldo'    => round($kSaldo, 2),
-                'accounts' => (int) $rows->getCollection()->count(),
-                'paid_edo' => round($kEdo, 2),
-                'paid_pay' => round($kPay, 2),
+            'cargo'    => round($kCargo, 2),
+            'abono'    => round($kAbono, 2),
+            'saldo'    => round($kSaldo, 2),
+            'accounts' => (int) $rows->getCollection()->count(),
+            'paid_edo' => round($kEdo, 2),
+            'paid_pay' => round($kPay, 2),
             ],
         ]);
     }

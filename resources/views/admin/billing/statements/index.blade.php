@@ -17,8 +17,41 @@
   $status    = (string) request('status','all');
   $status    = $status !== '' ? $status : 'all';
 
-  $perPage   = (int) request('perPage', 25);
-  if ($perPage <= 0) $perPage = 25;
+  // ✅ filtro: solo seleccionadas (por checkbox)
+  // - Soporta: request only_selected/ids
+  // - y/o valores inyectados por controller: $onlySelected, $idsCsv
+  $onlySelected = (bool) (
+      ($onlySelected ?? false)
+      || request()->boolean('only_selected', false)
+      || request()->boolean('onlySelected', false)
+      || ((string)request('only_selected','') === '1')
+  );
+
+  $idsSelectedReq = request('ids', null);
+
+  // Si el controller nos pasó idsCsv y NO viene ids en query, úsalo
+  if (($idsSelectedReq === null || $idsSelectedReq === '') && !empty($idsCsv)) {
+      $idsSelectedReq = (string) $idsCsv;
+  }
+
+  if (is_string($idsSelectedReq)) {
+    $idsSelectedReq = array_values(array_filter(array_map('trim', explode(',', $idsSelectedReq))));
+  }
+  if (!is_array($idsSelectedReq)) $idsSelectedReq = [];
+
+  // normaliza y limita (defensivo)
+  $idsSelectedReq = array_values(array_unique(array_filter(array_map(function($v){
+    $s = trim((string)$v);
+    if ($s === '') return null;
+    // admin account_id suele ser numérico; toleramos slug por si cambia
+    if (preg_match('/^\d+$/', $s)) return $s;
+    if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
+    return null;
+  }, $idsSelectedReq))));
+
+  if (count($idsSelectedReq) > 500) $idsSelectedReq = array_slice($idsSelectedReq, 0, 500);
+
+
 
   // ===== Data =====
   $rows = $rows ?? collect();
@@ -73,6 +106,13 @@
     'status'   => $status,
     'perPage'  => $perPage,
   ];
+
+  // ✅ Si estamos en "solo seleccionadas", conservarlo en chips/paginación
+  if ($onlySelected && !empty($idsSelectedReq)) {
+    $chipBase['only_selected'] = 1;
+    $chipBase['ids'] = implode(',', $idsSelectedReq);
+  }
+
   $chipUrl = function(array $over) use ($routeIndex, $chipBase) {
     return $routeIndex . '?' . http_build_query(array_merge($chipBase, $over));
   };
@@ -215,6 +255,11 @@
 
       <div class="sx-chips">
         <a class="sx-chip {{ $status==='all'?'on':'' }}" href="{{ $chipUrl(['status'=>'all']) }}"><span class="dot"></span> Todos</a>
+        <a class="sx-chip {{ $onlySelected ? 'on' : '' }}"
+          href="#"
+          onclick="event.preventDefault(); sxFilterSelected();">
+          <span class="dot"></span> Solo seleccionadas
+        </a>
         <a class="sx-chip {{ $status==='pendiente'?'on':'' }}" href="{{ $chipUrl(['status'=>'pendiente']) }}"><span class="dot"></span> Pendientes</a>
         <a class="sx-chip {{ $status==='parcial'?'on':'' }}" href="{{ $chipUrl(['status'=>'parcial']) }}"><span class="dot"></span> Parciales</a>
         <a class="sx-chip {{ $status==='pagado'?'on':'' }}" href="{{ $chipUrl(['status'=>'pagado']) }}"><span class="dot"></span> Pagados</a>
@@ -263,6 +308,7 @@
         <div class="sx-k">Operación</div>
         <div class="sx-v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(true)">Todo</button>
+          <button class="sx-btn sx-btn-soft" type="button" onclick="sxFilterSelected()">Filtrar seleccionadas</button>
           <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(false)">Nada</button>
           <button class="sx-btn sx-btn-primary" type="button" onclick="sxBulkSend()">Enviar correo (bulk)</button>
         </div>
@@ -374,7 +420,12 @@
 
                 <tr id="sxRow-{{ e($aid) }}">
                   <td onclick="event.stopPropagation();">
-                    <input class="sx-ck sx-row" type="checkbox" value="{{ e($aid) }}" onclick="sxSync()">
+                    <input class="sx-ck sx-row"
+                      type="checkbox"
+                      value="{{ e($aid) }}"
+                      onclick="sxSync()"
+                      {{ ($onlySelected && in_array((string)$aid, $idsSelectedReq, true)) ? 'checked' : '' }}>
+
                   </td>
 
                   <td class="sx-mono">
@@ -634,6 +685,65 @@
     if (inp) inp.value = ids.join(',');
     return true;
   }
+
+    // ===== Filtro: Solo seleccionadas =====
+  function parseIdsParam(v){
+    v = (v == null) ? '' : String(v);
+    return v.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  function applyOnlySelectedFromQuery(){
+    try{
+      const sp = new URLSearchParams(window.location.search || '');
+      const on = sp.get('only_selected') === '1' || sp.get('only_selected') === 'true';
+      if(!on) return;
+
+      const ids = new Set(parseIdsParam(sp.get('ids')));
+      if(!ids.size) return;
+
+      // Oculta filas no incluidas y deja checked las incluidas
+      const r = rows();
+      r.forEach(ck => {
+        const id = String(ck.value || '').trim();
+        const tr = ck.closest('tr');
+        if(!tr) return;
+
+        if(ids.has(id)){
+          ck.checked = true;
+          tr.style.display = '';
+        }else{
+          ck.checked = false;
+          tr.style.display = 'none';
+        }
+      });
+
+      // Desmarca/ajusta master (si aplica)
+      if(ckAll){
+        ckAll.checked = true;
+        ckAll.indeterminate = false;
+      }
+
+      updateBulk();
+    }catch(e){}
+  }
+
+  window.sxFilterSelected = function(){
+    const ids = selected();
+    if(!ids.length){
+      sxToast('Selecciona al menos una cuenta para filtrar.', 'warn');
+      return;
+    }
+
+    const base = {!! json_encode($routeIndex ?? url('/admin/billing/statements')) !!};
+
+    // ✅ Conserva query actual y solo fuerza only_selected + ids
+    const sp = new URLSearchParams(window.location.search || '');
+    sp.set('only_selected', '1');
+    sp.set('ids', ids.join(','));
+    sp.delete('page'); // reset paginación
+
+    window.location.href = base + '?' + sp.toString();
+  };
 
   window.sxBulkSend = function(){
     const ids = selected();
@@ -987,10 +1097,12 @@
   });
 
 
-  // init
+    // init
+  applyOnlySelectedFromQuery();
   updateBulk();
   try{ console.log('[P360] statements index scripts loaded'); }catch(e){}
 })();
+
 </script>
 @endpush
 

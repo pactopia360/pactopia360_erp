@@ -19,12 +19,46 @@ class StatementsController extends Controller
     {
         $q      = trim((string)$req->get('q',''));
         $period = trim((string)$req->get('period', now()->format('Y-m')));
+
+        // ✅ NUEVO: filtro por "solo seleccionadas"
+        $onlySelected = $req->boolean('only_selected', false);
+
+        // Soporta: ids[]=1&ids[]=2  ó  ids=1,2,3
+        $idsRaw = $req->input('ids', []);
+        if (is_string($idsRaw)) {
+            $idsRaw = array_filter(array_map('trim', explode(',', $idsRaw)));
+        }
+        if (!is_array($idsRaw)) $idsRaw = [];
+
+        // Sanitiza a ints positivos, únicos (y limita para evitar URLs gigantes)
+        $idsSelected = array_values(array_unique(array_filter(array_map(function ($v) {
+            $n = is_numeric($v) ? (int)$v : 0;
+            return $n > 0 ? $n : null;
+        }, $idsRaw))));
+        if (count($idsSelected) > 500) {
+            $idsSelected = array_slice($idsSelected, 0, 500);
+        }
+
         $error  = null;
 
         try {
-            $rows = BillingStatement::query()
-                ->when($period !== '', fn($x) => $x->where('period', $period))
-                ->when($q !== '', function($x) use ($q){
+            $query = BillingStatement::query()
+                ->when($period !== '', fn($x) => $x->where('period', $period));
+
+            // ✅ si está activo "solo seleccionadas"
+            if ($onlySelected) {
+                    if (!empty($idsSelected)) {
+                        // ✅ idsSelected aquí son ACCOUNT IDs (por tu checkbox value="{{ $aid }}")
+                        $query->whereIn('account_id', $idsSelected);
+                    } else {
+                        // Sin IDs -> lista vacía (sin reventar)
+                        $query->whereRaw('1=0');
+                        $error = 'Activas “Solo seleccionadas” pero no hay cuentas seleccionadas.';
+                    }
+                } else {
+
+                // Filtros normales SOLO cuando NO está activo "solo seleccionadas"
+                $query->when($q !== '', function($x) use ($q){
                     $like = '%'.$q.'%';
                     $x->where(function($w) use ($like){
                         $w->where('account_id','like',$like)
@@ -33,17 +67,24 @@ class StatementsController extends Controller
                           ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(snapshot,'$.account.rfc')) LIKE ?", [$like])
                           ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(snapshot,'$.account.email')) LIKE ?", [$like]);
                     });
-                })
+                });
+            }
+
+            $rows = $query
                 ->orderBy('id','desc')
                 ->paginate(20)
                 ->withQueryString();
+
         } catch (\Throwable $e) {
             $rows = BillingStatement::query()->orderBy('id','desc')->paginate(20);
             $error = 'Error al cargar: '.$e->getMessage();
             Log::error('StatementsController.index.failed', ['err'=>$e->getMessage()]);
         }
 
-        return view('admin.billing.statements.index', compact('rows','q','period','error'));
+        return view('admin.billing.statements.index', compact(
+            'rows','q','period','error',
+            'onlySelected','idsSelected'
+        ));
     }
 
     public function show(int $id): View
@@ -58,7 +99,7 @@ class StatementsController extends Controller
         // compat con tu blade show (variables existentes)
         $account = (object)[
             'id'            => (string)($acc['id'] ?? $st->account_id),
-            'razon_social'   => (string)($acc['razon_social'] ?? ''),
+            'razon_social'  => (string)($acc['razon_social'] ?? ''),
             'name'          => (string)($acc['nombre_comercial'] ?? ''),
             'rfc'           => (string)($acc['rfc'] ?? ''),
             'email'         => (string)($acc['email'] ?? ''),
