@@ -893,11 +893,20 @@ final class AccountBillingController extends Controller
     private function buildPeriodRowsFromClientEstadosCuenta(
         int $accountId,
         array $periods,
-        string $payAllowed,
+        ?string $payAllowed,
         array $chargesByPeriod,
         ?string $lastPaid
     ): array {
         $rows = [];
+
+        // ============================
+        // 🔒 Normalización defensiva
+        // ============================
+        $payAllowed = trim((string) $payAllowed);
+        if ($payAllowed === '') {
+            // fallback seguro: nunca permitir null aquí
+            $payAllowed = now()->format('Y-m');
+        }
 
         foreach ($periods as $p) {
             if (!$this->isValidPeriod($p)) continue;
@@ -906,18 +915,20 @@ final class AccountBillingController extends Controller
             $isPaid = ($lastPaid && $p === $lastPaid);
 
             $rows[$p] = [
-                'period'                => $p,
-                'status'                => $isPaid ? 'paid' : 'pending',
-                'charge'                => round($charge, 2),
-                'paid_amount'           => $isPaid ? round($charge, 2) : 0.0,
-                'saldo'                 => $isPaid ? 0.0 : round($charge, 2),
-                'can_pay'               => (!$isPaid && $p === $payAllowed),
-                'invoice_request_status'=> null,
-                'invoice_has_zip'       => false,
+                'period'                 => $p,
+                'status'                 => $isPaid ? 'paid' : 'pending',
+                'charge'                 => round($charge, 2),
+                'paid_amount'            => $isPaid ? round($charge, 2) : 0.0,
+                'saldo'                  => $isPaid ? 0.0 : round($charge, 2),
+                'can_pay'                => (!$isPaid && $p === $payAllowed),
+                'invoice_request_status' => null,
+                'invoice_has_zip'        => false,
             ];
         }
 
-        // Si en clientes.estados_cuenta existe, manda esa info (cargo/abono/saldo real)
+        // ==========================================================
+        // Si en clientes.estados_cuenta existe, manda esa info real
+        // ==========================================================
         try {
             $cli = config('p360.conn.clients', 'mysql_clientes');
             if (!Schema::connection($cli)->hasTable('estados_cuenta')) {
@@ -938,12 +949,16 @@ final class AccountBillingController extends Controller
 
                 $cargo = is_numeric($it->cargo ?? null) ? (float) $it->cargo : $fallbackCharge;
                 $abono = is_numeric($it->abono ?? null) ? (float) $it->abono : 0.0;
-                $saldo = is_numeric($it->saldo ?? null) ? (float) $it->saldo : max(0.0, $cargo - $abono);
+                $saldo = is_numeric($it->saldo ?? null)
+                    ? (float) $it->saldo
+                    : max(0.0, $cargo - $abono);
 
                 $paid = ($saldo <= 0.0001) || ($cargo > 0 && $abono >= $cargo);
 
                 $rows[$p]['charge']      = round(max(0.0, $cargo), 2);
-                $rows[$p]['paid_amount'] = $paid ? round(max(0.0, $abono > 0 ? $abono : $cargo), 2) : 0.0;
+                $rows[$p]['paid_amount'] = $paid
+                    ? round(max(0.0, $abono > 0 ? $abono : $cargo), 2)
+                    : 0.0;
                 $rows[$p]['saldo']       = $paid ? 0.0 : round(max(0.0, $saldo), 2);
                 $rows[$p]['status']      = $paid ? 'paid' : 'pending';
             }
@@ -955,7 +970,8 @@ final class AccountBillingController extends Controller
         }
 
         foreach ($rows as $p => $_) {
-            $rows[$p]['can_pay'] = (($rows[$p]['status'] ?? 'pending') === 'pending' && $p === $payAllowed);
+            $rows[$p]['can_pay'] =
+                (($rows[$p]['status'] ?? 'pending') === 'pending' && $p === $payAllowed);
         }
 
         ksort($rows);
