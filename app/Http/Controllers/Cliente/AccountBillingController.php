@@ -256,6 +256,12 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
+        $payAllowed = is_string($payAllowed ?? null) ? trim((string)$payAllowed) : '';
+        if ($payAllowed === '') {
+            $payAllowed = is_string($period ?? null) && (string)$period !== '' ? trim((string)$period) : now()->format('Y-m');
+        }
+
+
         // Fallback base (clientes.estados_cuenta)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
