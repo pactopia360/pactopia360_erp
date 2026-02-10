@@ -261,6 +261,20 @@ final class AccountBillingController extends Controller
             $payAllowed = is_string($period ?? null) && (string)$period !== '' ? trim((string)$period) : now()->format('Y-m');
         }
 
+        // ✅ Normalización extra: si payAllowed NO existe en periods, no podemos filtrar por ese periodo
+        // porque keepOnlyPayAllowedPeriod() terminaría regresando [] y rows_count=0.
+        $periods = array_values(array_filter($periods, fn($x) => is_string($x) && $this->isValidPeriod($x)));
+
+        if ($payAllowed !== '' && !in_array($payAllowed, $periods, true)) {
+            // 1) si el request period es válido y existe en periods, úsalo
+            if (is_string($period ?? null) && $this->isValidPeriod((string)$period) && in_array((string)$period, $periods, true)) {
+                $payAllowed = (string)$period;
+            } else {
+                // 2) fallback: último periodo disponible
+                $last = $periods ? end($periods) : null;
+                $payAllowed = $last && $this->isValidPeriod($last) ? $last : now()->format('Y-m');
+            }
+        }
 
         // Fallback base (clientes.estados_cuenta)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
