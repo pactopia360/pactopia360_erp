@@ -673,26 +673,91 @@ class StripeController extends Controller
             return;
         }
 
-        // ✅ FIX REAL: amount_total puede ser NULL en subscription mode
-        [$amountCents, $amountMxn, $amountSource] = $this->resolvePaidAmountFromCheckoutSession($session, $accountId, $period);
+        // ✅ Monto cobrado REAL en Stripe (robusto: amount_total, line_items, latest_invoice, fallback meta)
+        [$stripeCents, $stripeMxn, $amountSource] = $this->resolvePaidAmountFromCheckoutSession($session, $accountId, $period);
 
         Log::info('[BILLING:SYNC] computed', [
             'account_id'     => $accountId,
             'period'         => $period,
             'session_id'     => $sessionId,
-            'amount_cents'   => $amountCents ?: null,
-            'amount_mxn'     => $amountMxn,
+            'stripe_cents'   => $stripeCents ?: null,
+            'stripe_mxn'     => $stripeMxn,
             'amount_source'  => $amountSource,
             'mode'           => $session->mode ?? null,
+            'pending_total'  => $isPendingTotal,
         ]);
 
         // ✅ Bloqueo duro si no pudimos resolver monto (evita “pagado $0.00”)
-        if ($amountCents <= 0 || $amountMxn <= 0.0) {
-            Log::error('[BILLING:SYNC] abort: amount is 0 (cannot apply)', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'session_id' => $sessionId,
-                'amount_source' => $amountSource,
+        if ((int)$stripeCents <= 0 || (float)$stripeMxn <= 0.0) {
+            Log::error('[BILLING:SYNC] abort: stripe amount is 0 (cannot apply)', [
+                'account_id'     => $accountId,
+                'period'         => $period,
+                'session_id'     => $sessionId,
+                'amount_source'  => $amountSource,
+            ]);
+            return;
+        }
+
+        // =========================================================
+        // ✅ STRIPE MINIMUM: separar "cobrado" vs "aplicado al periodo"
+        // - Stripe cobrado real: $stripeCents/$stripeMxn
+        // - Sistema/UI: metadata.amount_cents/amount_mxn (lo que debe cerrar el periodo)
+        // - Aplicado al periodo: min(stripe, ui)
+        // - Crédito excedente: stripe - ui (se registra en meta, NO se aplica al periodo)
+        // =========================================================
+        $uiCents = 0;
+        $uiMxn   = 0.0;
+
+        try {
+            $mCents = $session->metadata->amount_cents ?? null;
+            if (is_numeric($mCents) && (int)$mCents > 0) {
+                $uiCents = (int)$mCents;
+                $uiMxn   = round($uiCents / 100, 2);
+            } else {
+                $mMxn = $session->metadata->amount_mxn ?? null;
+                if (is_numeric($mMxn) && (float)$mMxn > 0) {
+                    $uiMxn   = round((float)$mMxn, 2);
+                    $uiCents = (int) round($uiMxn * 100);
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignora
+        }
+
+        // Compat: si no vino UI, asumimos que lo cobrado es lo aplicable
+        if ($uiCents <= 0) {
+            $uiCents = (int)$stripeCents;
+            $uiMxn   = round($uiCents / 100, 2);
+        }
+
+        $applyCents  = (int) max(0, min((int)$stripeCents, (int)$uiCents));
+        $applyMxn    = round($applyCents / 100, 2);
+        $creditCents = (int) max(0, (int)$stripeCents - (int)$uiCents);
+        $creditMxn   = round($creditCents / 100, 2);
+
+        Log::info('[BILLING:SYNC] minimum split', [
+            'account_id'     => $accountId,
+            'period'         => $period,
+            'session_id'     => $sessionId,
+            'stripe_cents'   => (int)$stripeCents,
+            'stripe_mxn'     => (float)$stripeMxn,
+            'ui_cents'       => (int)$uiCents,
+            'ui_mxn'         => (float)$uiMxn,
+            'apply_cents'    => (int)$applyCents,
+            'apply_mxn'      => (float)$applyMxn,
+            'credit_cents'   => (int)$creditCents,
+            'credit_mxn'     => (float)$creditMxn,
+            'pending_total'  => $isPendingTotal,
+        ]);
+
+        // ✅ Si por alguna razón UI->apply queda 0, no cierres el periodo
+        if ($applyCents <= 0 || $applyMxn <= 0.0) {
+            Log::error('[BILLING:SYNC] abort: apply amount is 0 (cannot close period)', [
+                'account_id'   => $accountId,
+                'period'       => $period,
+                'session_id'   => $sessionId,
+                'stripe_cents' => $stripeCents,
+                'ui_cents'     => $uiCents,
             ]);
             return;
         }
@@ -702,7 +767,7 @@ class StripeController extends Controller
 
         try {
             // =========================================================
-            // (A) Actualizar payments (admin)
+            // (A) Actualizar payments (admin)  ✅ aquí va COBRO REAL (Stripe)
             // =========================================================
             $cols = Schema::connection($adm)->getColumnListing('payments');
             $lc   = array_map('strtolower', $cols);
@@ -716,7 +781,7 @@ class StripeController extends Controller
             if ($has('method'))     $baseUpd['method'] = 'card';
 
             if ($has('amount')) {
-                $baseUpd['amount'] = (int)$amountCents;
+                $baseUpd['amount'] = (int)$stripeCents; // ✅ COBRADO REAL
             }
 
             if ($has('stripe_payment_intent') && !empty($session->payment_intent)) {
@@ -769,7 +834,7 @@ class StripeController extends Controller
 
                 $payload = $baseUpd;
                 if ($has('stripe_session_id')) $payload['stripe_session_id'] = $sessionId;
-                if ($has('reference')) $payload['reference'] = $sessionId;
+                if ($has('reference'))        $payload['reference'] = $sessionId;
 
                 $updatedRows = (int)$q->update($payload);
             }
@@ -780,10 +845,12 @@ class StripeController extends Controller
                 'session_id'   => $sessionId,
                 'updated_rows' => $updatedRows,
                 'pending_total'=> $isPendingTotal,
+                'stripe_mxn'   => $stripeMxn,
             ]);
 
             // =========================================================
-            // (B) Insert idempotente en estados_cuenta (ADMIN)  ✅ FIX
+            // (B) Insert idempotente en estados_cuenta (ADMIN)
+            // ✅ aquí va APLICADO AL PERIODO (apply)
             // =========================================================
             if (!Schema::connection($adm)->hasTable('estados_cuenta')) {
                 Log::error('[BILLING:SYNC] abort: no existe tabla estados_cuenta en mysql_admin');
@@ -832,7 +899,7 @@ class StripeController extends Controller
                         if ($ecHas('abono')) {
                             $existsQ->where('abono', '>', 0);
                         }
-                        // Si no hay columna abono, no agregamos nada: dejamos insertar (tu lock del webhook + payments ya ayudan).
+                        // Si no hay columna abono, no agregamos nada: dejamos insertar (lock del webhook + payments ayudan).
                     }
 
                     $already = $existsQ->exists();
@@ -855,12 +922,12 @@ class StripeController extends Controller
                                 : ('Pago estado de cuenta ' . $period . ' (Stripe) · ' . $sessionId);
                         }
 
-                        if ($ecHas('detalle'))  $row['detalle']  = 'Stripe session: ' . $sessionId;
-                        if ($ecHas('ref'))      $row['ref']      = $sessionId;
-                        if ($ecHas('source'))   $row['source']   = 'stripe';
+                        if ($ecHas('detalle')) $row['detalle'] = 'Stripe session: ' . $sessionId;
+                        if ($ecHas('ref'))     $row['ref']     = $sessionId;
+                        if ($ecHas('source'))  $row['source']  = 'stripe';
 
-                        // ✅ En admin: abono = monto pagado
-                        if ($ecHas('abono')) $row['abono'] = round($amountMxn, 2);
+                        // ✅ En admin: abono = APLICADO AL PERIODO (no necesariamente lo cobrado)
+                        if ($ecHas('abono')) $row['abono'] = round($applyMxn, 2);
                         if ($ecHas('cargo')) $row['cargo'] = 0;
 
                         if ($ecHas('created_at')) $row['created_at'] = now();
@@ -868,12 +935,26 @@ class StripeController extends Controller
 
                         if ($ecHas('meta')) {
                             $row['meta'] = json_encode([
-                                'type'           => $isPendingTotal ? 'billing_pending_total' : 'billing_statement',
-                                'period'         => $period,
-                                'session_id'     => $sessionId,
-                                'payment_intent' => $session->payment_intent ?? null,
-                                'amount_cents'   => $amountCents,
-                                'amount_source'  => $amountSource,
+                                'type'             => $isPendingTotal ? 'billing_pending_total' : 'billing_statement',
+                                'period'           => $period,
+                                'session_id'       => $sessionId,
+                                'payment_intent'   => $session->payment_intent ?? null,
+
+                                // Stripe (cobrado)
+                                'stripe_amount_cents' => (int)$stripeCents,
+                                'stripe_amount_mxn'   => (float)$stripeMxn,
+
+                                // Sistema/UI (debía cerrar)
+                                'ui_amount_cents'  => (int)$uiCents,
+                                'ui_amount_mxn'    => (float)$uiMxn,
+
+                                // Aplicado / Crédito
+                                'applied_cents'    => (int)$applyCents,
+                                'applied_mxn'      => (float)$applyMxn,
+                                'credit_cents'     => (int)$creditCents,
+                                'credit_mxn'       => (float)$creditMxn,
+
+                                'amount_source'    => $amountSource,
                             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                         }
 
@@ -883,14 +964,15 @@ class StripeController extends Controller
                             'account_id' => $accountId,
                             'period'     => $period,
                             'session_id' => $sessionId,
-                            'amount_mxn' => $amountMxn,
+                            'apply_mxn'  => $applyMxn,
+                            'stripe_mxn' => $stripeMxn,
                             'refApplied' => $refApplied,
                         ]);
                     }
 
                 } else {
                     Log::error('[BILLING:SYNC] estados_cuenta admin sin columnas requeridas', [
-                        'linkCol' => $linkCol,
+                        'linkCol'     => $linkCol,
                         'has_periodo' => $ecHas('periodo'),
                     ]);
                 }
@@ -898,6 +980,8 @@ class StripeController extends Controller
 
             // =========================================================
             // (C) ✅ Actualizar accounts.meta (ADMIN)
+            // - last_amount_mxn = aplicado (cierre de periodo)
+            // - last_stripe_amount_mxn = cobrado real
             // =========================================================
             if (Schema::connection($adm)->hasTable('accounts')) {
                 $acc = DB::connection($adm)->table('accounts')
@@ -918,7 +1002,21 @@ class StripeController extends Controller
                     data_set($metaArr, 'stripe.last_paid_period', $period);
                     data_set($metaArr, 'stripe.last_checkout_session_id', $sessionId);
                     if (!empty($session->payment_intent)) data_set($metaArr, 'stripe.last_payment_intent', (string)$session->payment_intent);
-                    data_set($metaArr, 'stripe.last_amount_mxn', $amountMxn);
+
+                    // aplicado (lo que cierra periodo)
+                    data_set($metaArr, 'stripe.last_amount_mxn', $applyMxn);
+                    data_set($metaArr, 'stripe.last_amount_cents', $applyCents);
+
+                    // cobrado real (auditoría)
+                    data_set($metaArr, 'stripe.last_stripe_amount_mxn', $stripeMxn);
+                    data_set($metaArr, 'stripe.last_stripe_amount_cents', (int)$stripeCents);
+
+                    // UI / crédito
+                    data_set($metaArr, 'stripe.last_ui_amount_mxn', $uiMxn);
+                    data_set($metaArr, 'stripe.last_ui_amount_cents', (int)$uiCents);
+                    data_set($metaArr, 'stripe.last_credit_mxn', $creditMxn);
+                    data_set($metaArr, 'stripe.last_credit_cents', (int)$creditCents);
+
                     data_set($metaArr, 'stripe.last_amount_source', $amountSource);
 
                     DB::connection($adm)->table('accounts')->where('id', $accountId)->update([
@@ -938,6 +1036,7 @@ class StripeController extends Controller
 
             // =========================================================
             // (D) ✅ Cerrar saldo del periodo en mysql_clientes.estados_cuenta
+            // ✅ aquí va APLICADO AL PERIODO (apply)
             // =========================================================
             if (Schema::connection($cli)->hasTable('estados_cuenta')) {
                 $colsCli = Schema::connection($cli)->getColumnListing('estados_cuenta');
@@ -957,9 +1056,10 @@ class StripeController extends Controller
                             $linkCli  => $accountId,
                             'periodo' => $period,
                         ];
-                        // ✅ clientes: cargo=abono=monto (para que tu UI muestre “Monto pagado”)
-                        if ($hasCli('cargo')) $ins['cargo'] = round($amountMxn, 2);
-                        if ($hasCli('abono')) $ins['abono'] = round($amountMxn, 2);
+
+                        // ✅ clientes: cargo=abono=APLICADO (para UI “Monto pagado”)
+                        if ($hasCli('cargo')) $ins['cargo'] = round($applyMxn, 2);
+                        if ($hasCli('abono')) $ins['abono'] = round($applyMxn, 2);
                         if ($hasCli('saldo')) $ins['saldo'] = 0.0;
                         if ($hasCli('created_at')) $ins['created_at'] = now();
                         if ($hasCli('updated_at')) $ins['updated_at'] = now();
@@ -969,12 +1069,13 @@ class StripeController extends Controller
                         Log::info('[BILLING:SYNC] clientes estados_cuenta created PAID', [
                             'account_id' => $accountId,
                             'period'     => $period,
-                            'amount_mxn' => $amountMxn,
+                            'apply_mxn'  => $applyMxn,
+                            'stripe_mxn' => $stripeMxn,
                         ]);
                     } else {
                         $cargo = 0.0;
                         if ($hasCli('cargo') && is_numeric($rowCli->cargo ?? null)) $cargo = (float)$rowCli->cargo;
-                        if ($cargo <= 0) $cargo = $amountMxn;
+                        if ($cargo <= 0) $cargo = (float)$applyMxn; // ✅ antes usaba Stripe (incorrecto con mínimo)
 
                         $upd = [];
                         if ($hasCli('cargo')) $upd['cargo'] = round($cargo, 2);
@@ -991,11 +1092,12 @@ class StripeController extends Controller
                             'account_id' => $accountId,
                             'period'     => $period,
                             'cargo'      => $cargo,
+                            'apply_mxn'  => $applyMxn,
                         ]);
                     }
                 } else {
                     Log::warning('[BILLING:SYNC] clientes estados_cuenta sin columnas esperadas', [
-                        'linkCol' => $linkCli,
+                        'linkCol'     => $linkCli,
                         'has_periodo' => $hasCli('periodo'),
                     ]);
                 }
@@ -1008,7 +1110,9 @@ class StripeController extends Controller
                 'account_id' => $accountId,
                 'period'     => $period,
                 'session_id' => $sessionId,
-                'amount_mxn' => $amountMxn,
+                'apply_mxn'  => $applyMxn,
+                'stripe_mxn' => $stripeMxn,
+                'credit_mxn' => $creditMxn,
             ]);
 
         } catch (\Throwable $e) {
@@ -1025,6 +1129,7 @@ class StripeController extends Controller
             throw $e;
         }
     }
+
 
 
     /* =========================================================

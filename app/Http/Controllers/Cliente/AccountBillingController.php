@@ -135,34 +135,33 @@ final class AccountBillingController extends Controller
             ? (string) $contractStart
             : now()->format('Y-m');
 
-        if ($lastPaid) {
-            $payAllowed = $isAnnual
-                ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
-                : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
-        } else {
-            $payAllowed = $basePeriod;
-        }
+        // ✅ Resolver refs (uuid/int/string) para billing_statements (SOT)
+        $statementRefs = $this->buildStatementRefs($accountId);
 
-        // Periodos “base” para cálculo de precio/fallback (no necesariamente UI final)
+        // ✅ Calcular payAllowed con SOT primero (pending real), luego fallback mensual/anual con ventana
+        $payAllowed = $this->computePayAllowed($accountId, $isAnnual, $basePeriod, $lastPaid, $statementRefs);
+
+        // ✅ Periodos base para cálculo de precio (NO UI final)
         $periods = [];
-        if ($isAnnual) {
-            $periods[] = $lastPaid ?: $basePeriod;
 
-            try {
-                $winDays = (int) $this->annualRenewalWindowDays();
-                $renewAt = Carbon::createFromFormat('Y-m', $payAllowed)->startOfMonth();
-                $openAt  = $renewAt->copy()->subDays(max(0, $winDays));
-                if (now()->greaterThanOrEqualTo($openAt)) {
+        // Si no hay periodo pagable (ej. anual fuera de ventana y sin pendientes), mostramos vacío después
+        if ($payAllowed !== null) {
+            if ($isAnnual) {
+                // anual: periodo base + (si aplica) el payAllowed
+                $periods[] = $lastPaid ?: $basePeriod;
+
+                // solo agrega payAllowed si es distinto al base
+                if ($payAllowed !== ($lastPaid ?: $basePeriod)) {
                     $periods[] = $payAllowed;
                 }
-            } catch (\Throwable $e) {
-                // ignore
+            } else {
+                // mensual: lastPaid (si existe) + payAllowed
+                $periods = [$lastPaid, $payAllowed];
             }
-        } else {
-            $periods = [$lastPaid, $payAllowed];
         }
 
         $periods = array_values(array_unique(array_filter($periods)));
+
 
         // ==========================================================
         // ✅ PRECIO por periodo (Admin meta.billing + fallbacks)
@@ -432,6 +431,14 @@ final class AccountBillingController extends Controller
 
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
+        // ✅ Si no hay periodo habilitado para pago (anual fuera de ventana y sin pendientes),
+        // el portal debe mostrar "sin pendientes" (rows vacías).
+        if ($payAllowed === null) {
+            $rows = [];
+            $payAllowed = $basePeriod; // para no reventar el blade si espera string (UI: no habrá can_pay)
+        }
+
+
         // KPIs
         $pendingBalance = 0.0;
         foreach ($rows as $row) {
@@ -470,6 +477,115 @@ final class AccountBillingController extends Controller
             'alias'                => $alias,
         ]);
     }
+
+    /**
+     * ✅ Construye refs válidos para consultar admin.billing_statements:
+     * - admin account id (string/int)
+     * - UUIDs de cuentas_cliente relacionadas (si existen)
+     */
+    private function buildStatementRefs(int $adminAccountId): array
+    {
+        $refs = [];
+
+        try {
+            $refs[] = (string) $adminAccountId;
+            $refs[] = (int) $adminAccountId;
+
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                $uuids = DB::connection($cli)->table('cuentas_cliente')
+                    ->where('admin_account_id', $adminAccountId)
+                    ->limit(200)
+                    ->pluck('id')
+                    ->map(fn ($x) => trim((string) $x))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                foreach ($uuids as $u) $refs[] = $u;
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // unique + filter
+        $refs = array_values(array_unique(array_filter($refs, fn ($x) => trim((string)$x) !== '')));
+        return $refs;
+    }
+
+    /**
+     * ✅ Calcula payAllowed de forma canónica:
+     * 1) Si hay pending real en admin.billing_statements => primer periodo pendiente (asc)
+     * 2) Si no hay pending:
+     *    - Mensual: lastPaid+1 mes (o basePeriod si no hay lastPaid)
+     *    - Anual: lastPaid+1 año (o basePeriod) SOLO si está dentro de ventana; si no, null
+     */
+    private function computePayAllowed(
+        int $adminAccountId,
+        bool $isAnnual,
+        string $basePeriod,
+        ?string $lastPaid,
+        array $statementRefs
+    ): ?string {
+        // 1) pending real desde statements
+        try {
+            $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 60);
+
+            $pendingPeriods = [];
+            foreach ((array) $rowsAll as $rr) {
+                $pp = (string) ($rr['period'] ?? '');
+                if (!$this->isValidPeriod($pp)) continue;
+
+                $st = strtolower((string) ($rr['status'] ?? 'pending'));
+                $saldo = (float) ($rr['saldo'] ?? 0);
+
+                if ($st !== 'paid' && $saldo > 0.0001) {
+                    $pendingPeriods[] = $pp;
+                }
+            }
+
+            if (!empty($pendingPeriods)) {
+                sort($pendingPeriods); // asc
+                return (string) $pendingPeriods[0];
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // 2) fallback sin statements pendientes
+        try {
+            if ($isAnnual) {
+                // next renewal
+                $next = $lastPaid
+                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
+                    : $basePeriod;
+
+                // ventana anual
+                $winDays = (int) $this->annualRenewalWindowDays();
+                $renewAt = Carbon::createFromFormat('Y-m', $next)->startOfMonth();
+                $openAt  = $renewAt->copy()->subDays(max(0, $winDays));
+
+                // si aún no abre ventana => no hay pago habilitado
+                if (now()->lessThan($openAt)) {
+                    return null;
+                }
+
+                return $next;
+            }
+
+            // mensual
+            $next = $lastPaid
+                ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+                : $basePeriod;
+
+            return $next;
+        } catch (\Throwable $e) {
+            // en caso raro, cae a base
+            return $basePeriod;
+        }
+    }
+
 
 
     /**
@@ -1779,65 +1895,98 @@ final class AccountBillingController extends Controller
         if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
         if (!Auth::guard('web')->check() && !$r->hasValidSignature()) abort(403, 'Link inválido o expirado.');
 
-    // Si hay sesión autenticada, evita cross-account.
-    try {
-        [$sessAccountIdRaw] = $this->resolveAdminAccountId($r);
-        $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
-        if (Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
-            abort(403, 'Cuenta no autorizada.');
+        // Si hay sesión autenticada, evita cross-account.
+        try {
+            [$sessAccountIdRaw] = $this->resolveAdminAccountId($r);
+            $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
+            if (Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
+                abort(403, 'Cuenta no autorizada.');
+            }
+        } catch (\Throwable $e) {
+            // ignora
         }
-    } catch (\Throwable $e) {
-        // ignora
-    }
 
-    // Backward-compat: si alguien llega con st=success/cancel, solo informa
-    $st = strtolower((string) $r->query('st', ''));
-    if (in_array($st, ['success', 'cancel'], true)) {
-        if ($st === 'success') {
+        // Backward-compat: si alguien llega con st=success/cancel, solo informa
+        $st = strtolower((string) $r->query('st', ''));
+        if (in_array($st, ['success', 'cancel'], true)) {
+            if ($st === 'success') {
+                return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                    ->with('success', 'Pago iniciado. En cuanto se confirme, se actualizará tu estado de cuenta.');
+            }
             return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('success', 'Pago iniciado. En cuanto se confirme, se actualizará tu estado de cuenta.');
+                ->with('warning', 'Pago cancelado.');
         }
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'Pago cancelado.');
-    }
 
-    // Regla: solo permitir pagar el "payAllowed"
-    $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
-    $isAnnual = $this->isAnnualBillingCycle((int)$accountId);
+        // Regla: solo permitir pagar el "payAllowed"
+        $lastPaid = $this->adminLastPaidPeriod((int) $accountId);
+        $isAnnual = $this->isAnnualBillingCycle((int) $accountId);
 
-    $payAllowed = $lastPaid
-        ? (
-            $isAnnual
-                ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
-                : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-        )
-        : $period;
+        // basePeriod = contract start si existe, si no el periodo actual
+        $basePeriod = $this->resolveContractStartPeriod((int) $accountId);
+        $basePeriod = (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) $basePeriod))
+            ? (string) $basePeriod
+            : now()->format('Y-m');
+
+        $statementRefs = $this->buildStatementRefs((int) $accountId);
+        $payAllowed = $this->computePayAllowed((int) $accountId, (bool) $isAnnual, (string) $basePeriod, $lastPaid, $statementRefs);
+
+        // Si anual fuera de ventana y no hay pendientes, bloquea pago
+        if ($payAllowed === null) {
+            return redirect()->route('cliente.estado_cuenta')
+                ->with('warning', 'Aún no está abierta la ventana de renovación.');
+        }
 
 
-    // ✅ Permitir pagar SOLO periodos pendientes según admin.billing_statements (si existen)
-    $pend = $this->loadRowsFromAdminBillingStatements((int)$accountId, 36);
 
-    if (!empty($pend)) {
-        $pendPeriods = [];
-        foreach ($pend as $rr) {
-            if (($rr['status'] ?? '') === 'pending' && !empty($rr['period'])) {
-                $pendPeriods[(string)$rr['period']] = true;
+        // ✅ Permitir pagar SOLO periodos pendientes según admin.billing_statements (si existen)
+        $pend = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
+
+        if (!empty($pend)) {
+            $pendPeriods = [];
+            foreach ($pend as $rr) {
+                if (($rr['status'] ?? '') === 'pending' && !empty($rr['period'])) {
+                    $pendPeriods[(string)$rr['period']] = true;
+                }
+            }
+
+            if (!isset($pendPeriods[$period])) {
+                Log::warning('[BILLING] publicPay blocked (period not pending)', [
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                ]);
+
+                return redirect()->route('cliente.estado_cuenta')
+                    ->with('warning', 'Este periodo no está pendiente o no está habilitado para pago.');
+            }
+        } else {
+            // Fallback viejo si no hay statements
+            if ($period !== $payAllowed) {
+                Log::warning('[BILLING] publicPay blocked (period not allowed)', [
+                    'account_id'  => $accountId,
+                    'period'      => $period,
+                    'last_paid'   => $lastPaid,
+                    'pay_allowed' => $payAllowed,
+                ]);
+
+                return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                    ->with('warning', 'Este periodo no está habilitado para pago.');
             }
         }
 
-        if (!isset($pendPeriods[$period])) {
-            Log::warning('[BILLING] publicPay blocked (period not pending)', [
-                'account_id' => $accountId,
-                'period'     => $period,
-            ]);
 
-            return redirect()->route('cliente.estado_cuenta')
-                ->with('warning', 'Este periodo no está pendiente o no está habilitado para pago.');
+        if ($isAnnual) {
+            $baseAnnual  = $lastPaid ?: $period;
+            $annualCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
+            $monthlyCents = $annualCents; // para no reescribir todo el flujo abajo
+        } else {
+
+            $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
+            if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
+            if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
         }
-    } else {
-        // Fallback viejo si no hay statements
-        if ($period !== $payAllowed) {
-            Log::warning('[BILLING] publicPay blocked (period not allowed)', [
+
+        if ($monthlyCents <= 0) {
+            Log::error('[BILLING] publicPay blocked (amount unresolved)', [
                 'account_id'  => $accountId,
                 'period'      => $period,
                 'last_paid'   => $lastPaid,
@@ -1845,161 +1994,143 @@ final class AccountBillingController extends Controller
             ]);
 
             return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-                ->with('warning', 'Este periodo no está habilitado para pago.');
+                ->with('warning', 'No se pudo determinar el monto a pagar. Contacta soporte.');
         }
-    }
 
+        // ==========================================================
+        // ✅ STRIPE MINIMUM (MXN)
+        // Stripe no permite Checkout por debajo de $10.00 MXN (1000 cents).
+        // Si tu sistema quiere mostrar $1.00, aquí seguimos guardando ambos:
+        // - ui/original: $monthlyCents (ej. 100)
+        // - cobro real en Stripe: $stripeCents (mínimo 1000)
+        // ==========================================================
+        $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int)$accountId, $period);
 
-    if ($isAnnual) {
-        $baseAnnual  = $lastPaid ?: $period;
-        $annualCents = (int) $this->resolveAnnualCents((int)$accountId, (string)$baseAnnual, $lastPaid, $payAllowed);
-        $monthlyCents = $annualCents; // para no reescribir todo el flujo abajo
-    } else {
+        // ✅ total a pagar = mensualidad actual + saldo anterior (solo 1 periodo anterior)
+        $originalCents = (int) max(0, (int)$monthlyCents + (int)$prevBalanceCents);
 
-        $monthlyCents = $this->resolveMonthlyCentsForPeriodFromAdminAccount((int)$accountId, $period, $lastPaid, $payAllowed);
-        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromPlanesCatalog((int) $accountId);
-        if ($monthlyCents <= 0) $monthlyCents = $this->resolveMonthlyCentsFromClientesEstadosCuenta((int) $accountId, $lastPaid, $payAllowed);
-    }
+        // Stripe mínimo
+        $stripeCents   = (int) max($originalCents, 1000);
 
-    if ($monthlyCents <= 0) {
-        Log::error('[BILLING] publicPay blocked (amount unresolved)', [
-            'account_id'  => $accountId,
-            'period'      => $period,
-            'last_paid'   => $lastPaid,
-            'pay_allowed' => $payAllowed,
-        ]);
+        $amountMxnOriginal = round($originalCents / 100, 2);
+        $amountMxnStripe   = round($stripeCents / 100, 2);
 
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'No se pudo determinar el monto a pagar. Contacta soporte.');
-    }
+        // ✅ Si no hay nada que cobrar, no mandes a Stripe (evita cobrar mínimo cuando debe 0)
+        if ($originalCents <= 0) {
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('success', 'No hay saldo pendiente para pagar en este periodo.');
+        }
 
-    // ==========================================================
-    // ✅ STRIPE MINIMUM (MXN)
-    // Stripe no permite Checkout por debajo de $10.00 MXN (1000 cents).
-    // Si tu sistema quiere mostrar $1.00, aquí seguimos guardando ambos:
-    // - ui/original: $monthlyCents (ej. 100)
-    // - cobro real en Stripe: $stripeCents (mínimo 1000)
-    // ==========================================================
-    $prevBalanceCents = $this->resolvePrevBalanceCentsForPeriod((int)$accountId, $period);
+        // Email del cliente (si está logueado) / fallback admin.accounts.email
+        $customerEmail = Auth::guard('web')->user()?->email;
+        if (!$customerEmail) {
+            try {
+                $adm = config('p360.conn.admin', 'mysql_admin');
+                if (Schema::connection($adm)->hasTable('accounts')) {
+                    $acc = DB::connection($adm)->table('accounts')->select(['id', 'email'])->where('id', (int)$accountId)->first();
+                    $customerEmail = $acc?->email ?: null;
+                }
+            } catch (\Throwable $e) {
+                // ignora
+            }
+        }
 
-    // ✅ total a pagar = mensualidad actual + saldo anterior (solo 1 periodo anterior)
-    $originalCents = (int) max(0, (int)$monthlyCents + (int)$prevBalanceCents);
+        // ✅ CRÍTICO: success debe ir a StripeController@success con session_id
+        $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
+        $cancelUrl  = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
 
-    // Stripe mínimo
-    $stripeCents   = (int) max($originalCents, 1000);
+        // ✅ Lazy Stripe: NO revienta si stripe/stripe-php no está instalado o falta el secret
+        $stripe = $this->stripe();
+        if (!$stripe) {
+            Log::error('[BILLING] Stripe not available (missing package or secret)', [
+                'account_id'   => $accountId,
+                'period'       => $period,
+                'has_secret'   => trim((string) config('services.stripe.secret')) !== '',
+                'class_exists' => class_exists(\Stripe\StripeClient::class),
+            ]);
 
-    $amountMxnOriginal = round($originalCents / 100, 2);
-    $amountMxnStripe   = round($stripeCents / 100, 2);
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('warning', 'No se pudo iniciar el pago (Stripe no disponible). Contacta soporte.');
+        }
 
-    // Email del cliente (si está logueado) / fallback admin.accounts.email
-    $customerEmail = Auth::guard('web')->user()?->email;
-    if (!$customerEmail) {
         try {
-            $adm = config('p360.conn.admin', 'mysql_admin');
-            if (Schema::connection($adm)->hasTable('accounts')) {
-                $acc = DB::connection($adm)->table('accounts')->select(['id', 'email'])->where('id', (int)$accountId)->first();
-                $customerEmail = $acc?->email ?: null;
-            }
-        } catch (\Throwable $e) {
-            // ignora
-        }
-    }
+            $idempotencyKey = 'publicPay:' . $accountId . ':' . $period . ':' . Str::uuid()->toString();
 
-    // ✅ CRÍTICO: success debe ir a StripeController@success con session_id
-    $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
-    $cancelUrl  = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
+            // ✅ Arma payload sin enviar customer_email=null (Stripe a veces valida string)
+            $payload = [
+                'mode' => 'payment',
+                'payment_method_types' => ['card'],
 
-    // ✅ Lazy Stripe: NO revienta si stripe/stripe-php no está instalado o falta el secret
-    $stripe = $this->stripe();
-    if (!$stripe) {
-        Log::error('[BILLING] Stripe not available (missing package or secret)', [
-            'account_id'   => $accountId,
-            'period'       => $period,
-            'has_secret'   => trim((string) config('services.stripe.secret')) !== '',
-            'class_exists' => class_exists(\Stripe\StripeClient::class),
-        ]);
+                'success_url' => (string) $successUrl,
+                'cancel_url'  => (string) $cancelUrl,
 
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'No se pudo iniciar el pago (Stripe no disponible). Contacta soporte.');
-    }
-
-    try {
-        $idempotencyKey = 'publicPay:' . $accountId . ':' . $period . ':' . Str::uuid()->toString();
-
-        $session = $stripe->checkout->sessions->create([
-            'mode' => 'payment',
-            'payment_method_types' => ['card'],
-            'customer_email' => $customerEmail ?: null,
-
-            'success_url' => (string) $successUrl,
-            'cancel_url'  => (string) $cancelUrl,
-
-            'line_items' => [[
-                'quantity' => 1,
-                'price_data' => [
-                    'currency' => 'mxn',
-                    'unit_amount' => (int) $stripeCents, // ✅ COBRO REAL
-                    'product_data' => [
-                        'name' => 'Pactopia360 · Licencia · '.$period,
-                        'description' => ($originalCents < 1000)
-                            ? ('Stripe requiere mínimo $10.00 MXN. Cobro aplicado: $'.number_format($amountMxnStripe, 2).' MXN (monto sistema: $'.number_format($amountMxnOriginal, 2).' MXN).')
-                            : ('Pago de licencia (periodo '.$period.').'),
+                'line_items' => [[
+                    'quantity' => 1,
+                    'price_data' => [
+                        'currency' => 'mxn',
+                        'unit_amount' => (int) $stripeCents, // ✅ COBRO REAL
+                        'product_data' => [
+                            'name' => 'Pactopia360 · Licencia · '.$period,
+                            'description' => ($originalCents < 1000)
+                               ? ('Stripe requiere mínimo $10.00 MXN. Cobro aplicado: $'.number_format($amountMxnStripe, 2).' MXN (monto sistema: $'.number_format($amountMxnOriginal, 2).' MXN).')
+                                : ('Pago de licencia (periodo '.$period.').'),
+                        ],
                     ],
+                ]],
+
+                // ✅ metadata.type debe empezar con "billing_"
+                'metadata' => [
+                    'type'                => 'billing_statement_public',
+                    'account_id'          => (string)$accountId,
+                    'period'              => $period,
+                    'amount_mxn'          => (string)$amountMxnOriginal,
+                    'amount_cents'        => (string)$originalCents,
+                    'stripe_amount_mxn'   => (string)$amountMxnStripe,
+                    'stripe_amount_cents' => (string)$stripeCents,
+                    'source'              => 'cliente_publicPay',
                 ],
-            ]],
+            ];
 
-            // ✅ metadata.type debe empezar con "billing_"
-            'metadata' => [
-                'type'                => 'billing_statement_public',
-                'account_id'          => (string)$accountId,
-                'period'              => $period,
-
-                // monto del sistema
-                'amount_mxn'          => (string)$amountMxnOriginal,
-                'amount_cents'        => (string)$originalCents,
-
-                // monto real cobrado en Stripe (por mínimo)
-                'stripe_amount_mxn'   => (string)$amountMxnStripe,
-                'stripe_amount_cents' => (string)$stripeCents,
-
-                'source'              => 'cliente_publicPay',
-            ],
-        ], [
-            'idempotency_key' => $idempotencyKey,
-        ]);
-
-        // Guardamos en admin.payments el COBRO REAL (stripeCents) y en meta dejamos el original
-        $this->upsertPendingPaymentForStatementPublicPay(
-            (string)$accountId,
-            $period,
-            (int)$stripeCents,
-            (string)($session->id ?? ''),
-            (float)$amountMxnOriginal,
-            (int)$originalCents
-        );
-
-        if (!empty($session->url)) {
-            // Nota: si hubo “mínimo Stripe”, avisamos al usuario antes de mandarlo al checkout
-            if ($originalCents < 1000) {
-                $r->session()->flash('warning', 'Stripe requiere un mínimo de $10.00 MXN; se enviará a pago por $'.number_format($amountMxnStripe, 2).' MXN.');
+            if ($customerEmail && filter_var((string)$customerEmail, FILTER_VALIDATE_EMAIL)) {
+                $payload['customer_email'] = (string) $customerEmail;
             }
-            return redirect()->away((string) $session->url);
+
+            $session = $stripe->checkout->sessions->create($payload, [
+                'idempotency_key' => $idempotencyKey,
+            ]);
+
+            // Guardamos en admin.payments el COBRO REAL (stripeCents) y en meta dejamos el original
+            $this->upsertPendingPaymentForStatementPublicPay(
+                (string)$accountId,
+                $period,
+                (int)$stripeCents,
+                (string)($session->id ?? ''),
+                (float)$amountMxnOriginal,
+                (int)$originalCents
+            );
+
+            if (!empty($session->url)) {
+                // Nota: si hubo “mínimo Stripe”, avisamos al usuario antes de mandarlo al checkout
+                if ($originalCents < 1000) {
+                    $r->session()->flash('warning', 'Stripe requiere un mínimo de $10.00 MXN; se enviará a pago por $'.number_format($amountMxnStripe, 2).' MXN.');
+                 }
+                 return redirect()->away((string) $session->url);
+            }
+
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('warning', 'No se pudo iniciar el checkout. Intenta nuevamente.');
+        } catch (\Throwable $e) {
+            Log::error('[BILLING] publicPay checkout failed', [
+                'account_id'         => $accountId,
+                'period'             => $period,
+                'amount_cents_ui'    => $originalCents,
+                'amount_cents_stripe'=> $stripeCents,
+                'err'                => $e->getMessage(),
+            ]);
+
+            return redirect()->route('cliente.estado_cuenta', ['period' => $period])
+                ->with('warning', 'Error al iniciar pago: '.$e->getMessage());
         }
-
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'No se pudo iniciar el checkout. Intenta nuevamente.');
-    } catch (\Throwable $e) {
-        Log::error('[BILLING] publicPay checkout failed', [
-            'account_id'         => $accountId,
-            'period'             => $period,
-            'amount_cents_ui'    => $originalCents,
-            'amount_cents_stripe'=> $stripeCents,
-            'err'                => $e->getMessage(),
-        ]);
-
-        return redirect()->route('cliente.estado_cuenta', ['period' => $period])
-            ->with('warning', 'Error al iniciar pago: '.$e->getMessage());
-    }
     }
 
     /**
