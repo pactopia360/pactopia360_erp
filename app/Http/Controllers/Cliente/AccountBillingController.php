@@ -1083,42 +1083,71 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * ✅ Resuelve monto mensual (cents) por periodo desde Admin meta.billing.
-     * Delegado al HUB para evitar divergencias.
+     * Resuelve el costo mensual (en cents) para un periodo, desde admin.accounts.meta.billing si existe.
+     * ✅ Defensivo: $payAllowed puede venir null (por request/middlewares), nunca debe explotar.
      */
     private function resolveMonthlyCentsForPeriodFromAdminAccount(
-        int $adminAccountId,
+        int $accountId,
         string $period,
         ?string $lastPaid,
-        string $payAllowed
+        ?string $payAllowed
     ): int {
-        if (!$this->isValidPeriod($period)) return 0;
+        // ============================
+        // 🔒 Normalización defensiva
+        // ============================
+        $period = trim($period);
+        if (!$this->isValidPeriod($period)) {
+            $period = now()->format('Y-m');
+        }
+
+        $payAllowedUi = trim((string)$payAllowed);
+        if ($payAllowedUi === '' || !$this->isValidPeriod($payAllowedUi)) {
+            // fallback: si viene vacío, usa el propio periodo o el mes actual
+            $payAllowedUi = $this->isValidPeriod($period) ? $period : now()->format('Y-m');
+        }
 
         try {
-            $cents = (int) $this->hub->resolveMonthlyCentsForPeriodFromAdminAccount(
-                $adminAccountId,
-                $period,
-                $payAllowed
-            );
+            $adm = config('p360.conn.admin', 'mysql_admin');
 
-            if ($cents > 0) {
-                Log::info('[BILLING] price from HUB meta.billing (resolved)', [
-                    'account_id' => $adminAccountId,
-                    'period'     => $period,
-                    'last_paid'  => $lastPaid,
-                    'pay_allowed'=> $payAllowed,
-                    'cents'      => $cents,
-                ]);
-                return $cents;
+            // meta.billing.cents (o price_cents) puede estar ahí; si no, regresa 0 y caller hace fallback.
+            $row = DB::connection($adm)->table('accounts')
+                ->where('id', $accountId)
+                ->first(['id', 'meta']);
+
+            $meta = [];
+            if ($row && isset($row->meta)) {
+                if (is_array($row->meta)) {
+                    $meta = $row->meta;
+                } elseif (is_string($row->meta) && $row->meta !== '') {
+                    $tmp = json_decode($row->meta, true);
+                    if (is_array($tmp)) $meta = $tmp;
+                }
             }
 
-            return 0;
+            $billing = is_array($meta['billing'] ?? null) ? $meta['billing'] : [];
+
+            // soporta varias llaves posibles
+            $cents =
+                (int)($billing['cents'] ?? 0)
+                ?: (int)($billing['price_cents'] ?? 0)
+                ?: (int)($billing['monthly_cents'] ?? 0);
+
+            if ($cents < 0) $cents = 0;
+
+            Log::info('[BILLING] price from HUB meta.billing (resolved)', [
+                'account_id'   => $accountId,
+                'period'       => $period,
+                'last_paid'    => $lastPaid,
+                'pay_allowed'  => $payAllowed,   // raw
+                'pay_allowed_ui' => $payAllowedUi, // normalized
+                'cents'        => $cents,
+            ]);
+
+            return $cents;
         } catch (\Throwable $e) {
-            Log::warning('[BILLING] resolveMonthlyCentsForPeriodFromAdminAccount (HUB) failed', [
-                'account_id' => $adminAccountId,
+            Log::warning('[BILLING] resolveMonthlyCentsForPeriodFromAdminAccount failed', [
+                'account_id' => $accountId,
                 'period'     => $period,
-                'last_paid'  => $lastPaid,
-                'pay_allowed'=> $payAllowed,
                 'err'        => $e->getMessage(),
             ]);
             return 0;
