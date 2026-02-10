@@ -276,6 +276,16 @@ final class AccountBillingController extends Controller
             }
         }
 
+        Log::info('[BILLING][DEBUG] periods/payAllowed checkpoint', [
+            'account_id'   => $accountId ?? null,
+            'period_req'   => $period ?? null,
+            'pay_allowed'  => $payAllowed ?? null,
+            'periods_cnt'  => is_array($periods ?? null) ? count($periods) : null,
+            'periods_head' => is_array($periods ?? null) ? array_slice(array_values($periods), 0, 12) : null,
+            'periods_tail' => is_array($periods ?? null) ? array_slice(array_values($periods), -12) : null,
+        ]);
+
+
         // Fallback base (clientes.estados_cuenta)
         $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
             $accountId,
