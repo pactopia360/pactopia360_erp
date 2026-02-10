@@ -1082,7 +1082,6 @@ final class AccountBillingController extends Controller
         return array_values($rows);
     }
 
-
     /**
      * ✅ Resuelve monto mensual (cents) por periodo desde Admin meta.billing.
      * Delegado al HUB para evitar divergencias.
@@ -1521,14 +1520,15 @@ final class AccountBillingController extends Controller
     // =========================
     // Helpers (2 cards)
     // =========================
-    /**
+   /**
      * ✅ Portal cliente: solo mostrar el periodo habilitado para pago (payAllowed).
      * - Si payAllowed viene pagado => retorna [] (nada pendiente).
      * - Nunca muestra periodos "paid" ni futuros.
      */
-    private function keepOnlyPayAllowedPeriod(array $rows, string $payAllowed): array
+    private function keepOnlyPayAllowedPeriod(array $rows, ?string $payAllowed, ?string $fallbackPeriod = null): array
     {
-        if (!$this->isValidPeriod($payAllowed)) return [];
+        // ✅ nunca permitimos null/invalid aquí
+        $payAllowed = $this->normalizePeriodOrNow($payAllowed, $fallbackPeriod);
 
         $picked = null;
 
@@ -1548,31 +1548,39 @@ final class AccountBillingController extends Controller
 
         return [$picked];
     }
-   
-    private function enforceTwoCardsOnly(array $rows, ?string $lastPaid, string $payAllowed, float $monthlyMxn, bool $isAnnual = false): array
-    {
+
+    private function enforceTwoCardsOnly(
+    array $rows,
+    ?string $lastPaid,
+    ?string $payAllowed,
+    float $monthlyMxn,
+    bool $isAnnual = false
+    ): array {
+        // ✅ payAllowed nunca null
+        $payAllowed = $this->normalizePeriodOrNow($payAllowed, $lastPaid);
+
         $valid = array_values(array_filter($rows, function ($r) {
             $p = (string) ($r['period'] ?? '');
             return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
         }));
 
-       if (!$valid) {
+        if (!$valid) {
             $baseRfc   = '—';
             $baseAlias = '—';
 
             $out = [[
-                'period'                => $payAllowed,
-                'status'                => 'pending',
-                'charge'                => round($monthlyMxn, 2),
-                'paid_amount'           => 0.0,
-                'saldo'                 => round($monthlyMxn, 2),
-                'can_pay'               => true,
-                'period_range'          => '',
-                'rfc'                   => $baseRfc,
-                'alias'                 => $baseAlias,
-                'invoice_request_status'=> null,
-                'invoice_has_zip'       => false,
-                'price_source'          => 'none',
+                'period'                 => $payAllowed,
+                'status'                 => 'pending',
+                'charge'                 => round($monthlyMxn, 2),
+                'paid_amount'            => 0.0,
+                'saldo'                  => round($monthlyMxn, 2),
+                'can_pay'                => true,
+                'period_range'           => '',
+                'rfc'                    => $baseRfc,
+                'alias'                  => $baseAlias,
+                'invoice_request_status' => null,
+                'invoice_has_zip'        => false,
+                'price_source'           => 'none',
             ]];
 
             // ✅ ANUAL: solo 1 card
@@ -1581,18 +1589,18 @@ final class AccountBillingController extends Controller
             // Mensual: mantiene 2 cards (siguiente mes)
             $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
             $out[] = [
-                'period'                => $next,
-                'status'                => 'pending',
-                'charge'                => round($monthlyMxn, 2),
-                'paid_amount'           => 0.0,
-                'saldo'                 => round($monthlyMxn, 2),
-                'can_pay'               => false,
-                'period_range'          => '',
-                'rfc'                   => $baseRfc,
-                'alias'                 => $baseAlias,
-                'invoice_request_status'=> null,
-                'invoice_has_zip'       => false,
-                'price_source'          => 'none',
+                'period'                 => $next,
+                'status'                 => 'pending',
+                'charge'                 => round($monthlyMxn, 2),
+                'paid_amount'            => 0.0,
+                'saldo'                  => round($monthlyMxn, 2),
+                'can_pay'                => false,
+                'period_range'           => '',
+                'rfc'                    => $baseRfc,
+                'alias'                  => $baseAlias,
+                'invoice_request_status' => null,
+                'invoice_has_zip'        => false,
+                'price_source'           => 'none',
             ];
 
             return array_slice($out, 0, 2);
@@ -1629,24 +1637,24 @@ final class AccountBillingController extends Controller
             }
         }
 
-        $baseRfc = (string)($out[0]['rfc'] ?? $valid[0]['rfc'] ?? '—');
+        $baseRfc   = (string)($out[0]['rfc'] ?? $valid[0]['rfc'] ?? '—');
         $baseAlias = (string)($out[0]['alias'] ?? $valid[0]['alias'] ?? '—');
 
         if (!$isAnnual && count($out) < 2) {
             $next = Carbon::createFromFormat('Y-m', $payAllowed)->addMonthNoOverflow()->format('Y-m');
             $out[] = [
-                'period' => $next,
-                'status' => 'pending',
-                'charge' => round($monthlyMxn, 2),
-                'paid_amount' => 0.0,
-                'saldo' => round($monthlyMxn, 2),
-                'can_pay' => false,
-                'period_range' => '',
-                'rfc' => $baseRfc,
-                'alias' => $baseAlias,
+                'period'                 => $next,
+                'status'                 => 'pending',
+                'charge'                 => round($monthlyMxn, 2),
+                'paid_amount'            => 0.0,
+                'saldo'                  => round($monthlyMxn, 2),
+                'can_pay'                => false,
+                'period_range'           => '',
+                'rfc'                    => $baseRfc,
+                'alias'                  => $baseAlias,
                 'invoice_request_status' => null,
-                'invoice_has_zip' => false,
-                'price_source' => 'none',
+                'invoice_has_zip'        => false,
+                'price_source'           => 'none',
             ];
         }
 
@@ -2921,6 +2929,23 @@ final class AccountBillingController extends Controller
 
         return 0;
     }
+
+    /**
+     * Normaliza un periodo a formato Y-m. Nunca regresa null.
+     * - Si $p viene null/vacío/inválido => usa $fallback si es válido
+     * - Si ambos fallan => usa now()->format('Y-m')
+     */
+    private function normalizePeriodOrNow(?string $p, ?string $fallback = null): string
+    {
+        $p = trim((string) $p);
+        if ($p !== '' && $this->isValidPeriod($p)) return $p;
+
+        $fallback = trim((string) $fallback);
+        if ($fallback !== '' && $this->isValidPeriod($fallback)) return $fallback;
+
+        return now()->format('Y-m');
+    }
+
 
     private function isValidPeriod(string $period): bool
     {
