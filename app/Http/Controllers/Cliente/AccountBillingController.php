@@ -1424,10 +1424,128 @@ final class AccountBillingController extends Controller
      */
     public function requestInvoice(Request $r, string $period): RedirectResponse
     {
-        // ... (la segunda parte continúa)
-        // NOTA: aquí sigue exactamente tu bloque original; lo revisamos/ajustamos en la 2da parte como pediste.
-        throw new \RuntimeException('Esta sección continúa en la segunda parte.');
+        if (!$this->isValidPeriod($period)) {
+            abort(422, 'Periodo inválido.');
+        }
+
+        // admin_account_id desde sesión/cliente (robusto)
+        [$adminAccountIdRaw, $src] = $this->resolveAdminAccountId($r);
+        $adminAccountId = is_numeric($adminAccountIdRaw) ? (int) $adminAccountIdRaw : 0;
+
+        if ($adminAccountId <= 0) {
+            return back()->with('error', 'No pude resolver tu cuenta (admin_account_id).');
+        }
+
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        // Compat: algunos entornos usan invoice_requests; otros billing_invoice_requests
+        $table = null;
+        if (\Illuminate\Support\Facades\Schema::connection($adm)->hasTable('billing_invoice_requests')) {
+            $table = 'billing_invoice_requests';
+        } elseif (\Illuminate\Support\Facades\Schema::connection($adm)->hasTable('invoice_requests')) {
+            $table = 'invoice_requests';
+        }
+
+        if (!$table) {
+            \Illuminate\Support\Facades\Log::warning('InvoiceRequest: missing table', [
+                'conn' => $adm,
+                'account_id' => $adminAccountId,
+                'period' => $period,
+                'src' => $src,
+            ]);
+            return back()->with('error', 'No está habilitado el módulo de solicitudes de factura (tabla no encontrada).');
+        }
+
+        // Detecta FK (tolerante)
+        $cols = \Illuminate\Support\Facades\Schema::connection($adm)->getColumnListing($table);
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        $fk = null;
+        foreach (['account_id', 'admin_account_id', 'accounts_id', 'account', 'cliente_account_id'] as $candidate) {
+            if ($has($candidate)) { $fk = $candidate; break; }
+        }
+
+        if (!$fk) {
+            \Illuminate\Support\Facades\Log::warning('InvoiceRequest: missing FK column', [
+                'conn' => $adm,
+                'table' => $table,
+                'cols' => $cols,
+                'account_id' => $adminAccountId,
+                'period' => $period,
+            ]);
+            return back()->with('error', 'No se pudo identificar la columna FK de cuenta para solicitudes de factura.');
+        }
+
+        $notes = trim((string) $r->input('notes', ''));
+        $now   = now();
+
+        try {
+            $q = \Illuminate\Support\Facades\DB::connection($adm)
+                ->table($table)
+                ->where($fk, $adminAccountId)
+                ->where('period', $period);
+
+            // Si ya existe, solo actualiza notas/timestamps (evita duplicados)
+            $existing = $q->first(['id']);
+
+            if ($existing && isset($existing->id)) {
+                $upd = [];
+                if ($has('notes'))      $upd['notes'] = $notes;
+                if ($has('updated_at')) $upd['updated_at'] = $now;
+
+                if (!empty($upd)) {
+                    \Illuminate\Support\Facades\DB::connection($adm)
+                        ->table($table)
+                        ->where('id', (int) $existing->id)
+                        ->update($upd);
+                }
+
+                \Illuminate\Support\Facades\Log::info('InvoiceRequest: already exists (updated)', [
+                    'conn' => $adm,
+                    'table' => $table,
+                    'id' => (int) $existing->id,
+                    'account_id' => $adminAccountId,
+                    'period' => $period,
+                ]);
+
+                return back()->with('success', 'Tu solicitud de factura ya existe. La actualicé.');
+            }
+
+            $ins = [
+                $fk      => $adminAccountId,
+                'period' => $period,
+            ];
+
+            if ($has('notes'))      $ins['notes'] = $notes;
+            if ($has('status'))     $ins['status'] = 'requested';
+            if ($has('created_at')) $ins['created_at'] = $now;
+            if ($has('updated_at')) $ins['updated_at'] = $now;
+
+            $newId = \Illuminate\Support\Facades\DB::connection($adm)->table($table)->insertGetId($ins);
+
+            \Illuminate\Support\Facades\Log::info('InvoiceRequest: created', [
+                'conn' => $adm,
+                'table' => $table,
+                'id' => (int) $newId,
+                'account_id' => $adminAccountId,
+                'period' => $period,
+            ]);
+
+            return back()->with('success', 'Solicitud de factura creada. En breve te notificaremos cuando esté lista.');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('InvoiceRequest: error', [
+                'conn' => $adm,
+                'table' => $table,
+                'account_id' => $adminAccountId,
+                'period' => $period,
+                'msg' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'No se pudo crear la solicitud de factura. Intenta de nuevo.');
+        }
     }
+
 
     /**
      * ==========================
