@@ -36,6 +36,10 @@ use App\Http\Controllers\Cliente\MiCuentaController;
 use App\Http\Controllers\Cliente\UiController;
 use App\Http\Controllers\Cliente\ImpersonateController;
 
+use App\Http\Middleware\ClientSessionConfig;
+use App\Http\Middleware\EnsureAccountIsActive;
+
+
 // ✅ Mi cuenta / Facturas (ZIP estados de cuenta admin SOT)
 use App\Http\Controllers\Cliente\MiCuenta\FacturasController;
 
@@ -217,35 +221,40 @@ Route::get('paywall', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
-| PDF / PAGO PÚBLICOS (SIN LOGIN)
+| PDF / PAGO PÚBLICOS (SIN LOGIN) — firmados
 |--------------------------------------------------------------------------
-| IMPORTANTE:
-| Este archivo vive bajo el grupo middleware('cliente') (RouteServiceProvider),
-| por lo tanto HAY que quitar ese middleware aquí para evitar loops de sesión/login.
-|
-| Recomendación: estos endpoints deben ir firmados (signed) + throttle.
+| Este archivo vive bajo el grupo "cliente" (RouteServiceProvider).
+| Hay que quitar middleware por CLASE para evitar loops de sesión.
 */
 Route::get('billing/statement/public-pdf/{accountId}/{period}', [AccountBillingController::class, 'publicPdf'])
-    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->withoutMiddleware([
+        ClientSessionConfig::class,      // ✅ corta loop de sesión cliente
+        EnsureAccountIsActive::class,    // ✅ evita redirecciones a paywall/login
+    ])
     ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPdf');
 
 Route::get('billing/statement/public-pdf-inline/{accountId}/{period}', [AccountBillingController::class, 'publicPdfInline'])
-    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->withoutMiddleware([
+        ClientSessionConfig::class,
+        EnsureAccountIsActive::class,
+    ])
     ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPdfInline');
 
 Route::get('billing/statement/public-pay/{accountId}/{period}', [AccountBillingController::class, 'publicPay'])
-    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->withoutMiddleware([
+        ClientSessionConfig::class,
+        EnsureAccountIsActive::class,
+    ])
     ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPay');
-
 
 /*
 |--------------------------------------------------------------------------
