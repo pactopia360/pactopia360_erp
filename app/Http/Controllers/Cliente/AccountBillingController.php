@@ -745,6 +745,25 @@ final class AccountBillingController extends Controller
             abort(404);
         }
 
+        // ✅ Items (desde admin) para PDF
+        $items = [];
+        try {
+            $sid = (int)($row['id'] ?? 0);
+            if ($sid > 0) {
+                $itemsRaw = $this->fetchStatementItems((string)config('p360.conn.admin','mysql_admin'), $sid);
+                $items = array_values(array_map(function ($x) {
+                    $a = is_array($x) ? $x : (array)$x;
+                    return [
+                        'name'       => (string)($a['description'] ?? 'Servicio'),
+                        'unit_price' => (float)($a['unit_price'] ?? 0),
+                        'qty'        => (float)($a['qty'] ?? 1),
+                        'subtotal'   => (float)($a['amount'] ?? 0),
+                    ];
+                }, $itemsRaw));
+            }
+        } catch (\Throwable $e) {}
+
+
         // Data mínima para la vista PDF (la vista puede ser tolerante; si pide más, lo ajustamos)
         $data = [
             'account_id' => $accountId,
@@ -754,6 +773,11 @@ final class AccountBillingController extends Controller
             'rows'       => [$row],
             // compat
             'inline'     => $inline,
+            'service_items' => $items,
+            'service_label' => 'Suscripción Pactopia360',
+            'cargo'         => (float)($row['total_cargo'] ?? ($row['charge'] ?? 0)),
+            'abono'         => (float)($row['total_abono'] ?? ($row['paid_amount'] ?? 0)),
+
         ];
 
         // DomPDF wrapper (barryvdh/laravel-dompdf)
@@ -1906,29 +1930,20 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * ✅ SOT: lee SIEMPRE desde admin.billing_statements
-     * - schema real: total_cargo, total_abono, saldo, status
-     * - items: billing_statement_items.statement_id
-     * - devuelve rows compatibles con UI: charge, paid_amount, saldo, service_items, etc.
+     * Carga estados de cuenta desde admin.billing_statements (SOT).
+     * ✅ Además: asegura que cada statement tenga items (fallback) para que admin/cliente/PDF sean consistentes.
      */
-    private function loadRowsFromAdminBillingStatements(array $statementRefs, int $monthsBack = 36): array
+    private function loadRowsFromAdminBillingStatements(array $refs, int $limit = 60): array
     {
-        $adm = (string) config('p360.conn.admin', 'mysql_admin');
-
-        // Normaliza refs (vienen ["18","uuid"] etc.)
-        $refs = array_values(array_unique(array_filter(array_map(function ($v) {
-            $s = is_scalar($v) ? trim((string)$v) : '';
-            return $s !== '' ? $s : null;
-        }, $statementRefs))));
-
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $refs = array_values(array_unique(array_filter($refs, fn ($x) => trim((string)$x) !== '')));
         if (empty($refs)) return [];
 
-        // Trae statements (SOT)
-        $stRows = \Illuminate\Support\Facades\DB::connection($adm)
-            ->table('billing_statements')
+        // Solo columnas reales (según tu SHOW COLUMNS)
+        $q = DB::connection($adm)->table('billing_statements')
             ->whereIn('account_id', $refs)
             ->orderByDesc('period')
-            ->limit(max(1, (int)$monthsBack))
+            ->limit(max(1, $limit))
             ->get([
                 'id',
                 'account_id',
@@ -1939,104 +1954,169 @@ final class AccountBillingController extends Controller
                 'saldo',
                 'due_date',
                 'paid_at',
-                'meta',
                 'snapshot',
+                'meta',
                 'created_at',
                 'updated_at',
             ])
             ->toArray();
 
-        if (empty($stRows)) return [];
-
-        // Mapa statement_id -> items
-        $ids = array_values(array_filter(array_map(fn($r) => (int)($r->id ?? 0), $stRows)));
-        $itemsBy = [];
-
-        if (!empty($ids)) {
-            try {
-                $it = \Illuminate\Support\Facades\DB::connection($adm)
-                    ->table('billing_statement_items')
-                    ->whereIn('statement_id', $ids)
-                    ->orderBy('statement_id')
-                    ->orderBy('id')
-                    ->get([
-                        'id',
-                        'statement_id',
-                        'type',
-                        'code',
-                        'description',
-                        'qty',
-                        'unit_price',
-                        'amount',
-                        'meta',
-                    ])
-                    ->toArray();
-
-                foreach ($it as $x) {
-                    $sid = (int)($x->statement_id ?? 0);
-                    if ($sid <= 0) continue;
-
-                    $itemsBy[$sid][] = [
-                        'name'       => (string)($x->description ?? 'Servicio'),
-                        'unit_price' => (float)($x->unit_price ?? 0),
-                        'qty'        => (float)($x->qty ?? 1),
-                        'subtotal'   => (float)($x->amount ?? 0),
-                        'type'       => (string)($x->type ?? ''),
-                        'code'       => (string)($x->code ?? ''),
-                    ];
-                }
-            } catch (\Throwable $e) {
-                // si falla items, seguimos sin romper UI
-            }
-        }
-
         $out = [];
-        foreach ($stRows as $r) {
-            $sid    = (int)($r->id ?? 0);
-            $period = (string)($r->period ?? '');
 
-            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)) continue;
+        foreach ($q as $r) {
+            $a = (array) $r;
 
-            $status = strtolower((string)($r->status ?? 'pending'));
+            $statementId = (int)($a['id'] ?? 0);
+            $period      = (string)($a['period'] ?? '');
+            $statusRaw   = strtolower((string)($a['status'] ?? 'pending'));
 
-            // ✅ mapeo REAL -> UI keys legacy (para no reventar blades)
-            $cargo = (float)($r->total_cargo ?? 0);
-            $abono = (float)($r->total_abono ?? 0);
-            $saldo = (float)($r->saldo ?? 0);
+            // Normaliza montos desde admin (SOT)
+            $totalCargo = (float)($a['total_cargo'] ?? 0);
+            $totalAbono = (float)($a['total_abono'] ?? 0);
+            $saldo      = (float)($a['saldo'] ?? 0);
 
-            // Compat: UI usa charge/paid_amount
-            $row = [
-                'statement_id' => $sid,
-                'period'       => $period,
-                'status'       => $status,
-                'charge'       => $cargo,
-                'paid_amount'  => $abono,
-                'saldo'        => $saldo,
-                'due_date'     => $r->due_date ?? null,
-                'paid_at'      => $r->paid_at ?? null,
-                'service_items'=> $itemsBy[$sid] ?? [],
+            // ✅ REGLA: el “charge” canónico para UI/cliente es total_cargo
+            // ✅ el saldo manda para adeudo (si es pending)
+            $charge = round(max(0.0, $totalCargo), 2);
+            $paidAmount = round(max(0.0, $totalAbono), 2);
+
+            // Si viene status "paid" pero abono no refleja pago real, intenta admin.payments (ya tienes helper)
+            if ($statusRaw === 'paid' && $paidAmount <= 0.0001) {
+                try {
+                    // resolvePaidCentsFromAdminPayments ya existe en tu archivo (lo vi desde línea 869)
+                    $cents = $this->resolvePaidCentsFromAdminPayments((int)($a['account_id'] ?? 0), $period);
+                    if ($cents > 0) $paidAmount = round($cents / 100, 2);
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            }
+
+            // ✅ AUTO-REPAIR: si no hay items, crea 1 item fallback (idempotente)
+            // - Preferimos total_cargo si existe, si no saldo (para no meter 0)
+            $fallbackAmount = $charge > 0.0001 ? $charge : ($saldo > 0.0001 ? $saldo : 0.0);
+
+            if ($statementId > 0 && $fallbackAmount > 0.0001) {
+                $this->ensureStatementHasFallbackItem($adm, $statementId, $period, $fallbackAmount);
+            }
+
+            // Cargar items para exponerlos al PDF/cliente
+            $items = ($statementId > 0)
+                ? $this->fetchStatementItems($adm, $statementId)
+                : [];
+
+            // Normaliza items a formato que tu PDF ya soporta (service_items)
+            $serviceItems = array_values(array_map(function ($it) {
+                $x = is_array($it) ? $it : (array)$it;
+
+                return [
+                    'name'       => (string)($x['description'] ?? 'Servicio'),
+                    'unit_price' => (float)($x['unit_price'] ?? 0),
+                    'qty'        => (float)($x['qty'] ?? 1),
+                    'subtotal'   => (float)($x['amount'] ?? 0),
+                    'meta'       => $x['meta'] ?? null,
+                    'code'       => $x['code'] ?? null,
+                    'type'       => $x['type'] ?? null,
+                ];
+            }, $items));
+
+            $out[] = [
+                // ids
+                'id'         => $statementId,
+                'account_id' => (string)($a['account_id'] ?? ''),
+                'period'     => $period,
+
+                // status
+                'status'     => $statusRaw,
+
+                // montos canónicos
+                'total_cargo' => $totalCargo,
+                'total_abono' => $totalAbono,
+                'saldo'       => $saldo,
+
+                // compat con UI cliente (tu blade usa estos)
+                'charge'      => $charge,
+                'paid_amount' => $paidAmount,
+
+                // items canónicos
+                'service_items' => $serviceItems,
+
+                // meta/snapshot
+                'meta'      => $a['meta'] ?? null,
+                'snapshot'  => $a['snapshot'] ?? null,
+
+                // fechas
+                'due_date'  => $a['due_date'] ?? null,
+                'paid_at'   => $a['paid_at'] ?? null,
+                'created_at'=> $a['created_at'] ?? null,
+                'updated_at'=> $a['updated_at'] ?? null,
             ];
-
-            // meta/snapshot (por si ya traes invoice_request_status etc. ahí)
-            try {
-                $meta = $r->meta ? (json_decode((string)$r->meta, true) ?: []) : [];
-                $snap = $r->snapshot ? (json_decode((string)$r->snapshot, true) ?: []) : [];
-
-                $row['invoice_request_status'] = (string)($meta['invoice_request_status'] ?? $snap['invoice_request_status'] ?? '');
-                $row['invoice_has_zip']        = (bool)  ($meta['invoice_has_zip'] ?? $snap['invoice_has_zip'] ?? false);
-
-                // Puedes traer rfc/alias desde snapshot si existen
-                if (!empty($snap['rfc']))   $row['rfc']   = (string)$snap['rfc'];
-                if (!empty($snap['alias'])) $row['alias'] = (string)$snap['alias'];
-                if (!empty($snap['period_range'])) $row['period_range'] = (string)$snap['period_range'];
-                if (!empty($snap['service_label'])) $row['service_label'] = (string)$snap['service_label'];
-            } catch (\Throwable $e) {}
-
-            $out[] = $row;
         }
 
         return $out;
     }
+
+    /**
+     * Obtiene items desde admin.billing_statement_items por statement_id.
+     */
+    private function fetchStatementItems(string $conn, int $statementId): array
+    {
+        if ($statementId <= 0) return [];
+
+        try {
+            return DB::connection($conn)->table('billing_statement_items')
+                ->where('statement_id', $statementId)
+                ->orderBy('id')
+                ->get(['id','statement_id','type','code','description','qty','unit_price','amount','ref','meta'])
+                ->map(fn ($r) => (array)$r)
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * ✅ Asegura que exista al menos 1 item en billing_statement_items.
+     * Idempotente: si ya hay items, no hace nada.
+     */
+    private function ensureStatementHasFallbackItem(string $conn, int $statementId, string $period, float $amount): void
+    {
+        if ($statementId <= 0 || $amount <= 0.0001) return;
+
+        try {
+            $cnt = DB::connection($conn)->table('billing_statement_items')
+                ->where('statement_id', $statementId)
+                ->count();
+
+            if ($cnt > 0) return;
+
+            $desc = 'Suscripción Pactopia360 · ' . (trim($period) !== '' ? $period : 'Periodo');
+
+            DB::connection($conn)->table('billing_statement_items')->insert([
+                'statement_id' => $statementId,
+                'type'         => 'service',
+                'code'         => null,
+                'description'  => $desc,
+                'qty'          => 1,
+                'unit_price'   => round($amount, 2),
+                'amount'       => round($amount, 2),
+                'ref'          => null,
+                'meta'         => json_encode(['source'=>'fallback','period'=>$period], JSON_UNESCAPED_UNICODE),
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // No tumbes la carga por un autofix, solo loggea si quieres
+            try {
+                Log::warning('[BILLING] ensureStatementHasFallbackItem failed', [
+                    'statement_id' => $statementId,
+                    'period' => $period,
+                    'amount' => $amount,
+                    'err' => $e->getMessage(),
+                ]);
+            } catch (\Throwable $e2) {}
+        }
+    }
+
 
     private function adminLastPaidPeriod(int $accountId): ?string
     {
