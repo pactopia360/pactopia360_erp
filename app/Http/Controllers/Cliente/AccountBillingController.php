@@ -1225,6 +1225,43 @@ final class AccountBillingController extends Controller
     }
 
     /**
+     * ✅ Regla P360:
+     * - Cliente SOLO refleja lo que está en admin.billing_statements
+     * - Si existe al menos un periodo pendiente (status!=paid y saldo>0), ese es el único pagable (min period).
+     * - Si NO hay pendientes: payAllowed = lastPaid (para UI) o current period (fallback), pero NO se paga.
+     */
+    private function resolvePayAllowedFromAdminStatements(array $adminRows, ?string $lastPaid): string
+    {
+        // Normaliza lastPaid
+        $lastPaid = $this->isValidPeriod($lastPaid) ? $lastPaid : null;
+
+        $pendingPeriods = [];
+
+        foreach ($adminRows as $r) {
+            $p = $this->parseToPeriod($r['period'] ?? null);
+            if (!$p) continue;
+
+            $st = strtolower((string)($r['status'] ?? 'pending'));
+            $saldo = isset($r['saldo']) && is_numeric($r['saldo']) ? (float)$r['saldo'] : null;
+
+            // criterio robusto: pending si status != paid Y saldo > 0 (cuando exista saldo)
+            $isPending = ($st !== 'paid') && ($saldo === null || $saldo > 0.0001);
+            if ($isPending) $pendingPeriods[] = $p;
+        }
+
+        if (!empty($pendingPeriods)) {
+            sort($pendingPeriods);
+            return (string)$pendingPeriods[0];
+        }
+
+        // No hay pendientes -> UI fallback (no pagable)
+        if ($lastPaid) return $lastPaid;
+
+        return now()->format('Y-m');
+    }
+
+
+    /**
      * ==========================
      * FACTURAR (Solicitud)
      * ==========================
@@ -1570,33 +1607,60 @@ final class AccountBillingController extends Controller
     // Helpers (2 cards)
     // =========================
    /**
-     * ✅ Portal cliente: solo mostrar el periodo habilitado para pago (payAllowed).
-     * - Si payAllowed viene pagado => retorna [] (nada pendiente).
-     * - Nunca muestra periodos "paid" ni futuros.
+     * ✅ Portal cliente: mostrar SOLO el periodo permitido para pago.
+     * - Si payAllowed no existe en rows o está pagado -> fallback al primer pending.
+     * - Si no hay pendientes -> retorna [].
      */
-    private function keepOnlyPayAllowedPeriod(array $rows, ?string $payAllowed, ?string $fallbackPeriod = null): array
+    private function keepOnlyPayAllowedPeriod(array $rows, string $payAllowed): array
     {
-        // ✅ nunca permitimos null/invalid aquí
-        $payAllowed = $this->normalizePeriodOrNow($payAllowed, $fallbackPeriod);
+        $payAllowed = trim($payAllowed);
+        if (!$this->isValidPeriod($payAllowed)) $payAllowed = now()->format('Y-m');
 
+        // helper: encuentra el primer pending real
+        $firstPending = null;
+        foreach ($rows as $r) {
+            $p = (string)($r['period'] ?? '');
+            $st = strtolower((string)($r['status'] ?? 'pending'));
+            $saldo = isset($r['saldo']) && is_numeric($r['saldo']) ? (float)$r['saldo'] : null;
+
+            if ($st === 'paid') continue;
+            if ($saldo !== null && $saldo <= 0.0001) continue;
+
+            $firstPending = $r;
+            break;
+        }
+
+        // intenta el periodo payAllowed primero
         $picked = null;
-
         foreach ($rows as $r) {
             if ((string)($r['period'] ?? '') !== $payAllowed) continue;
             $picked = $r;
             break;
         }
 
-        if (!$picked) return [];
+        // si no existe, usa firstPending
+        if (!$picked) {
+            if (!$firstPending) return [];
+            $picked = $firstPending;
+        }
 
+        // si está pagado o saldo 0, usa firstPending
         $st = strtolower((string)($picked['status'] ?? 'pending'));
-        if ($st === 'paid') return [];
+        $saldo = isset($picked['saldo']) && is_numeric($picked['saldo']) ? (float)$picked['saldo'] : null;
 
-        // fuerza can_pay coherente (solo este periodo)
-        $picked['can_pay'] = true;
+        $isPaid = ($st === 'paid') || ($saldo !== null && $saldo <= 0.0001);
+        if ($isPaid) {
+            if (!$firstPending) return [];
+            $picked = $firstPending;
+        }
+
+        // fuerza coherencia
+        $pickedPeriod = (string)($picked['period'] ?? '');
+        $picked['can_pay'] = ($pickedPeriod !== '' && strtolower((string)($picked['status'] ?? 'pending')) !== 'paid');
 
         return [$picked];
     }
+
 
     private function enforceTwoCardsOnly(
     array $rows,
