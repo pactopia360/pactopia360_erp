@@ -696,16 +696,14 @@ final class BillingStatementsController extends Controller
                 if ($has('account_id')) {
                     $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
 
-                    if ($has('period')) {
-                        $q->where('period', $period);
-                    }
+                    $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
 
                     // si no hay status, igual cuenta como evidencia
                     if ($has('status')) {
                         $q->whereIn('status', [
-                            'pending','requires_payment_method','requires_confirmation','requires_action','processing',
-                            'paid','succeeded','success','completed','complete','captured','authorized'
+                        'paid','succeeded','success','completed','complete','captured','authorized'
                         ]);
+
                     }
 
                     if ((int) $q->count() > 0) return true;
@@ -2116,9 +2114,7 @@ final class BillingStatementsController extends Controller
             $q = DB::connection($this->adm)->table('payments')
                 ->whereIn('account_id', $accountIds);
 
-            if ($has('period')) {
-                $q->where('period', $period);
-            }
+            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
 
             $select = ['account_id'];
             foreach (['status', 'method', 'provider', 'due_date', 'paid_at', 'created_at', 'updated_at'] as $c) {
@@ -2575,6 +2571,31 @@ final class BillingStatementsController extends Controller
                     $row->pay_last_paid_at = $row->ov_paid_at;
                 }
 
+                // ✅ FIX (SOT): si hay override y NO es "pagado", la UI debe ignorar payments
+                // para reflejar saldo pendiente aunque existan payments PAID en el periodo.
+                if ($s !== 'pagado') {
+                    // Ignorar payments en UI
+                    $row->abono_pay = 0.0;
+
+                    $abEdo = (float) ($row->abono_edo ?? 0.0);
+
+                    // total mostrado: usa total_shown si existe, si no, cargo o expected_total
+                    $total = (float) ($row->total_shown ?? 0.0);
+                    if ($total <= 0.00001) {
+                        $c = (float) ($row->cargo ?? 0.0);
+                        $e = (float) ($row->expected_total ?? 0.0);
+                        $total = $c > 0.00001 ? $c : $e;
+                    }
+
+                    // En override NO pagado: abono = solo edo cta, saldo = total - abono_edo
+                    $row->abono = round($abEdo, 2);
+
+                    $saldo = (float) max(0.0, $total - $abEdo);
+                    $row->saldo_shown = round($saldo, 2);
+                    $row->saldo       = round($saldo, 2);
+                }
+
+
                 return $row;
 
             }
@@ -2696,19 +2717,27 @@ final class BillingStatementsController extends Controller
             $expected = (float) $expected;
         }
 
-        // Helper local: calcula total/abono/saldo con payments PAID (real)
-        $recalc = function () use ($accountId, $period, $cargoEdo, $abonoEdo, $expected): array {
-            $paidPayments = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
-            $totalShown   = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
-            $abonoTotal   = $abonoEdo + $paidPayments;
-            $saldoShown   = (float) max(0.0, $totalShown - $abonoTotal);
+        // Helper local: calcula total/abono/saldo
+        // ✅ Si override NO es "pagado", NO contamos payments para que el saldo pendiente se vea correctamente.
+        $recalc = function (bool $includePayments = true) use ($accountId, $period, $cargoEdo, $abonoEdo, $expected): array {
+            $paidPayments = $includePayments ? (float) $this->sumPaymentsForAccountPeriod($accountId, $period) : 0.0;
+
+            $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
+
+            // abono_edo + (payments paid si aplica)
+            $abonoTotal = (float) ($abonoEdo + $paidPayments);
+
+            $saldoShown = (float) max(0.0, $totalShown - $abonoTotal);
 
             return [
-                'total' => $totalShown,
-                'abono' => $abonoTotal,
-                'saldo' => $saldoShown,
+                'total'      => $totalShown,
+                'abono_edo'  => (float) $abonoEdo,
+                'abono_pay'  => (float) $paidPayments,
+                'abono'      => (float) $abonoTotal,
+                'saldo'      => (float) $saldoShown,
             ];
         };
+
 
         /**
          * ✅ UI override-aware:
@@ -2728,9 +2757,11 @@ final class BillingStatementsController extends Controller
                 $abonoUi = $total;
                 $saldoUi = 0.0;
             } elseif (in_array($st, ['pendiente', 'vencido', 'sin_mov'], true)) {
-                $abonoUi = 0.0;
-                $saldoUi = max(0.0, $total);
-            } elseif ($st === 'parcial') {
+                $abEdo   = (float) ($m['abono_edo'] ?? 0.0);
+                $abonoUi = max(0.0, min($abEdo, $total));
+                $saldoUi = max(0.0, $total - $abonoUi);
+            }
+            elseif ($st === 'parcial') {
                 $abonoUi = max(0.0, min($abonoReal, $total));
                 $saldoUi = max(0.0, $total - $abonoUi);
             }
@@ -2780,10 +2811,11 @@ final class BillingStatementsController extends Controller
                 }
             }
 
-            $m  = $recalc();
+            $m  = $recalc(false); // ✅ NO incluir payments si NO es pagado
             $ui = $mapUi($status, $m);
 
             return response()->json([
+
                 'ok'         => true,
                 'message'    => 'Guardado.',
                 'account_id' => $accountId,
