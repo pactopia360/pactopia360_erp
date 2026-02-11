@@ -1,5 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\billing\statement.blade.php --}}
-{{-- resources/views/cliente/billing/statement.blade.php (UI: v18.2 · FIX EOF + modales fuera de foreach + invoice chips + loader modal) --}}
+{{-- resources/views/cliente/billing/statement.blade.php (UI: v18.3 · paid robusto + factura fuera de mes modal + requestInvoice UX + loader modal) --}}
 @extends('layouts.cliente')
 
 @section('title', 'Estado de cuenta · Pactopia360')
@@ -61,11 +61,10 @@
   //      si no hay, el que tenga saldo/cargo.
   // ==========================================================
   $pending = array_values(array_filter($safe, function ($r) {
-    $status = strtolower((string)($r['status'] ?? 'pending'));
+    $status = strtolower(trim((string)($r['status'] ?? 'pending')));
 
     // Interpretación robusta de pagado
-    $isPaid = in_array($status, ['paid', 'pagado', 'pago', 'paid_ok'], true);
-
+    $isPaid = in_array($status, ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'], true);
     if ($isPaid) return false;
 
     // Si viene un flag explícito de "can_pay", se respeta más adelante.
@@ -223,7 +222,9 @@
           @php
             $period = (string)($row['period'] ?? '');
 
-            $isPaid = (($row['status'] ?? 'pending') === 'paid');
+            $statusRaw = strtolower(trim((string)($row['status'] ?? 'pending')));
+            $isPaid = in_array($statusRaw, ['paid','pagado','pago','paid_ok','activa_ok'], true);
+
             $canPay = (bool)($row['can_pay'] ?? false);
 
             $monthName = $period
@@ -339,16 +340,18 @@
                       Descargar
                     </a>
                   @else
-                    <button class="p360-btn green" disabled>Descargar</button>
+                    <button type="button" class="p360-btn green" disabled>Descargar</button>
                   @endif
                 @else
-                  <button class="p360-btn green" disabled>Visualizar</button>
-                  <button class="p360-btn green" disabled>Descargar</button>
+                  <button type="button" class="p360-btn green" disabled>Visualizar</button>
+                  <button type="button" class="p360-btn green" disabled>Descargar</button>
                 @endif
 
                 {{-- Factura / Pago --}}
                 @if($isPaid)
                   @if($isLastPaid)
+
+                    {{-- 1) ZIP listo => link directo --}}
                     @if($invoiceZipEnabled)
                       <a class="p360-btn blue"
                          href="{{ route('cliente.billing.factura.download', ['period' => $period]) }}"
@@ -356,28 +359,46 @@
                          rel="noopener">
                         Factura
                       </a>
-                    @elseif($invoiceEnabled && ($invProcessing || $invDone))
-                      <button class="p360-btn blue" disabled>Facturando</button>
+
+                    {{-- 2) En proceso => disabled --}}
+                    @elseif($invoiceEnabled && $invProcessing)
+                      <button type="button" class="p360-btn blue" disabled>Facturando</button>
+
+                    {{-- 3) Done pero sin ZIP => espera --}}
+                    @elseif($invoiceEnabled && $invDone && !$invHasZip)
+                      <button type="button" class="p360-btn blue" disabled>Preparando ZIP</button>
+
+                    {{-- 4) Solicitar factura (POST real) --}}
                     @elseif($invoiceEnabled)
                       <form method="POST"
                             action="{{ route('cliente.billing.factura.request', ['period' => $period]) }}"
-                            class="p360-inlineform">
+                            class="p360-inlineform"
+                            style="margin:0">
                         @csrf
-                        <button type="submit" class="p360-btn blue">Facturar</button>
+                        <button type="submit" class="p360-btn blue">Solicitar factura</button>
                       </form>
+
                     @else
-                      <button class="p360-btn blue" disabled>Facturar</button>
+                      <button type="button" class="p360-btn blue" disabled>Factura</button>
                     @endif
+
                   @else
-                    <button class="p360-btn blue" disabled>Facturar</button>
+                    {{-- Pagado pero NO es el último pagado => modal fuera de mes --}}
+                    <button type="button"
+                            class="p360-btn blue js-p360-inv-window"
+                            data-inv-msg="Lo sentimos, la solicitud de la factura está fuera del mes de pago.">
+                      Factura
+                    </button>
                   @endif
+
                 @else
+                  {{-- No pagado => pago --}}
                   @if($payEnabled)
                     <a class="p360-btn orange" href="{{ route('cliente.billing.pay', ['period' => $period]) }}">
                       Pagar ahora
                     </a>
                   @else
-                    <button class="p360-btn orange" disabled>Pagar ahora</button>
+                    <button type="button" class="p360-btn orange" disabled>Pagar ahora</button>
                   @endif
                 @endif
               </div>
@@ -487,9 +508,13 @@
     </div>
   </div>
 </div>
-
 <script>
 (function(){
+  // =======================
+  // P360 · Helpers
+  // =======================
+  const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts || false);
+
   // =======================
   // PDF MODAL (loader visible SIEMPRE)
   // =======================
@@ -502,7 +527,7 @@
   const titleEl    = document.getElementById('p360PdfTitle');
   const metaEl     = document.getElementById('p360PdfMeta');
 
-  if(modal && frame && loader && download && openTab && titleEl && metaEl){
+  if (modal && frame && loader && download && openTab && titleEl && metaEl) {
     let lastFocus = null;
     let openAt = 0;
     let hardTimer = null;
@@ -516,13 +541,13 @@
         u.hash = 'toolbar=0&navpanes=0&scrollbar=1';
         return u.toString();
       } catch (e) {
-        const sep = url.includes('?') ? '&' : '?';
-        return url + sep + 'inline=1&_ts=' + Date.now() + '#toolbar=0&navpanes=0&scrollbar=1';
+        const sep = String(url).includes('?') ? '&' : '?';
+        return String(url) + sep + 'inline=1&_ts=' + Date.now() + '#toolbar=0&navpanes=0&scrollbar=1';
       }
     }
 
     function showLoader(msg){
-      if(loaderText && msg) loaderText.textContent = msg;
+      if (loaderText && msg) loaderText.textContent = msg;
       loader.style.display = 'flex';
       frame.style.visibility = 'hidden';
     }
@@ -537,12 +562,12 @@
     }
 
     function clearTimers(){
-      if(hardTimer){ clearTimeout(hardTimer); hardTimer = null; }
-      if(slowTimer){ clearTimeout(slowTimer); slowTimer = null; }
+      if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+      if (slowTimer) { clearTimeout(slowTimer); slowTimer = null; }
     }
 
     function openModal(viewUrl, downloadUrl, metaText){
-      if(!viewUrl || viewUrl === '#') return;
+      if (!viewUrl || viewUrl === '#') return;
 
       lastFocus = document.activeElement;
       openAt = Date.now();
@@ -551,23 +576,32 @@
       titleEl.textContent = 'Estado de cuenta';
       metaEl.textContent  = metaText || '—';
 
-      download.href = (downloadUrl && downloadUrl !== '#') ? downloadUrl : viewUrl;
-      openTab.href  = withPdfViewerPrefs(viewUrl);
+      // hrefs
+      const safeView = withPdfViewerPrefs(viewUrl);
+      openTab.href = safeView;
 
+      // descarga: preferimos downloadUrl si existe; si no, al view
+      download.href = (downloadUrl && downloadUrl !== '#') ? downloadUrl : viewUrl;
+
+      // abrir modal
       modal.classList.add('is-open');
       modal.setAttribute('aria-hidden','false');
       document.documentElement.classList.add('p360-modal-open');
       document.body.classList.add('p360-modal-open');
 
+      // estado inicial
       showLoader('Cargando estado de cuenta…');
 
+      // reset frame
       frame.onload = null;
       frame.src = 'about:blank';
 
+      // loader "lento"
       slowTimer = window.setTimeout(function(){
         showLoader('Cargando estado de cuenta… (puede tardar algunos segundos)');
       }, 1800);
 
+      // hard timeout
       hardTimer = window.setTimeout(function(){
         showLoader('No se pudo cargar el PDF. Intenta “Abrir en pestaña” o “Descargar”.');
       }, 25000);
@@ -577,9 +611,10 @@
         hideLoader();
       };
 
+      // set src en doble RAF para evitar flicker / race
       window.requestAnimationFrame(function(){
         window.requestAnimationFrame(function(){
-          frame.src = withPdfViewerPrefs(viewUrl);
+          frame.src = safeView;
         });
       });
     }
@@ -597,70 +632,90 @@
       frame.src = 'about:blank';
       showLoader('Cargando estado de cuenta…');
 
-      if(lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+      if (lastFocus && typeof lastFocus.focus === 'function') {
+        try { lastFocus.focus(); } catch(e) {}
+      }
     }
 
+    // Delegación: abrir PDF desde cualquier botón
     document.addEventListener('click', function(e){
       const btn = e.target.closest('.js-p360-open-pdf');
-      if(!btn) return;
+      if (!btn) return;
+
       e.preventDefault();
 
-      const viewUrl = btn.getAttribute('data-pdf-view');
-      const dlUrl   = btn.getAttribute('data-pdf-download');
+      const viewUrl = btn.getAttribute('data-pdf-view') || '';
+      const dlUrl   = btn.getAttribute('data-pdf-download') || '';
 
       const row = btn.closest('.p360-row');
-      const period = row ? row.getAttribute('data-period') : '';
+      const period = row ? (row.getAttribute('data-period') || '') : '';
       const metaText = period ? ('Periodo: ' + period) : '—';
 
       openModal(viewUrl, dlUrl, metaText);
     });
 
-    modal.addEventListener('click', function(e){
+    // click cerrar
+    on(modal, 'click', function(e){
       const close = e.target.closest('[data-close="1"]');
-      if(close) closeModal();
+      if (close) closeModal();
     });
 
+    // escape
     document.addEventListener('keydown', function(e){
-      if(e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+      if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
     });
   }
 
   // =======================
-  // INVOICE WINDOW MODAL
+  // INVOICE WINDOW MODAL (fuera de mes)
   // =======================
   const invModal = document.getElementById('p360InvoiceWindowModal');
-  const invMsg = document.getElementById('p360InvoiceWindowMsg');
+  const invMsg   = document.getElementById('p360InvoiceWindowMsg');
 
   function openInvModal(msg){
-    if(!invModal) return;
-    if(invMsg && msg) invMsg.textContent = msg;
+    if (!invModal) return;
+    if (invMsg) invMsg.textContent = (msg && String(msg).trim() !== '')
+      ? String(msg)
+      : 'Lo sentimos, la solicitud de la factura está fuera del mes de pago.';
     invModal.classList.add('is-open');
     invModal.setAttribute('aria-hidden','false');
   }
 
   function closeInvModal(){
-    if(!invModal) return;
+    if (!invModal) return;
     invModal.classList.remove('is-open');
     invModal.setAttribute('aria-hidden','true');
   }
 
-  if(invModal){
-    invModal.addEventListener('click', function(e){
+  // 1) Delegación: botón "Factura" fuera de mes (clase del bloque 1)
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.js-p360-inv-window');
+    if (!btn) return;
+    e.preventDefault();
+    const msg = btn.getAttribute('data-inv-msg') || '';
+    openInvModal(msg);
+  });
+
+  // 2) Cerrar por backdrop/botón
+  if (invModal) {
+    on(invModal, 'click', function(e){
       const close = e.target.closest('[data-close-inv="1"]');
-      if(close) closeInvModal();
+      if (close) closeInvModal();
     });
 
     document.addEventListener('keydown', function(e){
-      if(e.key === 'Escape' && invModal.classList.contains('is-open')) closeInvModal();
+      if (e.key === 'Escape' && invModal.classList.contains('is-open')) closeInvModal();
     });
   }
 
-  const flashInv = @json(session('invoice_window_error'));
+  // 3) Flash server-side (redirect con warning)
+  const flashInv    = @json(session('invoice_window_error'));
   const flashInvMsg = @json(session('invoice_window_error_msg'));
 
-  if(flashInv){
+  if (flashInv) {
     openInvModal(flashInvMsg || 'Lo sentimos, la solicitud de la factura está fuera del mes de pago.');
   }
 })();
 </script>
 @endsection
+
