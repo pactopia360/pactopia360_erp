@@ -651,6 +651,23 @@ final class AccountBillingController extends Controller
         return redirect()->away($url);
     }
 
+    // ✅ Public PDF inline (para links públicos / modal)
+    public function publicPdfInline(\Illuminate\Http\Request $request, $accountId, string $period)
+    {
+        // Reusa la lógica existente de publicPdf() y solo fuerza inline
+        $resp = $this->publicPdf($request, $accountId, $period);
+
+        // Forzar descarga inline (vista en navegador / iframe / modal)
+        if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
+            $filename = 'estado-de-cuenta-'.$period.'.pdf';
+            $resp->headers->set('Content-Type', 'application/pdf');
+            $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
+        }
+
+        return $resp;
+    }
+
+
     /**
      * ==========================================================
      * ✅ Guardar perfil de facturación (legacy/aux)
