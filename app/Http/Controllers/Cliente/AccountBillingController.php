@@ -651,22 +651,70 @@ final class AccountBillingController extends Controller
         return redirect()->away($url);
     }
 
-    // ✅ Public PDF inline (para links públicos / modal)
+    // ✅ Public PDF inline (para links públicos / iframe / modal)
     public function publicPdfInline(\Illuminate\Http\Request $request, $accountId, string $period)
     {
-        // Reusa la lógica existente de publicPdf() y solo fuerza inline
-        $resp = $this->publicPdf($request, $accountId, $period);
+        // Si ya existe pdfInline(period) y genera el PDF para el usuario autenticado,
+        // aquí hacemos "impersonate" temporal solo para reutilizar salida.
+        // Pero como esta ruta es "public", NO confiamos en sesión.
 
-        // Forzar descarga inline (vista en navegador / iframe / modal)
-        if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
-            $filename = 'estado-de-cuenta-'.$period.'.pdf';
-            $resp->headers->set('Content-Type', 'application/pdf');
-            $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
+        // 1) Normaliza
+        $aid = is_numeric($accountId) ? (int)$accountId : 0;
+        $period = trim((string)$period);
+
+        if ($aid <= 0 || $period === '') {
+            abort(404);
         }
 
-        return $resp;
-    }
+        // 2) Si tu controlador ya tiene un método publicPdf($accountId,$period) NO existe en tu caso,
+        // así que usamos la misma salida que pdfInline/pdf (si existen) pero forzando accountId.
+        //
+        // ⚠️ Para hacerlo sin conocer tu implementación interna, buscamos un método "pdf" público
+        // que acepte (Request,$period) o (Request,$accountId,$period). Si no existe, abortamos.
 
+        // Caso A: existe method pdfInline(Request $request, string $period)
+        if (method_exists($this, 'pdfInline')) {
+            // Guardamos el account_id en request para que tu lógica lo tome (muchas implementaciones leen request('accountId'))
+            $request->merge([
+                'accountId' => $aid,
+                'account_id' => $aid,
+                'period' => $period,
+            ]);
+
+            $resp = $this->pdfInline($request, $period);
+
+            if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
+                $filename = 'estado-de-cuenta-'.$period.'.pdf';
+                $resp->headers->set('Content-Type', 'application/pdf');
+                $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
+            }
+
+            return $resp;
+        }
+
+        // Caso B: existe method pdf(Request $request, string $period)
+        if (method_exists($this, 'pdf')) {
+            $request->merge([
+                'accountId' => $aid,
+                'account_id' => $aid,
+                'period' => $period,
+                'inline' => 1,
+            ]);
+
+            $resp = $this->pdf($request, $period);
+
+            if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
+                $filename = 'estado-de-cuenta-'.$period.'.pdf';
+                $resp->headers->set('Content-Type', 'application/pdf');
+                $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
+            }
+
+            return $resp;
+        }
+
+        // Si no hay métodos, no podemos servir PDF
+        abort(404);
+    }
 
     /**
      * ==========================================================
