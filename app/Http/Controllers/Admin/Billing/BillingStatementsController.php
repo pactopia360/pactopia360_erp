@@ -2564,7 +2564,19 @@ final class BillingStatementsController extends Controller
                 $row->ov_pay_status   = $ps;
                 $row->ov_paid_at      = $ov['paid_at'] ?? null;
 
+                // ✅ FIX LISTADO (SOT):
+                // El Blade pinta pay_* (no ov_*). Si hay override, el “display” debe venir del override.
+                if ($pm !== null) $row->pay_method = $pm;
+                if ($pp !== null) $row->pay_provider = $pp;
+                if ($ps !== null) $row->pay_status = $ps;
+
+                // paid_at visible (si tu UI lo usa como last_paid_at)
+                if ($row->ov_paid_at !== null) {
+                    $row->pay_last_paid_at = $row->ov_paid_at;
+                }
+
                 return $row;
+
             }
         }
 
@@ -2639,6 +2651,10 @@ final class BillingStatementsController extends Controller
             if ($ovHas('pay_method'))   $payload['pay_method']   = $payMethod;
             if ($ovHas('pay_provider')) $payload['pay_provider'] = 'manual';
             if ($ovHas('paid_at'))      $payload['paid_at']      = ($status === 'pagado') ? now() : null;
+
+            // ✅ Si existe columna status en overrides, úsala como "pay_status" UI (coherente con status_override)
+            if ($ovHas('status'))       $payload['status']       = $status;
+
 
             if ($exists && isset($exists->id)) {
                 DB::connection($this->adm)->table($this->overrideTable())
