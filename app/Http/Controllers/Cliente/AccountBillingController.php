@@ -688,7 +688,6 @@ final class AccountBillingController extends Controller
         return $this->renderStatementPdf($request, $aid, $period, true);
     }
 
-
     /**
      * ✅ Public PDF (download/inline)
      * - SIN sesión: requiere signed url
@@ -1392,7 +1391,6 @@ final class AccountBillingController extends Controller
 
         return now()->format('Y-m');
     }
-
 
     /**
      * ==========================
@@ -2443,7 +2441,7 @@ final class AccountBillingController extends Controller
      * Carga status + has_zip desde una tabla (admin) para periodos.
      * Retorna map[period] = ['status'=>..., 'has_zip'=>bool]
      */
-    private function loadInvoiceStatusMapFromTable(string $adm, string $table, int $accountId, array $periods): array
+   private function loadInvoiceStatusMapFromTable(string $adm, string $table, int $accountId, array $periods): array
     {
         if (!Schema::connection($adm)->hasTable($table)) return [];
 
@@ -2451,13 +2449,15 @@ final class AccountBillingController extends Controller
         $lc   = array_map('strtolower', $cols);
         $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
-        if (!$has('period')) return [];
-
-        // FK
-        $fk = null;
-        foreach (['account_id', 'admin_account_id', 'cuenta_id'] as $cand) {
-            if ($has($cand)) { $fk = $cand; break; }
+        // ✅ period column (period / periodo)
+        $periodCol = null;
+        foreach (['period', 'periodo'] as $cand) {
+            if ($has($cand)) { $periodCol = $cand; break; }
         }
+        if (!$periodCol) return [];
+
+        // ✅ FK dinámico (reusa helper)
+        $fk = $this->adminFkColumn($table);
         if (!$fk) return [];
 
         $statusCol = $has('status') ? 'status' : null;
@@ -2467,8 +2467,8 @@ final class AccountBillingController extends Controller
             if ($has($pcol)) { $zipPathCol = $pcol; break; }
         }
 
-        $select = ['period'];
-        if ($statusCol) $select[] = $statusCol;
+        $select = [$periodCol];
+        if ($statusCol)  $select[] = $statusCol;
         if ($zipPathCol) $select[] = $zipPathCol;
 
         $orderCol = $has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]);
@@ -2476,13 +2476,13 @@ final class AccountBillingController extends Controller
         try {
             $items = DB::connection($adm)->table($table)
                 ->where($fk, $accountId)
-                ->whereIn('period', $periods)
+                ->whereIn($periodCol, $periods)
                 ->orderByDesc($orderCol)
                 ->get($select);
 
             $map = [];
             foreach ($items as $it) {
-                $p = (string) ($it->period ?? '');
+                $p = (string) ($it->{$periodCol} ?? '');
                 if ($p === '' || isset($map[$p])) continue;
 
                 $st = $statusCol ? strtolower((string) ($it->{$statusCol} ?? 'requested')) : 'requested';
@@ -2502,6 +2502,7 @@ final class AccountBillingController extends Controller
             return [];
         }
     }
+
 
     // =========================
     // (resto de helpers)
@@ -3514,68 +3515,14 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * Determina si la cuenta es ANUAL (robusto por escenarios).
+     * Determina si la cuenta es ANUAL (alias por compat).
+     * ✅ Mantener un solo criterio: isAnnualBillingCycle()
      */
     private function isAnnualAccount(int $accountId): bool
     {
-        $adm = (string) config('p360.conn.admin', 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('accounts')) return false;
-
-        try {
-            $cols = Schema::connection($adm)->getColumnListing('accounts');
-            $lc   = array_map('strtolower', $cols);
-            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
-
-            $sel = ['id'];
-            foreach (['modo_cobro','plan','plan_actual','meta'] as $c) {
-                if ($has($c)) $sel[] = $c;
-            }
-
-            $acc = DB::connection($adm)->table('accounts')->where('id', $accountId)->first($sel);
-            if (!$acc) return false;
-
-            // 1) modo_cobro directo
-            if ($has('modo_cobro')) {
-                $mc = strtolower(trim((string)($acc->modo_cobro ?? '')));
-                if (in_array($mc, ['anual','annual','year','yearly'], true)) return true;
-            }
-
-            // 2) meta.* (billing/subscription)
-            if ($has('meta') && isset($acc->meta)) {
-                $meta = is_string($acc->meta) ? (json_decode((string)$acc->meta, true) ?: []) : (array)$acc->meta;
-
-                $cycle = strtolower(trim((string)(
-                    data_get($meta, 'billing.cycle')
-                    ?: data_get($meta, 'subscription.cycle')
-                    ?: data_get($meta, 'plan.cycle')
-                    ?: data_get($meta, 'cycle')
-                    ?: ''
-                )));
-
-                if (in_array($cycle, ['anual','annual','year','yearly'], true)) return true;
-            }
-
-            // 3) planes.precio_anual como “señal” (si existe)
-            if (Schema::connection($adm)->hasTable('planes') && ($has('plan') || $has('plan_actual'))) {
-                $planKey = trim((string)($acc->plan_actual ?: $acc->plan));
-                if ($planKey !== '') {
-                    $p = DB::connection($adm)->table('planes')
-                        ->where('clave', $planKey)
-                        ->first(['precio_anual','activo']);
-
-                    if ($p && (!isset($p->activo) || (int)$p->activo === 1)) {
-                        $pa = (float)($p->precio_anual ?? 0);
-                        if ($pa > 0) return true;
-                    }
-                }
-            }
-
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] isAnnualAccount failed', ['account_id'=>$accountId,'err'=>$e->getMessage()]);
-        }
-
-        return false;
+        return $this->isAnnualBillingCycle($accountId);
     }
+
 
     /**
      * Ventana para mostrar renovación anual (días antes).

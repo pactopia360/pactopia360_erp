@@ -536,7 +536,6 @@ final class BillingStatementsController extends Controller
      * @return array<string,mixed>
      */
     private function computeStatementTotalsForPeriod(string $accountId, string $period, bool $forPrevScan = false): array
-
     {
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
         abort_unless($acc, 404);
@@ -1888,8 +1887,10 @@ final class BillingStatementsController extends Controller
             }
 
             $q = DB::connection($this->adm)->table('payments')
-                ->where('account_id', $accountId)
-                ->where('period', $period);
+                ->where('account_id', $accountId);
+
+            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
+
 
             // =========================================================
             // ✅ SOT (prev_balance):
@@ -1915,8 +1916,6 @@ final class BillingStatementsController extends Controller
             return false;
         }
     }
-
-
 
     private function hasOverrideForAccountPeriod(string $accountId, string $period): bool
     {
@@ -1945,6 +1944,32 @@ final class BillingStatementsController extends Controller
     // PAYMENTS (paid)
     // =========================================================
 
+    // =========================================================
+    // PAYMENTS PERIOD FILTER (robusto: YYYY-MM ó YYYY-MM-DD)
+    // =========================================================
+    private function applyPaymentsPeriodFilter($q, string $period, bool $hasPeriodCol): void
+    {
+        if (!$hasPeriodCol) return;
+
+        // Acepta:
+        // - "2026-02"
+        // - "2026-02-01"
+        // - "2026-02-01 10:22:33"
+        // - date/datetime column (MySQL lo castea a string en LIKE)
+        $p = trim($period);
+        if (!$this->isValidPeriod($p)) {
+            // si viene raro, intenta normalizar y si no, no filtra
+            $pp = $this->parseToPeriod($p);
+            if (!$pp) return;
+            $p = $pp;
+        }
+
+        $q->where(function ($w) use ($p) {
+            $w->where('period', $p)
+            ->orWhere('period', 'like', $p . '%'); // cubre YYYY-MM-DD y datetime
+        });
+    }
+
     private function sumPaymentsForAccountPeriod(string $accountId, string $period): float
     {
         if (!Schema::connection($this->adm)->hasTable('payments')) {
@@ -1970,9 +1995,7 @@ final class BillingStatementsController extends Controller
             $q = DB::connection($this->adm)->table('payments')
                 ->where('account_id', $accountId);
 
-            if ($has('period')) {
-                $q->where('period', $period);
-            }
+            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
 
             if ($has('status')) {
                 $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
@@ -2031,9 +2054,7 @@ final class BillingStatementsController extends Controller
             $q = DB::connection($this->adm)->table('payments')
                 ->whereIn('account_id', $accountIds);
 
-            if ($has('period')) {
-                $q->where('period', $period);
-            }
+            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
 
             if ($has('status')) {
                 $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
@@ -2370,9 +2391,13 @@ final class BillingStatementsController extends Controller
                         : ($has('id') ? 'id' : $cols[0]))
                     )->first(['period']);
 
-                    if ($row && !empty($row->period) && $this->isValidPeriod((string)$row->period)) {
-                        $lastPaid = (string)$row->period;
+                    if ($row && !empty($row->period)) {
+                        $p = $this->parseToPeriod($row->period);
+                        if ($p && $this->isValidPeriod($p)) {
+                            $lastPaid = $p;
+                        }
                     }
+
                 }
             } catch (\Throwable $e) {
                 // ignore
