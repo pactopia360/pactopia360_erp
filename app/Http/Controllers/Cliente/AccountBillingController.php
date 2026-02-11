@@ -654,84 +654,123 @@ final class AccountBillingController extends Controller
     // ✅ Public PDF inline (para links públicos / iframe / modal)
     public function publicPdfInline(\Illuminate\Http\Request $request, $accountId, string $period)
     {
-        // Si ya existe pdfInline(period) y genera el PDF para el usuario autenticado,
-        // aquí hacemos "impersonate" temporal solo para reutilizar salida.
-        // Pero como esta ruta es "public", NO confiamos en sesión.
+        $aid = is_numeric($accountId) ? (int) $accountId : 0;
+        $period = trim((string) $period);
 
-        // 1) Normaliza
-        $aid = is_numeric($accountId) ? (int)$accountId : 0;
-        $period = trim((string)$period);
-
-        if ($aid <= 0 || $period === '') {
+        if ($aid <= 0 || !$this->isValidPeriod($period)) {
             abort(404);
         }
 
-        // 2) Si tu controlador ya tiene un método publicPdf($accountId,$period) NO existe en tu caso,
-        // así que usamos la misma salida que pdfInline/pdf (si existen) pero forzando accountId.
-        //
-        // ⚠️ Para hacerlo sin conocer tu implementación interna, buscamos un método "pdf" público
-        // que acepte (Request,$period) o (Request,$accountId,$period). Si no existe, abortamos.
+        // Seguridad: si no hay sesión, exige firma válida (temp signed route)
+        if (!\Auth::guard('web')->check() && !$request->hasValidSignature()) {
+            abort(403, 'Link inválido o expirado.');
+        }
 
-        // Caso A: existe method pdfInline(Request $request, string $period)
-        if (method_exists($this, 'pdfInline')) {
-            // Guardamos el account_id en request para que tu lógica lo tome (muchas implementaciones leen request('accountId'))
-            $request->merge([
-                'accountId' => $aid,
+        // Reutiliza el generador real (publicPdf) y fuerza inline
+        $resp = $this->publicPdf($request, $aid, $period);
+
+        // Si publicPdf devolvió RedirectResponse o algo raro, aborta para evitar loops
+        if ($resp instanceof \Illuminate\Http\RedirectResponse) {
+            \Log::error('[BILLING][PUBLIC_PDF_INLINE] Unexpected redirect response (loop prevented)', [
                 'account_id' => $aid,
-                'period' => $period,
+                'period'     => $period,
+                'to'         => $resp->getTargetUrl(),
             ]);
+            abort(500, 'PDF inline produjo redirección inesperada.');
+        }
 
-            $resp = $this->pdfInline($request, $period);
+        // Headers inline PDF
+        if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
+            $filename = 'estado-de-cuenta-'.$period.'.pdf';
+            $resp->headers->set('Content-Type', 'application/pdf');
+            $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
 
-            if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
-                $filename = 'estado-de-cuenta-'.$period.'.pdf';
-                $resp->headers->set('Content-Type', 'application/pdf');
-                $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
-            }
-
-            // 🔓 Permitir render en iframe (misma app)
+            // permitir iframe same-origin
             $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
-
-            // 🔓 CSP mínima para PDF inline
             $resp->headers->set(
                 'Content-Security-Policy',
                 "default-src 'self'; frame-ancestors 'self'; object-src 'self';"
             );
-
-            // Asegurar PDF
-            $resp->headers->set('Content-Type', 'application/pdf');
-            $resp->headers->set(
-                'Content-Disposition',
-                'inline; filename="estado-de-cuenta-'.$period.'.pdf"'
-            );
-
-
-            return $resp;
+            $resp->headers->set('X-Content-Type-Options', 'nosniff');
         }
 
-        // Caso B: existe method pdf(Request $request, string $period)
-        if (method_exists($this, 'pdf')) {
-            $request->merge([
-                'accountId' => $aid,
-                'account_id' => $aid,
-                'period' => $period,
-                'inline' => 1,
-            ]);
+        return $resp;
+    }
 
+    /**
+     * ✅ Public PDF (download/inline)
+     * - SIN sesión: requiere signed url
+     * - CON sesión: valida cross-account
+     * - NO hace redirects (evita loops)
+     */
+    public function publicPdf(\Illuminate\Http\Request $request, int $accountId, string $period)
+    {
+        if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
+
+        // Si no hay sesión, exige firma válida
+        if (!\Auth::guard('web')->check() && !$request->hasValidSignature()) {
+            abort(403, 'Link inválido o expirado.');
+        }
+
+        // Si hay sesión autenticada, evita cross-account
+        try {
+            [$sessAccountIdRaw] = $this->resolveAdminAccountId($request);
+            $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
+
+            if (\Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
+                abort(403, 'Cuenta no autorizada.');
+            }
+        } catch (\Throwable $e) {
+            // ignora: no bloquea
+        }
+
+        // Inyecta accountId al request para que tu método "pdf" lo use si lee request('accountId')
+        $request->merge([
+            'accountId'   => $accountId,
+            'account_id'  => $accountId,
+            'period'      => $period,
+            'public'      => 1,
+        ]);
+
+        // ✅ REUTILIZA tu generador real si existe:
+        // Caso típico: pdf(Request $r, string $period) => Response (download)
+        if (method_exists($this, 'pdf')) {
             $resp = $this->pdf($request, $period);
 
+            // Evita loops: pdf() nunca debe regresar RedirectResponse en público
+            if ($resp instanceof \Illuminate\Http\RedirectResponse) {
+                \Log::error('[BILLING][PUBLIC_PDF] pdf() returned redirect (loop prevented)', [
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                    'to'         => $resp->getTargetUrl(),
+                ]);
+                abort(500, 'PDF público produjo redirección inesperada.');
+            }
+
+            // Asegura headers de PDF (download por defecto)
             if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
                 $filename = 'estado-de-cuenta-'.$period.'.pdf';
                 $resp->headers->set('Content-Type', 'application/pdf');
-                $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
+
+                // Si viene de publicPdfInline, se sobreescribe a inline; aquí dejamos attachment
+                if (!$resp->headers->has('Content-Disposition')) {
+                    $resp->headers->set('Content-Disposition', 'attachment; filename="'.$filename.'"');
+                }
+                $resp->headers->set('X-Content-Type-Options', 'nosniff');
             }
 
             return $resp;
         }
 
-        // Si no hay métodos, no podemos servir PDF
+        // Si no existe pdf(), no hay generador real
+        \Log::error('[BILLING][PUBLIC_PDF] Missing pdf() method in controller', [
+            'account_id' => $accountId,
+            'period'     => $period,
+        ]);
+
         abort(404);
     }
+
 
     /**
      * ==========================================================
