@@ -2468,37 +2468,57 @@ final class BillingStatementsController extends Controller
 
     /**
      * @param array<int,string|int> $accountIds
-     * @return array<string, array{status:string,reason:?string,updated_by:?int,updated_at:?string}>
+     * @return array<string, array{
+     *   status:string,
+     *   reason:?string,
+     *   updated_by:?int,
+     *   updated_at:?string,
+     *   pay_method:?string,
+     *   pay_provider:?string,
+     *   pay_status:?string,
+     *   paid_at:mixed
+     * }>
      */
     private function fetchStatusOverridesForAccountsPeriod(array $accountIds, string $period): array
     {
         $out = [];
-        if (empty($accountIds)) {
-            return $out;
-        }
+        if (empty($accountIds)) return $out;
 
         try {
             if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
                 return $out;
             }
 
+            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+            $lc   = array_map('strtolower', $cols);
+            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+            $select = ['account_id', 'period', 'status_override', 'reason', 'updated_by', 'updated_at'];
+            foreach (['pay_method','pay_provider','status','paid_at','meta'] as $c) {
+                if ($has($c)) $select[] = $c;
+            }
+
             $rows = DB::connection($this->adm)->table($this->overrideTable())
-                ->select(['account_id', 'period', 'status_override', 'reason', 'updated_by', 'updated_at'])
+                ->select($select)
                 ->where('period', $period)
                 ->whereIn('account_id', $accountIds)
                 ->get();
 
             foreach ($rows as $r) {
                 $aid = (string) ($r->account_id ?? '');
-                if ($aid === '') {
-                    continue;
-                }
+                if ($aid === '') continue;
 
                 $out[$aid] = [
-                    'status'     => (string) ($r->status_override ?? ''),
-                    'reason'     => isset($r->reason) ? (string) $r->reason : null,
-                    'updated_by' => isset($r->updated_by) ? (int) $r->updated_by : null,
-                    'updated_at' => isset($r->updated_at) ? (string) $r->updated_at : null,
+                    'status'       => (string) ($r->status_override ?? ''),
+                    'reason'       => isset($r->reason) ? (string) $r->reason : null,
+                    'updated_by'   => isset($r->updated_by) ? (int) $r->updated_by : null,
+                    'updated_at'   => isset($r->updated_at) ? (string) $r->updated_at : null,
+
+                    // 👇 “fuente UI” (no payments)
+                    'pay_method'   => $has('pay_method')   ? (string) ($r->pay_method ?? '')   : null,
+                    'pay_provider' => $has('pay_provider') ? (string) ($r->pay_provider ?? '') : null,
+                    'pay_status'   => $has('status')       ? (string) ($r->status ?? '')       : null,
+                    'paid_at'      => $has('paid_at')      ? ($r->paid_at ?? null)             : null,
                 ];
             }
         } catch (\Throwable $e) {
@@ -2511,9 +2531,16 @@ final class BillingStatementsController extends Controller
         return $out;
     }
 
+
     private function applyStatusOverride(object $row, ?array $ov): object
     {
         $row->status_auto = (string) ($row->status_pago ?? 'sin_mov');
+
+        // Valores default (lo que ya traías por payments)
+        $row->ov_pay_method   = null;
+        $row->ov_pay_provider = null;
+        $row->ov_pay_status   = null;
+        $row->ov_paid_at      = null;
 
         $allowed = ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'];
 
@@ -2522,9 +2549,21 @@ final class BillingStatementsController extends Controller
             if ($s !== '' && in_array($s, $allowed, true)) {
                 $row->status_override            = $s;
                 $row->status_pago                = $s;
+
                 $row->status_override_reason     = $ov['reason'] ?? null;
                 $row->status_override_updated_at = $ov['updated_at'] ?? null;
                 $row->status_override_updated_by = $ov['updated_by'] ?? null;
+
+                // 👇 Si hay datos UI en overrides, úsalo para mostrar “Método/Prov/St”
+                $pm = isset($ov['pay_method']) && trim((string)$ov['pay_method']) !== '' ? (string)$ov['pay_method'] : null;
+                $pp = isset($ov['pay_provider']) && trim((string)$ov['pay_provider']) !== '' ? (string)$ov['pay_provider'] : null;
+                $ps = isset($ov['pay_status']) && trim((string)$ov['pay_status']) !== '' ? (string)$ov['pay_status'] : null;
+
+                $row->ov_pay_method   = $pm;
+                $row->ov_pay_provider = $pp;
+                $row->ov_pay_status   = $ps;
+                $row->ov_paid_at      = $ov['paid_at'] ?? null;
+
                 return $row;
             }
         }
@@ -2536,6 +2575,7 @@ final class BillingStatementsController extends Controller
 
         return $row;
     }
+
 
     /**
      * POST /admin/billing/statements/status
