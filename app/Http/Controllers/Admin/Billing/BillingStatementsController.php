@@ -2655,7 +2655,6 @@ final class BillingStatementsController extends Controller
             // ✅ Si existe columna status en overrides, úsala como "pay_status" UI (coherente con status_override)
             if ($ovHas('status'))       $payload['status']       = $status;
 
-
             if ($exists && isset($exists->id)) {
                 DB::connection($this->adm)->table($this->overrideTable())
                     ->where('id', (int) $exists->id)
@@ -2697,7 +2696,7 @@ final class BillingStatementsController extends Controller
             $expected = (float) $expected;
         }
 
-        // Helper local: calcula total/abono/saldo con payments PAID
+        // Helper local: calcula total/abono/saldo con payments PAID (real)
         $recalc = function () use ($accountId, $period, $cargoEdo, $abonoEdo, $expected): array {
             $paidPayments = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
             $totalShown   = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
@@ -2708,6 +2707,38 @@ final class BillingStatementsController extends Controller
                 'total' => $totalShown,
                 'abono' => $abonoTotal,
                 'saldo' => $saldoShown,
+            ];
+        };
+
+        /**
+         * ✅ UI override-aware:
+         * - pagado  => abono=total, saldo=0
+         * - pendiente/vencido/sin_mov => abono=0, saldo=total
+         * - parcial => conserva abono real (limitado a total)
+         */
+        $mapUi = function (string $st, array $m): array {
+            $total    = (float) ($m['total'] ?? 0);
+            $abonoReal = (float) ($m['abono'] ?? 0);
+            $saldoReal = (float) ($m['saldo'] ?? max(0.0, $total - $abonoReal));
+
+            $abonoUi = $abonoReal;
+            $saldoUi = $saldoReal;
+
+            if ($st === 'pagado') {
+                $abonoUi = $total;
+                $saldoUi = 0.0;
+            } elseif (in_array($st, ['pendiente', 'vencido', 'sin_mov'], true)) {
+                $abonoUi = 0.0;
+                $saldoUi = max(0.0, $total);
+            } elseif ($st === 'parcial') {
+                $abonoUi = max(0.0, min($abonoReal, $total));
+                $saldoUi = max(0.0, $total - $abonoUi);
+            }
+
+            return [
+                'total' => $total,
+                'abono' => $abonoUi,
+                'saldo' => $saldoUi,
             ];
         };
 
@@ -2749,8 +2780,8 @@ final class BillingStatementsController extends Controller
                 }
             }
 
-            // respuesta con recálculo
-            $m = $recalc();
+            $m  = $recalc();
+            $ui = $mapUi($status, $m);
 
             return response()->json([
                 'ok'         => true,
@@ -2760,9 +2791,9 @@ final class BillingStatementsController extends Controller
                 'status'     => $status,
                 'pay_method' => $payMethod,
 
-                'total'      => round((float) $m['total'], 2),
-                'abono'      => round((float) $m['abono'], 2),
-                'saldo'      => round((float) $m['saldo'], 2),
+                'total'      => round((float) $ui['total'], 2),
+                'abono'      => round((float) $ui['abono'], 2),
+                'saldo'      => round((float) $ui['saldo'], 2),
             ]);
         }
 
@@ -2814,8 +2845,9 @@ final class BillingStatementsController extends Controller
             }
         }
 
-        // 6) Respuesta final ya con payment persistido
+        // 6) Respuesta final ya con payment persistido (UI override-aware)
         $m1 = $recalc();
+        $ui = $mapUi($status, $m1);
 
         return response()->json([
             'ok'         => true,
@@ -2825,11 +2857,12 @@ final class BillingStatementsController extends Controller
             'status'     => $status,
             'pay_method' => $payMethod,
 
-            'total'      => round((float) $m1['total'], 2),
-            'abono'      => round((float) $m1['abono'], 2),
-            'saldo'      => round((float) $m1['saldo'], 2),
+            'total'      => round((float) $ui['total'], 2),
+            'abono'      => round((float) $ui['abono'], 2),
+            'saldo'      => round((float) $ui['saldo'], 2),
         ]);
     }
+
 
     /**
      * ✅ Upsert de pago "PAID" para un estado de cuenta (admin override pagado).

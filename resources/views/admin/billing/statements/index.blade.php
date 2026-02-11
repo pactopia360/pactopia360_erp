@@ -982,16 +982,13 @@
       // actualizar meta método (visual)
       const rowEl = $('sxRow-' + id);
       if(rowEl){
-        const effectivePay  = (data && data.pay_method  !== undefined) ? data.pay_method  : pay;
+      const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
 
-        // Estos 2 deben venir del server en el JSON (ya los metimos en controller nuevo).
-        const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
-        const effectiveSt   = (data && data.pay_status   !== undefined) ? data.pay_status   : '';
+      const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
+      const effectiveSt   = (data && data.pay_status !== undefined) ? data.pay_status : '';
 
         upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
       }
-
-
       sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
 
     }catch(err){
