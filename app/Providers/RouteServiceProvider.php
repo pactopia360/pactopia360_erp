@@ -42,7 +42,25 @@ class RouteServiceProvider extends ServiceProvider
 
             /**
              * =========================
-             * CLIENTE
+             * CLIENTE (PUBLIC)
+             * - ✅ Usa "web" (NO "cliente") para evitar loops de redirección en rutas públicas
+             * - Prefix /cliente y nombres cliente.*
+             * - Aquí van rutas firmadas (signed) como:
+             *   billing/statement/public-pdf(-inline) y public-pay
+             * =========================
+             */
+            if (file_exists(base_path('routes/cliente_public.php'))) {
+                Route::middleware('web')
+                    ->prefix('cliente')
+                    ->as('cliente.')
+                    ->group(function () {
+                        require base_path('routes/cliente_public.php');
+                    });
+            }
+
+            /**
+             * =========================
+             * CLIENTE (PORTAL)
              * - Usa grupo "cliente" (NO "web") para que ClientSessionConfig corra antes de StartSession
              * - Prefix /cliente y nombres cliente.*
              * - Monta core + SAT + QA (solo local)
@@ -63,8 +81,9 @@ class RouteServiceProvider extends ServiceProvider
                         }
 
                         // QA (solo local/dev/testing)
-                        if (app()->environment(['local', 'development', 'testing'])
-                            && file_exists(base_path('routes/cliente_qa.php'))
+                        if (
+                            app()->environment(['local', 'development', 'testing']) &&
+                            file_exists(base_path('routes/cliente_qa.php'))
                         ) {
                             require base_path('routes/cliente_qa.php');
                         }
