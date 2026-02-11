@@ -689,6 +689,23 @@ final class AccountBillingController extends Controller
                 $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
             }
 
+            // 🔓 Permitir render en iframe (misma app)
+            $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
+
+            // 🔓 CSP mínima para PDF inline
+            $resp->headers->set(
+                'Content-Security-Policy',
+                "default-src 'self'; frame-ancestors 'self'; object-src 'self';"
+            );
+
+            // Asegurar PDF
+            $resp->headers->set('Content-Type', 'application/pdf');
+            $resp->headers->set(
+                'Content-Disposition',
+                'inline; filename="estado-de-cuenta-'.$period.'.pdf"'
+            );
+
+
             return $resp;
         }
 
