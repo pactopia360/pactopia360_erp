@@ -217,26 +217,35 @@ Route::get('paywall', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
-| PDF / PAGO PÚBLICOS (SIN LOGIN) — CONTROLADOS EN CONTROLLER
+| PDF / PAGO PÚBLICOS (SIN LOGIN)
 |--------------------------------------------------------------------------
-| ✅ FIX:
-| - NO usar middleware 'signed' aquí (hay flujos sin query signature).
-| - La validación se hace en el Controller: si no hay sesión, exige firma.
+| IMPORTANTE:
+| Este archivo vive bajo el grupo middleware('cliente') (RouteServiceProvider),
+| por lo tanto HAY que quitar ese middleware aquí para evitar loops de sesión/login.
+|
+| Recomendación: estos endpoints deben ir firmados (signed) + throttle.
 */
 Route::get('billing/statement/public-pdf/{accountId}/{period}', [AccountBillingController::class, 'publicPdf'])
+    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPdf');
 
 Route::get('billing/statement/public-pdf-inline/{accountId}/{period}', [AccountBillingController::class, 'publicPdfInline'])
+    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPdfInline');
 
 Route::get('billing/statement/public-pay/{accountId}/{period}', [AccountBillingController::class, 'publicPay'])
+    ->withoutMiddleware(['cliente']) // ✅ evita ClientSessionConfig / loops
+    ->middleware(['signed', 'throttle:60,1'])
     ->whereNumber('accountId')
     ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
     ->name('billing.publicPay');
+
 
 /*
 |--------------------------------------------------------------------------
