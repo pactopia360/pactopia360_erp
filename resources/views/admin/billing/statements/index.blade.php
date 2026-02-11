@@ -952,8 +952,15 @@
           if (paidTd) {
             // conserva layout (monto arriba + subrow abajo)
             const top = paidTd.querySelector('.sx-mono');
-            if (top) top.textContent = fmt(data.abono);
-            else paidTd.textContent = fmt(data.abono);
+            if (top) {
+              top.textContent = fmt(data.abono);
+            } else {
+              // Si por alguna razón no existe el nodo, lo creamos sin borrar el subrow
+              const div = document.createElement('div');
+              div.className = 'sx-mono';
+              div.textContent = fmt(data.abono);
+              paidTd.insertBefore(div, paidTd.firstChild);
+            }
           }
 
           if (saldoTd) {
@@ -972,20 +979,18 @@
         }
       }
 
-
       // actualizar meta método (visual)
       const rowEl = $('sxRow-' + id);
       if(rowEl){
-        const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
-        const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
+        const effectivePay  = (data && data.pay_method  !== undefined) ? data.pay_method  : pay;
 
         // Estos 2 deben venir del server en el JSON (ya los metimos en controller nuevo).
         const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
-        const effectiveSt   = (data && data.pay_status !== undefined) ? data.pay_status : '';
+        const effectiveSt   = (data && data.pay_status   !== undefined) ? data.pay_status   : '';
 
         upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
-
       }
+
 
       sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
 
