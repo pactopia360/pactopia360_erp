@@ -2551,10 +2551,14 @@ final class BillingStatementsController extends Controller
             'pay_method' => 'nullable|string|max:30',
         ]);
 
-        $accountId = (string) $data['account_id'];
-        $period    = (string) $data['period'];
+        $accountId = trim((string) $data['account_id']);
+        $period    = trim((string) $data['period']);
         $status    = strtolower(trim((string) $data['status']));
         $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
+
+        if ($accountId === '') {
+            return response()->json(['ok' => false, 'message' => 'Account inválido.'], 422);
+        }
 
         if (!$this->isValidPeriod($period)) {
             return response()->json(['ok' => false, 'message' => 'Periodo inválido.'], 422);
@@ -2567,57 +2571,6 @@ final class BillingStatementsController extends Controller
             ], 422);
         }
 
-        // =========================================================
-        // ✅ SOT: override = estado administrativo, NO movimiento financiero
-        // - NO crear/actualizar payments aquí (evita abonos fantasma)
-        // - Guardar pay_method en override si existe columna
-        // =========================================================
-
-        $by = auth('admin')->id();
-
-        // Detectar columnas disponibles en tabla override (robusto a migraciones distintas)
-        $ovCols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-        $ovLc   = array_map('strtolower', $ovCols);
-        $ovHas  = static fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
-
-        $payMethodNorm = ($payMethod !== '') ? $payMethod : null;
-
-        DB::connection($this->adm)->transaction(function () use ($accountId, $period, $status, $by, $payMethodNorm, $ovHas) {
-            $q = DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('period', $period);
-
-            $exists = $q->first(['id']);
-
-            $payload = [
-                'account_id'      => $accountId,
-                'period'          => $period,
-                'status_override' => $status,
-                'reason'          => null,
-                'updated_by'      => $by ? (int) $by : null,
-                'updated_at'      => now(),
-            ];
-
-            // Guardar método de pago en override si la tabla lo soporta
-            // (nombres comunes por si tu migración lo llamó distinto)
-            if ($ovHas('pay_method_override')) {
-                $payload['pay_method_override'] = $payMethodNorm;
-            } elseif ($ovHas('pay_method')) {
-                $payload['pay_method'] = $payMethodNorm;
-            } elseif ($ovHas('payment_method')) {
-                $payload['payment_method'] = $payMethodNorm;
-            }
-
-            if ($exists && isset($exists->id)) {
-                DB::connection($this->adm)->table($this->overrideTable())
-                    ->where('id', (int) $exists->id)
-                    ->update($payload);
-            } else {
-                $payload['created_at'] = now();
-                DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
-            }
-        });
-
         abort_unless(Schema::connection($this->adm)->hasTable('accounts'), 404);
         abort_unless(Schema::connection($this->adm)->hasTable('estados_cuenta'), 404);
 
@@ -2626,6 +2579,9 @@ final class BillingStatementsController extends Controller
             return response()->json(['ok' => false, 'message' => 'Cuenta no encontrada.'], 404);
         }
 
+        // ---------------------------------------------------------
+        // Totales del periodo (SOT UI)
+        // ---------------------------------------------------------
         $agg = DB::connection($this->adm)->table('estados_cuenta')
             ->selectRaw('SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
             ->where('account_id', $accountId)
@@ -2636,9 +2592,7 @@ final class BillingStatementsController extends Controller
         $abonoEdo = (float) ($agg->abono ?? 0);
 
         $meta = $this->hub->decodeMeta($acc->meta ?? null);
-        if (!is_array($meta)) {
-            $meta = [];
-        }
+        if (!is_array($meta)) $meta = [];
 
         $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
 
@@ -2655,30 +2609,101 @@ final class BillingStatementsController extends Controller
             $expected = (float) $expected;
         }
 
-        // Solo payments PAGADOS cuentan como abono real (tu sumPayments ya filtra paid)
         $paidPayments = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
 
         $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
         $abonoTotal = $abonoEdo + $paidPayments;
         $saldoShown = (float) max(0.0, $totalShown - $abonoTotal);
 
-        // =========================================================
-        // ✅ UI coherente con override:
-        // - pagado     => saldo 0, abono = total (sin crear payments)
-        // - pendiente  => abono 0, saldo = total
-        // - sin_mov    => todo 0
-        // - parcial/vencido => mantiene cálculo real (abono real vs total)
-        // =========================================================
-        if ($status === 'sin_mov') {
-            $totalShown = 0.0;
-            $abonoTotal = 0.0;
-            $saldoShown = 0.0;
-        } elseif ($status === 'pagado') {
-            $abonoTotal = (float) $totalShown;
-            $saldoShown = 0.0;
-        } elseif ($status === 'pendiente') {
-            $abonoTotal = 0.0;
-            $saldoShown = (float) max(0.0, $totalShown);
+        // ---------------------------------------------------------
+        // Normalización fuerte: si no hay total, debe ser sin_mov
+        // (evita "pagado" con total=0)
+        // ---------------------------------------------------------
+        if ($totalShown <= 0.00001) {
+            $status = 'sin_mov';
+        }
+
+        // ---------------------------------------------------------
+        // Guardar override (incluye columnas extra si existen)
+        // ---------------------------------------------------------
+        $by = auth('admin')->id();
+
+        $ovCols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+        $ovLc   = array_map('strtolower', $ovCols);
+        $ovHas  = static fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
+
+        // provider SOT para overrides (si viene método, también queda aquí)
+        $payProvider = ($payMethod !== '') ? 'manual' : null;
+
+        DB::connection($this->adm)->transaction(function () use (
+            $accountId, $period, $status, $by, $payMethod, $payProvider,
+            $saldoShown, $totalShown, $abonoTotal, $ovHas
+        ) {
+            $q = DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('period', $period);
+
+            $exists = $q->first(['id']);
+
+            $payload = [
+                'account_id'      => $accountId,
+                'period'          => $period,
+                'status_override' => $status,
+                'reason'          => null,
+                'updated_by'      => $by ? (int) $by : null,
+                'updated_at'      => now(),
+            ];
+
+            // columnas opcionales en la tabla (tu esquema las tiene)
+            if ($ovHas('status')) {
+                $payload['status'] = $status;
+            }
+            if ($ovHas('pay_method')) {
+                $payload['pay_method'] = ($payMethod !== '') ? $payMethod : null;
+            }
+            if ($ovHas('pay_provider')) {
+                $payload['pay_provider'] = $payProvider;
+            }
+            if ($ovHas('paid_at')) {
+                $payload['paid_at'] = ($status === 'pagado') ? now() : null;
+            }
+            if ($ovHas('meta')) {
+                $payload['meta'] = json_encode([
+                    'source' => 'admin_statusAjax',
+                    'total'  => round((float) $totalShown, 2),
+                    'abono'  => round((float) $abonoTotal, 2),
+                    'saldo'  => round((float) $saldoShown, 2),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            if ($exists && isset($exists->id)) {
+                DB::connection($this->adm)->table($this->overrideTable())
+                    ->where('id', (int) $exists->id)
+                    ->update($payload);
+            } else {
+                $payload['created_at'] = now();
+                DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
+            }
+        });
+
+        // ---------------------------------------------------------
+        // ✅ SOT: si admin marca "pagado" y hay saldo, crear payment paid
+        // ---------------------------------------------------------
+        if ($status === 'pagado' && $saldoShown > 0.00001) {
+            $method = $payMethod !== '' ? $payMethod : 'manual';
+
+            $this->upsertPaidPaymentForStatement(
+                $accountId,
+                $period,
+                $saldoShown,
+                $method,
+                'manual'
+            );
+
+            // recalcular ya con payment persistido
+            $paidPayments2 = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
+            $abonoTotal    = $abonoEdo + $paidPayments2;
+            $saldoShown    = (float) max(0.0, $totalShown - $abonoTotal);
         }
 
         return response()->json([
@@ -2687,14 +2712,13 @@ final class BillingStatementsController extends Controller
             'account_id' => $accountId,
             'period'     => $period,
             'status'     => $status,
-            'pay_method' => $payMethodNorm,
+            'pay_method' => $payMethod,
 
-            'total'      => round((float) $totalShown, 2),
-            'abono'      => round((float) $abonoTotal, 2),
-            'saldo'      => round((float) $saldoShown, 2),
+            'total'      => round($totalShown, 2),
+            'abono'      => round($abonoTotal, 2),
+            'saldo'      => round($saldoShown, 2),
         ]);
     }
-
 
     /**
      * ✅ Upsert de pago "PAID" para un estado de cuenta (admin override pagado).
