@@ -1906,156 +1906,136 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * ✅ SOT UI: obtiene filas desde admin.billing_statements.
-     * Regresa rows con: period,status,charge,paid_amount,saldo,can_pay,due_date,paid_at
-     *
-     * ⚠️ IMPORTANTE (PROD):
-     * - billing_statements.account_id puede ser INT (admin_account_id) o UUID (cuentas_cliente.id).
-     * - Acepta refs (int|string|array) y consulta con whereIn.
+     * ✅ SOT: lee SIEMPRE desde admin.billing_statements
+     * - schema real: total_cargo, total_abono, saldo, status
+     * - items: billing_statement_items.statement_id
+     * - devuelve rows compatibles con UI: charge, paid_amount, saldo, service_items, etc.
      */
-    private function loadRowsFromAdminBillingStatements($accountId, int $limit = 24): array
+    private function loadRowsFromAdminBillingStatements(array $statementRefs, int $monthsBack = 36): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('billing_statements')) return [];
 
-        // =========================================================
-        // ✅ NORMALIZA REFS:
-        // - si viene array, se interpreta como lista de refs (uuid/int/string)
-        // - si viene escalar, se vuelve lista de 1
-        // =========================================================
-        $refs = [];
-
-        try {
-            if (is_array($accountId)) {
-                // Caso raro: array asociativo tipo ['account_id'=>3]
-                if (array_key_exists('account_id', $accountId) || array_key_exists('id', $accountId)) {
-                    $v = $accountId['account_id'] ?? $accountId['id'] ?? null;
-                    if ($v !== null) $refs[] = $v;
-                } else {
-                    // Lista real: [3,"uuid",...]
-                    foreach ($accountId as $v) $refs[] = $v;
-                }
-            } else {
-                $refs[] = $accountId;
-            }
-
-            // normaliza a strings limpios
-            $refs = array_values(array_unique(array_map(fn ($x) => trim((string) $x), $refs)));
-            $refs = array_values(array_filter($refs, fn ($x) => $x !== ''));
-
-        } catch (\Throwable $e) {
-            $refs = [];
-        }
+        // Normaliza refs (vienen ["18","uuid"] etc.)
+        $refs = array_values(array_unique(array_filter(array_map(function ($v) {
+            $s = is_scalar($v) ? trim((string)$v) : '';
+            return $s !== '' ? $s : null;
+        }, $statementRefs))));
 
         if (empty($refs)) return [];
 
-        // =========================================================
-        // ✅ EXPANDE: si hay admin_account_id numérico, agrega UUIDs ligados
-        // (esto asegura que aunque manden solo "3" se incluyan UUIDs)
-        // =========================================================
-        try {
-            $adminIds = [];
-            foreach ($refs as $v) {
-                if (preg_match('/^\d+$/', $v)) $adminIds[] = (int) $v;
-            }
-            $adminIds = array_values(array_unique(array_filter($adminIds, fn ($x) => $x > 0)));
+        // Trae statements (SOT)
+        $stRows = \Illuminate\Support\Facades\DB::connection($adm)
+            ->table('billing_statements')
+            ->whereIn('account_id', $refs)
+            ->orderByDesc('period')
+            ->limit(max(1, (int)$monthsBack))
+            ->get([
+                'id',
+                'account_id',
+                'period',
+                'status',
+                'total_cargo',
+                'total_abono',
+                'saldo',
+                'due_date',
+                'paid_at',
+                'meta',
+                'snapshot',
+                'created_at',
+                'updated_at',
+            ])
+            ->toArray();
 
-            if (!empty($adminIds)) {
-                $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-                if (Schema::connection($cli)->hasTable('cuentas_cliente') && Schema::connection($cli)->hasColumn('cuentas_cliente', 'admin_account_id')) {
-                    $uuids = DB::connection($cli)->table('cuentas_cliente')
-                        ->whereIn('admin_account_id', $adminIds)
-                        ->pluck('id')
-                        ->map(fn ($x) => trim((string) $x))
-                        ->filter()
-                        ->unique()
-                        ->values()
-                        ->all();
+        if (empty($stRows)) return [];
 
-                    if (!empty($uuids)) {
-                        $refs = array_values(array_unique(array_merge($refs, $uuids)));
-                    }
+        // Mapa statement_id -> items
+        $ids = array_values(array_filter(array_map(fn($r) => (int)($r->id ?? 0), $stRows)));
+        $itemsBy = [];
+
+        if (!empty($ids)) {
+            try {
+                $it = \Illuminate\Support\Facades\DB::connection($adm)
+                    ->table('billing_statement_items')
+                    ->whereIn('statement_id', $ids)
+                    ->orderBy('statement_id')
+                    ->orderBy('id')
+                    ->get([
+                        'id',
+                        'statement_id',
+                        'type',
+                        'code',
+                        'description',
+                        'qty',
+                        'unit_price',
+                        'amount',
+                        'meta',
+                    ])
+                    ->toArray();
+
+                foreach ($it as $x) {
+                    $sid = (int)($x->statement_id ?? 0);
+                    if ($sid <= 0) continue;
+
+                    $itemsBy[$sid][] = [
+                        'name'       => (string)($x->description ?? 'Servicio'),
+                        'unit_price' => (float)($x->unit_price ?? 0),
+                        'qty'        => (float)($x->qty ?? 1),
+                        'subtotal'   => (float)($x->amount ?? 0),
+                        'type'       => (string)($x->type ?? ''),
+                        'code'       => (string)($x->code ?? ''),
+                    ];
                 }
+            } catch (\Throwable $e) {
+                // si falla items, seguimos sin romper UI
             }
-        } catch (\Throwable $e) {
-            // ignore
         }
 
-        try {
-            $cols = Schema::connection($adm)->getColumnListing('billing_statements');
-            $lc   = array_map('strtolower', $cols);
-            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+        $out = [];
+        foreach ($stRows as $r) {
+            $sid    = (int)($r->id ?? 0);
+            $period = (string)($r->period ?? '');
 
-            if (!$has('account_id') || !$has('period')) return [];
+            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)) continue;
 
-            $sel = ['account_id', 'period'];
-            foreach (['total_cargo', 'total_abono', 'saldo', 'status', 'due_date', 'paid_at'] as $c) {
-                if ($has($c)) $sel[] = $c;
-            }
+            $status = strtolower((string)($r->status ?? 'pending'));
 
-            $orderCol = $has('period')
-                ? 'period'
-                : ($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]));
+            // ✅ mapeo REAL -> UI keys legacy (para no reventar blades)
+            $cargo = (float)($r->total_cargo ?? 0);
+            $abono = (float)($r->total_abono ?? 0);
+            $saldo = (float)($r->saldo ?? 0);
 
-            $items = DB::connection($adm)->table('billing_statements')
-                ->whereIn('account_id', $refs)
-                ->orderByDesc($orderCol)
-                ->limit(max(1, $limit))
-                ->get($sel);
+            // Compat: UI usa charge/paid_amount
+            $row = [
+                'statement_id' => $sid,
+                'period'       => $period,
+                'status'       => $status,
+                'charge'       => $cargo,
+                'paid_amount'  => $abono,
+                'saldo'        => $saldo,
+                'due_date'     => $r->due_date ?? null,
+                'paid_at'      => $r->paid_at ?? null,
+                'service_items'=> $itemsBy[$sid] ?? [],
+            ];
 
-            Log::info('[BILLING] loadRowsFromAdminBillingStatements', [
-                'refs'  => $refs,
-                'count' => $items->count(),
-            ]);
+            // meta/snapshot (por si ya traes invoice_request_status etc. ahí)
+            try {
+                $meta = $r->meta ? (json_decode((string)$r->meta, true) ?: []) : [];
+                $snap = $r->snapshot ? (json_decode((string)$r->snapshot, true) ?: []) : [];
 
-            if ($items->isEmpty()) return [];
+                $row['invoice_request_status'] = (string)($meta['invoice_request_status'] ?? $snap['invoice_request_status'] ?? '');
+                $row['invoice_has_zip']        = (bool)  ($meta['invoice_has_zip'] ?? $snap['invoice_has_zip'] ?? false);
 
-            $rows = [];
-            foreach ($items as $it) {
-                $p = trim((string) ($it->period ?? ''));
-                if (!$this->isValidPeriod($p)) continue;
+                // Puedes traer rfc/alias desde snapshot si existen
+                if (!empty($snap['rfc']))   $row['rfc']   = (string)$snap['rfc'];
+                if (!empty($snap['alias'])) $row['alias'] = (string)$snap['alias'];
+                if (!empty($snap['period_range'])) $row['period_range'] = (string)$snap['period_range'];
+                if (!empty($snap['service_label'])) $row['service_label'] = (string)$snap['service_label'];
+            } catch (\Throwable $e) {}
 
-                $cargo = is_numeric($it->total_cargo ?? null) ? (float) $it->total_cargo : 0.0;
-                $abono = is_numeric($it->total_abono ?? null) ? (float) $it->total_abono : 0.0;
-
-                $saldo = null;
-                if (is_numeric($it->saldo ?? null)) {
-                    $saldo = (float) $it->saldo;
-                } else {
-                    $saldo = max(0.0, $cargo - $abono);
-                }
-
-                $st     = strtolower(trim((string) ($it->status ?? 'pending')));
-                $paidAt = $it->paid_at ?? null;
-
-                $paid = false;
-                if ($paidAt) $paid = true;
-                if (in_array($st, ['paid', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'], true)) $paid = true;
-                if ($saldo <= 0.0001) $paid = true;
-
-                $rows[] = [
-                    'period'                 => $p,
-                    'status'                 => $paid ? 'paid' : 'pending',
-                    'charge'                 => round(max(0.0, $cargo), 2),
-                    'paid_amount'            => $paid ? round(max(0.0, $abono > 0 ? $abono : $cargo), 2) : 0.0,
-                    'saldo'                  => $paid ? 0.0 : round(max(0.0, $saldo), 2),
-                    'can_pay'                => !$paid,
-                    'due_date'               => $it->due_date ?? null,
-                    'paid_at'                => $paidAt,
-                    'invoice_request_status' => null,
-                    'invoice_has_zip'        => false,
-                ];
-            }
-
-            return $rows;
-
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] loadRowsFromAdminBillingStatements failed', [
-                'refs' => $refs,
-                'err'  => $e->getMessage(),
-            ]);
-            return [];
+            $out[] = $row;
         }
+
+        return $out;
     }
 
     private function adminLastPaidPeriod(int $accountId): ?string

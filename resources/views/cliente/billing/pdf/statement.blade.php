@@ -52,45 +52,62 @@
   $prevPeriod      = (string)($prev_period ?? '');
   $prevPeriodLabel = (string)($prev_period_label ?? $prevPeriod);
 
+  // ======================================================
+  // ✅ Saldo anterior (SOT = billing_statements / backend)
+  // - NUNCA lo calcules con payments: payments puede tener pendientes viejos y desfasar el PDF.
+  // - Usa prev_balance enviado por el backend (idealmente calculado desde billing_statements del periodo anterior).
+  // - Si el backend indica que el periodo anterior está pagado, fuerza 0.
+  // ======================================================
   $prevBalanceFallback = $f($prev_balance ?? 0);
-  $prevBalance = $prevBalanceFallback;
 
-  // ⚠️ OJO: NO dependemos de dompdf enable_remote; si hay URL QR intentamos bajarlo en servidor -> dataURI
-  try {
-    $prevPeriodOk = is_string($prevPeriod) && preg_match('/^\d{4}-\d{2}$/', $prevPeriod);
-    if ($prevPeriodOk) {
-      $accountIdRaw2 = $account_id ?? ($accountObj->id ?? 0);
-      $accountIdNum2 = is_numeric($accountIdRaw2) ? (int)$accountIdRaw2 : 0;
+  $prevStatusRaw = strtolower(trim((string)($prev_status ?? $prev_statement_status ?? '')));
+  $prevIsPaid = in_array($prevStatusRaw, ['paid','pagado','paid_ok','pago'], true);
 
-      if ($accountIdNum2 > 0) {
-        $admConn = 'mysql_admin';
-        if (\Illuminate\Support\Facades\Schema::connection($admConn)->hasTable('payments')) {
-          $cols = \Illuminate\Support\Facades\Schema::connection($admConn)->getColumnListing('payments');
-          $lc   = array_map('strtolower', $cols);
-          $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+  // Si el backend mandó un flag directo, respétalo
+  if (isset($prev_is_paid)) {
+    $prevIsPaid = (bool)$prev_is_paid;
+  }
 
-          if ($has('amount') && $has('status') && $has('account_id')) {
-            $validDebt = ['pending','expired','unpaid'];
-            $exclude   = ['paid','cancelled','canceled'];
+  $prevBalance = $prevIsPaid ? 0.0 : $prevBalanceFallback;
 
-            $q = \Illuminate\Support\Facades\DB::connection($admConn)->table('payments')
-              ->where('account_id', $accountIdNum2);
+  // Fallback adicional (por compat): si no viene prev_balance pero viene saldo del statement anterior
+  if ($prevBalance <= 0.00001 && !$prevIsPaid) {
+    $prevBalanceAlt = $f($prev_statement_saldo ?? $prev_saldo ?? null);
+    if ($prevBalanceAlt > 0.00001) $prevBalance = $prevBalanceAlt;
+  }
 
-            if ($has('period')) $q->where('period', $prevPeriod);
 
-            $q->whereIn('status', $validDebt)->whereNotIn('status', $exclude);
+  // ======================================================
+  // ✅ Due del periodo actual (SOT)
+  // Orden de preferencia:
+  // 1) current_period_due (si el backend lo manda)
+  // 2) saldo/amount_due/total/charge del statement actual (si vienen)
+  // 3) cargo - abono (último recurso)
+  // ======================================================
+  $candidates = [
+    $current_period_due ?? null,
+    $saldo_actual ?? null,
+    $saldo ?? null,
+    $amount_due ?? null,
+    $statement_saldo ?? null,
+    $statement_total ?? null,
+    $total ?? null,
+    $charge ?? null,
+    $cargo ?? null,
+  ];
 
-            $prevCents   = (int) $q->sum('amount');
-            $prevBalance = round($prevCents / 100, 2);
-          }
-        }
-      }
-    }
-  } catch (\Throwable $e) { $prevBalance = $prevBalanceFallback; }
+  $currentDue = 0.0;
+  foreach ($candidates as $cand) {
+    $v = $f($cand);
+    if ($v > 0.00001) { $currentDue = $v; break; }
+  }
 
-  $currentDue = $f($current_period_due ?? null);
-  if ($currentDue <= 0.00001) $currentDue = round(max(0.0, $cargo - $abono), 2);
-  else $currentDue = round(max(0.0, $currentDue), 2);
+  if ($currentDue <= 0.00001) {
+    $currentDue = round(max(0.0, $cargo - $abono), 2);
+  } else {
+    $currentDue = round(max(0.0, $currentDue), 2);
+  }
+
 
   $showPrev   = ($prevBalance > 0.00001);
   $totalPagar = round($currentDue + ($showPrev ? $prevBalance : 0.0), 2);
@@ -335,12 +352,13 @@
   // Insert saldo anterior como línea (si aplica)
   if ($showPrev) {
     array_unshift($serviceItems, [
-      'service'   => 'Saldo anterior (' . $prevLabelSafe . ')',
-      'unit_cost' => round((float)$prevBalance, 2),
-      'qty'       => 1,
-      'subtotal'  => round((float)$prevBalance, 2),
+      'name'       => 'Saldo anterior (' . $prevLabelSafe . ')',
+      'unit_price' => round((float)$prevBalance, 2),
+      'qty'        => 1,
+      'subtotal'   => round((float)$prevBalance, 2),
     ]);
   }
+
 
   // Fill de tabla para ocupar alto sin romper footer (SOT)
   $rowsCount = count($serviceItems);
