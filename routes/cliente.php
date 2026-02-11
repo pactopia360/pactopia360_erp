@@ -528,7 +528,13 @@ Route::middleware(['auth:web', 'account.active'])
             ->where(['period' => '\d{4}-(0[1-9]|1[0-2])'])
             ->name('billing.factura.download');
 
-        // LOGOUT
+        /// LOGOUT
+        // ✅ Permitir GET /cliente/logout (link) -> auto-POST con CSRF (seguro, cache-safe)
+        Route::get('logout', function () {
+            return response()->view('cliente.auth.logout');
+        })->name('logout.get');
+
+        // ✅ Logout real (POST)
         Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
     });
 
