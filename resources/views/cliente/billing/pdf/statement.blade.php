@@ -59,7 +59,6 @@
   // - Si el backend indica que el periodo anterior está pagado, fuerza 0.
   // ======================================================
   $prevBalanceFallback = $f($prev_balance ?? 0);
-
   $prevStatusRaw = strtolower(trim((string)($prev_status ?? $prev_statement_status ?? '')));
   $prevIsPaid = in_array($prevStatusRaw, ['paid','pagado','paid_ok','pago'], true);
 
@@ -74,6 +73,16 @@
   if ($prevBalance <= 0.00001 && !$prevIsPaid) {
     $prevBalanceAlt = $f($prev_statement_saldo ?? $prev_saldo ?? null);
     if ($prevBalanceAlt > 0.00001) $prevBalance = $prevBalanceAlt;
+  }
+
+  // ✅ Bandera para UI: mostrar línea del periodo anterior aunque esté pagado (sin sumar)
+  $showPrevLine = false;
+  if (is_string($prevPeriod) && trim($prevPeriod) !== '') {
+    $showPrevLine = true; // hay periodo anterior conocido => se puede mostrar
+  } elseif (is_string($prevPeriodLabel) && trim($prevPeriodLabel) !== '') {
+    $showPrevLine = true;
+  } elseif ($prevBalanceFallback > 0.00001 || $prevIsPaid) {
+    $showPrevLine = true;
   }
 
 
@@ -109,6 +118,7 @@
   }
 
 
+  // ✅ sumar saldo anterior SOLO si hay deuda real
   $showPrev   = ($prevBalance > 0.00001);
   $totalPagar = round($currentDue + ($showPrev ? $prevBalance : 0.0), 2);
 
@@ -120,7 +130,8 @@
   $statusLabel = 'Pendiente';
   $statusBadge = 'warn';
   if ($totalPagar <= 0.00001) {
-    $statusLabel = ($cargo > 0.00001 || $abono > 0.00001) ? 'Pagado' : 'Sin movimientos';
+    // ✅ Si no hay monto a pagar, consideramos pagado (aunque no haya cargo/abono visibles)
+    $statusLabel = 'Pagado';
     $statusBadge = ($statusLabel === 'Pagado') ? 'ok' : 'dim';
   } else {
     $statusLabel = ($abono > 0.00001) ? 'Parcial' : 'Pendiente';
@@ -348,17 +359,26 @@
       ];
     }, $serviceItems));
 
-
-  // Insert saldo anterior como línea (si aplica)
-  if ($showPrev) {
-    array_unshift($serviceItems, [
-      'name'       => 'Saldo anterior (' . $prevLabelSafe . ')',
-      'unit_price' => round((float)$prevBalance, 2),
-      'qty'        => 1,
-      'subtotal'   => round((float)$prevBalance, 2),
-    ]);
+  // ✅ Insert saldo anterior como línea:
+  // - Si hay deuda: suma y muestra monto
+  // - Si está pagado: muestra "Pagado" pero NO suma
+  if ($showPrevLine) {
+    if ($prevIsPaid) {
+      array_unshift($serviceItems, [
+        'name'       => 'Saldo anterior (' . $prevLabelSafe . ') · Pagado',
+        'unit_price' => 0,
+        'qty'        => 1,
+        'subtotal'   => 0,
+      ]);
+    } elseif ($showPrev) {
+      array_unshift($serviceItems, [
+        'name'       => 'Saldo anterior (' . $prevLabelSafe . ')',
+        'unit_price' => round((float)$prevBalance, 2),
+        'qty'        => 1,
+        'subtotal'   => round((float)$prevBalance, 2),
+      ]);
+    }
   }
-
 
   // Fill de tabla para ocupar alto sin romper footer (SOT)
   $rowsCount = count($serviceItems);
@@ -656,10 +676,16 @@
           <div class="payTitle">Desglose del importe</div>
 
           <table class="kv" cellpadding="0" cellspacing="0">
-            @if($showPrev)
+             @if($showPrevLine)
               <tr>
                 <td class="k sb">Saldo anterior:</td>
-                <td class="v">$ {{ number_format($prevBalance, 2) }}</td>
+                <td class="v">
+                  @if($prevIsPaid)
+                    $ {{ number_format(0, 2) }} <span class="mut">· Pagado</span>
+                  @else
+                    $ {{ number_format($prevBalance, 2) }}
+                  @endif
+                </td>
               </tr>
             @endif
 

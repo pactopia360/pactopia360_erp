@@ -2638,18 +2638,30 @@ final class BillingStatementsController extends Controller
         $abonoTotal  = $abonoEdo + $paidPayments;
         $saldoShown  = (float) max(0.0, $totalShown - $abonoTotal);
 
+        // =========================================================
+        // ✅ SOT: si admin marca "pagado", debe existir payment paid
+        // - No depende de ENV.
+        // - Registra pago por "manual/transfer" (provider manual).
+        // - Cierra saldo en UI/PDF inmediatamente.
+        // =========================================================
         if ($status === 'pagado' && $saldoShown > 0.00001) {
-            $this->insertManualPaidPaymentForStatement(
+            $method = $payMethod !== '' ? $payMethod : 'manual';
+
+            // upsert payment PAID por el saldo pendiente (para cerrar el periodo)
+            $this->upsertPaidPaymentForStatement(
                 $accountId,
                 $period,
                 $saldoShown,
-                $payMethod !== '' ? $payMethod : 'manual'
+                $method,
+                'manual'
             );
 
+            // recalcular con el payment ya persistido
             $paidPayments2 = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
             $abonoTotal    = $abonoEdo + $paidPayments2;
             $saldoShown    = (float) max(0.0, $totalShown - $abonoTotal);
         }
+
 
         if ($payMethod !== '' && Schema::connection($this->adm)->hasTable('payments')) {
             try {
@@ -2695,6 +2707,109 @@ final class BillingStatementsController extends Controller
             'abono'      => round($abonoTotal, 2),
             'saldo'      => round($saldoShown, 2),
         ]);
+    }
+
+    /**
+     * ✅ Upsert de pago "PAID" para un estado de cuenta (admin override pagado).
+     * - Guarda/actualiza payments (paid) para (account_id, period).
+     * - amount: guarda tanto amount_mxn (si existe) como amount en centavos.
+     * - method: manual | transfer | card | etc
+     * - provider: manual (default)
+     */
+    private function upsertPaidPaymentForStatement(
+        string $accountId,
+        string $period,
+        float $amountMxn,
+        string $method = 'manual',
+        string $provider = 'manual'
+    ): void {
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return;
+        }
+
+        $amountMxn = round(max(0.0, $amountMxn), 2);
+        if ($amountMxn <= 0.00001) {
+            return;
+        }
+
+        try {
+            $cols = Schema::connection($this->adm)->getColumnListing('payments');
+            $lc   = array_map('strtolower', $cols);
+            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+            if (!$has('account_id')) {
+                return;
+            }
+
+            // Buscar un payment existente del mismo periodo (preferible) o el más reciente del periodo
+            $q = DB::connection($this->adm)->table('payments')
+                ->where('account_id', $accountId);
+
+            if ($has('period')) {
+                $this->applyPaymentsPeriodFilter($q, $period, true);
+            }
+
+            $orderCol = $has('paid_at') ? 'paid_at'
+                : ($has('updated_at') ? 'updated_at'
+                : ($has('created_at') ? 'created_at'
+                : ($has('id') ? 'id' : $cols[0])));
+
+            $idCol = $has('id') ? 'id' : $cols[0];
+
+            $existing = $q->orderByDesc($orderCol)->first([$idCol]);
+
+            $row = [
+                'updated_at' => now(),
+            ];
+
+            if ($has('period'))   $row['period']   = $period;
+            if ($has('status'))   $row['status']   = 'paid';
+            if ($has('provider')) $row['provider'] = $provider !== '' ? $provider : 'manual';
+            if ($has('method'))   $row['method']   = $method !== '' ? $method : 'manual';
+
+            if ($has('currency')) $row['currency'] = 'MXN';
+            if ($has('paid_at'))  $row['paid_at']  = now();
+
+            if ($has('amount_mxn')) {
+                $row['amount_mxn'] = $amountMxn;
+            }
+            if ($has('amount')) {
+                $row['amount'] = (int) round($amountMxn * 100);
+            }
+
+            if ($has('concept')) {
+                $row['concept'] = 'billing_statement';
+            }
+
+            if ($has('reference')) {
+                $row['reference'] = 'admin_paid:' . $accountId . ':' . $period;
+            }
+
+            if ($has('meta')) {
+                $row['meta'] = json_encode([
+                    'type'   => 'billing_statement',
+                    'period' => $period,
+                    'source' => 'admin_statusAjax',
+                    'note'   => 'Upsert paid por override pagado (SOT)',
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            DB::connection($this->adm)->transaction(function () use ($existing, $idCol, $row, $has) {
+                if ($existing && isset($existing->{$idCol})) {
+                    DB::connection($this->adm)->table('payments')->where($idCol, (int) $existing->{$idCol})->update($row);
+                } else {
+                    $row2 = $row;
+                    $row2['created_at'] = now();
+                    DB::connection($this->adm)->table('payments')->insert($row2);
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] upsertPaidPaymentForStatement failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+        }
     }
 
   private function insertManualPaidPaymentForStatement(string $accountId, string $period, float $amountMxn, string $method): void
@@ -2789,7 +2904,6 @@ final class BillingStatementsController extends Controller
 
         DB::connection($this->adm)->table('payments')->insert($payload);
     }
-
 
     /**
      * POST admin/billing/statements/status
