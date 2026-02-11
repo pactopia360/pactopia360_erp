@@ -400,16 +400,30 @@
                   $abonoEdo = (float)($r->abono_edo ?? 0);
                   $abonoPay = (float)($r->abono_pay ?? 0);
 
-                  $st = (string)($r->status_pago ?? $r->status ?? '');
+                  $st = (string)($r->status_override ?? $r->ov_status ?? $r->status_pago ?? $r->status ?? '');
                   $st = strtolower(trim($st));
-                  if($st==='paid' || $st==='succeeded') $st = 'pagado';
-                  if($st==='') $st = 'sin_mov';
+
+                  if ($st === 'paid' || $st === 'succeeded') $st = 'pagado';
+                  if ($st === 'pending') $st = 'pendiente';
+                  if ($st === 'unpaid' || $st === 'past_due') $st = 'vencido';
+
+                  if ($st === '') $st = 'sin_mov';
+
 
                   $stPill = $pillStatusClass($st);
 
-                  $payMethod   = strtolower(trim((string)($r->pay_method ?? $r->pago_metodo ?? '')));
-                  $payProvider = trim((string)($r->pay_provider ?? $r->pago_prov ?? ''));
-                  $payStatus   = trim((string)($r->pay_status ?? ''));
+                  // =========================
+                  // ✅ Override-first (Admin)
+                  // =========================
+                  $payMethod   = strtolower(trim((string)($r->ov_pay_method ?? $r->pay_method ?? $r->pago_metodo ?? '')));
+                  $payProvider = trim((string)($r->ov_pay_provider ?? $r->pay_provider ?? $r->pago_prov ?? ''));
+                  $payStatus   = strtolower(trim((string)($r->ov_pay_status ?? $r->pay_status ?? '')));
+
+                  // normaliza status “St:” a etiquetas que sí entendemos
+                  if ($payStatus === 'paid' || $payStatus === 'succeeded') $payStatus = 'pagado';
+                  if ($payStatus === 'pending') $payStatus = 'pendiente';
+                  if ($payStatus === 'unpaid' || $payStatus === 'past_due') $payStatus = 'vencido';
+
                   $payDue      = $fmtDate($r->pay_due_date ?? $r->vence ?? '');
                   $payLast     = $fmtDate($r->pay_last_paid_at ?? $r->last_paid_at ?? '');
 
@@ -794,9 +808,7 @@
     return 'sx-dim';
   }
 
-  function upsertMetaMethod(rowEl, method){
-    // En la columna "Email / Meta" tienes un .sx-subrow con texto "Periodo: ... · Método: ..."
-    // Ajustamos SOLO la parte de "Método:" si existe, si no la insertamos.
+  function upsertMetaPay(rowEl, method, provider, payStatus){
     try{
       const metaCell = rowEl.querySelector('td:nth-child(4)'); // Email/Meta
       if(!metaCell) return;
@@ -805,41 +817,30 @@
       if(!sub) return;
 
       const m = String(method || '').trim();
-      // normaliza visual
-      const mLabel = m !== '' ? m : '';
+      const p = String(provider || '').trim();
+      const s = String(payStatus || '').trim();
 
-      // Si ya hay "Método:" => reemplaza
-      const html = sub.innerHTML;
+      // Tomamos el HTML actual y removemos segmentos Método/Prov/St existentes (con sus separadores)
+      let html = sub.innerHTML;
 
-      if (/M[ée]todo:/i.test(html)) {
-        // Reemplaza el valor dentro del <span class="sx-mono">...</span> que sigue a "Método:"
-        sub.innerHTML = html.replace(
-          /(M[ée]todo:\s*<span class="sx-mono">)(.*?)(<\/span>)/i,
-          function(_, a, _val, c){
-            if(mLabel === ''){
-              // si se limpió método, quitamos el segmento completo " · Método: ..."
-              // intentamos quitar también el separador previo
-              return '';
-            }
-            return a + escapeHtml(mLabel) + c;
-          }
-        );
+      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*M[ée]todo:\s*<span class="sx-mono">.*?<\/span>/i, '');
+      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*Prov:\s*<span class="sx-mono">.*?<\/span>/i, '');
+      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*St:\s*<span class="sx-mono">.*?<\/span>/i, '');
 
-        // Si lo limpiamos y quedó doble separador, sanea un poco
-        sub.innerHTML = sub.innerHTML
-          .replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*(Prov:|St:)/g, ' <span style="opacity:.55;"> · </span> $1')
-          .replace(/\s{2,}/g,' ');
-      } else {
-        // No existe "Método:" => si hay método lo añadimos después de "Periodo"
-        if(mLabel !== ''){
-          sub.innerHTML = sub.innerHTML.replace(
-            /(Periodo:\s*<span class="sx-mono">[^<]*<\/span>)/i,
-            '$1 <span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+ escapeHtml(mLabel) +'</span>'
-          );
-        }
-      }
+      // Insertamos nuevamente después de "Periodo: <span ...>..</span>"
+      const insertAfter = /(Periodo:\s*<span class="sx-mono">[^<]*<\/span>)/i;
+
+      let extra = '';
+      if(m !== '') extra += ' <span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+ escapeHtml(m) +'</span>';
+      if(p !== '') extra += ' <span style="opacity:.55;"> · </span> Prov: <span class="sx-mono">'+ escapeHtml(p) +'</span>';
+      if(s !== '') extra += ' <span style="opacity:.55;"> · </span> St: <span class="sx-mono">'+ escapeHtml(s) +'</span>';
+
+      html = html.replace(insertAfter, '$1' + extra);
+
+      sub.innerHTML = html;
     }catch(e){}
   }
+
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(m){
@@ -976,7 +977,14 @@
       const rowEl = $('sxRow-' + id);
       if(rowEl){
         const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
-        upsertMetaMethod(rowEl, effectivePay);
+        const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
+
+        // Estos 2 deben venir del server en el JSON (ya los metimos en controller nuevo).
+        const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
+        const effectiveSt   = (data && data.pay_status !== undefined) ? data.pay_status : '';
+
+        upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
+
       }
 
       sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
