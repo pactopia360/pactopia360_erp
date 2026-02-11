@@ -629,12 +629,12 @@ final class AccountBillingController extends Controller
         return redirect()->away($url);
     }
 
-    /**
+   /**
      * ==========================================================
-     * ✅ PDF INLINE (AUTH) -> genera link firmado a publicPdfInline
+     * ✅ PDF INLINE (AUTH) -> GENERA PDF INLINE (NO redirect)
      * ==========================================================
      */
-    public function pdfInline(Request $r, string $period): RedirectResponse
+    public function pdfInline(Request $r, string $period)
     {
         if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
 
@@ -642,14 +642,25 @@ final class AccountBillingController extends Controller
         $accountId = is_numeric($accountIdRaw) ? (int) $accountIdRaw : 0;
         if ($accountId <= 0) abort(403, 'Cuenta no seleccionada.');
 
-        $url = URL::temporarySignedRoute(
-            'cliente.billing.publicPdfInline',
-            now()->addMinutes(30),
-            ['accountId' => $accountId, 'period' => $period]
-        );
-
-        return redirect()->away($url);
+        return $this->renderStatementPdf($r, $accountId, $period, true);
     }
+
+    /**
+     * ==========================================================
+     * ✅ PDF (AUTH) -> GENERA PDF (attachment)
+     * ==========================================================
+     */
+    public function pdf(Request $r, string $period)
+    {
+        if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
+
+        [$accountIdRaw] = $this->resolveAdminAccountId($r);
+        $accountId = is_numeric($accountIdRaw) ? (int) $accountIdRaw : 0;
+        if ($accountId <= 0) abort(403, 'Cuenta no seleccionada.');
+
+        return $this->renderStatementPdf($r, $accountId, $period, false);
+    }
+
 
     // ✅ Public PDF inline (para links públicos / iframe / modal)
     public function publicPdfInline(\Illuminate\Http\Request $request, $accountId, string $period)
@@ -657,45 +668,26 @@ final class AccountBillingController extends Controller
         $aid = is_numeric($accountId) ? (int) $accountId : 0;
         $period = trim((string) $period);
 
-        if ($aid <= 0 || !$this->isValidPeriod($period)) {
-            abort(404);
-        }
+        if ($aid <= 0 || !$this->isValidPeriod($period)) abort(404);
 
-        // Seguridad: si no hay sesión, exige firma válida (temp signed route)
-        if (!\Auth::guard('web')->check() && !$request->hasValidSignature()) {
+        // ✅ Sin sesión: exige firma válida
+        if (!\Illuminate\Support\Facades\Auth::guard('web')->check() && !$request->hasValidSignature()) {
             abort(403, 'Link inválido o expirado.');
         }
 
-        // Reutiliza el generador real (publicPdf) y fuerza inline
-        $resp = $this->publicPdf($request, $aid, $period);
+        // ✅ Si hay sesión autenticada, evita cross-account
+        try {
+            [$sessAccountIdRaw] = $this->resolveAdminAccountId($request);
+            $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
 
-        // Si publicPdf devolvió RedirectResponse o algo raro, aborta para evitar loops
-        if ($resp instanceof \Illuminate\Http\RedirectResponse) {
-            \Log::error('[BILLING][PUBLIC_PDF_INLINE] Unexpected redirect response (loop prevented)', [
-                'account_id' => $aid,
-                'period'     => $period,
-                'to'         => $resp->getTargetUrl(),
-            ]);
-            abort(500, 'PDF inline produjo redirección inesperada.');
-        }
+            if (\Illuminate\Support\Facades\Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== $aid) {
+                abort(403, 'Cuenta no autorizada.');
+            }
+        } catch (\Throwable $e) { /* ignore */ }
 
-        // Headers inline PDF
-        if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
-            $filename = 'estado-de-cuenta-'.$period.'.pdf';
-            $resp->headers->set('Content-Type', 'application/pdf');
-            $resp->headers->set('Content-Disposition', 'inline; filename="'.$filename.'"');
-
-            // permitir iframe same-origin
-            $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
-            $resp->headers->set(
-                'Content-Security-Policy',
-                "default-src 'self'; frame-ancestors 'self'; object-src 'self';"
-            );
-            $resp->headers->set('X-Content-Type-Options', 'nosniff');
-        }
-
-        return $resp;
+        return $this->renderStatementPdf($request, $aid, $period, true);
     }
+
 
     /**
      * ✅ Public PDF (download/inline)
@@ -705,72 +697,92 @@ final class AccountBillingController extends Controller
      */
     public function publicPdf(\Illuminate\Http\Request $request, int $accountId, string $period)
     {
-        if (!$this->isValidPeriod($period)) abort(422, 'Periodo inválido.');
+        $aid = (int) $accountId;
+        $period = trim((string) $period);
 
-        // Si no hay sesión, exige firma válida
-        if (!\Auth::guard('web')->check() && !$request->hasValidSignature()) {
+        if ($aid <= 0 || !$this->isValidPeriod($period)) abort(404);
+
+        // ✅ Sin sesión: exige firma válida
+        if (!\Illuminate\Support\Facades\Auth::guard('web')->check() && !$request->hasValidSignature()) {
             abort(403, 'Link inválido o expirado.');
         }
 
-        // Si hay sesión autenticada, evita cross-account
+        // ✅ Si hay sesión autenticada, evita cross-account
         try {
             [$sessAccountIdRaw] = $this->resolveAdminAccountId($request);
             $sessAccountId = is_numeric($sessAccountIdRaw) ? (int) $sessAccountIdRaw : 0;
 
-            if (\Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== (int) $accountId) {
+            if (\Illuminate\Support\Facades\Auth::guard('web')->check() && $sessAccountId > 0 && $sessAccountId !== $aid) {
                 abort(403, 'Cuenta no autorizada.');
             }
-        } catch (\Throwable $e) {
-            // ignora: no bloquea
-        }
+        } catch (\Throwable $e) { /* ignore */ }
 
-        // Inyecta accountId al request para que tu método "pdf" lo use si lee request('accountId')
-        $request->merge([
-            'accountId'   => $accountId,
-            'account_id'  => $accountId,
-            'period'      => $period,
-            'public'      => 1,
-        ]);
-
-        // ✅ REUTILIZA tu generador real si existe:
-        // Caso típico: pdf(Request $r, string $period) => Response (download)
-        if (method_exists($this, 'pdf')) {
-            $resp = $this->pdf($request, $period);
-
-            // Evita loops: pdf() nunca debe regresar RedirectResponse en público
-            if ($resp instanceof \Illuminate\Http\RedirectResponse) {
-                \Log::error('[BILLING][PUBLIC_PDF] pdf() returned redirect (loop prevented)', [
-                    'account_id' => $accountId,
-                    'period'     => $period,
-                    'to'         => $resp->getTargetUrl(),
-                ]);
-                abort(500, 'PDF público produjo redirección inesperada.');
-            }
-
-            // Asegura headers de PDF (download por defecto)
-            if ($resp instanceof \Symfony\Component\HttpFoundation\Response) {
-                $filename = 'estado-de-cuenta-'.$period.'.pdf';
-                $resp->headers->set('Content-Type', 'application/pdf');
-
-                // Si viene de publicPdfInline, se sobreescribe a inline; aquí dejamos attachment
-                if (!$resp->headers->has('Content-Disposition')) {
-                    $resp->headers->set('Content-Disposition', 'attachment; filename="'.$filename.'"');
-                }
-                $resp->headers->set('X-Content-Type-Options', 'nosniff');
-            }
-
-            return $resp;
-        }
-
-        // Si no existe pdf(), no hay generador real
-        \Log::error('[BILLING][PUBLIC_PDF] Missing pdf() method in controller', [
-            'account_id' => $accountId,
-            'period'     => $period,
-        ]);
-
-        abort(404);
+        return $this->renderStatementPdf($request, $aid, $period, false);
     }
 
+    /**
+     * ==========================================================
+     * ✅ RENDER PDF (single period) usando vista cliente.billing.pdf.statement
+     * ==========================================================
+     */
+    private function renderStatementPdf(\Illuminate\Http\Request $r, int $accountId, string $period, bool $inline)
+    {
+        // Cargar statements desde admin (misma lógica base que tu statement())
+        $statementRefs = $this->buildStatementRefs((int) $accountId);
+        $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
+
+        // seleccionar solo el periodo pedido
+        $row = null;
+        foreach ((array) $rowsAll as $rr) {
+            if ((string)($rr['period'] ?? '') === $period) { $row = $rr; break; }
+        }
+        if (!$row) {
+            \Illuminate\Support\Facades\Log::warning('[BILLING][PUBLIC_PDF] period not found', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'refs'       => $statementRefs,
+                'count'      => is_array($rowsAll) ? count($rowsAll) : null,
+            ]);
+            abort(404);
+        }
+
+        // Data mínima para la vista PDF (la vista puede ser tolerante; si pide más, lo ajustamos)
+        $data = [
+            'account_id' => $accountId,
+            'accountId'  => $accountId,
+            'period'     => $period,
+            'row'        => $row,
+            'rows'       => [$row],
+            // compat
+            'inline'     => $inline,
+        ];
+
+        // DomPDF wrapper (barryvdh/laravel-dompdf)
+        try {
+            $pdf = app('dompdf.wrapper');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[BILLING][PUBLIC_PDF] dompdf.wrapper not available', [
+                'account_id' => $accountId,
+                'period' => $period,
+                'err' => $e->getMessage(),
+            ]);
+            abort(500, 'PDF engine no disponible.');
+        }
+
+        $pdf->loadView('cliente.billing.pdf.statement', $data);
+
+        $filename = 'estado-de-cuenta-'.$period.'.pdf';
+
+        $resp = $inline
+            ? $pdf->stream($filename)
+            : $pdf->download($filename);
+
+        // Permitir iframe same-origin
+        $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        $resp->headers->set('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'; object-src 'self';");
+
+        return $resp;
+    }
 
     /**
      * ==========================================================
