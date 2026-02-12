@@ -1546,6 +1546,17 @@ final class BillingStatementsController extends Controller
         if ($existing && $has('id')) {
             DB::connection($this->adm)->table('payments')->where('id', (int) $existing->id)->update($row);
         } else {
+
+            // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
+            $aid = (int)($row['account_id'] ?? 0);
+            if ($aid <= 0 && isset($accountId)) {
+                $aid = (int)$accountId;
+            }
+            if ($aid <= 0) {
+                throw new \RuntimeException('payments insert blocked: missing account_id');
+            }
+            $row['account_id'] = $aid;
+
             DB::connection($this->adm)->table('payments')->insert($row);
         }
     }
@@ -2979,6 +2990,17 @@ final class BillingStatementsController extends Controller
                 } else {
                     $row2 = $row;
                     $row2['created_at'] = now();
+                    
+                    // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
+                    $aid2 = (int)($row2['account_id'] ?? 0);
+                    if ($aid2 <= 0) {
+                        $aid2 = (int)$accountId;
+                    }
+                    if ($aid2 <= 0) {
+                        throw new \RuntimeException('payments insert blocked: missing account_id (row2)');
+                    }
+                    $row2['account_id'] = $aid2;
+
                     DB::connection($this->adm)->table('payments')->insert($row2);
                 }
             });
@@ -3081,6 +3103,16 @@ final class BillingStatementsController extends Controller
 
         $payload['updated_at'] = now();
         $payload['created_at'] = now();
+
+         // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
+        $aid3 = (int)($payload['account_id'] ?? 0);
+        if ($aid3 <= 0 && isset($accountId)) {
+            $aid3 = (int)$accountId;
+       }
+        if ($aid3 <= 0) {
+            throw new \RuntimeException('payments insert blocked: missing account_id (payload)');
+        }
+        $payload['account_id'] = $aid3;
 
         DB::connection($this->adm)->table('payments')->insert($payload);
     }
