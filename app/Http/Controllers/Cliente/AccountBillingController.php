@@ -1880,6 +1880,16 @@ final class AccountBillingController extends Controller
         }
 
         $row = [];
+
+        // ✅ CRÍTICO: payments.account_id es NOT NULL en PROD (SOT)
+        // En algunos esquemas puede llamarse distinto; detecta columna real.
+        $accountCol = null;
+        foreach (['account_id', 'admin_account_id', 'cuenta_id', 'id_account'] as $cand) {
+            if ($has($cand)) { $accountCol = $cand; break; }
+        }
+        if ($accountCol) {
+            $row[$accountCol] = (int) $accountId;
+        }
         if ($has('account_id')) $row['account_id'] = $accountId;
 
         // ✅ amount = COBRO REAL (Stripe)
