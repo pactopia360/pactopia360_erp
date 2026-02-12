@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
+use App\Services\Admin\Billing\AccountBillingStateService;
 
 final class PaymentsController extends Controller
 {
@@ -123,46 +124,50 @@ final class PaymentsController extends Controller
 
         DB::connection($this->adm)->table('payments')->insert($row);
 
-        if (($data['also_apply_statement'] ?? false) === true) {
-            if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-                return back()->withErrors(['estados_cuenta' => 'No existe estados_cuenta; se registró el pago pero no se aplicó al estado de cuenta.']);
-            }
+                 if (($data['also_apply_statement'] ?? false) === true) {
+             if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+                 return back()->withErrors(['estados_cuenta' => 'No existe estados_cuenta; se registró el pago pero no se aplicó al estado de cuenta.']);
+             }
 
-            $period = $data['period'] ?? now()->format('Y-m');
+             $period = $data['period'] ?? now()->format('Y-m');
 
-            DB::connection($this->adm)->transaction(function () use ($accountId, $period, $data) {
-                DB::connection($this->adm)->table('estados_cuenta')->insert([
-                    'account_id' => $accountId,
-                    'periodo' => $period,
-                    'concepto' => ($data['concept'] ?: 'Pago recibido (manual)'),
-                    'detalle' => 'Registro manual en admin',
-                    'cargo' => 0.00,
-                    'abono' => round((float) $data['amount_pesos'], 2),
-                    'saldo' => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+             DB::connection($this->adm)->transaction(function () use ($accountId, $period, $data) {
+                 DB::connection($this->adm)->table('estados_cuenta')->insert([
+                     'account_id' => $accountId,
+                     'periodo' => $period,
+                     'concepto' => ($data['concept'] ?: 'Pago recibido (manual)'),
+                     'detalle' => 'Registro manual en admin',
+                     'cargo' => 0.00,
+                     'abono' => round((float) $data['amount_pesos'], 2),
+                     'saldo' => null,
+                     'created_at' => now(),
+                     'updated_at' => now(),
+                 ]);
 
-                // recalcula saldo y lo guarda en el último movimiento
-                $items = DB::connection($this->adm)->table('estados_cuenta')
-                    ->where('account_id', $accountId)
-                    ->where('periodo', '=', $period)
-                    ->orderByDesc('id')
-                    ->get();
+                 // recalcula saldo y lo guarda en el último movimiento
+                 $items = DB::connection($this->adm)->table('estados_cuenta')
+                     ->where('account_id', $accountId)
+                     ->where('periodo', '=', $period)
+                     ->orderByDesc('id')
+                     ->get();
 
-                $saldo = max(0, (float) $items->sum('cargo') - (float) $items->sum('abono'));
-                $lastId = (int) ($items->first()->id ?? 0);
+                 $saldo = max(0, (float) $items->sum('cargo') - (float) $items->sum('abono'));
+                 $lastId = (int) ($items->first()->id ?? 0);
 
-                if ($lastId > 0) {
-                    DB::connection($this->adm)->table('estados_cuenta')->where('id', $lastId)->update([
-                        'saldo' => round($saldo, 2),
-                        'updated_at' => now(),
-                    ]);
-                }
-            });
-        }
+                 if ($lastId > 0) {
+                     DB::connection($this->adm)->table('estados_cuenta')->where('id', $lastId)->update([
+                         'saldo' => round($saldo, 2),
+                         'updated_at' => now(),
+                     ]);
+                 }
+             });
+         }
 
-        return back()->with('ok', 'Pago manual registrado.');
+        // ✅ P360: mantener accounts.estado_cuenta/billing_status alineado con billing_statements
+        // (evita "Admin pendiente" cuando statements ya están paid/saldo=0)
+        AccountBillingStateService::sync($accountId, 'admin.payments.manual');
+
+         return back()->with('ok', 'Pago manual registrado.');
     }
 
     public function emailReceipt(Request $req, int $id): RedirectResponse
