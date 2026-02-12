@@ -1125,7 +1125,10 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * ✅ Normaliza pagos usando admin.payments como fuente primaria.
+     * ✅ Normaliza pagos usando admin.payments como fuente (sin “borrar” pendientes).
+     * - NO fuerza paid si el pago es parcial.
+     * - NO sobreescribe charge con paid.
+     * - Recalcula saldo = cargo - paid.
      */
     private function applyAdminPaidAmountOverrides(int $accountId, array $rows): array
     {
@@ -1133,21 +1136,45 @@ final class AccountBillingController extends Controller
             $p = (string) ($r['period'] ?? '');
             if (!$this->isValidPeriod($p)) continue;
 
-            $paidCents = $this->resolvePaidCentsFromAdminPayments($accountId, $p);
+            $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $p);
             if ($paidCents <= 0) continue;
 
             $paidMxn = round($paidCents / 100, 2);
 
-            $r['charge']      = $paidMxn;
+            // cargo real del row (admin.billing_statements o fallback)
+            $cargo = null;
+            foreach (['total_cargo','charge','cargo','total'] as $k) {
+                if (array_key_exists($k, $r) && is_numeric($r[$k])) { $cargo = (float) $r[$k]; break; }
+            }
+            $cargo = is_numeric($cargo) ? (float) $cargo : 0.0;
+            $cargo = round(max(0.0, $cargo), 2);
+
+            // Recalcula saldo real
+            $saldo = round(max(0.0, $cargo - $paidMxn), 2);
+
+            // Aplica override sin destruir la intención del statement
             $r['paid_amount'] = $paidMxn;
-            $r['saldo']       = 0.0;
-            $r['status']      = 'paid';
-            $r['can_pay']     = false;
+
+            // conserva charge/cargo original; si venía 0 pero hay cargo en total_cargo, ya quedó en $cargo
+            if (!isset($r['charge']) || !is_numeric($r['charge']) || (float)$r['charge'] <= 0) {
+                $r['charge'] = $cargo;
+            }
+
+            $r['saldo'] = $saldo;
+
+            // status solo paid si saldo realmente quedó en 0
+            $r['status'] = ($saldo <= 0.0001) ? 'paid' : 'pending';
+
+            // can_pay NO se decide aquí (se decide después con payAllowed)
+            if (($r['status'] ?? '') === 'paid') {
+                $r['can_pay'] = false;
+            }
         }
         unset($r);
 
         return $rows;
     }
+
 
     private function buildPeriodRowsFromClientEstadosCuenta(
     int $accountId,
