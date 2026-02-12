@@ -64,6 +64,65 @@ final class AccountBillingController extends Controller
     }
 
     /**
+     * ✅ Determina "pendiente real" desde row de admin.billing_statements
+     * sin depender solo de `saldo`.
+     * Regla:
+     * - status != paid
+     * - y saldoEfectivo > 0.0001
+     */
+    private function statementIsPending(array $rr): bool
+    {
+        $st = strtolower((string)($rr['status'] ?? 'pending'));
+        if ($st === 'paid') return false;
+
+        // 1) saldo directo
+        $saldo = null;
+        if (array_key_exists('saldo', $rr) && is_numeric($rr['saldo'])) {
+            $saldo = (float)$rr['saldo'];
+        } elseif (array_key_exists('balance', $rr) && is_numeric($rr['balance'])) {
+            $saldo = (float)$rr['balance'];
+        }
+
+        // 2) fallback: total_cargo - total_abono (o variantes)
+        if ($saldo === null || $saldo <= 0.0001) {
+            $cargo = null;
+            $abono = null;
+
+            foreach (['total_cargo','charge','cargo','total'] as $k) {
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $cargo = (float)$rr[$k]; break; }
+            }
+            foreach (['total_abono','paid_amount','abono','paid'] as $k) {
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $abono = (float)$rr[$k]; break; }
+            }
+
+            if ($cargo !== null) {
+                $abono = $abono ?? 0.0;
+                $saldo = max(0.0, (float)$cargo - (float)$abono);
+            }
+        }
+
+        // 3) fallback cents: total_cents - paid_cents
+        if ($saldo === null || $saldo <= 0.0001) {
+            $tc = null; $pc = null;
+            foreach (['total_cents','total_amount_cents','amount_cents'] as $k) {
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $tc = (int)$rr[$k]; break; }
+            }
+            foreach (['paid_cents','paid_amount_cents'] as $k) {
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $pc = (int)$rr[$k]; break; }
+            }
+            if ($tc !== null) {
+                $pc = $pc ?? 0;
+                $saldo = max(0.0, ((int)$tc - (int)$pc) / 100.0);
+            }
+        }
+
+        $saldo = is_numeric($saldo) ? (float)$saldo : 0.0;
+
+        return $saldo > 0.0001;
+    }
+
+
+    /**
      * ============================================
      * ESTADO DE CUENTA (2 cards)
      * ============================================
@@ -333,11 +392,11 @@ final class AccountBillingController extends Controller
         // ✅ Pendientes reales desde statements
         $rowsFromStatementsPending = [];
         try {
-            $rowsFromStatementsPending = array_values(array_filter((array) $rowsFromStatementsAll, function ($rr) {
-                $st    = strtolower((string) ($rr['status'] ?? 'pending'));
-                $saldo = (float) ($rr['saldo'] ?? 0);
-                return ($st !== 'paid') && ($saldo > 0.0001);
+            $rowsFromStatementsPending = array_values(array_filter((array)$rowsFromStatementsAll, function ($rr) {
+                $a = is_array($rr) ? $rr : (array)$rr;
+                return $this->statementIsPending($a);
             }));
+
         } catch (\Throwable $e) {
             $rowsFromStatementsPending = [];
         }
@@ -561,9 +620,11 @@ final class AccountBillingController extends Controller
                 $st = strtolower((string) ($rr['status'] ?? 'pending'));
                 $saldo = (float) ($rr['saldo'] ?? 0);
 
-                if ($st !== 'paid' && $saldo > 0.0001) {
+                $a = is_array($rr) ? $rr : (array)$rr;
+                if ($this->statementIsPending($a)) {
                     $pendingPeriods[] = $pp;
                 }
+
             }
 
             if (!empty($pendingPeriods)) {
