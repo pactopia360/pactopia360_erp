@@ -745,21 +745,42 @@ final class AccountBillingController extends Controller
             abort(404);
         }
 
+        // ✅ Ciclo (mensual/anual) para etiquetado correcto en PDF
+        $isAnnual = false;
+        try {
+            $isAnnual = (bool) $this->isAnnualBillingCycle((int)$accountId);
+        } catch (\Throwable $e) {
+            $isAnnual = false;
+        }
+
+        $billingCycle = $isAnnual ? 'annual' : 'monthly';
+
+
         // ✅ Items (desde admin) para PDF
         $items = [];
         try {
             $sid = (int)($row['id'] ?? 0);
             if ($sid > 0) {
                 $itemsRaw = $this->fetchStatementItems((string)config('p360.conn.admin','mysql_admin'), $sid);
-                $items = array_values(array_map(function ($x) {
+                $items = array_values(array_map(function ($x) use ($isAnnual) {
                     $a = is_array($x) ? $x : (array)$x;
+
+                    $name = (string)($a['description'] ?? 'Servicio');
+
+                    // ✅ Si la cuenta es anual, evita textos "mensual/monthly" en PDF
+                    if ($isAnnual) {
+                        $name = preg_replace('/\bmensual\b/iu', 'anual', $name);
+                        $name = preg_replace('/\bmonthly\b/iu', 'annual', $name);
+                    }
+
                     return [
-                        'name'       => (string)($a['description'] ?? 'Servicio'),
+                        'name'       => $name,
                         'unit_price' => (float)($a['unit_price'] ?? 0),
                         'qty'        => (float)($a['qty'] ?? 1),
                         'subtotal'   => (float)($a['amount'] ?? 0),
                     ];
                 }, $itemsRaw));
+
             }
         } catch (\Throwable $e) {}
 
@@ -771,14 +792,22 @@ final class AccountBillingController extends Controller
             'period'     => $period,
             'row'        => $row,
             'rows'       => [$row],
-            // compat
-            'inline'     => $inline,
-            'service_items' => $items,
-            'service_label' => 'Suscripción Pactopia360',
-            'cargo'         => (float)($row['total_cargo'] ?? ($row['charge'] ?? 0)),
-            'abono'         => (float)($row['total_abono'] ?? ($row['paid_amount'] ?? 0)),
 
+            // ✅ ciclo para el Blade PDF (y para etiquetas)
+            'billing_cycle' => $billingCycle,
+            'modo_cobro'    => $billingCycle, // compat con tu Blade (usa $modoCobro)
+
+            // compat
+            'inline'        => $inline,
+            'service_items' => $items,
+
+            // ✅ label coherente con el ciclo
+            'service_label' => $isAnnual ? 'Suscripción anual Pactopia360' : 'Suscripción mensual Pactopia360',
+
+            'cargo' => (float)($row['total_cargo'] ?? ($row['charge'] ?? 0)),
+            'abono' => (float)($row['total_abono'] ?? ($row['paid_amount'] ?? 0)),
         ];
+
 
         // DomPDF wrapper (barryvdh/laravel-dompdf)
         try {
@@ -1546,7 +1575,6 @@ final class AccountBillingController extends Controller
         }
     }
 
-
     /**
      * ==========================
      * ✅ PAGO PÚBLICO FIRMADO (Stripe Checkout)
@@ -1602,6 +1630,8 @@ final class AccountBillingController extends Controller
         $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
 
         $pendPeriods = [];
+        $minPending  = null;
+
         if (!empty($rowsAll)) {
             foreach ((array) $rowsAll as $rr) {
                 $pp = (string) ($rr['period'] ?? '');
@@ -1609,12 +1639,26 @@ final class AccountBillingController extends Controller
 
                 $st = strtolower((string) ($rr['status'] ?? 'pending'));
                 $saldo = (float) ($rr['saldo'] ?? 0);
+
                 if ($st !== 'paid' && $saldo > 0.0001) {
                     $pendPeriods[$pp] = true;
+                    if ($minPending === null || $pp < $minPending) $minPending = $pp; // ✅ min period pendiente
                 }
             }
 
-            if (!isset($pendPeriods[$period])) {
+            // ✅ Si hay pendientes, SOLO se puede pagar el mínimo pendiente (SOT)
+            if ($minPending !== null && $period !== $minPending) {
+                Log::warning('[BILLING] publicPay blocked (period not min pending)', [
+                    'account_id'  => $accountId,
+                    'period'      => $period,
+                    'min_pending' => $minPending,
+                ]);
+
+                return redirect()->route('cliente.estado_cuenta')
+                    ->with('warning', 'Solo puedes pagar el primer periodo pendiente: '.$minPending.'.');
+            }
+
+            if ($minPending === null || !isset($pendPeriods[$period])) {
                 Log::warning('[BILLING] publicPay blocked (period not pending)', [
                     'account_id' => $accountId,
                     'period'     => $period,
@@ -1637,6 +1681,7 @@ final class AccountBillingController extends Controller
                     ->with('warning', 'Este periodo no está habilitado para pago.');
             }
         }
+
 
         // ✅ Determinar monto (anual = total anual / mensual = mensualidad)
         $monthlyCents = 0;
@@ -2416,7 +2461,7 @@ final class AccountBillingController extends Controller
 
     private function resolveMonthlyCentsFromClientesEstadosCuenta(int $accountId, ?string $lastPaid, ?string $payAllowed): int
     {
-        $cli = config('p360.conn.clients', 'mysql_clientes');
+        $cli = (string) config('p360.conn.clientes', 'mysql_clientes'); // ✅ FIX key
         if (!Schema::connection($cli)->hasTable('estados_cuenta')) return 0;
 
         $tryPeriods = array_values(array_unique(array_filter([
@@ -2468,6 +2513,7 @@ final class AccountBillingController extends Controller
         }
     }
 
+
     /**
      * ✅ Saldo anterior pendiente (cents) para un periodo.
      * Regla: solo integra 1 mes anterior (period-1), como estado de cuenta clásico.
@@ -2489,6 +2535,7 @@ final class AccountBillingController extends Controller
         // 1) clientes.estados_cuenta.saldo (fuente más directa)
         try {
             $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+
             if (Schema::connection($cli)->hasTable('estados_cuenta')) {
                 $row = DB::connection($cli)->table('estados_cuenta')
                     ->where('account_id', $accountId)

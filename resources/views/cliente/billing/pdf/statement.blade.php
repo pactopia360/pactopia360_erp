@@ -310,11 +310,31 @@
   } catch (\Throwable $e) {}
 
     // ======================================================
-    // ✅ Service label SOT (backend lo manda como service_label)
-    // - Evita fallback "Servicio mensual" cuando es anual
+    // ✅ Service label SOT + ciclo (mensual/anual)
+    // - Si backend no manda label o manda "mensual" por error, corregimos según ciclo.
+    // - Fuente del ciclo (mejor esfuerzo): billing_cycle | modo_cobro | account.billing_cycle
     // ======================================================
+    $cycleRaw = trim((string)($billing_cycle ?? $modoCobro ?? ($accountObj->billing_cycle ?? '') ?? ''));
+    $cycleKey = strtolower($cycleRaw);
+
+    // Normaliza valores posibles
+    $isAnnual = in_array($cycleKey, ['annual','anual','yearly','year','1y','12m'], true)
+      || str_contains($cycleKey, 'anual')
+      || str_contains($cycleKey, 'annual')
+      || str_contains($cycleKey, 'year');
+
     $serviceLabel = trim((string)($service_label ?? ''));
-    if ($serviceLabel === '') $serviceLabel = 'Servicio mensual';
+
+    // Default coherente según ciclo
+    if ($serviceLabel === '') {
+      $serviceLabel = $isAnnual ? 'Servicio anual' : 'Servicio mensual';
+    }
+
+    // Si viene mal (ej. anual pero label "mensual"), corrige
+    if ($isAnnual) {
+      $serviceLabel = preg_replace('/\bmensual\b/iu', 'anual', $serviceLabel);
+      $serviceLabel = preg_replace('/\bmonthly\b/iu', 'annual', $serviceLabel);
+    }
 
     // ======================================================
     // ✅ Service items (normalización compat)
@@ -551,7 +571,21 @@
         @foreach($serviceItems as $it)
           @php
             $rowArr = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
-            $name   = (string)($rowArr['name'] ?? $rowArr['service'] ?? $rowArr['servicio'] ?? $rowArr['concepto'] ?? $rowArr['title'] ?? 'Servicio');
+            // ✅ Si la cuenta es anual, evita que el backend muestre "mensual" en el PDF
+            if (!isset($isAnnual)) {
+              // Por si el foreach corre antes de declarar (compat rara), recalculamos rápido:
+              $cycleRaw2 = trim((string)($billing_cycle ?? $modoCobro ?? ($accountObj->billing_cycle ?? '') ?? ''));
+              $cycleKey2 = strtolower($cycleRaw2);
+              $isAnnual = in_array($cycleKey2, ['annual','anual','yearly','year','1y','12m'], true)
+                || str_contains($cycleKey2, 'anual')
+                || str_contains($cycleKey2, 'annual')
+                || str_contains($cycleKey2, 'year');
+            }
+
+            if ($isAnnual) {
+              $name = preg_replace('/\bmensual\b/iu', 'anual', $name);
+              $name = preg_replace('/\bmonthly\b/iu', 'annual', $name);
+            }
 
             $unit   = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
 
