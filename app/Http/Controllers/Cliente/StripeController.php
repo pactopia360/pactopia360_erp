@@ -850,6 +850,102 @@ class StripeController extends Controller
             ]);
 
             // =========================================================
+            // (A2) ✅ Actualizar billing_statements (ADMIN) para que el portal (SOT) sea consistente
+            // - status=paid, saldo=0
+            // - total_abono/paid = APLICADO AL PERIODO (apply)
+            // - total_cargo/total = UI (lo que debía cerrar) si actualmente está en 0
+            // =========================================================
+            try {
+                if (Schema::connection($adm)->hasTable('billing_statements')) {
+                    $bsCols = Schema::connection($adm)->getColumnListing('billing_statements');
+                    $bsLc   = array_map('strtolower', $bsCols);
+                    $bsHas  = fn($c) => in_array(strtolower($c), $bsLc, true);
+
+                    if ($bsHas('account_id') && $bsHas('period')) {
+
+                        // Tomar row actual para decidir si hay que rellenar cargo/total (cuando quedó 0)
+                        $selCur = ['period'];
+                        foreach (['id','total_cargo','charge','cargo','total','total_cents','subtotal_cents','tax_cents'] as $k) {
+                            if ($bsHas($k)) $selCur[] = $k;
+                        }
+
+                        $orderCol = $bsHas('id') ? 'id' : 'period';
+
+                        $rowCur = DB::connection($adm)->table('billing_statements')
+                            ->where('account_id', $accountId)
+                            ->where('period', $period)
+                            ->orderByDesc($orderCol)
+                            ->first($selCur);
+
+                        // Cargo actual (si existe)
+                        $curCargo = 0.0;
+                        foreach (['total_cargo','charge','cargo','total'] as $k) {
+                            if ($bsHas($k) && $rowCur && is_numeric($rowCur->{$k} ?? null)) { $curCargo = (float)$rowCur->{$k}; break; }
+                        }
+
+                        $upd = [];
+
+                        if ($bsHas('status')) $upd['status'] = 'paid';
+
+                        // saldo/balance a 0
+                        if ($bsHas('saldo'))   $upd['saldo'] = 0;
+                        if ($bsHas('balance')) $upd['balance'] = 0;
+
+                        // ✅ ABONO/PAGADO = aplicado al periodo (apply)
+                        foreach (['total_abono','abono','paid_amount','paid'] as $k) {
+                            if ($bsHas($k)) $upd[$k] = round($applyMxn, 2);
+                        }
+                        if ($bsHas('paid_cents')) $upd['paid_cents'] = (int)$applyCents;
+
+                        // ✅ Si el statement quedó con cargo/total en 0, lo rellenamos con UI (lo que debía cerrar)
+                        // (esto corrige exactamente el caso 2026-02 cargo=0, abono=0)
+                        if ($curCargo <= 0.0001) {
+                            foreach (['total_cargo','charge','cargo','total'] as $k) {
+                                if ($bsHas($k)) $upd[$k] = round($uiMxn, 2);
+                            }
+                            if ($bsHas('total_cents')) $upd['total_cents'] = (int)$uiCents;
+
+                            // Si existen subtotal/tax cents pero están en 0 y no hay desglose, al menos setea subtotal = total, tax=0
+                            if ($bsHas('subtotal_cents') && (!isset($rowCur->subtotal_cents) || (int)$rowCur->subtotal_cents <= 0)) {
+                                $upd['subtotal_cents'] = (int)$uiCents;
+                            }
+                            if ($bsHas('tax_cents') && (!isset($rowCur->tax_cents) || (int)$rowCur->tax_cents <= 0)) {
+                                $upd['tax_cents'] = 0;
+                            }
+                        }
+
+                        // timestamps
+                        if ($bsHas('updated_at')) $upd['updated_at'] = now();
+                        if ($bsHas('paid_at'))    $upd['paid_at']    = now();
+
+                        // Ejecuta update
+                        $aff = (int) DB::connection($adm)->table('billing_statements')
+                            ->where('account_id', $accountId)
+                            ->where('period', $period)
+                            ->update($upd);
+
+                        Log::info('[BILLING:SYNC] billing_statements updated', [
+                            'account_id' => $accountId,
+                            'period'     => $period,
+                            'session_id' => $sessionId,
+                            'affected'   => $aff,
+                            'curCargo'   => $curCargo,
+                            'apply_mxn'  => $applyMxn,
+                            'ui_mxn'     => $uiMxn,
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[BILLING:SYNC] billing_statements update failed', [
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                    'session_id' => $sessionId ?: null,
+                    'err'        => $e->getMessage(),
+                ]);
+            }
+
+
+            // =========================================================
             // (B) Insert idempotente en estados_cuenta (ADMIN)
             // ✅ aquí va APLICADO AL PERIODO (apply)
             // =========================================================
