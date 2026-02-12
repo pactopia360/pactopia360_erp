@@ -1149,23 +1149,19 @@ final class AccountBillingController extends Controller
             $cargo = is_numeric($cargo) ? (float) $cargo : 0.0;
             $cargo = round(max(0.0, $cargo), 2);
 
-            // Recalcula saldo real
+            // saldo real
             $saldo = round(max(0.0, $cargo - $paidMxn), 2);
 
-            // Aplica override sin destruir la intención del statement
+            // aplica override sin destruir el statement
             $r['paid_amount'] = $paidMxn;
 
-            // conserva charge/cargo original; si venía 0 pero hay cargo en total_cargo, ya quedó en $cargo
             if (!isset($r['charge']) || !is_numeric($r['charge']) || (float)$r['charge'] <= 0) {
                 $r['charge'] = $cargo;
             }
 
-            $r['saldo'] = $saldo;
-
-            // status solo paid si saldo realmente quedó en 0
+            $r['saldo']  = $saldo;
             $r['status'] = ($saldo <= 0.0001) ? 'paid' : 'pending';
 
-            // can_pay NO se decide aquí (se decide después con payAllowed)
             if (($r['status'] ?? '') === 'paid') {
                 $r['can_pay'] = false;
             }
@@ -1174,7 +1170,6 @@ final class AccountBillingController extends Controller
 
         return $rows;
     }
-
 
     private function buildPeriodRowsFromClientEstadosCuenta(
     int $accountId,
