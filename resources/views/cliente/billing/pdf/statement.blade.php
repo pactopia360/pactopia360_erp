@@ -31,16 +31,62 @@
   use Illuminate\Support\Carbon;
   use Illuminate\Support\Str;
 
+  // ======================================================
+  // ✅ Helpers numéricos (DomPDF-safe)
+  // - Acepta: null, int/float, strings "$1,234.50 MXN"
+  // - Regresa float >= 0 (si quieres permitir negativos, quita max(0,...))
+  // ======================================================
   $f = function ($n): float {
     if ($n === null) return 0.0;
-    if (is_int($n) || is_float($n)) return (float)$n;
+
+    if (is_int($n) || is_float($n)) {
+      $v = (float)$n;
+      return is_finite($v) ? $v : 0.0;
+    }
+
     if (is_string($n)) {
       $s = trim($n);
       if ($s === '') return 0.0;
-      $s = str_replace(['$',',','MXN','mxn',' '], '', $s);
-      return is_numeric($s) ? (float)$s : 0.0;
+
+      // Limpieza común: $, comas, MXN, espacios
+      $s = str_ireplace(['mxn'], '', $s);
+      $s = str_replace(['$', ',', ' '], '', $s);
+
+      // Soporta formato "1.234,56" (EU) si llega así: convierte a "1234.56"
+      // Heurística simple: si tiene coma y punto, asume coma decimal (EU) y remueve puntos
+      if (str_contains($s, ',') && str_contains($s, '.')) {
+        // "1.234,56" => "1234.56"
+        $s = str_replace('.', '', $s);
+        $s = str_replace(',', '.', $s);
+      } elseif (str_contains($s, ',') && !str_contains($s, '.')) {
+        // "1234,56" => "1234.56"
+        $s = str_replace(',', '.', $s);
+      }
+
+      if (!is_numeric($s)) return 0.0;
+      $v = (float)$s;
+      return is_finite($v) ? $v : 0.0;
     }
-    return is_numeric($n) ? (float)$n : 0.0;
+
+    if (is_object($n)) {
+      // Si llega un objeto tipo Money/DTO con ->amount
+      if (isset($n->amount) && is_numeric($n->amount)) {
+        $v = (float)$n->amount;
+        return is_finite($v) ? $v : 0.0;
+      }
+      return 0.0;
+    }
+
+    if (is_numeric($n)) {
+      $v = (float)$n;
+      return is_finite($v) ? $v : 0.0;
+    }
+
+    return 0.0;
+  };
+
+  $r2 = function (float $n): float {
+    return round($n, 2);
   };
 
   $periodSafe = (string)($period ?? '—');
@@ -54,22 +100,19 @@
 
   // ======================================================
   // ✅ Saldo anterior (SOT = billing_statements / backend)
-  // - NUNCA lo calcules con payments: payments puede tener pendientes viejos y desfasar el PDF.
-  // - Usa prev_balance enviado por el backend (idealmente calculado desde billing_statements del periodo anterior).
-  // - Si el backend indica que el periodo anterior está pagado, fuerza 0.
+  // - NUNCA lo calcules con payments.
   // ======================================================
   $prevBalanceFallback = $f($prev_balance ?? 0);
   $prevStatusRaw = strtolower(trim((string)($prev_status ?? $prev_statement_status ?? '')));
   $prevIsPaid = in_array($prevStatusRaw, ['paid','pagado','paid_ok','pago'], true);
 
-  // Si el backend mandó un flag directo, respétalo
   if (isset($prev_is_paid)) {
     $prevIsPaid = (bool)$prev_is_paid;
   }
 
   $prevBalance = $prevIsPaid ? 0.0 : $prevBalanceFallback;
 
-  // Fallback adicional (por compat): si no viene prev_balance pero viene saldo del statement anterior
+  // Fallback adicional (compat)
   if ($prevBalance <= 0.00001 && !$prevIsPaid) {
     $prevBalanceAlt = $f($prev_statement_saldo ?? $prev_saldo ?? null);
     if ($prevBalanceAlt > 0.00001) $prevBalance = $prevBalanceAlt;
@@ -78,20 +121,19 @@
   // ✅ Bandera para UI: mostrar línea del periodo anterior aunque esté pagado (sin sumar)
   $showPrevLine = false;
   if (is_string($prevPeriod) && trim($prevPeriod) !== '') {
-    $showPrevLine = true; // hay periodo anterior conocido => se puede mostrar
+    $showPrevLine = true;
   } elseif (is_string($prevPeriodLabel) && trim($prevPeriodLabel) !== '') {
     $showPrevLine = true;
   } elseif ($prevBalanceFallback > 0.00001 || $prevIsPaid) {
     $showPrevLine = true;
   }
 
-
   // ======================================================
   // ✅ Due del periodo actual (SOT)
   // Orden de preferencia:
-  // 1) current_period_due (si el backend lo manda)
-  // 2) saldo/amount_due/total/charge del statement actual (si vienen)
-  // 3) cargo - abono (último recurso)
+  // 1) current_period_due
+  // 2) saldo/amount_due/total/charge del statement actual
+  // 3) cargo - abono
   // ======================================================
   $candidates = [
     $current_period_due ?? null,
@@ -112,15 +154,14 @@
   }
 
   if ($currentDue <= 0.00001) {
-    $currentDue = round(max(0.0, $cargo - $abono), 2);
+    $currentDue = $r2(max(0.0, $cargo - $abono));
   } else {
-    $currentDue = round(max(0.0, $currentDue), 2);
+    $currentDue = $r2(max(0.0, $currentDue));
   }
-
 
   // ✅ sumar saldo anterior SOLO si hay deuda real
   $showPrev   = ($prevBalance > 0.00001);
-  $totalPagar = round($currentDue + ($showPrev ? $prevBalance : 0.0), 2);
+  $totalPagar = $r2($currentDue + ($showPrev ? $prevBalance : 0.0));
 
   $prevLabelSafe = trim((string)($prevPeriodLabel ?? ''));
   if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
@@ -130,9 +171,8 @@
   $statusLabel = 'Pendiente';
   $statusBadge = 'warn';
   if ($totalPagar <= 0.00001) {
-    // ✅ Si no hay monto a pagar, consideramos pagado (aunque no haya cargo/abono visibles)
     $statusLabel = 'Pagado';
-    $statusBadge = ($statusLabel === 'Pagado') ? 'ok' : 'dim';
+    $statusBadge = 'ok';
   } else {
     $statusLabel = ($abono > 0.00001) ? 'Parcial' : 'Pendiente';
     $statusBadge = 'warn';
@@ -142,30 +182,31 @@
   $tarifaPill  = (string)($tarifa_pill ?? 'dim');
   if (!in_array($tarifaPill, ['info','warn','ok','dim','bad'], true)) $tarifaPill = 'dim';
 
-  $ivaRate  = 0.16;
-  $subtotal = $totalPagar > 0 ? round($totalPagar/(1+$ivaRate), 2) : 0.0;
-  $iva      = $totalPagar > 0 ? round($totalPagar - $subtotal, 2) : 0.0;
+  // IVA: por defecto 16%, pero si viene iva_rate del backend lo respetamos (0.0 - 0.99)
+  $ivaRate = $f($iva_rate ?? 0.16);
+  if ($ivaRate <= 0 || $ivaRate >= 0.99) $ivaRate = 0.16;
+
+  $subtotal = $totalPagar > 0 ? $r2($totalPagar / (1 + $ivaRate)) : 0.0;
+  $iva      = $totalPagar > 0 ? $r2($totalPagar - $subtotal) : 0.0;
 
   $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
-  // Mock: si quieres 00001 (5 dígitos) cambia 6 -> 5
   $idCuentaTxt  = $accountIdNum > 0 ? str_pad((string)$accountIdNum, 5, '0', STR_PAD_LEFT) : '—';
 
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
 
+  // ✅ Nombre mostrado del cliente (nunca dependas de $name por colisión con items)
   $rs1 = trim((string)($razon_social ?? ''));
   $rs2 = trim((string)($accountObj->razon_social ?? ''));
-  // ✅ Nombre mostrado del cliente (nunca dependas de $name porque se usa para items)
+
   $nm1 = trim((string)(
     $accountName
     ?? ($accountObj->razon_social ?? null)
     ?? ($accountObj->name ?? null)
     ?? ($accountObj->nombre ?? null)
     ?? ($accountObj->empresa ?? null)
-    ?? ($account->razon_social ?? null)
-    ?? ($account->name ?? null)
-    ?? ($account->nombre ?? null)
+    ?? ((isset($account) && is_object($account)) ? ($account->razon_social ?? ($account->name ?? ($account->nombre ?? null))) : null)
     ?? ''
   ));
 
@@ -185,6 +226,7 @@
   $clientePlan  = (string)($plan ?? ($accountObj->plan ?? ($accountObj->plan_actual ?? '—')));
   $modoCobro    = (string)($modo_cobro ?? ($accountObj->modo_cobro ?? ($accountObj->billing_cycle ?? '—')));
 
+  // Dirección
   $dir = (array)($cliente_dir ?? []);
   $dirCalle = trim((string)($dir['calle'] ?? ''));
   $dirExt   = trim((string)($dir['num_ext'] ?? ''));
@@ -208,7 +250,7 @@
   $addrParts[] = ($dirPais !== '' ? $dirPais : 'México');
   $addrInline = implode(' · ', array_filter($addrParts, fn($v)=>trim((string)$v) !== ''));
 
-  // Logo
+  // Logo (data URI)
   $logoDataUri = $logo_data_uri ?? null;
   $logoFilePath = public_path('assets/client/Logo1Pactopia.png');
   if (!$logoDataUri && is_file($logoFilePath)) {
@@ -218,7 +260,7 @@
     } catch (\Throwable $e) {}
   }
 
-  // QR
+  // QR / Pay
   $qrDataUri = $qr_data_uri ?? null;
   $qrUrl     = $qr_url ?? null;
 
@@ -228,8 +270,8 @@
   $hasPay = trim($payUrl) !== '';
   $payUrlShort = $hasPay ? Str::limit($payUrl, 150, '…') : '';
 
-    // ======================================================
-  // Total en letras REAL (ES-MX) DomPDF-safe
+  // ======================================================
+  // ✅ Total en letras REAL (ES-MX) DomPDF-safe
   // ======================================================
   $numToWordsEs = function (int $n) use (&$numToWordsEs): string {
     $n = (int)$n;
@@ -243,8 +285,6 @@
     $tens = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
     $hundreds = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
 
-    $out = [];
-
     $chunk = function(int $x) use ($units, $tens, $hundreds): string {
       $x = (int)$x;
       if ($x === 0) return '';
@@ -257,24 +297,19 @@
       $s = '';
       if ($c > 0) $s .= $hundreds[$c].($r ? ' ' : '');
 
-      if ($r <= 29) {
-        $s .= $units[$r];
-        return trim($s);
-      }
+      if ($r <= 29) return trim($s.$units[$r]);
 
       $d = intdiv($r, 10);
       $u = $r % 10;
 
-      if ($d === 2 && $u === 0) {
-        $s .= 'veinte';
-      } else {
-        $s .= $tens[$d];
-        if ($u > 0) $s .= ' y '.$units[$u];
-      }
+      $s .= $tens[$d];
+      if ($u > 0) $s .= ' y '.$units[$u];
+
       return trim($s);
     };
 
-    // Soporte hasta 999,999,999
+    $out = [];
+
     $millones = intdiv($n, 1000000);
     $n = $n % 1000000;
     $miles = intdiv($n, 1000);
@@ -293,7 +328,6 @@
     if ($resto > 0) $out[] = $chunk($resto);
 
     $res = trim(implode(' ', array_filter($out)));
-    // Ajuste: "uno" -> "un" cuando va solo (ej: "uno mil" no existe, ya se cubre; pero "uno pesos" sí)
     $res = preg_replace('/\buno\b$/u', 'un', $res);
 
     return $res;
@@ -304,12 +338,9 @@
   if ($cent >= 100) { $cent = 0; $pesosInt++; }
 
   $pesosTxt = $numToWordsEs($pesosInt);
-  // “un peso” singular
   $moneda   = ($pesosInt === 1) ? 'peso' : 'pesos';
-
   $totalLetrasCalc = trim($pesosTxt).' '.$moneda.' '.str_pad((string)$cent, 2, '0', STR_PAD_LEFT).'/100 MN';
 
-  // si viene override del backend, respétalo
   $totalLetras = (string)($total_letras ?? $totalLetrasCalc);
 
   // Period label
@@ -321,78 +352,73 @@
     }
   } catch (\Throwable $e) {}
 
-    // ======================================================
-    // ✅ Service label SOT + ciclo (mensual/anual)
-    // - Si backend no manda label o manda "mensual" por error, corregimos según ciclo.
-    // - Fuente del ciclo (mejor esfuerzo): billing_cycle | modo_cobro | account.billing_cycle
-    // ======================================================
-    $cycleRaw = trim((string)($billing_cycle ?? $modoCobro ?? ($accountObj->billing_cycle ?? '') ?? ''));
-    $cycleKey = strtolower($cycleRaw);
+  // ======================================================
+  // ✅ Service label SOT + ciclo (mensual/anual)
+  // ======================================================
+  $cycleRaw = trim((string)($billing_cycle ?? $modoCobro ?? ($accountObj->billing_cycle ?? '') ?? ''));
+  $cycleKey = strtolower($cycleRaw);
 
-    // Normaliza valores posibles
-    $isAnnual = in_array($cycleKey, ['annual','anual','yearly','year','1y','12m'], true)
-      || str_contains($cycleKey, 'anual')
-      || str_contains($cycleKey, 'annual')
-      || str_contains($cycleKey, 'year');
+  $isAnnual = in_array($cycleKey, ['annual','anual','yearly','year','1y','12m'], true)
+    || str_contains($cycleKey, 'anual')
+    || str_contains($cycleKey, 'annual')
+    || str_contains($cycleKey, 'year');
 
-    $serviceLabel = trim((string)($service_label ?? ''));
+  $serviceLabel = trim((string)($service_label ?? ''));
 
-    // Default coherente según ciclo
-    if ($serviceLabel === '') {
-      $serviceLabel = $isAnnual ? 'Servicio anual' : 'Servicio mensual';
-    }
+  if ($serviceLabel === '') {
+    $serviceLabel = $isAnnual ? 'Servicio anual' : 'Servicio mensual';
+  }
 
-    // Si viene mal (ej. anual pero label "mensual"), corrige
-    if ($isAnnual) {
-      $serviceLabel = preg_replace('/\bmensual\b/iu', 'anual', $serviceLabel);
-      $serviceLabel = preg_replace('/\bmonthly\b/iu', 'annual', $serviceLabel);
-    }
+  if ($isAnnual) {
+    $serviceLabel = preg_replace('/\bmensual\b/iu', 'anual', $serviceLabel);
+    $serviceLabel = preg_replace('/\bmonthly\b/iu', 'annual', $serviceLabel);
+  }
 
-    // ======================================================
-    // ✅ Service items (normalización compat)
-    // - Prefiere service_items (moderno)
-    // - Fallback a consumos (legacy)
-    // ======================================================
-    $serviceItems = [];
-    $si = $service_items ?? null;
-    if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
+  // ======================================================
+  // ✅ Service items (normalización compat) - DOMPDF SAFE
+  // - Prefiere service_items (moderno)
+  // - Fallback a consumos (legacy)
+  // - Normaliza: name, unit_price, qty, subtotal
+  // ======================================================
+  $serviceItems = [];
+  $si = $service_items ?? null;
+  if ($si instanceof \Illuminate\Support\Collection) $si = $si->all();
 
-    if (is_array($si) && count($si) > 0) {
-      $serviceItems = $si;
-    } else {
-      $consumosRaw = $consumos ?? null;
-      if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
-      $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
-    }
-    if (!is_array($serviceItems)) $serviceItems = [];
+  if (is_array($si) && count($si) > 0) {
+    $serviceItems = $si;
+  } else {
+    $consumosRaw = $consumos ?? null;
+    if ($consumosRaw instanceof \Illuminate\Support\Collection) $consumosRaw = $consumosRaw->all();
+    $serviceItems = is_array($consumosRaw) ? $consumosRaw : [];
+  }
+  if (!is_array($serviceItems)) $serviceItems = [];
 
-    // Normaliza keys comunes para que la tabla siempre renderice bien
-    // (sin obligarte a cambiar el backend)
-    $serviceItems = array_values(array_map(function ($it) {
-      $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
+  $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
+    $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
-      // nombre
-      $itemName = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
-      ...
-      'name' => $itemName,
+    // nombre (SOT: row['name'] o similares)
+    $itemName = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
+    if ($itemName === '') $itemName = 'Servicio';
 
-      // unit
-      $unit = $row['unit_cost'] ?? $row['unit_price'] ?? $row['costo_unit'] ?? $row['costo'] ?? $row['importe'] ?? 0;
+    // unit
+    $unit = $f($row['unit_cost'] ?? $row['unit_price'] ?? $row['costo_unit'] ?? $row['costo'] ?? $row['importe'] ?? 0);
 
-      // qty
-      $qty  = $row['qty'] ?? $row['cantidad'] ?? 1;
+    // qty
+    $qty  = $f($row['qty'] ?? $row['cantidad'] ?? 1);
+    if ($qty <= 0.00001) $qty = 1.0;
 
-      // subtotal
-      $sub  = $row['subtotal'] ?? $row['total'] ?? null;
+    // subtotal (si viene, se respeta; si no, se calcula)
+    $subRaw = $row['subtotal'] ?? $row['total'] ?? $row['importe_total'] ?? null;
+    $sub    = $f($subRaw);
+    if ($sub <= 0.00001) $sub = $unit * $qty;
 
-      return [
-        'name'       => $itemName,
-        'unit_price' => $unit,
-        'qty'        => $qty,
-        'subtotal'   => $sub,
-      ];
-
-    }, $serviceItems));
+    return [
+      'name'       => $itemName,
+      'unit_price' => $r2(max(0.0, $unit)),
+      'qty'        => $r2(max(0.0, $qty)),
+      'subtotal'   => $r2(max(0.0, $sub)),
+    ];
+  }, $serviceItems));
 
   // ✅ Insert saldo anterior como línea:
   // - Si hay deuda: suma y muestra monto
@@ -406,11 +432,12 @@
         'subtotal'   => 0,
       ]);
     } elseif ($showPrev) {
+      $pb = $r2((float)$prevBalance);
       array_unshift($serviceItems, [
         'name'       => 'Saldo anterior (' . $prevLabelSafe . ')',
-        'unit_price' => round((float)$prevBalance, 2),
+        'unit_price' => $pb,
         'qty'        => 1,
-        'subtotal'   => round((float)$prevBalance, 2),
+        'subtotal'   => $pb,
       ]);
     }
   }
@@ -419,8 +446,8 @@
   $rowsCount = count($serviceItems);
   $minRows   = ($rowsCount <= 1) ? 9 : (($rowsCount <= 3) ? 8 : (($rowsCount <= 6) ? 7 : 6));
   $padRows   = max(0, $minRows - $rowsCount);
-
 @endphp
+
 
 {{-- =========================================================
    ✅ TOP GRID (DomPDF-safe · 2 columnas · 1 sola fila)
