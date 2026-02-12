@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Stripe\StripeClient;
 use Stripe\Webhook;
+use App\Services\Admin\Billing\AccountBillingStateService;
 
 class StripeController extends Controller
 {
@@ -1105,6 +1106,17 @@ class StripeController extends Controller
 
             DB::connection($cli)->commit();
             DB::connection($adm)->commit();
+            
+            // ✅ P360: re-evaluar estado real por billing_statements (por si hay pendientes previos)
+            try {
+                AccountBillingStateService::sync($accountId, 'cliente.stripe.pro.sync');
+            } catch (\Throwable $e) {
+                Log::warning('[SYNC] AccountBillingStateService sync failed', [
+                    'account_id' => $accountId,
+                    'session_id' => $sessionId ?: null,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
 
             Log::info('[BILLING:SYNC] DONE OK', [
                 'account_id' => $accountId,
@@ -1182,6 +1194,18 @@ class StripeController extends Controller
                 ],
             ]);
 
+            // ✅ P360: recalcular estado real de cuenta vs billing_statements
+            try {
+                AccountBillingStateService::sync((int)$account->id, 'cliente.stripe.invoice.paid');
+            } catch (\Throwable $e) {
+                Log::warning('[invoice.paid] AccountBillingStateService sync failed', [
+                    'account_id' => (int)$account->id,
+                    'invoice'    => $invoice->id ?? null,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
+
             Log::info('Renovación registrada invoice.paid', [
                 'account_id' => $account->id,
                 'invoice'    => $invoice->id ?? null,
@@ -1219,6 +1243,18 @@ class StripeController extends Controller
                     ],
                 ],
             ]);
+
+            // ✅ P360: recalcular estado real de cuenta vs billing_statements
+            try {
+                AccountBillingStateService::sync((int)$account->id, 'cliente.stripe.invoice.failed');
+            } catch (\Throwable $e) {
+                Log::warning('[invoice.failed] AccountBillingStateService sync failed', [
+                    'account_id' => (int)$account->id,
+                    'invoice'    => $invoice->id ?? null,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
 
             Log::info('Cuenta marcada pago pendiente por invoice.payment_failed', [
                 'account_id' => $account->id,
