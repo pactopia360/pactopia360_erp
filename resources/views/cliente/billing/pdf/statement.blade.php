@@ -393,7 +393,7 @@
   }
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
+    $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
     $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
     // nombre (SOT: row['name'] o similares)
