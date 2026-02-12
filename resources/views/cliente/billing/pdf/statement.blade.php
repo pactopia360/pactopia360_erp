@@ -571,6 +571,10 @@
         @foreach($serviceItems as $it)
           @php
             $rowArr = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
+
+            // ✅ Nombre del servicio/concepto (NO usar $name para evitar colisión con el nombre del cliente)
+            $svcName = trim((string)($rowArr['name'] ?? $rowArr['service'] ?? $rowArr['servicio'] ?? $rowArr['concepto'] ?? $rowArr['title'] ?? 'Servicio'));
+
             // ✅ Si la cuenta es anual, evita que el backend muestre "mensual" en el PDF
             if (!isset($isAnnual)) {
               // Por si el foreach corre antes de declarar (compat rara), recalculamos rápido:
@@ -583,20 +587,20 @@
             }
 
             if ($isAnnual) {
-              $name = preg_replace('/\bmensual\b/iu', 'anual', $name);
-              $name = preg_replace('/\bmonthly\b/iu', 'annual', $name);
+              $svcName = preg_replace('/\bmensual\b/iu', 'anual', $svcName);
+              $svcName = preg_replace('/\bmonthly\b/iu', 'annual', $svcName);
             }
 
-            $unit   = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
+            $unit = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
 
-            $qty    = $f($rowArr['qty'] ?? $rowArr['cantidad'] ?? 1);
+            $qty = $f($rowArr['qty'] ?? $rowArr['cantidad'] ?? 1);
             if ($qty <= 0) $qty = 1;
 
-            $sub    = $f($rowArr['subtotal'] ?? $rowArr['total'] ?? ($unit * $qty));
-
+            $sub = $f($rowArr['subtotal'] ?? $rowArr['total'] ?? ($unit * $qty));
           @endphp
+
           <tr>
-            <td class="sb">{{ $name }}</td>
+            <td class="sb">{{ $svcName }}</td>
             <td class="r">$ {{ number_format($unit, 2) }}</td>
             <td class="c">{{ rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.') }}</td>
             <td class="r">$ {{ number_format($sub, 2) }}</td>
