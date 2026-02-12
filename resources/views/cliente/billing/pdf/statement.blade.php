@@ -156,7 +156,19 @@
 
   $rs1 = trim((string)($razon_social ?? ''));
   $rs2 = trim((string)($accountObj->razon_social ?? ''));
-  $nm1 = trim((string)($name ?? ''));
+  // ✅ Nombre mostrado del cliente (nunca dependas de $name porque se usa para items)
+  $nm1 = trim((string)(
+    $accountName
+    ?? ($accountObj->razon_social ?? null)
+    ?? ($accountObj->name ?? null)
+    ?? ($accountObj->nombre ?? null)
+    ?? ($accountObj->empresa ?? null)
+    ?? ($account->razon_social ?? null)
+    ?? ($account->name ?? null)
+    ?? ($account->nombre ?? null)
+    ?? ''
+  ));
+
   $nm2 = trim((string)($accountObj->name ?? ''));
   $em1 = trim((string)($email ?? ''));
   $em2 = trim((string)($accountObj->email ?? ''));
@@ -360,7 +372,9 @@
       $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
       // nombre
-      $name = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
+      $itemName = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
+      ...
+      'name' => $itemName,
 
       // unit
       $unit = $row['unit_cost'] ?? $row['unit_price'] ?? $row['costo_unit'] ?? $row['costo'] ?? $row['importe'] ?? 0;
@@ -372,11 +386,12 @@
       $sub  = $row['subtotal'] ?? $row['total'] ?? null;
 
       return [
-        'name'       => $name,
+        'name'       => $itemName,
         'unit_price' => $unit,
         'qty'        => $qty,
         'subtotal'   => $sub,
       ];
+
     }, $serviceItems));
 
   // ✅ Insert saldo anterior como línea:

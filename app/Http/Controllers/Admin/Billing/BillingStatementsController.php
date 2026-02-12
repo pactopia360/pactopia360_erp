@@ -2984,7 +2984,8 @@ final class BillingStatementsController extends Controller
 
             $idCol = $has('id') ? 'id' : $cols[0];
 
-            DB::connection($this->adm)->transaction(function () use ($existing, $idCol, $row) {
+            DB::connection($this->adm)->transaction(function () use ($existing, $idCol, $row, $accountId) {
+
                 if ($existing && isset($existing->{$idCol})) {
                     DB::connection($this->adm)->table('payments')->where($idCol, (int) $existing->{$idCol})->update($row);
                 } else {
