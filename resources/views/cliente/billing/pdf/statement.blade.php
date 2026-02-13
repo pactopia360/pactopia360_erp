@@ -721,41 +721,50 @@
           @endphp
 
           @if($qrImg)
-          @php
-            $forceOverlay = (bool)($qr_force_overlay ?? false);
-            $logoPx = (int)($qr_logo_px ?? 38);
-            if ($logoPx < 18) $logoPx = 18;
-            if ($logoPx > 64) $logoPx = 64;
+            @php
+              // ✅ Si Admin ya inyectó QR con logo embebido (backend),
+              // NO hagas overlay HTML (DomPDF lo hace inestable y mueve layout).
+              $qrEmbedded = (bool)($qr_embedded ?? false);
 
-            // logo para overlay: usa el mismo logoDataUri ya resuelto arriba
-            $qrOverlayLogo = $logoDataUri ?? null;
-          @endphp
+              // Mantén overlay SOLO si NO está embebido (caso Cliente legacy)
+              $forceOverlay = (bool)($qr_force_overlay ?? false);
 
-          @if($forceOverlay && $qrOverlayLogo)
-            <div style="position:relative; display:inline-block; line-height:0;">
-              <img src="{{ $qrImg }}" alt="QR" class="qrImg" style="display:block;">
-              <img
-                src="{{ $qrOverlayLogo }}"
-                alt="PACTOPIA"
-                style="
-                  position:absolute;
-                  left:50%;
-                  top:50%;
-                  width:{{ $logoPx }}px;
-                  height:{{ $logoPx }}px;
-                  transform:translate(-50%,-50%);
-                  background:#fff;
-                  border-radius:10px;
-                  padding:4px;
-                "
-              >
-            </div>
+              $logoPx = (int)($qr_logo_px ?? 38);
+              if ($logoPx < 18) $logoPx = 18;
+              if ($logoPx > 64) $logoPx = 64;
+
+              $qrOverlayLogo = $logoDataUri ?? null;
+            @endphp
+
+            @if($qrEmbedded)
+              {{-- ✅ Admin: QR ya trae logo dentro --}}
+              <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+            @elseif($forceOverlay && $qrOverlayLogo)
+              {{-- Cliente legacy: overlay (si lo sigues usando) --}}
+              <div style="position:relative; display:inline-block; line-height:0;">
+                <img src="{{ $qrImg }}" alt="QR" class="qrImg" style="display:block;">
+                <img
+                  src="{{ $qrOverlayLogo }}"
+                  alt="PACTOPIA"
+                  style="
+                    position:absolute;
+                    left:50%;
+                    top:50%;
+                    width:{{ $logoPx }}px;
+                    height:{{ $logoPx }}px;
+                    transform:translate(-50%,-50%);
+                    background:#fff;
+                    border-radius:10px;
+                    padding:4px;
+                  "
+                >
+              </div>
+            @else
+              <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+            @endif
           @else
-            <img src="{{ $qrImg }}" alt="QR" class="qrImg">
-          @endif
-          @else
-          <div class="mut b" style="padding:26px 0;">QR no disponible</div>
-          <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>
+            <div class="mut b" style="padding:26px 0;">QR no disponible</div>
+            <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>
           @endif
         </div>
       </td>

@@ -1159,24 +1159,41 @@ final class BillingStatementsController extends Controller
 
         $data = $this->buildStatementData($accountId, $period);
 
-        /**
-         * ✅ Admin debe verse EXACTAMENTE igual que Cliente
-         * - No permitimos que "modal" altere el layout del PDF
-         */
+        // ✅ Admin debe verse igual que Cliente: NO permitir que "modal" altere layout
         $data['isModal'] = false;
 
-        /**
-         * ✅ Admin: forzar QR con logo dentro (baked-in)
-         * (El overlay HTML/CSS es inestable en DomPDF)
-         */
-        $data['qr_force_overlay'] = true;     // deja la bandera por compat (por si la usas en vista)
-        $data['qr_logo_px']       = 38;
+        // ✅ Resolver URL de pago (fuente única para QR)
+        $payUrl = (string)($data['pay_url']
+            ?? $data['payUrl']
+            ?? $data['checkout_url']
+            ?? $data['checkoutUrl']
+            ?? $data['payment_url']
+            ?? $data['paymentUrl']
+            ?? $data['url_pago']
+            ?? ''
+        );
 
-        // ✅ Hornea el logo dentro del QR (si existe QR + logo)
-        $data = $this->adminBakeLogoIntoQr($data);
+        // ✅ Generar QR con logo embebido (PNG) -> DomPDF lo renderiza perfecto (sin overlays CSS)
+        // Ajusta tamaño del logo si quieres (30–48 suele verse bien)
+        $logoPx = (int)($data['qr_logo_px'] ?? 38);
+        if ($logoPx < 18) $logoPx = 18;
+        if ($logoPx > 64) $logoPx = 64;
+
+        if (trim($payUrl) !== '') {
+            $qr = $this->makeQrDataUriWithCenterLogo($payUrl, $logoPx);
+            if ($qr !== null) {
+                // ✅ fuerza a que la vista use este QR (igual que Cliente)
+                $data['qr_data_uri'] = $qr;
+                $data['qrDataUri']   = $qr; // compat
+            }
+        }
+
+        // ✅ NO usar overlays HTML/CSS en la vista (DomPDF falla). Deja bandera apagada.
+        $data['qr_force_overlay'] = false;
 
         $viewName = 'cliente.billing.pdf.statement';
-        $inline   = $req->boolean('inline') || $req->boolean('preview');
+
+        $inline = $req->boolean('inline') || $req->boolean('preview');
 
         if ($req->boolean('html')) {
             Log::info('[STATEMENT_PDF] debug html', [
@@ -1212,6 +1229,147 @@ final class BillingStatementsController extends Controller
 
         $html = view($viewName, $data)->render();
         return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+    }
+
+    /**
+     * Genera un QR PNG (data URI) con logo centrado (embebido en la imagen).
+     * Esto es lo único 100% estable en DomPDF (evita overlays CSS).
+     */
+    private function makeQrDataUriWithCenterLogo(string $payload, int $logoPx = 38): ?string
+    {
+        $payload = trim($payload);
+        if ($payload === '') return null;
+
+        try {
+            // 1) QR base (PNG binario) usando BaconQrCode
+            $size = 260; // tamaño del QR (px). Ajusta 240–300 si quieres.
+            $renderer = new ImageRenderer(
+                new RendererStyle($size),
+                new GdImageBackEnd()
+            );
+
+            $writer = new Writer($renderer);
+            $qrBin = $writer->writeString($payload);
+
+            if (!is_string($qrBin) || strlen($qrBin) < 50) {
+                return null;
+            }
+
+            // 2) Cargar QR a GD
+            $qrImg = @imagecreatefromstring($qrBin);
+            if (!$qrImg) return null;
+
+            imagesavealpha($qrImg, true);
+            imagealphablending($qrImg, true);
+
+            $qrW = imagesx($qrImg);
+            $qrH = imagesy($qrImg);
+
+            // 3) Cargar logo (mismo logo del cliente)
+            $logoPath = public_path('assets/client/Logo1Pactopia.png');
+            if (!is_file($logoPath) || !is_readable($logoPath)) {
+                // sin logo: regresamos QR simple (pero estable)
+                $out = $this->gdPngToDataUri($qrImg);
+                imagedestroy($qrImg);
+                return $out;
+            }
+
+            $logoBin = @file_get_contents($logoPath);
+            if ($logoBin === false || strlen($logoBin) < 50) {
+                $out = $this->gdPngToDataUri($qrImg);
+                imagedestroy($qrImg);
+                return $out;
+            }
+
+            $logoImg = @imagecreatefromstring($logoBin);
+            if (!$logoImg) {
+                $out = $this->gdPngToDataUri($qrImg);
+                imagedestroy($qrImg);
+                return $out;
+            }
+
+            imagesavealpha($logoImg, true);
+            imagealphablending($logoImg, true);
+
+            // 4) Normalizar logoPx
+            $logoPx = (int)$logoPx;
+            if ($logoPx < 18) $logoPx = 18;
+            if ($logoPx > 64) $logoPx = 64;
+
+            // 5) Crear “placa” blanca detrás del logo (mejora lectura del QR)
+            $pad = 6; // padding alrededor del logo
+            $plate = $logoPx + ($pad * 2);
+
+            $plateImg = imagecreatetruecolor($plate, $plate);
+            imagesavealpha($plateImg, true);
+            imagealphablending($plateImg, false);
+
+            $transparent = imagecolorallocatealpha($plateImg, 0, 0, 0, 127);
+            imagefill($plateImg, 0, 0, $transparent);
+
+            // Fondo blanco sólido (cuadro). DomPDF se ve bien.
+            $white = imagecolorallocatealpha($plateImg, 255, 255, 255, 0);
+            imagefilledrectangle($plateImg, 0, 0, $plate, $plate, $white);
+
+            // 6) Redimensionar logo a logoPx y pegarlo centrado en la placa
+            $dstX = (int)floor(($plate - $logoPx) / 2);
+            $dstY = (int)floor(($plate - $logoPx) / 2);
+
+            $logoW = imagesx($logoImg);
+            $logoH = imagesy($logoImg);
+
+            imagecopyresampled(
+                $plateImg,
+                $logoImg,
+                $dstX, $dstY,
+                0, 0,
+                $logoPx, $logoPx,
+                $logoW, $logoH
+            );
+
+            // 7) Pegar la placa centrada en el QR
+            $centerX = (int)floor(($qrW - $plate) / 2);
+            $centerY = (int)floor(($qrH - $plate) / 2);
+
+            imagecopy(
+                $qrImg,
+                $plateImg,
+                $centerX, $centerY,
+                0, 0,
+                $plate, $plate
+            );
+
+            // 8) Exportar data URI
+            $out = $this->gdPngToDataUri($qrImg);
+
+            // cleanup
+            imagedestroy($logoImg);
+            imagedestroy($plateImg);
+            imagedestroy($qrImg);
+
+            return $out;
+        } catch (\Throwable $e) {
+            Log::warning('[STATEMENT_PDF] QR embed logo failed', [
+                'err' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Convierte un recurso GD a PNG data URI.
+     */
+    private function gdPngToDataUri($gdImg): ?string
+    {
+        if (!$gdImg) return null;
+
+        ob_start();
+        imagepng($gdImg);
+        $bin = ob_get_clean();
+
+        if (!is_string($bin) || strlen($bin) < 50) return null;
+
+        return 'data:image/png;base64,' . base64_encode($bin);
     }
 
     /**
