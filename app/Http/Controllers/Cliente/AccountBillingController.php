@@ -2018,11 +2018,12 @@ final class AccountBillingController extends Controller
     // =========================
     // Helpers (2 cards)
     // =========================
-    /**
+   /**
      * ✅ Portal cliente:
-     * - Si existe payAllowed pendiente => retorna SOLO ese periodo con can_pay=true
-     * - Si NO hay pendiente (todo paid) => muestra el periodo encontrado en modo lectura (can_pay=false)
-     * - Nunca muestra futuros (si payAllowed es futuro, solo lectura o vacío según datos)
+     * - Retorna SOLO el periodo $payAllowed (si existe en $rows).
+     * - NO ocultar por ser "futuro": si $payAllowed fue calculado como permitido, se debe mostrar.
+     * - Si el periodo está "paid", se muestra en modo lectura (can_pay=false) en vez de ocultar todo.
+     * - Si no se encuentra exactamente $payAllowed, cae al último row disponible (modo lectura).
      */
     private function keepOnlyPayAllowedPeriod(array $rows, string $payAllowed): array
     {
@@ -2036,20 +2037,30 @@ final class AccountBillingController extends Controller
             break;
         }
 
-        if (!$picked) return [];
+        // Fallback: si no existe exacto, usa el último row disponible (para no quedar en blanco)
+        if (!$picked) {
+            $last = null;
+            foreach ($rows as $r) { $last = $r; }
+            if (!$last) return [];
+
+            $picked = $last;
+            $picked['can_pay'] = false;
+            return [$picked];
+        }
 
         $st = strtolower((string)($picked['status'] ?? 'pending'));
 
-        // ✅ SI ESTÁ PAGADO: NO ocultar todo; mostrar en modo lectura
+        // Si está pagado => solo lectura
         if ($st === 'paid') {
             $picked['can_pay'] = false;
             return [$picked];
         }
 
-        // ✅ Si NO está pagado: solo este periodo y pagable
+        // Si NO está pagado => este es el permitido, incluso si es futuro
         $picked['can_pay'] = true;
         return [$picked];
     }
+
 
 
 
