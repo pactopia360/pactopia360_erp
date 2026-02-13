@@ -2018,20 +2018,29 @@ final class AccountBillingController extends Controller
     // =========================
     // Helpers (2 cards)
     // =========================
-   /**
+    /**
      * ✅ Portal cliente: mostrar SOLO el periodo permitido para pago.
      * - Si payAllowed no existe en rows o está pagado -> fallback al primer pending.
-     * - Si no hay pendientes -> retorna [].
+     * - Si no hay pendientes -> muestra el más reciente (aunque esté paid) en modo lectura.
      */
     private function keepOnlyPayAllowedPeriod(array $rows, string $payAllowed): array
     {
         $payAllowed = trim($payAllowed);
         if (!$this->isValidPeriod($payAllowed)) $payAllowed = now()->format('Y-m');
 
+        // normaliza + ordena desc por periodo (para poder “mostrar el más reciente”)
+        $valid = array_values(array_filter($rows, function ($r) {
+            $p = (string)($r['period'] ?? '');
+            return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
+        }));
+
+        usort($valid, fn($a,$b) => ((string)($b['period'] ?? '')) <=> ((string)($a['period'] ?? '')));
+
+        if (!$valid) return [];
+
         // helper: encuentra el primer pending real
         $firstPending = null;
-        foreach ($rows as $r) {
-            $p = (string)($r['period'] ?? '');
+        foreach ($valid as $r) {
             $st = strtolower((string)($r['status'] ?? 'pending'));
             $saldo = isset($r['saldo']) && is_numeric($r['saldo']) ? (float)$r['saldo'] : null;
 
@@ -2044,7 +2053,7 @@ final class AccountBillingController extends Controller
 
         // intenta el periodo payAllowed primero
         $picked = null;
-        foreach ($rows as $r) {
+        foreach ($valid as $r) {
             if ((string)($r['period'] ?? '') !== $payAllowed) continue;
             $picked = $r;
             break;
@@ -2052,18 +2061,29 @@ final class AccountBillingController extends Controller
 
         // si no existe, usa firstPending
         if (!$picked) {
-            if (!$firstPending) return [];
-            $picked = $firstPending;
+            if ($firstPending) {
+                $picked = $firstPending;
+            } else {
+                // ✅ no hay pendientes: muestra el más reciente (aunque esté paid) en modo lectura
+                $picked = $valid[0];
+                $picked['can_pay'] = false;
+                return [$picked];
+            }
         }
 
-        // si está pagado o saldo 0, usa firstPending
+        // si está pagado o saldo 0, usa firstPending; si no existe pending, muestra el más reciente (lectura)
         $st = strtolower((string)($picked['status'] ?? 'pending'));
         $saldo = isset($picked['saldo']) && is_numeric($picked['saldo']) ? (float)$picked['saldo'] : null;
 
         $isPaid = ($st === 'paid') || ($saldo !== null && $saldo <= 0.0001);
         if ($isPaid) {
-            if (!$firstPending) return [];
-            $picked = $firstPending;
+            if ($firstPending) {
+                $picked = $firstPending;
+            } else {
+                $picked = $valid[0];
+                $picked['can_pay'] = false;
+                return [$picked];
+            }
         }
 
         // fuerza coherencia
