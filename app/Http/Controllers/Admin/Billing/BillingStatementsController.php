@@ -1157,26 +1157,43 @@ final class BillingStatementsController extends Controller
     {
         abort_if(!$this->isValidPeriod($period), 422);
 
+        // =========================
+        // Build data (SOT)
+        // =========================
         $data = $this->buildStatementData($accountId, $period);
-        $data['isModal'] = $req->boolean('modal');
 
-        // ✅ Forzar que el QR en Admin use overlay del logo (misma vista que Cliente)
-        // (Cliente no se toca; solo Admin prende la bandera)
+        // ✅ PDF Admin debe ser idéntico al PDF Cliente:
+        // - NO permitir que ?modal=1 altere el layout del Blade
+        // - Mantenerlo estable aunque el frontend mande modal=1
+        $data['isModal'] = false;
+
+        // ✅ Forzar QR con overlay (logo al centro) usando la MISMA vista que Cliente
+        // (Cliente no se toca; solo Admin prende banderas)
         $data['qr_force_overlay'] = true;
 
-        // Tamaño sugerido del logo en el centro (px)
-        // Ajusta a gusto: 30-44 suele verse bien
+        // Tamaño del logo al centro del QR (px): 30-44 recomendado
         $data['qr_logo_px'] = 38;
 
+        // Vista única (misma plantilla cliente)
         $viewName = 'cliente.billing.pdf.statement';
 
+        // inline / preview
         $inline = $req->boolean('inline') || $req->boolean('preview');
 
+        // =========================
+        // HTML debug
+        // =========================
         if ($req->boolean('html')) {
             Log::info('[STATEMENT_PDF] debug html', [
                 'view'       => $viewName,
                 'account_id' => $accountId,
                 'period'     => $period,
+                'inline'     => $inline,
+                'force'      => [
+                    'isModal'          => $data['isModal'],
+                    'qr_force_overlay' => $data['qr_force_overlay'],
+                    'qr_logo_px'       => $data['qr_logo_px'],
+                ],
             ]);
 
             $html = view($viewName, $data)->render();
@@ -1188,10 +1205,18 @@ final class BillingStatementsController extends Controller
             'account_id' => $accountId,
             'period'     => $period,
             'inline'     => $inline,
+            'force'      => [
+                'isModal'          => $data['isModal'],
+                'qr_force_overlay' => $data['qr_force_overlay'],
+                'qr_logo_px'       => $data['qr_logo_px'],
+            ],
         ]);
 
         $name = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
 
+        // =========================
+        // DomPDF
+        // =========================
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::setOptions([
                 'isRemoteEnabled'      => true,
@@ -1201,9 +1226,24 @@ final class BillingStatementsController extends Controller
                 'defaultPaperSize'     => 'a4',
             ])->loadView($viewName, $data);
 
-            return $inline ? $pdf->stream($name) : $pdf->download($name);
+            $resp = $inline ? $pdf->stream($name) : $pdf->download($name);
+
+            // ✅ Permitir iframe/admin viewer same-origin sin romper
+            // (DomPDF stream/download retorna Symfony Response con headers editables)
+            try {
+                $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
+                $resp->headers->set(
+                    'Content-Security-Policy',
+                    "default-src 'self'; frame-ancestors 'self'; object-src 'self';"
+                );
+            } catch (\Throwable $e) {
+                // no-op: no queremos romper el PDF si por algún motivo no permite headers
+            }
+
+            return $resp;
         }
 
+        // Fallback: HTML si no hay DomPDF
         $html = view($viewName, $data)->render();
         return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
     }
