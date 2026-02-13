@@ -726,6 +726,12 @@
               // NO hagas overlay HTML (DomPDF lo hace inestable y mueve layout).
               $qrEmbedded = (bool)($qr_embedded ?? false);
 
+              // ✅ Si viene desde Admin, NO uses embebido: fuerza overlay con logo correcto
+              if (request()->is('admin/*')) {
+                $qrEmbedded = false;
+                $forceOverlay = true;
+              }
+
               // Mantén overlay SOLO si NO está embebido (caso Cliente legacy)
               $forceOverlay = (bool)($qr_force_overlay ?? false);
 
