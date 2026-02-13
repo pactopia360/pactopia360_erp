@@ -1159,37 +1159,60 @@ final class BillingStatementsController extends Controller
 
         $data = $this->buildStatementData($accountId, $period);
 
-        // ✅ Admin debe verse igual que Cliente: NO permitir que "modal" altere layout
+        // ✅ Admin PDF debe verse igual que Cliente (NO permitir "modal" que altere layout)
         $data['isModal'] = false;
 
-        // ✅ Resolver URL de pago (fuente única para QR)
-        $payUrl = (string)($data['pay_url']
-            ?? $data['payUrl']
+        // =========================================================
+        // ✅ ADMIN: QR con logo embebido (estable en DomPDF)
+        // - NO usamos overlay HTML (position absolute) porque DomPDF lo rompe en algunos render
+        // =========================================================
+        $logoPx = (int)($req->get('qr_logo_px', 38));
+        if ($logoPx < 18) $logoPx = 18;
+        if ($logoPx > 64) $logoPx = 64;
+
+        $payUrl = (string)(
+            $data['pay_url']
             ?? $data['checkout_url']
-            ?? $data['checkoutUrl']
             ?? $data['payment_url']
-            ?? $data['paymentUrl']
             ?? $data['url_pago']
             ?? ''
         );
 
-        // ✅ Generar QR con logo embebido (PNG) -> DomPDF lo renderiza perfecto (sin overlays CSS)
-        // Ajusta tamaño del logo si quieres (30–48 suele verse bien)
-        $logoPx = (int)($data['qr_logo_px'] ?? 38);
-        if ($logoPx < 18) $logoPx = 18;
-        if ($logoPx > 64) $logoPx = 64;
+        // banderas para la vista
+        $data['qr_embedded'] = true;          // 👈 la vista NO intenta overlay
+        $data['qr_force_overlay'] = false;    // 👈 deshabilitado en Admin
+        $data['qr_logo_px'] = $logoPx;
 
         if (trim($payUrl) !== '') {
-            $qr = $this->makeQrDataUriWithCenterLogo($payUrl, $logoPx);
-            if ($qr !== null) {
-                // ✅ fuerza a que la vista use este QR (igual que Cliente)
-                $data['qr_data_uri'] = $qr;
-                $data['qrDataUri']   = $qr; // compat
-            }
-        }
+            try {
+                $logoPath = public_path('assets/client/Logo1Pactopia.png');
 
-        // ✅ NO usar overlays HTML/CSS en la vista (DomPDF falla). Deja bandera apagada.
-        $data['qr_force_overlay'] = false;
+                $qr = $this->makeQrWithCenterLogoDataUri($payUrl, $logoPath, $logoPx);
+
+                if (is_string($qr) && str_starts_with($qr, 'data:image/png;base64,')) {
+                    $data['qr_data_uri'] = $qr;
+                    // opcional: si tu blade usa qr_url/qr_path, no lo necesitamos en admin
+                    $data['qr_url'] = null;
+                    $data['qr_path'] = null;
+                } else {
+                    Log::warning('[STATEMENT_PDF][ADMIN_QR] qr not generated (empty result)', [
+                        'account_id' => $accountId,
+                        'period'     => $period,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[STATEMENT_PDF][ADMIN_QR] failed to embed logo into qr', [
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                    'err'        => $e->getMessage(),
+                ]);
+            }
+        } else {
+            Log::info('[STATEMENT_PDF][ADMIN_QR] no pay url => qr skipped', [
+                'account_id' => $accountId,
+                'period'     => $period,
+            ]);
+        }
 
         $viewName = 'cliente.billing.pdf.statement';
 
@@ -3572,5 +3595,106 @@ final class BillingStatementsController extends Controller
         });
 
         return back()->with('ok', $status === '' ? 'Override eliminado (AUTO).' : 'Estatus actualizado (override).');
+    }
+
+    /**
+     * Genera QR PNG como data-uri y le pega el logo al centro (GD).
+     * Esto es mucho más estable que overlay HTML en DomPDF.
+     */
+    private function makeQrWithCenterLogoDataUri(string $text, string $logoPath, int $logoPx = 38): string
+    {
+        $text = trim($text);
+        if ($text === '') return '';
+
+        // 1) Generar QR PNG con BaconQrCode
+        $size = 320; // resolución interna del QR (más grande = más nitidez)
+        $renderer = new ImageRenderer(
+            new RendererStyle($size, 2),
+            new GdImageBackEnd()
+        );
+
+        $writer = new Writer($renderer);
+        $png = $writer->writeString($text);
+
+        if (!is_string($png) || strlen($png) < 20) {
+            return '';
+        }
+
+        // Si no hay GD o no hay logo, regresamos QR normal
+        if (!function_exists('imagecreatefromstring')) {
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        $qrImg = @imagecreatefromstring($png);
+        if (!$qrImg) {
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        // 2) Logo
+        $logoBin = null;
+        if ($logoPath !== '' && is_file($logoPath) && is_readable($logoPath)) {
+            $logoBin = @file_get_contents($logoPath);
+        }
+
+        if (!$logoBin || strlen($logoBin) < 20) {
+            // sin logo: QR normal
+            imagedestroy($qrImg);
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        $logoImg = @imagecreatefromstring($logoBin);
+        if (!$logoImg) {
+            imagedestroy($qrImg);
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        // 3) Resize logo (mantener proporción)
+        $logoPx = max(18, min(64, (int)$logoPx));
+        $lw = imagesx($logoImg);
+        $lh = imagesy($logoImg);
+        if ($lw <= 0 || $lh <= 0) {
+            imagedestroy($logoImg);
+            imagedestroy($qrImg);
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        $dst = imagecreatetruecolor($logoPx, $logoPx);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+        imagefilledrectangle($dst, 0, 0, $logoPx, $logoPx, $transparent);
+
+        imagecopyresampled($dst, $logoImg, 0, 0, 0, 0, $logoPx, $logoPx, $lw, $lh);
+
+        // 4) Pegar logo al centro con “fondo blanco” (quiet zone) para que el QR siga escaneable
+        $qrW = imagesx($qrImg);
+        $qrH = imagesy($qrImg);
+
+        $pad = 6; // margen blanco alrededor del logo
+        $box = $logoPx + ($pad * 2);
+
+        $x = (int)(($qrW - $box) / 2);
+        $y = (int)(($qrH - $box) / 2);
+
+        $white = imagecolorallocate($qrImg, 255, 255, 255);
+        imagefilledrectangle($qrImg, $x, $y, $x + $box, $y + $box, $white);
+
+        // pegar logo dentro de la caja blanca
+        imagecopy($qrImg, $dst, $x + $pad, $y + $pad, 0, 0, $logoPx, $logoPx);
+
+        // 5) Export PNG
+        ob_start();
+        imagepng($qrImg);
+        $out = (string)ob_get_clean();
+
+        imagedestroy($dst);
+        imagedestroy($logoImg);
+        imagedestroy($qrImg);
+
+        if (strlen($out) < 20) {
+            return 'data:image/png;base64,' . base64_encode($png);
+        }
+
+        return 'data:image/png;base64,' . base64_encode($out);
     }
 }
