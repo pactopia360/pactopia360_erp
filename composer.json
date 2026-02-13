@@ -9,6 +9,7 @@
         "php": "^8.2",
         "bacon/bacon-qr-code": "^3.0",
         "barryvdh/laravel-dompdf": "^3.1",
+        "chillerlan/php-qrcode": "5.0",
         "doctrine/dbal": "^4.3",
         "endroid/qr-code": "6.0",
         "guzzlehttp/guzzle": "7.9",

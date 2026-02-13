@@ -72,56 +72,102 @@ final class AccountBillingController extends Controller
         $text = trim($text);
         if ($text === '') return null;
 
-        // clamp size
-        $size = (int) $size;
+        $size = (int)$size;
         if ($size < 140) $size = 140;
-        if ($size > 420) $size = 420;
+        if ($size > 700) $size = 700;
 
-        // Lib + clases necesarias
-        $need = [
-            \BaconQrCode\Writer::class,
-            \BaconQrCode\Renderer\ImageRenderer::class,
-            \BaconQrCode\Renderer\RendererStyle\RendererStyle::class,
-            \BaconQrCode\Renderer\Image\GdImageBackEnd::class,
-        ];
-
-        foreach ($need as $cls) {
-            if (!class_exists($cls)) {
-                \Illuminate\Support\Facades\Log::warning('[BILLING][QR] missing class', [
-                    'missing' => $cls,
-                ]);
-                return null;
-            }
-        }
-
-        // GD requerido para GdImageBackEnd
-        if (!extension_loaded('gd')) {
-            \Illuminate\Support\Facades\Log::warning('[BILLING][QR] gd extension not loaded');
+        // 1) Requiere chillerlan/php-qrcode
+        if (!class_exists(\chillerlan\QRCode\QRCode::class)) {
+            Log::warning('[BILLING][QR] chillerlan/php-qrcode not installed');
             return null;
         }
 
         try {
-            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
-                new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
-                new \BaconQrCode\Renderer\Image\GdImageBackEnd()
-            );
+            $options = new \chillerlan\QRCode\QROptions([
+                'outputType'  => \chillerlan\QRCode\QRCode::OUTPUT_IMAGE_PNG,
+                'eccLevel'    => \chillerlan\QRCode\Common\EccLevel::H, // alto, para soportar logo
+                'scale'       => 8,   // densidad (se ajusta con resize abajo)
+                'imageBase64' => false,
+                'quietzoneSize' => 2,
+            ]);
 
-            $writer = new \BaconQrCode\Writer($renderer);
-            $png = $writer->writeString($text);
+            $png = (new \chillerlan\QRCode\QRCode($options))->render($text);
 
-            if (!is_string($png) || strlen($png) < 50) {
-                \Illuminate\Support\Facades\Log::warning('[BILLING][QR] png too small/invalid', [
-                    'len' => is_string($png) ? strlen($png) : 0,
-                ]);
-                return null;
+            if (!is_string($png) || strlen($png) < 50) return null;
+
+            // 2) Ajusta a tamaño deseado (y prepara overlay)
+            if (!function_exists('imagecreatefromstring')) {
+                // sin GD: regresa QR tal cual
+                return 'data:image/png;base64,' . base64_encode($png);
             }
 
-            return 'data:image/png;base64,' . base64_encode($png);
+            $im = @imagecreatefromstring($png);
+            if (!$im) return 'data:image/png;base64,' . base64_encode($png);
+
+            // Resize final exacto
+            $w = imagesx($im);
+            $h = imagesy($im);
+
+            $dst = imagecreatetruecolor($size, $size);
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+            $transparent = imagecolorallocatealpha($dst, 255, 255, 255, 127);
+            imagefill($dst, 0, 0, $transparent);
+
+            imagecopyresampled($dst, $im, 0, 0, 0, 0, $size, $size, $w, $h);
+            imagedestroy($im);
+
+            // 3) Logo centrado
+            $logoPath = public_path('assets/client/qr/p360-qr-logo.png');
+            if (is_file($logoPath)) {
+                $logo = @imagecreatefrompng($logoPath);
+
+                if ($logo) {
+                    $lw = imagesx($logo);
+                    $lh = imagesy($logo);
+
+                    // Tamaño del logo: 22% del QR (ajústalo 0.18–0.28)
+                    $logoTarget = (int) round($size * 0.22);
+                    $logoDst = imagecreatetruecolor($logoTarget, $logoTarget);
+                    imagealphablending($logoDst, false);
+                    imagesavealpha($logoDst, true);
+                    imagefill($logoDst, 0, 0, $transparent);
+
+                    imagecopyresampled($logoDst, $logo, 0, 0, 0, 0, $logoTarget, $logoTarget, $lw, $lh);
+                    imagedestroy($logo);
+
+                    $x = (int) round(($size - $logoTarget) / 2);
+                    $y = (int) round(($size - $logoTarget) / 2);
+
+                    // “Placa” blanca suave opcional detrás del logo (mejora lectura)
+                    $pad = (int) round($logoTarget * 0.10);
+                    $plateSize = $logoTarget + ($pad * 2);
+                    $plate = imagecreatetruecolor($plateSize, $plateSize);
+                    imagealphablending($plate, true);
+                    imagesavealpha($plate, true);
+                    $white = imagecolorallocatealpha($plate, 255, 255, 255, 0);
+                    imagefilledrectangle($plate, 0, 0, $plateSize, $plateSize, $white);
+
+                    imagecopy($dst, $plate, $x - $pad, $y - $pad, 0, 0, $plateSize, $plateSize);
+                    imagedestroy($plate);
+
+                    imagecopy($dst, $logoDst, $x, $y, 0, 0, $logoTarget, $logoTarget);
+                    imagedestroy($logoDst);
+                }
+            }
+
+            // 4) Export PNG final
+            ob_start();
+            imagepng($dst);
+            $out = (string) ob_get_clean();
+            imagedestroy($dst);
+
+            if (strlen($out) < 50) return null;
+
+            return 'data:image/png;base64,' . base64_encode($out);
 
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('[BILLING][QR] qrDataUriFromText failed', [
-                'err' => $e->getMessage(),
-            ]);
+            Log::warning('[BILLING][QR] qrDataUriFromText failed', ['err' => $e->getMessage()]);
             return null;
         }
     }
