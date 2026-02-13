@@ -195,8 +195,9 @@
 
   // ======================================================
   // ✅ ID Cliente NO consecutivo (visible al cliente)
-  // Formato: P{YYYY}-{PUBLIC}
-  // PUBLIC se toma de:
+  // Requisito: los primeros 2 dígitos deben ser el ID real (parcial)
+  // Formato: P{YYYY}-{ID2}{SUFIJO}
+  // SUFIJO se toma de:
   // - $public_id (si el controller lo manda)
   // - $accountObj->public_id
   // - $accountObj->meta['public_id'] (meta JSON/string/array/object)
@@ -210,18 +211,20 @@
   try {
     if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) $yearForId = (string) substr($periodSafe, 0, 4);
   } catch (\Throwable $e) { $yearForId = ''; }
+  if ($yearForId === '') $yearForId = (string) date('Y');
 
-  // printedAt se declara más abajo; usa fallback seguro aquí
-  if ($yearForId === '') {
-    $yearForId = (string) date('Y');
+  // ✅ prefijo 2 dígitos basado en ID real (primeros 2 dígitos)
+  $id2 = '';
+  if ($accountIdNum > 0) {
+    $idStr = (string)$accountIdNum;
+    $id2 = (strlen($idStr) >= 2) ? substr($idStr, 0, 2) : str_pad($idStr, 2, '0', STR_PAD_LEFT);
   }
 
-  // Public ID (no secuencial)
+  // Public suffix (no secuencial)
   $publicId = trim((string)($public_id ?? ''));
+
   if ($publicId === '') {
-    try {
-      $publicId = trim((string)($accountObj->public_id ?? ''));
-    } catch (\Throwable $e) { $publicId = ''; }
+    try { $publicId = trim((string)($accountObj->public_id ?? '')); } catch (\Throwable $e) { $publicId = ''; }
   }
 
   if ($publicId === '' && isset($accountObj->meta)) {
@@ -241,11 +244,12 @@
 
   // Fallback temporal (NO ideal): hash estable derivado del ID (evita que se vea consecutivo)
   if ($publicId === '' && $accountIdNum > 0) {
-    $publicId = substr(strtoupper(md5('P360-'.$accountIdNum)), 0, 10);
+    $publicId = substr(strtoupper(md5('P360-'.$accountIdNum)), 0, 8); // 8 chars
   }
 
-  $idCuentaTxt = ($publicId !== '')
-    ? ('P' . $yearForId . '-' . $publicId)
+  // ✅ id final: P{YYYY}-{ID2}{SUFIJO}
+  $idCuentaTxt = ($accountIdNum > 0 && $id2 !== '' && $publicId !== '')
+    ? ('P' . $yearForId . '-' . $id2 . $publicId)
     : '—';
 
   // ======================================================
