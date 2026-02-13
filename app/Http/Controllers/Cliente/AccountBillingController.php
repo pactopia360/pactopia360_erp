@@ -73,40 +73,39 @@ final class AccountBillingController extends Controller
         if ($text === '') return null;
 
         $size = (int)$size;
-        if ($size < 140) $size = 140;
-        if ($size > 700) $size = 700;
+        if ($size < 160) $size = 160;
+        if ($size > 900) $size = 900;
 
-        // 1) Requiere chillerlan/php-qrcode
+        // ✅ chillerlan/php-qrcode
         if (!class_exists(\chillerlan\QRCode\QRCode::class)) {
             Log::warning('[BILLING][QR] chillerlan/php-qrcode not installed');
             return null;
         }
 
         try {
+            // ECC H para tolerar logo en centro
             $options = new \chillerlan\QRCode\QROptions([
-                'outputType'  => \chillerlan\QRCode\QRCode::OUTPUT_IMAGE_PNG,
-                'eccLevel'    => \chillerlan\QRCode\Common\EccLevel::H, // alto, para soportar logo
-                'scale'       => 8,   // densidad (se ajusta con resize abajo)
-                'imageBase64' => false,
-                'quietzoneSize' => 2,
+                'outputType'     => \chillerlan\QRCode\QRCode::OUTPUT_IMAGE_PNG,
+                'eccLevel'       => \chillerlan\QRCode\Common\EccLevel::H,
+                'scale'          => 8,
+                'quietzoneSize'  => 2,
+                'imageBase64'    => false,
             ]);
 
             $png = (new \chillerlan\QRCode\QRCode($options))->render($text);
-
             if (!is_string($png) || strlen($png) < 50) return null;
 
-            // 2) Ajusta a tamaño deseado (y prepara overlay)
+            // Si no hay GD, regresamos el QR sin overlay
             if (!function_exists('imagecreatefromstring')) {
-                // sin GD: regresa QR tal cual
                 return 'data:image/png;base64,' . base64_encode($png);
             }
 
-            $im = @imagecreatefromstring($png);
-            if (!$im) return 'data:image/png;base64,' . base64_encode($png);
+            $qr = @imagecreatefromstring($png);
+            if (!$qr) return 'data:image/png;base64,' . base64_encode($png);
 
             // Resize final exacto
-            $w = imagesx($im);
-            $h = imagesy($im);
+            $w = imagesx($qr);
+            $h = imagesy($qr);
 
             $dst = imagecreatetruecolor($size, $size);
             imagealphablending($dst, false);
@@ -114,49 +113,59 @@ final class AccountBillingController extends Controller
             $transparent = imagecolorallocatealpha($dst, 255, 255, 255, 127);
             imagefill($dst, 0, 0, $transparent);
 
-            imagecopyresampled($dst, $im, 0, 0, 0, 0, $size, $size, $w, $h);
-            imagedestroy($im);
+            imagecopyresampled($dst, $qr, 0, 0, 0, 0, $size, $size, $w, $h);
+            imagedestroy($qr);
 
-            // 3) Logo centrado
-            $logoPath = public_path('assets/client/qr/p360-qr-logo.png');
-            if (is_file($logoPath)) {
+            // ✅ Logo centrado (como el ejemplo)
+            $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
+
+            if (is_file($logoPath) && is_readable($logoPath)) {
                 $logo = @imagecreatefrompng($logoPath);
 
                 if ($logo) {
                     $lw = imagesx($logo);
                     $lh = imagesy($logo);
 
-                    // Tamaño del logo: 22% del QR (ajústalo 0.18–0.28)
+                    // Tamaño del logo (22% del QR). Si lo quieres más grande: 0.24–0.28
                     $logoTarget = (int) round($size * 0.22);
-                    $logoDst = imagecreatetruecolor($logoTarget, $logoTarget);
-                    imagealphablending($logoDst, false);
-                    imagesavealpha($logoDst, true);
-                    imagefill($logoDst, 0, 0, $transparent);
+                    if ($logoTarget < 40) $logoTarget = 40;
 
-                    imagecopyresampled($logoDst, $logo, 0, 0, 0, 0, $logoTarget, $logoTarget, $lw, $lh);
+                    // Preparar logo redimensionado preservando alpha
+                    $logoRes = imagecreatetruecolor($logoTarget, $logoTarget);
+                    imagealphablending($logoRes, false);
+                    imagesavealpha($logoRes, true);
+                    imagefill($logoRes, 0, 0, $transparent);
+
+                    imagecopyresampled($logoRes, $logo, 0, 0, 0, 0, $logoTarget, $logoTarget, $lw, $lh);
                     imagedestroy($logo);
 
+                    // Centro
                     $x = (int) round(($size - $logoTarget) / 2);
                     $y = (int) round(($size - $logoTarget) / 2);
 
-                    // “Placa” blanca suave opcional detrás del logo (mejora lectura)
-                    $pad = (int) round($logoTarget * 0.10);
+                    // ✅ Placa blanca detrás (para que el QR siga escaneando)
+                    $pad = (int) round($logoTarget * 0.12); // borde blanco
                     $plateSize = $logoTarget + ($pad * 2);
+
                     $plate = imagecreatetruecolor($plateSize, $plateSize);
                     imagealphablending($plate, true);
                     imagesavealpha($plate, true);
+
                     $white = imagecolorallocatealpha($plate, 255, 255, 255, 0);
                     imagefilledrectangle($plate, 0, 0, $plateSize, $plateSize, $white);
 
+                    // Coloca placa y logo
                     imagecopy($dst, $plate, $x - $pad, $y - $pad, 0, 0, $plateSize, $plateSize);
                     imagedestroy($plate);
 
-                    imagecopy($dst, $logoDst, $x, $y, 0, 0, $logoTarget, $logoTarget);
-                    imagedestroy($logoDst);
+                    imagecopy($dst, $logoRes, $x, $y, 0, 0, $logoTarget, $logoTarget);
+                    imagedestroy($logoRes);
                 }
+            } else {
+                Log::warning('[BILLING][QR] logo not found/readable', ['path' => $logoPath]);
             }
 
-            // 4) Export PNG final
+            // Export PNG final
             ob_start();
             imagepng($dst);
             $out = (string) ob_get_clean();
@@ -171,7 +180,6 @@ final class AccountBillingController extends Controller
             return null;
         }
     }
-
     /**
      * ✅ Determina "pendiente real" desde row de admin.billing_statements
      * sin depender solo de `saldo`.
