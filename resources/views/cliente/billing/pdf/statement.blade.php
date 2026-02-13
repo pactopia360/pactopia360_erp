@@ -256,12 +256,30 @@
     } catch (\Throwable $e) {}
   }
 
-  // QR / Pay
-  $qrDataUri = $qr_data_uri ?? null;
-  $qrUrl     = $qr_url ?? null;
+  // ======================================================
+  // ✅ QR / Pay (compat: soporta varios nombres entre Admin/Cliente)
+  // ======================================================
+  $qrDataUri = $qr_data_uri ?? ($qrDataUri ?? ($qr_data ?? null));
+  $qrUrl     = $qr_url ?? ($qrUrl ?? ($qr_path ?? null));
 
-  $payUrl    = (string)($pay_url ?? '');
-  $sessionId = (string)($stripe_session_id ?? '');
+  $payUrl = (string)(
+    $pay_url
+    ?? ($payUrl ?? null)
+    ?? ($checkout_url ?? null)
+    ?? ($checkoutUrl ?? null)
+    ?? ($payment_url ?? null)
+    ?? ($paymentUrl ?? null)
+    ?? ($url_pago ?? null)
+    ?? ''
+  );
+
+  $sessionId = (string)(
+    $stripe_session_id
+    ?? ($stripeSessionId ?? null)
+    ?? ($session_id ?? null)
+    ?? ($sessionId ?? null)
+    ?? ''
+  );
 
   $hasPay = trim($payUrl) !== '';
   $payUrlShort = $hasPay ? Str::limit($payUrl, 150, '…') : '';
@@ -702,11 +720,11 @@
             }
           @endphp
 
-          @if($qrImg && $hasPay)
+          @if($qrImg)
             <img src="{{ $qrImg }}" alt="QR" class="qrImg">
           @else
             <div class="mut b" style="padding:26px 0;">QR no disponible</div>
-            <div class="mut xs">Se habilita con enlace.</div>
+            <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>
           @endif
         </div>
       </td>
