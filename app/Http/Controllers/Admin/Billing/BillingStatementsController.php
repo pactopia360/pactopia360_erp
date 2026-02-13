@@ -1157,35 +1157,40 @@ final class BillingStatementsController extends Controller
     {
         abort_if(!$this->isValidPeriod($period), 422);
 
-        // =========================
-        // Data (SOT)
-        // =========================
         $data = $this->buildStatementData($accountId, $period);
 
-        // ✅ Admin debe renderizar igual que Cliente (no modal layout)
+        // ✅ Admin debe verse igual que Cliente (no modal layout)
         $data['isModal'] = false;
 
-        // ✅ Forzar overlay del logo en QR SOLO para Admin
-        $data['qr_force_overlay'] = true;
-        $data['qr_logo_px'] = 38; // 30-44 recomendado
+        // ✅ Overlay SOLO Admin, pero lo haremos "precompuesto" (una sola imagen PNG)
+        $logoPx = 38; // 30-44 recomendado
+        $logoPath = public_path('assets/client/Logo1Pactopia.png');
+
+        // Si buildStatementData ya trae qr_data_uri/qrDataUri, lo convertimos a "QR+Logo" y lo dejamos en qr_data_uri
+        $qrDataUri = (string)($data['qr_data_uri'] ?? $data['qrDataUri'] ?? $data['qr_data'] ?? '');
+        if ($qrDataUri !== '' && is_file($logoPath) && is_readable($logoPath)) {
+            $newQr = $this->overlayLogoOnQrDataUri($qrDataUri, $logoPath, $logoPx, 4);
+            if (is_string($newQr) && $newQr !== '') {
+                // ✅ forzamos que la vista use ESTE QR (sin tocar el Blade)
+                $data['qr_data_uri'] = $newQr;
+            }
+        }
 
         $viewName = 'cliente.billing.pdf.statement';
-
         $inline = $req->boolean('inline') || $req->boolean('preview');
+        $filename = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
 
-        // =========================
-        // HTML debug (para comparar Admin vs Cliente)
-        // =========================
+        // Debug HTML si lo necesitas
         if ($req->boolean('html')) {
-            Log::info('[STATEMENT_PDF][ADMIN] debug html', [
+            \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF][ADMIN] debug html', [
                 'view'       => $viewName,
                 'account_id' => $accountId,
                 'period'     => $period,
                 'inline'     => $inline,
-                'force'      => [
-                    'isModal'          => $data['isModal'],
-                    'qr_force_overlay' => $data['qr_force_overlay'],
-                    'qr_logo_px'       => $data['qr_logo_px'],
+                'qr_overlay' => [
+                    'logo_px' => $logoPx,
+                    'logo'    => is_file($logoPath) ? basename($logoPath) : 'missing',
+                    'has_qr'   => $qrDataUri !== '',
                 ],
             ]);
 
@@ -1193,58 +1198,27 @@ final class BillingStatementsController extends Controller
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
         }
 
-        Log::info('[STATEMENT_PDF][ADMIN] rendering', [
+        \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF][ADMIN] rendering', [
             'view'       => $viewName,
             'account_id' => $accountId,
             'period'     => $period,
             'inline'     => $inline,
-            'force'      => [
-                'isModal'          => $data['isModal'],
-                'qr_force_overlay' => $data['qr_force_overlay'],
-                'qr_logo_px'       => $data['qr_logo_px'],
-            ],
         ]);
 
-        $filename = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
+        // ✅ Usa dompdf.wrapper (suele ser el mismo comportamiento que Cliente)
+        $pdf = app('dompdf.wrapper');
 
-        // =========================
-        // ✅ MISMO engine que Cliente (dompdf.wrapper)
-        // =========================
-        try {
-            $pdf = app('dompdf.wrapper');
-
-            // Opcional pero recomendado (no cambies DPI si Cliente ya te funciona perfecto con el default)
-            // Si quieres igualarlo aún más, puedes dejar esto tal cual:
-            $pdf->setOptions([
-                'isRemoteEnabled'      => true,
-                'isHtml5ParserEnabled' => true,
-                'defaultFont'          => 'DejaVu Sans',
-                'dpi'                  => 96,
-                'defaultPaperSize'     => 'a4',
-            ]);
-
-        } catch (\Throwable $e) {
-            Log::error('[STATEMENT_PDF][ADMIN] dompdf.wrapper not available', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-            abort(500, 'PDF engine no disponible.');
-        }
+        $pdf->setOptions([
+            'isRemoteEnabled'      => true,
+            'isHtml5ParserEnabled' => true,
+            'defaultFont'          => 'DejaVu Sans',
+            'dpi'                  => 96,
+            'defaultPaperSize'     => 'a4',
+        ]);
 
         $pdf->loadView($viewName, $data);
 
-        $resp = $inline ? $pdf->stream($filename) : $pdf->download($filename);
-
-        // ✅ Iframe same-origin (admin viewer)
-        try {
-            $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
-            $resp->headers->set('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'; object-src 'self';");
-        } catch (\Throwable $e) {
-            // no-op
-        }
-
-        return $resp;
+        return $inline ? $pdf->stream($filename) : $pdf->download($filename);
     }
 
     public function email(Request $req, string $accountId, string $period): RedirectResponse
@@ -1995,11 +1969,6 @@ final class BillingStatementsController extends Controller
         }
     }
 
-
-    // =========================================================
-    // PAYMENTS (paid)
-    // =========================================================
-
     // =========================================================
     // PAYMENTS PERIOD FILTER (robusto: YYYY-MM ó YYYY-MM-DD)
     // =========================================================
@@ -2509,6 +2478,90 @@ final class BillingStatementsController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * ✅ Precompone QR + logo al centro (PNG) y regresa data:image/png;base64,...
+     * Esto evita position/absolute/transform en DomPDF (que te mueve el layout en Admin).
+     */
+    private function overlayLogoOnQrDataUri(string $qrDataUri, string $logoPath, int $logoPx = 38, int $paddingPx = 4): ?string
+    {
+        try {
+            $logoPx = max(18, min(80, (int)$logoPx));
+            $paddingPx = max(0, min(12, (int)$paddingPx));
+
+            // Extrae base64 del data uri
+            if (!preg_match('#^data:image/[^;]+;base64,#i', $qrDataUri)) {
+                return null;
+            }
+            $b64 = preg_replace('#^data:image/[^;]+;base64,#i', '', $qrDataUri);
+            $qrBin = base64_decode((string)$b64, true);
+            if (!$qrBin || strlen($qrBin) < 20) return null;
+
+            // Crea imágenes
+            $qrImg = @imagecreatefromstring($qrBin);
+            if (!$qrImg) return null;
+
+            $logoBin = @file_get_contents($logoPath);
+            if (!$logoBin || strlen($logoBin) < 20) return null;
+
+            $logoImg = @imagecreatefromstring($logoBin);
+            if (!$logoImg) return null;
+
+            // Asegura alpha
+            imagealphablending($qrImg, true);
+            imagesavealpha($qrImg, true);
+
+            imagealphablending($logoImg, true);
+            imagesavealpha($logoImg, true);
+
+            // Redimensiona logo a logoPx x logoPx
+            $logoScaled = imagescale($logoImg, $logoPx, $logoPx, IMG_BILINEAR_FIXED);
+            if (!$logoScaled) $logoScaled = $logoImg;
+
+            // Caja blanca detrás (cuadrado) para "limpiar" el QR
+            $bgSize = $logoPx + ($paddingPx * 2);
+
+            $bg = imagecreatetruecolor($bgSize, $bgSize);
+            imagesavealpha($bg, true);
+            $transparent = imagecolorallocatealpha($bg, 0, 0, 0, 127);
+            imagefill($bg, 0, 0, $transparent);
+
+            // blanco
+            $white = imagecolorallocate($bg, 255, 255, 255);
+            imagefilledrectangle($bg, 0, 0, $bgSize, $bgSize, $white);
+
+            // Pega logo centrado en el fondo blanco
+            $dstX = (int)(($bgSize - imagesx($logoScaled)) / 2);
+            $dstY = (int)(($bgSize - imagesy($logoScaled)) / 2);
+            imagecopy($bg, $logoScaled, $dstX, $dstY, 0, 0, imagesx($logoScaled), imagesy($logoScaled));
+
+            // Pega "bg" centrado sobre el QR
+            $qrW = imagesx($qrImg);
+            $qrH = imagesy($qrImg);
+
+            $cx = (int)(($qrW - $bgSize) / 2);
+            $cy = (int)(($qrH - $bgSize) / 2);
+
+            imagecopy($qrImg, $bg, $cx, $cy, 0, 0, $bgSize, $bgSize);
+
+            // Exporta a PNG base64
+            ob_start();
+            imagepng($qrImg);
+            $out = ob_get_clean();
+
+            // Limpieza
+            @imagedestroy($bg);
+            @imagedestroy($logoScaled);
+            @imagedestroy($logoImg);
+            @imagedestroy($qrImg);
+
+            if (!$out || strlen($out) < 50) return null;
+
+            return 'data:image/png;base64,' . base64_encode($out);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     // =========================================================
