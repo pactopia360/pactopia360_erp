@@ -733,7 +733,25 @@
               if ($logoPx < 18) $logoPx = 18;
               if ($logoPx > 64) $logoPx = 64;
 
-              $qrOverlayLogo = $logoDataUri ?? null;
+              // ✅ Logo para overlay (QR): usar logo especial
+              $qrOverlayLogo = null;
+
+              $qrLogoFile = public_path('assets/client/qr/pactopia-qr-logo.png');
+              if (is_file($qrLogoFile) && is_readable($qrLogoFile)) {
+                try {
+                  $bin = file_get_contents($qrLogoFile);
+                  if ($bin !== false && strlen($bin) > 10) {
+                    $qrOverlayLogo = 'data:image/png;base64,' . base64_encode($bin);
+                  }
+                } catch (\Throwable $e) {
+                  $qrOverlayLogo = null;
+                }
+              }
+
+              // fallback (por si falta el archivo)
+              if (!$qrOverlayLogo) {
+                $qrOverlayLogo = $logoDataUri ?? null;
+              }
             @endphp
 
             @if($qrEmbedded)
