@@ -191,7 +191,22 @@
 
   $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
-  $idCuentaTxt  = $accountIdNum > 0 ? str_pad((string)$accountIdNum, 5, '0', STR_PAD_LEFT) : '—';
+
+  // ✅ ID Cliente/Cuenta formato: P{YYYY}{IDCCUENTA(5)}
+  $yearForId = '';
+  try {
+    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
+      $yearForId = (string) substr($periodSafe, 0, 4);
+    }
+  } catch (\Throwable $e) { $yearForId = ''; }
+
+  if ($yearForId === '') {
+    try { $yearForId = (string) $printedAt->format('Y'); } catch (\Throwable $e) { $yearForId = (string) date('Y'); }
+  }
+
+  $idCuentaTxt = $accountIdNum > 0
+    ? ('P' . $yearForId . str_pad((string)$accountIdNum, 5, '0', STR_PAD_LEFT))
+    : '—';
 
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
@@ -528,7 +543,7 @@
       {{-- ID CUENTA (pegado debajo de Total) --}}
       <div class="card cardId">
         <div class="idBox">
-          <div class="idLbl2">ID Cuenta:</div>
+          <div class="idLbl2">ID Cliente:</div>
           <div class="idVal2 mono">{{ $idCuentaTxt }}</div>
         </div>
 
