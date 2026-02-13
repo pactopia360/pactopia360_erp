@@ -144,7 +144,7 @@ final class AccountBillingController extends Controller
                     $y = (int) round(($size - $logoTarget) / 2);
 
                     // ✅ Placa blanca detrás (para que el QR siga escaneando)
-                    $pad = (int) round($logoTarget * 0.12); // borde blanco
+                    $pad = (int) round($logoTarget * 0.08); // borde blanco
                     $plateSize = $logoTarget + ($pad * 2);
 
                     $plate = imagecreatetruecolor($plateSize, $plateSize);
