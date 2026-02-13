@@ -828,15 +828,40 @@ final class AccountBillingController extends Controller
         // seleccionar solo el periodo pedido
         $row = null;
         foreach ((array) $rowsAll as $rr) {
-            if ((string)($rr['period'] ?? '') === $period) { $row = $rr; break; }
+            if ((string)($rr['period'] ?? '') === $period) { 
+                $row = $rr; 
+                break; 
+            }
         }
+
         if (!$row) {
-            \Illuminate\Support\Facades\Log::warning('[BILLING][PUBLIC_PDF] period not found', [
+
+            // 🔎 buscar último periodo existente (SOT real)
+            $periods = [];
+            foreach ((array)$rowsAll as $rr) {
+                $pp = (string)($rr['period'] ?? '');
+                if ($this->isValidPeriod($pp)) {
+                    $periods[] = $pp;
+                }
+            }
+
+            $periods = array_values(array_unique($periods));
+            sort($periods); // asc YYYY-MM
+            $fallback = !empty($periods) ? end($periods) : null;
+
+            \Illuminate\Support\Facades\Log::warning('[BILLING][PDF] period not found, fallback', [
                 'account_id' => $accountId,
                 'period'     => $period,
-                'refs'       => $statementRefs,
-                'count'      => is_array($rowsAll) ? count($rowsAll) : null,
+                'fallback'   => $fallback,
             ]);
+
+            if ($fallback && $fallback !== $period) {
+                return redirect()->route(
+                    $inline ? 'cliente.billing.pdfInline' : 'cliente.billing.pdf',
+                    ['period' => $fallback]
+                );
+            }
+
             abort(404);
         }
 
@@ -1525,6 +1550,75 @@ final class AccountBillingController extends Controller
             ]);
             return 0;
         }
+    }
+
+        /**
+     * ✅ Verifica si existe statement en admin.billing_statements para account_id (cubre refs uuid/int)
+     * SOT: admin.billing_statements
+     */
+    private function adminStatementExists(int $adminAccountId, string $period): bool
+    {
+        if ($adminAccountId <= 0 || !$this->isValidPeriod($period)) return false;
+
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+
+        try {
+            $refs = $this->buildStatementRefs($adminAccountId);
+            if (!is_array($refs) || count($refs) === 0) $refs = [$adminAccountId];
+
+            return DB::connection($adm)
+                ->table('billing_statements')
+                ->whereIn('account_id', $refs)
+                ->where('period', $period)
+                ->limit(1)
+                ->exists();
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * ✅ Regla UI/Portal:
+     * - Si el usuario pide ?period=YYYY-MM y EXISTE statement => úsalo
+     * - Si NO existe => fallback a payAllowed si existe
+     * - Si tampoco => fallback al último statement existente
+     * - Si nada => basePeriod (contractStart o now)
+     */
+    private function pickBestExistingPeriodForUi(
+        string $periodRequested,
+        string $payAllowed,
+        int $adminAccountId,
+        array $rowsFromStatementsAll,
+        string $basePeriod
+    ): string {
+        $periodRequested = trim($periodRequested);
+        $payAllowed      = trim($payAllowed);
+        $basePeriod      = trim($basePeriod);
+
+        // 1) Si el user pidió uno válido y existe -> gana
+        if ($this->isValidPeriod($periodRequested) && $this->adminStatementExists($adminAccountId, $periodRequested)) {
+            return $periodRequested;
+        }
+
+        // 2) payAllowed (si es válido y existe)
+        if ($this->isValidPeriod($payAllowed) && $this->adminStatementExists($adminAccountId, $payAllowed)) {
+            return $payAllowed;
+        }
+
+        // 3) último statement existente desde rows cargados (ya vienen del SOT)
+        $best = '';
+        try {
+            foreach ($rowsFromStatementsAll as $rr) {
+                $p = (string) ($rr['period'] ?? '');
+                if (!$this->isValidPeriod($p)) continue;
+                if ($best === '' || strcmp($p, $best) > 0) $best = $p; // YYYY-MM lexical ok
+            }
+        } catch (\Throwable $e) {}
+
+        if ($best !== '') return $best;
+
+        // 4) basePeriod (contractStart o now)
+        return $this->isValidPeriod($basePeriod) ? $basePeriod : now()->format('Y-m');
     }
 
     /**
