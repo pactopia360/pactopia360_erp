@@ -1158,33 +1158,26 @@ final class BillingStatementsController extends Controller
         abort_if(!$this->isValidPeriod($period), 422);
 
         // =========================
-        // Build data (SOT)
+        // Data (SOT)
         // =========================
         $data = $this->buildStatementData($accountId, $period);
 
-        // ✅ PDF Admin debe ser idéntico al PDF Cliente:
-        // - NO permitir que ?modal=1 altere el layout del Blade
-        // - Mantenerlo estable aunque el frontend mande modal=1
+        // ✅ Admin debe renderizar igual que Cliente (no modal layout)
         $data['isModal'] = false;
 
-        // ✅ Forzar QR con overlay (logo al centro) usando la MISMA vista que Cliente
-        // (Cliente no se toca; solo Admin prende banderas)
+        // ✅ Forzar overlay del logo en QR SOLO para Admin
         $data['qr_force_overlay'] = true;
+        $data['qr_logo_px'] = 38; // 30-44 recomendado
 
-        // Tamaño del logo al centro del QR (px): 30-44 recomendado
-        $data['qr_logo_px'] = 38;
-
-        // Vista única (misma plantilla cliente)
         $viewName = 'cliente.billing.pdf.statement';
 
-        // inline / preview
         $inline = $req->boolean('inline') || $req->boolean('preview');
 
         // =========================
-        // HTML debug
+        // HTML debug (para comparar Admin vs Cliente)
         // =========================
         if ($req->boolean('html')) {
-            Log::info('[STATEMENT_PDF] debug html', [
+            Log::info('[STATEMENT_PDF][ADMIN] debug html', [
                 'view'       => $viewName,
                 'account_id' => $accountId,
                 'period'     => $period,
@@ -1200,7 +1193,7 @@ final class BillingStatementsController extends Controller
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
         }
 
-        Log::info('[STATEMENT_PDF] rendering', [
+        Log::info('[STATEMENT_PDF][ADMIN] rendering', [
             'view'       => $viewName,
             'account_id' => $accountId,
             'period'     => $period,
@@ -1212,40 +1205,46 @@ final class BillingStatementsController extends Controller
             ],
         ]);
 
-        $name = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
+        $filename = 'EstadoCuenta_' . $accountId . '_' . $period . '.pdf';
 
         // =========================
-        // DomPDF
+        // ✅ MISMO engine que Cliente (dompdf.wrapper)
         // =========================
-        if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::setOptions([
+        try {
+            $pdf = app('dompdf.wrapper');
+
+            // Opcional pero recomendado (no cambies DPI si Cliente ya te funciona perfecto con el default)
+            // Si quieres igualarlo aún más, puedes dejar esto tal cual:
+            $pdf->setOptions([
                 'isRemoteEnabled'      => true,
                 'isHtml5ParserEnabled' => true,
                 'defaultFont'          => 'DejaVu Sans',
                 'dpi'                  => 96,
                 'defaultPaperSize'     => 'a4',
-            ])->loadView($viewName, $data);
+            ]);
 
-            $resp = $inline ? $pdf->stream($name) : $pdf->download($name);
-
-            // ✅ Permitir iframe/admin viewer same-origin sin romper
-            // (DomPDF stream/download retorna Symfony Response con headers editables)
-            try {
-                $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
-                $resp->headers->set(
-                    'Content-Security-Policy',
-                    "default-src 'self'; frame-ancestors 'self'; object-src 'self';"
-                );
-            } catch (\Throwable $e) {
-                // no-op: no queremos romper el PDF si por algún motivo no permite headers
-            }
-
-            return $resp;
+        } catch (\Throwable $e) {
+            Log::error('[STATEMENT_PDF][ADMIN] dompdf.wrapper not available', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+            abort(500, 'PDF engine no disponible.');
         }
 
-        // Fallback: HTML si no hay DomPDF
-        $html = view($viewName, $data)->render();
-        return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+        $pdf->loadView($viewName, $data);
+
+        $resp = $inline ? $pdf->stream($filename) : $pdf->download($filename);
+
+        // ✅ Iframe same-origin (admin viewer)
+        try {
+            $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
+            $resp->headers->set('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'; object-src 'self';");
+        } catch (\Throwable $e) {
+            // no-op
+        }
+
+        return $resp;
     }
 
     public function email(Request $req, string $accountId, string $period): RedirectResponse
