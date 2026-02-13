@@ -194,64 +194,28 @@
   if ($divNoIva <= 0.00001) $divNoIva = 1.16;
 
   // ======================================================
-  // ✅ ID Cliente NO consecutivo (visible al cliente)
-  // Requisito: los primeros 2 dígitos deben ser el ID real (parcial)
-  // Formato: P{YYYY}-{ID2}{SUFIJO}
-  // SUFIJO se toma de:
-  // - $public_id (si el controller lo manda)
-  // - $accountObj->public_id
-  // - $accountObj->meta['public_id'] (meta JSON/string/array/object)
-  // Fallback temporal: hash del account_id (mejor setearlo en backend)
+  // ✅ ID Cliente (simple): P{YY}{IDCUENTA}
+  // Ejemplo: periodo 2026-02 y cuenta 23 => P2623
   // ======================================================
   $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
 
-  // Año del periodo (si viene 2026-02 => 2026)
-  $yearForId = '';
+  // Año en 2 dígitos (YY) desde el periodo si viene (2026-02 => 26)
+  $yy = '';
   try {
-    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) $yearForId = (string) substr($periodSafe, 0, 4);
-  } catch (\Throwable $e) { $yearForId = ''; }
-  if ($yearForId === '') $yearForId = (string) date('Y');
+    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
+      $yy = substr((string)$periodSafe, 2, 2);
+    }
+  } catch (\Throwable $e) { $yy = ''; }
 
-  // ✅ prefijo 2 dígitos basado en ID real (primeros 2 dígitos)
-  $id2 = '';
-  if ($accountIdNum > 0) {
-    $idStr = (string)$accountIdNum;
-    $id2 = (strlen($idStr) >= 2) ? substr($idStr, 0, 2) : str_pad($idStr, 2, '0', STR_PAD_LEFT);
+  if ($yy === '') {
+    $yy = substr((string)date('Y'), 2, 2);
   }
 
-  // Public suffix (no secuencial)
-  $publicId = trim((string)($public_id ?? ''));
-
-  if ($publicId === '') {
-    try { $publicId = trim((string)($accountObj->public_id ?? '')); } catch (\Throwable $e) { $publicId = ''; }
-  }
-
-  if ($publicId === '' && isset($accountObj->meta)) {
-    try {
-      $m = $accountObj->meta;
-
-      if (is_string($m)) {
-        $j = json_decode($m, true);
-        if (is_array($j)) $publicId = trim((string)($j['public_id'] ?? ''));
-      } elseif (is_array($m)) {
-        $publicId = trim((string)($m['public_id'] ?? ''));
-      } elseif (is_object($m)) {
-        $publicId = trim((string)($m->public_id ?? ''));
-      }
-    } catch (\Throwable $e) { $publicId = ''; }
-  }
-
-  // Fallback temporal (NO ideal): hash estable derivado del ID (evita que se vea consecutivo)
-  if ($publicId === '' && $accountIdNum > 0) {
-    $publicId = substr(strtoupper(md5('P360-'.$accountIdNum)), 0, 8); // 8 chars
-  }
-
-  // ✅ id final: P{YYYY}-{ID2}{SUFIJO}
-  $idCuentaTxt = ($accountIdNum > 0 && $id2 !== '' && $publicId !== '')
-    ? ('P' . $yearForId . '-' . $id2 . $publicId)
+  $idCuentaTxt = ($accountIdNum > 0)
+    ? ('P' . $yy . (string)$accountIdNum)
     : '—';
-
+    
   // ======================================================
   // Fechas (aquí ya tenemos printedAt "real")
   // ======================================================
