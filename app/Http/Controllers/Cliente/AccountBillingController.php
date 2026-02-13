@@ -72,24 +72,56 @@ final class AccountBillingController extends Controller
         $text = trim($text);
         if ($text === '') return null;
 
-        // No tronar si la lib no existe en prod
-        if (!class_exists(\BaconQrCode\Writer::class)) return null;
+        // clamp size
+        $size = (int) $size;
+        if ($size < 140) $size = 140;
+        if ($size > 420) $size = 420;
+
+        // Lib + clases necesarias
+        $need = [
+            \BaconQrCode\Writer::class,
+            \BaconQrCode\Renderer\ImageRenderer::class,
+            \BaconQrCode\Renderer\RendererStyle\RendererStyle::class,
+            \BaconQrCode\Renderer\Image\GdImageBackEnd::class,
+        ];
+
+        foreach ($need as $cls) {
+            if (!class_exists($cls)) {
+                \Illuminate\Support\Facades\Log::warning('[BILLING][QR] missing class', [
+                    'missing' => $cls,
+                ]);
+                return null;
+            }
+        }
+
+        // GD requerido para GdImageBackEnd
+        if (!extension_loaded('gd')) {
+            \Illuminate\Support\Facades\Log::warning('[BILLING][QR] gd extension not loaded');
+            return null;
+        }
 
         try {
-            // Render PNG
             $renderer = new \BaconQrCode\Renderer\ImageRenderer(
-                new \BaconQrCode\Renderer\RendererStyle\RendererStyle(max(140, $size)),
+                new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size),
                 new \BaconQrCode\Renderer\Image\GdImageBackEnd()
             );
 
             $writer = new \BaconQrCode\Writer($renderer);
             $png = $writer->writeString($text);
 
-            if (!is_string($png) || strlen($png) < 10) return null;
+            if (!is_string($png) || strlen($png) < 50) {
+                \Illuminate\Support\Facades\Log::warning('[BILLING][QR] png too small/invalid', [
+                    'len' => is_string($png) ? strlen($png) : 0,
+                ]);
+                return null;
+            }
 
             return 'data:image/png;base64,' . base64_encode($png);
+
         } catch (\Throwable $e) {
-            Log::warning('[BILLING][QR] qrDataUriFromText failed', ['err' => $e->getMessage()]);
+            \Illuminate\Support\Facades\Log::warning('[BILLING][QR] qrDataUriFromText failed', [
+                'err' => $e->getMessage(),
+            ]);
             return null;
         }
     }
@@ -846,6 +878,41 @@ final class AccountBillingController extends Controller
     }
 
     /**
+     * ✅ Genera QR PNG como data-uri (DomPDF friendly) usando BaconQrCode si está disponible.
+     * Retorna null si no se pudo generar.
+     */
+    private function makeQrDataUri(string $text): ?string
+    {
+        $text = trim($text);
+        if ($text === '') return null;
+
+        try {
+            if (!class_exists(\BaconQrCode\Writer::class)) return null;
+            if (!class_exists(\BaconQrCode\Renderer\ImageRenderer::class)) return null;
+            if (!class_exists(\BaconQrCode\Renderer\Image\GdImageBackEnd::class)) return null;
+            if (!class_exists(\BaconQrCode\Renderer\RendererStyle\RendererStyle::class)) return null;
+
+            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                new \BaconQrCode\Renderer\RendererStyle\RendererStyle(220),
+                new \BaconQrCode\Renderer\Image\GdImageBackEnd()
+            );
+
+            $writer = new \BaconQrCode\Writer($renderer);
+            $img = $writer->writeString($text); // PNG binary
+
+            if (!is_string($img) || strlen($img) < 20) return null;
+
+            return 'data:image/png;base64,' . base64_encode($img);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[BILLING][PDF] QR generate failed', [
+                'err' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+    
+
+    /**
      * ==========================================================
      * ✅ RENDER PDF (single period) usando vista cliente.billing.pdf.statement
      * ==========================================================
@@ -993,7 +1060,6 @@ final class AccountBillingController extends Controller
             $data['qr_data_uri'] = null;
             $data['qr_url'] = null;
         }
-
 
         // DomPDF wrapper (barryvdh/laravel-dompdf)
         try {
