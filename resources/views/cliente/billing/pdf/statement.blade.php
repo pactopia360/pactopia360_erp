@@ -208,16 +208,14 @@
     }
   } catch (\Throwable $e) { $yy = ''; }
 
-  if ($yy === '') {
-    $yy = substr((string)date('Y'), 2, 2);
-  }
+  if ($yy === '') $yy = substr((string)date('Y'), 2, 2);
 
   $idCuentaTxt = ($accountIdNum > 0)
     ? ('P' . $yy . (string)$accountIdNum)
     : '—';
-    
+
   // ======================================================
-  // Fechas (aquí ya tenemos printedAt "real")
+  // Fechas (printedAt "real")
   // ======================================================
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
