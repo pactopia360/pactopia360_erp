@@ -1159,58 +1159,67 @@ final class BillingStatementsController extends Controller
 
         $data = $this->buildStatementData($accountId, $period);
 
-        // ✅ Admin PDF debe verse igual que Cliente (NO permitir "modal" que altere layout)
+        // ✅ Admin PDF debe verse igual que Cliente (NO permitir que "modal" altere layout)
         $data['isModal'] = false;
 
         // =========================================================
-        // ✅ ADMIN: QR con logo embebido (estable en DomPDF)
-        // - NO usamos overlay HTML (position absolute) porque DomPDF lo rompe en algunos render
+        // ✅ ADMIN: Forzar QR con logo (SIN overlay HTML)
+        // - Toma primero el QR ya generado por buildStatementData (qr_data_uri / qr_url / qr_path)
+        // - Si no existe, genera QR desde pay_url (fallback)
+        // - Luego "planchamos" el logo al centro con GD y lo devolvemos como qr_data_uri
         // =========================================================
         $logoPx = (int)($req->get('qr_logo_px', 38));
         if ($logoPx < 18) $logoPx = 18;
         if ($logoPx > 64) $logoPx = 64;
 
-        $payUrl = (string)(
-            $data['pay_url']
-            ?? $data['checkout_url']
-            ?? $data['payment_url']
-            ?? $data['url_pago']
-            ?? ''
-        );
-
-        // banderas para la vista
-        $data['qr_embedded'] = true;          // 👈 la vista NO intenta overlay
-        $data['qr_force_overlay'] = false;    // 👈 deshabilitado en Admin
+        // banderas para la vista (evitar overlay HTML)
+        $data['qr_force_overlay'] = false;
+        $data['qr_embedded'] = true;
         $data['qr_logo_px'] = $logoPx;
 
-        if (trim($payUrl) !== '') {
-            try {
-                $logoPath = public_path('assets/client/Logo1Pactopia.png');
+        try {
+            $logoPath = public_path('assets/client/Logo1Pactopia.png');
 
-                $qr = $this->makeQrWithCenterLogoDataUri($payUrl, $logoPath, $logoPx);
+            // 1) Obtener QR base (prioridad: data_uri, luego url/path)
+            $basePng = $this->resolveQrPngBinaryFromData($data);
 
-                if (is_string($qr) && str_starts_with($qr, 'data:image/png;base64,')) {
-                    $data['qr_data_uri'] = $qr;
-                    // opcional: si tu blade usa qr_url/qr_path, no lo necesitamos en admin
+            // 2) Si no hay QR base, generarlo desde pay_url
+            if (!$basePng) {
+                $payUrl = (string)(
+                    $data['pay_url']
+                    ?? $data['checkout_url']
+                    ?? $data['payment_url']
+                    ?? $data['url_pago']
+                    ?? ''
+                );
+
+                if (trim($payUrl) !== '') {
+                    $basePng = $this->makeQrPngBinary($payUrl, 320);
+                }
+            }
+
+            // 3) Si tenemos QR base, embebemos logo y lo forzamos como qr_data_uri
+            if ($basePng) {
+                $qrDataUri = $this->embedCenterLogoIntoQrPngDataUri($basePng, $logoPath, $logoPx);
+
+                if (is_string($qrDataUri) && str_starts_with($qrDataUri, 'data:image/png;base64,')) {
+                    $data['qr_data_uri'] = $qrDataUri;
+
+                    // 🔒 importante: para que la vista NO agarre el QR plano por url/path
                     $data['qr_url'] = null;
                     $data['qr_path'] = null;
-                } else {
-                    Log::warning('[STATEMENT_PDF][ADMIN_QR] qr not generated (empty result)', [
-                        'account_id' => $accountId,
-                        'period'     => $period,
-                    ]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning('[STATEMENT_PDF][ADMIN_QR] failed to embed logo into qr', [
+            } else {
+                \Illuminate\Support\Facades\Log::warning('[STATEMENT_PDF][ADMIN_QR] No base QR found (no qr_data_uri/qr_url and no pay_url)', [
                     'account_id' => $accountId,
                     'period'     => $period,
-                    'err'        => $e->getMessage(),
                 ]);
             }
-        } else {
-            Log::info('[STATEMENT_PDF][ADMIN_QR] no pay url => qr skipped', [
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[STATEMENT_PDF][ADMIN_QR] Failed to force QR with logo', [
                 'account_id' => $accountId,
                 'period'     => $period,
+                'err'        => $e->getMessage(),
             ]);
         }
 
@@ -1219,7 +1228,7 @@ final class BillingStatementsController extends Controller
         $inline = $req->boolean('inline') || $req->boolean('preview');
 
         if ($req->boolean('html')) {
-            Log::info('[STATEMENT_PDF] debug html', [
+            \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF] debug html', [
                 'view'       => $viewName,
                 'account_id' => $accountId,
                 'period'     => $period,
@@ -1229,7 +1238,7 @@ final class BillingStatementsController extends Controller
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
         }
 
-        Log::info('[STATEMENT_PDF] rendering', [
+        \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF] rendering', [
             'view'       => $viewName,
             'account_id' => $accountId,
             'period'     => $period,
@@ -3697,4 +3706,160 @@ final class BillingStatementsController extends Controller
 
         return 'data:image/png;base64,' . base64_encode($out);
     }
+
+    /**
+     * Intenta resolver el PNG del QR desde $data:
+     * - qr_data_uri (data:image/png;base64,....)
+     * - qr_url / qr_path (local dentro de public_path)
+     * - qr_data (si lo manejas)
+     */
+    private function resolveQrPngBinaryFromData(array $data): ?string
+    {
+        // 1) data uri directo
+        $qrDataUri = (string)($data['qr_data_uri'] ?? $data['qr_data'] ?? '');
+        if ($qrDataUri !== '' && str_starts_with($qrDataUri, 'data:image')) {
+            $pos = strpos($qrDataUri, 'base64,');
+            if ($pos !== false) {
+                $b64 = substr($qrDataUri, $pos + 7);
+                $bin = base64_decode($b64, true);
+                if (is_string($bin) && strlen($bin) > 50) return $bin;
+            }
+        }
+
+        // 2) url/path (intentamos local en public/)
+        $qrUrl = (string)($data['qr_url'] ?? $data['qr_path'] ?? '');
+        $qrUrl = trim($qrUrl);
+        if ($qrUrl === '') return null;
+
+        $tryLocal = null;
+
+        if (str_starts_with($qrUrl, '/')) {
+            $tryLocal = public_path(ltrim($qrUrl, '/'));
+        } elseif (!preg_match('#^https?://#i', $qrUrl)) {
+            $tryLocal = public_path(ltrim($qrUrl, '/'));
+        }
+
+        if ($tryLocal && is_file($tryLocal) && is_readable($tryLocal)) {
+            $bin = @file_get_contents($tryLocal);
+            if (is_string($bin) && strlen($bin) > 50) return $bin;
+        }
+
+        // 3) remoto (solo si es http/https)
+        if (preg_match('#^https?://#i', $qrUrl)) {
+            $ctx = stream_context_create([
+                'http' => ['timeout' => 3],
+                'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $bin = @file_get_contents($qrUrl, false, $ctx);
+            if (is_string($bin) && strlen($bin) > 50) return $bin;
+        }
+
+        return null;
+    }
+
+    /**
+     * Genera un QR PNG binario usando BaconQrCode (sin logo).
+     */
+    private function makeQrPngBinary(string $text, int $size = 320): ?string
+    {
+        $text = trim($text);
+        if ($text === '') return null;
+
+        // Si no existe BaconQrCode, no podemos generar
+        if (!class_exists(\BaconQrCode\Writer::class)) return null;
+
+        $size = max(160, min(520, (int)$size));
+
+        $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+            new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size, 2),
+            new \BaconQrCode\Renderer\Image\GdImageBackEnd()
+        );
+
+        $writer = new \BaconQrCode\Writer($renderer);
+        $png = $writer->writeString($text);
+
+        if (is_string($png) && strlen($png) > 50) return $png;
+
+        return null;
+    }
+
+    /**
+     * Recibe PNG binario de QR y le embebe el logo al centro (GD), retorna data-uri PNG.
+     * Si GD o logo falla, regresa el QR original como data-uri.
+     */
+    private function embedCenterLogoIntoQrPngDataUri(string $qrPngBin, string $logoPath, int $logoPx = 38): string
+    {
+        // fallback: QR original
+        $fallback = 'data:image/png;base64,' . base64_encode($qrPngBin);
+
+        if (!function_exists('imagecreatefromstring')) return $fallback;
+
+        $qrImg = @imagecreatefromstring($qrPngBin);
+        if (!$qrImg) return $fallback;
+
+        $logoPx = max(18, min(64, (int)$logoPx));
+
+        if ($logoPath === '' || !is_file($logoPath) || !is_readable($logoPath)) {
+            imagedestroy($qrImg);
+            return $fallback;
+        }
+
+        $logoBin = @file_get_contents($logoPath);
+        if (!is_string($logoBin) || strlen($logoBin) < 50) {
+            imagedestroy($qrImg);
+            return $fallback;
+        }
+
+        $logoImg = @imagecreatefromstring($logoBin);
+        if (!$logoImg) {
+            imagedestroy($qrImg);
+            return $fallback;
+        }
+
+        // resize logo a cuadrado logoPx x logoPx
+        $lw = imagesx($logoImg);
+        $lh = imagesy($logoImg);
+        if ($lw <= 0 || $lh <= 0) {
+            imagedestroy($logoImg);
+            imagedestroy($qrImg);
+            return $fallback;
+        }
+
+        $dst = imagecreatetruecolor($logoPx, $logoPx);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+        imagefilledrectangle($dst, 0, 0, $logoPx, $logoPx, $transparent);
+
+        imagecopyresampled($dst, $logoImg, 0, 0, 0, 0, $logoPx, $logoPx, $lw, $lh);
+
+        // pegar al centro con "caja blanca" para que siga escaneable
+        $qrW = imagesx($qrImg);
+        $qrH = imagesy($qrImg);
+
+        $pad = 6;                 // borde blanco alrededor del logo
+        $box = $logoPx + ($pad*2);
+
+        $x = (int)(($qrW - $box) / 2);
+        $y = (int)(($qrH - $box) / 2);
+
+        $white = imagecolorallocate($qrImg, 255, 255, 255);
+        imagefilledrectangle($qrImg, $x, $y, $x + $box, $y + $box, $white);
+
+        imagecopy($qrImg, $dst, $x + $pad, $y + $pad, 0, 0, $logoPx, $logoPx);
+
+        // export
+        ob_start();
+        imagepng($qrImg);
+        $out = (string)ob_get_clean();
+
+        imagedestroy($dst);
+        imagedestroy($logoImg);
+        imagedestroy($qrImg);
+
+        if (strlen($out) < 50) return $fallback;
+
+        return 'data:image/png;base64,' . base64_encode($out);
+    }
+    
 }
