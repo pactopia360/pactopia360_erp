@@ -127,9 +127,9 @@
 </head>
 <body>
 @php
-    $loginUrl = route('cliente.login');
-    // redirect post-login a estado de cuenta/pagos
-    $loginNextBilling = $loginUrl . '?next=' . urlencode('/cliente/billing/statement');
+     $loginUrl = route('cliente.login');
+     // redirect post-login a estado de cuenta/pagos
+    $loginNextBilling = $loginUrl . '?next=' . urlencode('/cliente/estado-de-cuenta');
 
     // Mostrar solo algo útil al usuario (sin Stripe session)
     $cycle = strtolower((string)($plan ?? 'mensual'));
