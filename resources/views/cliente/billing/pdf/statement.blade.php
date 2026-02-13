@@ -721,10 +721,41 @@
           @endphp
 
           @if($qrImg)
-            <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+          @php
+            $forceOverlay = (bool)($qr_force_overlay ?? false);
+            $logoPx = (int)($qr_logo_px ?? 38);
+            if ($logoPx < 18) $logoPx = 18;
+            if ($logoPx > 64) $logoPx = 64;
+
+            // logo para overlay: usa el mismo logoDataUri ya resuelto arriba
+            $qrOverlayLogo = $logoDataUri ?? null;
+          @endphp
+
+          @if($forceOverlay && $qrOverlayLogo)
+            <div style="position:relative; display:inline-block; line-height:0;">
+              <img src="{{ $qrImg }}" alt="QR" class="qrImg" style="display:block;">
+              <img
+                src="{{ $qrOverlayLogo }}"
+                alt="PACTOPIA"
+                style="
+                  position:absolute;
+                  left:50%;
+                  top:50%;
+                  width:{{ $logoPx }}px;
+                  height:{{ $logoPx }}px;
+                  transform:translate(-50%,-50%);
+                  background:#fff;
+                  border-radius:10px;
+                  padding:4px;
+                "
+              >
+            </div>
           @else
-            <div class="mut b" style="padding:26px 0;">QR no disponible</div>
-            <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>
+            <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+          @endif
+          @else
+          <div class="mut b" style="padding:26px 0;">QR no disponible</div>
+          <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>
           @endif
         </div>
       </td>

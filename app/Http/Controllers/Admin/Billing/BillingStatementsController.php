@@ -1160,6 +1160,14 @@ final class BillingStatementsController extends Controller
         $data = $this->buildStatementData($accountId, $period);
         $data['isModal'] = $req->boolean('modal');
 
+        // ✅ Forzar que el QR en Admin use overlay del logo (misma vista que Cliente)
+        // (Cliente no se toca; solo Admin prende la bandera)
+        $data['qr_force_overlay'] = true;
+
+        // Tamaño sugerido del logo en el centro (px)
+        // Ajusta a gusto: 30-44 suele verse bien
+        $data['qr_logo_px'] = 38;
+
         $viewName = 'cliente.billing.pdf.statement';
 
         $inline = $req->boolean('inline') || $req->boolean('preview');
