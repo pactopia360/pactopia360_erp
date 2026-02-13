@@ -658,29 +658,3 @@ table{
 }
 
 
-/* =========================
-   QR (DomPDF-safe)
-   ========================= */
-.qrWrap{
-  position: relative;
-  display: inline-block;
-  line-height: 0;
-}
-
-.qrImg{
-  width: 140px;     /* 🔻 más chico (ajusta 120-160) */
-  height: 140px;
-  display: block;
-}
-
-.qrCenterLogo{
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 34px;      /* tamaño logo */
-  height: 34px;
-  transform: translate(-50%, -50%);
-  background: #fff; /* “parche” blanco para que se lea bien */
-  padding: 6px;
-  border-radius: 10px;
-}

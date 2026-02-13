@@ -95,6 +95,7 @@ final class AccountBillingController extends Controller
         }
     }
 
+
     /**
      * ✅ Determina "pendiente real" desde row de admin.billing_statements
      * sin depender solo de `saldo`.
@@ -1016,7 +1017,7 @@ final class AccountBillingController extends Controller
             $data['pay_url'] = $payUrl;
 
             // QR preferente embebido (data URI)
-            $qrData = $this->qrDataUriFromText($payUrl, 160);
+            $qrData = $this->qrDataUriFromText($payUrl, 240);
             if (is_string($qrData) && trim($qrData) !== '') {
                 $data['qr_data_uri'] = $qrData;
             } else {
