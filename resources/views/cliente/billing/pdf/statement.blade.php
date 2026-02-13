@@ -189,27 +189,76 @@
   $subtotal = $totalPagar > 0 ? $r2($totalPagar / (1 + $ivaRate)) : 0.0;
   $iva      = $totalPagar > 0 ? $r2($totalPagar - $subtotal) : 0.0;
 
+  // ✅ divisor sin IVA (re-usable)
+  $divNoIva = 1 + (float)$ivaRate;
+  if ($divNoIva <= 0.00001) $divNoIva = 1.16;
+
+  // ======================================================
+  // ✅ ID Cliente NO consecutivo (visible al cliente)
+  // Formato: P{YYYY}-{PUBLIC}
+  // PUBLIC se toma de:
+  // - $public_id (si el controller lo manda)
+  // - $accountObj->public_id
+  // - $accountObj->meta['public_id'] (meta JSON/string/array/object)
+  // Fallback temporal: hash del account_id (mejor setearlo en backend)
+  // ======================================================
   $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
 
-  // ✅ ID Cliente/Cuenta formato: P{YYYY}{IDCCUENTA(5)}
+  // Año del periodo (si viene 2026-02 => 2026)
   $yearForId = '';
   try {
-    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
-      $yearForId = (string) substr($periodSafe, 0, 4);
-    }
+    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) $yearForId = (string) substr($periodSafe, 0, 4);
   } catch (\Throwable $e) { $yearForId = ''; }
 
+  // printedAt se declara más abajo; usa fallback seguro aquí
   if ($yearForId === '') {
-    try { $yearForId = (string) $printedAt->format('Y'); } catch (\Throwable $e) { $yearForId = (string) date('Y'); }
+    $yearForId = (string) date('Y');
   }
 
-  $idCuentaTxt = $accountIdNum > 0
-    ? ('P' . $yearForId . str_pad((string)$accountIdNum, 5, '0', STR_PAD_LEFT))
+  // Public ID (no secuencial)
+  $publicId = trim((string)($public_id ?? ''));
+  if ($publicId === '') {
+    try {
+      $publicId = trim((string)($accountObj->public_id ?? ''));
+    } catch (\Throwable $e) { $publicId = ''; }
+  }
+
+  if ($publicId === '' && isset($accountObj->meta)) {
+    try {
+      $m = $accountObj->meta;
+
+      if (is_string($m)) {
+        $j = json_decode($m, true);
+        if (is_array($j)) $publicId = trim((string)($j['public_id'] ?? ''));
+      } elseif (is_array($m)) {
+        $publicId = trim((string)($m['public_id'] ?? ''));
+      } elseif (is_object($m)) {
+        $publicId = trim((string)($m->public_id ?? ''));
+      }
+    } catch (\Throwable $e) { $publicId = ''; }
+  }
+
+  // Fallback temporal (NO ideal): hash estable derivado del ID (evita que se vea consecutivo)
+  if ($publicId === '' && $accountIdNum > 0) {
+    $publicId = substr(strtoupper(md5('P360-'.$accountIdNum)), 0, 10);
+  }
+
+  $idCuentaTxt = ($publicId !== '')
+    ? ('P' . $yearForId . '-' . $publicId)
     : '—';
 
+  // ======================================================
+  // Fechas (aquí ya tenemos printedAt "real")
+  // ======================================================
   $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
   $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
+
+  // Si yearForId no se pudo por period, mejorarlo con printedAt real
+  if ($yearForId === '') {
+    try { $yearForId = (string) $printedAt->format('Y'); } catch (\Throwable $e) { $yearForId = (string) date('Y'); }
+    if ($publicId !== '') $idCuentaTxt = 'P' . $yearForId . '-' . $publicId;
+  }
 
   // ✅ Nombre mostrado del cliente (nunca dependas de $name por colisión con items)
   $rs1 = trim((string)($razon_social ?? ''));
@@ -408,7 +457,7 @@
   }
   if (!is_array($serviceItems)) $serviceItems = [];
 
-    $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
+  $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
     $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
     // nombre (SOT: row['name'] o similares)
