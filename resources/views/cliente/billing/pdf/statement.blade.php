@@ -17,7 +17,6 @@
 
     // ✅ Debug visible: hash CSS para confirmar que se está aplicando el CSS actual
     $cssHash6 = $pdfCss !== '' ? substr(md5($pdfCss), 0, 6) : 'nocss';
-
   @endphp
 
   <style>{!! $pdfCss !!}</style>
@@ -26,15 +25,12 @@
 <div class="pdfPage">
   <div class="pageGutter">
 
-
 @php
   use Illuminate\Support\Carbon;
   use Illuminate\Support\Str;
 
   // ======================================================
   // ✅ Helpers numéricos (DomPDF-safe)
-  // - Acepta: null, int/float, strings "$1,234.50 MXN"
-  // - Regresa float >= 0 (si quieres permitir negativos, quita max(0,...))
   // ======================================================
   $f = function ($n): float {
     if ($n === null) return 0.0;
@@ -48,18 +44,13 @@
       $s = trim($n);
       if ($s === '') return 0.0;
 
-      // Limpieza común: $, comas, MXN, espacios
       $s = str_ireplace(['mxn'], '', $s);
       $s = str_replace(['$', ',', ' '], '', $s);
 
-      // Soporta formato "1.234,56" (EU) si llega así: convierte a "1234.56"
-      // Heurística simple: si tiene coma y punto, asume coma decimal (EU) y remueve puntos
       if (str_contains($s, ',') && str_contains($s, '.')) {
-        // "1.234,56" => "1234.56"
         $s = str_replace('.', '', $s);
         $s = str_replace(',', '.', $s);
       } elseif (str_contains($s, ',') && !str_contains($s, '.')) {
-        // "1234,56" => "1234.56"
         $s = str_replace(',', '.', $s);
       }
 
@@ -69,7 +60,6 @@
     }
 
     if (is_object($n)) {
-      // Si llega un objeto tipo Money/DTO con ->amount
       if (isset($n->amount) && is_numeric($n->amount)) {
         $v = (float)$n->amount;
         return is_finite($v) ? $v : 0.0;
@@ -99,41 +89,35 @@
   $prevPeriodLabel = (string)($prev_period_label ?? $prevPeriod);
 
   // ======================================================
+  // ✅ Fechas (defínelas temprano para no depender de variables “fantasma”)
+  // ======================================================
+  $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
+  $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
+
+  // ======================================================
   // ✅ Saldo anterior (SOT = billing_statements / backend)
-  // - NUNCA lo calcules con payments.
   // ======================================================
   $prevBalanceFallback = $f($prev_balance ?? 0);
   $prevStatusRaw = strtolower(trim((string)($prev_status ?? $prev_statement_status ?? '')));
   $prevIsPaid = in_array($prevStatusRaw, ['paid','pagado','paid_ok','pago'], true);
 
-  if (isset($prev_is_paid)) {
-    $prevIsPaid = (bool)$prev_is_paid;
-  }
+  if (isset($prev_is_paid)) $prevIsPaid = (bool)$prev_is_paid;
 
   $prevBalance = $prevIsPaid ? 0.0 : $prevBalanceFallback;
 
-  // Fallback adicional (compat)
   if ($prevBalance <= 0.00001 && !$prevIsPaid) {
     $prevBalanceAlt = $f($prev_statement_saldo ?? $prev_saldo ?? null);
     if ($prevBalanceAlt > 0.00001) $prevBalance = $prevBalanceAlt;
   }
 
-  // ✅ Bandera para UI: mostrar línea del periodo anterior aunque esté pagado (sin sumar)
+  // ✅ Bandera UI: mostrar línea del periodo anterior aunque esté pagado (sin sumar)
   $showPrevLine = false;
-  if (is_string($prevPeriod) && trim($prevPeriod) !== '') {
-    $showPrevLine = true;
-  } elseif (is_string($prevPeriodLabel) && trim($prevPeriodLabel) !== '') {
-    $showPrevLine = true;
-  } elseif ($prevBalanceFallback > 0.00001 || $prevIsPaid) {
-    $showPrevLine = true;
-  }
+  if (is_string($prevPeriod) && trim($prevPeriod) !== '') $showPrevLine = true;
+  elseif (is_string($prevPeriodLabel) && trim($prevPeriodLabel) !== '') $showPrevLine = true;
+  elseif ($prevBalanceFallback > 0.00001 || $prevIsPaid) $showPrevLine = true;
 
   // ======================================================
   // ✅ Due del periodo actual (SOT)
-  // Orden de preferencia:
-  // 1) current_period_due
-  // 2) saldo/amount_due/total/charge del statement actual
-  // 3) cargo - abono
   // ======================================================
   $candidates = [
     $current_period_due ?? null,
@@ -153,11 +137,8 @@
     if ($v > 0.00001) { $currentDue = $v; break; }
   }
 
-  if ($currentDue <= 0.00001) {
-    $currentDue = $r2(max(0.0, $cargo - $abono));
-  } else {
-    $currentDue = $r2(max(0.0, $currentDue));
-  }
+  if ($currentDue <= 0.00001) $currentDue = $r2(max(0.0, $cargo - $abono));
+  else $currentDue = $r2(max(0.0, $currentDue));
 
   // ✅ sumar saldo anterior SOLO si hay deuda real
   $showPrev   = ($prevBalance > 0.00001);
@@ -182,7 +163,7 @@
   $tarifaPill  = (string)($tarifa_pill ?? 'dim');
   if (!in_array($tarifaPill, ['info','warn','ok','dim','bad'], true)) $tarifaPill = 'dim';
 
-  // IVA: por defecto 16%, pero si viene iva_rate del backend lo respetamos (0.0 - 0.99)
+  // IVA
   $ivaRate = $f($iva_rate ?? 0.16);
   if ($ivaRate <= 0 || $ivaRate >= 0.99) $ivaRate = 0.16;
 
@@ -200,31 +181,16 @@
   $accountIdRaw = $account_id ?? ($accountObj->id ?? 0);
   $accountIdNum = is_numeric($accountIdRaw) ? (int)$accountIdRaw : 0;
 
-  // Año en 2 dígitos (YY) desde el periodo si viene (2026-02 => 26)
   $yy = '';
   try {
-    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) {
-      $yy = substr((string)$periodSafe, 2, 2);
-    }
+    if (preg_match('/^\d{4}-\d{2}$/', $periodSafe)) $yy = substr((string)$periodSafe, 2, 2);
   } catch (\Throwable $e) { $yy = ''; }
 
-  if ($yy === '') $yy = substr((string)date('Y'), 2, 2);
+  if ($yy === '') $yy = substr((string)$printedAt->format('Y'), 2, 2);
 
   $idCuentaTxt = ($accountIdNum > 0)
     ? ('P' . $yy . (string)$accountIdNum)
     : '—';
-
-  // ======================================================
-  // Fechas (printedAt "real")
-  // ======================================================
-  $printedAt = ($generated_at ?? null) ? Carbon::parse($generated_at) : now();
-  $dueAt     = ($due_at ?? null) ? Carbon::parse($due_at) : $printedAt->copy()->addDays(4);
-
-  // Si yearForId no se pudo por period, mejorarlo con printedAt real
-  if ($yearForId === '') {
-    try { $yearForId = (string) $printedAt->format('Y'); } catch (\Throwable $e) { $yearForId = (string) date('Y'); }
-    if ($publicId !== '') $idCuentaTxt = 'P' . $yearForId . '-' . $publicId;
-  }
 
   // ✅ Nombre mostrado del cliente (nunca dependas de $name por colisión con items)
   $rs1 = trim((string)($razon_social ?? ''));
@@ -370,7 +336,6 @@
   $pesosTxt = $numToWordsEs($pesosInt);
   $moneda   = ($pesosInt === 1) ? 'peso' : 'pesos';
   $totalLetrasCalc = trim($pesosTxt).' '.$moneda.' '.str_pad((string)$cent, 2, '0', STR_PAD_LEFT).'/100 MN';
-
   $totalLetras = (string)($total_letras ?? $totalLetrasCalc);
 
   // Period label
@@ -394,10 +359,7 @@
     || str_contains($cycleKey, 'year');
 
   $serviceLabel = trim((string)($service_label ?? ''));
-
-  if ($serviceLabel === '') {
-    $serviceLabel = $isAnnual ? 'Servicio anual' : 'Servicio mensual';
-  }
+  if ($serviceLabel === '') $serviceLabel = $isAnnual ? 'Servicio anual' : 'Servicio mensual';
 
   if ($isAnnual) {
     $serviceLabel = preg_replace('/\bmensual\b/iu', 'anual', $serviceLabel);
@@ -405,10 +367,7 @@
   }
 
   // ======================================================
-  // ✅ Service items (normalización compat) - DOMPDF SAFE
-  // - Prefiere service_items (moderno)
-  // - Fallback a consumos (legacy)
-  // - Normaliza: name, unit_price, qty, subtotal
+  // ✅ Service items (normalización compat)
   // ======================================================
   $serviceItems = [];
   $si = $service_items ?? null;
@@ -426,18 +385,14 @@
   $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
     $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
-    // nombre (SOT: row['name'] o similares)
     $itemName = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
     if ($itemName === '') $itemName = 'Servicio';
 
-    // unit
     $unit = $f($row['unit_cost'] ?? $row['unit_price'] ?? $row['costo_unit'] ?? $row['costo'] ?? $row['importe'] ?? 0);
 
-    // qty
     $qty  = $f($row['qty'] ?? $row['cantidad'] ?? 1);
     if ($qty <= 0.00001) $qty = 1.0;
 
-    // subtotal (si viene, se respeta; si no, se calcula)
     $subRaw = $row['subtotal'] ?? $row['total'] ?? $row['importe_total'] ?? null;
     $sub    = $f($subRaw);
     if ($sub <= 0.00001) $sub = $unit * $qty;
@@ -450,9 +405,7 @@
     ];
   }, $serviceItems));
 
-  // ✅ Insert saldo anterior como línea:
-  // - Si hay deuda: suma y muestra monto
-  // - Si está pagado: muestra "Pagado" pero NO suma
+  // ✅ Insert saldo anterior como línea
   if ($showPrevLine) {
     if ($prevIsPaid) {
       array_unshift($serviceItems, [
@@ -478,20 +431,11 @@
   $padRows   = max(0, $minRows - $rowsCount);
 @endphp
 
-
 {{-- =========================================================
    ✅ TOP GRID (DomPDF-safe · 2 columnas · 1 sola fila)
-   OBJETIVO:
-   - Cliente justo debajo de datos Pactopia (llenar hueco)
-   - ID Cuenta pegado debajo de Total (sp8)
-   - Periodo pegado debajo de ID (sp8)
-   ✅ FIX DomPDF: evitar múltiples <tr> apilados que “bajan” la col derecha
    ========================================================= --}}
 <table class="grid" cellpadding="0" cellspacing="0">
   <tr>
-    {{-- =========================
-       COLUMNA IZQUIERDA
-       ========================= --}}
     <td class="gL" style="vertical-align:top;">
       <div class="hLogo">
         @if($logoDataUri)
@@ -503,7 +447,6 @@
 
       <div class="hTitle">Estado de cuenta</div>
 
-      {{-- Datos Pactopia --}}
       <div class="pactopiaMini">
         <div class="brandNameSm">Pactopia SAPI de CV</div>
         <div class="brandBlockSm">
@@ -516,7 +459,6 @@
         </div>
       </div>
 
-      {{-- ✅ Cliente justo debajo (llenar el hueco) --}}
       <div class="sp8"></div>
 
       <div class="card cardClient">
@@ -536,11 +478,7 @@
       </div>
     </td>
 
-    {{-- =========================
-       COLUMNA DERECHA (TODO APILADO)
-       ========================= --}}
     <td class="gR" style="vertical-align:top; text-align:left;">
-      {{-- TOTAL --}}
       <div class="card cardTotal">
         <div class="totalTop">
           <span class="totalCardLbl">Total a pagar:</span>
@@ -552,10 +490,8 @@
         <div class="totalWords">{{ $totalLetras }}</div>
       </div>
 
-      {{-- ✅ misma separación que pides --}}
       <div class="sp8"></div>
 
-      {{-- ID CUENTA (pegado debajo de Total) --}}
       <div class="card cardId">
         <div class="idBox">
           <div class="idLbl2">ID Cliente:</div>
@@ -571,13 +507,9 @@
         @endif
       </div>
 
-      {{-- ✅ misma separación que Total->ID --}}
       <div class="sp8"></div>
 
-      {{-- PERIODO (justo debajo de ID) --}}
       <div class="card cardPeriodo">
-
-        {{-- Header: Periodo --}}
         <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <tr>
             <td class="b" style="font-size:12px;">Periodo:</td>
@@ -587,7 +519,6 @@
 
         <div class="sp6"></div>
 
-        {{-- KV: Impresión / Límite / Estatus --}}
         <table class="periodKv" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <tr>
             <td class="mut">Impresión</td>
@@ -603,10 +534,8 @@
           </tr>
         </table>
 
-        {{-- ✅ Spacer DomPDF-safe: reparte la altura del cuadro (empuja el link hacia abajo) --}}
         <div class="periodSpacer"></div>
 
-        {{-- Enlace de pago: inline, sin caja blanca, alineado a la derecha --}}
         @if($hasPay)
           <table class="payLinkInlineRow" cellpadding="0" cellspacing="0" style="border-collapse:collapse; width:100%;">
             <tr>
@@ -617,9 +546,7 @@
             </tr>
           </table>
         @endif
-
       </div>
-
     </td>
   </tr>
 </table>
@@ -644,12 +571,9 @@
           @php
             $rowArr = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
-            // ✅ Nombre del servicio/concepto (NO usar $name para evitar colisión con el nombre del cliente)
             $svcName = trim((string)($rowArr['name'] ?? $rowArr['service'] ?? $rowArr['servicio'] ?? $rowArr['concepto'] ?? $rowArr['title'] ?? 'Servicio'));
 
-            // ✅ Si la cuenta es anual, evita que el backend muestre "mensual" en el PDF
             if (!isset($isAnnual)) {
-              // Por si el foreach corre antes de declarar (compat rara), recalculamos rápido:
               $cycleRaw2 = trim((string)($billing_cycle ?? $modoCobro ?? ($accountObj->billing_cycle ?? '') ?? ''));
               $cycleKey2 = strtolower($cycleRaw2);
               $isAnnual = in_array($cycleKey2, ['annual','anual','yearly','year','1y','12m'], true)
@@ -663,14 +587,11 @@
               $svcName = preg_replace('/\bmonthly\b/iu', 'annual', $svcName);
             }
 
-            // unitario (normalmente viene CON IVA desde backend)
             $unit = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
 
             $qty = $f($rowArr['qty'] ?? $rowArr['cantidad'] ?? 1);
             if ($qty <= 0) $qty = 1;
 
-            // ✅ Mostrar SIN IVA (unitario y subtotal)
-            // Subtotal SIEMPRE = unitario(sin IVA) * cantidad
             $div = 1 + (float)($ivaRate ?? 0.16);
             if ($div <= 0.00001) $div = 1.16;
 
@@ -703,8 +624,6 @@
         </tr>
       @endif
 
-
-      {{-- ✅ Pad para llenar alto sin empujar footer --}}
       @for($i=0; $i<$padRows; $i++)
         <tr class="rowPad">
           <td>&nbsp;</td><td class="r">&nbsp;</td><td class="c">&nbsp;</td><td class="r">&nbsp;</td>
@@ -716,9 +635,6 @@
 
 <div class="sp8"></div>
 
-{{-- =========================================================
-   ✅ FOOTER (como mock): Formas de pago | QR | Desglose final
-   ========================================================= --}}
 <div class="noBreak">
   <table class="footerGrid" cellpadding="0" cellspacing="0">
     <tr>
@@ -726,7 +642,6 @@
         <div class="card cardBottom">
           <div class="payTitle">PAGA EN LÍNEA</div>
 
-          {{-- ✅ NUEVO: Transferencias (arriba de "Ingresa") --}}
           <div class="sp6"></div>
           <div class="transferTitle">TRANSFERENCIAS</div>
 
@@ -751,7 +666,6 @@
           <div class="sp8"></div>
           <div class="alertRed">Si no tienes credenciales: soporte@pactopia.com</div>
         </div>
-
       </td>
 
       <td class="fC" style="vertical-align:top;">
@@ -802,7 +716,7 @@
           <div class="payTitle">Desglose del importe</div>
 
           <table class="kv" cellpadding="0" cellspacing="0">
-             @if($showPrevLine)
+            @if($showPrevLine)
               <tr>
                 <td class="k sb">Saldo anterior:</td>
                 <td class="v">
@@ -825,7 +739,6 @@
             <tr><td class="k sb">Total:</td><td class="v b">$ {{ number_format($totalPagar, 2) }}</td></tr>
           </table>
 
-
           <div class="hr"></div>
           <div class="smallNote"><span class="b">Nota:</span> El reflejo puede tardar minutos.</div>
         </div>
@@ -836,11 +749,9 @@
   <div class="footerLine xs mut">
     Documento informativo · Periodo {{ $periodSafe }} · Cuenta {{ $accountIdNum ?: '—' }} · Generado {{ $printedAt->format('Y-m-d H:i') }} · CSS {{ $cssHash6 }}
   </div>
-
 </div>
 
-  </div> {{-- /pageGutter --}}
-</div> {{-- /pdfPage --}}
+  </div>
+</div>
 </body>
 </html>
-
