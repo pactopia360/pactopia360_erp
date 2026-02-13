@@ -63,6 +63,37 @@ final class AccountBillingController extends Controller
         }
     }
 
+     /**
+     * ✅ Genera QR como data URI (PNG) de forma segura:
+     * - Si bacon/bacon-qr-code no está instalado, retorna null (no truena).
+     */
+    private function qrDataUriFromText(string $text, int $size = 220): ?string
+    {
+        $text = trim($text);
+        if ($text === '') return null;
+
+        // No tronar si la lib no existe en prod
+        if (!class_exists(\BaconQrCode\Writer::class)) return null;
+
+        try {
+            // Render PNG
+            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                new \BaconQrCode\Renderer\RendererStyle\RendererStyle(max(140, $size)),
+                new \BaconQrCode\Renderer\Image\GdImageBackEnd()
+            );
+
+            $writer = new \BaconQrCode\Writer($renderer);
+            $png = $writer->writeString($text);
+
+            if (!is_string($png) || strlen($png) < 10) return null;
+
+            return 'data:image/png;base64,' . base64_encode($png);
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING][QR] qrDataUriFromText failed', ['err' => $e->getMessage()]);
+            return null;
+        }
+    }
+
     /**
      * ✅ Determina "pendiente real" desde row de admin.billing_statements
      * sin depender solo de `saldo`.
@@ -927,6 +958,41 @@ final class AccountBillingController extends Controller
             'cargo' => (float)($row['total_cargo'] ?? ($row['charge'] ?? 0)),
             'abono' => (float)($row['total_abono'] ?? ($row['paid_amount'] ?? 0)),
         ];
+
+        // ==========================================================
+        // ✅ Pay URL + QR (Cliente)
+        // - Admin sí lo manda; Cliente no.
+        // - Usamos publicPay (sin sesión) con URL firmada (30 min).
+        // ==========================================================
+        $payUrl = '';
+        try {
+            // Link público firmado para abrir checkout desde QR/Link sin depender de sesión
+            $payUrl = URL::temporarySignedRoute(
+                'cliente.billing.publicPay',
+                now()->addMinutes(30),
+                ['accountId' => $accountId, 'period' => $period]
+            );
+        } catch (\Throwable $e) {
+            $payUrl = '';
+        }
+
+        if ($payUrl !== '') {
+            $data['pay_url'] = $payUrl;
+
+            // QR preferente embebido (data URI)
+            $qrData = $this->qrDataUriFromText($payUrl, 240);
+            if (is_string($qrData) && trim($qrData) !== '') {
+                $data['qr_data_uri'] = $qrData;
+            } else {
+                // fallback: por si quieres que el Blade intente cargarlo (opcional)
+                $data['qr_url'] = null;
+            }
+        } else {
+            // Para que el Blade no “crea” que hay URL si no existe
+            $data['pay_url'] = '';
+            $data['qr_data_uri'] = null;
+            $data['qr_url'] = null;
+        }
 
 
         // DomPDF wrapper (barryvdh/laravel-dompdf)
