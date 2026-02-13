@@ -1282,7 +1282,8 @@ final class AccountBillingController extends Controller
         // Si en clientes.estados_cuenta existe, manda esa info real
         // ==========================================================
         try {
-            $cli = config('p360.conn.clients', 'mysql_clientes');
+           // ✅ FIX: key correcta
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
             if (!\Illuminate\Support\Facades\Schema::connection($cli)->hasTable('estados_cuenta')) {
                 // no hay tabla: seguimos con base rows
             } else {
@@ -2627,7 +2628,8 @@ final class AccountBillingController extends Controller
 
         // 1) clientes.estados_cuenta.saldo (fuente más directa)
         try {
-            $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+            // ✅ FIX: key correcta
+            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
 
             if (Schema::connection($cli)->hasTable('estados_cuenta')) {
                 $row = DB::connection($cli)->table('estados_cuenta')
@@ -2891,11 +2893,12 @@ final class AccountBillingController extends Controller
 
         try {
             if ($clientAccountId) {
-                $cli = config('p360.conn.clients', 'mysql_clientes');
-                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                    $lc = array_map('strtolower', $cols);
-                    $has = fn (string $c) => in_array(strtolower($c), $lc, true);
+                // ✅ FIX: key correcta
+                $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                     $lc = array_map('strtolower', $cols);
+                     $has = fn (string $c) => in_array(strtolower($c), $lc, true);
 
                     $sel = ['id'];
                     foreach (['rfc', 'rfc_fiscal', 'razon_social', 'nombre_comercial', 'alias', 'email'] as $c) {
@@ -3711,6 +3714,31 @@ final class AccountBillingController extends Controller
                 return trim((string) $s);
             };
 
+            
+            // ---------------------------------------------------------
+            // ✅ GUARD: FREE/GRATIS/TRIAL/NONE nunca debe considerarse ANUAL.
+            // Esto evita que meta "yearly" (mal seteado) rompa el portal (payAllowed=null).
+            // ---------------------------------------------------------
+            $mcRaw = $has('modo_cobro') ? $norm($acc->modo_cobro ?? '') : '';
+            $planRaw = $norm(($acc->plan_actual ?? '') ?: ($acc->plan ?? ''));
+            $isFreeToken = static function (string $s) use ($norm): bool {
+                $s = $norm($s);
+                if ($s === '') return false;
+                if (in_array($s, ['free','gratis','gratuito','trial','prueba','demo','none','sin costo','sincosto','sin pago','sinpago'], true)) {
+                    return true;
+                }
+                // contiene
+                return str_contains($s, 'free')
+                    || str_contains($s, 'gratis')
+                    || str_contains($s, 'trial')
+                    || str_contains($s, 'demo')
+                    || str_contains($s, 'sin costo')
+                    || str_contains($s, 'sin pago');
+            };
+            if ($isFreeToken($mcRaw) || $isFreeToken($planRaw)) {
+                return false;
+            }
+
             // ---------------------------------------------------------
             // Matcher anual
             // - exact tokens
@@ -3755,14 +3783,15 @@ final class AccountBillingController extends Controller
             };
 
             // 1) modo_cobro directo (si existe)
-            if ($has('modo_cobro')) {
-                $mc = $norm($acc->modo_cobro ?? '');
-                if ($isAnnualValue($mc)) return true;
-            }
+             if ($has('modo_cobro')) {
 
-            // 2) plan / plan_actual (señal fuerte)
-            $plan = $norm(($acc->plan_actual ?? '') ?: ($acc->plan ?? ''));
-            if ($isAnnualValue($plan)) return true;
+                // ✅ ya normalizado arriba ($mcRaw)
+                if ($isAnnualValue($mcRaw)) return true;
+             }
+
+             // 2) plan / plan_actual (señal fuerte)
+            // ✅ ya normalizado arriba ($planRaw)
+            if ($isAnnualValue($planRaw)) return true;
 
             // 3) meta (SOT + variantes reales)
             if ($has('meta') && isset($acc->meta)) {
