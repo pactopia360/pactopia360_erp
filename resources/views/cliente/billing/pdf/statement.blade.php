@@ -603,7 +603,7 @@
     <thead>
       <tr>
         <th width="54%">Servicio / Concepto</th>
-        <th width="16%" class="r">Costo</th>
+        <th width="16%" class="r">Unitario</th>
         <th width="10%" class="c">Cantidad</th>
         <th width="20%" class="r">Subtotal</th>
       </tr>
@@ -633,27 +633,43 @@
               $svcName = preg_replace('/\bmonthly\b/iu', 'annual', $svcName);
             }
 
+            // unitario (normalmente viene CON IVA desde backend)
             $unit = $f($rowArr['unit_price'] ?? $rowArr['unit_cost'] ?? $rowArr['costo_unit'] ?? $rowArr['costo'] ?? $rowArr['importe'] ?? 0);
 
             $qty = $f($rowArr['qty'] ?? $rowArr['cantidad'] ?? 1);
             if ($qty <= 0) $qty = 1;
 
-            $sub = $f($rowArr['subtotal'] ?? $rowArr['total'] ?? ($unit * $qty));
+            // ✅ Mostrar SIN IVA (unitario y subtotal)
+            // Subtotal SIEMPRE = unitario(sin IVA) * cantidad
+            $div = 1 + (float)($ivaRate ?? 0.16);
+            if ($div <= 0.00001) $div = 1.16;
+
+            $unitNoIva = $unit > 0 ? $r2($unit / $div) : 0.0;
+            $subNoIva  = $r2($unitNoIva * $qty);
           @endphp
 
           <tr>
             <td class="sb">{{ $svcName }}</td>
-            <td class="r">$ {{ number_format($unit, 2) }}</td>
+            <td class="r">$ {{ number_format($unitNoIva, 2) }}</td>
             <td class="c">{{ rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.') }}</td>
-            <td class="r">$ {{ number_format($sub, 2) }}</td>
+            <td class="r">$ {{ number_format($subNoIva, 2) }}</td>
           </tr>
         @endforeach
       @else
+        @php
+          $div = 1 + (float)($ivaRate ?? 0.16);
+          if ($div <= 0.00001) $div = 1.16;
+
+          $unitNoIva = $currentDue > 0 ? $r2($currentDue / $div) : 0.0;
+          $qty = 1;
+          $subNoIva = $r2($unitNoIva * $qty);
+        @endphp
+
         <tr>
           <td class="sb">{{ $serviceLabel }}</td>
-          <td class="r">$ {{ number_format($currentDue, 2) }}</td>
+          <td class="r">$ {{ number_format($unitNoIva, 2) }}</td>
           <td class="c">1</td>
-          <td class="r">$ {{ number_format($currentDue, 2) }}</td>
+          <td class="r">$ {{ number_format($subNoIva, 2) }}</td>
         </tr>
       @endif
 
