@@ -721,7 +721,14 @@
           @endphp
 
           @if($qrImg)
-            <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+            <div class="qrWrap">
+              <img src="{{ $qrImg }}" alt="QR" class="qrImg">
+
+              {{-- ✅ Logo centrado dentro del QR --}}
+              @if(!empty($logoDataUri))
+                <img src="{{ $logoDataUri }}" alt="PACTOPIA" class="qrCenterLogo">
+              @endif
+            </div>
           @else
             <div class="mut b" style="padding:26px 0;">QR no disponible</div>
             <div class="mut xs">{{ $hasPay ? 'Se habilita con enlace.' : 'Falta enlace de pago.' }}</div>

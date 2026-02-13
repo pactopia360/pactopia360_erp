@@ -72,114 +72,29 @@ final class AccountBillingController extends Controller
         $text = trim($text);
         if ($text === '') return null;
 
-        $size = (int)$size;
-        if ($size < 160) $size = 160;
-        if ($size > 900) $size = 900;
-
-        // ✅ chillerlan/php-qrcode
-        if (!class_exists(\chillerlan\QRCode\QRCode::class)) {
-            Log::warning('[BILLING][QR] chillerlan/php-qrcode not installed');
-            return null;
-        }
+        // bacon v3
+        if (!class_exists(\BaconQrCode\Writer::class)) return null;
 
         try {
-            // ECC H para tolerar logo en centro
-            $options = new \chillerlan\QRCode\QROptions([
-                'outputType'     => \chillerlan\QRCode\QRCode::OUTPUT_IMAGE_PNG,
-                'eccLevel'       => \chillerlan\QRCode\Common\EccLevel::H,
-                'scale'          => 8,
-                'quietzoneSize'  => 2,
-                'imageBase64'    => false,
-            ]);
+            // ✅ SVG backend (NO GD, NO Imagick)
+            $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+                new \BaconQrCode\Renderer\RendererStyle\RendererStyle(max(120, $size)),
+                new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
+            );
 
-            $png = (new \chillerlan\QRCode\QRCode($options))->render($text);
-            if (!is_string($png) || strlen($png) < 50) return null;
+            $writer = new \BaconQrCode\Writer($renderer);
+            $svg = $writer->writeString($text);
 
-            // Si no hay GD, regresamos el QR sin overlay
-            if (!function_exists('imagecreatefromstring')) {
-                return 'data:image/png;base64,' . base64_encode($png);
-            }
+            if (!is_string($svg) || strlen($svg) < 50) return null;
 
-            $qr = @imagecreatefromstring($png);
-            if (!$qr) return 'data:image/png;base64,' . base64_encode($png);
-
-            // Resize final exacto
-            $w = imagesx($qr);
-            $h = imagesy($qr);
-
-            $dst = imagecreatetruecolor($size, $size);
-            imagealphablending($dst, false);
-            imagesavealpha($dst, true);
-            $transparent = imagecolorallocatealpha($dst, 255, 255, 255, 127);
-            imagefill($dst, 0, 0, $transparent);
-
-            imagecopyresampled($dst, $qr, 0, 0, 0, 0, $size, $size, $w, $h);
-            imagedestroy($qr);
-
-            // ✅ Logo centrado (como el ejemplo)
-            $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
-
-            if (is_file($logoPath) && is_readable($logoPath)) {
-                $logo = @imagecreatefrompng($logoPath);
-
-                if ($logo) {
-                    $lw = imagesx($logo);
-                    $lh = imagesy($logo);
-
-                    // Tamaño del logo (22% del QR). Si lo quieres más grande: 0.24–0.28
-                    $logoTarget = (int) round($size * 0.22);
-                    if ($logoTarget < 40) $logoTarget = 40;
-
-                    // Preparar logo redimensionado preservando alpha
-                    $logoRes = imagecreatetruecolor($logoTarget, $logoTarget);
-                    imagealphablending($logoRes, false);
-                    imagesavealpha($logoRes, true);
-                    imagefill($logoRes, 0, 0, $transparent);
-
-                    imagecopyresampled($logoRes, $logo, 0, 0, 0, 0, $logoTarget, $logoTarget, $lw, $lh);
-                    imagedestroy($logo);
-
-                    // Centro
-                    $x = (int) round(($size - $logoTarget) / 2);
-                    $y = (int) round(($size - $logoTarget) / 2);
-
-                    // ✅ Placa blanca detrás (para que el QR siga escaneando)
-                    $pad = (int) round($logoTarget * 0.08); // borde blanco
-                    $plateSize = $logoTarget + ($pad * 2);
-
-                    $plate = imagecreatetruecolor($plateSize, $plateSize);
-                    imagealphablending($plate, true);
-                    imagesavealpha($plate, true);
-
-                    $white = imagecolorallocatealpha($plate, 255, 255, 255, 0);
-                    imagefilledrectangle($plate, 0, 0, $plateSize, $plateSize, $white);
-
-                    // Coloca placa y logo
-                    imagecopy($dst, $plate, $x - $pad, $y - $pad, 0, 0, $plateSize, $plateSize);
-                    imagedestroy($plate);
-
-                    imagecopy($dst, $logoRes, $x, $y, 0, 0, $logoTarget, $logoTarget);
-                    imagedestroy($logoRes);
-                }
-            } else {
-                Log::warning('[BILLING][QR] logo not found/readable', ['path' => $logoPath]);
-            }
-
-            // Export PNG final
-            ob_start();
-            imagepng($dst);
-            $out = (string) ob_get_clean();
-            imagedestroy($dst);
-
-            if (strlen($out) < 50) return null;
-
-            return 'data:image/png;base64,' . base64_encode($out);
-
+            // DomPDF suele aceptar <img src="data:image/svg+xml;base64,...">
+            return 'data:image/svg+xml;base64,' . base64_encode($svg);
         } catch (\Throwable $e) {
-            Log::warning('[BILLING][QR] qrDataUriFromText failed', ['err' => $e->getMessage()]);
+            \Illuminate\Support\Facades\Log::warning('[BILLING][QR] qrDataUriFromText failed', ['err' => $e->getMessage()]);
             return null;
         }
     }
+
     /**
      * ✅ Determina "pendiente real" desde row de admin.billing_statements
      * sin depender solo de `saldo`.
@@ -1101,7 +1016,7 @@ final class AccountBillingController extends Controller
             $data['pay_url'] = $payUrl;
 
             // QR preferente embebido (data URI)
-            $qrData = $this->qrDataUriFromText($payUrl, 240);
+            $qrData = $this->qrDataUriFromText($payUrl, 160);
             if (is_string($qrData) && trim($qrData) !== '') {
                 $data['qr_data_uri'] = $qrData;
             } else {
