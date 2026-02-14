@@ -1178,7 +1178,16 @@ final class BillingStatementsController extends Controller
         $data['qr_logo_px'] = $logoPx;
 
         try {
-            $logoPath = public_path('assets/client/Logo1Pactopia.png');
+            // ✅ Logo correcto para QR (Admin embebido con GD)
+            $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
+
+            // fallback por si falta el archivo
+            if (!is_string($logoPath) || $logoPath === '' || !is_file($logoPath) || !is_readable($logoPath)) {
+                $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
+                if (!is_file($logoPath) || !is_readable($logoPath)) {
+                    $logoPath = public_path('assets/client/Logo1Pactopia.png');
+                }
+            }
 
             // 1) Obtener QR base (prioridad: data_uri, luego url/path)
             $basePng = $this->resolveQrPngBinaryFromData($data);
