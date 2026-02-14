@@ -1,5 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\index.blade.php --}}
-{{-- UI v6.4 · Estados de cuenta (Admin) — Vault look + info completa + cambio estatus + forma de pago --}}
+{{-- UI v6.5 · Estados de cuenta (Admin) — Vault look + KPI + bulk + drawer acciones (sin romper tabla) --}}
 @extends('layouts.admin')
 
 @section('title','Facturación · Estados de cuenta')
@@ -17,9 +17,10 @@
   $status    = (string) request('status','all');
   $status    = $status !== '' ? $status : 'all';
 
+  $perPage   = (int) request('perPage', $perPage ?? 25);
+  if ($perPage <= 0) $perPage = 25;
+
   // ✅ filtro: solo seleccionadas (por checkbox)
-  // - Soporta: request only_selected/ids
-  // - y/o valores inyectados por controller: $onlySelected, $idsCsv
   $onlySelected = (bool) (
       ($onlySelected ?? false)
       || request()->boolean('only_selected', false)
@@ -43,15 +44,12 @@
   $idsSelectedReq = array_values(array_unique(array_filter(array_map(function($v){
     $s = trim((string)$v);
     if ($s === '') return null;
-    // admin account_id suele ser numérico; toleramos slug por si cambia
     if (preg_match('/^\d+$/', $s)) return $s;
     if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
     return null;
   }, $idsSelectedReq))));
 
   if (count($idsSelectedReq) > 500) $idsSelectedReq = array_slice($idsSelectedReq, 0, 500);
-
-
 
   // ===== Data =====
   $rows = $rows ?? collect();
@@ -78,20 +76,10 @@
   $hasBulkSend  = Route::has('admin.billing.statements_hub.bulk_send');
   $hasAccounts  = Route::has('admin.billing.accounts.index');
 
-  /**
-   * ✅ Endpoint update status/pay_method
-   * Como tus rutas reales viven en routes/admin.php bajo prefix('billing'),
-   * el POST correcto debe existir como:
-   *   POST /admin/billing/statements/status
-   * y con nombre:
-   *   admin.billing.statements.status
-   */
+  // Endpoint update status/pay_method
   $statusEndpoint = Route::has('admin.billing.statements.status')
     ? route('admin.billing.statements.status')
     : url('/admin/billing/statements/status');
-
-  // ✅ Habilitar UI siempre; si el endpoint no existe, el toast mostrará el error.
-  $hasStatusEndpoint = true;
 
   // paginator
   $isPaginator = is_object($rows) && method_exists($rows, 'total') && method_exists($rows, 'links');
@@ -107,7 +95,6 @@
     'perPage'  => $perPage,
   ];
 
-  // ✅ Si estamos en "solo seleccionadas", conservarlo en chips/paginación
   if ($onlySelected && !empty($idsSelectedReq)) {
     $chipBase['only_selected'] = 1;
     $chipBase['ids'] = implode(',', $idsSelectedReq);
@@ -174,7 +161,6 @@
 
   $fmtDate = function($v): string {
     $s = trim((string)$v);
-    
     if ($s === '') return '';
     return $s;
   };
@@ -192,425 +178,469 @@
 <div class="sx-wrap">
   <div class="sx-card">
 
-    <div class="sx-head">
-      <div>
-        <div class="sx-title">Facturación · Estados de cuenta</div>
-        <div class="sx-sub">
-          Periodo <span class="sx-mono">{{ $period }}</span>.
-          Aquí ves totales, pagos y saldo; y puedes actualizar <b>estatus</b> y <b>forma de pago</b> por cuenta.
-        </div>
-      </div>
-
-      <div class="sx-head-actions">
-        @if($hasHub)
-          <a class="sx-btn sx-btn-soft" href="{{ route('admin.billing.statements_hub.index') }}">Abrir HUB moderno</a>
-        @endif
-        @if($hasAccounts)
-          <a class="sx-btn sx-btn-soft" href="{{ route('admin.billing.accounts.index') }}">Cuentas (licencias)</a>
-        @endif
-      </div>
-    </div>
-
-    <div class="sx-filters">
-      <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
-        <div class="sx-ctl">
-          <label>Buscar</label>
-          <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social, UUID...">
+    <div class="sx-topSticky">
+      <div class="sx-head">
+        <div>
+          <div class="sx-title">Facturación · Estados de cuenta</div>
+          <div class="sx-sub">
+            Periodo <span class="sx-mono">{{ $period }}</span>.
+            Aquí ves totales, pagos y saldo; y puedes actualizar <b>estatus</b> y <b>forma de pago</b> por cuenta.
+          </div>
         </div>
 
-        <div class="sx-ctl">
-          <label>Periodo</label>
-          <input class="sx-in" name="period" value="{{ $period }}" placeholder="YYYY-MM">
-        </div>
-
-        <div class="sx-ctl">
-          <label>Cuenta (ID)</label>
-          <input class="sx-in" name="accountId" value="{{ $accountId }}" placeholder="ID exacto">
-        </div>
-
-        <div class="sx-ctl">
-          <label>Estatus</label>
-          <select class="sx-sel" name="status">
-            <option value="all" {{ $status==='all'?'selected':'' }}>Todos</option>
-            @foreach($statusOptions as $k => $lbl)
-              <option value="{{ $k }}" {{ $status===$k?'selected':'' }}>{{ $lbl }}</option>
-            @endforeach
-          </select>
-        </div>
-
-        <div class="sx-ctl">
-          <label>Por página</label>
-          <select class="sx-sel" name="perPage">
-            @foreach([10,25,50,100,200] as $n)
-              <option value="{{ $n }}" {{ $perPage===$n?'selected':'' }}>{{ $n }}</option>
-            @endforeach
-          </select>
-        </div>
-
-        <div class="sx-ctl">
-          <label>&nbsp;</label>
-          <button class="sx-btn sx-btn-primary" type="submit">Filtrar</button>
-        </div>
-      </form>
-
-      <div class="sx-chips">
-        <a class="sx-chip {{ $status==='all'?'on':'' }}" href="{{ $chipUrl(['status'=>'all']) }}"><span class="dot"></span> Todos</a>
-        <a class="sx-chip {{ $onlySelected ? 'on' : '' }}"
-          href="#"
-          onclick="event.preventDefault(); sxFilterSelected();">
-          <span class="dot"></span> Solo seleccionadas
-        </a>
-        <a class="sx-chip {{ $status==='pendiente'?'on':'' }}" href="{{ $chipUrl(['status'=>'pendiente']) }}"><span class="dot"></span> Pendientes</a>
-        <a class="sx-chip {{ $status==='parcial'?'on':'' }}" href="{{ $chipUrl(['status'=>'parcial']) }}"><span class="dot"></span> Parciales</a>
-        <a class="sx-chip {{ $status==='pagado'?'on':'' }}" href="{{ $chipUrl(['status'=>'pagado']) }}"><span class="dot"></span> Pagados</a>
-        <a class="sx-chip {{ $status==='vencido'?'on':'' }}" href="{{ $chipUrl(['status'=>'vencido']) }}"><span class="dot"></span> Vencidos</a>
-        <a class="sx-chip {{ $status==='sin_mov'?'on':'' }}" href="{{ $chipUrl(['status'=>'sin_mov']) }}"><span class="dot"></span> Sin mov</a>
-
-        <span style="margin-left:auto; color:var(--sx-mut); font-weight:850; font-size:12px;">
-          Mostrando: <span class="sx-mono">{{ $countRows }}</span>@if($isPaginator) de <span class="sx-mono">{{ $totalRows }}</span>@endif
-        </span>
-      </div>
-    </div>
-
-    <div class="sx-kpis">
-      <div class="sx-kpi">
-        <div class="sx-k">Total</div>
-        <div class="sx-v">{{ $fmtMoney($kpis['cargo'] ?? 0) }}</div>
-        <div class="sx-mini">Cargos del periodo (o esperado por licencia si aplica).</div>
-      </div>
-
-      <div class="sx-kpi">
-        <div class="sx-k">Pagado</div>
-        <div class="sx-v">{{ $fmtMoney($kpis['abono'] ?? 0) }}</div>
-        <div class="sx-mini">
-          @if(isset($kpis['edocta']) || isset($kpis['payments']))
-            EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span>
-            · Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
-          @else
-            Total abonado acumulado del periodo.
+        <div class="sx-head-actions">
+          @if($hasHub)
+            <a class="sx-btn sx-btn-soft" href="{{ route('admin.billing.statements_hub.index') }}">Abrir HUB moderno</a>
+          @endif
+          @if($hasAccounts)
+            <a class="sx-btn sx-btn-soft" href="{{ route('admin.billing.accounts.index') }}">Cuentas (licencias)</a>
           @endif
         </div>
       </div>
 
-      <div class="sx-kpi">
-        <div class="sx-k">Saldo</div>
-        <div class="sx-v">{{ $fmtMoney($kpis['saldo'] ?? 0) }}</div>
-        <div class="sx-mini">Saldo pendiente considerando pagos.</div>
-      </div>
-
-      <div class="sx-kpi">
-        <div class="sx-k">Cuentas</div>
-        <div class="sx-v">{{ (int)($kpis['accounts'] ?? 0) }}</div>
-        <div class="sx-mini">Total de cuentas en el resultado.</div>
-      </div>
-
-      <div class="sx-kpi">
-        <div class="sx-k">Operación</div>
-        <div class="sx-v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
-          <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(true)">Todo</button>
-          <button class="sx-btn sx-btn-soft" type="button" onclick="sxFilterSelected()">Filtrar seleccionadas</button>
-          <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(false)">Nada</button>
-          <button class="sx-btn sx-btn-primary" type="button" onclick="sxBulkSend()">Enviar correo (bulk)</button>
-        </div>
-        <div class="sx-mini">
-          @if($hasBulkSend)
-            Envío masivo vía HUB: <span class="sx-mono">billing/statements-hub/bulk/send</span>.
-          @else
-            Tip: activa el endpoint HUB bulk_send para envío masivo real.
-          @endif
-        </div>
-      </div>
-    </div>
-
-    <div class="sx-body">
-      <div class="sx-panel">
-
-        <div id="sxBulkbar" class="sx-bulkbar">
-          <div class="sx-bulk-left">
-            <div class="sx-badge"><span id="sxBulkCount">0</span> seleccionadas</div>
-            <div class="sx-bulk-note">Periodo <span class="sx-mono">{{ $period }}</span></div>
+      <div class="sx-filters">
+        <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
+          <div class="sx-ctl">
+            <label>Buscar</label>
+            <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social, UUID...">
           </div>
 
-          <div class="sx-actionsRow">
-            <button class="sx-btn sx-btn-ghost" type="button" onclick="sxClear()">Limpiar</button>
-            <button class="sx-btn sx-btn-primary" type="button" onclick="sxBulkSend()">Enviar correos</button>
+          <div class="sx-ctl">
+            <label>Periodo</label>
+            <input class="sx-in" name="period" value="{{ $period }}" placeholder="YYYY-MM">
           </div>
 
-          <form id="sxBulkForm"
-                method="POST"
-                action="{{ $hasBulkSend ? route('admin.billing.statements_hub.bulk_send') : '' }}"
-                style="display:none;">
-            @csrf
-            <input type="hidden" name="period" value="{{ $period }}">
-            <input type="hidden" name="account_ids" value="">
-          </form>
+          <div class="sx-ctl">
+            <label>Cuenta (ID)</label>
+            <input class="sx-in" name="accountId" value="{{ $accountId }}" placeholder="ID exacto">
+          </div>
+
+          <div class="sx-ctl">
+            <label>Estatus</label>
+            <select class="sx-sel" name="status">
+              <option value="all" {{ $status==='all'?'selected':'' }}>Todos</option>
+              @foreach($statusOptions as $k => $lbl)
+                <option value="{{ $k }}" {{ $status===$k?'selected':'' }}>{{ $lbl }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <div class="sx-ctl">
+            <label>Por página</label>
+            <select class="sx-sel" name="perPage">
+              @foreach([10,25,50,100,200] as $n)
+                <option value="{{ $n }}" {{ (int)$perPage===(int)$n?'selected':'' }}>{{ $n }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <div class="sx-ctl">
+            <label>&nbsp;</label>
+            <button class="sx-btn sx-btn-primary" type="submit">Filtrar</button>
+          </div>
+        </form>
+
+        <div class="sx-chips">
+          <a class="sx-chip {{ $status==='all'?'on':'' }}" href="{{ $chipUrl(['status'=>'all']) }}"><span class="dot"></span> Todos</a>
+          <a class="sx-chip {{ $onlySelected ? 'on' : '' }}" href="#" onclick="event.preventDefault(); sxFilterSelected();">
+            <span class="dot"></span> Solo seleccionadas
+          </a>
+          <a class="sx-chip {{ $status==='pendiente'?'on':'' }}" href="{{ $chipUrl(['status'=>'pendiente']) }}"><span class="dot"></span> Pendientes</a>
+          <a class="sx-chip {{ $status==='parcial'?'on':'' }}" href="{{ $chipUrl(['status'=>'parcial']) }}"><span class="dot"></span> Parciales</a>
+          <a class="sx-chip {{ $status==='pagado'?'on':'' }}" href="{{ $chipUrl(['status'=>'pagado']) }}"><span class="dot"></span> Pagados</a>
+          <a class="sx-chip {{ $status==='vencido'?'on':'' }}" href="{{ $chipUrl(['status'=>'vencido']) }}"><span class="dot"></span> Vencidos</a>
+          <a class="sx-chip {{ $status==='sin_mov'?'on':'' }}" href="{{ $chipUrl(['status'=>'sin_mov']) }}"><span class="dot"></span> Sin mov</a>
+
+          <span style="margin-left:auto; color:var(--sx-mut); font-weight:850; font-size:12px;">
+            Mostrando: <span class="sx-mono">{{ $countRows }}</span>@if($isPaginator) de <span class="sx-mono">{{ $totalRows }}</span>@endif
+          </span>
+        </div>
+      </div>
+
+      <div class="sx-kpis">
+        <div class="sx-kpi">
+          <div class="sx-k">Total</div>
+          <div class="sx-v">{{ $fmtMoney($kpis['cargo'] ?? 0) }}</div>
+          <div class="sx-mini" title="Cargos del periodo (o esperado por licencia si aplica).">
+            Cargos del periodo (o esperado por licencia si aplica).
+          </div>
         </div>
 
-        <div class="sx-table-wrap">
+        <div class="sx-kpi">
+          <div class="sx-k">Pagado</div>
+          <div class="sx-v">{{ $fmtMoney($kpis['abono'] ?? 0) }}</div>
+
+          @php
+            $paidTip = 'Total abonado acumulado del periodo.';
+            if (isset($kpis['edocta']) || isset($kpis['payments'])) $paidTip = 'Desglose: EdoCta y Payments.';
+          @endphp
+
+          <div class="sx-mini" title="{{ $paidTip }}">
+            @if(isset($kpis['edocta']) || isset($kpis['payments']))
+              EdoCta: <span class="sx-mono">{{ $fmtMoney($kpis['edocta'] ?? 0) }}</span>
+              · Payments: <span class="sx-mono">{{ $fmtMoney($kpis['payments'] ?? 0) }}</span>
+            @else
+              Total abonado acumulado del periodo.
+            @endif
+          </div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Saldo</div>
+          <div class="sx-v">{{ $fmtMoney($kpis['saldo'] ?? 0) }}</div>
+          <div class="sx-mini" title="Saldo pendiente considerando pagos.">Saldo pendiente considerando pagos.</div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Cuentas</div>
+          <div class="sx-v">{{ (int)($kpis['accounts'] ?? 0) }}</div>
+          <div class="sx-mini" title="Total de cuentas en el resultado.">Total de cuentas en el resultado.</div>
+        </div>
+
+        <div class="sx-kpi sx-kpi-ops">
+          <div class="sx-toolbar">
+            <div class="sx-toolbarLeft">
+              <div class="sx-toolbarTitle">
+                <span class="sx-chipLabel"><span class="dot"></span> Operación</span>
+                <span class="sx-toolbarHint">
+                  @if($hasBulkSend) Envío masivo vía HUB @else Bulk en modo demo (activa bulk_send) @endif
+                </span>
+              </div>
+              <div class="sx-toolbarMeta">
+                <span class="sx-miniPill">Periodo <span class="sx-mono">{{ $period }}</span></span>
+                <span class="sx-miniPill sx-muted">Selecciona cuentas y aplica acciones</span>
+              </div>
+            </div>
+
+            <div class="sx-toolbarRight">
+              <div class="sx-btnGroup" role="group" aria-label="Operación selección">
+                <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(true)">Todo</button>
+                <button class="sx-btn sx-btn-soft" type="button" onclick="sxSelectAll(false)">Nada</button>
+                <button class="sx-btn sx-btn-soft" type="button" onclick="sxFilterSelected()">Solo seleccionadas</button>
+              </div>
+
+              <div class="sx-btnGroup" role="group" aria-label="Operación bulk">
+                <button class="sx-btn sx-btn-primary" type="button" onclick="sxBulkSend()">Enviar (bulk)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div> {{-- /.sx-topSticky --}}
+
+    <div class="sx-panel">
+
+      <div id="sxBulkbar" class="sx-bulkbar">
+        <div class="sx-bulk-left">
+          <div class="sx-badge"><span id="sxBulkCount">0</span> seleccionadas</div>
+          <div class="sx-bulk-note">Periodo <span class="sx-mono">{{ $period }}</span></div>
+        </div>
+
+        <div class="sx-actionsRow">
+          <button class="sx-btn sx-btn-ghost" type="button" onclick="sxClear()">Limpiar</button>
+          <button class="sx-btn sx-btn-primary" type="button" onclick="sxBulkSend()">Enviar correos</button>
+        </div>
+
+        <form id="sxBulkForm" method="POST" action="{{ $hasBulkSend ? route('admin.billing.statements_hub.bulk_send') : '' }}" style="display:none;">
+          @csrf
+          <input type="hidden" name="period" value="{{ $period }}">
+          <input type="hidden" name="account_ids" value="">
+        </form>
+      </div>
+
+      <div class="sx-table-wrap">
           <table class="sx-table">
+            <colgroup>
+              <col style="width:44px">   {{-- checkbox --}}
+              <col style="width:120px">  {{-- Cuenta --}}
+              <col style="width:30%">    {{-- Cliente --}}
+              <col style="width:32%">    {{-- Email/Meta --}}
+              <col style="width:130px">  {{-- Total --}}
+              <col style="width:150px">  {{-- Pagado --}}
+              <col style="width:140px">  {{-- Saldo --}}
+              <col style="width:130px">  {{-- Estatus --}}
+              <col style="width:160px">  {{-- Acciones --}}
+            </colgroup>
+
             <thead>
               <tr>
-                <th class="sx-selcol">
-                  <input class="sx-ck" type="checkbox" id="sxCkAll" onclick="sxToggleAll(this)">
+                <th class="sx-selcol" title="Seleccionar todo">
+                  <input id="sxCkAll" class="sx-ck" type="checkbox" onclick="sxToggleAll(this)">
                 </th>
-                <th style="width:120px">Cuenta</th>
-                <th style="min-width:380px;">Cliente</th>
-                <th style="min-width:340px;">Email / Meta</th>
-                <th class="sx-right" style="width:140px">Total</th>
-                <th class="sx-right" style="width:170px">Pagado</th>
-                <th class="sx-right" style="width:140px">Saldo</th>
-                <th style="width:150px">Estatus</th>
-                <th class="sx-right" style="width:360px">Acciones</th>
+                <th>Cuenta</th>
+                <th>Cliente</th>
+                <th>Contacto / Meta</th>
+                <th class="sx-right">Total</th>
+                <th class="sx-right">Pagado</th>
+                <th>Saldo</th>
+                <th>Estatus</th>
+                <th>Acciones</th>
               </tr>
             </thead>
 
             <tbody>
-              @forelse($rows as $r)
-                @php
-                  $rowId = (string)($r->id ?? '');
-                  $aid   = (string)($r->account_id ?? $r->accountId ?? $r->cuenta_id ?? $rowId ?? '');
-                  $aid   = trim($aid);
+            @forelse($rows as $r)
+              @php
+                $rowId = (string)($r->id ?? '');
+                $aid   = (string)($r->account_id ?? $r->accountId ?? $r->cuenta_id ?? $rowId ?? '');
+                $aid   = trim($aid);
 
-                  $rfc   = trim((string)($r->rfc ?? $r->codigo ?? ''));
-                  $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: '—'));
-                  $mail  = trim((string)($r->email ?? $r->correo ?? '—'));
+                $rfc   = trim((string)($r->rfc ?? $r->codigo ?? ''));
+                $name  = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: '—'));
+                $mail  = trim((string)($r->email ?? $r->correo ?? '—'));
 
-                  $planRaw = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? '—');
-                  $plan    = $normPlan($planRaw);
+                $planRaw = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? '—');
+                $plan    = $normPlan($planRaw);
 
-                  $modoRaw = (string)($r->modo_cobro ?? $r->billing_cycle ?? $r->billing_mode ?? $r->modo ?? '');
-                  $modo    = $normModo($modoRaw, $planRaw);
+                $modoRaw = (string)($r->modo_cobro ?? $r->billing_cycle ?? $r->billing_mode ?? $r->modo ?? '');
+                $modo    = $normModo($modoRaw, $planRaw);
 
-                  $tarifaLabel = trim((string)($r->tarifa_label ?? ''));
-                  $tarifaPill  = trim((string)($r->tarifa_pill ?? ''));
-                  $tarifaCls   = $tarifaPillClass($tarifaPill);
+                $tarifaLabel = trim((string)($r->tarifa_label ?? ''));
+                $tarifaPill  = trim((string)($r->tarifa_pill ?? ''));
+                $tarifaCls   = $tarifaPillClass($tarifaPill);
 
-                  $estadoCuenta = strtolower(trim((string)($r->estado_cuenta ?? '')));
-                  $estadoLabel  = $estadoCuenta !== '' ? strtoupper($estadoCuenta) : '';
+                $estadoCuenta = strtolower(trim((string)($r->estado_cuenta ?? '')));
+                $estadoLabel  = $estadoCuenta !== '' ? strtoupper($estadoCuenta) : '';
 
-                  $isBlocked = (int)($r->is_blocked ?? 0) === 1;
+                $isBlocked = (int)($r->is_blocked ?? 0) === 1;
 
-                  $cargo    = (float)($r->cargo ?? 0);
-                  $expected = (float)($r->expected_total ?? 0);
-                  $total    = $cargo > 0 ? $cargo : $expected;
+                $cargo    = (float)($r->cargo ?? 0);
+                $expected = (float)($r->expected_total ?? 0);
+                $total    = $cargo > 0 ? $cargo : $expected;
 
-                  $abono    = (float)($r->abono ?? 0);
-                  $saldo    = max(0, $total - $abono);
+                $abono    = (float)($r->abono ?? 0);
+                $saldo    = max(0, $total - $abono);
 
-                  $abonoEdo = (float)($r->abono_edo ?? 0);
-                  $abonoPay = (float)($r->abono_pay ?? 0);
+                $abonoEdo = (float)($r->abono_edo ?? 0);
+                $abonoPay = (float)($r->abono_pay ?? 0);
 
-                  $st = (string)($r->status_override ?? $r->ov_status ?? $r->status_pago ?? $r->status ?? '');
-                  $st = strtolower(trim($st));
+                $st = (string)($r->status_override ?? $r->ov_status ?? $r->status_pago ?? $r->status ?? '');
+                $st = strtolower(trim($st));
+                if ($st === 'paid' || $st === 'succeeded') $st = 'pagado';
+                if ($st === 'pending') $st = 'pendiente';
+                if ($st === 'unpaid' || $st === 'past_due') $st = 'vencido';
+                if ($st === '') $st = 'sin_mov';
 
-                  if ($st === 'paid' || $st === 'succeeded') $st = 'pagado';
-                  if ($st === 'pending') $st = 'pendiente';
-                  if ($st === 'unpaid' || $st === 'past_due') $st = 'vencido';
+                $stPill = $pillStatusClass($st);
 
-                  if ($st === '') $st = 'sin_mov';
+                $payMethod   = strtolower(trim((string)($r->ov_pay_method ?? $r->pay_method ?? $r->pago_metodo ?? '')));
+                $payProvider = trim((string)($r->ov_pay_provider ?? $r->pay_provider ?? $r->pago_prov ?? ''));
+                $payStatus   = strtolower(trim((string)($r->ov_pay_status ?? $r->pay_status ?? '')));
+                if ($payStatus === 'paid' || $payStatus === 'succeeded') $payStatus = 'pagado';
+                if ($payStatus === 'pending') $payStatus = 'pendiente';
+                if ($payStatus === 'unpaid' || $payStatus === 'past_due') $payStatus = 'vencido';
 
+                $payDue  = $fmtDate($r->pay_due_date ?? $r->vence ?? '');
+                $payLast = $fmtDate($r->pay_last_paid_at ?? $r->last_paid_at ?? '');
 
-                  $stPill = $pillStatusClass($st);
+                $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
+                $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
+                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$period]) : null;
+              @endphp
 
-                  // =========================
-                  // ✅ Override-first (Admin)
-                  // =========================
-                  $payMethod   = strtolower(trim((string)($r->ov_pay_method ?? $r->pay_method ?? $r->pago_metodo ?? '')));
-                  $payProvider = trim((string)($r->ov_pay_provider ?? $r->pay_provider ?? $r->pago_prov ?? ''));
-                  $payStatus   = strtolower(trim((string)($r->ov_pay_status ?? $r->pay_status ?? '')));
+              <tr id="sxRow-{{ e($aid) }}">
+                <td onclick="event.stopPropagation();">
+                  <input class="sx-ck sx-row"
+                    type="checkbox"
+                    value="{{ e($aid) }}"
+                    data-sx-row="1"
+                    onclick="sxSync();"
+                    {{ ($onlySelected && in_array((string)$aid, $idsSelectedReq, true)) ? 'checked' : '' }}>
+                </td>
 
-                  // normaliza status “St:” a etiquetas que sí entendemos
-                  if ($payStatus === 'paid' || $payStatus === 'succeeded') $payStatus = 'pagado';
-                  if ($payStatus === 'pending') $payStatus = 'pendiente';
-                  if ($payStatus === 'unpaid' || $payStatus === 'past_due') $payStatus = 'vencido';
+                <td class="sx-mono">
+                  #{{ $aid }}
+                  @if($rowId !== '' && $rowId !== $aid)
+                    <div class="sx-subrow">RowID: <span class="sx-mono">#{{ $rowId }}</span></div>
+                  @endif
+                  @if($rfc !== '')
+                    <div class="sx-subrow">RFC: <span class="sx-mono">{{ $rfc }}</span></div>
+                  @endif
+                </td>
 
-                  $payDue      = $fmtDate($r->pay_due_date ?? $r->vence ?? '');
-                  $payLast     = $fmtDate($r->pay_last_paid_at ?? $r->last_paid_at ?? '');
+                <td>
+                  <div class="sx-ellipsis" style="font-weight:950" title="{{ $name }}">{{ $name }}</div>
 
-                  $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
-                  $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
-                  $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$period]) : null;
-                @endphp
-
-                <tr id="sxRow-{{ e($aid) }}">
-                  <td onclick="event.stopPropagation();">
-                    <input class="sx-ck sx-row"
-                      type="checkbox"
-                      value="{{ e($aid) }}"
-                      onclick="sxSync()"
-                      {{ ($onlySelected && in_array((string)$aid, $idsSelectedReq, true)) ? 'checked' : '' }}>
-
-                  </td>
-
-                  <td class="sx-mono">
-                    #{{ $aid }}
-
-                    @if($rowId !== '' && $rowId !== $aid)
-                      <div class="sx-subrow">RowID: <span class="sx-mono">#{{ $rowId }}</span></div>
+                  <div class="sx-meta">
+                    <span class="sx-pill sx-dim"><span class="dot"></span> {{ $plan }}</span>
+                    @if($modo !== '')
+                      <span class="sx-pill sx-dim"><span class="dot"></span> {{ $modo }}</span>
                     @endif
 
-                    @if($rfc !== '')
-                      <div class="sx-subrow">RFC: <span class="sx-mono">{{ $rfc }}</span></div>
+                    @if($tarifaLabel !== '')
+                      <span class="sx-pill {{ $tarifaCls }}"><span class="dot"></span> {{ strtoupper($tarifaLabel) }}</span>
                     @endif
-                  </td>
 
-                  <td>
-                    <div class="sx-ellipsis" style="font-weight:950" title="{{ $name }}">{{ $name }}</div>
+                    @if($estadoLabel !== '')
+                      <span class="sx-pill sx-dim"><span class="dot"></span> {{ $estadoLabel }}</span>
+                    @endif
 
-                    <div class="sx-meta">
-                      <span class="sx-pill sx-dim"><span class="dot"></span> {{ $plan }}</span>
-                      @if($modo !== '')
-                        <span class="sx-pill sx-dim"><span class="dot"></span> {{ $modo }}</span>
-                      @endif
+                    @if($isBlocked)
+                      <span class="sx-pill sx-bad"><span class="dot"></span> BLOQUEADA</span>
+                    @endif
+                  </div>
+                </td>
 
-                      @if($tarifaLabel !== '')
-                        <span class="sx-pill {{ $tarifaCls }}"><span class="dot"></span> {{ strtoupper($tarifaLabel) }}</span>
-                      @endif
+                <td>
+                  <div class="sx-mono sx-ellipsis" title="{{ $mail }}">{{ $mail }}</div>
+                  <div class="sx-subrow sx-metaClamp">
+                    Periodo: <span class="sx-mono">{{ (string)($r->period ?? $period) }}</span>
+                    @if($payMethod !== '')
+                      <span style="opacity:.55;"> · </span> Método: <span class="sx-mono">{{ $payMethod }}</span>
+                    @endif
+                    @if($payProvider !== '')
+                      <span style="opacity:.55;"> · </span> Prov: <span class="sx-mono">{{ $payProvider }}</span>
+                    @endif
+                    @if($payStatus !== '')
+                      <span style="opacity:.55;"> · </span> St: <span class="sx-mono">{{ $payStatus }}</span>
+                    @endif
 
-                      @if($estadoLabel !== '')
-                        <span class="sx-pill sx-dim"><span class="dot"></span> {{ $estadoLabel }}</span>
-                      @endif
+                    @if($payDue !== '')
+                      <br>Vence: <span class="sx-mono">{{ $payDue }}</span>
+                    @endif
+                    @if($payLast !== '')
+                      <br>Últ. pago: <span class="sx-mono">{{ $payLast }}</span>
+                    @endif
+                  </div>
+                </td>
 
-                      @if($isBlocked)
-                        <span class="sx-pill sx-bad"><span class="dot"></span> BLOQUEADA</span>
-                      @endif
-                    </div>
-                  </td>
+                <td class="sx-right sx-mono">{{ $fmtMoney($total) }}</td>
 
-                  <td>
-                    <div class="sx-mono sx-ellipsis" title="{{ $mail }}">{{ $mail }}</div>
-                    <div class="sx-subrow">
-                      Periodo: <span class="sx-mono">{{ (string)($r->period ?? $period) }}</span>
-                      @if($payMethod !== '')
-                        <span style="opacity:.55;"> · </span> Método: <span class="sx-mono">{{ $payMethod }}</span>
-                      @endif
-                      @if($payProvider !== '')
-                        <span style="opacity:.55;"> · </span> Prov: <span class="sx-mono">{{ $payProvider }}</span>
-                      @endif
-                      @if($payStatus !== '')
-                        <span style="opacity:.55;"> · </span> St: <span class="sx-mono">{{ $payStatus }}</span>
-                      @endif
+                <td class="sx-right">
+                  <div class="sx-mono">{{ $fmtMoney($abono) }}</div>
+                  <div class="sx-subrow">
+                    EdoCta: <span class="sx-mono">{{ $fmtMoney($abonoEdo) }}</span>
+                    · Pay: <span class="sx-mono">{{ $fmtMoney($abonoPay) }}</span>
+                  </div>
+                </td>
 
-                      @if($payDue !== '')
-                        <br>Vence: <span class="sx-mono">{{ $payDue }}</span>
-                      @endif
-                      @if($payLast !== '')
-                        <br>Últ. pago: <span class="sx-mono">{{ $payLast }}</span>
-                      @endif
-                    </div>
-                  </td>
+                <td class="sx-right">
+                  <span class="sx-pill {{ $saldo > 0 ? 'sx-warn' : 'sx-ok' }}">
+                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldo) }}</span>
+                  </span>
+                </td>
 
-                  <td class="sx-right sx-mono">{{ $fmtMoney($total) }}</td>
+                <td>
+                  <span class="sx-pill {{ $stPill }}"><span class="dot"></span>{{ strtoupper($st) }}</span>
+                </td>
 
-                  <td class="sx-right">
-                    <div class="sx-mono">{{ $fmtMoney($abono) }}</div>
-                    <div class="sx-subrow">
-                      EdoCta: <span class="sx-mono">{{ $fmtMoney($abonoEdo) }}</span>
-                      · Pay: <span class="sx-mono">{{ $fmtMoney($abonoPay) }}</span>
-                    </div>
-                  </td>
-
-                  <td class="sx-right">
-                    <span class="sx-pill {{ $saldo > 0 ? 'sx-warn' : 'sx-ok' }}">
-                      <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldo) }}</span>
-                    </span>
-                  </td>
-
-                  <td>
-                    <span class="sx-pill {{ $stPill }}"><span class="dot"></span>{{ strtoupper($st) }}</span>
-                  </td>
-
-                  <td class="sx-right">
-                    <div class="sx-actions">
-                      <div class="sx-actionsBox">
-                        <div class="sx-rowctl">
-                          <select class="sx-sel" id="sxStatus-{{ e($aid) }}">
-                            @foreach($statusOptions as $k => $lbl)
-                              <option value="{{ $k }}" {{ $st===$k?'selected':'' }}>{{ $lbl }}</option>
-                            @endforeach
-                          </select>
-
-                          <select class="sx-sel" id="sxPay-{{ e($aid) }}">
-                            @foreach($payMethodOptions as $k => $lbl)
-                              <option value="{{ $k }}" {{ (string)$payMethod === (string)$k ? 'selected' : '' }}>{{ $lbl }}</option>
-                            @endforeach
-                          </select>
-
-                          <button class="sx-btn sx-btn-primary sx-save"
-                                  type="button"
-                                  data-sx-save="{{ e($aid) }}">
-                            Guardar cambios
-                          </button>
-                        </div>
-
-                        <div class="sx-actionsRow" style="margin-top:10px;">
-                          @if($showUrl)
-                            <a class="sx-btn sx-btn-primary" href="{{ $showUrl }}">Ver detalle</a>
-                          @else
-                            <button class="sx-btn sx-btn-primary" type="button" disabled>Ver detalle</button>
-                          @endif
-
-                          @if($pdfUrl)
-                            <button class="sx-btn sx-btn-soft"
-                                    type="button"
-                                    data-sx-pdf-preview="1"
-                                    data-url="{{ $pdfUrl }}"
-                                    data-account="{{ e($aid) }}"
-                                    data-period="{{ e($period) }}">
-                              Vista previa
-                            </button>
-
-                            <a class="sx-btn sx-btn-soft" target="_blank" href="{{ $pdfUrl }}">PDF</a>
-                          @else
-                            <button class="sx-btn sx-btn-soft" type="button" disabled>Vista previa</button>
-                            <button class="sx-btn sx-btn-soft" type="button" disabled>PDF</button>
-                          @endif
-
-
-                          @if($emailUrl)
-                            <form method="POST" action="{{ $emailUrl }}" style="display:inline;">
-                              @csrf
-                              <input type="hidden" name="to" value="{{ $mail !== '—' ? $mail : '' }}">
-                              <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
-                            </form>
-                          @else
-                            <button class="sx-btn sx-btn-soft" type="button" disabled>Enviar</button>
-                          @endif
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              @empty
-                <tr>
-                  <td colspan="9" style="padding:16px; color:var(--sx-mut); font-weight:900;">
-                    Sin resultados para el filtro actual.
-                  </td>
-                </tr>
-              @endforelse
-            </tbody>
-          </table>
-        </div>
-
-        <div style="padding:12px 18px; border-top:1px solid var(--sx-line); background: color-mix(in oklab, var(--sx-card) 96%, transparent); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-          <div style="color:var(--sx-mut); font-weight:850; font-size:12px;">
-            Filtros: periodo <span class="sx-mono">{{ $period }}</span>,
-            estatus <span class="sx-mono">{{ strtoupper($status) }}</span>,
-            por página <span class="sx-mono">{{ $perPage }}</span>.
-          </div>
-
-          @if($isPaginator)
-            <div>{!! $rows->appends(request()->query())->links() !!}</div>
-          @endif
-        </div>
-
+                <td class="sx-right sx-actionsTd">
+                  <button class="sx-btn sx-btn-soft sx-actOpen"
+                          type="button"
+                          data-sx-open-drawer="1"
+                          data-account="{{ e($aid) }}"
+                          data-name="{{ e($name) }}"
+                          data-email="{{ e($mail) }}"
+                          data-status="{{ e($st) }}"
+                          data-pay="{{ e($payMethod) }}"
+                          data-show="{{ e($showUrl ?? '') }}"
+                          data-pdf="{{ e($pdfUrl ?? '') }}"
+                          data-emailurl="{{ e($emailUrl ?? '') }}">
+                    Gestionar
+                  </button>
+                </td>
+              </tr>
+            @empty
+              <tr>
+                <td colspan="9" style="padding:16px; color:var(--sx-mut); font-weight:900;">
+                  Sin resultados para el filtro actual.
+                </td>
+              </tr>
+            @endforelse
+          </tbody>
+        </table>
       </div>
-    </div>
 
+      <div style="padding:12px 18px; border-top:1px solid var(--sx-line); background: color-mix(in oklab, var(--sx-card) 96%, transparent); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+        <div style="color:var(--sx-mut); font-weight:850; font-size:12px;">
+          Filtros: periodo <span class="sx-mono">{{ $period }}</span>,
+          estatus <span class="sx-mono">{{ strtoupper($status) }}</span>,
+          por página <span class="sx-mono">{{ $perPage }}</span>.
+        </div>
+
+        @if($isPaginator)
+          <div>{!! $rows->appends(request()->query())->links() !!}</div>
+        @endif
+      </div>
+
+    </div>
   </div>
 </div>
 
 <div id="sxToast" class="sx-toast"></div>
+
+<!-- ===== Drawer: Acciones por cuenta (PRO) ===== -->
+<div id="sxDrawer" class="sx-drawer" aria-hidden="true">
+  <div class="sx-drawer-backdrop" data-sx-drawer-close="1"></div>
+
+  <aside class="sx-drawer-panel" role="dialog" aria-modal="true" aria-label="Acciones de cuenta">
+    <div class="sx-drawer-head">
+      <div class="sx-drawer-title">
+        <div class="sx-drawer-kicker">Acciones</div>
+
+        <div class="sx-drawer-main">
+          <span id="sxDAccount" class="sx-pill sx-dim"><span class="dot"></span>#—</span>
+          <span id="sxDStatusPill" class="sx-pill sx-dim"><span class="dot"></span>—</span>
+        </div>
+
+        <div id="sxDName" class="sx-drawer-sub">—</div>
+        <div id="sxDEmail" class="sx-drawer-sub sx-mono">—</div>
+      </div>
+
+      <button class="sx-btn sx-btn-ghost" type="button" data-sx-drawer-close="1">Cerrar</button>
+    </div>
+
+    <div class="sx-drawer-body">
+      <div class="sx-drawer-block">
+        <div class="sx-drawer-label">Estatus</div>
+        <select class="sx-sel" id="sxDStatus">
+          @foreach($statusOptions as $k => $lbl)
+            <option value="{{ $k }}">{{ $lbl }}</option>
+          @endforeach
+        </select>
+      </div>
+
+      <div class="sx-drawer-block">
+        <div class="sx-drawer-label">Forma de pago</div>
+        <select class="sx-sel" id="sxDPay">
+          @foreach($payMethodOptions as $k => $lbl)
+            <option value="{{ $k }}">{{ $lbl }}</option>
+          @endforeach
+        </select>
+      </div>
+
+      <div class="sx-drawer-row">
+        <button id="sxDSave" class="sx-btn sx-btn-primary" type="button">Guardar cambios</button>
+      </div>
+
+      <div class="sx-drawer-sep"></div>
+
+      <div class="sx-drawer-row sx-drawer-links">
+        <a id="sxDShow" class="sx-btn sx-btn-primary" href="#" style="display:none;">Ver</a>
+
+        <button id="sxDPreview" class="sx-btn sx-btn-soft" type="button" style="display:none;"
+                data-sx-pdf-preview="1"
+                data-url=""
+                data-account=""
+                data-period="{{ e($period) }}">
+          Preview
+        </button>
+
+        <a id="sxDPdf" class="sx-btn sx-btn-soft" target="_blank" rel="noopener" href="#" style="display:none;">PDF</a>
+
+        <form id="sxDEmailForm" method="POST" action="" style="display:none; margin:0;">
+          @csrf
+          <input type="hidden" name="to" value="">
+          <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
+        </form>
+      </div>
+
+      <div class="sx-drawer-footnote">
+        Se abre como drawer para no romper la tabla.
+      </div>
+    </div>
+  </aside>
+</div>
 
 <!-- ===== Modal: Vista previa PDF ===== -->
 <div id="sxPdfModal" class="sx-modal" aria-hidden="true">
@@ -636,28 +666,229 @@
   </div>
 </div>
 
-
 @push('scripts')
 <script>
 (function(){
-  // ===== Helpers =====
+  'use strict';
+
   function $(id){ return document.getElementById(id); }
+
+  // ==========================================================
+  // Helpers
+  // ==========================================================
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(m){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);
+    });
+  }
+
+  function pillClassByStatus(st){
+    st = String(st || '').toLowerCase().trim();
+    if (st === 'pagado') return 'sx-ok';
+    if (st === 'vencido') return 'sx-bad';
+    if (st === 'pendiente' || st === 'parcial') return 'sx-warn';
+    return 'sx-dim';
+  }
+
+  // ==========================================================
+  // TOAST PRO (cola + progress + actions + close)
+  // ==========================================================
+  const toastEl = $('sxToast');
+  let toastTimer = null;
+  let toastAnimTimer = null;
+
+  const toastQueue = [];
+  let toastShowing = false;
+
+  function toastIcon(type){
+    if(type === 'ok') return '✓';
+    if(type === 'warn') return '!';
+    if(type === 'bad') return '✕';
+    return 'i';
+  }
+  function toastTitle(type){
+    if(type === 'ok') return 'Listo';
+    if(type === 'warn') return 'Atención';
+    if(type === 'bad') return 'Error';
+    return 'Info';
+  }
+
+  function renderToast(opts){
+    if(!toastEl) return;
+
+    const msg = String((opts && opts.msg) || '');
+    const type = String((opts && opts.type) || 'info');
+    const ms = Math.max(800, Number((opts && opts.ms) || 2200));
+    const actions = (opts && Array.isArray(opts.actions)) ? opts.actions : null;
+
+    toastEl.setAttribute('data-type', type);
+
+    const actionsHtml = (actions && actions.length)
+      ? `<div class="sx-toast-actions">${
+          actions.map((a,i)=>{
+            const label = String(a && a.label ? a.label : 'Acción');
+            const kind  = String(a && a.kind  ? a.kind  : 'button'); // button|link
+            const href  = String(a && a.href  ? a.href  : '#');
+            if(kind === 'link'){
+              return `<a class="sx-toast-btn" data-sx-toast-act="${i}" href="${href}">${escapeHtml(label)}</a>`;
+            }
+            return `<button class="sx-toast-btn" data-sx-toast-act="${i}" type="button">${escapeHtml(label)}</button>`;
+          }).join('')
+        }</div>`
+      : '';
+
+    toastEl.innerHTML = `
+      <div class="sx-toast-inner">
+        <div class="sx-toast-ic">${escapeHtml(toastIcon(type))}</div>
+        <div class="sx-toast-body">
+          <div class="sx-toast-title">${escapeHtml(toastTitle(type))}</div>
+          <div class="sx-toast-msg">${escapeHtml(msg)}</div>
+          ${actionsHtml}
+        </div>
+        <button class="sx-toast-x" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <div class="sx-toast-bar"><i></i></div>
+    `;
+
+    // close
+    const x = toastEl.querySelector('.sx-toast-x');
+    if(x) x.addEventListener('click', () => hideToast(true), { once:true });
+
+    // actions
+    if(actions && actions.length){
+      const btns = Array.from(toastEl.querySelectorAll('[data-sx-toast-act]'));
+      btns.forEach(b=>{
+        b.addEventListener('click', (ev)=>{
+          const idx = parseInt(b.getAttribute('data-sx-toast-act') || '-1', 10);
+          const act = actions[idx];
+          if(!act) return;
+
+          const kind = String(act.kind || 'button').toLowerCase();
+          if(kind === 'link'){
+            // deja navegar, pero cierra toast
+            hideToast(true);
+            return;
+          }
+
+          ev.preventDefault();
+          try{
+            if(typeof act.onClick === 'function') act.onClick();
+          }catch(e){}
+          hideToast(true);
+        });
+      });
+    }
+
+    // progress
+    const bar = toastEl.querySelector('.sx-toast-bar > i');
+    if(bar){
+      bar.style.transition = 'none';
+      bar.style.transform = 'scaleX(1)';
+      void bar.offsetWidth;
+      bar.style.transition = `transform ${ms}ms linear`;
+      bar.style.transform = 'scaleX(0)';
+    }
+
+    // auto-hide
+    if(toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => hideToast(false), ms);
+  }
+
+  function showToastNow(payload){
+    if(!toastEl) return;
+
+    if(toastTimer) clearTimeout(toastTimer);
+    if(toastAnimTimer) clearTimeout(toastAnimTimer);
+
+    toastEl.classList.remove('hide');
+    toastEl.classList.add('on');
+    renderToast(payload);
+
+    toastAnimTimer = setTimeout(() => toastEl.classList.add('show'), 10);
+    toastShowing = true;
+  }
+
+  function nextToast(){
+    if(toastQueue.length === 0){
+      toastShowing = false;
+      return;
+    }
+    showToastNow(toastQueue.shift());
+  }
+
+  function hideToast(forceImmediate){
+    if(!toastEl) return;
+
+    if(toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    if(toastAnimTimer) { clearTimeout(toastAnimTimer); toastAnimTimer = null; }
+
+    toastEl.classList.remove('show');
+    toastEl.classList.add('hide');
+
+    const done = () => {
+      toastEl.classList.remove('on','hide');
+      toastEl.innerHTML = '';
+      nextToast();
+    };
+
+    if(forceImmediate) return done();
+    setTimeout(done, 160);
+  }
+
+  function sxToast(a, b){
+    let payload;
+
+    if(typeof a === 'object' && a){
+      payload = {
+        msg: String(a.msg || ''),
+        type: String(a.type || 'info'),
+        ms: Number(a.ms || 2200),
+        actions: Array.isArray(a.actions) ? a.actions : null
+      };
+    }else{
+      payload = { msg: String(a || ''), type: String(b || 'info'), ms: 2200, actions: null };
+    }
+
+    if(toastShowing){
+      toastQueue.push(payload);
+      return;
+    }
+    showToastNow(payload);
+  }
+  window.sxToast = sxToast;
+
+  // Escape cierra toast (si visible)
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape' && toastEl && toastEl.classList.contains('on')){
+      hideToast(true);
+    }
+  });
+
+  // ==========================================================
+  // Bulk / Selection (NECESARIO para tus botones)
+  // ==========================================================
   function rows(){ return Array.from(document.querySelectorAll('.sx-row')); }
   function selected(){ return rows().filter(x => x.checked).map(x => x.value); }
 
-  // ===== Bulk UI =====
   const bulkbar   = $('sxBulkbar');
   const bulkCount = $('sxBulkCount');
-  const ckAll     = $('sxCkAll');
-
+  const ckAll     = $('sxCkAll');     // si no existe, no pasa nada
   const bulkForm  = $('sxBulkForm');
   const hasBulkEndpoint = {!! json_encode((bool)($hasBulkSend ?? false)) !!};
+
+  function repaintSelectedRows(){
+    rows().forEach(ck => {
+      const tr = ck.closest('tr');
+      if(!tr) return;
+      if(ck.checked) tr.classList.add('is-selected');
+      else tr.classList.remove('is-selected');
+    });
+  }
 
   function updateBulk(){
     const ids = selected();
 
     if (bulkCount) bulkCount.textContent = String(ids.length);
-
     if (bulkbar){
       if(ids.length > 0) bulkbar.classList.add('on');
       else bulkbar.classList.remove('on');
@@ -665,20 +896,28 @@
 
     if(ckAll){
       const r = rows();
-      if(!r.length){
-        ckAll.checked = false;
-        ckAll.indeterminate = false;
-        return;
+      if(!r.length){ ckAll.checked = false; ckAll.indeterminate = false; }
+      else{
+        const all = r.every(x => x.checked);
+        const any = r.some(x => x.checked);
+        ckAll.checked = all;
+        ckAll.indeterminate = (!all && any);
       }
-      const all = r.every(x => x.checked);
-      const any = r.some(x => x.checked);
-      ckAll.checked = all;
-      ckAll.indeterminate = (!all && any);
     }
+
+    repaintSelectedRows();
   }
 
+  function bindBulkForm(ids){
+    if(!bulkForm) return false;
+    const inp = bulkForm.querySelector('input[name="account_ids"]');
+    if (inp) inp.value = ids.join(',');
+    return true;
+  }
+
+  // expón funciones globales (tus botones las llaman)
   window.sxToggleAll = function(master){
-    rows().forEach(x => x.checked = !!master.checked);
+    rows().forEach(x => x.checked = !!(master && master.checked));
     updateBulk();
   };
   window.sxSync = function(){ updateBulk(); };
@@ -693,14 +932,9 @@
     updateBulk();
   };
 
-  function bindBulkForm(ids){
-    if(!bulkForm) return false;
-    const inp = bulkForm.querySelector('input[name="account_ids"]');
-    if (inp) inp.value = ids.join(',');
-    return true;
-  }
-
-    // ===== Filtro: Solo seleccionadas =====
+  // ==========================================================
+  // Filtro: Solo seleccionadas (NECESARIO)
+  // ==========================================================
   function parseIdsParam(v){
     v = (v == null) ? '' : String(v);
     return v.split(',').map(s => s.trim()).filter(Boolean);
@@ -715,27 +949,10 @@
       const ids = new Set(parseIdsParam(sp.get('ids')));
       if(!ids.size) return;
 
-      // Oculta filas no incluidas y deja checked las incluidas
-      const r = rows();
-      r.forEach(ck => {
-        const id = String(ck.value || '').trim();
-        const tr = ck.closest('tr');
-        if(!tr) return;
-
-        if(ids.has(id)){
-          ck.checked = true;
-          tr.style.display = '';
-        }else{
-          ck.checked = false;
-          tr.style.display = 'none';
-        }
+      // check los visibles que estén en ids
+      rows().forEach(ck => {
+        if(ids.has(String(ck.value))) ck.checked = true;
       });
-
-      // Desmarca/ajusta master (si aplica)
-      if(ckAll){
-        ckAll.checked = true;
-        ckAll.indeterminate = false;
-      }
 
       updateBulk();
     }catch(e){}
@@ -743,28 +960,19 @@
 
   window.sxFilterSelected = function(){
     const ids = selected();
-    if(!ids.length){
-      sxToast('Selecciona al menos una cuenta para filtrar.', 'warn');
-      return;
-    }
+    if(!ids.length){ sxToast('Selecciona al menos una cuenta para filtrar.', 'warn'); return; }
 
     const base = {!! json_encode($routeIndex ?? url('/admin/billing/statements')) !!};
-
-    // ✅ Conserva query actual y solo fuerza only_selected + ids
     const sp = new URLSearchParams(window.location.search || '');
     sp.set('only_selected', '1');
     sp.set('ids', ids.join(','));
-    sp.delete('page'); // reset paginación
-
+    sp.delete('page');
     window.location.href = base + '?' + sp.toString();
   };
 
   window.sxBulkSend = function(){
     const ids = selected();
-    if(!ids.length){
-      sxToast('Selecciona al menos una cuenta.', 'warn');
-      return;
-    }
+    if(!ids.length){ sxToast('Selecciona al menos una cuenta.', 'warn'); return; }
 
     if(hasBulkEndpoint && bulkForm && bulkForm.getAttribute('action')){
       bindBulkForm(ids);
@@ -777,40 +985,39 @@
     sxToast('Se copió al portapapeles (period + account_ids CSV). Activa el endpoint HUB bulk_send para envío masivo real.', 'info');
   };
 
-  // ===== Toast UI (usa #sxToast, NO alert) =====
-  const toastEl = $('sxToast');
-  let toastTimer = null;
+  // ==========================================================
+  // Save endpoint (estatus / forma de pago)
+  // ==========================================================
+  const endpoint = {!! json_encode($statusEndpoint ?? url('/admin/billing/statements/status')) !!};
+  const period   = {!! json_encode($period ?? '') !!};
+  const csrf     = {!! json_encode(csrf_token()) !!};
 
-  function sxToast(msg, type){
-    type = type || 'info';
-    if (!toastEl) { try{ console.log(msg); }catch(e){}; return; }
+  function repaintRowStatus(accountId, status){
+    const id = String(accountId || '').trim();
+    const rowEl = $('sxRow-' + id);
+    if(!rowEl) return;
 
-    toastEl.textContent = String(msg || '');
-    toastEl.classList.add('on');
+    const statusTd = rowEl.querySelector('td:nth-child(8)');
+    if(!statusTd) return;
 
-    // mini color por tipo
-    toastEl.style.background =
-      (type === 'ok')   ? '#065f46' :
-      (type === 'warn') ? '#92400e' :
-      (type === 'bad')  ? '#991b1b' :
-                          '#111827';
+    const st = String(status || '').toLowerCase().trim() || 'sin_mov';
 
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2200);
-  }
+    let pill = statusTd.querySelector('.sx-pill');
+    if(!pill){
+      pill = document.createElement('span');
+      pill.className = 'sx-pill';
+      statusTd.innerHTML = '';
+      statusTd.appendChild(pill);
+    }
 
-  // ===== UI re-paint: Status pill + meta método =====
-  function pillClassByStatus(st){
-    st = String(st || '').toLowerCase().trim();
-    if (st === 'pagado') return 'sx-ok';
-    if (st === 'vencido') return 'sx-bad';
-    if (st === 'pendiente' || st === 'parcial') return 'sx-warn';
-    return 'sx-dim';
+    pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+    pill.classList.add(pillClassByStatus(st));
+    pill.innerHTML = '<span class="dot"></span>' + escapeHtml(st.toUpperCase());
   }
 
   function upsertMetaPay(rowEl, method, provider, payStatus){
     try{
-      const metaCell = rowEl.querySelector('td:nth-child(4)'); // Email/Meta
+      const metaCell = rowEl.querySelector('td:nth-child(4)');
       if(!metaCell) return;
 
       const sub = metaCell.querySelector('.sx-subrow');
@@ -820,14 +1027,13 @@
       const p = String(provider || '').trim();
       const s = String(payStatus || '').trim();
 
-      // Tomamos el HTML actual y removemos segmentos Método/Prov/St existentes (con sus separadores)
       let html = sub.innerHTML;
 
+      // limpia bloque previo (si existe)
       html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*M[ée]todo:\s*<span class="sx-mono">.*?<\/span>/i, '');
       html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*Prov:\s*<span class="sx-mono">.*?<\/span>/i, '');
       html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*St:\s*<span class="sx-mono">.*?<\/span>/i, '');
 
-      // Insertamos nuevamente después de "Periodo: <span ...>..</span>"
       const insertAfter = /(Periodo:\s*<span class="sx-mono">[^<]*<\/span>)/i;
 
       let extra = '';
@@ -836,178 +1042,90 @@
       if(s !== '') extra += ' <span style="opacity:.55;"> · </span> St: <span class="sx-mono">'+ escapeHtml(s) +'</span>';
 
       html = html.replace(insertAfter, '$1' + extra);
-
       sub.innerHTML = html;
     }catch(e){}
   }
 
-
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, function(m){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);
-    });
-  }
-
-  function repaintRowStatus(accountId, status){
-    const id = String(accountId || '');
-    const rowEl = $('sxRow-' + id);
-    if(!rowEl) return;
-
-    // La columna "Estatus" es la 8va (según tu tabla)
-    const statusTd = rowEl.querySelector('td:nth-child(8)');
-    if(!statusTd) return;
-
-    const st = String(status || '').toLowerCase().trim() || 'sin_mov';
-
-    // Busca la pill existente
-    let pill = statusTd.querySelector('.sx-pill');
-    if(!pill){
-      pill = document.createElement('span');
-      pill.className = 'sx-pill';
-      pill.innerHTML = '<span class="dot"></span><span></span>';
-      statusTd.innerHTML = '';
-      statusTd.appendChild(pill);
-    }
-
-    // Ajusta clases (sx-ok|sx-warn|sx-bad|sx-dim)
-    pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-    pill.classList.add(pillClassByStatus(st));
-
-    // Texto
-    pill.childNodes.forEach(()=>{});
-    // pill tiene: <span class="dot"></span>TEXT o dot+text
-    pill.innerHTML = '<span class="dot"></span>' + escapeHtml(st.toUpperCase());
-  }
-
-  // ===== Row Save (STATUS + PAY METHOD) =====
-  const endpoint = {!! json_encode($statusEndpoint ?? url('/admin/billing/statements/status')) !!};
-  const period   = {!! json_encode($period ?? '') !!};
-  const csrf     = {!! json_encode(csrf_token()) !!};
-
-  window.sxSaveRow = async function(accountId){
+  async function saveRow(accountId, status, pay){
     const id = String(accountId || '').trim();
-    if(!id){
-      sxToast('Falta accountId.', 'bad');
-      return;
+    if(!id){ sxToast('Falta accountId.', 'bad'); return {ok:false}; }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrf,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        account_id: id,
+        period: period,
+        status: status,
+        pay_method: pay
+      })
+    });
+
+    const text = await res.text();
+    let data = null;
+    try{ data = JSON.parse(text); }catch(e){ data = null; }
+
+    if(!res.ok){
+      const msg = (data && (data.message || data.error))
+        ? (data.message || data.error)
+        : ('HTTP ' + res.status + ' -> ' + text.slice(0,200));
+      sxToast('No se pudo guardar: ' + msg, 'bad');
+      return {ok:false, data};
     }
 
-    const stSel  = document.getElementById('sxStatus-' + id);
-    const paySel = document.getElementById('sxPay-' + id);
+    const effectiveStatus = (data && data.status) ? data.status : status;
+    repaintRowStatus(id, effectiveStatus);
 
-    if(!stSel){
-      sxToast('No encuentro el select de estatus: sxStatus-' + id, 'bad');
-      return;
-    }
+    // si backend devuelve números, refresca celdas
+    if (data && typeof data.total !== 'undefined') {
+      const rowEl = $('sxRow-' + id);
+      if(rowEl){
+        const totalTd = rowEl.querySelector('td:nth-child(5)');
+        const paidTd  = rowEl.querySelector('td:nth-child(6)');
+        const saldoTd = rowEl.querySelector('td:nth-child(7)');
 
-    const status = String(stSel.value || '').trim();
-    const pay    = paySel ? String(paySel.value || '').trim() : '';
+        const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
 
-    const btn = document.querySelector('[data-sx-save="'+ CSS.escape(id) +'"]');
-    const oldBtnText = btn ? btn.textContent : '';
-    if(btn){ btn.disabled = true; btn.textContent = 'Guardando...'; }
+        if (totalTd) totalTd.textContent = fmt(data.total);
 
-    try{
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': csrf,
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({
-          account_id: id,
-          period: period,
-          status: status,
-          pay_method: pay
-        })
-      });
+        if (paidTd) {
+          const top = paidTd.querySelector('.sx-mono');
+          if (top) top.textContent = fmt(data.abono);
+        }
 
-      const text = await res.text();
-      let data = null;
-      try{ data = JSON.parse(text); }catch(e){ data = null; }
-
-      if(!res.ok){
-        const msg = (data && (data.message || data.error)) ? (data.message || data.error) : ('HTTP ' + res.status + ' -> ' + text.slice(0,200));
-        sxToast('No se pudo guardar: ' + msg, 'bad');
-        return;
-      }
-
-      // ✅ RE-PAINT inmediato (sin recargar)
-      const effectiveStatus = (data && data.status) ? data.status : status;
-      repaintRowStatus(id, effectiveStatus);
-
-      // ✅ si el server regresó montos, repintamos columnas Total/Pagado/Saldo
-      if (data && typeof data.total !== 'undefined') {
-        const rowEl = document.getElementById('sxRow-' + id);
-        if (rowEl) {
-          const totalTd = rowEl.querySelector('td:nth-child(5)');
-          const paidTd  = rowEl.querySelector('td:nth-child(6)');
-          const saldoTd = rowEl.querySelector('td:nth-child(7)');
-
-          const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-
-          if (totalTd) totalTd.textContent = fmt(data.total);
-
-          if (paidTd) {
-            // conserva layout (monto arriba + subrow abajo)
-            const top = paidTd.querySelector('.sx-mono');
-            if (top) {
-              top.textContent = fmt(data.abono);
-            } else {
-              // Si por alguna razón no existe el nodo, lo creamos sin borrar el subrow
-              const div = document.createElement('div');
-              div.className = 'sx-mono';
-              div.textContent = fmt(data.abono);
-              paidTd.insertBefore(div, paidTd.firstChild);
-            }
-          }
-
-          if (saldoTd) {
-            // pill de saldo (tu UI la maneja con sx-pill)
-            const pill = saldoTd.querySelector('.sx-pill');
-            const saldo = Number(data.saldo || 0);
-
-            if (pill) {
-              pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-              pill.classList.add(saldo > 0 ? 'sx-warn' : 'sx-ok');
-              pill.innerHTML = '<span class="dot"></span><span class="sx-mono">' + fmt(saldo) + '</span>';
-            } else {
-              saldoTd.textContent = fmt(saldo);
-            }
+        if (saldoTd) {
+          const pill = saldoTd.querySelector('.sx-pill');
+          const saldo = Number(data.saldo || 0);
+          if (pill) {
+            pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+            pill.classList.add(saldo > 0 ? 'sx-warn' : 'sx-ok');
+            pill.innerHTML = '<span class="dot"></span><span class="sx-mono">' + fmt(saldo) + '</span>';
           }
         }
       }
+    }
 
-      // actualizar meta método (visual)
-      const rowEl = $('sxRow-' + id);
-      if(rowEl){
-      const effectivePay = (data && data.pay_method !== undefined) ? data.pay_method : pay;
-
+    // actualizar meta de pago en UI
+    const rowEl = $('sxRow-' + id);
+    if(rowEl){
+      const effectivePay  = (data && data.pay_method !== undefined) ? data.pay_method : pay;
       const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
       const effectiveSt   = (data && data.pay_status !== undefined) ? data.pay_status : '';
-
-        upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
-      }
-      sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
-
-    }catch(err){
-      sxToast('Error de red/JS: ' + (err && err.message ? err.message : String(err)), 'bad');
-    }finally{
-      if(btn){ btn.disabled = false; btn.textContent = oldBtnText || 'Guardar cambios'; }
+      upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
     }
-  };
 
-  // Delegación global (tu forma correcta)
-  document.addEventListener('click', function(ev){
-    const el = ev.target.closest('[data-sx-save]');
-    if(!el) return;
-    ev.preventDefault();
-    const id = el.getAttribute('data-sx-save') || '';
-    window.sxSaveRow(id);
-  });
+    sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
+    return {ok:true, data};
+  }
 
-    // ===== PDF Preview Modal (Vista previa) =====
+  // ==========================================================
+  // PDF Preview Modal
+  // ==========================================================
   const pdfModal    = $('sxPdfModal');
   const pdfFrame    = $('sxPdfFrame');
   const pdfClose    = $('sxPdfClose');
@@ -1026,7 +1144,6 @@
       });
       return u.toString();
     }catch(e){
-      // fallback simple
       let glue = (url.indexOf('?') >= 0) ? '&' : '?';
       const q = Object.keys(params||{}).map(k => encodeURIComponent(k)+'='+encodeURIComponent(String(params[k]))).join('&');
       return url + glue + q;
@@ -1036,27 +1153,20 @@
   function openPdfModal(opts){
     if(!pdfModal || !pdfFrame) return;
 
-    const url    = String((opts && opts.url) || '').trim();
-    const acc    = String((opts && opts.account) || '—');
-    const per    = String((opts && opts.period) || '—');
+    const url = String((opts && opts.url) || '').trim();
+    const acc = String((opts && opts.account) || '—');
+    const per = String((opts && opts.period) || '—');
 
-    if(url === ''){
-      sxToast('No hay URL de PDF para vista previa.', 'bad');
-      return;
-    }
+    if(url === ''){ sxToast('No hay URL de PDF para vista previa.', 'bad'); return; }
 
-    // ✅ Vista previa debe ser inline para iframe
     const previewUrl = withParams(url, { inline: 1, modal: 1 });
 
-    // Labels
     if(pdfAccLbl) pdfAccLbl.textContent = acc || '—';
     if(pdfPerLbl) pdfPerLbl.textContent = per || '—';
 
-    // Links
     if(pdfOpenNew)  pdfOpenNew.setAttribute('href', previewUrl);
-    if(pdfDownload) pdfDownload.setAttribute('href', url); // “Descargar” usa el endpoint normal
+    if(pdfDownload) pdfDownload.setAttribute('href', url);
 
-    // Iframe reload (forzado)
     pdfFrame.setAttribute('src', 'about:blank');
     setTimeout(() => pdfFrame.setAttribute('src', previewUrl), 30);
 
@@ -1071,48 +1181,188 @@
     if(pdfFrame) pdfFrame.setAttribute('src', 'about:blank');
   }
 
-  // Close handlers
   if(pdfClose){
-    pdfClose.addEventListener('click', function(ev){
-      ev.preventDefault();
-      closePdfModal();
-    });
+    pdfClose.addEventListener('click', function(ev){ ev.preventDefault(); closePdfModal(); });
   }
-
   if(pdfModal){
-    pdfModal.addEventListener('click', function(ev){
-      // click fuera del card
+    pdfModal.addEventListener('mousedown', function(ev){
       if(ev.target === pdfModal) closePdfModal();
     });
   }
 
-  document.addEventListener('keydown', function(ev){
-    if(ev.key === 'Escape'){
-      if(pdfModal && pdfModal.classList.contains('on')) closePdfModal();
+  // ==========================================================
+  // Drawer
+  // ==========================================================
+  const drawer = $('sxDrawer');
+  const dAccount = $('sxDAccount');
+  const dStatusPill = $('sxDStatusPill');
+  const dName = $('sxDName');
+  const dEmail = $('sxDEmail');
+
+  const dStatus = $('sxDStatus');
+  const dPay = $('sxDPay');
+  const dSave = $('sxDSave');
+
+  const dShow = $('sxDShow');
+  const dPreview = $('sxDPreview');
+  const dPdf = $('sxDPdf');
+  const dEmailForm = $('sxDEmailForm');
+
+  let drawerState = { account:'', name:'', email:'', status:'', pay:'', show:'', pdf:'', emailurl:'' };
+
+  function openDrawer(payload){
+    if(!drawer) return;
+    drawerState = payload || drawerState;
+
+    const acc = String(drawerState.account || '').trim();
+    const nm  = String(drawerState.name || '—');
+    const em  = String(drawerState.email || '—');
+    const st  = String(drawerState.status || 'sin_mov').toLowerCase().trim();
+    const pm  = String(drawerState.pay || '').toLowerCase().trim();
+
+    if(dAccount) dAccount.innerHTML = '<span class="dot"></span>#' + escapeHtml(acc || '—');
+    if(dName) dName.textContent = nm;
+    if(dEmail) dEmail.textContent = em;
+
+    if(dStatus) dStatus.value = st;
+    if(dPay) dPay.value = pm;
+
+    if(dStatusPill){
+      dStatusPill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+      dStatusPill.classList.add(pillClassByStatus(st));
+      dStatusPill.innerHTML = '<span class="dot"></span>' + escapeHtml(st.toUpperCase());
+    }
+
+    if(dShow){
+      if(drawerState.show){ dShow.style.display = ''; dShow.setAttribute('href', drawerState.show); }
+      else dShow.style.display = 'none';
+    }
+
+    if(dPdf){
+      if(drawerState.pdf){ dPdf.style.display = ''; dPdf.setAttribute('href', drawerState.pdf); }
+      else dPdf.style.display = 'none';
+    }
+
+    if(dPreview){
+      if(drawerState.pdf){
+        dPreview.style.display = '';
+        dPreview.setAttribute('data-url', drawerState.pdf);
+        dPreview.setAttribute('data-account', acc || '—');
+        dPreview.setAttribute('data-period', {!! json_encode($period ?? '') !!});
+      }else dPreview.style.display = 'none';
+    }
+
+    if(dEmailForm){
+      if(drawerState.emailurl){
+        dEmailForm.style.display = '';
+        dEmailForm.setAttribute('action', drawerState.emailurl);
+        const toInp = dEmailForm.querySelector('input[name="to"]');
+        if(toInp) toInp.value = (em && em !== '—') ? em : '';
+      }else{
+        dEmailForm.style.display = 'none';
+        dEmailForm.setAttribute('action','');
+      }
+    }
+
+    drawer.classList.add('on');
+    drawer.setAttribute('aria-hidden','false');
+    document.body.classList.add('sx-drawer-open');
+  }
+
+  function closeDrawer(){
+    if(!drawer) return;
+    drawer.classList.remove('on');
+    drawer.setAttribute('aria-hidden','true');
+    document.body.classList.remove('sx-drawer-open');
+  }
+
+  // ==========================================================
+  // Delegación de clicks (esto hace que TODOS los botones funcionen)
+  // ==========================================================
+  document.addEventListener('click', function(ev){
+
+    // 1) Abrir drawer con botón Gestionar
+    const openBtn = ev.target.closest('[data-sx-open-drawer="1"]');
+    if(openBtn){
+      ev.preventDefault();
+      openDrawer({
+        account: openBtn.getAttribute('data-account') || '',
+        name: openBtn.getAttribute('data-name') || '—',
+        email: openBtn.getAttribute('data-email') || '—',
+        status: openBtn.getAttribute('data-status') || 'sin_mov',
+        pay: openBtn.getAttribute('data-pay') || '',
+        show: openBtn.getAttribute('data-show') || '',
+        pdf: openBtn.getAttribute('data-pdf') || '',
+        emailurl: openBtn.getAttribute('data-emailurl') || ''
+      });
+      return;
+    }
+
+    // 2) Cerrar drawer
+    if(ev.target.closest('[data-sx-drawer-close="1"]')){
+      ev.preventDefault();
+      closeDrawer();
+      return;
+    }
+
+    // 3) Abrir PDF Preview desde drawer
+    const btnPrev = ev.target.closest('[data-sx-pdf-preview="1"]');
+    if(btnPrev){
+      ev.preventDefault();
+      openPdfModal({
+        url: btnPrev.getAttribute('data-url') || '',
+        account: btnPrev.getAttribute('data-account') || '—',
+        period: btnPrev.getAttribute('data-period') || {!! json_encode($period ?? '') !!}
+      });
+      return;
     }
   });
 
-  // Delegación click: botón Vista previa
-  document.addEventListener('click', function(ev){
-    const btn = ev.target.closest('[data-sx-pdf-preview="1"]');
-    if(!btn) return;
-
-    ev.preventDefault();
-
-    const url     = btn.getAttribute('data-url') || '';
-    const account = btn.getAttribute('data-account') || '—';
-    const period  = btn.getAttribute('data-period') || '—';
-
-    openPdfModal({ url, account, period });
+  // Escape para modal/drawer (y toast ya se maneja arriba)
+  document.addEventListener('keydown', function(ev){
+    if(ev.key !== 'Escape') return;
+    if(pdfModal && pdfModal.classList.contains('on')) closePdfModal();
+    if(drawer && drawer.classList.contains('on')) closeDrawer();
   });
 
+  // Guardar desde drawer
+  if(dSave){
+    dSave.addEventListener('click', async function(){
+      const id = String(drawerState.account || '').trim();
+      if(!id){ sxToast('Falta accountId.', 'bad'); return; }
 
-    // init
+      const status = dStatus ? String(dStatus.value || '').trim() : 'sin_mov';
+      const pay    = dPay ? String(dPay.value || '').trim() : '';
+
+      const oldTxt = dSave.textContent;
+      dSave.disabled = true;
+      dSave.textContent = 'Guardando...';
+
+      try{
+        const r = await saveRow(id, status, pay);
+
+        if(r.ok && dStatusPill){
+          const eff = (r.data && r.data.status) ? r.data.status : status;
+          dStatusPill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+          dStatusPill.classList.add(pillClassByStatus(eff));
+          dStatusPill.innerHTML = '<span class="dot"></span>' + escapeHtml(String(eff).toUpperCase());
+        }
+      }catch(e){
+        sxToast('Error: ' + (e && e.message ? e.message : String(e)), 'bad');
+      }finally{
+        dSave.disabled = false;
+        dSave.textContent = oldTxt;
+      }
+    });
+  }
+
+  // ==========================================================
+  // INIT
+  // ==========================================================
   applyOnlySelectedFromQuery();
   updateBulk();
-  try{ console.log('[P360] statements index scripts loaded'); }catch(e){}
-})();
 
+})();
 </script>
 @endpush
 

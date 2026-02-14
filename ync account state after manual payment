@@ -1,0 +1,207 @@
+warning: in the working copy of 'public/assets/admin/css/billing-statements.css', CRLF will be replaced by LF the next time Git touches it
+[1mdiff --git a/public/assets/admin/css/billing-statements.css b/public/assets/admin/css/billing-statements.css[m
+[1mindex b2dc0c4..7625dd4 100644[m
+[1m--- a/public/assets/admin/css/billing-statements.css[m
+[1m+++ b/public/assets/admin/css/billing-statements.css[m
+[36m@@ -1,11 +1,7 @@[m
+ /* public/assets/admin/css/billing-statements.css */[m
+[31m-/* Vault-ish, limpio, responsive, dark-friendly (v1) */[m
+[32m+[m[32m/* Vault Premium · limpio · responsive · dark-friendly · v6.9 (consolidado, sin overrides conflictivos) */[m
+ [m
+ :root{[m
+[31m-  /* ==========================================================[m
+[31m-     P360 tokens (default = CLARO)[m
+[31m-     - toma colores del layout global si existen[m
+[31m-     ========================================================== */[m
+   --sx-ink: var(--text, #0f172a);[m
+   --sx-mut: var(--muted, #64748b);[m
+ [m
+[36m@@ -13,8 +9,10 @@[m
+   --sx-bg: color-mix(in oklab, var(--sx-card) 90%, #f6f7fb);[m
+ [m
+   --sx-stroke: color-mix(in oklab, var(--sx-ink) 12%, transparent);[m
+[31m-  --sx-soft:   color-mix(in oklab, var(--sx-ink) 6%, transparent);[m
+[31m-  --sx-soft2:  color-mix(in oklab, var(--sx-ink) 4%, transparent);[m
+[32m+[m[32m  --sx-line: var(--sx-stroke);[m
+[32m+[m
+[32m+[m[32m  --sx-soft:  color-mix(in oklab, var(--sx-ink) 6%, transparent);[m
+[32m+[m[32m  --sx-soft2: color-mix(in oklab, var(--sx-ink) 4%, transparent);[m
+ [m
+   --sx-text: var(--sx-ink);[m
+ [m
+[36m@@ -28,11 +26,13 @@[m
+ [m
+   --sx-radius: 18px;[m
+   --sx-shadow: var(--shadow-1, 0 10px 30px rgba(15,23,42,.08));[m
+[32m+[m
+[32m+[m[32m  /* sticky offset (ajusta si tu topbar es más alta) */[m
+[32m+[m[32m  --sx-sticky-top: 8px;[m
+ }[m
+ [m
+ /* ==========================================================[m
+[31m-   DARK overrides (detecta varios toggles comunes)[m
+[31m-   - si tu layout usa otra clase/atributo, lo agregamos aquí[m
+[32m+[m[32m   DARK overrides[m
+    ========================================================== */[m
+ body.theme-dark,[m
+ html.theme-dark,[m
+[36m@@ -47,11 +47,11 @@[m [mhtml[data-theme="dark"]{[m
+   --sx-bg: #0b1220;[m
+ [m
+   --sx-stroke: rgba(148,163,184,.18);[m
+[32m+[m[32m  --sx-line: rgba(148,163,184,.18);[m
+   --sx-soft: rgba(148,163,184,.12);[m
+   --sx-soft2: rgba(148,163,184,.08);[m
+ [m
+   --sx-text: #e5e7eb;[m
+[31m-[m
+   --sx-shadow: 0 14px 40px rgba(0,0,0,.25);[m
+ [m
+   --sx-ok: rgba(34,197,94,.18);[m
+[36m@@ -63,12 +63,12 @@[m [mhtml[data-theme="dark"]{[m
+   --sx-bad-t:#ef4444;[m
+ }[m
+ [m
+[31m-[m
+[31m-/* light mode fallback si tu layout usa body.theme-light */[m
+[32m+[m[32m/* light mode fallback */[m
+ body.theme-light{[m
+   --sx-bg:#f6f7fb;[m
+   --sx-card:#ffffff;[m
+   --sx-stroke: rgba(15,23,42,.12);[m
+[32m+[m[32m  --sx-line: rgba(15,23,42,.12);[m
+   --sx-text:#0f172a;[m
+   --sx-mut: rgba(15,23,42,.60);[m
+   --sx-soft: rgba(15,23,42,.06);[m
+[36m@@ -76,7 +76,14 @@[m [mbody.theme-light{[m
+   --sx-shadow: 0 10px 30px rgba(15,23,42,.08);[m
+ }[m
+ [m
+[31m-.sx-wrap{ padding: 18px; background: var(--sx-bg); }[m
+[32m+[m[32m/* ==========================================================[m
+[32m+[m[32m   LAYOUT[m
+[32m+[m[32m   ========================================================== */[m
+[32m+[m[32m.sx-wrap{[m
+[32m+[m[32m  padding: 12px;[m
+[32m+[m[32m  background: var(--sx-bg);[m
+[32m+[m[32m  min-height: calc(100vh - 12px);[m
+[32m+[m[32m}[m
+ [m
+ .sx-card{[m
+   background: var(--sx-card);[m
+[36m@@ -84,46 +91,76 @@[m [mbody.theme-light{[m
+   border-radius: var(--sx-radius);[m
+   box-shadow: var(--sx-shadow);[m
+   overflow: hidden;[m
+[32m+[m[32m  width: 100%;[m
+[32m+[m[32m  max-width: none;[m
+ }[m
+ [m
+[31m-.sx-head{[m
+[31m-  padding: 18px 18px 10px;[m
+[31m-  display:flex; align-items:flex-start; justify-content:space-between; gap:14px;[m
+[32m+[m[32m.sx-topSticky{[m
+[32m+[m[32m  position: sticky;[m
+[32m+[m[32m  top: var(--sx-sticky-top);[m
+[32m+[m[32m  z-index: 50;[m
+[32m+[m[32m  background: var(--sx-card);[m
+   border-bottom: 1px solid var(--sx-stroke);[m
+[32m+[m[32m  box-shadow: 0 14px 26px rgba(0,0,0,.05);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/* ==========================================================[m
+[32m+[m[32m   HEAD[m
+[32m+[m[32m   ========================================================== */[m
+[32m+[m[32m.sx-head{[m
+[32m+[m[32m  padding: 14px 16px 10px;[m
+[32m+[m[32m  display:flex;[m
+[32m+[m[32m  align-items:flex-start;[m
+[32m+[m[32m  justify-content:space-between;[m
+[32m+[m[32m  gap: 12px;[m
+   background: linear-gradient(180deg, var(--sx-soft), transparent);[m
+ }[m
+[31m-.sx-title{ margin:0; font: 800 20px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial; color: var(--sx-text); }[m
+[31m-.sx-sub{ margin-top:6px; color: var(--sx-mut); font: 500 12px/1.4 system-ui; }[m
+[31m-.sx-head-actions{ display:flex; gap:10px; flex-wrap:wrap; }[m
+[32m+[m
+[32m+[m[32m.sx-title{[m
+[32m+[m[32m  margin:0;[m
+[32m+[m[32m  font: 900 18px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;[m
+[32m+[m[32m  color: var(--sx-text);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.sx-sub{[m
+[32m+[m[32m  margin-top:6px;[m
+[32m+[m[32m  color: var(--sx-mut);[m
+[32m+[m[32m  font: 600 12px/1.35 system-ui;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.sx-head-actions{[m
+[32m+[m[32m  display:flex;[m
+[32m+[m[32m  gap:8px;[m
+[32m+[m[32m  flex-wrap:wrap;[m
+[32m+[m[32m  align-items:center;[m
+[32m+[m[32m}[m
+ [m
+ .sx-mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }[m
+ .sx-right{ text-align:right; }[m
+ [m
+[31m-.sx-kpis{[m
+[31m-  padding: 14px 18px;[m
+[31m-  display:grid;[m
+[31m-  grid-template-columns: repeat(5, minmax(0, 1fr));[m
+[31m-  gap:12px;[m
+[31m-  border-bottom: 1px solid var(--sx-stroke);[m
+[31m-}[m
+[31m-.sx-kpi{[m
+[31m-  background: var(--sx-soft2);[m
+[31m-  border: 1px solid var(--sx-stroke);[m
+[31m-  border-radius: 14px;[m
+[31m-  padding: 12px;[m
+[32m+[m[32m/* ==========================================================[m
+[32m+[m[32m   FILTERS[m
+[32m+[m[32m   ========================================================== */[m
+[32m+[m[32m.sx-filters{[m
+[32m+[m[32m  padding: 12px 16px 12px;[m
+[32m+[m[32m  border-top: 1px solid color-mix(in oklab, var(--sx-stroke) 70%, transparent);[m
+[32m+[m[32m  background: color-mix(in oklab, var(--sx-card) 96%, transparent);[m
+ }[m
+[31m-.sx-k{ color: var(--sx-mut); font: 700 12px/1.2 system-ui; }[m
+[31m-.sx-v{ margin-top:6px; color: var(--sx-text); font: 900 18px/1.2 system-ui; }[m
+[31m-.sx-mini{ margin-top:6px; color: var(--sx-mut); font: 600 11px/1.3 system-ui; }[m
+ [m
+[31m-.sx-filters{ padding: 14px 18px; border-bottom: 1px solid var(--sx-stroke); }[m
+ .sx-grid{[m
+   display:grid;[m
+[31m-  grid-template-columns: 2fr 1fr 1fr 1fr 140px 140px;[m
+[31m-  gap:10px;[m
+[32m+[m[32m  grid-template-columns: 2.2fr 1fr 1fr 1fr 140px 140px;[m
+[32m+[m[32m  gap: 10px;[m
+   align-items:end;[m
+ }[m
+[31m-.sx-ctl label{ display:block; margin-bottom:6px; color: var(--sx-mut); font: 700 11px/1.2 system-ui; }[m
+[32m+[m
+[32m+[m[32m.sx-ctl label{[m
+[32m+[m[32m  display:block;[m
+[32m+[m[32m  margin-bottom:6px;[m
+[32m+[m[32m  color: var(--sx-mut);[m
+[32m+[m[32m  font: 800 11px/1.2 system-ui;[m
+[32m+[m[32m}[m
+[32m+[m
+ .sx-in, .sx-sel{[m
+   width:100%;[m
+   background: transparent;[m
+[36m@@ -136,148 +173,480 @@[m [mbody.theme-light{[m
+ .sx-in::placeholder{ color: rgba(148,163,184,.65); }[m
+ [m
+ .sx-chips{[m
+[31m-  margin-top: 12px;[m
+[31m-  display:flex; gap:8px; flex-wrap:wrap; align-items:center;[m
+[32m+[m[32m  margin-top: 10px;[m
+[32m+[m[32m  display:flex;[m
+[32m+[m[32m  gap:8px;[m
+[32m+[m[32m  flex-wrap:wrap;[m
+[32m+[m[32m  align-items:center;[m
+ }[m
+[32m+[m
+ .sx-chip
