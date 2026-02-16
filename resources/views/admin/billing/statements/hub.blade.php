@@ -1,5 +1,5 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\admin\billing\statements\hub.blade.php --}}
-{{-- resources/views/admin/billing/statements/hub.blade.php (v4.0 · HUB moderno + rutas seguras + bulk completo + más datos visibles) --}}
+{{-- resources/views/admin/billing/statements/hub.blade.php (v4.1 · HUB moderno + CSS externo) --}}
 @extends('layouts.admin')
 
 @section('title', 'Facturación · HUB')
@@ -68,311 +68,15 @@
 @endphp
 
 @push('styles')
-<style>
-  .p360-page{ padding:0 !important; }
-
-  .hub{ padding:16px; }
-  .card{
-    background:var(--card-bg);
-    border:1px solid var(--card-border);
-    border-radius:22px;
-    box-shadow: var(--shadow-1);
-    overflow:hidden;
-  }
-
-  /* header */
-  .head{
-    padding:18px 18px 14px;
-    display:flex;
-    justify-content:space-between;
-    gap:14px;
-    flex-wrap:wrap;
-    align-items:flex-end;
-    border-bottom:1px solid rgba(15,23,42,.08);
-    background: linear-gradient(180deg,
-      color-mix(in oklab, var(--card-bg) 94%, transparent),
-      color-mix(in oklab, var(--card-bg) 98%, transparent)
-    );
-  }
-  .ttl{ margin:0;font-size:18px;font-weight:950;color:var(--text); letter-spacing:-.01em; }
-  .sub{ margin-top:6px;color:var(--muted);font-weight:850;font-size:12px; max-width:980px; line-height:1.35; }
-
-  /* layout blocks */
-  .topbar{
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    align-items:center;
-    justify-content:space-between;
-    padding:12px 18px;
-    border-bottom:1px solid rgba(15,23,42,.08);
-    background: color-mix(in oklab, var(--card-bg) 97%, transparent);
-  }
-
-  .filters{
-    display:grid;
-    grid-template-columns: 1fr 160px 160px 160px auto;
-    gap:10px;
-    align-items:end;
-    width:100%;
-    max-width: 1180px;
-  }
-  @media(max-width: 1100px){
-    .filters{ grid-template-columns:1fr 1fr; max-width:none; }
-  }
-
-  .filters2{
-    display:grid;
-    grid-template-columns: repeat(8, minmax(140px, 1fr));
-    gap:10px;
-    align-items:end;
-    width:100%;
-    padding:12px 18px 16px;
-    border-bottom:1px solid rgba(15,23,42,.08);
-  }
-  @media(max-width: 1100px){
-    .filters2{ grid-template-columns:1fr 1fr; }
-  }
-
-  .ctl label{ display:block; font-size:12px; color:var(--muted); font-weight:900; margin-bottom:6px; }
-  .in{
-    width:100%;
-    padding:10px 12px;
-    border-radius:12px;
-    border:1px solid rgba(15,23,42,.12);
-    background:transparent;
-    color:var(--text);
-    font-weight:850;
-    outline:none;
-  }
-  .in:focus{ box-shadow:0 0 0 2px rgba(124,58,237,.18); border-color: rgba(124,58,237,.40); }
-
-  .btn{
-    padding:10px 12px;
-    border-radius:12px;
-    border:1px solid rgba(15,23,42,.14);
-    font-weight:950;
-    cursor:pointer;
-    text-decoration:none;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    white-space:nowrap;
-    user-select:none;
-  }
-  .btn-dark{ background:var(--text); color:#fff; }
-  html[data-theme="dark"] .btn-dark{ background:#111827; border-color:rgba(255,255,255,.12); }
-  .btn-light{ background: color-mix(in oklab, var(--card-bg) 92%, transparent); color:var(--text); }
-  .btn-ghost{ background:transparent; color:var(--text); }
-  .btn:disabled{ opacity:.55; cursor:not-allowed; }
-
-  /* tabs */
-  .tabs{
-    padding:12px 18px;
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    border-bottom:1px solid rgba(15,23,42,.08);
-    background: color-mix(in oklab, var(--card-bg) 96%, transparent);
-  }
-  .tab{
-    padding:9px 12px;
-    border-radius:999px;
-    border:1px solid rgba(15,23,42,.12);
-    font-weight:950;
-    color:var(--text);
-    text-decoration:none;
-    background:transparent;
-    display:inline-flex;
-    align-items:center;
-    gap:8px;
-  }
-  .tab .cnt{
-    font-size:12px;
-    font-weight:950;
-    padding:3px 8px;
-    border-radius:999px;
-    border:1px solid rgba(15,23,42,.12);
-    background: color-mix(in oklab, var(--card-bg) 88%, transparent);
-    color:var(--muted);
-  }
-  .tab.on{
-    background:var(--text);
-    color:#fff;
-    border-color:rgba(15,23,42,.22);
-  }
-  .tab.on .cnt{
-    border-color:rgba(255,255,255,.22);
-    background:rgba(255,255,255,.14);
-    color:#fff;
-  }
-  html[data-theme="dark"] .tab.on{ background:#111827; border-color:rgba(255,255,255,.12); }
-
-  /* kpis */
-  .kpis{
-    padding:16px 18px;
-    display:grid;
-    grid-template-columns: repeat(5, minmax(160px, 1fr));
-    gap:10px;
-    border-bottom:1px solid rgba(15,23,42,.08);
-  }
-  @media(max-width: 1100px){
-    .kpis{ grid-template-columns: repeat(2, minmax(160px, 1fr)); }
-  }
-  .kpi{
-    border:1px solid rgba(15,23,42,.10);
-    border-radius:16px;
-    padding:12px;
-    background: color-mix(in oklab, var(--card-bg) 92%, transparent);
-  }
-  .k{ font-size:12px;color:var(--muted);font-weight:950;text-transform:uppercase;letter-spacing:.04em; }
-  .v{ font-size:16px;font-weight:950;color:var(--text); margin-top:6px; }
-  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,"Liberation Mono","Courier New", monospace; font-weight:900; }
-  .mut{ color:var(--muted); font-weight:850; font-size:12px; }
-  .mut a{ color:inherit; text-decoration:underline; text-decoration-color: rgba(15,23,42,.18); }
-
-  .msg{ margin:12px 18px 0; padding:10px 12px; border-radius:12px; font-weight:900; }
-  .msg.ok{ border:1px solid #bbf7d0; background:#dcfce7; color:#166534; }
-  .msg.err{ border:1px solid #fecaca; background:#fee2e2; color:#991b1b; }
-
-  /* chips */
-  .chips{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    align-items:center;
-  }
-  .chip{
-    border:1px solid rgba(15,23,42,.12);
-    background: color-mix(in oklab, var(--card-bg) 92%, transparent);
-    color:var(--text);
-    font-weight:950;
-    font-size:12px;
-    padding:7px 10px;
-    border-radius:999px;
-    text-decoration:none;
-    display:inline-flex;
-    gap:8px;
-    align-items:center;
-    cursor:pointer;
-    user-select:none;
-  }
-  .chip .dot{
-    width:8px; height:8px; border-radius:999px;
-    background: rgba(15,23,42,.25);
-  }
-  .chip.on{
-    background: var(--text);
-    color:#fff;
-    border-color: rgba(15,23,42,.22);
-  }
-  .chip.on .dot{ background: rgba(255,255,255,.80); }
-  html[data-theme="dark"] .chip.on{ background:#111827; border-color:rgba(255,255,255,.12); }
-
-  /* table */
-  .table{ padding:16px 18px 18px; }
-  table.t{ width:100%; border-collapse:collapse; }
-  .t th{
-    text-align:left; padding:10px 12px; font-size:12px; color:var(--muted); font-weight:950;
-    text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid rgba(15,23,42,.10);
-    position:sticky; top:0; background: color-mix(in oklab, var(--card-bg) 96%, transparent); z-index:2;
-  }
-  .t td{ padding:12px; border-bottom:1px solid rgba(15,23,42,.07); vertical-align:top; color:var(--text); font-weight:800; }
-  .t tr:hover td{ background: color-mix(in oklab, var(--card-bg) 90%, transparent); }
-  .tright{ text-align:right; }
-  .t .selcol{ width:42px; }
-  .ck{ width:16px; height:16px; accent-color: #111827; }
-  html[data-theme="dark"] .ck{ accent-color: #d1d5db; }
-
-  .pill{
-    display:inline-block; padding:6px 10px; border-radius:999px; font-weight:950; font-size:12px;
-    border:1px solid transparent; white-space:nowrap;
-  }
-  .pill-ok{ background:#dcfce7;color:#166534;border-color:#bbf7d0; }
-  .pill-warn{ background:#fef3c7;color:#92400e;border-color:#fde68a; }
-  .pill-bad{ background:#fee2e2;color:#991b1b;border-color:#fecaca; }
-  .pill-dim{ background:rgba(15,23,42,.06);color:var(--muted);border-color:rgba(15,23,42,.10); }
-  .pill-info{ background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
-
-  /* layout inside statements tab */
-  .grid2{
-    display:grid;
-    grid-template-columns: 1fr 420px;
-    gap:14px;
-  }
-  @media(max-width: 1100px){ .grid2{ grid-template-columns:1fr; } }
-
-  .box{
-    border:1px solid rgba(15,23,42,.10);
-    border-radius:18px;
-    background: color-mix(in oklab, var(--card-bg) 92%, transparent);
-    padding:14px;
-  }
-
-  .actions{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
-  .row-actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-  .row-actions .btn{ padding:8px 10px; border-radius:999px; font-size:12px; }
-
-  /* bulk bar */
-  .bulkbar{
-    display:none;
-    padding:12px 18px;
-    border-bottom:1px solid rgba(15,23,42,.08);
-    background: linear-gradient(90deg,
-      color-mix(in oklab, var(--card-bg) 88%, transparent),
-      color-mix(in oklab, var(--card-bg) 96%, transparent)
-    );
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-    flex-wrap:wrap;
-  }
-  .bulkbar.on{ display:flex; }
-  .bulk-left{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .bulk-count{
-    font-weight:950;
-    border:1px solid rgba(15,23,42,.12);
-    padding:7px 10px;
-    border-radius:999px;
-    background: color-mix(in oklab, var(--card-bg) 92%, transparent);
-  }
-  .bulk-note{ font-size:12px; color:var(--muted); font-weight:850; }
-  .clickrow{ cursor:pointer; }
-  .clickrow:hover td{ background: color-mix(in oklab, var(--card-bg) 88%, transparent); }
-
-  .bulk-ctl{
-    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
-  }
-  .mini{
-    padding:8px 10px;
-    border-radius:12px;
-    border:1px solid rgba(15,23,42,.12);
-    background:transparent;
-    color:var(--text);
-    font-weight:850;
-    outline:none;
-    min-width: 220px;
-  }
-  .mini:focus{ box-shadow:0 0 0 2px rgba(124,58,237,.18); border-color: rgba(124,58,237,.40); }
-  .miniSel{
-    padding:8px 10px;
-    border-radius:12px;
-    border:1px solid rgba(15,23,42,.12);
-    background:transparent;
-    color:var(--text);
-    font-weight:900;
-    outline:none;
-  }
-</style>
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/billing-statements-hub-modern.css') }}?v={{ config('app.version','1') }}-{{ filemtime(public_path('assets/admin/css/billing-statements-hub-modern.css')) ?? time() }}">
 @endpush
 
-@section('content') 
+@section('content')
 
-<div style="position:fixed;bottom:14px;left:14px;z-index:99999;background:#111827;color:#fff;padding:8px 10px;border-radius:10px;font-weight:900;">
+{{-- ✅ Debug opcional (si no lo quieres, bórralo) --}}
+<div class="p360-hub-debug">
   HUB BLADE NUEVO · {{ now() }}
 </div>
-
 
 <div class="hub">
   <div class="card">
@@ -454,7 +158,7 @@
       <div class="msg ok">{{ session('ok') }}</div>
     @endif
     @if(session('warn'))
-      <div class="msg err" style="border-color:#fde68a;background:#fffbeb;color:#92400e;">{{ session('warn') }}</div>
+      <div class="msg err msg-warn">{{ session('warn') }}</div>
     @endif
 
     @if(($errors ?? null) && $errors->any())
@@ -510,7 +214,7 @@
           </a>
         </div>
 
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div class="topbar-actions">
           <a class="btn btn-light" href="{{ $routeIndex }}?tab=emails&period={{ urlencode($period) }}&q={{ urlencode($q) }}&accountId={{ urlencode($accountId) }}">Ver correos</a>
           <a class="btn btn-light" href="{{ $routeIndex }}?tab=payments&period={{ urlencode($period) }}&q={{ urlencode($q) }}&accountId={{ urlencode($accountId) }}">Ver pagos</a>
           @if($hasAccountsIndex)
@@ -569,8 +273,8 @@
             <option value="" {{ $sent===''?'selected':'' }}>Cualquiera</option>
             <option value="never" {{ $sent==='never'?'selected':'' }}>Nunca</option>
             <option value="today" {{ $sent==='today'?'selected':'' }}>Hoy</option>
-            <option value="7d" {{ $sent==='7d'?'selected':'' }}>šltimos 7 días</option>
-            <option value="30d" {{ $sent==='30d'?'selected':'' }}>šltimos 30 días</option>
+            <option value="7d" {{ $sent==='7d'?'selected':'' }}>Últimos 7 días</option>
+            <option value="30d" {{ $sent==='30d'?'selected':'' }}>Últimos 30 días</option>
           </select>
         </div>
 
@@ -599,11 +303,11 @@
 
         <div class="kpi">
           <div class="k">Operación</div>
-          <div class="v" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <div class="v kpi-actions">
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=emails&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Logs correos</a>
             <a class="btn btn-light" href="{{ $routeIndex }}?tab=payments&period={{ urlencode($period) }}&accountId={{ urlencode($accountId) }}">Pagos</a>
           </div>
-          <div class="mut" style="margin-top:8px;">Tip: haz click en una fila para precargar <span class="mono">account_id</span> en el panel derecho.</div>
+          <div class="mut kpi-tip">Tip: haz click en una fila para precargar <span class="mono">account_id</span> en el panel derecho.</div>
         </div>
       </div>
 
@@ -613,7 +317,7 @@
           <div class="bulk-count"><span id="bulkCount">0</span> seleccionadas</div>
           <div class="bulk-note">Acciones sobre cuentas del periodo <span class="mono">{{ $period }}</span></div>
 
-          <div class="bulk-ctl" style="margin-left:6px;">
+          <div class="bulk-ctl">
             <input class="mini" id="bulkTo" type="text" placeholder="to (opcional) ej: a@x.com,b@y.com">
             <select class="miniSel" id="bulkMode" title="Modo de envío (bulk)">
               <option value="now" selected>Enviar ahora</option>
@@ -657,12 +361,12 @@
 
           {{-- LISTADO --}}
           <div class="box">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-              <div style="font-weight:950;">Estados de cuenta (resumen)</div>
+            <div class="box-head">
+              <div class="box-title">Estados de cuenta (resumen)</div>
               <div class="mut">Periodo: <span class="mono">{{ $period }}</span></div>
             </div>
 
-            <div style="height:10px;"></div>
+            <div class="sp10"></div>
 
             <table class="t">
               <thead>
@@ -670,17 +374,16 @@
                   <th class="selcol">
                     <input class="ck" type="checkbox" id="ckAll" onclick="p360ToggleAll(this)">
                   </th>
-                  <th style="width:110px">Cuenta</th>
+                  <th class="w-110">Cuenta</th>
                   <th>Cliente</th>
-                  <th style="width:160px">Plan / Cobro</th>
+                  <th class="w-160">Plan / Cobro</th>
                   <th>Email</th>
-                  <th style="width:170px">Tracking</th>
-                  <th class="tright" style="width:140px">Total</th>
-
-                  <th class="tright" style="width:140px">Pagado</th>
-                  <th class="tright" style="width:140px">Saldo</th>
-                  <th style="width:140px">Estatus</th>
-                  <th style="width:280px" class="tright">Acciones</th>
+                  <th class="w-170">Tracking</th>
+                  <th class="tright w-140">Total</th>
+                  <th class="tright w-140">Pagado</th>
+                  <th class="tright w-140">Saldo</th>
+                  <th class="w-140">Estatus</th>
+                  <th class="tright w-280">Acciones</th>
                 </tr>
               </thead>
 
@@ -705,38 +408,26 @@
                   }
 
                   // 2) intento inteligente: extraer el nombre del parámetro faltante desde la excepción
-                  // Mensaje típico:
-                  // "Missing required parameter for [Route: X] [URI: .../{param}] [Missing parameter: param]."
-                  foreach ($keys as $k) {
-                    // (noop) mantiene compat
-                  }
-
                   try {
                     return route($name, array_merge(['id' => $id], $extra));
                   } catch (\Throwable $e) {
                     $msg = (string) $e->getMessage();
 
-                    // extrae 1 parámetro faltante
                     if (preg_match('/Missing parameter:\s*([A-Za-z0-9_]+)/i', $msg, $m)) {
                       $missing = (string) ($m[1] ?? '');
                       if ($missing !== '') {
                         try {
                           return route($name, array_merge([$missing => $id], $extra));
-                        } catch (\Throwable $e2) {
-                          // sigue
-                        }
+                        } catch (\Throwable $e2) {}
                       }
                     }
 
-                    // extrae por si viene en URI {.../{param}} (más defensivo)
                     if (preg_match('/\{([A-Za-z0-9_]+)\}/', $msg, $m2)) {
                       $missing2 = (string) ($m2[1] ?? '');
                       if ($missing2 !== '') {
                         try {
                           return route($name, array_merge([$missing2 => $id], $extra));
-                        } catch (\Throwable $e3) {
-                          // sigue
-                        }
+                        } catch (\Throwable $e3) {}
                       }
                     }
 
@@ -745,81 +436,68 @@
                 };
               @endphp
 
-
                 @forelse($rows as $r)
-                    @php
-                      // =========================================================
-                      // ✅ AID (Admin Account ID) — evitar "abro una y abre otra"
-                      // Prioridad: admin_account_id > account_id > aid > id
-                      // Si el valor no es numérico > 0, NO generamos links.
-                      // =========================================================
-                      $aidSrc = 'unresolved';
-                      $aidInt = 0;
+                  @php
+                    // ✅ AID (Admin Account ID)
+                    $aidSrc = 'unresolved';
+                    $aidInt = 0;
 
-                      $pickAid = function ($v) {
-                        if ($v === null) return 0;
-                        if (is_int($v)) return $v > 0 ? $v : 0;
-                        $s = trim((string)$v);
-                        if ($s === '') return 0;
-                        if (!preg_match('/^[0-9]+$/', $s)) return 0;
-                        $i = (int)$s;
-                        return $i > 0 ? $i : 0;
-                      };
+                    $pickAid = function ($v) {
+                      if ($v === null) return 0;
+                      if (is_int($v)) return $v > 0 ? $v : 0;
+                      $s = trim((string)$v);
+                      if ($s === '') return 0;
+                      if (!preg_match('/^[0-9]+$/', $s)) return 0;
+                      $i = (int)$s;
+                      return $i > 0 ? $i : 0;
+                    };
 
-                      foreach ([
-                        ['admin_account_id', $r->admin_account_id ?? null],
-                        ['account_id',       $r->account_id ?? null],
-                        ['aid',              $r->aid ?? null],
-                        ['id',               $r->id ?? null],
-                      ] as $it) {
-                        [$k,$v] = $it;
-                        $i = $pickAid($v);
-                        if ($i > 0) { $aidInt = $i; $aidSrc = 'row.'.$k; break; }
-                      }
+                    foreach ([
+                      ['admin_account_id', $r->admin_account_id ?? null],
+                      ['account_id',       $r->account_id ?? null],
+                      ['aid',              $r->aid ?? null],
+                      ['id',               $r->id ?? null],
+                    ] as $it) {
+                      [$k,$v] = $it;
+                      $i = $pickAid($v);
+                      if ($i > 0) { $aidInt = $i; $aidSrc = 'row.'.$k; break; }
+                    }
 
-                      $aid  = $aidInt > 0 ? (string)$aidInt : '';
-                      $mail = (string)($r->email ?? '—');
-                      $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
-                      $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: '—')));
+                    $aid  = $aidInt > 0 ? (string)$aidInt : '';
+                    $mail = (string)($r->email ?? '—');
+                    $rfc  = (string)($r->rfc ?? $r->codigo ?? '');
+                    $name = trim((string)(($r->razon_social ?? '') ?: ($r->name ?? '') ?: ($mail ?: '—')));
 
-                      // Plan / cobro
-                      $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? '—');
-                      $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? '—');
+                    $planLbl = (string)($r->plan_norm ?? $r->plan_actual ?? $r->plan ?? $r->plan_name ?? $r->license_plan ?? '—');
+                    $modoLbl = (string)($r->billing_mode ?? $r->modo_cobro ?? $r->modo ?? '—');
 
-                      // licencia visible (si existiera)
-                      $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
-                      $licShown = $licMonto > 0 ? $fmtMoney($licMonto) : null;
+                    $licMonto = (float)($r->license_amount_mxn ?? $r->license_amount ?? $r->licencia_monto ?? $r->price_mxn ?? 0);
+                    $licShown = $licMonto > 0 ? $fmtMoney($licMonto) : null;
 
-                      // totales
-                      $cargoReal = (float)($r->cargo ?? 0);
-                      $paid      = (float)($r->abono ?? 0);
-                      $expected  = (float)($r->expected_total ?? 0);
+                    $cargoReal = (float)($r->cargo ?? 0);
+                    $paid      = (float)($r->abono ?? 0);
+                    $expected  = (float)($r->expected_total ?? 0);
 
-                      $totalShown = $cargoReal > 0 ? $cargoReal : $expected;
-                      $saldo      = max(0, $totalShown - $paid);
+                    $totalShown = $cargoReal > 0 ? $cargoReal : $expected;
+                    $saldo      = max(0, $totalShown - $paid);
 
-                      $st = (string)($r->status_pago ?? $r->status ?? '');
-                      $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
+                    $st = (string)($r->status_pago ?? $r->status ?? '');
+                    $lbl = $st==='pagado' ? 'PAGADO' : ($st==='pendiente' ? 'PENDIENTE' : ($st==='parcial' ? 'PARCIAL' : ($st==='vencido' ? 'VENCIDO' : 'SIN MOV')));
 
-                      if($st==='pagado'){ $pill='pill-ok'; }
-                      elseif($st==='vencido'){ $pill='pill-bad'; }
-                      elseif($st==='pendiente' || $st==='parcial'){ $pill='pill-warn'; }
-                      else{ $pill='pill-dim'; }
+                    if($st==='pagado'){ $pill='pill-ok'; }
+                    elseif($st==='vencido'){ $pill='pill-bad'; }
+                    elseif($st==='pendiente' || $st==='parcial'){ $pill='pill-warn'; }
+                    else{ $pill='pill-dim'; }
 
-                      $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
-                      $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : '—'));
+                    $tarPill = (string)($r->tarifa_pill ?? 'pill-dim');
+                    $tarLbl  = (string)($r->tarifa_label ?? ($licShown ? ('Licencia ' . $licShown) : '—'));
 
-                      // ✅ Rutas SIEMPRE con AID válido
-                      $rowAccountUrl = $p360RouteTry('admin.billing.accounts.show', $aid);
-
-                      $legacyShowUrl = $p360RouteTry('admin.billing.statements.show', $aid, ['period'=>$period]);
-                      $legacyPdfUrl  = $p360RouteTry('admin.billing.statements.pdf',  $aid, ['period'=>$period]);
-
-                    @endphp
-
+                    $rowAccountUrl = $p360RouteTry('admin.billing.accounts.show', $aid);
+                    $legacyShowUrl = $p360RouteTry('admin.billing.statements.show', $aid, ['period'=>$period]);
+                    $legacyPdfUrl  = $p360RouteTry('admin.billing.statements.pdf',  $aid, ['period'=>$period]);
+                  @endphp
 
                   <tr class="clickrow" data-aid="{{ e($aid) }}" data-aid-src="{{ e($aidSrc) }}" data-mail="{{ e($mail) }}">
-
                     <td onclick="event.stopPropagation();">
                       <input class="ck ckRow" type="checkbox" value="{{ e($aid) }}" onclick="p360SyncSel()">
                     </td>
@@ -827,66 +505,65 @@
                     <td class="mono">
                       #{{ $aid }}
                       @if($rowAccountUrl)
-                        <div class="mut" style="margin-top:6px;">
+                        <div class="mut mt6">
                           <a href="{{ $rowAccountUrl }}">Abrir</a>
                         </div>
                       @endif
                     </td>
 
                     <td>
-                      <div style="font-weight:950;">{{ $name }}</div>
-                      <div class="mut" style="margin-top:6px;">
+                      <div class="fw950">{{ $name }}</div>
+                      <div class="mut mt6">
                         @if($rfc)
                           RFC: <span class="mono">{{ $rfc }}</span>
-                          <span style="opacity:.55;">·</span>
+                          <span class="sep">·</span>
                         @endif
                         Tarifa: <span class="pill {{ $tarPill }}">{{ $tarLbl }}</span>
                       </div>
                     </td>
 
                     <td>
-                      <div style="font-weight:950;">{{ strtoupper(trim($planLbl ?: '—')) }}</div>
-                      <div class="mut" style="margin-top:6px;">
+                      <div class="fw950">{{ strtoupper(trim($planLbl ?: '—')) }}</div>
+                      <div class="mut mt6">
                         Cobro: <span class="mono">{{ $modoLbl ?: '—' }}</span>
                         @if($licShown)
-                          <span style="opacity:.55;">·</span> <span class="mono">{{ $licShown }}</span>
+                          <span class="sep">·</span> <span class="mono">{{ $licShown }}</span>
                         @endif
                       </div>
                     </td>
 
                     <td class="mono">{{ $mail }}</td>
 
-                      @php
-                            $oc = (int)($r->open_count ?? 0);
-                            $cc = (int)($r->click_count ?? 0);
-                            $lo = !empty($r->last_open_at)  ? (string)$r->last_open_at  : '';
-                            $lc = !empty($r->last_click_at) ? (string)$r->last_click_at : '';
-                          @endphp
+                    @php
+                      $oc = (int)($r->open_count ?? 0);
+                      $cc = (int)($r->click_count ?? 0);
+                      $lo = !empty($r->last_open_at)  ? (string)$r->last_open_at  : '';
+                      $lc = !empty($r->last_click_at) ? (string)$r->last_click_at : '';
+                    @endphp
 
-                          <td>
-                            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                              <span class="pill {{ $oc>0 ? 'pill-info' : 'pill-dim' }}">Open: <span class="mono">{{ $oc }}</span></span>
-                              <span class="pill {{ $cc>0 ? 'pill-info' : 'pill-dim' }}">Click: <span class="mono">{{ $cc }}</span></span>
-                            </div>
+                    <td>
+                      <div class="trk">
+                        <span class="pill {{ $oc>0 ? 'pill-info' : 'pill-dim' }}">Open: <span class="mono">{{ $oc }}</span></span>
+                        <span class="pill {{ $cc>0 ? 'pill-info' : 'pill-dim' }}">Click: <span class="mono">{{ $cc }}</span></span>
+                      </div>
 
-                            @if($lo || $lc)
-                              <div class="mut" style="margin-top:6px; line-height:1.35;">
-                                @if($lo)
-                                  last open: <span class="mono">{{ $lo }}</span>
-                                @endif
-                                @if($lc)
-                                  @if($lo) <span style="opacity:.55;">·</span> @endif
-                                  last click: <span class="mono">{{ $lc }}</span>
-                                @endif
-                              </div>
-                            @else
-                              <div class="mut" style="margin-top:6px;">sin interacci�n</div>
-                            @endif
-                          </td>
+                      @if($lo || $lc)
+                        <div class="mut mt6 lh135">
+                          @if($lo)
+                            last open: <span class="mono">{{ $lo }}</span>
+                          @endif
+                          @if($lc)
+                            @if($lo) <span class="sep">·</span> @endif
+                            last click: <span class="mono">{{ $lc }}</span>
+                          @endif
+                        </div>
+                      @else
+                        <div class="mut mt6">sin interacción</div>
+                      @endif
+                    </td>
 
-
-                      <td class="tright mono">{{ $fmtMoney($totalShown) }}</td>
-                      <td class="tright mono">{{ $fmtMoney($paid) }}</td>
+                    <td class="tright mono">{{ $fmtMoney($totalShown) }}</td>
+                    <td class="tright mono">{{ $fmtMoney($paid) }}</td>
 
                     <td class="tright">
                       <span class="pill {{ $saldo>0 ? 'pill-warn' : 'pill-ok' }} mono">{{ $fmtMoney($saldo) }}</span>
@@ -895,14 +572,12 @@
                     <td>
                       <span class="pill {{ $pill }}">{{ $lbl }}</span>
                       @if(!empty($r->last_sent_at))
-                        <div class="mut" style="margin-top:6px;">sent: <span class="mono">{{ (string)$r->last_sent_at }}</span></div>
+                        <div class="mut mt6">sent: <span class="mono">{{ (string)$r->last_sent_at }}</span></div>
                       @endif
                     </td>
 
                     <td class="tright" onclick="event.stopPropagation();">
                       <div class="row-actions">
-
-                        {{-- Enviar unitario --}}
                         @if($hasSendEmail)
                           <form method="POST" action="{{ route('admin.billing.statements_hub.send_email') }}">
                             @csrf
@@ -914,9 +589,6 @@
                           <button class="btn btn-dark" type="button" disabled title="Falta ruta send_email">Enviar</button>
                         @endif
 
-
-
-                        {{-- Liga Stripe --}}
                         @if($hasPayLink)
                           <form method="POST" action="{{ route('admin.billing.statements_hub.create_pay_link') }}">
                             @csrf
@@ -928,7 +600,6 @@
                           <button class="btn btn-light" type="button" disabled title="Falta ruta create_pay_link">Liga</button>
                         @endif
 
-                        {{-- Preview --}}
                         @if($hasPreview)
                           <a class="btn btn-light" target="_blank"
                              href="{{ route('admin.billing.statements_hub.preview_email',['account_id'=>$aid,'period'=>$period]) }}">Preview</a>
@@ -936,7 +607,6 @@
                           <button class="btn btn-light" type="button" disabled title="Falta ruta preview_email">Preview</button>
                         @endif
 
-                        {{-- Legacy --}}
                         @if($legacyPdfUrl)
                           <a class="btn btn-light" target="_blank" href="{{ $legacyPdfUrl }}">PDF</a>
                         @endif
@@ -953,28 +623,28 @@
               </tbody>
             </table>
 
-            <div class="mut" style="margin-top:12px;">
+            <div class="mut mt12">
               Selección masiva: marca filas y usa la barra superior (bulk). El envío masivo y ligas se habilitan cuando existan rutas bulk.
             </div>
           </div>
 
           {{-- OPERACIONES (panel derecho) --}}
           <div class="box">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+            <div class="ops-head">
               <div>
-                <div style="font-weight:950;">Operaciones (correo / programación / liga / factura)</div>
-                <div class="mut" style="margin-top:4px;">
+                <div class="fw950">Operaciones (correo / programación / liga / factura)</div>
+                <div class="mut mt4">
                   Trabaja por <b>account_id + periodo</b>. “to” acepta múltiples correos separados por coma.
                 </div>
               </div>
               <button class="btn btn-ghost" type="button" onclick="p360ClearOps()">Limpiar</button>
             </div>
 
-            <div style="height:12px;"></div>
+            <div class="sp12"></div>
 
             {{-- Enviar ahora --}}
             @if($hasSendEmail)
-              <form method="POST" action="{{ route('admin.billing.statements_hub.send_email') }}" style="display:grid; gap:8px;">
+              <form method="POST" action="{{ route('admin.billing.statements_hub.send_email') }}" class="ops-form">
                 @csrf
                 <input class="in" id="opsAccountId1" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" id="opsPeriod1" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
@@ -985,11 +655,11 @@
               <div class="mut">Falta ruta: <span class="mono">admin.billing.statements_hub.send_email</span></div>
             @endif
 
-            <div style="height:14px;border-top:1px solid rgba(15,23,42,.08);"></div>
+            <div class="sep-line"></div>
 
             {{-- Programar --}}
             @if($hasSchedule)
-              <form method="POST" action="{{ route('admin.billing.statements_hub.schedule') }}" style="display:grid; gap:8px; margin-top:14px;">
+              <form method="POST" action="{{ route('admin.billing.statements_hub.schedule') }}" class="ops-form mt14">
                 @csrf
                 <input class="in" id="opsAccountId2" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" id="opsPeriod2" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
@@ -999,41 +669,41 @@
                 <div class="mut">Cron: <span class="mono">php artisan p360:billing:process-scheduled-emails</span></div>
               </form>
             @else
-              <div class="mut" style="margin-top:12px;">Falta ruta: <span class="mono">admin.billing.statements_hub.schedule</span></div>
+              <div class="mut mt12">Falta ruta: <span class="mono">admin.billing.statements_hub.schedule</span></div>
             @endif
 
-            <div style="height:14px;border-top:1px solid rgba(15,23,42,.08);"></div>
+            <div class="sep-line"></div>
 
             {{-- Preview --}}
             @if($hasPreview)
-              <form method="GET" action="{{ route('admin.billing.statements_hub.preview_email') }}" target="_blank" style="display:grid; gap:8px; margin-top:14px;">
+              <form method="GET" action="{{ route('admin.billing.statements_hub.preview_email') }}" target="_blank" class="ops-form mt14">
                 <input class="in" id="opsAccountId3" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" id="opsPeriod3" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
                 <button class="btn btn-light" type="submit">Vista previa del correo</button>
               </form>
             @else
-              <div class="mut" style="margin-top:12px;">Falta ruta: <span class="mono">admin.billing.statements_hub.preview_email</span></div>
+              <div class="mut mt12">Falta ruta: <span class="mono">admin.billing.statements_hub.preview_email</span></div>
             @endif
 
-            <div style="height:14px;border-top:1px solid rgba(15,23,42,.08);"></div>
+            <div class="sep-line"></div>
 
             {{-- Liga --}}
             @if($hasPayLink)
-              <form method="POST" action="{{ route('admin.billing.statements_hub.create_pay_link') }}" style="display:grid; gap:8px; margin-top:14px;">
+              <form method="POST" action="{{ route('admin.billing.statements_hub.create_pay_link') }}" class="ops-form mt14">
                 @csrf
                 <input class="in" id="opsAccountId4" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" id="opsPeriod4" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
                 <button class="btn btn-dark" type="submit">Generar liga de pago (Stripe)</button>
               </form>
             @else
-              <div class="mut" style="margin-top:12px;">Falta ruta: <span class="mono">admin.billing.statements_hub.create_pay_link</span></div>
+              <div class="mut mt12">Falta ruta: <span class="mono">admin.billing.statements_hub.create_pay_link</span></div>
             @endif
 
-            <div style="height:14px;border-top:1px solid rgba(15,23,42,.08);"></div>
+            <div class="sep-line"></div>
 
             {{-- Solicitud de factura --}}
             @if($hasInvRequest)
-              <form method="POST" action="{{ route('admin.billing.statements_hub.invoice_request') }}" style="display:grid; gap:8px; margin-top:14px;">
+              <form method="POST" action="{{ route('admin.billing.statements_hub.invoice_request') }}" class="ops-form mt14">
                 @csrf
                 <input class="in" id="opsAccountId5" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" id="opsPeriod5" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
@@ -1041,11 +711,11 @@
                 <button class="btn btn-dark" type="submit">Crear/actualizar solicitud de factura</button>
               </form>
             @else
-              <div class="mut" style="margin-top:12px;">Falta ruta: <span class="mono">admin.billing.statements_hub.invoice_request</span></div>
+              <div class="mut mt12">Falta ruta: <span class="mono">admin.billing.statements_hub.invoice_request</span></div>
             @endif
 
             @if(!$hasBulkSend && !$hasBulkPayLinks)
-              <div class="mut" style="margin-top:14px;">
+              <div class="mut mt14">
                 Nota: el HUB ya está listo para selección y acciones masivas, pero faltan rutas:
                 <span class="mono">admin.billing.statements_hub.bulk_send</span> /
                 <span class="mono">admin.billing.statements_hub.bulk_paylinks</span>.
@@ -1132,7 +802,6 @@
 
             if(idsInput) idsInput.value = ids.join(',');
 
-            // solo bulk_send usa to/mode
             if(toInput && bulkTo) toInput.value = (bulkTo.value || '').trim();
             if(modeInput && bulkMode) modeInput.value = (bulkMode.value || 'now');
 
@@ -1183,24 +852,24 @@
     {{-- EMAILS TAB --}}
     @elseif($tab==='emails')
       <div class="table">
-        <div class="box" style="margin:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div style="font-weight:950;">Correos (billing_email_logs)</div>
+        <div class="box hub-pad16">
+          <div class="box-head">
+            <div class="box-title">Correos (billing_email_logs)</div>
             <div class="mut">Tracking open/click + reenvío</div>
           </div>
 
-          <div style="height:10px;"></div>
+          <div class="sp10"></div>
           <table class="t">
             <thead>
               <tr>
-                <th style="width:80px">ID</th>
+                <th class="w-80">ID</th>
                 <th>Destinos</th>
-                <th style="width:100px">Periodo</th>
-                <th style="width:120px">Status</th>
-                <th style="width:110px">Opens</th>
-                <th style="width:110px">Clicks</th>
-                <th style="width:190px">Fechas</th>
-                <th style="width:220px" class="tright">Acciones</th>
+                <th class="w-100">Periodo</th>
+                <th class="w-120">Status</th>
+                <th class="w-110">Opens</th>
+                <th class="w-110">Clicks</th>
+                <th class="w-190">Fechas</th>
+                <th class="tright w-220">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -1214,7 +883,7 @@
                 <tr>
                   <td class="mono">#{{ (int)($e->id ?? 0) }}</td>
                   <td>
-                    <div style="font-weight:950;">
+                    <div class="fw950">
                       {{ (string)($e->to_list ?? $e->email ?? '—') }}
                     </div>
                     <div class="mut">account: <span class="mono">{{ $aid ?: '—' }}</span> · email_id: <span class="mono">{{ (string)($e->email_id ?? '—') }}</span></div>
@@ -1260,21 +929,21 @@
     {{-- PAYMENTS TAB --}}
     @elseif($tab==='payments')
       <div class="table">
-        <div class="box" style="margin:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div style="font-weight:950;">Pagos (payments)</div>
+        <div class="box hub-pad16">
+          <div class="box-head">
+            <div class="box-title">Pagos (payments)</div>
             <div class="mut">Incluye pending/paid/succeeded. Filtra por account_id y period si existe.</div>
           </div>
 
-          <div style="height:10px;"></div>
+          <div class="sp10"></div>
           <table class="t">
             <thead>
               <tr>
-                <th style="width:80px">ID</th>
+                <th class="w-80">ID</th>
                 <th>Cuenta</th>
-                <th style="width:110px">Periodo</th>
-                <th style="width:160px">Amount</th>
-                <th style="width:130px">Status</th>
+                <th class="w-110">Periodo</th>
+                <th class="w-160">Amount</th>
+                <th class="w-130">Status</th>
                 <th>Referencia</th>
               </tr>
             </thead>
@@ -1316,21 +985,21 @@
     {{-- INVOICE REQUESTS TAB --}}
     @elseif($tab==='invoice_requests')
       <div class="table">
-        <div class="box" style="margin:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div style="font-weight:950;">Solicitudes de factura (billing_invoice_requests)</div>
+        <div class="box hub-pad16">
+          <div class="box-head">
+            <div class="box-title">Solicitudes de factura (billing_invoice_requests)</div>
             <div class="mut">requested / issued / rejected</div>
           </div>
 
-          <div style="height:10px;"></div>
+          <div class="sp10"></div>
           <table class="t">
             <thead>
               <tr>
-                <th style="width:80px">ID</th>
+                <th class="w-80">ID</th>
                 <th>Cuenta/Periodo</th>
-                <th style="width:140px">Estatus</th>
+                <th class="w-140">Estatus</th>
                 <th>UUID / Notas</th>
-                <th style="width:320px" class="tright">Actualizar</th>
+                <th class="tright w-320">Actualizar</th>
               </tr>
             </thead>
             <tbody>
@@ -1352,10 +1021,10 @@
                   </td>
                   <td class="tright">
                     @if($hasInvStatus)
-                      <form method="POST" action="{{ route('admin.billing.statements_hub.invoice_status') }}" style="display:grid; gap:8px;">
+                      <form method="POST" action="{{ route('admin.billing.statements_hub.invoice_status') }}" class="ops-form">
                         @csrf
                         <input type="hidden" name="id" value="{{ (int)($ir->id ?? 0) }}">
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                        <div class="grid2cols">
                           <input class="in" name="status" value="{{ (string)($ir->status ?? 'requested') }}" placeholder="requested|issued|rejected">
                           <input class="in" name="cfdi_uuid" value="{{ (string)($ir->cfdi_uuid ?? '') }}" placeholder="UUID (opcional)">
                         </div>
@@ -1378,21 +1047,21 @@
     {{-- INVOICES TAB --}}
     @elseif($tab==='invoices')
       <div class="table">
-        <div class="grid2" style="padding:16px;">
+        <div class="grid2 hub-pad16">
           <div class="box">
-            <div style="font-weight:950;">Facturas emitidas (billing_invoices)</div>
-            <div class="mut" style="margin-top:4px;">Registro administrativo de facturas por account_id + periodo.</div>
+            <div class="box-title fw950">Facturas emitidas (billing_invoices)</div>
+            <div class="mut mt4">Registro administrativo de facturas por account_id + periodo.</div>
 
-            <div style="height:10px;"></div>
+            <div class="sp10"></div>
             <table class="t">
               <thead>
                 <tr>
-                  <th style="width:80px">ID</th>
+                  <th class="w-80">ID</th>
                   <th>Cuenta/Periodo</th>
                   <th>Serie/Folio</th>
                   <th>UUID</th>
-                  <th style="width:170px">Fecha</th>
-                  <th class="tright" style="width:160px">Monto</th>
+                  <th class="w-170">Fecha</th>
+                  <th class="tright w-160">Monto</th>
                 </tr>
               </thead>
               <tbody>
@@ -1420,18 +1089,18 @@
           </div>
 
           <div class="box">
-            <div style="font-weight:950;">Registrar / actualizar factura</div>
-            <div class="mut" style="margin-top:4px;">Si existe solicitud, al guardar se marca como <b>issued</b>.</div>
+            <div class="fw950">Registrar / actualizar factura</div>
+            <div class="mut mt4">Si existe solicitud, al guardar se marca como <b>issued</b>.</div>
 
-            <div style="height:12px;"></div>
+            <div class="sp12"></div>
 
             @if($hasSaveInvoice)
-              <form method="POST" action="{{ route('admin.billing.statements_hub.save_invoice') }}" style="display:grid; gap:8px;">
+              <form method="POST" action="{{ route('admin.billing.statements_hub.save_invoice') }}" class="ops-form">
                 @csrf
                 <input class="in" name="account_id" value="{{ $accountId }}" placeholder="account_id" required>
                 <input class="in" name="period" value="{{ $period }}" placeholder="YYYY-MM" required>
 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <div class="grid2cols">
                   <input class="in" name="serie" placeholder="Serie (opcional)">
                   <input class="in" name="folio" placeholder="Folio (opcional)">
                 </div>

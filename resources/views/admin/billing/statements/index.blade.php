@@ -671,32 +671,31 @@
 (function(){
   'use strict';
 
-  function $(id){ return document.getElementById(id); }
-
   // ==========================================================
   // Helpers
   // ==========================================================
+  const $  = (id) => document.getElementById(id);
+  const qs = (sel, root) => (root || document).querySelector(sel);
+  const qsa= (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(m){
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);
     });
   }
 
-  function pillClassByStatus(st){
-    st = String(st || '').toLowerCase().trim();
-    if (st === 'pagado') return 'sx-ok';
-    if (st === 'vencido') return 'sx-bad';
-    if (st === 'pendiente' || st === 'parcial') return 'sx-warn';
-    return 'sx-dim';
+  function fmtMoney(n){
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
   }
 
   // ==========================================================
   // TOAST PRO (cola + progress + actions + close)
+  // Requiere un contenedor: <div id="sxToast"></div>
   // ==========================================================
   const toastEl = $('sxToast');
   let toastTimer = null;
   let toastAnimTimer = null;
-
   const toastQueue = [];
   let toastShowing = false;
 
@@ -713,15 +712,18 @@
     return 'Info';
   }
 
-  function renderToast(opts){
+  function renderToast(payload){
     if(!toastEl) return;
 
-    const msg = String((opts && opts.msg) || '');
-    const type = String((opts && opts.type) || 'info');
-    const ms = Math.max(800, Number((opts && opts.ms) || 2200));
-    const actions = (opts && Array.isArray(opts.actions)) ? opts.actions : null;
+    const msg = String(payload && payload.msg ? payload.msg : '');
+    const type = String(payload && payload.type ? payload.type : 'info');
+    const ms = Math.max(800, Number(payload && payload.ms ? payload.ms : 2200));
+    const actions = (payload && Array.isArray(payload.actions)) ? payload.actions : null;
 
     toastEl.setAttribute('data-type', type);
+
+    const ic = toastIcon(type);
+    const tt = toastTitle(type);
 
     const actionsHtml = (actions && actions.length)
       ? `<div class="sx-toast-actions">${
@@ -730,7 +732,7 @@
             const kind  = String(a && a.kind  ? a.kind  : 'button'); // button|link
             const href  = String(a && a.href  ? a.href  : '#');
             if(kind === 'link'){
-              return `<a class="sx-toast-btn" data-sx-toast-act="${i}" href="${href}">${escapeHtml(label)}</a>`;
+              return `<a class="sx-toast-btn" data-sx-toast-act="${i}" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
             }
             return `<button class="sx-toast-btn" data-sx-toast-act="${i}" type="button">${escapeHtml(label)}</button>`;
           }).join('')
@@ -738,34 +740,35 @@
       : '';
 
     toastEl.innerHTML = `
-      <div class="sx-toast-inner">
-        <div class="sx-toast-ic">${escapeHtml(toastIcon(type))}</div>
+      <div class="sx-toast-inner" role="status" aria-live="polite">
+        <div class="sx-toast-ic">${escapeHtml(ic)}</div>
         <div class="sx-toast-body">
-          <div class="sx-toast-title">${escapeHtml(toastTitle(type))}</div>
+          <div class="sx-toast-title">${escapeHtml(tt)}</div>
           <div class="sx-toast-msg">${escapeHtml(msg)}</div>
           ${actionsHtml}
         </div>
         <button class="sx-toast-x" type="button" aria-label="Cerrar">×</button>
       </div>
-      <div class="sx-toast-bar"><i></i></div>
+      <div class="sx-toast-bar" aria-hidden="true"><i></i></div>
     `;
 
     // close
     const x = toastEl.querySelector('.sx-toast-x');
-    if(x) x.addEventListener('click', () => hideToast(true), { once:true });
+    if(x){
+      x.addEventListener('click', function(){ hideToast(true); }, { once:true });
+    }
 
     // actions
     if(actions && actions.length){
-      const btns = Array.from(toastEl.querySelectorAll('[data-sx-toast-act]'));
-      btns.forEach(b=>{
-        b.addEventListener('click', (ev)=>{
-          const idx = parseInt(b.getAttribute('data-sx-toast-act') || '-1', 10);
+      qsa('[data-sx-toast-act]', toastEl).forEach((node)=>{
+        node.addEventListener('click', function(ev){
+          const idx = parseInt(node.getAttribute('data-sx-toast-act') || '-1', 10);
           const act = actions[idx];
           if(!act) return;
 
-          const kind = String(act.kind || 'button').toLowerCase();
+          const kind = String(act.kind || '').toLowerCase();
           if(kind === 'link'){
-            // deja navegar, pero cierra toast
+            // deja navegar; cerramos toast para UX limpia
             hideToast(true);
             return;
           }
@@ -779,33 +782,34 @@
       });
     }
 
-    // progress
+    // progress bar
     const bar = toastEl.querySelector('.sx-toast-bar > i');
     if(bar){
       bar.style.transition = 'none';
       bar.style.transform = 'scaleX(1)';
-      void bar.offsetWidth;
+      void bar.offsetWidth; // reflow
       bar.style.transition = `transform ${ms}ms linear`;
       bar.style.transform = 'scaleX(0)';
     }
-
-    // auto-hide
-    if(toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => hideToast(false), ms);
   }
 
   function showToastNow(payload){
-    if(!toastEl) return;
+    if(!toastEl) { try{ console.log(payload); }catch(e){}; return; }
 
+    // clear timers
     if(toastTimer) clearTimeout(toastTimer);
     if(toastAnimTimer) clearTimeout(toastAnimTimer);
 
     toastEl.classList.remove('hide');
     toastEl.classList.add('on');
+
     renderToast(payload);
 
     toastAnimTimer = setTimeout(() => toastEl.classList.add('show'), 10);
     toastShowing = true;
+
+    const ms = Math.max(800, Number(payload && payload.ms ? payload.ms : 2200));
+    toastTimer = setTimeout(() => hideToast(false), ms);
   }
 
   function nextToast(){
@@ -819,13 +823,13 @@
   function hideToast(forceImmediate){
     if(!toastEl) return;
 
-    if(toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
-    if(toastAnimTimer) { clearTimeout(toastAnimTimer); toastAnimTimer = null; }
+    if(toastTimer){ clearTimeout(toastTimer); toastTimer = null; }
+    if(toastAnimTimer){ clearTimeout(toastAnimTimer); toastAnimTimer = null; }
 
     toastEl.classList.remove('show');
     toastEl.classList.add('hide');
 
-    const done = () => {
+    const done = function(){
       toastEl.classList.remove('on','hide');
       toastEl.innerHTML = '';
       nextToast();
@@ -835,8 +839,13 @@
     setTimeout(done, 160);
   }
 
+  /**
+   * API:
+   * sxToast('mensaje', 'ok|warn|bad|info')
+   * sxToast({ msg, type, ms, actions:[{label, kind:'button'|'link', href?, onClick?}] })
+   */
   function sxToast(a, b){
-    let payload;
+    let payload = null;
 
     if(typeof a === 'object' && a){
       payload = {
@@ -846,7 +855,12 @@
         actions: Array.isArray(a.actions) ? a.actions : null
       };
     }else{
-      payload = { msg: String(a || ''), type: String(b || 'info'), ms: 2200, actions: null };
+      payload = {
+        msg: String(a || ''),
+        type: String(b || 'info'),
+        ms: 2200,
+        actions: null
+      };
     }
 
     if(toastShowing){
@@ -857,7 +871,7 @@
   }
   window.sxToast = sxToast;
 
-  // Escape cierra toast (si visible)
+  // Escape cierra toast si está visible
   document.addEventListener('keydown', function(ev){
     if(ev.key === 'Escape' && toastEl && toastEl.classList.contains('on')){
       hideToast(true);
@@ -865,18 +879,23 @@
   });
 
   // ==========================================================
-  // Bulk / Selection (NECESARIO para tus botones)
+  // BULK UI (checkboxes + barra + filtro)
+  // Requiere:
+  // - checkboxes row: .sx-row (type=checkbox, value=account_id)
+  // - master checkbox: #sxCkAll
+  // - bulkbar: #sxBulkbar
+  // - count: #sxBulkCount
+  // - bulk form: #sxBulkForm  (input name="account_ids" + hidden period si aplica)
   // ==========================================================
-  function rows(){ return Array.from(document.querySelectorAll('.sx-row')); }
-  function selected(){ return rows().filter(x => x.checked).map(x => x.value); }
-
   const bulkbar   = $('sxBulkbar');
   const bulkCount = $('sxBulkCount');
-  const ckAll     = $('sxCkAll');     // si no existe, no pasa nada
+  const ckAll     = $('sxCkAll');
   const bulkForm  = $('sxBulkForm');
-  const hasBulkEndpoint = {!! json_encode((bool)($hasBulkSend ?? false)) !!};
 
-  function repaintSelectedRows(){
+  function rows(){ return qsa('.sx-row'); }
+  function selectedIds(){ return rows().filter(x => x && x.checked).map(x => String(x.value || '').trim()).filter(Boolean); }
+
+  function paintSelectedRows(){
     rows().forEach(ck => {
       const tr = ck.closest('tr');
       if(!tr) return;
@@ -886,18 +905,21 @@
   }
 
   function updateBulk(){
-    const ids = selected();
+    const ids = selectedIds();
 
-    if (bulkCount) bulkCount.textContent = String(ids.length);
-    if (bulkbar){
+    if(bulkCount) bulkCount.textContent = String(ids.length);
+
+    if(bulkbar){
       if(ids.length > 0) bulkbar.classList.add('on');
       else bulkbar.classList.remove('on');
     }
 
     if(ckAll){
       const r = rows();
-      if(!r.length){ ckAll.checked = false; ckAll.indeterminate = false; }
-      else{
+      if(!r.length){
+        ckAll.checked = false;
+        ckAll.indeterminate = false;
+      }else{
         const all = r.every(x => x.checked);
         const any = r.some(x => x.checked);
         ckAll.checked = all;
@@ -905,19 +927,20 @@
       }
     }
 
-    repaintSelectedRows();
+    paintSelectedRows();
   }
 
   function bindBulkForm(ids){
     if(!bulkForm) return false;
     const inp = bulkForm.querySelector('input[name="account_ids"]');
-    if (inp) inp.value = ids.join(',');
+    if(inp) inp.value = ids.join(',');
     return true;
   }
 
-  // expón funciones globales (tus botones las llaman)
+  // API pública (por si tus botones llaman onclick="...")
   window.sxToggleAll = function(master){
-    rows().forEach(x => x.checked = !!(master && master.checked));
+    const on = !!(master && master.checked);
+    rows().forEach(x => x.checked = on);
     updateBulk();
   };
   window.sxSync = function(){ updateBulk(); };
@@ -932,9 +955,7 @@
     updateBulk();
   };
 
-  // ==========================================================
-  // Filtro: Solo seleccionadas (NECESARIO)
-  // ==========================================================
+  // Filtro “solo seleccionadas” (mantén tus parámetros)
   function parseIdsParam(v){
     v = (v == null) ? '' : String(v);
     return v.split(',').map(s => s.trim()).filter(Boolean);
@@ -949,182 +970,97 @@
       const ids = new Set(parseIdsParam(sp.get('ids')));
       if(!ids.size) return;
 
-      // check los visibles que estén en ids
       rows().forEach(ck => {
-        if(ids.has(String(ck.value))) ck.checked = true;
+        const id = String(ck.value || '').trim();
+        ck.checked = ids.has(id);
       });
 
+      // master: si filtraste, normalmente quieres "todo lo visible" marcado
+      if(ckAll){ ckAll.checked = true; ckAll.indeterminate = false; }
       updateBulk();
     }catch(e){}
   }
 
-  window.sxFilterSelected = function(){
-    const ids = selected();
-    if(!ids.length){ sxToast('Selecciona al menos una cuenta para filtrar.', 'warn'); return; }
+  // IMPORTANTE: base URL desde backend si existe; si no, cae a current pathname
+  const routeIndex = (function(){
+    try{
+      return {!! json_encode($routeIndex ?? null) !!} || (window.location.origin + window.location.pathname);
+    }catch(e){
+      return (window.location.origin + window.location.pathname);
+    }
+  })();
 
-    const base = {!! json_encode($routeIndex ?? url('/admin/billing/statements')) !!};
+  window.sxFilterSelected = function(){
+    const ids = selectedIds();
+    if(!ids.length){
+      sxToast('Selecciona al menos una cuenta para filtrar.', 'warn');
+      return;
+    }
     const sp = new URLSearchParams(window.location.search || '');
-    sp.set('only_selected', '1');
+    sp.set('only_selected','1');
     sp.set('ids', ids.join(','));
     sp.delete('page');
-    window.location.href = base + '?' + sp.toString();
+    window.location.href = String(routeIndex) + '?' + sp.toString();
   };
 
+  // Envío masivo (usa el bulkForm si existe action; si no, solo copia payload)
   window.sxBulkSend = function(){
-    const ids = selected();
-    if(!ids.length){ sxToast('Selecciona al menos una cuenta.', 'warn'); return; }
-
-    if(hasBulkEndpoint && bulkForm && bulkForm.getAttribute('action')){
-      bindBulkForm(ids);
-      bulkForm.submit();
+    const ids = selectedIds();
+    if(!ids.length){
+      sxToast('Selecciona al menos una cuenta.', 'warn');
       return;
     }
 
-    const payload = { period: {!! json_encode($period ?? '') !!}, account_ids: ids.join(',') };
+    // Si existe form real -> submit
+    if(bulkForm && String(bulkForm.getAttribute('action') || '').trim() !== ''){
+      bindBulkForm(ids);
+
+      // Confirmación elegante
+      sxToast({
+        type: 'warn',
+        msg: `¿Enviar estado de cuenta a ${ids.length} cuenta(s)?`,
+        ms: 6500,
+        actions: [
+          { label:'Cancelar', kind:'button', onClick: function(){} },
+          { label:'Enviar', kind:'button', onClick: function(){ bulkForm.submit(); } }
+        ]
+      });
+      return;
+    }
+
+    // Fallback: copia payload
+    const periodVal = (function(){
+      try{ return {!! json_encode($period ?? '') !!}; }catch(e){ return ''; }
+    })();
+
+    const payload = { period: periodVal, account_ids: ids.join(',') };
     try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
-    sxToast('Se copió al portapapeles (period + account_ids CSV). Activa el endpoint HUB bulk_send para envío masivo real.', 'info');
+    sxToast('Se copió al portapapeles (period + account_ids CSV). Falta configurar bulkForm/action.', 'info');
   };
 
-  // ==========================================================
-  // Save endpoint (estatus / forma de pago)
-  // ==========================================================
-  const endpoint = {!! json_encode($statusEndpoint ?? url('/admin/billing/statements/status')) !!};
-  const period   = {!! json_encode($period ?? '') !!};
-  const csrf     = {!! json_encode(csrf_token()) !!};
+  // Eventos: si cambias un checkbox, actualiza
+  document.addEventListener('change', function(ev){
+    const t = ev.target;
 
-  function repaintRowStatus(accountId, status){
-    const id = String(accountId || '').trim();
-    const rowEl = $('sxRow-' + id);
-    if(!rowEl) return;
-
-    const statusTd = rowEl.querySelector('td:nth-child(8)');
-    if(!statusTd) return;
-
-    const st = String(status || '').toLowerCase().trim() || 'sin_mov';
-
-    let pill = statusTd.querySelector('.sx-pill');
-    if(!pill){
-      pill = document.createElement('span');
-      pill.className = 'sx-pill';
-      statusTd.innerHTML = '';
-      statusTd.appendChild(pill);
+    // master
+    if(t && t === ckAll){
+      window.sxToggleAll(ckAll);
+      return;
     }
 
-    pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-    pill.classList.add(pillClassByStatus(st));
-    pill.innerHTML = '<span class="dot"></span>' + escapeHtml(st.toUpperCase());
-  }
-
-  function upsertMetaPay(rowEl, method, provider, payStatus){
-    try{
-      const metaCell = rowEl.querySelector('td:nth-child(4)');
-      if(!metaCell) return;
-
-      const sub = metaCell.querySelector('.sx-subrow');
-      if(!sub) return;
-
-      const m = String(method || '').trim();
-      const p = String(provider || '').trim();
-      const s = String(payStatus || '').trim();
-
-      let html = sub.innerHTML;
-
-      // limpia bloque previo (si existe)
-      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*M[ée]todo:\s*<span class="sx-mono">.*?<\/span>/i, '');
-      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*Prov:\s*<span class="sx-mono">.*?<\/span>/i, '');
-      html = html.replace(/\s*<span style="opacity:\.55;">\s*·\s*<\/span>\s*St:\s*<span class="sx-mono">.*?<\/span>/i, '');
-
-      const insertAfter = /(Periodo:\s*<span class="sx-mono">[^<]*<\/span>)/i;
-
-      let extra = '';
-      if(m !== '') extra += ' <span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+ escapeHtml(m) +'</span>';
-      if(p !== '') extra += ' <span style="opacity:.55;"> · </span> Prov: <span class="sx-mono">'+ escapeHtml(p) +'</span>';
-      if(s !== '') extra += ' <span style="opacity:.55;"> · </span> St: <span class="sx-mono">'+ escapeHtml(s) +'</span>';
-
-      html = html.replace(insertAfter, '$1' + extra);
-      sub.innerHTML = html;
-    }catch(e){}
-  }
-
-  async function saveRow(accountId, status, pay){
-    const id = String(accountId || '').trim();
-    if(!id){ sxToast('Falta accountId.', 'bad'); return {ok:false}; }
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': csrf,
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify({
-        account_id: id,
-        period: period,
-        status: status,
-        pay_method: pay
-      })
-    });
-
-    const text = await res.text();
-    let data = null;
-    try{ data = JSON.parse(text); }catch(e){ data = null; }
-
-    if(!res.ok){
-      const msg = (data && (data.message || data.error))
-        ? (data.message || data.error)
-        : ('HTTP ' + res.status + ' -> ' + text.slice(0,200));
-      sxToast('No se pudo guardar: ' + msg, 'bad');
-      return {ok:false, data};
+    // row checkbox
+    if(t && t.classList && t.classList.contains('sx-row')){
+      updateBulk();
+      return;
     }
-
-    const effectiveStatus = (data && data.status) ? data.status : status;
-    repaintRowStatus(id, effectiveStatus);
-
-    // si backend devuelve números, refresca celdas
-    if (data && typeof data.total !== 'undefined') {
-      const rowEl = $('sxRow-' + id);
-      if(rowEl){
-        const totalTd = rowEl.querySelector('td:nth-child(5)');
-        const paidTd  = rowEl.querySelector('td:nth-child(6)');
-        const saldoTd = rowEl.querySelector('td:nth-child(7)');
-
-        const fmt = (n) => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-
-        if (totalTd) totalTd.textContent = fmt(data.total);
-
-        if (paidTd) {
-          const top = paidTd.querySelector('.sx-mono');
-          if (top) top.textContent = fmt(data.abono);
-        }
-
-        if (saldoTd) {
-          const pill = saldoTd.querySelector('.sx-pill');
-          const saldo = Number(data.saldo || 0);
-          if (pill) {
-            pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-            pill.classList.add(saldo > 0 ? 'sx-warn' : 'sx-ok');
-            pill.innerHTML = '<span class="dot"></span><span class="sx-mono">' + fmt(saldo) + '</span>';
-          }
-        }
-      }
-    }
-
-    // actualizar meta de pago en UI
-    const rowEl = $('sxRow-' + id);
-    if(rowEl){
-      const effectivePay  = (data && data.pay_method !== undefined) ? data.pay_method : pay;
-      const effectiveProv = (data && data.pay_provider !== undefined) ? data.pay_provider : '';
-      const effectiveSt   = (data && data.pay_status !== undefined) ? data.pay_status : '';
-      upsertMetaPay(rowEl, effectivePay, effectiveProv, effectiveSt);
-    }
-
-    sxToast((data && data.message) ? data.message : 'Guardado.', 'ok');
-    return {ok:true, data};
-  }
+  });
 
   // ==========================================================
   // PDF Preview Modal
+  // Requiere:
+  // - #sxPdfModal, #sxPdfFrame
+  // - opcionales: #sxPdfClose #sxPdfOpenNew #sxPdfDownload #sxPdfAccount #sxPdfPeriod
+  // Botón: [data-sx-pdf-preview="1"] con data-url,data-account,data-period
   // ==========================================================
   const pdfModal    = $('sxPdfModal');
   const pdfFrame    = $('sxPdfFrame');
@@ -1144,7 +1080,7 @@
       });
       return u.toString();
     }catch(e){
-      let glue = (url.indexOf('?') >= 0) ? '&' : '?';
+      const glue = (url.indexOf('?') >= 0) ? '&' : '?';
       const q = Object.keys(params||{}).map(k => encodeURIComponent(k)+'='+encodeURIComponent(String(params[k]))).join('&');
       return url + glue + q;
     }
@@ -1157,7 +1093,10 @@
     const acc = String((opts && opts.account) || '—');
     const per = String((opts && opts.period) || '—');
 
-    if(url === ''){ sxToast('No hay URL de PDF para vista previa.', 'bad'); return; }
+    if(url === ''){
+      sxToast('No hay URL de PDF para vista previa.', 'bad');
+      return;
+    }
 
     const previewUrl = withParams(url, { inline: 1, modal: 1 });
 
@@ -1182,7 +1121,10 @@
   }
 
   if(pdfClose){
-    pdfClose.addEventListener('click', function(ev){ ev.preventDefault(); closePdfModal(); });
+    pdfClose.addEventListener('click', function(ev){
+      ev.preventDefault();
+      closePdfModal();
+    });
   }
   if(pdfModal){
     pdfModal.addEventListener('mousedown', function(ev){
@@ -1190,72 +1132,87 @@
     });
   }
 
+  // Delegación click para abrir preview
+  document.addEventListener('click', function(ev){
+    const btn = ev.target && ev.target.closest ? ev.target.closest('[data-sx-pdf-preview="1"]') : null;
+    if(!btn) return;
+
+    ev.preventDefault();
+    openPdfModal({
+      url: btn.getAttribute('data-url') || '',
+      account: btn.getAttribute('data-account') || '—',
+      period: btn.getAttribute('data-period') || '—',
+    });
+  });
+
   // ==========================================================
-  // Drawer
+  // Drawer (abre/cierra)
+  // Requiere:
+  // - #sxDrawer
+  // - botón abre: [data-sx-open-drawer="1"] con data-account,data-name,data-email,...
+  // - botón cierra: [data-sx-drawer-close="1"]
   // ==========================================================
   const drawer = $('sxDrawer');
-  const dAccount = $('sxDAccount');
-  const dStatusPill = $('sxDStatusPill');
-  const dName = $('sxDName');
-  const dEmail = $('sxDEmail');
 
-  const dStatus = $('sxDStatus');
-  const dPay = $('sxDPay');
-  const dSave = $('sxDSave');
-
-  const dShow = $('sxDShow');
-  const dPreview = $('sxDPreview');
-  const dPdf = $('sxDPdf');
-  const dEmailForm = $('sxDEmailForm');
-
-  let drawerState = { account:'', name:'', email:'', status:'', pay:'', show:'', pdf:'', emailurl:'' };
+  function closeDrawer(){
+    if(!drawer) return;
+    drawer.classList.remove('on');
+    drawer.setAttribute('aria-hidden','true');
+    document.body.classList.remove('sx-drawer-open');
+  }
 
   function openDrawer(payload){
     if(!drawer) return;
-    drawerState = payload || drawerState;
 
-    const acc = String(drawerState.account || '').trim();
-    const nm  = String(drawerState.name || '—');
-    const em  = String(drawerState.email || '—');
-    const st  = String(drawerState.status || 'sin_mov').toLowerCase().trim();
-    const pm  = String(drawerState.pay || '').toLowerCase().trim();
+    // Si tu drawer tiene campos, aquí solo los llenas si existen
+    const dAccount = $('sxDAccount');
+    const dName    = $('sxDName');
+    const dEmail   = $('sxDEmail');
+
+    const acc = String(payload && payload.account ? payload.account : '').trim();
+    const nm  = String(payload && payload.name ? payload.name : '—');
+    const em  = String(payload && payload.email ? payload.email : '—');
 
     if(dAccount) dAccount.innerHTML = '<span class="dot"></span>#' + escapeHtml(acc || '—');
     if(dName) dName.textContent = nm;
     if(dEmail) dEmail.textContent = em;
 
-    if(dStatus) dStatus.value = st;
-    if(dPay) dPay.value = pm;
-
-    if(dStatusPill){
-      dStatusPill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-      dStatusPill.classList.add(pillClassByStatus(st));
-      dStatusPill.innerHTML = '<span class="dot"></span>' + escapeHtml(st.toUpperCase());
-    }
+    // links opcionales
+    const dShow     = $('sxDShow');
+    const dPdf      = $('sxDPdf');
+    const dPreview  = $('sxDPreview');
+    const dEmailForm= $('sxDEmailForm');
 
     if(dShow){
-      if(drawerState.show){ dShow.style.display = ''; dShow.setAttribute('href', drawerState.show); }
+      const href = String(payload && payload.show ? payload.show : '');
+      if(href){ dShow.style.display = ''; dShow.setAttribute('href', href); }
       else dShow.style.display = 'none';
     }
 
     if(dPdf){
-      if(drawerState.pdf){ dPdf.style.display = ''; dPdf.setAttribute('href', drawerState.pdf); }
+      const href = String(payload && payload.pdf ? payload.pdf : '');
+      if(href){ dPdf.style.display = ''; dPdf.setAttribute('href', href); }
       else dPdf.style.display = 'none';
     }
 
     if(dPreview){
-      if(drawerState.pdf){
+      const href = String(payload && payload.pdf ? payload.pdf : '');
+      if(href){
         dPreview.style.display = '';
-        dPreview.setAttribute('data-url', drawerState.pdf);
+        dPreview.setAttribute('data-sx-pdf-preview','1');
+        dPreview.setAttribute('data-url', href);
         dPreview.setAttribute('data-account', acc || '—');
-        dPreview.setAttribute('data-period', {!! json_encode($period ?? '') !!});
-      }else dPreview.style.display = 'none';
+        dPreview.setAttribute('data-period', String(payload && payload.period ? payload.period : '—'));
+      }else{
+        dPreview.style.display = 'none';
+      }
     }
 
     if(dEmailForm){
-      if(drawerState.emailurl){
+      const action = String(payload && payload.emailurl ? payload.emailurl : '');
+      if(action){
         dEmailForm.style.display = '';
-        dEmailForm.setAttribute('action', drawerState.emailurl);
+        dEmailForm.setAttribute('action', action);
         const toInp = dEmailForm.querySelector('input[name="to"]');
         if(toInp) toInp.value = (em && em !== '—') ? em : '';
       }else{
@@ -1269,92 +1226,37 @@
     document.body.classList.add('sx-drawer-open');
   }
 
-  function closeDrawer(){
-    if(!drawer) return;
-    drawer.classList.remove('on');
-    drawer.setAttribute('aria-hidden','true');
-    document.body.classList.remove('sx-drawer-open');
-  }
-
-  // ==========================================================
-  // Delegación de clicks (esto hace que TODOS los botones funcionen)
-  // ==========================================================
+  // Delegación clicks drawer open/close
   document.addEventListener('click', function(ev){
-
-    // 1) Abrir drawer con botón Gestionar
-    const openBtn = ev.target.closest('[data-sx-open-drawer="1"]');
+    const openBtn = ev.target && ev.target.closest ? ev.target.closest('[data-sx-open-drawer="1"]') : null;
     if(openBtn){
       ev.preventDefault();
       openDrawer({
         account: openBtn.getAttribute('data-account') || '',
         name: openBtn.getAttribute('data-name') || '—',
         email: openBtn.getAttribute('data-email') || '—',
-        status: openBtn.getAttribute('data-status') || 'sin_mov',
-        pay: openBtn.getAttribute('data-pay') || '',
         show: openBtn.getAttribute('data-show') || '',
         pdf: openBtn.getAttribute('data-pdf') || '',
-        emailurl: openBtn.getAttribute('data-emailurl') || ''
+        emailurl: openBtn.getAttribute('data-emailurl') || '',
+        period: openBtn.getAttribute('data-period') || '',
       });
       return;
     }
 
-    // 2) Cerrar drawer
-    if(ev.target.closest('[data-sx-drawer-close="1"]')){
+    const closeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-sx-drawer-close="1"]') : null;
+    if(closeBtn){
       ev.preventDefault();
       closeDrawer();
       return;
     }
-
-    // 3) Abrir PDF Preview desde drawer
-    const btnPrev = ev.target.closest('[data-sx-pdf-preview="1"]');
-    if(btnPrev){
-      ev.preventDefault();
-      openPdfModal({
-        url: btnPrev.getAttribute('data-url') || '',
-        account: btnPrev.getAttribute('data-account') || '—',
-        period: btnPrev.getAttribute('data-period') || {!! json_encode($period ?? '') !!}
-      });
-      return;
-    }
   });
 
-  // Escape para modal/drawer (y toast ya se maneja arriba)
+  // Escape: cierra modal/drawer
   document.addEventListener('keydown', function(ev){
     if(ev.key !== 'Escape') return;
     if(pdfModal && pdfModal.classList.contains('on')) closePdfModal();
     if(drawer && drawer.classList.contains('on')) closeDrawer();
   });
-
-  // Guardar desde drawer
-  if(dSave){
-    dSave.addEventListener('click', async function(){
-      const id = String(drawerState.account || '').trim();
-      if(!id){ sxToast('Falta accountId.', 'bad'); return; }
-
-      const status = dStatus ? String(dStatus.value || '').trim() : 'sin_mov';
-      const pay    = dPay ? String(dPay.value || '').trim() : '';
-
-      const oldTxt = dSave.textContent;
-      dSave.disabled = true;
-      dSave.textContent = 'Guardando...';
-
-      try{
-        const r = await saveRow(id, status, pay);
-
-        if(r.ok && dStatusPill){
-          const eff = (r.data && r.data.status) ? r.data.status : status;
-          dStatusPill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-          dStatusPill.classList.add(pillClassByStatus(eff));
-          dStatusPill.innerHTML = '<span class="dot"></span>' + escapeHtml(String(eff).toUpperCase());
-        }
-      }catch(e){
-        sxToast('Error: ' + (e && e.message ? e.message : String(e)), 'bad');
-      }finally{
-        dSave.disabled = false;
-        dSave.textContent = oldTxt;
-      }
-    });
-  }
 
   // ==========================================================
   // INIT
