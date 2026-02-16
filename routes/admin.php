@@ -700,6 +700,18 @@ Route::middleware([
             ->whereNumber('id')
             ->name('invoices.requests.email_ready');
 
+        // ✅ Facturas (archivos PDF/XML) – Admin
+        Route::post('invoices/requests/{id}/attach', [InvoiceRequestsController::class, 'attachInvoice'])
+            ->whereNumber('id')
+            ->name('invoices.requests.attach');
+
+        Route::get('invoices/{invoiceId}/download/{kind}', [InvoiceRequestsController::class, 'downloadInvoice'])
+            ->where([
+                'invoiceId' => '[0-9]+',
+                'kind'      => '(pdf|xml)',
+            ])
+            ->name('invoices.download');
+
         Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
             ->name('statements_hub.preview_email');
 
@@ -848,9 +860,6 @@ Route::middleware([
         Route::post('invoices/requests/{id}/status', [InvoiceRequestsController::class, 'setStatus'])
             ->whereNumber('id')
             ->name('invoices.requests.status');
-        Route::post('invoices/requests/{id}/email', [InvoiceRequestsController::class, 'email'])
-            ->whereNumber('id')
-            ->name('invoices.requests.email');
 
                 /*
         |----------------------------------------------------------------------

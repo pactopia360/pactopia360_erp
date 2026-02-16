@@ -1,0 +1,414 @@
+/* ===== Pactopia360 · Admin Billing · Invoice Requests (v2.3 LIGHT) ===== */
+.p360-invoice-requests{
+  --bg:#f6f7fb;
+  --bg2:#ffffff;
+
+  --card:#ffffff;
+  --card2:#f8fafc;
+
+  --ink:#0f172a;
+  --mut:#64748b;
+
+  --line:rgba(15,23,42,.10);
+  --line2:rgba(15,23,42,.14);
+
+  --shadow:0 18px 50px rgba(15,23,42,.10);
+  --radius:18px;
+  --radius-sm:14px;
+
+  --ok:#10b981;
+  --warn:#f59e0b;
+  --bad:#ef4444;
+  --info:#2563eb;
+
+  --pill-bg:rgba(15,23,42,.04);
+  --btn-bg:rgba(15,23,42,.06);
+  --btn-bg2:rgba(15,23,42,.10);
+  --focus:rgba(37,99,235,.18);
+
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(16,185,129,.12), transparent 58%),
+    radial-gradient(900px 500px at 85% 0%, rgba(37,99,235,.10), transparent 58%),
+    radial-gradient(700px 500px at 50% 110%, rgba(244,63,94,.10), transparent 58%),
+    var(--bg);
+  color:var(--ink);
+}
+
+.p360-invoice-requests .p360-wrap{
+  width: min(1400px, calc(100vw - 48px));
+  margin: 22px auto 40px;
+}
+
+.p360-invoice-requests .p360-top{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:14px;
+}
+
+.p360-invoice-requests .p360-title{ display:flex; flex-direction:column; gap:4px; }
+.p360-invoice-requests h1{ margin:0; font-size:22px; letter-spacing:.2px; }
+.p360-invoice-requests .sub{ color:var(--mut); font-size:13px; }
+
+.p360-invoice-requests .p360-card{
+  background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.82));
+  border:1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+}
+
+.p360-invoice-requests .p360-toolbar{
+  padding:14px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  border-bottom:1px solid var(--line);
+  background: rgba(255,255,255,.68);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.p360-invoice-requests .filters{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+.p360-invoice-requests .field{ display:flex; flex-direction:column; gap:6px; }
+.p360-invoice-requests .label{ color:var(--mut); font-size:12px; }
+
+.p360-invoice-requests input,
+.p360-invoice-requests select{
+  height:42px;
+  padding:10px 12px;
+  border-radius: 12px;
+  border:1px solid var(--line2);
+  background: rgba(255,255,255,.92);
+  color: var(--ink);
+  outline:none;
+}
+.p360-invoice-requests input::placeholder{ color: rgba(100,116,139,.85); }
+.p360-invoice-requests input:focus,
+.p360-invoice-requests select:focus{
+  border-color: rgba(37,99,235,.50);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+.p360-invoice-requests .btn{
+  height:42px;
+  padding:0 14px;
+  border-radius: 12px;
+  border:1px solid var(--line2);
+  background: var(--btn-bg);
+  color: var(--ink);
+  cursor:pointer;
+  transition: transform .08s ease, background .15s ease, border-color .15s ease;
+  font-weight:700;
+  letter-spacing:.2px;
+}
+.p360-invoice-requests .btn:hover{ background: var(--btn-bg2); }
+.p360-invoice-requests .btn:active{ transform: translateY(1px); }
+.p360-invoice-requests .btn.primary{
+  background: rgba(16,185,129,.14);
+  border-color: rgba(16,185,129,.32);
+}
+.p360-invoice-requests .btn.primary:hover{ background: rgba(16,185,129,.18); }
+.p360-invoice-requests .btn.ghost{ background: transparent; }
+.p360-invoice-requests .btn.danger{ border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.10); }
+.p360-invoice-requests .btn.info{ border-color: rgba(37,99,235,.28); background: rgba(37,99,235,.10); }
+
+.p360-invoice-requests .badges{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.p360-invoice-requests .pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: var(--pill-bg);
+  color: var(--ink);
+  font-size:12px;
+}
+
+.p360-invoice-requests .dot{
+  width:8px;height:8px;border-radius:99px;display:inline-block;
+  background: var(--info);
+}
+.p360-invoice-requests .dot.ok{ background: var(--ok); }
+.p360-invoice-requests .dot.warn{ background: var(--warn); }
+.p360-invoice-requests .dot.bad{ background: var(--bad); }
+
+.p360-invoice-requests .alerts{
+  padding: 12px 14px;
+  display:grid;
+  gap:10px;
+}
+.p360-invoice-requests .alert{
+  border-radius: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(15,23,42,.04);
+  color: var(--ink);
+  font-size: 13px;
+}
+.p360-invoice-requests .alert.ok{ border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.10); }
+.p360-invoice-requests .alert.warn{ border-color: rgba(245,158,11,.40); background: rgba(245,158,11,.12); }
+.p360-invoice-requests .alert.bad{ border-color: rgba(239,68,68,.40); background: rgba(239,68,68,.10); }
+
+.p360-invoice-requests .tablewrap{ overflow:auto; }
+.p360-invoice-requests table{
+  width:100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 1180px;
+}
+
+.p360-invoice-requests thead th{
+  text-align:left;
+  font-size:12px;
+  letter-spacing:.3px;
+  text-transform:uppercase;
+  color: var(--mut);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(248,250,252,.92);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.p360-invoice-requests tbody td{
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.p360-invoice-requests tbody tr:hover td{ background: rgba(15,23,42,.03); }
+
+.p360-invoice-requests .mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  font-size: 12px;
+}
+.p360-invoice-requests .mut{ color: var(--mut); font-size: 12px; }
+
+.p360-invoice-requests .statusPill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:7px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: rgba(15,23,42,.04);
+  font-size:12px;
+}
+.p360-invoice-requests .statusPill .dot{ width:7px; height:7px; }
+
+/* Colores por estado (normalizados para UI) */
+.p360-invoice-requests .statusPill.requested{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
+.p360-invoice-requests .statusPill.in_progress{ border-color: rgba(37,99,235,.30); background: rgba(37,99,235,.08); }
+.p360-invoice-requests .statusPill.done,
+.p360-invoice-requests .statusPill.issued{ border-color: rgba(16,185,129,.32); background: rgba(16,185,129,.10); }
+.p360-invoice-requests .statusPill.rejected{ border-color: rgba(239,68,68,.34); background: rgba(239,68,68,.09); }
+
+.p360-invoice-requests .actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:flex-start;
+}
+.p360-invoice-requests .actions form{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin:0;
+}
+
+.p360-invoice-requests .actions .mini{
+  height:38px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+
+.p360-invoice-requests .actions input,
+.p360-invoice-requests .actions select{
+  height:38px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,.92);
+}
+
+.p360-invoice-requests .actions input.uuid{ min-width: 240px; }
+.p360-invoice-requests .actions input.notes{ min-width: 280px; }
+.p360-invoice-requests .actions input.to{ min-width: 260px; }
+.p360-invoice-requests .actions input.file{
+  min-width: 280px;
+  padding: 6px 10px !important;
+}
+
+.p360-invoice-requests .notesCell{
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p360-invoice-requests .footer{
+  padding: 12px 14px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  border-top: 1px solid var(--line);
+  background: rgba(248,250,252,.92);
+  color: var(--mut);
+  font-size: 12px;
+}
+
+.p360-invoice-requests .pagination{ padding: 12px 14px; }
+.p360-invoice-requests .pagination nav{ display:flex; justify-content:center; }
+
+@media (max-width: 880px){
+  .p360-invoice-requests .p360-wrap{ width: calc(100vw - 28px); }
+  .p360-invoice-requests .p360-top{ align-items:flex-start; flex-direction:column; }
+  .p360-invoice-requests table{ min-width: 1140px; }
+}/* =========================
+   Modal system (P360)
+   ========================= */
+html.p360-modal-open, body.p360-modal-open{ overflow:hidden !important; }
+
+.p360-modal{
+  position:fixed;
+  inset:0;
+  z-index:2500;
+  display:none;
+}
+.p360-modal[aria-hidden="false"]{ display:block; }
+
+.p360-modal__backdrop{
+  position:absolute; inset:0;
+  background:rgba(15,23,42,.45);
+  backdrop-filter: blur(3px);
+}
+
+.p360-modal__panel{
+  position:relative;
+  width:min(900px, calc(100vw - 24px));
+  margin: clamp(16px, 6vh, 54px) auto;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.92));
+  border:1px solid var(--line2);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(15,23,42,.25);
+  overflow:hidden;
+}
+
+.p360-modal__head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 14px;
+  border-bottom:1px solid var(--line);
+  background: rgba(248,250,252,.92);
+}
+
+.p360-modal__title{ font-weight:900; letter-spacing:.2px; }
+.p360-modal__sub{ color:var(--mut); font-size:12px; margin-top:4px; }
+
+.p360-modal__x{
+  width:38px;height:38px;
+  border-radius:12px;
+  border:1px solid var(--line2);
+  background: rgba(15,23,42,.06);
+  cursor:pointer;
+  font-size:20px;
+  line-height:1;
+}
+
+.p360-modal__body{ padding: 14px; }
+.p360-modal__section{ display:block; }
+
+.p360-modal__foot{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  padding-top:12px;
+  margin-top:12px;
+  border-top:1px solid var(--line);
+}
+
+/* form grid */
+.grid2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+}
+.p360-modal textarea{
+  width:100%;
+  border:1px solid var(--line2);
+  border-radius:12px;
+  padding:10px 12px;
+  background: rgba(255,255,255,.92);
+  outline:none;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 90px;
+}
+@media (max-width: 720px){
+  .grid2{ grid-template-columns: 1fr; }
+}
+
+/* =========================
+   Actions: compact bar
+   ========================= */
+.p360-invoice-requests .actionBar{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.p360-invoice-requests .actionHint{
+  margin-top:8px;
+  max-width: 520px;
+}
+
+/* =========================
+   Responsive: table -> cards
+   ========================= */
+@media (max-width: 980px){
+  .p360-invoice-requests table{ min-width: 980px; } /* reduce la presión */
+}
+
+@media (max-width: 760px){
+  .p360-invoice-requests .tablewrap{ overflow:visible; }
+  .p360-invoice-requests table{ display:none; }
+
+  /* cards container: reusa tbody como grid */
+  .p360-invoice-requests .cards{
+    display:grid;
+    gap:12px;
+    padding: 12px 14px;
+  }
+  .p360-invoice-requests .cardRow{
+    border:1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,.92);
+    box-shadow: 0 12px 28px rgba(15,23,42,.08);
+    padding: 12px;
+  }
+  .p360-invoice-requests .cardTop{
+    display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
+  }
+  .p360-invoice-requests .cardMeta{ display:grid; gap:6px; margin-top:10px; }
+  .p360-invoice-requests .cardMeta .mut{ font-size:12px; }
+}

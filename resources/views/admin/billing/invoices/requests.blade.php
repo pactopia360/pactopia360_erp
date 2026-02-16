@@ -22,293 +22,14 @@
 @endphp
 
 @push('styles')
-<style>
-/* ===== Pactopia360 · Admin Billing · Invoice Requests (v2.3 LIGHT) ===== */
-.p360-invoice-requests{
-  --bg:#f6f7fb;
-  --bg2:#ffffff;
-
-  --card:#ffffff;
-  --card2:#f8fafc;
-
-  --ink:#0f172a;
-  --mut:#64748b;
-
-  --line:rgba(15,23,42,.10);
-  --line2:rgba(15,23,42,.14);
-
-  --shadow:0 18px 50px rgba(15,23,42,.10);
-  --radius:18px;
-  --radius-sm:14px;
-
-  --ok:#10b981;
-  --warn:#f59e0b;
-  --bad:#ef4444;
-  --info:#2563eb;
-
-  --pill-bg:rgba(15,23,42,.04);
-  --btn-bg:rgba(15,23,42,.06);
-  --btn-bg2:rgba(15,23,42,.10);
-  --focus:rgba(37,99,235,.18);
-
-  background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(16,185,129,.12), transparent 58%),
-    radial-gradient(900px 500px at 85% 0%, rgba(37,99,235,.10), transparent 58%),
-    radial-gradient(700px 500px at 50% 110%, rgba(244,63,94,.10), transparent 58%),
-    var(--bg);
-  color:var(--ink);
-}
-
-.p360-invoice-requests .p360-wrap{
-  width: min(1400px, calc(100vw - 48px));
-  margin: 22px auto 40px;
-}
-
-.p360-invoice-requests .p360-top{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap:16px;
-  margin-bottom:14px;
-}
-
-.p360-invoice-requests .p360-title{ display:flex; flex-direction:column; gap:4px; }
-.p360-invoice-requests h1{ margin:0; font-size:22px; letter-spacing:.2px; }
-.p360-invoice-requests .sub{ color:var(--mut); font-size:13px; }
-
-.p360-invoice-requests .p360-card{
-  background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.82));
-  border:1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow:hidden;
-}
-
-.p360-invoice-requests .p360-toolbar{
-  padding:14px;
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:center;
-  justify-content:space-between;
-  border-bottom:1px solid var(--line);
-  background: rgba(255,255,255,.68);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.p360-invoice-requests .filters{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:center;
-}
-
-.p360-invoice-requests .field{ display:flex; flex-direction:column; gap:6px; }
-.p360-invoice-requests .label{ color:var(--mut); font-size:12px; }
-
-.p360-invoice-requests input,
-.p360-invoice-requests select{
-  height:42px;
-  padding:10px 12px;
-  border-radius: 12px;
-  border:1px solid var(--line2);
-  background: rgba(255,255,255,.92);
-  color: var(--ink);
-  outline:none;
-}
-.p360-invoice-requests input::placeholder{ color: rgba(100,116,139,.85); }
-.p360-invoice-requests input:focus,
-.p360-invoice-requests select:focus{
-  border-color: rgba(37,99,235,.50);
-  box-shadow: 0 0 0 4px var(--focus);
-}
-
-.p360-invoice-requests .btn{
-  height:42px;
-  padding:0 14px;
-  border-radius: 12px;
-  border:1px solid var(--line2);
-  background: var(--btn-bg);
-  color: var(--ink);
-  cursor:pointer;
-  transition: transform .08s ease, background .15s ease, border-color .15s ease;
-  font-weight:700;
-  letter-spacing:.2px;
-}
-.p360-invoice-requests .btn:hover{ background: var(--btn-bg2); }
-.p360-invoice-requests .btn:active{ transform: translateY(1px); }
-.p360-invoice-requests .btn.primary{
-  background: rgba(16,185,129,.14);
-  border-color: rgba(16,185,129,.32);
-}
-.p360-invoice-requests .btn.primary:hover{ background: rgba(16,185,129,.18); }
-.p360-invoice-requests .btn.ghost{ background: transparent; }
-.p360-invoice-requests .btn.danger{ border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.10); }
-.p360-invoice-requests .btn.info{ border-color: rgba(37,99,235,.28); background: rgba(37,99,235,.10); }
-
-.p360-invoice-requests .badges{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-
-.p360-invoice-requests .pill{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background: var(--pill-bg);
-  color: var(--ink);
-  font-size:12px;
-}
-
-.p360-invoice-requests .dot{
-  width:8px;height:8px;border-radius:99px;display:inline-block;
-  background: var(--info);
-}
-.p360-invoice-requests .dot.ok{ background: var(--ok); }
-.p360-invoice-requests .dot.warn{ background: var(--warn); }
-.p360-invoice-requests .dot.bad{ background: var(--bad); }
-
-.p360-invoice-requests .alerts{
-  padding: 12px 14px;
-  display:grid;
-  gap:10px;
-}
-.p360-invoice-requests .alert{
-  border-radius: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  background: rgba(15,23,42,.04);
-  color: var(--ink);
-  font-size: 13px;
-}
-.p360-invoice-requests .alert.ok{ border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.10); }
-.p360-invoice-requests .alert.warn{ border-color: rgba(245,158,11,.40); background: rgba(245,158,11,.12); }
-.p360-invoice-requests .alert.bad{ border-color: rgba(239,68,68,.40); background: rgba(239,68,68,.10); }
-
-.p360-invoice-requests .tablewrap{ overflow:auto; }
-.p360-invoice-requests table{
-  width:100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  min-width: 1180px;
-}
-
-.p360-invoice-requests thead th{
-  text-align:left;
-  font-size:12px;
-  letter-spacing:.3px;
-  text-transform:uppercase;
-  color: var(--mut);
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(248,250,252,.92);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
-.p360-invoice-requests tbody td{
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-}
-.p360-invoice-requests tbody tr:hover td{ background: rgba(15,23,42,.03); }
-
-.p360-invoice-requests .mono{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-  font-size: 12px;
-}
-.p360-invoice-requests .mut{ color: var(--mut); font-size: 12px; }
-
-.p360-invoice-requests .statusPill{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding:7px 10px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background: rgba(15,23,42,.04);
-  font-size:12px;
-}
-.p360-invoice-requests .statusPill .dot{ width:7px; height:7px; }
-
-/* Colores por estado (normalizados para UI) */
-.p360-invoice-requests .statusPill.requested{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.10); }
-.p360-invoice-requests .statusPill.in_progress{ border-color: rgba(37,99,235,.30); background: rgba(37,99,235,.08); }
-.p360-invoice-requests .statusPill.done,
-.p360-invoice-requests .statusPill.issued{ border-color: rgba(16,185,129,.32); background: rgba(16,185,129,.10); }
-.p360-invoice-requests .statusPill.rejected{ border-color: rgba(239,68,68,.34); background: rgba(239,68,68,.09); }
-
-.p360-invoice-requests .actions{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:flex-start;
-}
-.p360-invoice-requests .actions form{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-  margin:0;
-}
-
-.p360-invoice-requests .actions .mini{
-  height:38px;
-  padding: 0 12px;
-  border-radius: 12px;
-}
-
-.p360-invoice-requests .actions input,
-.p360-invoice-requests .actions select{
-  height:38px;
-  border-radius: 12px;
-  padding: 8px 10px;
-  background: rgba(255,255,255,.92);
-}
-
-.p360-invoice-requests .actions input.uuid{ min-width: 240px; }
-.p360-invoice-requests .actions input.notes{ min-width: 280px; }
-.p360-invoice-requests .actions input.to{ min-width: 260px; }
-.p360-invoice-requests .actions input.file{
-  min-width: 280px;
-  padding: 6px 10px !important;
-}
-
-.p360-invoice-requests .notesCell{
-  max-width: 420px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.p360-invoice-requests .footer{
-  padding: 12px 14px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  border-top: 1px solid var(--line);
-  background: rgba(248,250,252,.92);
-  color: var(--mut);
-  font-size: 12px;
-}
-
-.p360-invoice-requests .pagination{ padding: 12px 14px; }
-.p360-invoice-requests .pagination nav{ display:flex; justify-content:center; }
-
-@media (max-width: 880px){
-  .p360-invoice-requests .p360-wrap{ width: calc(100vw - 28px); }
-  .p360-invoice-requests .p360-top{ align-items:flex-start; flex-direction:column; }
-  .p360-invoice-requests table{ min-width: 1140px; }
-}
-</style>
+  @php
+    $cssRel = 'assets/admin/css/billing/invoice-requests.css';
+    $cssAbs = public_path($cssRel);
+    $cssUrl = (is_file($cssAbs) && filesize($cssAbs) > 16)
+      ? asset($cssRel).'?v='.filemtime($cssAbs)
+      : asset($cssRel).'?v='.time();
+  @endphp
+  <link rel="stylesheet" href="{{ $cssUrl }}">
 @endpush
 
 @section('content')
@@ -401,6 +122,115 @@
     </div>
 
     @if(method_exists($rows,'links') || is_iterable($rows))
+      {{-- ✅ Cards (mobile) --}}
+      <div class="cards" style="display:none">
+        @foreach($rows as $r)
+          @php
+            $stRaw = (string)($r->status ?? '');
+            if ($stRaw === '') $stRaw = 'requested';
+
+            $stUi = strtolower(trim($stRaw));
+            if ($stUi === 'invoiced') $stUi = ($mode==='legacy') ? 'done' : 'issued';
+            if (!in_array($stUi, $statusOptions, true)) $stUi = 'requested';
+
+            $name = trim((string)($r->account_name ?? ''));
+            $rfc  = trim((string)($r->account_rfc ?? ''));
+            $mail = trim((string)($r->account_email ?? ''));
+            $acct = (string)($r->account_id ?? '—');
+
+            $uuid  = (string)($r->cfdi_uuid ?? '');
+            $notes = trim((string)($r->notes ?? ''));
+            $per   = (string)($r->period ?? '—');
+
+            $zipPath = (string)($r->zip_path ?? '');
+            $hasZip  = trim($zipPath) !== '';
+
+            $zipLabel = $hasZip ? 'ZIP listo' : 'ZIP no adjunto';
+            $zipDot   = $hasZip ? 'ok' : 'warn';
+
+            $dotForStatus = ($stUi==='rejected') ? 'bad' : (($stUi==='requested') ? 'warn' : 'ok');
+          @endphp
+
+          <div class="cardRow">
+            <div class="cardTop">
+              <div>
+                <div class="mono">ID: {{ $r->id }} · {{ $acct }}</div>
+                <div class="mut">{{ $name !== '' ? e($name) : '—' }} @if($rfc !== '') · <span class="mono">{{ $rfc }}</span>@endif</div>
+                @if($mail !== '') <div class="mut">Email: <span class="mono">{{ $mail }}</span></div> @endif
+              </div>
+
+              <div>
+                <span class="statusPill {{ $stUi }}">
+                  <span class="dot {{ $dotForStatus }}"></span>
+                  <span class="mono">{{ $stUi }}</span>
+                </span>
+                <div class="mut" style="margin-top:8px">
+                  <span class="pill" style="padding:6px 10px">
+                    <span class="dot {{ $zipDot }}"></span>
+                    <span class="mono">{{ $zipLabel }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cardMeta">
+              <div class="mut">Periodo: <span class="mono">{{ $per }}</span></div>
+              <div class="mut">UUID: <span class="mono">{{ $uuid !== '' ? $uuid : '—' }}</span></div>
+              <div class="mut">Notas: {{ $notes !== '' ? e($notes) : '—' }}</div>
+
+              {{-- Botones (usan los mismos modales) --}}
+              <div class="actionBar" style="margin-top:10px">
+                <button type="button" class="btn mini info js-open-modal"
+                  data-modal="m-edit"
+                  data-id="{{ (int)$r->id }}"
+                  data-status="{{ $stUi }}"
+                  data-uuid="{{ e($uuid) }}"
+                  data-notes="{{ e($notes) }}"
+                  data-period="{{ e($per) }}"
+                  data-account="{{ e($acct) }}"
+                  data-email="{{ e($mail) }}"
+                >Editar</button>
+
+                <button type="button" class="btn mini primary js-open-modal"
+                  data-modal="m-attach"
+                  data-id="{{ (int)$r->id }}"
+                  data-uuid="{{ e($uuid) }}"
+                  data-period="{{ e($per) }}"
+                  data-account="{{ e($acct) }}"
+                >PDF/XML</button>
+
+                <button type="button" class="btn mini primary js-open-modal"
+                  data-modal="m-email"
+                  data-id="{{ (int)$r->id }}"
+                  data-period="{{ e($per) }}"
+                  data-email="{{ e($mail) }}"
+                >Enviar</button>
+              </div>
+            </div>
+          </div>
+        @endforeach
+      </div>
+
+      @push('scripts')
+      <script>
+      (function(){
+        // muestra cards en <=760
+        function syncCards(){
+          const cards = document.querySelector('.p360-invoice-requests .cards');
+          const table = document.querySelector('.p360-invoice-requests .tablewrap');
+          if(!cards || !table) return;
+          const isMobile = window.matchMedia('(max-width: 760px)').matches;
+          cards.style.display = isMobile ? 'grid' : 'none';
+          table.style.display = isMobile ? 'none' : 'block';
+        }
+        addEventListener('load', syncCards, {once:true});
+        addEventListener('resize', syncCards);
+      })();
+      </script>
+      @endpush
+
+
+
       <div class="tablewrap">
         <table>
           <thead>
@@ -492,60 +322,64 @@
               </td>
 
               <td>
-                <div class="actions">
+                  @php
+                    // data para modals
+                    $rowId    = (int) $r->id;
+                    $accId    = (string) ($r->account_id ?? '');
+                    $perUi    = (string) ($r->period ?? ($r->periodo ?? ''));
+                    $uuidUi   = (string) ($r->cfdi_uuid ?? '');
+                    $notesUi  = (string) ($r->notes ?? '');
+                    $emailUi  = (string) ($r->account_email ?? ($r->email ?? ''));
+                    $nameUi   = (string) ($r->account_name ?? '');
+                    $rfcUi    = (string) ($r->account_rfc ?? ($r->rfc ?? ''));
+                  @endphp
 
-                  {{-- A) Guardar status/uuid/notas + subir ZIP (ESTO SÍ guarda el ZIP) --}}
-                  <form method="POST"
-                        action="{{ route('admin.billing.invoices.requests.status', $r->id) }}"
-                        enctype="multipart/form-data">
-                    @csrf
+                  <div class="actionBar">
+                    <button
+                      type="button"
+                      class="btn mini info js-open-modal"
+                      data-modal="m-edit"
+                      data-id="{{ $rowId }}"
+                      data-status="{{ $stUi }}"
+                      data-uuid="{{ e($uuidUi) }}"
+                      data-notes="{{ e($notesUi) }}"
+                      data-period="{{ e($perUi) }}"
+                      data-account="{{ e($accId) }}"
+                      data-email="{{ e($emailUi) }}"
+                      data-name="{{ e($nameUi) }}"
+                      data-rfc="{{ e($rfcUi) }}"
+                    >
+                      Editar solicitud
+                    </button>
 
-                    <select name="status" style="height:38px">
-                      @foreach($statusOptions as $s)
-                        <option value="{{ $s }}" @selected($stUi===$s)>{{ $s }}</option>
-                      @endforeach
-                    </select>
+                    <button
+                      type="button"
+                      class="btn mini primary js-open-modal"
+                      data-modal="m-attach"
+                      data-id="{{ $rowId }}"
+                      data-uuid="{{ e($uuidUi) }}"
+                      data-period="{{ e($perUi) }}"
+                      data-account="{{ e($accId) }}"
+                    >
+                      Adjuntar PDF/XML
+                    </button>
 
-                    <input class="uuid" name="cfdi_uuid" placeholder="UUID (opcional)" value="{{ $uuid }}">
-                    <input class="notes" name="notes" placeholder="Notas (opcional)" value="{{ $notes }}">
+                    <button
+                      type="button"
+                      class="btn mini primary js-open-modal"
+                      data-modal="m-email"
+                      data-id="{{ $rowId }}"
+                      data-period="{{ e($perUi) }}"
+                      data-email="{{ e($emailUi) }}"
+                    >
+                      Enviar “Factura lista”
+                    </button>
+                  </div>
 
-                    <input class="file" type="file" name="zip" accept=".zip,application/zip,application/x-zip-compressed">
-
-                    <button class="btn mini" type="submit">Guardar</button>
-                  </form>
-
-                  {{-- B) Atajos (solo status) --}}
-                  <form method="POST" action="{{ route('admin.billing.invoices.requests.status', $r->id) }}">
-                    @csrf
-                    <input type="hidden" name="status" value="in_progress">
-                    <button class="btn mini info" type="submit">En proceso</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.billing.invoices.requests.status', $r->id) }}">
-                    @csrf
-                    <input type="hidden" name="status" value="{{ $mode==='legacy' ? 'done' : 'issued' }}">
-                    <button class="btn mini primary" type="submit">Emitida</button>
-                  </form>
-
-                  <form method="POST" action="{{ route('admin.billing.invoices.requests.status', $r->id) }}">
-                    @csrf
-                    <input type="hidden" name="status" value="rejected">
-                    <button class="btn mini danger" type="submit">Rechazar</button>
-                  </form>
-
-                  {{-- C) Email READY (NO sube ZIP aquí; usa el ZIP guardado en DB) --}}
-                  <form method="POST" action="{{ route('admin.billing.invoices.requests.email_ready', $r->id) }}">
-                    @csrf
-                    <input class="to" name="to" placeholder="correo destino (vacío=del cliente)" value="">
-                    <button class="btn mini primary" type="submit">Enviar “Factura lista”</button>
-                  </form>
-
-                </div>
-
-                <div class="mut" style="margin-top:10px">
-                  Flujo recomendado: 1) “Guardar” para subir ZIP/UUID/notas y marcar estatus; 2) “Enviar Factura lista” para notificar al cliente y adjuntar ZIP si existe.
-                </div>
-              </td>
+                  <div class="mut actionHint">
+                    Flujo recomendado: 1) Editar/Guardar (estatus/UUID/notas/ZIP) · 2) Adjuntar PDF/XML (opcional) · 3) Enviar correo.
+                  </div>
+                </td>
             </tr>
           @empty
             <tr>
@@ -578,4 +412,339 @@
 
   </div>
 </div>
+
+{{-- =========================
+     MODALS (UI)
+     ========================= --}}
+<div class="p360-modal" id="p360-modal" aria-hidden="true">
+  <div class="p360-modal__backdrop js-close-modal"></div>
+
+  <div class="p360-modal__panel" role="dialog" aria-modal="true" aria-labelledby="p360-modal-title">
+    <div class="p360-modal__head">
+      <div>
+        <div class="p360-modal__title" id="p360-modal-title">Modal</div>
+        <div class="p360-modal__sub mono" id="p360-modal-sub">—</div>
+      </div>
+      <button type="button" class="p360-modal__x js-close-modal" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="p360-modal__body">
+
+      {{-- A) EDITAR (status/uuid/notas/zip) --}}
+      <section class="p360-modal__section" data-pane="m-edit" hidden>
+        <form method="POST"
+              id="form-edit"
+              action=""
+              data-action-template="{{ route('admin.billing.invoices.requests.status', ['id' => '__ID__']) }}"
+              enctype="multipart/form-data"
+              novalidate>
+          @csrf
+          <input type="hidden" name="_p360_row_id" id="edit-row-id" value="">
+
+          <div class="grid2">
+            <div class="field">
+              <div class="label">Estatus</div>
+              <select name="status" id="edit-status" required>
+                @foreach($statusOptions as $s)
+                  <option value="{{ $s }}">{{ $s }}</option>
+                @endforeach
+              </select>
+            </div>
+
+            <div class="field">
+              <div class="label">UUID (opcional)</div>
+              <input name="cfdi_uuid"
+                    id="edit-uuid"
+                    placeholder="UUID"
+                    value=""
+                    autocomplete="off"
+                    spellcheck="false">
+            </div>
+          </div>
+
+          <div class="field" style="margin-top:10px">
+            <div class="label">Notas (opcional)</div>
+            <textarea name="notes"
+                      id="edit-notes"
+                      rows="3"
+                      placeholder="Notas…"
+                      maxlength="5000"></textarea>
+          </div>
+
+          <div class="field" style="margin-top:10px">
+            <div class="label">ZIP (opcional)</div>
+            <input type="file" name="zip" accept=".zip,application/zip,application/x-zip-compressed">
+            <div class="mut" style="margin-top:6px">
+              Si adjuntas ZIP aquí, se guarda en la solicitud y se usará para el email “Factura lista”.
+            </div>
+          </div>
+
+          <div class="p360-modal__foot">
+            <button type="button" class="btn ghost js-close-modal">Cancelar</button>
+            <button type="submit" class="btn primary">Guardar</button>
+          </div>
+        </form>
+      </section>
+
+      {{-- B) ADJUNTAR PDF/XML --}}
+      <section class="p360-modal__section" data-pane="m-attach" hidden>
+        <form method="POST"
+              id="form-attach"
+              action=""
+              data-action-template="{{ route('admin.billing.invoices.requests.attach', ['id' => '__ID__']) }}"
+              enctype="multipart/form-data"
+              novalidate>
+          @csrf
+          <input type="hidden" name="_p360_row_id" id="attach-row-id" value="">
+
+          <div class="grid2">
+            <div class="field">
+              <div class="label">UUID (opcional)</div>
+              <input name="cfdi_uuid"
+                    id="attach-uuid"
+                    placeholder="UUID"
+                    value=""
+                    autocomplete="off"
+                    spellcheck="false">
+            </div>
+
+            <div class="field">
+              <div class="label">Notas (opcional)</div>
+              <input name="notes"
+                    id="attach-notes"
+                    placeholder="Notas…"
+                    maxlength="5000"
+                    autocomplete="off">
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px">
+            <div class="field">
+              <div class="label">PDF</div>
+              <input type="file" name="pdf" accept="application/pdf">
+            </div>
+            <div class="field">
+              <div class="label">XML</div>
+              <input type="file" name="xml" accept=".xml,application/xml,text/xml">
+            </div>
+          </div>
+
+          <div class="mut" style="margin-top:8px">
+            Sube PDF/XML reales para que después el cliente pueda descargarlos desde su perfil.
+          </div>
+
+          <div class="p360-modal__foot">
+            <button type="button" class="btn ghost js-close-modal">Cancelar</button>
+            <button type="submit" class="btn primary">Adjuntar</button>
+          </div>
+        </form>
+      </section>
+
+      {{-- C) EMAIL READY --}}
+      <section class="p360-modal__section" data-pane="m-email" hidden>
+        <form method="POST"
+              id="form-email"
+              action=""
+              data-action-template="{{ route('admin.billing.invoices.requests.email_ready', ['id' => '__ID__']) }}"
+              novalidate>
+          @csrf
+          <input type="hidden" name="_p360_row_id" id="email-row-id" value="">
+
+          <div class="field">
+            <div class="label">Correo destino</div>
+            <input name="to"
+                  id="email-to"
+                  placeholder="vacío = correo del cliente"
+                  value=""
+                  inputmode="email"
+                  autocomplete="off"
+                  spellcheck="false">
+            <div class="mut" style="margin-top:6px">
+              Si lo dejas vacío, se usa el email del cliente (accounts.email).
+            </div>
+          </div>
+
+          <div class="p360-modal__foot">
+            <button type="button" class="btn ghost js-close-modal">Cancelar</button>
+            <button type="submit" class="btn primary">Enviar</button>
+          </div>
+        </form>
+      </section>
+
+    </div>
+  </div>
+</div>
 @endsection
+
+@push('scripts')
+<script>
+(function(){
+  'use strict';
+
+  const modal = document.getElementById('p360-modal');
+  if(!modal) return;
+
+  const title = modal.querySelector('#p360-modal-title');
+  const sub   = modal.querySelector('#p360-modal-sub');
+
+  const panes = Array.from(modal.querySelectorAll('[data-pane]'));
+  const openBtns  = Array.from(document.querySelectorAll('.js-open-modal'));
+  const closeBtns = Array.from(modal.querySelectorAll('.js-close-modal'));
+
+  const formEdit   = modal.querySelector('#form-edit');
+  const formAttach = modal.querySelector('#form-attach');
+  const formEmail  = modal.querySelector('#form-email');
+
+  const editStatus = modal.querySelector('#edit-status');
+  const editUuid   = modal.querySelector('#edit-uuid');
+  const editNotes  = modal.querySelector('#edit-notes');
+
+  const attachUuid  = modal.querySelector('#attach-uuid');
+  const attachNotes = modal.querySelector('#attach-notes');
+
+  const emailTo = modal.querySelector('#email-to');
+
+  const editRowId   = modal.querySelector('#edit-row-id');
+  const attachRowId = modal.querySelector('#attach-row-id');
+  const emailRowId  = modal.querySelector('#email-row-id');
+
+  function show(paneId){
+    panes.forEach(p => p.hidden = (p.getAttribute('data-pane') !== paneId));
+    modal.setAttribute('aria-hidden','false');
+    document.documentElement.classList.add('p360-modal-open');
+    document.body.classList.add('p360-modal-open');
+  }
+
+  function hide(){
+    modal.setAttribute('aria-hidden','true');
+    document.documentElement.classList.remove('p360-modal-open');
+    document.body.classList.remove('p360-modal-open');
+    panes.forEach(p => p.hidden = true);
+    modal.dataset.rowId = '';
+  }
+
+  closeBtns.forEach(b => b.addEventListener('click', hide));
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && modal.getAttribute('aria-hidden') === 'false') hide(); });
+
+  function withId(tpl, id){
+    return String(tpl || '').replace('__ID__', String(id));
+  }
+
+  function setActionFromTemplate(form, id){
+    if(!form) return false;
+    const tpl = (form.getAttribute('data-action-template') || '').trim();
+    if(!tpl) return false;
+
+    const rowId = String(id || '').trim();
+    if(!rowId) return false;
+
+    const url = withId(tpl, rowId).trim();
+    if(!url) return false;
+
+    form.setAttribute('action', url);
+    return true;
+  }
+
+  function isBadAction(act){
+    const a = String(act || '').trim().toLowerCase();
+
+    // vacíos o basura
+    if(!a || a === '#' || a === 'javascript:void(0)' || a === 'javascript:void(0);') return true;
+
+    // POST al listado (causa exacta del MethodNotAllowed)
+    const isListPost =
+      a.includes('/admin/billing/invoices/requests') &&
+      !a.match(/\/admin\/billing\/invoices\/requests\/\d+\//);
+
+    return !!isListPost;
+  }
+
+  function toast(msg){
+    if (window.P360 && typeof window.P360.toast === 'function') window.P360.toast(msg);
+    else alert(msg);
+  }
+
+  function guardFormAction(form, pane){
+    if(!form) return;
+
+    form.addEventListener('submit', (e)=>{
+      // Si ya tiene action bueno, deja pasar
+      const current = form.getAttribute('action');
+      if(!isBadAction(current)) return;
+
+      // Intento 1: usar id guardado en modal.dataset.rowId
+      const id = String(modal.dataset.rowId || '').trim();
+      const ok = setActionFromTemplate(form, id);
+
+      // Re-evalúa
+      const after = form.getAttribute('action');
+      if(ok && !isBadAction(after)) return;
+
+      // Si sigue mal, bloquea (evita POST al listado)
+      e.preventDefault();
+      toast('Ruta inválida (action). Abre el modal desde un botón de fila para asignar ID (y no enviar POST al listado).');
+    });
+  }
+
+  openBtns.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const modalId = (btn.getAttribute('data-modal') || '').trim();
+      const id      = (btn.getAttribute('data-id') || '').trim();
+      const period  = btn.getAttribute('data-period') || '—';
+      const account = btn.getAttribute('data-account') || '—';
+
+      if(!modalId){
+        toast('No se pudo abrir modal: falta data-modal.');
+        return;
+      }
+      if(!id){
+        toast('No se pudo abrir modal: falta data-id (row id).');
+        return;
+      }
+
+      modal.dataset.rowId = id;
+
+      // header
+      if(modalId === 'm-edit')   title.textContent = 'Editar solicitud';
+      if(modalId === 'm-attach') title.textContent = 'Adjuntar factura (PDF/XML)';
+      if(modalId === 'm-email')  title.textContent = 'Enviar “Factura lista”';
+
+      sub.textContent = 'Cuenta: ' + account + ' · Periodo: ' + period + ' · ID: ' + id;
+
+      // panes + actions + values
+      if(modalId === 'm-edit'){
+        setActionFromTemplate(formEdit, id);
+        if(editRowId) editRowId.value = id;
+
+        const st = btn.getAttribute('data-status') || 'requested';
+        if(editStatus) editStatus.value = st;
+
+        if(editUuid)  editUuid.value  = btn.getAttribute('data-uuid')  || '';
+        if(editNotes) editNotes.value = btn.getAttribute('data-notes') || '';
+      }
+
+      if(modalId === 'm-attach'){
+        setActionFromTemplate(formAttach, id);
+        if(attachRowId) attachRowId.value = id;
+
+        if(attachUuid)  attachUuid.value  = btn.getAttribute('data-uuid') || '';
+        if(attachNotes) attachNotes.value = '';
+      }
+
+      if(modalId === 'm-email'){
+        setActionFromTemplate(formEmail, id);
+        if(emailRowId) emailRowId.value = id;
+
+        if(emailTo) emailTo.value = '';
+      }
+
+      show(modalId);
+    });
+  });
+
+  guardFormAction(formEdit, 'm-edit');
+  guardFormAction(formAttach, 'm-attach');
+  guardFormAction(formEmail, 'm-email');
+})();
+</script>
+@endpush

@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class InvoiceRequestsController extends Controller
 {
@@ -183,8 +185,166 @@ final class InvoiceRequestsController extends Controller
         }
 
         return back()->with('ok', 'Estatus actualizado.');
+    }
 
+    /**
+     * ✅ NUEVO: Adjuntar factura real (PDF/XML) a una solicitud (y dejarla lista para descarga).
+     */
+    public function attachInvoice(Request $req, int $id): RedirectResponse
+    {
+        [$table, $mode] = $this->resolveInvoiceRequestsTableSmart($req);
+        abort_unless($table !== null, 404);
 
+        if (!Schema::connection($this->adm)->hasTable('billing_invoices')) {
+            return back()->withErrors(['invoice' => 'Falta tabla billing_invoices. Corre migraciones.']);
+        }
+
+        $data = $req->validate([
+            'cfdi_uuid' => 'nullable|string|max:80',
+            'notes'     => 'nullable|string|max:5000',
+            'pdf'       => 'nullable|file|mimes:pdf|max:20480', // 20MB
+            'xml'       => 'nullable|file|mimes:xml,txt|max:20480', // XML suele venir como text/xml o application/xml
+        ]);
+
+        if (!$req->hasFile('pdf') && !$req->hasFile('xml')) {
+            return back()->withErrors(['invoice' => 'Sube al menos PDF o XML.']);
+        }
+
+        $row = DB::connection($this->adm)->table($table)->where('id', $id)->first();
+        if (!$row) return back()->withErrors(['invoice' => 'Solicitud no encontrada.']);
+
+        $accountId = (string)($row->account_id ?? '');
+        $period    = (string)($row->period ?? ($row->periodo ?? ''));
+
+        if ($accountId === '' || $period === '') {
+            return back()->withErrors(['invoice' => 'No se puede adjuntar: falta account_id/period en la solicitud.']);
+        }
+
+        // Account info (opcional)
+        $acc = null;
+        if (Schema::connection($this->adm)->hasTable('accounts')) {
+            $acc = DB::connection($this->adm)->table('accounts')
+                ->select(['id','rfc','razon_social','name','email'])
+                ->where('id', $accountId)
+                ->first();
+        }
+
+        $uuid = trim((string)($data['cfdi_uuid'] ?? ''));
+        if ($uuid === '' && !empty($row->cfdi_uuid)) $uuid = trim((string)$row->cfdi_uuid);
+
+        $disk = 'local';
+        $dir  = "billing/invoices/{$accountId}/{$period}";
+        $tag  = $uuid !== '' ? preg_replace('/[^A-Za-z0-9\-]/', '', $uuid) : ('req'.$id);
+
+        $payload = [
+            'account_id'    => $accountId,
+            'period'        => $period,
+            'request_id'    => $id,
+            'source'        => 'admin',
+            'cfdi_uuid'     => $uuid !== '' ? $uuid : null,
+            'rfc'           => ($acc->rfc ?? null) ?: ($row->rfc ?? null),
+            'razon_social'  => ($acc->razon_social ?? ($acc->name ?? null)) ?: ($row->razon_social ?? null),
+            'status'        => 'active',
+            'issued_at'     => now(),
+            'disk'          => $disk,
+            'notes'         => ($data['notes'] ?? null) ?: null,
+            'updated_at'    => now(),
+            'created_at'    => now(),
+        ];
+
+        // Guardar archivos
+        if ($req->hasFile('pdf')) {
+            $pdfFile = $req->file('pdf');
+            $pdfName = "CFDI_{$period}_{$tag}_" . date('Ymd_His') . ".pdf";
+            $pdfPath = $pdfFile->storeAs($dir, $pdfName, $disk);
+
+            $pdfFull = Storage::disk($disk)->path($pdfPath);
+            $payload['pdf_path'] = $pdfPath;
+            $payload['pdf_name'] = $pdfName;
+            $payload['pdf_size'] = @filesize($pdfFull) ?: null;
+            $payload['pdf_sha1'] = @sha1_file($pdfFull) ?: null;
+        }
+
+        if ($req->hasFile('xml')) {
+            $xmlFile = $req->file('xml');
+            $xmlName = "CFDI_{$period}_{$tag}_" . date('Ymd_His') . ".xml";
+            $xmlPath = $xmlFile->storeAs($dir, $xmlName, $disk);
+
+            $xmlFull = Storage::disk($disk)->path($xmlPath);
+            $payload['xml_path'] = $xmlPath;
+            $payload['xml_name'] = $xmlName;
+            $payload['xml_size'] = @filesize($xmlFull) ?: null;
+            $payload['xml_sha1'] = @sha1_file($xmlFull) ?: null;
+        }
+
+        // Upsert: si ya existe invoice para account+period+uuid (cuando uuid viene)
+        if (($payload['cfdi_uuid'] ?? null) !== null) {
+            $existing = DB::connection($this->adm)->table('billing_invoices')
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->where('cfdi_uuid', $payload['cfdi_uuid'])
+                ->first();
+
+            if ($existing) {
+                unset($payload['created_at']);
+                DB::connection($this->adm)->table('billing_invoices')->where('id', (int)$existing->id)->update($payload);
+            } else {
+                DB::connection($this->adm)->table('billing_invoices')->insert($payload);
+            }
+        } else {
+            DB::connection($this->adm)->table('billing_invoices')->insert($payload);
+        }
+
+        // Opcional: marcar solicitud como emitida (issued/done)
+        $cols = Schema::connection($this->adm)->getColumnListing($table);
+        $lc   = array_map('strtolower', $cols);
+        $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+        $statusTo = ($mode === 'hub') ? 'issued' : 'done';
+        $updReq   = [];
+
+        if ($has('status'))  $updReq['status'] = $statusTo;
+        if ($has('estatus')) $updReq['estatus'] = $statusTo;
+        if ($has('cfdi_uuid') && $uuid !== '') $updReq['cfdi_uuid'] = $uuid;
+        if ($has('updated_at')) $updReq['updated_at'] = now();
+
+        if (!empty($updReq)) {
+            DB::connection($this->adm)->table($table)->where('id', $id)->update($updReq);
+
+            // sync cruzado
+            if ($mode === 'legacy' && Schema::connection($this->adm)->hasTable('billing_invoice_requests')) {
+                $this->syncToHubFromLegacy($id);
+            }
+            if ($mode === 'hub' && Schema::connection($this->adm)->hasTable('invoice_requests')) {
+                $this->syncToLegacyFromHub($id);
+            }
+        }
+
+        return back()->with('ok', 'Factura adjuntada (PDF/XML) y solicitud marcada como emitida.');
+    }
+
+    /**
+     * ✅ NUEVO: Descargar PDF/XML de una factura (Admin).
+     */
+    public function downloadInvoice(int $invoiceId, string $kind): StreamedResponse
+    {
+        abort_unless(in_array($kind, ['pdf','xml'], true), 404);
+
+        abort_unless(Schema::connection($this->adm)->hasTable('billing_invoices'), 404);
+
+        $inv = DB::connection($this->adm)->table('billing_invoices')->where('id', $invoiceId)->first();
+        abort_unless($inv, 404);
+
+        $disk = (string)($inv->disk ?? 'local');
+        $path = $kind === 'pdf' ? (string)($inv->pdf_path ?? '') : (string)($inv->xml_path ?? '');
+        $name = $kind === 'pdf' ? (string)($inv->pdf_name ?? '') : (string)($inv->xml_name ?? '');
+
+        abort_unless($path !== '' && Storage::disk($disk)->exists($path), 404);
+
+        $as   = $name !== '' ? $name : basename($path);
+        $mime = $kind === 'pdf' ? 'application/pdf' : 'application/xml';
+
+        return Storage::disk($disk)->download($path, $as, ['Content-Type' => $mime]);
     }
 
     /**
@@ -236,10 +396,9 @@ final class InvoiceRequestsController extends Controller
 
             if (!empty($upd)) {
                 DB::connection($this->adm)->table($table)->where('id', $id)->update($upd);
-                $row = DB::connection($this->adm)->table($table)->where('id', $id)->first(); // refrescar
+                $row = DB::connection($this->adm)->table($table)->where('id', $id)->first();
             }
 
-            // Sync cruzado para cliente
             if ($mode === 'legacy' && Schema::connection($this->adm)->hasTable('billing_invoice_requests')) {
                 $this->syncToHubFromLegacy($id);
             }
@@ -282,25 +441,25 @@ final class InvoiceRequestsController extends Controller
         try {
             Mail::send([], [], function ($m) use ($to, $subject, $bodyHtml, $hasZip, $zipDisk, $zipPath, $zipName) {
                 $m->to($to)->subject($subject);
-                $m->setBody($bodyHtml, 'text/html');
+
+                // ✅ Laravel 12 / Symfony Mailer: NO usar setBody(string)
+                $m->html($bodyHtml);
 
                 if ($hasZip) {
                     $stream = Storage::disk($zipDisk)->readStream($zipPath);
-                    $name = $zipName !== '' ? $zipName : basename($zipPath);
+                    if (is_resource($stream)) {
+                        $name = $zipName !== '' ? $zipName : basename($zipPath);
 
-                    $tmp = tmpfile();
-                    if ($tmp) {
-                        stream_copy_to_stream($stream, $tmp);
-                        $meta = stream_get_meta_data($tmp);
-                        $tmpPath = $meta['uri'] ?? null;
-                        if ($tmpPath) {
-                            $m->attach($tmpPath, ['as' => $name, 'mime' => 'application/zip']);
-                        }
+                        // Adjuntar por stream (sin tmpfile)
+                        $m->attachData(stream_get_contents($stream), $name, [
+                            'mime' => 'application/zip',
+                        ]);
+
+                        @fclose($stream);
                     }
                 }
             });
 
-            // marca zip_sent_at si existe
             $upd = [];
             if ($has('zip_sent_at')) $upd['zip_sent_at'] = now();
             if ($has('updated_at'))  $upd['updated_at']  = now();
@@ -310,14 +469,12 @@ final class InvoiceRequestsController extends Controller
 
             return back()->with('ok', 'Correo enviado (“Factura lista”).');
         } catch (\Throwable $e) {
-            return back()->withErrors(['mail' => 'Falló el envío: '.$e->getMessage()]);
+            return back()->withErrors(['mail' => 'Falló el envío: ' . $e->getMessage()]);
         }
     }
 
     /**
      * Preferencia de tabla:
-     * - Si forzas src=hub|legacy, respeta.
-     * - Si existen ambas: mientras hub no esté completo, preferir legacy si tiene más filas.
      * @return array{0:?string,1:string,2:?string}
      */
     private function resolveInvoiceRequestsTableSmart(Request $req): array
@@ -343,7 +500,6 @@ final class InvoiceRequestsController extends Controller
             $hubCount    = (int) DB::connection($this->adm)->table('billing_invoice_requests')->count();
             $legacyCount = (int) DB::connection($this->adm)->table('invoice_requests')->count();
 
-            // Mientras migra: si legacy tiene más, mostrar legacy para no “perder” solicitudes
             if ($legacyCount > $hubCount) {
                 return ['invoice_requests', 'legacy', 'Mostrando LEGACY porque tiene más solicitudes que HUB (migración en curso). Usa ?src=hub para forzar HUB.'];
             }
@@ -355,11 +511,6 @@ final class InvoiceRequestsController extends Controller
         return ['invoice_requests', 'legacy', null];
     }
 
-    /**
-     * Normaliza ES/EN/UI -> DB.
-     * legacy: requested|in_progress|done|rejected
-     * hub:    requested|in_progress|issued|rejected
-     */
     private function normalizeStatusForDb(string $raw, string $mode): string
     {
         $s = strtolower(trim($raw));
@@ -377,7 +528,6 @@ final class InvoiceRequestsController extends Controller
             'in_progress'  => 'in_progress',
             'processing'   => 'in_progress',
 
-            // finales
             'emitida'   => 'done',
             'emitido'   => 'done',
             'done'      => 'done',
@@ -395,16 +545,12 @@ final class InvoiceRequestsController extends Controller
 
         $canonical = $map[$s] ?? $s;
 
-        // Ajuste por modo DB:
         if ($mode === 'hub') {
-            // hub usa issued (no done)
             if ($canonical === 'done') return 'issued';
         } else {
-            // legacy usa done (no issued)
             if ($canonical === 'issued') return 'done';
         }
 
-        // Sanitiza por seguridad
         if (!in_array($canonical, ['requested','in_progress','done','issued','rejected'], true)) {
             $canonical = 'requested';
         }
@@ -412,10 +558,6 @@ final class InvoiceRequestsController extends Controller
         return $canonical;
     }
 
-
-    /**
-     * Legacy -> Hub (por account_id + period). Escribe solo columnas que existan.
-     */
     private function syncToHubFromLegacy(int $legacyId): void
     {
         if (!Schema::connection($this->adm)->hasTable('invoice_requests')) return;
@@ -461,10 +603,6 @@ final class InvoiceRequestsController extends Controller
         }
     }
 
-    /**
-     * Sync mínimo desde hub -> legacy si existe.
-     * Copia status + zip_path + cfdi_uuid + notes por (account_id, period).
-     */
     private function syncToLegacyFromHub(int $hubId): void
     {
         if (!Schema::connection($this->adm)->hasTable('billing_invoice_requests')) return;
@@ -477,20 +615,17 @@ final class InvoiceRequestsController extends Controller
         $period    = (string)($hub->period ?? '');
         if ($accountId === '' || $period === '') return;
 
-        // legacy match por account_id + period
         $legacy = DB::connection($this->adm)->table('invoice_requests')
             ->where('account_id', $accountId)
             ->where('period', $period)
             ->first();
 
-        // status: hub issued -> legacy done
         $statusLegacy = strtolower((string)($hub->status ?? 'requested'));
         if ($statusLegacy === 'issued') $statusLegacy = 'done';
         if (!in_array($statusLegacy, ['requested','in_progress','done','rejected'], true)) {
             $statusLegacy = 'requested';
         }
 
-        // Columnas reales en legacy (por si no existen en alguna BD)
         $cols = Schema::connection($this->adm)->getColumnListing('invoice_requests');
         $lc   = array_map('strtolower', $cols);
         $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
@@ -515,7 +650,6 @@ final class InvoiceRequestsController extends Controller
         if ($legacy) {
             DB::connection($this->adm)->table('invoice_requests')->where('id', (int)$legacy->id)->update($payload);
         } else {
-            // Crea registro legacy si no existe
             $ins = [
                 'account_id' => $accountId,
                 'period'     => $period,
@@ -526,8 +660,4 @@ final class InvoiceRequestsController extends Controller
             DB::connection($this->adm)->table('invoice_requests')->insert($ins);
         }
     }
-
-
-
-    
 }
