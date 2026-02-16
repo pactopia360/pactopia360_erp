@@ -1229,10 +1229,60 @@ final class BillingStatementsController extends Controller
             ];
 
             // UI info en overrides
+            // =========================================================
+            // ✅ UI info en overrides (SOT + compat)
+            // - pay_status puede vivir en: pay_status (nuevo) o status (legacy)
+            // - SIEMPRE guardamos meta con pay_* como fallback universal
+            // =========================================================
+
+            // provider “visual” para UI (no payments):
+            // - stripe/card => provider stripe
+            // - transferencia/manual => provider manual
+            $payProvider = in_array($payMethod, ['stripe','card'], true) ? 'stripe' : 'manual';
+
+            // columns direct
             if ($ovHas('pay_method'))   $payload['pay_method']   = $payMethod;
-            if ($ovHas('pay_provider')) $payload['pay_provider'] = 'manual';
-            if ($ovHas('status'))       $payload['status']       = $status;          // pay_status UI
+            if ($ovHas('pay_provider')) $payload['pay_provider'] = $payProvider;
+
+            // ✅ pay_status en columna preferida
+            if ($ovHas('pay_status'))   $payload['pay_status']   = $status;   // nuevo (preferido)
+            if ($ovHas('status'))       $payload['status']       = $status;   // legacy compat
+
             if ($ovHas('paid_at'))      $payload['paid_at']      = ($status === 'pagado') ? $paidAt : null;
+
+            // ✅ meta fallback (siempre)
+            if ($ovHas('meta')) {
+                // merge con meta existente (si hay)
+                $oldMeta = [];
+                try {
+                    if ($exists && isset($exists->id)) {
+                        $prev = DB::connection($this->adm)->table($this->overrideTable())
+                            ->where('id', (int) $exists->id)
+                            ->first(['meta']);
+                        if ($prev && isset($prev->meta) && $prev->meta !== null && $prev->meta !== '') {
+                            $oldMeta = json_decode((string)$prev->meta, true);
+                            if (!is_array($oldMeta)) $oldMeta = [];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $oldMeta = [];
+                }
+
+                $oldMeta['pay_method']   = $payMethod;
+                $oldMeta['pay_provider'] = $payProvider;
+                $oldMeta['pay_status']   = $status;
+
+                if ($status === 'pagado') {
+                    $oldMeta['paid_at'] = ($paidAt instanceof \DateTimeInterface)
+                        ? Carbon::instance($paidAt)->toDateTimeString()
+                        : (string) $paidAt;
+                } else {
+                    // si ya no es pagado, limpiamos paid_at para evitar confusión visual
+                    $oldMeta['paid_at'] = null;
+                }
+
+                $payload['meta'] = json_encode($oldMeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
 
             if ($exists && isset($exists->id)) {
                 DB::connection($this->adm)->table($this->overrideTable())
@@ -1296,6 +1346,8 @@ final class BillingStatementsController extends Controller
             'period'     => $period,
             'status'     => $status,
             'pay_method' => $payMethod,
+            'pay_provider' => in_array($payMethod, ['stripe','card'], true) ? 'stripe' : 'manual',
+            'pay_status'   => $status,
             'paid_at'    => ($status === 'pagado' ? ($paidAt?->toDateTimeString()) : null),
 
             'total'      => round((float) $total, 2),
@@ -1329,132 +1381,9 @@ final class BillingStatementsController extends Controller
     // =========================================================
     public function status(Request $req): JsonResponse
     {
-        // JSON expected (pero soporta form también)
-        $data = $req->validate([
-            'account_id' => 'required|string|max:64',
-            'period'     => 'required|string',
-            'status'     => 'required|string|in:pendiente,parcial,pagado,vencido,sin_mov',
-            'pay_method' => 'nullable|string|max:32',
-            'paid_at'    => 'nullable|string', // datetime-local o datetime
-        ]);
-
-        $accountId = trim((string) $data['account_id']);
-        $period    = trim((string) $data['period']);
-        $status    = strtolower(trim((string) $data['status']));
-        $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
-
-        if (!$this->isValidPeriod($period)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Periodo inválido. Formato YYYY-MM.',
-            ], 422);
-        }
-
-        // paid_at: solo aplica cuando status=pagado
-        $paidAt = null;
-        if ($status === 'pagado') {
-            $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? ''));
-            if ($paidAt === null) {
-                $paidAt = now();
-            }
-        }
-
-        // tablas requeridas
-        if (!Schema::connection($this->adm)->hasTable('accounts')) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'No existe tabla accounts en admin.',
-            ], 500);
-        }
-
-        $accExists = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->exists();
-        if (!$accExists) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Cuenta no encontrada.',
-            ], 404);
-        }
-
-        $tbl = $this->overrideTable();
-        if (!Schema::connection($this->adm)->hasTable($tbl)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => "No existe la tabla de overrides: {$tbl}.",
-            ], 500);
-        }
-
-        // columnas existentes (defensivo)
-        $cols = Schema::connection($this->adm)->getColumnListing($tbl);
-        $lc   = array_map('strtolower', $cols);
-        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-        // Provider default: si viene método vacío, lo dejamos null/'' según columna
-        $provider = 'manual';
-
-        // payload
-        $row = [];
-        if ($has('account_id')) $row['account_id'] = $accountId;
-        if ($has('period'))     $row['period']     = $period;
-
-        // status override (tu Blade lee status_override/ov_status; tu applyStatusOverride debe mapearlo)
-        if ($has('status'))         $row['status']         = $status;
-        if ($has('ov_status'))      $row['ov_status']      = $status;
-        if ($has('status_override'))$row['status_override']= $status;
-
-        // pay method/provider/status (si existen)
-        if ($has('pay_method'))     $row['pay_method']     = $payMethod !== '' ? $payMethod : null;
-        if ($has('ov_pay_method'))  $row['ov_pay_method']  = $payMethod !== '' ? $payMethod : null;
-
-        if ($has('pay_provider'))   $row['pay_provider']   = $provider;
-        if ($has('ov_pay_provider'))$row['ov_pay_provider']= $provider;
-
-        // pay_status: si marcaste pagado, forzamos pay_status=pagado
-        $payStatus = ($status === 'pagado') ? 'pagado' : $status;
-        if ($has('pay_status'))     $row['pay_status']     = $payStatus;
-        if ($has('ov_pay_status'))  $row['ov_pay_status']  = $payStatus;
-
-        if ($status === 'pagado') {
-            if ($has('paid_at'))     $row['paid_at']     = $paidAt;
-            if ($has('pay_paid_at')) $row['pay_paid_at'] = $paidAt;
-        } else {
-            // si no es pagado, normalmente NO tocamos paid_at (para no borrar historial)
-            // si tu modelo requiere limpiar paid_at al desmarcar, dímelo y lo ajusto.
-        }
-
-        if ($has('updated_at')) $row['updated_at'] = now();
-        if (!$has('updated_at')) {
-            // no-op
-        }
-
-        DB::connection($this->adm)->transaction(function () use ($tbl, $accountId, $period, $row, $has) {
-            // existe override?
-            $q = DB::connection($this->adm)->table($tbl)
-                ->where('account_id', $accountId)
-                ->where('period', $period);
-
-            $existing = $q->first();
-
-            if ($existing) {
-                // update
-                DB::connection($this->adm)->table($tbl)
-                    ->where('account_id', $accountId)
-                    ->where('period', $period)
-                    ->update($row);
-            } else {
-                // insert
-                if ($has('created_at')) $row['created_at'] = now();
-                DB::connection($this->adm)->table($tbl)->insert($row);
-            }
-        });
-
-        return response()->json([
-            'ok'        => true,
-            'account_id'=> $accountId,
-            'period'    => $period,
-            'status'    => $status,
-            'pay_method'=> $payMethod !== '' ? $payMethod : null,
-            'paid_at'   => $paidAt ? $paidAt->toDateTimeString() : null,
-        ]);
+        // ✅ Compat: algunas UIs antiguas llaman "status()"
+        // La única fuente de verdad (SOT) es statusAjax().
+        return $this->statusAjax($req);
     }
 
     // =========================================================
@@ -3246,7 +3175,9 @@ final class BillingStatementsController extends Controller
             $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
             $select = ['account_id', 'period', 'status_override', 'reason', 'updated_by', 'updated_at'];
-            foreach (['pay_method','pay_provider','status','paid_at','meta'] as $c) {
+
+            // soportar variantes de columnas
+            foreach (['pay_method','pay_provider','pay_status','status','paid_at','meta'] as $c) {
                 if ($has($c)) $select[] = $c;
             }
 
@@ -3260,6 +3191,43 @@ final class BillingStatementsController extends Controller
                 $aid = (string) ($r->account_id ?? '');
                 if ($aid === '') continue;
 
+                // meta fallback
+                $metaOv = [];
+                if ($has('meta') && isset($r->meta) && $r->meta !== null && $r->meta !== '') {
+                    try {
+                        $metaOv = is_array($r->meta) ? $r->meta : json_decode((string) $r->meta, true);
+                        if (!is_array($metaOv)) $metaOv = [];
+                    } catch (\Throwable $e) {
+                        $metaOv = [];
+                    }
+                }
+
+                // method/provider desde columnas si existen
+                $pm = $has('pay_method')   ? (string) ($r->pay_method ?? '')   : '';
+                $pp = $has('pay_provider') ? (string) ($r->pay_provider ?? '') : '';
+
+                // pay_status: primero columna pay_status, luego status (legacy)
+                $ps = '';
+                if ($has('pay_status')) {
+                    $ps = (string) ($r->pay_status ?? '');
+                } elseif ($has('status')) {
+                    $ps = (string) ($r->status ?? '');
+                }
+
+                // paid_at desde columna si existe
+                $paidAt = $has('paid_at') ? ($r->paid_at ?? null) : null;
+
+                // fallback desde meta si vienen vacíos o no hay columnas
+                if (trim($pm) === '') $pm = (string) data_get($metaOv, 'pay_method', data_get($metaOv, 'method', ''));
+                if (trim($pp) === '') $pp = (string) data_get($metaOv, 'pay_provider', data_get($metaOv, 'provider', ''));
+                if (trim($ps) === '') $ps = (string) data_get($metaOv, 'pay_status', data_get($metaOv, 'status', ''));
+                if ($paidAt === null)  $paidAt = data_get($metaOv, 'paid_at');
+
+                // normaliza a null si queda vacío
+                $pm = trim($pm) !== '' ? trim($pm) : null;
+                $pp = trim($pp) !== '' ? trim($pp) : null;
+                $ps = trim($ps) !== '' ? trim($ps) : null;
+
                 $out[$aid] = [
                     'status'       => (string) ($r->status_override ?? ''),
                     'reason'       => isset($r->reason) ? (string) $r->reason : null,
@@ -3267,10 +3235,10 @@ final class BillingStatementsController extends Controller
                     'updated_at'   => isset($r->updated_at) ? (string) $r->updated_at : null,
 
                     // 👇 “fuente UI” (no payments)
-                    'pay_method'   => $has('pay_method')   ? (string) ($r->pay_method ?? '')   : null,
-                    'pay_provider' => $has('pay_provider') ? (string) ($r->pay_provider ?? '') : null,
-                    'pay_status'   => $has('status')       ? (string) ($r->status ?? '')       : null,
-                    'paid_at'      => $has('paid_at')      ? ($r->paid_at ?? null)             : null,
+                    'pay_method'   => $pm,
+                    'pay_provider' => $pp,
+                    'pay_status'   => $ps,
+                    'paid_at'      => $paidAt,
                 ];
             }
         } catch (\Throwable $e) {
@@ -3407,9 +3375,14 @@ final class BillingStatementsController extends Controller
                 $existing = $q->orderByDesc($idCol)->first([$idCol]);
             }
 
+            // ✅ Arma row una sola vez (y NO lo pises después)
             $row = [
                 'updated_at' => now(),
             ];
+
+            // ✅ Siempre incluir account_id en el row (insert/update consistentes)
+            // OJO: si payments.account_id es INT, casteamos; si es VARCHAR, se queda string (pero aquí lo forzamos a int porque tu tabla parece NOT NULL y numérica).
+            $row['account_id'] = (int) $accountId;
 
             if ($has('period'))   $row['period']   = $period;
             if ($has('status'))   $row['status']   = 'paid';
@@ -3444,11 +3417,14 @@ final class BillingStatementsController extends Controller
             DB::connection($this->adm)->transaction(function () use ($existing, $idCol, $row, $accountId) {
 
                 if ($existing && isset($existing->{$idCol})) {
-                    DB::connection($this->adm)->table('payments')->where($idCol, (int) $existing->{$idCol})->update($row);
+                    DB::connection($this->adm)
+                        ->table('payments')
+                        ->where($idCol, (int) $existing->{$idCol})
+                        ->update($row);
                 } else {
                     $row2 = $row;
                     $row2['created_at'] = now();
-                    
+
                     // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
                     $aid2 = (int)($row2['account_id'] ?? 0);
                     if ($aid2 <= 0) {
@@ -3579,7 +3555,7 @@ final class BillingStatementsController extends Controller
      * POST admin/billing/statements/status
      * status_override vacío => borra override (regresa a AUTO)
      */
-    public function setStatusOverride(Request $req): RedirectResponse
+    public function setStatusOverrideForm(Request $req): RedirectResponse
     {
         $data = $req->validate([
             'account_id'      => 'required|string|max:64',
