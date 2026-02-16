@@ -558,6 +558,55 @@ final class InvoiceRequestsController extends Controller
         return $canonical;
     }
 
+        /**
+     * ✅ billing_invoice_requests.statement_id es NOT NULL.
+     * Resuelve billing_statements.id por account_id + period.
+     * Si no existe, lo crea mínimo para evitar 500.
+     */
+    private function resolveStatementIdForInvoice(string $accountId, string $period): int
+    {
+        if ($accountId === '' || $period === '') return 0;
+
+        // billing_statements.account_id es varchar(36) y en tu sistema a veces llega "6" (string),
+        // por eso usamos candidatos.
+        $acctCandidates = array_values(array_unique([
+            $accountId,
+            is_numeric($accountId) ? (string)((int)$accountId) : $accountId,
+        ]));
+
+        $st = DB::connection($this->adm)->table('billing_statements')
+            ->whereIn('account_id', $acctCandidates)
+            ->where('period', $period)
+            ->first(['id']);
+
+        if ($st && isset($st->id) && (int)$st->id > 0) {
+            return (int) $st->id;
+        }
+
+        // ✅ fallback seguro: crear statement mínimo para ese periodo
+        $now = now();
+
+        DB::connection($this->adm)->table('billing_statements')->insert([
+            'account_id'   => (string) ($acctCandidates[0] ?? $accountId),
+            'period'       => (string) $period,
+            'total_cargo'  => 0.00,
+            'total_abono'  => 0.00,
+            'saldo'        => 0.00,
+            'status'       => 'pending',
+            'due_date'     => null,
+            'sent_at'      => null,
+            'paid_at'      => null,
+            'snapshot'     => null,
+            'meta'         => null,
+            'is_locked'    => 0,
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        ]);
+
+        $id = (int) DB::connection($this->adm)->getPdo()->lastInsertId();
+        return $id > 0 ? $id : 0;
+    }
+
     private function syncToHubFromLegacy(int $legacyId): void
     {
         if (!Schema::connection($this->adm)->hasTable('invoice_requests')) return;
@@ -587,9 +636,22 @@ final class InvoiceRequestsController extends Controller
         $statusHub = $this->normalizeStatusForDb((string)($legacy->status ?? 'requested'), 'hub');
         if ($has('status'))     $payload['status']     = $statusHub;
 
-        foreach (['notes','cfdi_uuid','zip_disk','zip_path','zip_name','zip_size','zip_sha1','zip_ready_at','zip_sent_at','public_token','public_expires_at','statement_id'] as $c) {
+        // Copia campos comunes (legacy NO trae statement_id)
+        foreach (['notes','cfdi_uuid','zip_disk','zip_path','zip_name','zip_size','zip_sha1','zip_ready_at','zip_sent_at','public_token','public_expires_at'] as $c) {
             if ($has($c) && property_exists($legacy, $c)) {
                 $payload[$c] = $legacy->{$c};
+            }
+        }
+
+        // ✅ statement_id SIEMPRE (HUB lo exige NOT NULL)
+        if ($has('statement_id')) {
+            $stmtId = $this->resolveStatementIdForInvoice($accountId, $period);
+
+            // Si ya existía en HUB y ya tiene statement_id válido, respétalo.
+            if ($hub && isset($hub->statement_id) && (int)$hub->statement_id > 0) {
+                $payload['statement_id'] = (int) $hub->statement_id;
+            } else {
+                $payload['statement_id'] = $stmtId > 0 ? $stmtId : 1; // paracaídas extremo
             }
         }
 

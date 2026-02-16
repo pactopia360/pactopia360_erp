@@ -537,4 +537,53 @@ final class FacturasController extends Controller
             'per_page' => (int) $request->input('per_page', $request->query('per_page', 10)),
         ];
     }
+
+        /**
+     * ✅ Resuelve/crea el billing_statements.id para account_id+period (admin).
+     * billing_invoice_requests.statement_id es NOT NULL -> SIEMPRE se debe mandar.
+     */
+    private function resolveStatementIdForInvoice(int $accountId, string $period): int
+    {
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        // billing_statements.account_id es varchar(36) pero en tu sistema llega como int (6,21,...)
+        $acctCandidates = array_values(array_unique([
+            (string) $accountId,
+            (int) $accountId,
+        ]));
+
+        $st = DB::connection($adm)->table('billing_statements')
+            ->whereIn('account_id', $acctCandidates)
+            ->where('period', $period)
+            ->first(['id']);
+
+        if ($st && isset($st->id) && (int)$st->id > 0) {
+            return (int) $st->id;
+        }
+
+        // ✅ fallback seguro: si NO existe el statement para ese periodo, lo creamos mínimo.
+        // (esto evita que truene la solicitud de factura por el NOT NULL)
+        $now = now();
+
+        DB::connection($adm)->table('billing_statements')->insert([
+            'account_id'   => (string) $accountId,
+            'period'       => $period,
+            'total_cargo'  => 0.00,
+            'total_abono'  => 0.00,
+            'saldo'        => 0.00,
+            'status'       => 'pending',
+            'due_date'     => null,
+            'sent_at'      => null,
+            'paid_at'      => null,
+            'snapshot'     => null,
+            'meta'         => null,
+            'is_locked'    => 0,
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        ]);
+
+        $id = (int) DB::connection($adm)->getPdo()->lastInsertId();
+
+        return $id > 0 ? $id : 0;
+    }
 }
