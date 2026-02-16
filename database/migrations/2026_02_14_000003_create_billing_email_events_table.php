@@ -9,6 +9,11 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        // ✅ Fix: si la tabla ya existe (por ejecución parcial o creada antes), no intentar crearla.
+        if (Schema::hasTable('billing_email_events')) {
+            return;
+        }
+
         Schema::create('billing_email_events', function (Blueprint $table) {
             $table->bigIncrements('id');
 
