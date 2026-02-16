@@ -1147,6 +1147,314 @@ final class BillingStatementsController extends Controller
         }
 
         return back()->with('ok', 'Estado de cuenta guardado (config + destinatarios).');
+    } 
+
+    // =========================================================
+    // ✅ AJAX: actualizar estatus override + pay_method + paid_at
+    // Route: POST admin.billing.statements.status -> statusAjax()
+    // =========================================================
+    public function statusAjax(Request $req): JsonResponse
+    {
+        $data = $req->validate([
+            'account_id' => 'required|string|max:64',
+            'period'     => 'required|string',
+            'status'     => 'required|string|in:pendiente,parcial,pagado,vencido,sin_mov',
+            'pay_method' => 'nullable|string|max:30',
+            'paid_at'    => 'nullable|string', // opcional (datetime-local o datetime)
+        ]);
+
+        $accountId = (string) $data['account_id'];
+        $period    = (string) $data['period'];
+        $status    = strtolower(trim((string) $data['status']));
+
+        $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
+        $payMethod = $payMethod !== '' ? $payMethod : 'manual';
+
+        if (!$this->isValidPeriod($period)) {
+            return response()->json(['ok' => false, 'message' => 'Periodo inválido.'], 422);
+        }
+
+        if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No existe la tabla billing_statement_status_overrides (corre migraciones).',
+            ], 422);
+        }
+
+        abort_unless(Schema::connection($this->adm)->hasTable('accounts'), 404);
+        abort_unless(Schema::connection($this->adm)->hasTable('estados_cuenta'), 404);
+
+        // columnas override (para guardar pay_method/provider/status/paid_at si existen)
+        $ovCols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+        $ovLc   = array_map('strtolower', $ovCols);
+        $ovHas  = static fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
+
+        $by = auth('admin')->id();
+
+        // paid_at SOLO si pagado
+        $paidAt = null;
+        if ($status === 'pagado') {
+            $raw = trim((string)($data['paid_at'] ?? ''));
+            if ($raw !== '') {
+                try {
+                    // soporta "2026-02-16T13:45"
+                    if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/', $raw)) {
+                        $paidAt = Carbon::createFromFormat('Y-m-d\TH:i', $raw);
+                    } else {
+                        $paidAt = Carbon::parse($raw);
+                    }
+                } catch (\Throwable $e) {
+                    $paidAt = null;
+                }
+            }
+            if (!$paidAt) $paidAt = now();
+        }
+
+        // 1) Guardar override (y método/proveedor si aplica) — ✅ NO TOCA payments
+        DB::connection($this->adm)->transaction(function () use ($accountId, $period, $status, $by, $payMethod, $ovHas, $paidAt) {
+
+            $q = DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('period', $period);
+
+            $exists = $q->first(['id']);
+
+            $payload = [
+                'account_id'      => $accountId,
+                'period'          => $period,
+                'status_override' => $status,
+                'reason'          => null,
+                'updated_by'      => $by ? (int) $by : null,
+                'updated_at'      => now(),
+            ];
+
+            // UI info en overrides
+            if ($ovHas('pay_method'))   $payload['pay_method']   = $payMethod;
+            if ($ovHas('pay_provider')) $payload['pay_provider'] = 'manual';
+            if ($ovHas('status'))       $payload['status']       = $status;          // pay_status UI
+            if ($ovHas('paid_at'))      $payload['paid_at']      = ($status === 'pagado') ? $paidAt : null;
+
+            if ($exists && isset($exists->id)) {
+                DB::connection($this->adm)->table($this->overrideTable())
+                    ->where('id', (int) $exists->id)
+                    ->update($payload);
+            } else {
+                $payload['created_at'] = now();
+                DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
+            }
+        });
+
+        // 2) Calcular respuesta UI SIN crear pagos
+        $agg = DB::connection($this->adm)->table('estados_cuenta')
+            ->selectRaw('SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
+            ->where('account_id', $accountId)
+            ->where('periodo', $period)
+            ->first();
+
+        $cargoEdo = (float) ($agg->cargo ?? 0);
+        $abonoEdo = (float) ($agg->abono ?? 0);
+
+        // total mostrado: edo si existe, si no usa expected meta
+        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        $meta = $this->hub->decodeMeta($acc->meta ?? null);
+        if (!is_array($meta)) $meta = [];
+
+        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
+        $payAllowed = $lastPaid
+            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+            : $period;
+
+        $customMxn = $this->extractCustomAmountMxn($acc, $meta);
+        if ($customMxn !== null && $customMxn > 0.00001) {
+            $expected = (float) $customMxn;
+        } else {
+            [$expected] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
+            $expected = (float) $expected;
+        }
+
+        $total = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
+
+        // ✅ UI override-aware (sin payments)
+        $abonoUi = $abonoEdo;
+        $saldoUi = max(0.0, $total - $abonoUi);
+
+        if ($status === 'pagado') {
+            $abonoUi = $total;
+            $saldoUi = 0.0;
+        } elseif (in_array($status, ['pendiente', 'vencido', 'sin_mov'], true)) {
+            $abonoUi = max(0.0, min($abonoEdo, $total));
+            $saldoUi = max(0.0, $total - $abonoUi);
+        } elseif ($status === 'parcial') {
+            $abonoUi = max(0.0, min($abonoEdo, $total));
+            $saldoUi = max(0.0, $total - $abonoUi);
+        }
+
+        return response()->json([
+            'ok'         => true,
+            'message'    => 'Guardado.',
+            'account_id' => $accountId,
+            'period'     => $period,
+            'status'     => $status,
+            'pay_method' => $payMethod,
+            'paid_at'    => ($status === 'pagado' ? ($paidAt?->toDateTimeString()) : null),
+
+            'total'      => round((float) $total, 2),
+            'abono'      => round((float) $abonoUi, 2),
+            'saldo'      => round((float) $saldoUi, 2),
+        ]);
+    }
+
+    /**
+     * Convierte paid_at recibido por datetime-local ("2026-02-16T13:45")
+     * o datetime ("2026-02-16 13:45:00") a Carbon.
+     */
+    private function parsePaidAtFromRequest(string $raw): ?Carbon
+    {
+        $raw = trim($raw);
+        if ($raw === '') return null;
+
+        try {
+            if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/', $raw)) {
+                return Carbon::createFromFormat('Y-m-d\TH:i', $raw);
+            }
+            return Carbon::parse($raw);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+     // =========================================================
+    // ✅ AJAX: UPDATE STATUS / PAY METHOD / PAID_AT (Drawer)
+    // POST /admin/billing/statements/status
+    // =========================================================
+    public function status(Request $req): JsonResponse
+    {
+        // JSON expected (pero soporta form también)
+        $data = $req->validate([
+            'account_id' => 'required|string|max:64',
+            'period'     => 'required|string',
+            'status'     => 'required|string|in:pendiente,parcial,pagado,vencido,sin_mov',
+            'pay_method' => 'nullable|string|max:32',
+            'paid_at'    => 'nullable|string', // datetime-local o datetime
+        ]);
+
+        $accountId = trim((string) $data['account_id']);
+        $period    = trim((string) $data['period']);
+        $status    = strtolower(trim((string) $data['status']));
+        $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
+
+        if (!$this->isValidPeriod($period)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Periodo inválido. Formato YYYY-MM.',
+            ], 422);
+        }
+
+        // paid_at: solo aplica cuando status=pagado
+        $paidAt = null;
+        if ($status === 'pagado') {
+            $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? ''));
+            if ($paidAt === null) {
+                $paidAt = now();
+            }
+        }
+
+        // tablas requeridas
+        if (!Schema::connection($this->adm)->hasTable('accounts')) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No existe tabla accounts en admin.',
+            ], 500);
+        }
+
+        $accExists = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->exists();
+        if (!$accExists) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Cuenta no encontrada.',
+            ], 404);
+        }
+
+        $tbl = $this->overrideTable();
+        if (!Schema::connection($this->adm)->hasTable($tbl)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "No existe la tabla de overrides: {$tbl}.",
+            ], 500);
+        }
+
+        // columnas existentes (defensivo)
+        $cols = Schema::connection($this->adm)->getColumnListing($tbl);
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        // Provider default: si viene método vacío, lo dejamos null/'' según columna
+        $provider = 'manual';
+
+        // payload
+        $row = [];
+        if ($has('account_id')) $row['account_id'] = $accountId;
+        if ($has('period'))     $row['period']     = $period;
+
+        // status override (tu Blade lee status_override/ov_status; tu applyStatusOverride debe mapearlo)
+        if ($has('status'))         $row['status']         = $status;
+        if ($has('ov_status'))      $row['ov_status']      = $status;
+        if ($has('status_override'))$row['status_override']= $status;
+
+        // pay method/provider/status (si existen)
+        if ($has('pay_method'))     $row['pay_method']     = $payMethod !== '' ? $payMethod : null;
+        if ($has('ov_pay_method'))  $row['ov_pay_method']  = $payMethod !== '' ? $payMethod : null;
+
+        if ($has('pay_provider'))   $row['pay_provider']   = $provider;
+        if ($has('ov_pay_provider'))$row['ov_pay_provider']= $provider;
+
+        // pay_status: si marcaste pagado, forzamos pay_status=pagado
+        $payStatus = ($status === 'pagado') ? 'pagado' : $status;
+        if ($has('pay_status'))     $row['pay_status']     = $payStatus;
+        if ($has('ov_pay_status'))  $row['ov_pay_status']  = $payStatus;
+
+        if ($status === 'pagado') {
+            if ($has('paid_at'))     $row['paid_at']     = $paidAt;
+            if ($has('pay_paid_at')) $row['pay_paid_at'] = $paidAt;
+        } else {
+            // si no es pagado, normalmente NO tocamos paid_at (para no borrar historial)
+            // si tu modelo requiere limpiar paid_at al desmarcar, dímelo y lo ajusto.
+        }
+
+        if ($has('updated_at')) $row['updated_at'] = now();
+        if (!$has('updated_at')) {
+            // no-op
+        }
+
+        DB::connection($this->adm)->transaction(function () use ($tbl, $accountId, $period, $row, $has) {
+            // existe override?
+            $q = DB::connection($this->adm)->table($tbl)
+                ->where('account_id', $accountId)
+                ->where('period', $period);
+
+            $existing = $q->first();
+
+            if ($existing) {
+                // update
+                DB::connection($this->adm)->table($tbl)
+                    ->where('account_id', $accountId)
+                    ->where('period', $period)
+                    ->update($row);
+            } else {
+                // insert
+                if ($has('created_at')) $row['created_at'] = now();
+                DB::connection($this->adm)->table($tbl)->insert($row);
+            }
+        });
+
+        return response()->json([
+            'ok'        => true,
+            'account_id'=> $accountId,
+            'period'    => $period,
+            'status'    => $status,
+            'pay_method'=> $payMethod !== '' ? $payMethod : null,
+            'paid_at'   => $paidAt ? $paidAt->toDateTimeString() : null,
+        ]);
     }
 
     // =========================================================
@@ -2975,7 +3283,6 @@ final class BillingStatementsController extends Controller
         return $out;
     }
 
-
     private function applyStatusOverride(object $row, ?array $ov): object
     {
         $row->status_auto = (string) ($row->status_pago ?? 'sin_mov');
@@ -3056,293 +3363,6 @@ final class BillingStatementsController extends Controller
 
         return $row;
     }
-
-
-    /**
-     * POST /admin/billing/statements/status
-     * AJAX: guarda override de status + método de pago.
-     * Si status = pagado y existe saldo pendiente, registra un pago manual en payments para cerrar el saldo.
-     */
-    public function statusAjax(Request $req): JsonResponse
-    {
-        $data = $req->validate([
-            'account_id' => 'required|string|max:64',
-            'period'     => 'required|string',
-            'status'     => 'required|string|in:pendiente,parcial,pagado,vencido,sin_mov',
-            'pay_method' => 'nullable|string|max:30',
-        ]);
-
-        $accountId = (string) $data['account_id'];
-        $period    = (string) $data['period'];
-        $status    = strtolower(trim((string) $data['status']));
-        $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
-        $payMethod = $payMethod !== '' ? $payMethod : 'manual';
-
-        if (!$this->isValidPeriod($period)) {
-            return response()->json(['ok' => false, 'message' => 'Periodo inválido.'], 422);
-        }
-
-        if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'No existe la tabla billing_statement_status_overrides (corre migraciones).',
-            ], 422);
-        }
-
-        abort_unless(Schema::connection($this->adm)->hasTable('accounts'), 404);
-        abort_unless(Schema::connection($this->adm)->hasTable('estados_cuenta'), 404);
-
-        // columnas override (para guardar pay_method/provider si existen)
-        $ovCols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-        $ovLc   = array_map('strtolower', $ovCols);
-        $ovHas  = static fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
-
-        $by = auth('admin')->id();
-
-        // 1) Guardar override (y método/proveedor si aplica)
-        DB::connection($this->adm)->transaction(function () use ($accountId, $period, $status, $by, $payMethod, $ovHas) {
-            $q = DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('period', $period);
-
-            $exists = $q->first(['id']);
-
-            $payload = [
-                'account_id'      => $accountId,
-                'period'          => $period,
-                'status_override' => $status,
-                'reason'          => null,
-                'updated_by'      => $by ? (int) $by : null,
-                'updated_at'      => now(),
-            ];
-
-            // Tu tabla override tiene estas cols (según tu tinker)
-            if ($ovHas('pay_method'))   $payload['pay_method']   = $payMethod;
-            if ($ovHas('pay_provider')) $payload['pay_provider'] = 'manual';
-            if ($ovHas('paid_at'))      $payload['paid_at']      = ($status === 'pagado') ? now() : null;
-
-            // ✅ Si existe columna status en overrides, úsala como "pay_status" UI (coherente con status_override)
-            if ($ovHas('status'))       $payload['status']       = $status;
-
-            if ($exists && isset($exists->id)) {
-                DB::connection($this->adm)->table($this->overrideTable())
-                    ->where('id', (int) $exists->id)
-                    ->update($payload);
-            } else {
-                $payload['created_at'] = now();
-                DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
-            }
-        });
-
-        // 2) Cargar cuenta/meta
-        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        if (!$acc) {
-            return response()->json(['ok' => false, 'message' => 'Cuenta no encontrada.'], 404);
-        }
-
-        $agg = DB::connection($this->adm)->table('estados_cuenta')
-            ->selectRaw('SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
-            ->where('account_id', $accountId)
-            ->where('periodo', $period)
-            ->first();
-
-        $cargoEdo = (float) ($agg->cargo ?? 0);
-        $abonoEdo = (float) ($agg->abono ?? 0);
-
-        $meta = $this->hub->decodeMeta($acc->meta ?? null);
-        if (!is_array($meta)) $meta = [];
-
-        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
-        $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-            : $period;
-
-        $customMxn = $this->extractCustomAmountMxn($acc, $meta);
-        if ($customMxn !== null && $customMxn > 0.00001) {
-            $expected = (float) $customMxn;
-        } else {
-            [$expected] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
-            $expected = (float) $expected;
-        }
-
-        // Helper local: calcula total/abono/saldo
-        // ✅ Si override NO es "pagado", NO contamos payments para que el saldo pendiente se vea correctamente.
-        $recalc = function (bool $includePayments = true) use ($accountId, $period, $cargoEdo, $abonoEdo, $expected): array {
-            $paidPayments = $includePayments ? (float) $this->sumPaymentsForAccountPeriod($accountId, $period) : 0.0;
-
-            $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
-
-            // abono_edo + (payments paid si aplica)
-            $abonoTotal = (float) ($abonoEdo + $paidPayments);
-
-            $saldoShown = (float) max(0.0, $totalShown - $abonoTotal);
-
-            return [
-                'total'      => $totalShown,
-                'abono_edo'  => (float) $abonoEdo,
-                'abono_pay'  => (float) $paidPayments,
-                'abono'      => (float) $abonoTotal,
-                'saldo'      => (float) $saldoShown,
-            ];
-        };
-
-
-        /**
-         * ✅ UI override-aware:
-         * - pagado  => abono=total, saldo=0
-         * - pendiente/vencido/sin_mov => abono=0, saldo=total
-         * - parcial => conserva abono real (limitado a total)
-         */
-        $mapUi = function (string $st, array $m): array {
-            $total    = (float) ($m['total'] ?? 0);
-            $abonoReal = (float) ($m['abono'] ?? 0);
-            $saldoReal = (float) ($m['saldo'] ?? max(0.0, $total - $abonoReal));
-
-            $abonoUi = $abonoReal;
-            $saldoUi = $saldoReal;
-
-            if ($st === 'pagado') {
-                $abonoUi = $total;
-                $saldoUi = 0.0;
-            } elseif (in_array($st, ['pendiente', 'vencido', 'sin_mov'], true)) {
-                $abEdo   = (float) ($m['abono_edo'] ?? 0.0);
-                $abonoUi = max(0.0, min($abEdo, $total));
-                $saldoUi = max(0.0, $total - $abonoUi);
-            }
-            elseif ($st === 'parcial') {
-                $abonoUi = max(0.0, min($abonoReal, $total));
-                $saldoUi = max(0.0, $total - $abonoUi);
-            }
-
-            return [
-                'total' => $total,
-                'abono' => $abonoUi,
-                'saldo' => $saldoUi,
-            ];
-        };
-
-        // 3) Si NO es pagado: revertir payment auto (si existe) para permitir cambiar entre estatus
-        //    (Solo tocamos el payment con reference exacta admin_paid:{aid}:{period})
-        if ($status !== 'pagado') {
-            if (Schema::connection($this->adm)->hasTable('payments')) {
-                try {
-                    $pCols = Schema::connection($this->adm)->getColumnListing('payments');
-                    $pLc   = array_map('strtolower', $pCols);
-                    $pHas  = static fn (string $c): bool => in_array(strtolower($c), $pLc, true);
-
-                    if ($pHas('account_id') && $pHas('reference')) {
-                        $ref = 'admin_paid:' . $accountId . ':' . $period;
-
-                        $q = DB::connection($this->adm)->table('payments')
-                            ->where('account_id', $accountId)
-                            ->where('reference', $ref);
-
-                        // period robusto si existe col
-                        $this->applyPaymentsPeriodFilter($q, $period, $pHas('period'));
-
-                        // si existe status, cancelamos; si no, borramos (es nuestro auto-payment)
-                        if ($pHas('status')) {
-                            $q->update([
-                                'status'     => 'canceled',
-                                'updated_at' => now(),
-                            ]);
-                        } else {
-                            $q->delete();
-                        }
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('[ADMIN][STATEMENTS][statusAjax] revert auto-paid failed', [
-                        'account_id' => $accountId,
-                        'period'     => $period,
-                        'err'        => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            $m  = $recalc(false); // ✅ NO incluir payments si NO es pagado
-            $ui = $mapUi($status, $m);
-
-            return response()->json([
-
-                'ok'         => true,
-                'message'    => 'Guardado.',
-                'account_id' => $accountId,
-                'period'     => $period,
-                'status'     => $status,
-                'pay_method' => $payMethod,
-
-                'total'      => round((float) $ui['total'], 2),
-                'abono'      => round((float) $ui['abono'], 2),
-                'saldo'      => round((float) $ui['saldo'], 2),
-            ]);
-        }
-
-        // 4) Si es pagado: crear/upsert payment PAID por saldo pendiente (si aplica)
-        $m0 = $recalc();
-        if ((float) $m0['saldo'] > 0.00001) {
-            $this->upsertPaidPaymentForStatement(
-                $accountId,
-                $period,
-                (float) $m0['saldo'],
-                $payMethod,
-                'manual'
-            );
-        }
-
-        // 5) (Opcional) sincronizar método en el payment más reciente del periodo (si existe)
-        if (Schema::connection($this->adm)->hasTable('payments')) {
-            try {
-                $cols = Schema::connection($this->adm)->getColumnListing('payments');
-                $lc   = array_map('strtolower', $cols);
-                $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-                if ($has('account_id')) {
-                    $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
-                    $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-                    $orderCol = $has('paid_at') ? 'paid_at'
-                        : ($has('updated_at') ? 'updated_at'
-                        : ($has('created_at') ? 'created_at'
-                        : ($has('id') ? 'id' : $cols[0])));
-
-                    $idCol = $has('id') ? 'id' : $cols[0];
-
-                    $row = $q->orderByDesc($orderCol)->first([$idCol]);
-
-                    if ($row && isset($row->{$idCol})) {
-                        $update = ['updated_at' => now()];
-                        if ($has('method'))   $update['method']   = $payMethod;
-                        if ($has('provider')) $update['provider'] = 'manual';
-                        DB::connection($this->adm)->table('payments')->where($idCol, (int) $row->{$idCol})->update($update);
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('[ADMIN][STATEMENTS][statusAjax] no pudo actualizar pay_method/provider en payments', [
-                    'account_id' => $accountId,
-                    'period'     => $period,
-                    'err'        => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // 6) Respuesta final ya con payment persistido (UI override-aware)
-        $m1 = $recalc();
-        $ui = $mapUi($status, $m1);
-
-        return response()->json([
-            'ok'         => true,
-            'message'    => 'Guardado.',
-            'account_id' => $accountId,
-            'period'     => $period,
-            'status'     => $status,
-            'pay_method' => $payMethod,
-
-            'total'      => round((float) $ui['total'], 2),
-            'abono'      => round((float) $ui['abono'], 2),
-            'saldo'      => round((float) $ui['saldo'], 2),
-        ]);
-    }
-
 
     /**
      * ✅ Upsert de pago "PAID" para un estado de cuenta (admin override pagado).

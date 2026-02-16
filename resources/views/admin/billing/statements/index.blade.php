@@ -609,6 +609,15 @@
         </select>
       </div>
 
+      {{-- ✅ Fecha de pago (solo cuando Estatus = Pagado) --}}
+      <div class="sx-drawer-block" id="sxDPaidAtWrap" style="display:none;">
+        <div class="sx-drawer-label">Fecha de pago</div>
+        <input class="sx-in" id="sxDPaidAt" type="datetime-local" value="">
+        <div class="sx-drawer-footnote" style="margin-top:6px;">
+          Requerido para marcar como <b>Pagado</b>. Si lo dejas vacío, se usará la hora actual.
+        </div>
+      </div>
+
       <div class="sx-drawer-row">
         <button id="sxDSave" class="sx-btn sx-btn-primary" type="button">Guardar cambios</button>
       </div>
@@ -1154,6 +1163,53 @@
   // ==========================================================
   const drawer = $('sxDrawer');
 
+    // ===== Drawer: form controls
+  const dStatus   = $('sxDStatus');
+  const dPay      = $('sxDPay');
+  const dPaidWrap = $('sxDPaidAtWrap');
+  const dPaidAt   = $('sxDPaidAt');
+  const dSave     = $('sxDSave');
+
+  // Backend endpoints/CSRF
+  const statusEndpoint = (function(){
+    try { return {!! json_encode($statusEndpoint ?? '') !!}; } catch(e){ return ''; }
+  })();
+
+  const periodVal = (function(){
+    try { return {!! json_encode($period ?? '') !!}; } catch(e){ return ''; }
+  })();
+
+  function csrfToken(){
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? String(m.getAttribute('content')||'') : '';
+  }
+
+  function nowLocalDatetimeValue(){
+    const d = new Date();
+    const pad = (n)=> String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function setPaidAtVisibility(){
+    const st = String(dStatus && dStatus.value ? dStatus.value : '').toLowerCase().trim();
+    const on = (st === 'pagado');
+    if(dPaidWrap) dPaidWrap.style.display = on ? '' : 'none';
+    if(on && dPaidAt && !String(dPaidAt.value||'').trim()){
+      dPaidAt.value = nowLocalDatetimeValue();
+    }
+    if(!on && dPaidAt){
+      dPaidAt.value = '';
+    }
+  }
+
+  // Estado actual del drawer
+  let currentDrawer = {
+    account: '',
+    email: '',
+    name: '',
+    rowEl: null,
+  };
+
   function closeDrawer(){
     if(!drawer) return;
     drawer.classList.remove('on');
@@ -1176,6 +1232,36 @@
     if(dAccount) dAccount.innerHTML = '<span class="dot"></span>#' + escapeHtml(acc || '—');
     if(dName) dName.textContent = nm;
     if(dEmail) dEmail.textContent = em;
+
+        // ✅ pill estatus en drawer
+    const dStatusPill = $('sxDStatusPill');
+    if(dStatusPill){
+      const stNow = String(payload && payload.status ? payload.status : (dStatus ? dStatus.value : '')).toLowerCase().trim();
+      dStatusPill.innerHTML = '<span class="dot"></span>' + (stNow ? stNow.toUpperCase() : '—');
+      dStatusPill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+      if(stNow === 'pagado') dStatusPill.classList.add('sx-ok');
+      else if(stNow === 'vencido') dStatusPill.classList.add('sx-bad');
+      else if(stNow === 'pendiente' || stNow === 'parcial') dStatusPill.classList.add('sx-warn');
+      else dStatusPill.classList.add('sx-dim');
+    }
+
+    // set selects
+    if(dStatus){
+      const st = String(payload && payload.status ? payload.status : '').toLowerCase().trim();
+      if(st) dStatus.value = st;
+    }
+    if(dPay){
+      const pm = String(payload && payload.pay ? payload.pay : '').toLowerCase().trim();
+      dPay.value = pm || '';
+    }
+
+    // store current
+    currentDrawer.account = acc || '';
+    currentDrawer.email = em || '';
+    currentDrawer.name = nm || '';
+    currentDrawer.rowEl = acc ? document.getElementById('sxRow-' + acc) : null;
+
+    setPaidAtVisibility();
 
     // links opcionales
     const dShow     = $('sxDShow');
@@ -1235,6 +1321,8 @@
         account: openBtn.getAttribute('data-account') || '',
         name: openBtn.getAttribute('data-name') || '—',
         email: openBtn.getAttribute('data-email') || '—',
+        status: openBtn.getAttribute('data-status') || '',
+        pay: openBtn.getAttribute('data-pay') || '',
         show: openBtn.getAttribute('data-show') || '',
         pdf: openBtn.getAttribute('data-pdf') || '',
         emailurl: openBtn.getAttribute('data-emailurl') || '',
@@ -1257,6 +1345,160 @@
     if(pdfModal && pdfModal.classList.contains('on')) closePdfModal();
     if(drawer && drawer.classList.contains('on')) closeDrawer();
   });
+
+    // ==========================================================
+  // Drawer SAVE (POST) + visibilidad paid_at
+  // ==========================================================
+
+  // Mostrar/ocultar fecha de pago al cambiar estatus
+  if(dStatus){
+    dStatus.addEventListener('change', function(){
+      setPaidAtVisibility();
+      // (opcional) actualiza pill en drawer
+      const pill = $('sxDStatusPill');
+      if(pill){
+        const st = String(dStatus.value||'').trim().toLowerCase();
+        pill.innerHTML = '<span class="dot"></span>' + (st ? st.toUpperCase() : '—');
+        pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+        if(st === 'pagado') pill.classList.add('sx-ok');
+        else if(st === 'vencido') pill.classList.add('sx-bad');
+        else if(st === 'pendiente' || st === 'parcial') pill.classList.add('sx-warn');
+        else pill.classList.add('sx-dim');
+      }
+    });
+  }
+
+  async function sxSaveDrawer(){
+    if(!currentDrawer.account){
+      sxToast('No hay cuenta seleccionada.', 'bad');
+      return;
+    }
+    if(!statusEndpoint){
+      sxToast('No está configurado el endpoint para guardar estatus (admin.billing.statements.status).', 'bad');
+      return;
+    }
+
+    const st  = String(dStatus && dStatus.value ? dStatus.value : '').trim();
+    const pay = String(dPay && dPay.value ? dPay.value : '').trim();
+
+    let paidAt = '';
+    if(String(st).toLowerCase() === 'pagado'){
+      paidAt = String(dPaidAt && dPaidAt.value ? dPaidAt.value : '').trim();
+      if(!paidAt) paidAt = nowLocalDatetimeValue();
+    }
+
+    const body = {
+      account_id: currentDrawer.account,
+      period: periodVal,
+      status: st,
+      pay_method: pay,
+      paid_at: paidAt || null,
+    };
+
+    // UI lock
+    if(dSave){
+      dSave.disabled = true;
+      dSave.setAttribute('data-loading','1');
+      dSave.textContent = 'Guardando...';
+    }
+
+    try{
+      const res = await fetch(statusEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': csrfToken(),
+        },
+        body: JSON.stringify(body),
+        credentials: 'same-origin',
+      });
+
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const data = isJson ? await res.json().catch(()=>null) : await res.text().catch(()=>'');
+
+      if(!res.ok){
+        let msg = `Falló (${res.status}) al guardar.`;
+        if(res.status === 419) msg = 'Sesión/CSRF expirada (419). Refresca la página y reintenta.';
+        if(isJson && data){
+          if(data.message) msg = String(data.message);
+          else if(data.errors){
+            const firstKey = Object.keys(data.errors)[0];
+            if(firstKey) msg = String(data.errors[firstKey][0] || msg);
+          }
+        }
+        sxToast(msg, 'bad');
+        return;
+      }
+
+      sxToast('Cambios guardados.', 'ok');
+
+      // ✅ Actualiza UI en la fila (estatus + método + último pago)
+      try{
+        const tr = currentDrawer.rowEl;
+        if(tr){
+          // Pill estatus (col 8)
+          const pill = tr.querySelector('td:nth-child(8) .sx-pill');
+          if(pill){
+            pill.innerHTML = '<span class="dot"></span>' + String(st).toUpperCase();
+            pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+            const s = String(st).toLowerCase();
+            if(s === 'pagado') pill.classList.add('sx-ok');
+            else if(s === 'vencido') pill.classList.add('sx-bad');
+            else if(s === 'pendiente' || s === 'parcial') pill.classList.add('sx-warn');
+            else pill.classList.add('sx-dim');
+          }
+
+          // En "Contacto/Meta" actualiza Método + Últ pago
+          const meta = tr.querySelector('td:nth-child(4) .sx-subrow');
+          if(meta){
+            let html = meta.innerHTML;
+
+            // Método
+            if(html.includes('Método:')){
+              html = html.replace(/Método:\s*<span class="sx-mono">.*?<\/span>/, 'Método: <span class="sx-mono">'+escapeHtml(pay || '—')+'</span>');
+            }else{
+              html += '<span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+escapeHtml(pay || '—')+'</span>';
+            }
+
+            // Último pago
+            if(String(st).toLowerCase() === 'pagado'){
+              const valPaid = paidAt || nowLocalDatetimeValue();
+              if(html.includes('Últ. pago:')){
+                html = html.replace(/Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, 'Últ. pago: <span class="sx-mono">'+escapeHtml(valPaid)+'</span>');
+              }else{
+                html += '<br>Últ. pago: <span class="sx-mono">'+escapeHtml(valPaid)+'</span>';
+              }
+            }else{
+              // si ya no es pagado, opcional: limpia el “Últ. pago”
+              // html = html.replace(/<br>\s*Últ\.\s*pago:.*$/,'');
+            }
+
+            meta.innerHTML = html;
+          }
+        }
+      }catch(e){}
+
+      closeDrawer();
+
+    }catch(err){
+      sxToast('Error de red al guardar. Revisa consola/network.', 'bad');
+    }finally{
+      if(dSave){
+        dSave.disabled = false;
+        dSave.removeAttribute('data-loading');
+        dSave.textContent = 'Guardar cambios';
+      }
+    }
+  }
+
+  if(dSave){
+    dSave.addEventListener('click', function(ev){
+      ev.preventDefault();
+      sxSaveDrawer();
+    });
+  }
 
   // ==========================================================
   // INIT
