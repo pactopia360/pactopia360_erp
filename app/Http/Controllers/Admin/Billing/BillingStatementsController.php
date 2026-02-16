@@ -3294,9 +3294,33 @@ final class BillingStatementsController extends Controller
                     $row->pay_last_paid_at = $row->ov_paid_at;
                 }
 
-                // ✅ FIX (SOT): si hay override y NO es "pagado", la UI debe ignorar payments
-                // para reflejar saldo pendiente aunque existan payments PAID en el periodo.
-                if ($s !== 'pagado') {
+                // ✅ FIX LISTADO (SOT):
+                // Si hay override, el “display” debe reflejar ese override.
+                // - pagado => saldo 0 y pagado = total
+                // - no pagado => ignorar payments y recalcular saldo con edo_cta
+                if ($s === 'pagado') {
+
+                    // total mostrado: usa total_shown si existe, si no, cargo o expected_total
+                    $total = (float) ($row->total_shown ?? 0.0);
+                    if ($total <= 0.00001) {
+                        $c = (float) ($row->cargo ?? 0.0);
+                        $e = (float) ($row->expected_total ?? 0.0);
+                        $total = $c > 0.00001 ? $c : $e;
+                    }
+
+                    // ✅ PAGADO: saldo en cero y abono igual al total
+                    $row->abono_pay   = round($total, 2); // para que la columna “Pagado” se vea completa
+                    $row->abono       = round($total, 2);
+                    $row->saldo_shown = 0.0;
+                    $row->saldo       = 0.0;
+
+                    // ayuda a UI si pinta verde por pay_status
+                    if (empty($row->pay_status)) {
+                        $row->pay_status = 'paid';
+                    }
+
+                } else {
+
                     // Ignorar payments en UI
                     $row->abono_pay = 0.0;
 
