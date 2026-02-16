@@ -252,7 +252,14 @@
 
     <div class="full">
       <label>Solicitar factura por periodo</label>
-      <form method="POST" action="{{ route('cliente.mi_cuenta.facturas.store') }}" style="display:grid;grid-template-columns:1fr 1.2fr auto;gap:10px;margin:0">
+      <form method="POST"
+            action="{{ route('cliente.mi_cuenta.facturas.store', ['embed' => 1, 'q' => (string)($q ?? ''), 'status' => (string)($status ?? ''), 'per_page' => (int)($perPage ?? 10)]) }}"
+            style="display:grid;grid-template-columns:1fr 1.2fr auto;gap:10px;margin:0">
+        @csrf
+        <input type="hidden" name="embed" value="1">
+        <input type="hidden" name="q" value="{{ (string)($q ?? '') }}">
+        <input type="hidden" name="status" value="{{ (string)($status ?? '') }}">
+        <input type="hidden" name="per_page" value="{{ (int)($perPage ?? 10) }}">
         @csrf
         <input name="period" value="{{ old('period', now()->format('Y-m')) }}" placeholder="YYYY-MM" class="mono" required>
         <input name="notes" value="{{ old('notes') }}" placeholder="Notas (opcional)">

@@ -6,10 +6,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Cliente\MiCuenta;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\Cliente\AccountBillingController;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,7 +18,7 @@ final class FacturasController extends Controller
 {
     /**
      * Lista solicitudes de facturas (SOT: mysql_admin.invoice_requests)
-     * Vista para iframe/modal: resources/views/cliente/mi_cuenta/facturas/modal.blade.php
+     * Vista para iframe/modal.
      */
     public function index(Request $request)
     {
@@ -33,7 +31,6 @@ final class FacturasController extends Controller
         if ($perPage <= 0) $perPage = 10;
         if ($perPage > 50) $perPage = 50;
 
-        // ✅ En embed NO abortar (para que el iframe no quede vacío o redirigido)
         if ($adminAccountId <= 0) {
             Log::warning('[FACTURAS] adminAccountId unresolved', ['src' => $src]);
 
@@ -59,7 +56,6 @@ final class FacturasController extends Controller
 
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
-        // Si no existe tabla, se muestra vacío (pero sin romper).
         if (!Schema::connection($adm)->hasTable('invoice_requests')) {
             Log::warning('[FACTURAS] invoice_requests missing in admin', [
                 'account_id' => $adminAccountId,
@@ -103,17 +99,14 @@ final class FacturasController extends Controller
 
         $orderCol = $has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]);
 
-        // Columnas “nota/meta”
         $notesCol = $has('notes') ? 'notes' : null;
         $metaCol  = $has('meta') ? 'meta' : null;
 
-        // Detecta zip_path/archivo
         $zipPathCol = null;
         foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip'] as $c) {
             if ($has($c)) { $zipPathCol = $c; break; }
         }
 
-        // Status
         $statusCol = $has('status') ? 'status' : null;
 
         $select = [];
@@ -157,7 +150,6 @@ final class FacturasController extends Controller
         $rows = $items->map(function ($it) use ($statusCol, $zipPathCol, $notesCol, $metaCol) {
             $st = $statusCol ? strtolower((string) ($it->{$statusCol} ?? 'requested')) : 'requested';
 
-            // Normaliza estados “raros”
             if (in_array($st, ['pending', 'solicitada'], true)) $st = 'requested';
             if (in_array($st, ['processing', 'facturando', 'en_proceso', 'proceso'], true)) $st = 'in_progress';
             if (in_array($st, ['done', 'completed', 'facturada', 'invoiced', 'issued', 'emitido', 'emitida'], true)) $st = 'done';
@@ -165,7 +157,6 @@ final class FacturasController extends Controller
             $zipPath = $zipPathCol ? (string) ($it->{$zipPathCol} ?? '') : '';
             $hasZip  = trim($zipPath) !== '';
 
-            // ✅ Regla UI: si ya existe ZIP, está “lista” aunque status diga requested/in_progress
             if ($hasZip && in_array($st, ['requested', 'in_progress'], true)) {
                 $st = 'done';
             }
@@ -198,9 +189,6 @@ final class FacturasController extends Controller
         return $this->render($request, $paginator, $q, $status, $perPage, $adminAccountId, $src);
     }
 
-    /**
-     * Ver detalle de una solicitud (por id) — útil si quieres abrir una vista/JSON.
-     */
     public function show(Request $request, int $id)
     {
         [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
@@ -225,9 +213,7 @@ final class FacturasController extends Controller
             ->where('id', $id)
             ->first();
 
-        if (!$row) {
-            abort(404, 'Solicitud no encontrada.');
-        }
+        if (!$row) abort(404, 'Solicitud no encontrada.');
 
         if ($request->expectsJson()) {
             return response()->json(['ok' => true, 'row' => $row]);
@@ -235,11 +221,7 @@ final class FacturasController extends Controller
 
         $view = 'cliente.mi_cuenta.facturas.show';
         if (view()->exists($view)) {
-            return view($view, [
-                'row'       => $row,
-                'accountId' => $adminAccountId,
-                'source'    => $src,
-            ]);
+            return view($view, ['row' => $row, 'accountId' => $adminAccountId, 'source' => $src]);
         }
 
         return response(
@@ -250,27 +232,107 @@ final class FacturasController extends Controller
     }
 
     /**
-     * Solicitar factura (reusa exactamente la lógica del flujo de Estado de cuenta).
+     * ✅ FIX: crear la solicitud en mysql_admin.invoice_requests (lo que index() lista)
+     * y regresar al modal con embed=1 para que se vea la línea inmediatamente.
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'period' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
-            'notes'  => ['nullable', 'string', 'max:500'],
+            'period'   => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'notes'    => ['nullable', 'string', 'max:500'],
+            'embed'    => ['nullable'],
+            'q'        => ['nullable'],
+            'status'   => ['nullable'],
+            'per_page' => ['nullable'],
         ]);
 
-        $period = (string) $validated['period'];
+        $period  = (string) $validated['period'];
+        $notesIn = trim((string) ($validated['notes'] ?? ''));
 
-        /** @var AccountBillingController $billing */
-        $billing = App::make(AccountBillingController::class);
+        [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
+        $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
 
-        return $billing->requestInvoice($request, $period);
+        if ($adminAccountId <= 0) {
+            return back()->withErrors(['period' => 'No se pudo resolver la cuenta (admin_account_id).'])->withInput();
+        }
+
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
+            Log::warning('[FACTURAS][STORE] invoice_requests missing', [
+                'account_id' => $adminAccountId,
+                'src'        => $src,
+                'period'     => $period,
+            ]);
+
+            return back()->withErrors(['period' => 'No existe invoice_requests en la base admin.'])->withInput();
+        }
+
+        $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
+
+        $fk = $this->adminFkColumn('invoice_requests');
+        if (!$fk) {
+            return back()->withErrors(['period' => 'invoice_requests no tiene FK de cuenta.'])->withInput();
+        }
+        if (!$has('period')) {
+            return back()->withErrors(['period' => 'invoice_requests no tiene columna period.'])->withInput();
+        }
+
+        $statusCol = $has('status') ? 'status' : null;
+        $notesCol  = $has('notes') ? 'notes' : null;
+        $metaCol   = $has('meta') ? 'meta' : null;
+
+        // 🔒 Evitar duplicados por account+period (si ya existe, solo regresamos ok)
+        $existing = DB::connection($adm)->table('invoice_requests')
+            ->where($fk, $adminAccountId)
+            ->where('period', $period)
+            ->orderByDesc($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]))
+            ->first($has('id') ? ['id', 'period', $statusCol] : ['period', $statusCol]);
+
+        if ($existing) {
+            $id = (int) ($existing->id ?? 0);
+            return redirect()->route('cliente.mi_cuenta.facturas.index', $this->keepQueryForEmbed($request))
+                ->with('ok', $id > 0
+                    ? "Solicitud ya existente (#{$id}) para {$period}."
+                    : "Solicitud ya existente para {$period}."
+                );
+        }
+
+        $payload = [
+            $fk     => $adminAccountId,
+            'period'=> $period,
+        ];
+
+        if ($statusCol) $payload[$statusCol] = 'requested';
+        if ($notesCol)  $payload[$notesCol]  = $notesIn;
+
+        // Si no hay notes pero sí meta, guardamos notas en meta básico
+        if (!$notesCol && $metaCol && $notesIn !== '') {
+            $payload[$metaCol] = json_encode(['notes' => $notesIn], JSON_UNESCAPED_UNICODE);
+        }
+
+        if ($has('requested_at')) $payload['requested_at'] = now();
+        if ($has('created_at'))   $payload['created_at']   = now();
+        if ($has('updated_at'))   $payload['updated_at']   = now();
+
+        $newId = (int) DB::connection($adm)->table('invoice_requests')->insertGetId($payload);
+
+        Log::info('[FACTURAS][STORE] created invoice_request', [
+            'id'         => $newId,
+            'account_id' => $adminAccountId,
+            'src'        => $src,
+            'period'     => $period,
+        ]);
+
+        return redirect()->route('cliente.mi_cuenta.facturas.index', $this->keepQueryForEmbed($request))
+            ->with('ok', $newId > 0
+                ? "Solicitud creada (#{$newId}) para {$period}."
+                : "Solicitud creada para {$period}."
+            );
     }
 
-    /**
-     * Descarga ZIP por ID de solicitud.
-     * Ruta: /cliente/mi-cuenta/facturas/{id}/download
-     */
     public function downloadZip(Request $request, int $id)
     {
         [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
@@ -299,10 +361,12 @@ final class FacturasController extends Controller
             abort(404, 'Solicitud no encontrada o sin periodo.');
         }
 
+        // OJO: aquí tu descarga actual depende de AccountBillingController::downloadInvoiceZip(period)
+        // Si tu ZIP vive realmente por ID, lo ajustamos después. Por ahora mantiene tu flujo actual.
         $period = (string) $row->period;
 
-        /** @var AccountBillingController $billing */
-        $billing = App::make(AccountBillingController::class);
+        /** @var \App\Http\Controllers\Cliente\AccountBillingController $billing */
+        $billing = app(\App\Http\Controllers\Cliente\AccountBillingController::class);
 
         return $billing->downloadInvoiceZip($request, $period);
     }
@@ -323,16 +387,28 @@ final class FacturasController extends Controller
     ) {
         $embed = ((string) $request->get('embed', '') === '1');
 
-        // ✅ VISTA CORRECTA PARA IFRAME/MODAL
-        $viewEmbed = 'cliente.mi_cuenta.facturas.modal';
+        // ✅ Soporta ambos nombres (tú tienes facturas_modal.blade.php)
+        $candidatesEmbed = [
+            'cliente.mi_cuenta.facturas.modal',
+            'cliente.mi_cuenta.facturas_modal',
+        ];
+        $candidatesFull = [
+            'cliente.mi_cuenta.facturas.index',
+            'cliente.mi_cuenta.facturas_index',
+        ];
 
-        $viewFull  = 'cliente.mi_cuenta.facturas.index';
+        $view = null;
 
-        $view = $embed ? $viewEmbed : $viewFull;
+        if ($embed) {
+            foreach ($candidatesEmbed as $v) {
+                if (view()->exists($v)) { $view = $v; break; }
+            }
+        }
 
-        // ✅ fallback si no existen las vistas
-        if (!view()->exists($view)) {
-            $view = view()->exists($viewFull) ? $viewFull : null;
+        if (!$view) {
+            foreach ($candidatesFull as $v) {
+                if (view()->exists($v)) { $view = $v; break; }
+            }
         }
 
         $theme = (string) ($request->get('theme', 'light') ?: 'light');
@@ -351,7 +427,7 @@ final class FacturasController extends Controller
             ]);
         }
 
-        // Último fallback: HTML simple (para no dejar el iframe en blanco)
+        // Fallback HTML simple
         $html = '<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px">';
         $html .= '<h3 style="margin:0 0 6px">Facturas</h3>';
         $html .= '<div style="color:#64748b;margin:0 0 12px">Solicitudes de factura y archivos generados.</div>';
@@ -449,5 +525,16 @@ final class FacturasController extends Controller
         }
 
         return null;
+    }
+
+    private function keepQueryForEmbed(Request $request): array
+    {
+        // ✅ Asegura que el modal se recargue en embed y conserve filtros
+        return [
+            'embed'    => '1',
+            'q'        => (string) $request->input('q', $request->query('q', '')),
+            'status'   => (string) $request->input('status', $request->query('status', '')),
+            'per_page' => (int) $request->input('per_page', $request->query('per_page', 10)),
+        ];
     }
 }
