@@ -849,8 +849,22 @@ Route::middleware([
             ->name('licenses.email.license');
 
         // Pagos
+        // Pagos (Payments Center)
         Route::get('payments', [PaymentsController::class, 'index'])->name('payments.index');
+
+        // Crear pago manual (compat con lo existente)
         Route::post('payments/manual', [PaymentsController::class, 'manual'])->name('payments.manual');
+
+        // CRUD nuevo
+        Route::put('payments/{id}', [PaymentsController::class, 'update'])
+            ->whereNumber('id')
+            ->name('payments.update');
+
+        Route::delete('payments/{id}', [PaymentsController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('payments.destroy');
+
+        // Email recibo
         Route::post('payments/{id}/email', [PaymentsController::class, 'emailReceipt'])
             ->whereNumber('id')
             ->name('payments.email');

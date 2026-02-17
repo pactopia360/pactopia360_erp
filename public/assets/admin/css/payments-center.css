@@ -1,0 +1,272 @@
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\payments-center.css */
+/* Pactopia360 · Payments Center (Admin) · Light UI v1 */
+
+:root{
+  --p360-ink:#0f172a;
+  --p360-mut:#64748b;
+  --p360-bd:rgba(15,23,42,.10);
+  --p360-bd2:rgba(15,23,42,.14);
+  --p360-card:#ffffff;
+  --p360-bg:#f6f7fb;
+  --p360-shadow:0 18px 50px rgba(2,6,23,.08);
+  --p360-r:16px;
+}
+
+.p360-payments{
+  padding:18px 18px 28px;
+  background:var(--p360-bg);
+  min-height:calc(100vh - 80px);
+}
+
+.p360-payments__head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  margin-bottom:14px;
+}
+.p360-payments__ttl{
+  margin:0;
+  font-size:24px;
+  letter-spacing:-.02em;
+  color:var(--p360-ink);
+}
+.p360-payments__sub{
+  margin-top:4px;
+  font-size:13px;
+  color:var(--p360-mut);
+}
+
+.p360-card{
+  background:var(--p360-card);
+  border:1px solid var(--p360-bd);
+  border-radius:var(--p360-r);
+  box-shadow:var(--p360-shadow);
+  padding:14px;
+  margin-bottom:14px;
+}
+.p360-card__head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+}
+.p360-card__ttl{
+  font-weight:700;
+  color:var(--p360-ink);
+}
+.p360-card__meta{
+  font-size:12px;
+  color:var(--p360-mut);
+}
+
+.p360-alert{
+  border-radius:12px;
+  padding:10px 12px;
+  margin:10px 0 14px;
+  font-weight:600;
+}
+.p360-alert--danger{ background:#fee2e2; color:#7f1d1d; border:1px solid #fecaca; }
+.p360-alert--ok{ background:#dcfce7; color:#14532d; border:1px solid #bbf7d0; }
+
+.p360-kpis{
+  display:grid;
+  grid-template-columns:repeat(5, minmax(0,1fr));
+  gap:12px;
+  margin-bottom:14px;
+}
+@media (max-width:1200px){ .p360-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.p360-kpi{
+  background:var(--p360-card);
+  border:1px solid var(--p360-bd);
+  border-radius:var(--p360-r);
+  box-shadow:var(--p360-shadow);
+  padding:14px;
+}
+.p360-kpi .k{ font-size:12px; color:var(--p360-mut); }
+.p360-kpi .v{ margin-top:6px; font-size:20px; font-weight:800; color:var(--p360-ink); }
+
+.p360-chiprow{ display:flex; flex-wrap:wrap; gap:8px; }
+.p360-chip{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:7px 10px;
+  border-radius:999px;
+  border:1px solid var(--p360-bd2);
+  background:#fff;
+  color:var(--p360-ink);
+  text-decoration:none;
+  font-size:12px;
+  font-weight:700;
+}
+.p360-chip--ghost{ background:transparent; }
+
+.p360-form--grid{
+  display:grid;
+  grid-template-columns:repeat(6, minmax(0,1fr));
+  gap:10px;
+}
+@media (max-width:1200px){ .p360-form--grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.p360-field label{
+  display:block;
+  font-size:12px;
+  color:var(--p360-mut);
+  margin-bottom:6px;
+  font-weight:700;
+}
+.p360-field input, .p360-field select{
+  width:100%;
+  padding:10px 10px;
+  border-radius:12px;
+  border:1px solid var(--p360-bd2);
+  background:#fff;
+  color:var(--p360-ink);
+  outline:none;
+}
+.p360-field--actions{ display:flex; flex-direction:column; justify-content:flex-end; }
+.p360-field--full{ grid-column:1 / -1; }
+
+.p360-btn{
+  border:1px solid var(--p360-bd2);
+  background:#fff;
+  color:var(--p360-ink);
+  padding:10px 12px;
+  border-radius:12px;
+  font-weight:800;
+  cursor:pointer;
+}
+.p360-btn--primary{
+  background:#111827;
+  border-color:#111827;
+  color:#fff;
+}
+.p360-btn--danger{
+  background:#ef4444;
+  border-color:#ef4444;
+  color:#fff;
+}
+.p360-btn--sm{
+  padding:8px 10px;
+  border-radius:10px;
+  font-size:12px;
+  font-weight:800;
+}
+
+.p360-grid2{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:14px;
+}
+@media (max-width:1200px){ .p360-grid2{ grid-template-columns:1fr; } }
+
+.p360-chart{ height:260px; }
+.p360-chart canvas{ width:100% !important; height:260px !important; }
+
+.p360-tablewrap{ overflow:auto; }
+.p360-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width:980px;
+}
+.p360-table th{
+  text-align:left;
+  font-size:12px;
+  color:var(--p360-mut);
+  padding:10px;
+  border-bottom:1px solid var(--p360-bd);
+  white-space:nowrap;
+}
+.p360-table td{
+  padding:10px;
+  border-bottom:1px solid var(--p360-bd);
+  color:var(--p360-ink);
+  vertical-align:top;
+}
+.t-right{ text-align:right; }
+.mono{ font-variant-numeric:tabular-nums; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+.p360-rowactions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.p360-input{
+  border:1px solid var(--p360-bd2);
+  border-radius:10px;
+  padding:8px 10px;
+  background:#fff;
+  color:var(--p360-ink);
+}
+.p360-input--sm{ width:240px; }
+
+.p360-pill{
+  display:inline-flex;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  border:1px solid var(--p360-bd2);
+  background:#fff;
+}
+.p360-pill--paid{ background:#dcfce7; border-color:#bbf7d0; color:#14532d; }
+.p360-pill--pending{ background:#ffedd5; border-color:#fed7aa; color:#7c2d12; }
+.p360-pill--failed{ background:#fee2e2; border-color:#fecaca; color:#7f1d1d; }
+.p360-pill--canceled,
+.p360-pill--cancelled{ background:#e5e7eb; border-color:#d1d5db; color:#111827; }
+.p360-pill--refunded{ background:#dbeafe; border-color:#bfdbfe; color:#1e3a8a; }
+
+.p360-check{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  font-weight:700;
+  color:var(--p360-ink);
+}
+.p360-check input{ margin-top:3px; }
+
+.p360-pager{ padding-top:10px; }
+
+/* modal */
+.p360-modal{ position:fixed; inset:0; display:none; z-index:9999; }
+.p360-modal[aria-hidden="false"]{ display:block; }
+.p360-modal__backdrop{ position:absolute; inset:0; background:rgba(2,6,23,.55); }
+.p360-modal__panel{
+  position:relative;
+  width:min(860px, calc(100vw - 24px));
+  margin:70px auto;
+  background:var(--p360-card);
+  border:1px solid var(--p360-bd);
+  border-radius:18px;
+  box-shadow:0 40px 120px rgba(2,6,23,.30);
+  overflow:hidden;
+}
+.p360-modal__head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 16px;
+  border-bottom:1px solid var(--p360-bd);
+}
+.p360-modal__ttl{ font-weight:900; color:var(--p360-ink); }
+.p360-x{
+  width:36px; height:36px;
+  border-radius:12px;
+  border:1px solid var(--p360-bd2);
+  background:#fff;
+  font-size:20px;
+  cursor:pointer;
+}
+.p360-modal__body{ padding:14px 16px; }
+.p360-modal__foot{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  padding:14px 16px;
+  border-top:1px solid var(--p360-bd);
+}
+
+body.p360-modal-open{ overflow:hidden !important; }
