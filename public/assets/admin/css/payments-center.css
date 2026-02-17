@@ -270,3 +270,26 @@
 }
 
 body.p360-modal-open{ overflow:hidden !important; }
+
+/* =========================================================
+   FIX: Laravel paginator SVG gigante (chevron prev/next)
+   ========================================================= */
+.p360-pager nav{ display:flex; justify-content:center; }
+.p360-pager nav svg,
+.p360-pager .pagination svg,
+.p360-pager [aria-label*="Pagination"] svg{
+  width:16px !important;
+  height:16px !important;
+  max-width:16px !important;
+  max-height:16px !important;
+  flex:0 0 auto !important;
+  display:inline-block !important;
+}
+
+/* Opcional: que los links no se separen raro */
+.p360-pager nav a,
+.p360-pager nav span{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
