@@ -38,7 +38,7 @@
   $hasPay = !empty($payUrl) && $totalV > 0.00001;
 
   // Tracking (opcionales)
-  $openPixel = (string)($open_pixel_url ?? ''); // e.g. https://pactopia.com/t/billing/open/{emailId}.gif
+  $openPixel = (string)($open_pixel_url ?? ''); // e.g. https://pactopia360.com/t/billing/open/{emailId}.gif
 
   // Links envueltos para click tracking (si no vienen, se usa el original)
   $pdfLink    = (string)($pdf_track_url ?? $pdfUrl);
