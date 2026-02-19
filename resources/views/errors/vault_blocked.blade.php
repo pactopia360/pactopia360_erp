@@ -48,7 +48,7 @@
               Ir a Inicio
             </a>
 
-            <a href="mailto:soporte@pactopia.com?subject=P360%20-%20Activaci%C3%B3n%20B%C3%B3veda%20Fiscal"
+            <a href="mailto:{{ config('p360.support.email') }}?subject=P360%20-%20Activaci%C3%B3n%20B%C3%B3veda%20Fiscal"
                class="btn btn-outline-danger">
               Contactar soporte
             </a>

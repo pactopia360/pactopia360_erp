@@ -113,7 +113,7 @@
 
       <div class="vf-help">
         <span>¿Necesitas ayuda?</span>
-        <a href="mailto:soporte@pactopia.com">soporte@pactopia.com</a>
+        <a href="mailto:{{ config('p360.support.email') }}">{{ config('p360.support.email') }}</a>
       </div>
     </div>
 

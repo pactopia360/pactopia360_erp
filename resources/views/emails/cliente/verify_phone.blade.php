@@ -37,7 +37,7 @@
     </div>
 
     <p style="margin:14px 0 0 0;font-size:12px;color:#94a3b8;">
-      Soporte: <a href="mailto:soporte@pactopia.com" style="color:#94a3b8;text-decoration:underline;">soporte@pactopia.com</a>
+      Soporte: <a href="mailto:{{ config('p360.support.email') }}" style="color:#94a3b8;text-decoration:underline;">{{ config('p360.support.email') }}</a>
     </p>
   </div>
 </body>

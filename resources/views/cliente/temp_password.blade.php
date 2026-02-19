@@ -154,7 +154,7 @@
                 <tr>
                   <td class="footer">
                     — Equipo Pactopia360<br>
-                    <a href="https://pactopia.com" style="color:#e31b23;">pactopia.com</a>
+                    <a href="{{ config('p360.public.site_url') }}" style="color:#e31b23;">{{ preg_replace('#^https?://#','', config('p360.public.site_url')) }}</a>
                   </td>
                 </tr>
               </table>

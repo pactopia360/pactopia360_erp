@@ -35,7 +35,7 @@
   <div class="p360-footer-in">
     <span>© {{ date('Y') }} Pactopia360 · Todos los derechos reservados</span>
     <div class="fx">
-      <a href="https://pactopia.com" target="_blank" rel="noopener">Sitio</a>
+      <a href="{{ config('p360.public.site_url') }}" target="_blank" rel="noopener">Sitio</a>
       <span class="dot">•</span>
       @if($hasTerms)
         <a href="{{ route('cliente.terminos') }}">Términos</a>

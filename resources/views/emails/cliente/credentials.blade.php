@@ -98,7 +98,7 @@
                     <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px;">
                     <p class="muted" style="margin:0;color:#5b6472;font:500 12px/1.5 system-ui,Segoe UI,Roboto,Arial;">
                       ¿Necesitas ayuda? Responde este correo o contáctanos en
-                      <a href="https://pactopia.com" class="link" style="color:#2563eb;">pactopia.com</a>.
+                      <a href="{{ config('p360.public.site_url') }}" class="link" style="color:#2563eb;">{{ preg_replace('#^https?://#','', config('p360.public.site_url')) }}</a>.
                     </p>
                   </td>
                 </tr>
