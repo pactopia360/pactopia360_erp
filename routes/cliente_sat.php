@@ -118,17 +118,26 @@ Route::prefix('sat')
 
         /*
         |----------------------------------------------------------------------
-        | ✅ REGISTRO EXTERNO POR ZIP (NO LOGIN)
+        | ✅ REGISTRO EXTERNO POR ZIP (NO LOGIN, SIGNED)
         |----------------------------------------------------------------------
-        | POST /cliente/sat/external/zip/register -> cliente.sat.external.zip.register
+        | GET  /cliente/sat/external/zip/register  -> cliente.sat.external.zip.register.form
+        | POST /cliente/sat/external/zip/register  -> cliente.sat.external.zip.register
+        |
+        | Nota: el link del correo debe apuntar al GET (form). El POST lo consume el form.
         */
+        Route::get('/external/zip/register', [SatExternalPublicController::class, 'externalZipRegisterForm'])
+            ->middleware(['signed'])
+            ->name('external.zip.register.form');
+
         if ($hasMethod(SatDescargaController::class, 'externalZipRegister')) {
             $rExternalZip = Route::post('/external/zip/register', [SatDescargaController::class, 'externalZipRegister'])
-                ->middleware([$thrCredsAlias]) // opcional: sumar 'signed'
+                ->middleware(['signed', $thrCredsAlias])
                 ->name('external.zip.register');
 
             $noCsrfLocal($rExternalZip);
         }
+
+
     });
 
 /*
@@ -232,6 +241,13 @@ Route::middleware(['auth:web', 'account.active'])
         */
         Route::get('/external/invite', [SatExternalPublicController::class, 'externalInviteGet'])
             ->name('external.invite.get');
+
+        // ✅ NUEVO: Invitación INDIVIDUAL (CSD .cer/.key)
+        // - SIEMPRE apunta al controller público (link firmado email+cuenta_id)
+        $rInviteIndividual = Route::post('/external/invite-individual', [SatExternalPublicController::class, 'externalInviteFallback'])
+            ->middleware($thrCredsAlias)
+            ->name('external.invite.individual');
+        $noCsrfLocal($rInviteIndividual);
 
         // POST principal + legacy para compatibilidad UI vieja (/fiel/external/invite)
         if (method_exists(SatDescargaController::class, 'externalInvite')) {

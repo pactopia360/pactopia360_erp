@@ -9,6 +9,45 @@
   const qs  = (s, r=document) => r.querySelector(s);
   const qsa = (s, r=document) => Array.from(r.querySelectorAll(s));
 
+  // =====================================================
+  // External RFC mode (Individual / ZIP) + Individual invite
+  // =====================================================
+  function setExternalMode(mode){
+    const btnInd  = qs('#exModeIndividual');
+    const btnZip  = qs('#exModeZip');
+    const paneInd = qs('#exPaneIndividual');
+    const paneZip = qs('#exPaneZip');
+
+    const m = String(mode || 'zip').toLowerCase() === 'individual' ? 'individual' : 'zip';
+
+    if (paneInd) paneInd.style.display = (m === 'individual') ? 'block' : 'none';
+    if (paneZip) paneZip.style.display = (m === 'zip') ? 'block' : 'none';
+
+    // botones visual
+    if (btnInd){
+      btnInd.classList.toggle('sat4-btn-primary', m === 'individual');
+      btnInd.classList.toggle('sat4-btn-ghost', m !== 'individual');
+    }
+    if (btnZip){
+      btnZip.classList.toggle('sat4-btn-primary', m === 'zip');
+      btnZip.classList.toggle('sat4-btn-ghost', m !== 'zip');
+    }
+
+    try{ window.__SAT4_EXT_MODE__ = m; }catch{}
+  }
+
+  function initExternalModeUi(){
+    const btnInd = qs('#exModeIndividual');
+    const btnZip = qs('#exModeZip');
+
+    if (btnInd) btnInd.addEventListener('click', () => setExternalMode('individual'));
+    if (btnZip) btnZip.addEventListener('click', () => setExternalMode('zip'));
+
+    // default
+    setExternalMode('zip');
+  }
+
+
   function money(n){
     const x = Number(n || 0);
     return '$' + x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1118,6 +1157,17 @@
     if (open) setTimeout(loadExternalList, 0);
   });
 
+  document.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open="sat4ModalExternal"]');
+    if (open){
+      setTimeout(() => {
+        try{ initExternalModeUi(); }catch{}
+        try{ loadExternalList(); }catch{}
+      }, 0);
+    }
+  });
+
+
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-ex]');
     if (!b) return;
@@ -1171,6 +1221,10 @@
 
   const exOpenInvite = qs('#exOpenInvite');
   if (exOpenInvite) exOpenInvite.addEventListener('click', () => openModal('sat4ModalExtInvite'));
+
+  // Open Individual Invite (from admin-like pane)
+  const exOpenInviteIndividual = qs('#exOpenInviteIndividual');
+  if (exOpenInviteIndividual) exOpenInviteIndividual.addEventListener('click', () => openModal('sat4ModalExtInviteIndividual'));
 
   const exSend = qs('#exSend');
   if (exSend){
@@ -1488,6 +1542,97 @@
     }, true);
 
   })();
+
+    // =====================================================
+  // External Invite (INDIVIDUAL)
+  // - Modal: sat4ModalExtInviteIndividual
+  // - Inputs: #invEmailInd #invRefInd
+  // - Button: #invSendInd
+  // - Output: #invStatusInd
+  // - Route: R.externalInviteIndividual
+  // =====================================================
+  (function initExternalInviteIndividual(){
+    const btn = qs('#invSendInd');
+    if (!btn) return;
+
+    const out = qs('#invStatusInd');
+    const inEmail = qs('#invEmailInd');
+    const inRef   = qs('#invRefInd');
+
+    function stop(e){ try{ e.preventDefault(); e.stopPropagation(); }catch{} }
+    function validEmail(email){
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+    }
+    function normalizeErr(res, data){
+      return (res && res.status === 419) ? 'Sesión expirada (419). Refresca la página.'
+        : (data && (data.msg || data.message)) ? (data.msg || data.message)
+        : ('Error (HTTP ' + (res?.status ?? '—') + ')');
+    }
+
+    async function send(){
+      const url = String(R.externalInviteIndividual || '').trim();
+      const email = (inEmail?.value || '').trim();
+      const ref   = (inRef?.value || '').trim();
+
+      if (!url){
+        if (out) out.textContent = 'Ruta no configurada (externalInviteIndividual).';
+        return;
+      }
+      if (!validEmail(email)){
+        if (out) out.textContent = 'Correo inválido.';
+        return;
+      }
+
+      btn.disabled = true;
+      if (out) out.textContent = 'Enviando invitación (Individual)…';
+
+      try{
+        const fd = new FormData();
+        fd.append('email', email);
+        fd.append('reference', ref);
+
+        const { res, data } = await fetchJson(url, {
+          method:'POST',
+          credentials:'same-origin',
+          headers:{ 'Accept':'application/json', 'X-CSRF-TOKEN': csrf },
+          body: fd
+        });
+
+        if (!res?.ok || !data || !data.ok){
+          throw new Error(normalizeErr(res, data));
+        }
+
+        if (out) out.textContent = '✅ Invitación (Individual) enviada';
+
+        // opcional: cerrar y volver al admin-like
+        try{
+          closeAll();
+          openModal('sat4ModalExternal');
+          setTimeout(() => {
+            try{ initExternalModeUi(); setExternalMode('individual'); }catch{}
+            try{ loadExternalList(); }catch{}
+          }, 0);
+        }catch{}
+      }catch(err){
+        if (out) out.textContent = err?.message || 'Error';
+      }finally{
+        btn.disabled = false;
+      }
+    }
+
+    // Forzar type=button
+    try{ btn.setAttribute('type','button'); }catch{}
+
+    btn.addEventListener('click', (e)=>{ stop(e); send(); }, true);
+
+    // Enter en inputs
+    [inEmail, inRef].filter(Boolean).forEach(inp => {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter'){ stop(e); send(); }
+      }, true);
+    });
+  })();
+
 
   // =====================================================
   // Portal: Iniciar descarga (Mes/Año)

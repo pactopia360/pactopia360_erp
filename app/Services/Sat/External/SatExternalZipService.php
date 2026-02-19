@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\Cliente\Sat\ExternalZipInviteMail;
 
-
 final class SatExternalZipService
 {
     public function externalZipInvite(Request $request, string $trace): array
@@ -69,13 +68,12 @@ final class SatExternalZipService
             ];
             if ($dbg) $out['debug'] = $dbg;
 
-            try{
-                Log::warning('external_zip_register_account_unresolved', [
+            try {
+                Log::warning('external_zip_invite_account_unresolved', [
                     'trace_id' => $trace,
-                    'debug' => $dbg,
+                    'debug'    => $dbg,
                 ]);
-            }catch(\Throwable){}
-
+            } catch (\Throwable) {}
 
             return $out;
         }
@@ -97,38 +95,33 @@ final class SatExternalZipService
             $tableFq = ($cfgDb !== '') ? ($cfgDb . '.' . $table) : $table;
 
             $token = bin2hex(random_bytes(32));
+            $expiresAt = now()->addHours(24);
 
-            // Status defensivo (porque no sabemos si aceptas "invited")
-            $status = 'invited';
-            if ($has('status')) {
-                // Si tu sistema solo maneja estos, usamos pending
-                $allowed = ['uploaded','processing','done','ready','error','failed','rejected','approved','review','pending','invited'];
-                if (!in_array($status, $allowed, true)) $status = 'pending';
-            } else {
-                $status = null;
-            }
+            // Status defensivo
+            $status = $has('status') ? 'invited' : null;
 
-            // URL de invitación:
-            // - Si tienes rutas firmadas para upload externo, úsala aquí.
-            // - Como no me diste esa ruta, generamos una URL "placeholder" coherente.
-            //   Cambia 'cliente.sat.external.zip.public' por tu ruta real si existe.
+            /**
+             * ✅ CRÍTICO: generar URL FIRMADA (signed) con expiración
+             * Si tu ruta tiene middleware('signed'), esto elimina el 403 INVALID SIGNATURE.
+             */
             $inviteUrl = null;
-            try {
-                if (function_exists('route') && \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.public')) {
-                    $inviteUrl = URL::temporarySignedRoute(
-                        'cliente.sat.external.zip.public',
-                        now()->addHours(24),
-                        ['token' => $token]
-                    );
-                } else {
-                    // Fallback NO firmado: solo para que no se rompa el flujo
+                try {
+                    // ✅ NUEVO: mandar a la pantalla ZIP (GET) firmada
+                    if (function_exists('route') && \Illuminate\Support\Facades\Route::has('cliente.sat.external.zip.register.form')) {
+                        $inviteUrl = URL::temporarySignedRoute(
+                            'cliente.sat.external.zip.register.form',
+                            $expiresAt,
+                            ['token' => $token]
+                        );
+                    } else {
+                        // fallback (no recomendado si la ruta exige signature)
+                        $base = rtrim((string) config('app.url'), '/');
+                        $inviteUrl = $base . '/cliente/sat/external/zip/register?token=' . urlencode($token);
+                    }
+                } catch (\Throwable) {
                     $base = rtrim((string) config('app.url'), '/');
-                    $inviteUrl = $base . '/cliente/sat/external/public?token=' . urlencode($token);
+                    $inviteUrl = $base . '/cliente/sat/external/zip/register?token=' . urlencode($token);
                 }
-            } catch (\Throwable) {
-                $base = rtrim((string) config('app.url'), '/');
-                $inviteUrl = $base . '/cliente/sat/external/public?token=' . urlencode($token);
-            }
 
             $row = [
                 'account_id'    => (int) $accountId,
@@ -155,17 +148,58 @@ final class SatExternalZipService
                     'ip'         => $request->ip(),
                     'ua'         => (string) $request->userAgent(),
                     'invite_url' => $inviteUrl,
-                    'expires_at' => now()->addHours(24)->toIso8601String(),
+                    'expires_at' => $expiresAt->toIso8601String(),
                 ];
                 $safe['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
             }
 
-            // Insert
             $id = (int) DB::connection($conn)->table($tableFq)->insertGetId($safe);
+
+            // ✅ Enviar correo
+            $mailSent  = false;
+            $mailError = null;
+
+            try {
+                Log::info('external_zip_invite_mail_attempt', [
+                    'trace_id'   => $trace,
+                    'account_id' => (int) $accountId,
+                    'to'         => $email,
+                    'invite_url' => $inviteUrl,
+                    'row_id'     => $id,
+                ]);
+
+                $mailable = new ExternalZipInviteMail(
+                    inviteUrl: $inviteUrl,
+                    reference: ($ref !== '' ? $ref : null),
+                    traceId: $trace,
+                    expiresAt: $expiresAt->toDateTimeString(),
+                );
+
+                // Laravel moderno: send() es suficiente
+                Mail::to($email)->send($mailable);
+
+                $mailSent = true;
+
+                Log::info('external_zip_invite_mail_sent', [
+                    'trace_id' => $trace,
+                    'to'       => $email,
+                    'row_id'   => $id,
+                ]);
+            } catch (\Throwable $e) {
+                $mailError = $e->getMessage();
+
+                Log::error('external_zip_invite_mail_failed', [
+                    'trace_id'   => $trace,
+                    'account_id' => (int) $accountId,
+                    'to'         => $email,
+                    'row_id'     => $id,
+                    'error'      => $mailError,
+                ]);
+            }
 
             $ms = (int) round((microtime(true) - $t0) * 1000);
 
-            return [
+            $resp = [
                 'ok'   => true,
                 'code' => 200,
                 'msg'  => 'Invitación ZIP creada correctamente.',
@@ -176,9 +210,21 @@ final class SatExternalZipService
                     'reference'  => ($ref !== '' ? $ref : null),
                     'token'      => $token,
                     'invite_url' => $inviteUrl,
+                    'expires_at' => $expiresAt->toDateTimeString(),
+                    'mail_sent'  => $mailSent,
                     'ms'         => $ms,
                 ],
             ];
+
+            if (!$mailSent) {
+                $resp['msg'] = 'Invitación ZIP creada, pero no se pudo enviar el correo.';
+                if (config('app.debug')) {
+                    $resp['data']['mail_error'] = $mailError;
+                }
+            }
+
+            return $resp;
+
         } catch (\Throwable $e) {
             Log::error('external_zip_invite_failed', [
                 'trace_id'   => $trace,
@@ -199,6 +245,9 @@ final class SatExternalZipService
         $maxKb = 51200;
 
         $data = $request->validate([
+            // token debe venir del link firmado (?token=...)
+            'token'         => ['nullable', 'string', 'max:80'],
+
             'rfc'           => ['nullable', 'string', 'max:13'],
             'rfc_externo'   => ['nullable', 'string', 'max:13'],
 
@@ -223,11 +272,17 @@ final class SatExternalZipService
             'archivo_zip'   => ['nullable', 'file', 'mimes:zip', 'max:' . $maxKb],
         ]);
 
+        // token desde query (preferente) o body
+        $token = trim((string) ($request->query('token', '') ?: ($data['token'] ?? '')));
+        if ($token === '' || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return ['ok' => false, 'code' => 422, 'msg' => 'Token inválido o faltante.'];
+        }
+
         $rfc   = strtoupper(trim((string) ($data['rfc'] ?? $data['rfc_externo'] ?? '')));
         $pass  = trim((string) ($data['fiel_pass'] ?? $data['fiel_password'] ?? $data['password'] ?? ''));
-        $ref   = trim((string) ($data['reference'] ?? $data['ref'] ?? $data['referencia'] ?? ''));
+        $refIn = trim((string) ($data['reference'] ?? $data['ref'] ?? $data['referencia'] ?? ''));
         $notes = trim((string) ($data['notes'] ?? $data['nota'] ?? ''));
-        $emailExterno = trim((string) ($data['email_externo'] ?? $data['email'] ?? ''));
+        $emailExternoIn = trim((string) ($data['email_externo'] ?? $data['email'] ?? ''));
         $razonSocial  = trim((string) ($data['razon_social'] ?? $data['razonSocial'] ?? ''));
 
         if ($rfc === '' || !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
@@ -256,66 +311,53 @@ final class SatExternalZipService
             }
         } catch (\Throwable) {}
 
-        $accountId = $this->resolveClientAccountIdBigint($request);
-        if (!$accountId || $accountId <= 0) {
+        $conn  = 'mysql_clientes';
+        $table = 'external_fiel_uploads';
 
-            $dbg = null;
-            try {
-                if (config('app.debug')) {
-                    $u = null;
-                    try { $u = $request->user(); } catch (\Throwable) {}
-
-                    $cu = null;
-                    try { $cu = $u?->cuenta ?? null; if (is_array($cu)) $cu = (object)$cu; } catch (\Throwable) {}
-
-                    $dbg = [
-                        'has_user' => (bool) $u,
-                        'user_class' => $u ? get_class($u) : null,
-                        'user_id' => $u?->id ?? null,
-                        'user_email' => $u?->email ?? null,
-
-                        'user_user_code' => $u?->user_code ?? null,
-                        'user_cuenta_id' => $u?->cuenta_id ?? null,
-                        'user_account_id' => $u?->account_id ?? null,
-                        'user_admin_account_id' => $u?->admin_account_id ?? null,
-
-                        'embedded_cuenta_id' => is_object($cu) ? ($cu->id ?? null) : null,
-                        'embedded_admin_account_id' => is_object($cu) ? ($cu->admin_account_id ?? null) : null,
-
-                        'session_cuenta_id' => session('cuenta_id') ?? null,
-                        'session_admin_account_id' => session('admin_account_id') ?? null,
-                        'session_account_id' => session('account_id') ?? null,
-                        'session_user_code' => session('user_code') ?? null,
-
-                        'req_cuenta_id' => $request->input('cuenta_id'),
-                        'req_admin_account_id' => $request->input('admin_account_id'),
-                        'req_account_id' => $request->input('account_id'),
-                        'req_rfc' => $request->input('rfc') ?? $request->input('rfc_externo'),
-                        'req_email' => $request->input('email') ?? $request->input('email_externo'),
-                    ];
-                }
-            } catch (\Throwable) {}
-
-            try{
-                Log::warning('external_zip_register_account_unresolved', [
-                    'trace_id' => $trace,
-                    'debug' => $dbg,
-                ]);
-            }catch(\Throwable){}
-
-            $out = [
-                'ok' => false,
-                'code' => 422,
-                'msg' => 'No se pudo resolver tu cuenta cliente. (APP_DEBUG te mostrará el motivo en debug)',
-            ];
-            if ($dbg) $out['debug'] = $dbg;
-
-            return $out;
+        // ✅ Resolver por TOKEN (invited row) — el invitado no está autenticado
+        try {
+            if (!Schema::connection($conn)->hasTable($table)) {
+                return ['ok' => false, 'code' => 500, 'msg' => 'No existe la tabla external_fiel_uploads.'];
+            }
+        } catch (\Throwable) {
+            return ['ok' => false, 'code' => 500, 'msg' => 'No se pudo validar esquema de external_fiel_uploads.'];
         }
 
+        $schema = Schema::connection($conn);
+        $cols = [];
+        try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
+        $has = static fn(string $c): bool => in_array($c, $cols, true);
+
+        $cfgDb   = (string) (config("database.connections.{$conn}.database") ?? '');
+        $tableFq = ($cfgDb !== '') ? ($cfgDb . '.' . $table) : $table;
+
+        $inviteRow = null;
+        try {
+            $inviteRow = DB::connection($conn)->table($tableFq)->where('token', $token)->first();
+        } catch (\Throwable $e) {
+            Log::error('external_zip_register_token_lookup_failed', [
+                'trace_id' => $trace,
+                'token' => $token,
+                'error' => $e->getMessage(),
+            ]);
+            return ['ok' => false, 'code' => 500, 'msg' => 'No se pudo validar la invitación.'];
+        }
+
+        if (!$inviteRow) {
+            return ['ok' => false, 'code' => 404, 'msg' => 'Invitación no encontrada o ya no válida.'];
+        }
+
+        $accountId = (int) ($inviteRow->account_id ?? 0);
+        if ($accountId <= 0) {
+            return ['ok' => false, 'code' => 422, 'msg' => 'Invitación inválida (sin cuenta asociada).'];
+        }
+
+        // Reutiliza referencia/email guardados en invitación si no vienen en form
+        $ref = $refIn !== '' ? $refIn : trim((string) ($inviteRow->reference ?? ''));
+        $emailExterno = $emailExternoIn !== '' ? $emailExternoIn : trim((string) ($inviteRow->email_externo ?? ''));
 
         $disk = config('filesystems.disks.private') ? 'private' : 'local';
-        $dir  = "fiel/external/" . (int) $accountId;
+        $dir  = "fiel/external/" . $accountId;
 
         $safeRfc = preg_replace('/[^A-Z0-9]/', '', $rfc);
         $rand    = strtoupper(Str::random(10));
@@ -331,38 +373,18 @@ final class SatExternalZipService
         } catch (\Throwable $e) {
             Log::error('external_fiel_zip_store_failed', [
                 'trace_id' => $trace,
-                'account_id' => (int) $accountId,
+                'account_id' => $accountId,
                 'rfc' => $rfc,
-                'e' => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
             return ['ok' => false, 'code' => 500, 'msg' => 'Error al guardar el ZIP.'];
         }
 
-        $conn  = 'mysql_clientes';
-        $table = 'external_fiel_uploads';
-
+        // ✅ Actualizar el registro invitado (NO insertar uno nuevo)
         try {
-            $schema = Schema::connection($conn);
-
-            if (!$schema->hasTable($table)) {
-                try { Storage::disk($disk)->delete($path); } catch (\Throwable) {}
-                return ['ok' => false, 'code' => 500, 'msg' => 'No existe la tabla external_fiel_uploads.'];
-            }
-
-            $cols = [];
-            try { $cols = $schema->getColumnListing($table); } catch (\Throwable) { $cols = []; }
-            $has = static fn(string $c): bool => in_array($c, $cols, true);
-
-            $token = bin2hex(random_bytes(32));
-
-            $row = [
-                'account_id'    => (int) $accountId,
-                'email_externo' => ($emailExterno !== '' ? $emailExterno : null),
-                'reference'     => ($ref !== '' ? $ref : null),
+            $update = [
                 'rfc'           => $rfc,
                 'razon_social'  => ($razonSocial !== '' ? $razonSocial : null),
-
-                'token'         => $token,
 
                 'file_path'     => $path,
                 'file_name'     => (string) $zipFile->getClientOriginalName(),
@@ -372,27 +394,40 @@ final class SatExternalZipService
                 'fiel_password' => Crypt::encryptString($pass),
                 'status'        => 'uploaded',
                 'uploaded_at'   => now(),
-                'created_at'    => now(),
                 'updated_at'    => now(),
+
+                // si el formulario trae email/reference, guarda también
+                'email_externo' => ($emailExterno !== '' ? $emailExterno : null),
+                'reference'     => ($ref !== '' ? $ref : null),
             ];
 
-            $safe = [];
-            foreach ($row as $k => $v) if ($has($k)) $safe[$k] = $v;
-
-            if ($has('meta')) {
-                $meta = [
-                    'source'        => 'external_zip_register',
-                    'trace_id'      => $trace,
-                    'ip'            => $request->ip(),
-                    'ua'            => (string) $request->userAgent(),
-                    'notes'         => ($notes !== '' ? $notes : null),
-                    'original_name' => (string) $zipFile->getClientOriginalName(),
-                    'disk'          => $disk,
-                ];
-                $safe['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+            $safeUpdate = [];
+            foreach ($update as $k => $v) {
+                if ($has($k)) $safeUpdate[$k] = $v;
             }
 
-            $id = (int) DB::connection($conn)->table($table)->insertGetId($safe);
+            if ($has('meta')) {
+                $meta = [];
+                try {
+                    $metaRaw = $inviteRow->meta ?? null;
+                    if (is_string($metaRaw) && $metaRaw !== '') {
+                        $tmp = json_decode($metaRaw, true);
+                        if (is_array($tmp)) $meta = $tmp;
+                    }
+                } catch (\Throwable) {}
+
+                $meta['source']        = 'external_zip_register';
+                $meta['trace_id']      = $trace;
+                $meta['ip']            = $request->ip();
+                $meta['ua']            = (string) $request->userAgent();
+                $meta['notes']         = ($notes !== '' ? $notes : null);
+                $meta['original_name'] = (string) $zipFile->getClientOriginalName();
+                $meta['disk']          = $disk;
+
+                $safeUpdate['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+            }
+
+            DB::connection($conn)->table($tableFq)->where('token', $token)->update($safeUpdate);
 
             $ms = (int) round((microtime(true) - $t0) * 1000);
 
@@ -401,21 +436,22 @@ final class SatExternalZipService
                 'code' => 200,
                 'msg' => 'FIEL externa cargada correctamente.',
                 'data' => [
-                    'id' => $id,
-                    'account_id' => (int) $accountId,
+                    'account_id' => $accountId,
                     'rfc' => $rfc,
                     'file_path' => $path,
+                    'token' => $token,
                     'ms' => $ms,
                 ],
             ];
         } catch (\Throwable $e) {
             try { if ($path !== '') Storage::disk($disk)->delete($path); } catch (\Throwable) {}
 
-            Log::error('external_fiel_upload_failed', [
-                'trace_id' => $trace,
-                'account_id' => (int) $accountId,
-                'rfc' => $rfc,
-                'error' => $e->getMessage(),
+            Log::error('external_fiel_upload_update_failed', [
+                'trace_id'   => $trace,
+                'account_id' => $accountId,
+                'token'      => $token,
+                'rfc'        => $rfc,
+                'error'      => $e->getMessage(),
             ]);
 
             return ['ok' => false, 'code' => 500, 'msg' => 'Error al guardar FIEL externa.'];
@@ -439,7 +475,7 @@ final class SatExternalZipService
         if (mb_strlen($q) > 120) $q = mb_substr($q, 0, 120);
 
         if ($status !== '') {
-            $allowed = ['uploaded','processing','done','ready','error','failed','rejected','approved','review','pending'];
+            $allowed = ['uploaded','processing','done','ready','error','failed','rejected','approved','review','pending','invited'];
             if (!in_array(strtolower($status), $allowed, true)) $status = '';
         }
 
@@ -451,6 +487,7 @@ final class SatExternalZipService
                 if (config('app.debug')) {
                     $u = null;
                     try { $u = $request->user(); } catch (\Throwable) {}
+
                     $cu = null;
                     try { $cu = $u?->cuenta ?? null; if (is_array($cu)) $cu = (object)$cu; } catch (\Throwable) {}
 
@@ -469,19 +506,24 @@ final class SatExternalZipService
                 }
             } catch (\Throwable) {}
 
-            try{
+            try {
                 Log::warning('external_zip_list_account_unresolved', [
                     'trace_id' => $trace,
-                    'debug' => $dbg,
+                    'debug'    => $dbg,
                 ]);
-            }catch(\Throwable){}
+            } catch (\Throwable) {}
 
-            $out = ['ok'=>false,'code'=>422,'msg'=>'No se pudo resolver tu cuenta cliente. (APP_DEBUG te mostrará debug)','rows'=>[],'count'=>0];
+            $out = [
+                'ok'   => false,
+                'code' => 422,
+                'msg'  => 'No se pudo resolver tu cuenta cliente. (APP_DEBUG te mostrará debug)',
+                'rows' => [],
+                'count'=> 0,
+            ];
             if ($dbg) $out['debug'] = $dbg;
 
             return $out;
         }
-
 
         try {
             $schema = Schema::connection($conn);
@@ -510,20 +552,18 @@ final class SatExternalZipService
             } catch (\Throwable) {}
 
             $accountIds = array_values(array_unique(array_filter([
-                (int) $accountId, // ya viene resuelto por resolveClientAccountIdBigint() -> admin_account_id real
+                (int) $accountId,
                 (int) $embeddedAdmin,
                 (int) (session('admin_account_id') ?? 0),
-                (int) (session('account_id') ?? 0), // por si tu sesión guarda el admin aquí
+                (int) (session('account_id') ?? 0),
                 (int) ($request->input('admin_account_id') ?? 0),
                 (int) ($request->input('account_id') ?? 0),
                 (int) (($user?->admin_account_id ?? 0)),
                 (int) (($user?->account_id ?? 0)),
             ], fn($v) => is_int($v) && $v > 0)));
 
-
             $base = DB::connection($conn)->table($tableFq);
-
-            $qb = (clone $base)->whereIn('account_id', $accountIds ?: [(int)$accountId]);
+            $qb = (clone $base)->whereIn('account_id', $accountIds ?: [(int) $accountId]);
 
             if ($status !== '' && $has('status')) $qb->where('status', $status);
 
@@ -567,11 +607,11 @@ final class SatExternalZipService
             foreach ($rows as $r) $rowsArr[] = (array) $r;
 
             return [
-                'ok' => true,
-                'code' => 200,
-                'rows' => $rowsArr,
-                'count' => $count,
-                'limit' => $limit,
+                'ok'     => true,
+                'code'   => 200,
+                'rows'   => $rowsArr,
+                'count'  => $count,
+                'limit'  => $limit,
                 'offset' => $offset,
             ];
         } catch (\Throwable $e) {
@@ -586,17 +626,15 @@ final class SatExternalZipService
     }
 
     /**
-     * Resolver account_id BIGINT real de mysql_clientes.accounts
+     * Resolver account_id BIGINT real (mysql_admin.accounts.id) para el portal cliente.
      *
      * En este proyecto:
-     * - accounts.id                  => BIGINT real (lo que necesita external_fiel_uploads.account_id)
-     * - cuentas_cliente.id           => UUID/varchar(36) (lo que usa el portal)
-     * - cuentas_cliente.admin_account_id => BIGINT puente hacia accounts.id
+     * - accounts.id (admin)               => BIGINT real
+     * - cuentas_cliente.id (clientes)     => UUID/varchar(36)
+     * - cuentas_cliente.admin_account_id  => BIGINT puente hacia accounts.id
      */
     public function resolveClientAccountIdBigint(Request $request): ?int
     {
-        // En este flujo, account_id de external_fiel_uploads debe ser el ID BIGINT del "admin account"
-        // (mysql_admin.accounts.id), porque cuentas_cliente.admin_account_id apunta ahí.
         $cliConn  = 'mysql_clientes';
         $admConn  = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
@@ -615,13 +653,9 @@ final class SatExternalZipService
             );
         };
 
-        // ==========================================================
-        // 0) DIRECTO: admin_account_id / account_id numérico (request/session/user)
-        //    Validar SIEMPRE contra mysql_admin.accounts
-        // ==========================================================
+        // 0) DIRECTO numérico (request/session/user)
         $direct = [];
 
-        // request
         try {
             foreach (['admin_account_id', 'account_id'] as $k) {
                 $v = trim((string) $request->input($k, ''));
@@ -629,7 +663,6 @@ final class SatExternalZipService
             }
         } catch (\Throwable) {}
 
-        // session
         try {
             foreach (['admin_account_id', 'account_id'] as $k) {
                 $v = trim((string) session($k, ''));
@@ -637,7 +670,6 @@ final class SatExternalZipService
             }
         } catch (\Throwable) {}
 
-        // user fields
         try {
             if ($user) {
                 foreach (['admin_account_id', 'account_id'] as $k) {
@@ -649,7 +681,6 @@ final class SatExternalZipService
             }
         } catch (\Throwable) {}
 
-        // embedded cuenta->admin_account_id (tu debug lo trae: embedded_admin_account_id=15)
         try {
             $cu = $user?->cuenta ?? null;
             if (is_array($cu)) $cu = (object) $cu;
@@ -664,12 +695,9 @@ final class SatExternalZipService
             if ($existsInAdminAccounts($id)) return $id;
         }
 
-        // ==========================================================
-        // 1) OBTENER UUID (cuentas_cliente.id) desde request/session/user
-        // ==========================================================
+        // 1) UUID de cuentas_cliente desde request/session/user
         $uuid = '';
 
-        // request
         try {
             foreach (['cuenta_id','cuenta_uuid','cuenta','cuenta_cliente_id','account_uuid','accountId'] as $k) {
                 $v = trim((string) $request->input($k, ''));
@@ -677,7 +705,6 @@ final class SatExternalZipService
             }
         } catch (\Throwable) {}
 
-        // session
         if ($uuid === '') {
             try {
                 foreach ([
@@ -691,7 +718,6 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // user fields típicos
         if ($uuid === '') {
             try {
                 if ($user) {
@@ -705,7 +731,6 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // embedded cuenta->id
         if ($uuid === '') {
             try {
                 $cu = $user?->cuenta ?? null;
@@ -717,9 +742,7 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // ==========================================================
-        // 2) UUID -> cuentas_cliente.admin_account_id -> validar contra mysql_admin.accounts
-        // ==========================================================
+        // 2) UUID -> admin_account_id
         if ($uuid !== '') {
             try {
                 if (Schema::connection($cliConn)->hasTable('cuentas_cliente')) {
@@ -737,10 +760,7 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // ==========================================================
-        // 3) EMAIL -> cuentas_cliente.email -> admin_account_id -> validar admin.accounts
-        //    fallback: mysql_admin.accounts.correo_contacto
-        // ==========================================================
+        // 3) EMAIL fallback
         $email = '';
         try { $email = trim((string) $request->input('email', $request->input('email_externo', ''))); } catch (\Throwable) {}
         if ($email === '' && $user) {
@@ -769,10 +789,7 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // ==========================================================
-        // 4) RFC -> cuentas_cliente.rfc -> admin_account_id -> validar admin.accounts
-        //    fallback: mysql_admin.accounts.rfc
-        // ==========================================================
+        // 4) RFC fallback
         $rfc = trim((string) $request->input('rfc', $request->input('rfc_externo', '')));
         $rfc = strtoupper($rfc);
 
@@ -798,9 +815,7 @@ final class SatExternalZipService
             } catch (\Throwable) {}
         }
 
-        // ==========================================================
-        // 5) user_code -> mysql_admin.accounts.user_code
-        // ==========================================================
+        // 5) user_code fallback
         $userCode = '';
         try { if ($user) $userCode = trim((string) ($user->user_code ?? '')); } catch (\Throwable) {}
         if ($userCode === '') {

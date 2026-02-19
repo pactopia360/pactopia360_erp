@@ -139,12 +139,17 @@
   $rtFielList     = $hasFielList ? route('cliente.sat.fiel.external.list') : '';
   $rtFielInvite   = Route::has('cliente.sat.fiel.external.invite') ? route('cliente.sat.fiel.external.invite') : null;
 
-  // ✅ Invitación “oficial” (la que tu backend exige)
+  // ✅ Invitación ZIP “oficial” (backend actual)
   // - Si existe named route, úsala.
   // - Si no existe, fallback duro al path.
   $rtExternalInvite = Route::has('cliente.sat.external.invite')
     ? route('cliente.sat.external.invite')
     : url('/cliente/sat/external/invite');
+
+  // ✅ Invitación INDIVIDUAL (solo si existe; sin fallback duro)
+  $rtExternalInviteIndividual = Route::has('cliente.sat.external.invite.individual')
+    ? route('cliente.sat.external.invite.individual')
+    : '';
 
 
   $rtFielDownload = Route::has('cliente.sat.fiel.external.download') ? route('cliente.sat.fiel.external.download',['id'=>'__ID__']) : '';
@@ -164,9 +169,15 @@
 
   // Vault
   $rtVault      = Route::has('cliente.sat.vault') ? route('cliente.sat.vault') : '#';
+
+  // Carrito existe, pero NO debe secuestrar la navegación del botón "Bóveda"
+  // El upsell/ampliación se gestiona dentro de la pantalla de Bóveda.
   $rtCartIndex  = Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : null;
   $rtCartPay    = Route::has('cliente.sat.cart.checkout') ? route('cliente.sat.cart.checkout') : null;
-  $vaultCtaUrl  = $rtCartIndex ?? $rtCartPay ?? $rtVault;
+
+  // ✅ Siempre ir a la Bóveda SAT
+  $vaultCtaUrl  = $rtVault;
+
 
   // Vault cfg (defensivo)
   $vaultCfg = $vault ?? [];
@@ -218,6 +229,7 @@
       'fielList'     => $rtFielList ?: '',
       'fielInvite'   => $rtFielInvite ?: '',
       'externalZipInvite' => $rtExternalInvite ?: '',
+      'externalInviteIndividual' => $rtExternalInviteIndividual ?: '',
       'fielDownload' => $rtFielDownload ?: '',
       'fielUpdate'   => $rtFielUpdate ?: '',
       'fielDestroy'  => $rtFielDestroy ?: '',
@@ -358,7 +370,7 @@
 
         <div class="sat4-work-actions">
           <button class="sat4-btn sat4-btn-ghost" type="button" data-open="sat4ModalConnections">Conexiones</button>
-          <button class="sat4-btn" type="button" data-open="sat4ModalExternal">RFC externo</button>
+          <button class="sat4-btn" type="button" data-open="sat4ModalExtInviteIndividual">RFC externo</button>
           <button class="sat4-btn sat4-btn-primary" type="button" data-open="sat4ModalDownloads">Ver todas</button>
         </div>
       </div>
@@ -747,25 +759,53 @@
     <div class="sat4-modal-head">
       <div>
         <div class="sat4-modal-title">RFC externo</div>
-        <div class="sat4-mini" style="margin-top:4px;">
-          ZIP / Invitación · Admin-like · acciones por registro
-        </div>
+       <div class="sat4-mini" style="margin-top:4px;">
+         Individual / ZIP · Admin-like · acciones por registro
+       </div>
       </div>
       <button type="button" class="sat4-x" data-close>✕</button>
     </div>
 
     <div class="sat4-form">
-      <div class="sat4-row sat4-row--ext-actions">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="exOpenUpload">Subir ZIP</button>
-        <button class="sat4-btn" type="button" id="exOpenInvite" {{ $rtFielInvite ? '' : 'disabled' }}>Invitar</button>
-        <button class="sat4-btn sat4-btn-ghost" type="button" id="exRefresh">Actualizar</button>
+      {{-- ✅ Selector: Individual | ZIP --}}
+      <div class="sat4-row sat4-row--ext-actions" style="gap:10px; align-items:center;">
+        <button class="sat4-btn sat4-btn-primary" type="button" id="exModeIndividual">Individual</button>
+        <button class="sat4-btn" type="button" id="exModeZip">ZIP</button>
 
-        <div class="sat4-ext-hint" style="margin-left:auto;">
+        <button class="sat4-btn sat4-btn-ghost" type="button" id="exRefresh" style="margin-left:auto;">Actualizar</button>
+
+        <div class="sat4-ext-hint">
           <span class="sat4-mini">RFCs OK:</span>
           <b class="mono">{{ number_format((int)$kRfcValid) }}</b>
         </div>
       </div>
+
+      {{-- ✅ Pane: Individual --}}
+      <div id="exPaneIndividual" style="margin-top:10px; display:none;">
+        <div class="sat4-mini" style="margin-bottom:8px;">
+          Envía una invitación para alta <b>individual</b> (CSD / RFC externo).
+        </div>
+
+        <div class="sat4-row">
+          <button class="sat4-btn sat4-btn-primary" type="button" id="exOpenInviteIndividual">
+            Invitar (Individual)
+          </button>
+        </div>
+
+        <div class="sat4-mini" style="margin-top:6px;">
+          *Esta opción es la misma que el botón “RFC externo” de arriba.
+        </div>
+      </div>
+
+      {{-- ✅ Pane: ZIP --}}
+      <div id="exPaneZip" style="margin-top:10px;">
+        <div class="sat4-row">
+          <button class="sat4-btn sat4-btn-primary" type="button" id="exOpenUpload">Subir ZIP</button>
+          <button class="sat4-btn" type="button" id="exOpenInvite" {{ $rtFielInvite ? '' : 'disabled' }}>Invitar (ZIP)</button>
+        </div>
+      </div>
     </div>
+
 
     {{-- ✅ RFCs válidos integrados (server-side, no depende de JS) --}}
     <div class="sat4-ext">
@@ -915,6 +955,42 @@
     </div>
   </div>
 </div>
+
+{{-- Submodal: Invitar externo (INDIVIDUAL) --}}
+<div class="sat4-modal" id="sat4ModalExtInviteIndividual" style="display:none;" role="dialog" aria-modal="true">
+  <div class="sat4-modal-card">
+    <div class="sat4-modal-head">
+      <div class="sat4-modal-title">Invitar (Individual)</div>
+      <button type="button" class="sat4-x" data-close>✕</button>
+    </div>
+
+    <div class="sat4-form">
+      <div class="sat4-row">
+        <input class="sat4-in" id="invEmailInd" type="email" placeholder="correo@ejemplo.com">
+        <input class="sat4-in" id="invRefInd" type="text" placeholder="Referencia">
+      </div>
+
+      <div class="sat4-row">
+        <button class="sat4-btn sat4-btn-primary" type="button" id="invSendInd" {{ $rtExternalInviteIndividual ? '' : 'disabled' }}>
+          Enviar
+        </button>
+      </div>
+
+      <div class="sat4-mini" id="invStatusInd">—</div>
+
+      @if(!$rtExternalInviteIndividual)
+        <div class="sat4-mini" style="margin-top:8px;color:#64748b;">
+          Nota: falta la ruta <b>cliente.sat.external.invite.individual</b> (se agrega en routes/cliente_sat.php).
+        </div>
+      @endif
+    </div>
+
+    <div class="sat4-modal-foot">
+      <button type="button" class="sat4-btn" data-close>Cerrar</button>
+    </div>
+  </div>
+</div>
+
 
 {{-- Modal: Iniciar descarga (Mes/Año) --}}
 <div class="sat4-modal" id="sat4ModalYm" style="display:none;" role="dialog" aria-modal="true">

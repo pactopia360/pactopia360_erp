@@ -243,6 +243,84 @@ final class SatExternalPublicController extends Controller
             200,
             ['Content-Type' => 'text/html; charset=UTF-8']
         );
+    } 
+
+    /**
+     * GET /cliente/sat/external/zip/register (SIGNED, sin login)
+     * Pantalla pública para cargar ZIP FIEL usando token.
+     * ✅ UI: mismo look LOGIN (Light) que external/register.
+     */
+    public function externalZipRegisterForm(Request $request): SymfonyResponse
+    {
+        // Validación firmada manual: evita redirects por InvalidSignatureException
+        if (method_exists($request, 'hasValidSignature') && !$request->hasValidSignature()) {
+            abort(403, 'Enlace inválido o expirado.');
+        }
+
+        $token = trim((string) $request->query('token', ''));
+
+        // 👉 Igual que el individual: mostramos detalle “humano” en el panel izquierdo
+        $email    = (string) $request->query('email', '');
+        $cuentaId = $this->pickCuentaIdFromRequest($request);
+
+        // ✅ Vista “LOGIN LIGHT” para ZIP (nueva)
+        $viewName = $this->resolveZipRegisterViewName();
+
+        $payload = [
+            'token'     => $token,
+            'email'     => $email,
+            'cuenta_id' => $cuentaId,
+
+            // Compat: mismos nombres conceptuales que register.blade.php
+            'success' => (string) $request->query('ok', '') === '1',
+            'saved'   => $token !== '' ? ['id' => (string) $request->query('rid', ''), 'rfc' => old('rfc') ?: null] : null,
+            'rid'     => (string) $request->query('rid', ''),
+
+            // POST URL conserva querystring firmado (lo arma el Blade)
+            'postUrl'  => route('cliente.sat.external.zip.register', ['token' => $token]),
+        ];
+
+        if ($viewName) {
+            return response()->view($viewName, $payload);
+        }
+
+        // Fallback HTML mínimo (sin depender de Blade)
+        $qs     = $request->getQueryString();
+        $action = route('cliente.sat.external.zip.register', ['token' => $token]);
+        $qsKeep = $qs ? ('?' . $qs) : '';
+
+        return response()->make(
+            '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>P360 · Carga ZIP FIEL</title></head>
+            <body style="font-family:system-ui;margin:24px;max-width:820px;">
+            <h2>Pactopia360 · Carga ZIP FIEL (externa)</h2>
+            <p>Token detectado: <code>' . htmlspecialchars($token, ENT_QUOTES, "UTF-8") . '</code></p>
+            <p><b>Falta la vista Blade</b>. Crea: <code>resources/views/cliente/sat/external/zip/register.blade.php</code></p>
+            <form method="POST" action="' . htmlspecialchars($action, ENT_QUOTES, "UTF-8") . '" enctype="multipart/form-data">
+                <input type="hidden" name="_token" value="' . htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") . '">
+                <label style="display:block;margin:12px 0 6px;">RFC</label>
+                <input name="rfc" maxlength="13" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;">
+                <label style="display:block;margin:12px 0 6px;">Razón social (opcional)</label>
+                <input name="razon_social" maxlength="190" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;">
+                <label style="display:block;margin:12px 0 6px;">Contraseña FIEL</label>
+                <input type="password" name="key_password" maxlength="120" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;">
+                <label style="display:block;margin:12px 0 6px;">ZIP</label>
+                <input type="file" name="zip" accept=".zip" required style="width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;">
+                <label style="display:block;margin:12px 0 6px;">Notas (opcional)</label>
+                <textarea name="note" maxlength="500" style="width:100%;min-height:100px;padding:10px;border:1px solid #ccc;border-radius:10px;"></textarea>
+                <label style="display:block;margin:12px 0 6px;">
+                <input type="checkbox" name="accept" value="1"> Confirmo autorización
+                </label>
+                <div style="margin-top:14px;">
+                <button type="submit" style="padding:10px 14px;border-radius:12px;border:0;background:#111;color:#fff;cursor:pointer;">
+                    Enviar ZIP
+                </button>
+                </div>
+            </form>
+            </body></html>',
+            200,
+            ['Content-Type' => 'text/html; charset=UTF-8']
+        );
     }
 
     /**
@@ -513,6 +591,22 @@ final class SatExternalPublicController extends Controller
         }
         return null;
     }
+
+    private function resolveZipRegisterViewName(): ?string
+    {
+        // ✅ Nuevo (recomendado): resources/views/cliente/sat/external/zip/register.blade.php
+        if (view()->exists('cliente.sat.external.zip.register')) {
+            return 'cliente.sat.external.zip.register';
+        }
+
+        // Compat viejo: resources/views/cliente/sat/external/zip_register.blade.php
+        if (view()->exists('cliente.sat.external.zip_register')) {
+            return 'cliente.sat.external.zip_register';
+        }
+
+        return null;
+    }
+
 
     /**
      * Lee cuenta desde querystring soportando:
