@@ -49,7 +49,8 @@ return [
     ],
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'notificaciones@pactopia.com'),
+        'address' => env('MAIL_FROM_ADDRESS', 'notificaciones@pactopia360.com'),
+
         'name' => env('MAIL_FROM_NAME', 'PACTOPIA360 Notificaciones'),
     ],
 

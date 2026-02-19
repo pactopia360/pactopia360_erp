@@ -1,0 +1,1025 @@
+/* =========================================================
+   SAT Portal · v1.4 (Clean ERP / Admin-like)
+   File: public/assets/client/css/sat/sat-portal-v1.css
+   - Sin degradados azules
+   - Modales más premium (Cotizador + RFC Externo + Descargas)
+   - Overrides mínimos contra core-ui.css (solo SAT)
+   - External RFC list: cards premium + danger buttons + scroll interno
+========================================================= */
+
+:root{
+  --p360-ink:#0f172a;
+  --p360-mut:#64748b;
+  --p360-bd:rgba(15,23,42,.10);
+  --p360-bd2:rgba(15,23,42,.14);
+
+  --p360-bg:#f6f7fb;
+  --p360-card:#ffffff;
+
+  --p360-shadow:0 18px 55px rgba(2,6,23,.10);
+  --p360-shadow2:0 10px 28px rgba(2,6,23,.08);
+
+  --p360-r:18px;
+  --p360-r2:22px;
+
+  --p360-accent:#2563eb;
+  --p360-soft:rgba(37,99,235,.10);
+
+  --p360-good:#16a34a;
+  --p360-warn:#f59e0b;
+  --p360-bad:#ef4444;
+
+  /* extras (internos SAT) */
+  --p360-focus:rgba(37,99,235,.12);
+  --p360-glass:rgba(255,255,255,.92);
+  --p360-glass2:rgba(255,255,255,.96);
+}
+
+/* ===== Scope ===== */
+.page-sat{ background:var(--p360-bg); }
+.mono{ font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+/* ===== SAT canvas ===== */
+.sat4{
+  width:100%;
+  max-width:1320px;
+  margin:0 auto;
+  padding:18px 18px 34px;
+}
+
+/* ===== Topbar ===== */
+.sat4-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:16px;
+  border-radius:24px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow);
+  margin-bottom:14px;
+}
+
+.sat4-brand{ display:flex; align-items:center; gap:12px; min-width:260px; }
+.sat4-dot{
+  width:12px; height:12px; border-radius:999px;
+  box-shadow:0 0 0 4px rgba(37,99,235,.14);
+}
+.sat4-dot.is-prod{ background:var(--p360-good); box-shadow:0 0 0 4px rgba(22,163,74,.14); }
+.sat4-dot.is-demo{ background:var(--p360-warn); box-shadow:0 0 0 4px rgba(245,158,11,.16); }
+
+.sat4-title .sat4-h1{
+  font-weight:950; font-size:14px; letter-spacing:.03em;
+  color:var(--p360-ink); text-transform:uppercase;
+}
+.sat4-title .sat4-h2{ font-weight:800; font-size:12px; color:var(--p360-mut); margin-top:2px; }
+
+.sat4-actions{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+
+/* ===== Buttons / chips ===== */
+.sat4-btn,.sat4-chip{
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  color:var(--p360-ink);
+  border-radius:14px;
+  padding:10px 12px;
+  font-weight:900;
+  font-size:12px;
+  cursor:pointer;
+  box-shadow:var(--p360-shadow2);
+  transition:transform .12s ease, box-shadow .12s ease, background .12s ease, opacity .12s ease, border-color .12s ease;
+}
+
+.sat4-btn:hover,.sat4-chip:hover{ transform:translateY(-1px); box-shadow:0 20px 55px rgba(2,6,23,.12); }
+.sat4-btn:active,.sat4-chip:active{ transform:translateY(0); }
+
+.sat4-btn[disabled], .sat4-chip[disabled]{ opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+
+.sat4-btn:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 4px var(--p360-focus), var(--p360-shadow2);
+  border-color:rgba(37,99,235,.26);
+}
+
+.sat4-btn-primary{
+  border-color:rgba(37,99,235,.22);
+  background: rgba(37,99,235,.92);
+  color:#fff;
+}
+.sat4-btn-primary:hover{ background: rgba(37,99,235,.98); }
+.sat4-btn-primary:active{ background: rgba(37,99,235,.88); }
+
+.sat4-btn-ghost{ background:rgba(15,23,42,.03); box-shadow:none; }
+.sat4-chip{ display:inline-flex; align-items:center; gap:8px; padding:9px 12px; }
+.sat4-chip-ico{ opacity:.85; }
+.sat4-chip-txt{ font-weight:950; }
+
+/* Danger button (para JS external list + futuros modales) */
+.sat4-btn.is-danger{
+  border-color: rgba(239,68,68,.22);
+  background: rgba(239,68,68,.10);
+  color: rgba(127,29,29,.98);
+}
+.sat4-btn.is-danger:hover{ background: rgba(239,68,68,.14); }
+.sat4-btn.is-danger:active{ background: rgba(239,68,68,.10); }
+
+/* ===== KPIs ===== */
+.sat4-kpis2{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0,1fr));
+  gap:12px;
+  margin-bottom:14px;
+}
+@media (max-width:1020px){ .sat4-kpis2{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+@media (max-width:560px){ .sat4-kpis2{ grid-template-columns:1fr; } }
+
+.sat4-kpi2{
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow2);
+  padding:14px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-height:78px;
+}
+.sat4-kpi2.is-accent{ border-color:rgba(37,99,235,.22); }
+
+.sat4-kpi2-ico{
+  width:44px; height:44px; border-radius:16px;
+  display:grid; place-items:center;
+  background:rgba(37,99,235,.10);
+  border:1px solid rgba(37,99,235,.12);
+  font-size:18px;
+}
+.sat4-kpi2-l{
+  font-size:11px; color:var(--p360-mut);
+  font-weight:950; letter-spacing:.03em; text-transform:uppercase;
+}
+.sat4-kpi2-n{ font-size:22px; font-weight:950; color:var(--p360-ink); margin-top:2px; line-height:1.1; }
+.sat4-kpi2-h{ font-size:12px; color:var(--p360-mut); font-weight:800; margin-top:4px; }
+
+/* ===== Workspace ===== */
+.sat4-workspace{ margin-bottom:14px; }
+.sat4-work-card{
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow);
+  overflow:hidden;
+}
+.sat4-work-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  padding:16px 16px 12px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background:rgba(15,23,42,.02);
+}
+.sat4-work-ttl{ font-size:15px; font-weight:950; color:var(--p360-ink); letter-spacing:.01em; }
+.sat4-work-sub{ font-size:12px; font-weight:800; color:var(--p360-mut); margin-top:4px; }
+.sat4-work-actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+
+@media (max-width:720px){
+  .sat4-work-head{ flex-direction:column; align-items:stretch; }
+  .sat4-work-actions{ justify-content:flex-start; }
+}
+.sat4-work-grid{
+  padding:14px 16px 16px;
+  display:grid;
+  grid-template-columns:1.2fr repeat(3, minmax(0,1fr));
+  gap:12px;
+}
+@media (max-width:1100px){ .sat4-work-grid{ grid-template-columns:1fr 1fr; } }
+@media (max-width:560px){ .sat4-work-grid{ grid-template-columns:1fr; } }
+
+.sat4-work-cta{
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(15,23,42,.92);
+  box-shadow:0 26px 70px rgba(2,6,23,.18);
+  color:#fff;
+  padding:16px;
+  display:flex;
+  gap:14px;
+  align-items:center;
+  text-align:left;
+  cursor:pointer;
+}
+.sat4-work-cta-ico{
+  width:54px; height:54px; border-radius:18px;
+  display:grid; place-items:center;
+  background:rgba(255,255,255,.12);
+  font-size:22px;
+}
+.sat4-work-cta-ttl{ font-size:16px; font-weight:950; }
+.sat4-work-cta-sub{ font-size:12px; font-weight:800; color:rgba(255,255,255,.82); margin-top:4px; }
+
+.sat4-work-tile{
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow2);
+  padding:14px;
+  cursor:pointer;
+  text-align:left;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.sat4-work-tile-ico{ font-size:18px; }
+.sat4-work-tile-ttl{ font-size:14px; font-weight:950; color:var(--p360-ink); }
+.sat4-work-tile-sub{ font-size:12px; font-weight:800; color:var(--p360-mut); }
+
+/* ===== Portal ===== */
+.sat4-portal{ margin:14px 0; }
+.sat4-portal-card{
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow);
+  overflow:hidden;
+}
+.sat4-portal-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  padding:18px 18px 12px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background:rgba(255,255,255,.45);
+}
+.sat4-portal-ttl{ font-size:15px; font-weight:950; color:var(--p360-ink); letter-spacing:.01em; }
+.sat4-portal-sub{ font-size:12px; font-weight:800; color:var(--p360-mut); margin-top:4px; }
+
+.sat4-portal-body{
+  padding:14px 18px 18px;
+  display:grid;
+  grid-template-columns:320px 1fr;
+  gap:14px;
+  align-items:stretch;
+}
+@media (max-width:980px){ .sat4-portal-body{ grid-template-columns:1fr; } }
+
+.sat4-ring,.sat4-status{
+  border-radius:22px;
+  border:1px solid rgba(15,23,42,.08);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow2);
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.sat4-ring-wrap{
+  width:170px; height:170px; margin:2px auto 0;
+  border-radius:999px;
+  background: conic-gradient(var(--p360-accent) calc(var(--p, 0) * 1%), rgba(15,23,42,.10) 0);
+  display:grid;
+  place-items:center;
+  position:relative;
+  box-shadow:0 26px 70px rgba(2,6,23,.16);
+}
+.sat4-ring-wrap::after{
+  content:"";
+  position:absolute;
+  inset:14px;
+  border-radius:999px;
+  background:rgba(255,255,255,.96);
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,.08);
+}
+.sat4-ring-center{ position:relative; z-index:2; text-align:center; }
+.sat4-ring-p{ font-size:34px; font-weight:980; color:var(--p360-ink); line-height:1; }
+.sat4-ring-l{ font-size:12px; font-weight:900; color:var(--p360-mut); margin-top:6px; }
+
+.sat4-ring-actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+
+.sat4-help{
+  font-size:12px; font-weight:800; color:var(--p360-mut);
+  line-height:1.35;
+  background:rgba(15,23,42,.02);
+  border:1px solid rgba(15,23,42,.06);
+  border-radius:16px;
+  padding:10px;
+}
+
+.sat4-status-ttl{ font-size:13px; font-weight:950; color:var(--p360-ink); }
+.sat4-status-grid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+@media (max-width:520px){ .sat4-status-grid{ grid-template-columns:1fr; } }
+.sat4-stat{
+  border-radius:16px;
+  border:1px solid rgba(15,23,42,.08);
+  background:rgba(15,23,42,.02);
+  padding:10px;
+}
+.sat4-stat-n{ font-size:22px; font-weight:980; color:var(--p360-ink); line-height:1.1; }
+.sat4-stat-l{ font-size:12px; font-weight:900; color:var(--p360-mut); margin-top:4px; }
+
+.sat4-mini{ font-size:12px; font-weight:800; color:var(--p360-mut); }
+.sat4-mini-inline{ margin-top:6px; }
+
+/* ===== Activity table ===== */
+.sat4-activity2{ margin-top:14px; }
+.sat4-activity2-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  margin:12px 2px 10px;
+}
+.sat4-activity2-ttl{ font-size:14px; font-weight:950; color:var(--p360-ink); }
+.sat4-activity2-sub{ font-size:12px; font-weight:800; color:var(--p360-mut); margin-top:4px; }
+
+.sat4-activity2-card{
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow2);
+  overflow:hidden;
+}
+.sat4-tablewrap{ width:100%; overflow:auto; }
+.sat4-table2{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width:760px;
+}
+.sat4-table2 thead th{
+  text-align:left;
+  font-size:11px;
+  color:var(--p360-mut);
+  font-weight:950;
+  padding:12px 14px;
+  background:rgba(15,23,42,.02);
+  border-bottom:1px solid rgba(15,23,42,.08);
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+.sat4-table2 tbody td{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  font-size:13px;
+  font-weight:900;
+  color:var(--p360-ink);
+  white-space:nowrap;
+}
+.sat4-table2 tbody tr:hover td{ background:rgba(15,23,42,.02); }
+
+.sat4-th-act{ text-align:right; }
+.sat4-td-act{ text-align:right; }
+.sat4-td-empty{
+  text-align:center;
+  font-weight:900;
+  color:var(--p360-mut) !important;
+  padding:18px 14px !important;
+}
+
+.sat4-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border:1px solid rgba(15,23,42,.12);
+  background:rgba(15,23,42,.03);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:11px;
+  font-weight:950;
+}
+.sat4-badge.ok{ background:rgba(22,163,74,.12); border-color:rgba(22,163,74,.22); }
+.sat4-badge.warn{ background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.22); }
+.sat4-badge.bad{ background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.22); }
+
+.sat4-activity2-foot{
+  display:flex;
+  justify-content:flex-end;
+  padding:12px 14px;
+  background:rgba(15,23,42,.02);
+}
+@media (max-width:720px){
+  .sat4-activity2-foot{ justify-content:stretch; }
+  .sat4-activity2-foot .sat4-btn{ width:100%; }
+}
+
+/* ===== Modals ===== */
+body.sat4-lock{ overflow:hidden !important; }
+
+.sat4-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(2,6,23,.58);
+  backdrop-filter: blur(2px);
+  z-index:60;
+}
+
+.sat4-modal{
+  position:fixed;
+  inset:0;
+  z-index:61;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+}
+
+.sat4-modal-card{
+  width:min(980px, calc(100vw - 24px));
+  border-radius:26px;
+  border:1px solid rgba(15,23,42,.12);
+  background:rgba(255,255,255,.98);
+  box-shadow:0 36px 120px rgba(2,6,23,.28);
+  overflow:hidden;
+}
+
+.sat4-modal-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  padding:16px 18px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  background:rgba(255,255,255,.92);
+}
+
+.sat4-modal-title{
+  font-weight:980;
+  font-size:12px;
+  color:var(--p360-ink);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+
+.sat4-x{
+  width:38px; height:38px;
+  border-radius:14px;
+  border:1px solid rgba(15,23,42,.12);
+  background:rgba(255,255,255,.90);
+  cursor:pointer;
+  font-weight:950;
+}
+
+.sat4-form{ padding:16px 18px 18px; }
+.sat4-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+
+.sat4-label{
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:rgba(100,116,139,.95);
+}
+
+.sat4-in{
+  flex:1;
+  min-width:160px;
+  height:44px;
+  border-radius:14px;
+  border:1px solid rgba(15,23,42,.14);
+  background:#fff;
+  padding:11px 12px;
+  font-size:13px;
+  font-weight:900;
+  outline:none;
+}
+
+.sat4-in:focus{
+  border-color:rgba(37,99,235,.30);
+  box-shadow:0 0 0 4px rgba(37,99,235,.10);
+}
+
+.sat4-modal-foot{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  padding:12px 18px;
+  border-top:1px solid rgba(15,23,42,.08);
+  background:rgba(15,23,42,.02);
+}
+
+/* ===== Quote modal (premium) ===== */
+.sat4-modal-card--quote{ width:min(920px, calc(100vw - 24px)); }
+.sat4-quote-grid{ align-items:flex-end; }
+.sat4-qfield{ flex:1; min-width:220px; }
+@media (max-width:760px){ .sat4-qfield{ min-width:160px; } }
+
+.sat4-quote-card{
+  margin-top:12px;
+  border-radius:18px;
+  border:1px solid rgba(15,23,42,.10);
+  background:rgba(255,255,255,.96);
+  box-shadow:var(--p360-shadow2);
+  padding:14px;
+}
+
+.sat4-quote-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 2px;
+  font-size:13px;
+  font-weight:900;
+  color:var(--p360-ink);
+}
+
+.sat4-quote-k{ color:rgba(100,116,139,.96); font-weight:950; }
+.sat4-quote-v{ color:var(--p360-ink); }
+
+.sat4-quote-divider{
+  height:1px;
+  background:rgba(15,23,42,.08);
+  margin:10px 0;
+}
+
+.sat4-quote-total .sat4-quote-k{ color:var(--p360-ink); }
+.sat4-quote-total .sat4-quote-v{ font-size:16px; }
+
+.sat4-quote-foot{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px dashed rgba(15,23,42,.12);
+}
+
+/* ===== Notifs ===== */
+.sat4-bell{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:40px;
+  height:40px;
+  border-radius:14px;
+  border:1px solid rgba(15,23,42,.12);
+  background:var(--p360-glass);
+  box-shadow:var(--p360-shadow2);
+  cursor:pointer;
+  user-select:none;
+}
+
+.sat4-bell-dot{
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:9px; height:9px;
+  border-radius:999px;
+  background:var(--p360-accent);
+  box-shadow:0 0 0 3px rgba(37,99,235,.16);
+  display:none;
+}
+.sat4-bell.has-unread .sat4-bell-dot{ display:block; }
+
+.sat4-notify{
+  position:absolute;
+  right:0;
+  top:46px;
+  width:min(420px, calc(100vw - 24px));
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:18px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 30px 100px rgba(2,6,23,.24);
+  overflow:hidden;
+  display:none;
+  z-index:99;
+}
+.sat4-notify.is-open{ display:block; }
+
+.sat4-notify-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  background:rgba(15,23,42,.02);
+}
+
+.sat4-notify-ttl{
+  font-size:12px;
+  font-weight:980;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--p360-ink);
+}
+
+.sat4-notify-clear{
+  font-size:12px;
+  font-weight:950;
+  color:var(--p360-mut);
+  background:transparent;
+  border:none;
+  cursor:pointer;
+}
+
+.sat4-notify-list{ max-height:320px; overflow:auto; }
+
+.sat4-note{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+}
+.sat4-note:last-child{ border-bottom:none; }
+
+.sat4-note-ico{
+  width:34px; height:34px;
+  border-radius:12px;
+  display:grid; place-items:center;
+  background:rgba(37,99,235,.10);
+  border:1px solid rgba(37,99,235,.16);
+  font-size:14px;
+}
+
+.sat4-note-title{ font-size:12px; font-weight:980; color:var(--p360-ink); }
+.sat4-note-sub{ font-size:12px; font-weight:850; color:var(--p360-mut); margin-top:2px; line-height:1.25; }
+.sat4-note-time{ font-size:11px; font-weight:900; color:rgba(100,116,139,.92); margin-top:6px; }
+
+/* ===== Minimal overrides vs core-ui.css (solo SAT) ===== */
+html[data-theme="light"] body main#clientMain.content.page-sat{ background:var(--p360-bg) !important; padding:0 !important; }
+html[data-theme="light"] body main#clientMain.content.page-sat > .container{
+  padding:0 !important;
+  max-width:none !important;
+  margin:0 !important;
+  background:transparent !important;
+}
+html[data-theme="light"] body main#clientMain.content.page-sat .card{
+  box-shadow:none !important;
+  border-color:rgba(15,23,42,.10) !important;
+}
+
+/* Pantallas grandes */
+@media (min-width:1600px){
+  .sat4{ max-width:1480px; }
+  .sat4-portal-body{ grid-template-columns:360px 1fr; }
+}
+
+/* =========================================================
+   PATCH · Quote Modal Layout Fix (v1.3.1+)
+========================================================= */
+
+#sat4ModalQuote .sat4-modal-card--quote{
+  width:min(900px, calc(100vw - 24px)) !important;
+}
+
+#sat4ModalQuote .sat4-modal-head{
+  padding:14px 18px !important;
+  align-items:center !important;
+}
+
+#sat4ModalQuote .sat4-modal-title{
+  font-size:12px !important;
+  letter-spacing:.08em !important;
+}
+
+#sat4ModalQuote .sat4-form{
+  padding:14px 18px 16px !important;
+}
+
+/* Grid del formulario (final: 4 cols: XML | CODE(2) | IVA) */
+#sat4ModalQuote .sat4-quote-grid{
+  display:grid !important;
+  grid-template-columns: 1fr 1fr 1fr .85fr !important;
+  gap:12px !important;
+  align-items:end !important;
+}
+
+#sat4ModalQuote .sat4-qfield{ min-width:0 !important; }
+
+/* CODE ocupa 2 columnas */
+#sat4ModalQuote .sat4-qfield--code{
+  grid-column: 2 / span 2 !important;
+}
+
+/* IVA última */
+#sat4ModalQuote .sat4-qfield--iva{
+  grid-column: 4 / span 1 !important;
+}
+
+/* Aplicado debajo, alineado con CODE+IVA */
+#sat4ModalQuote .sat4-qfield--applied{
+  grid-column: 2 / 5 !important;
+  margin-top:-2px !important;
+}
+
+@media (max-width: 860px){
+  #sat4ModalQuote .sat4-quote-grid{
+    grid-template-columns: 1fr 1fr !important;
+  }
+  #sat4ModalQuote .sat4-qfield--code,
+  #sat4ModalQuote .sat4-qfield--iva,
+  #sat4ModalQuote .sat4-qfield--applied{
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 560px){
+  #sat4ModalQuote .sat4-quote-grid{
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Labels y mini-inline */
+#sat4ModalQuote .sat4-label{ margin-bottom:6px !important; }
+
+#sat4ModalQuote .sat4-mini-inline{
+  display:flex !important;
+  align-items:center !important;
+  gap:8px !important;
+  width:100% !important;
+  margin-top:6px !important;
+  padding:10px 12px !important;
+  border-radius:14px !important;
+  border:1px solid rgba(15,23,42,.08) !important;
+  background: rgba(15,23,42,.02) !important;
+}
+
+/* Acciones: botón + nota en una sola fila */
+#sat4ModalQuote .sat4-row-actions{
+  display:flex !important;
+  align-items:center !important;
+  gap:10px !important;
+  margin-top:2px !important;
+  margin-bottom:12px !important;
+}
+
+#sat4ModalQuote .sat4-row-actions .sat4-btn{
+  padding:10px 14px !important;
+  border-radius:14px !important;
+}
+
+#sat4ModalQuote #qNote{
+  margin-left:auto !important;
+  padding:8px 10px !important;
+  border:1px solid rgba(15,23,42,.06) !important;
+  border-radius:14px !important;
+  background:rgba(255,255,255,.85) !important;
+  white-space:nowrap !important;
+}
+
+/* Result card más “Admin-like” */
+#sat4ModalQuote .sat4-quote-card{
+  margin-top:0 !important;
+  border-radius:18px !important;
+  padding:14px 14px !important;
+  background:rgba(255,255,255,.98) !important;
+}
+
+#sat4ModalQuote .sat4-quote-card::before{
+  content:"Resultado";
+  display:block;
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:rgba(100,116,139,.96);
+  margin:0 0 10px 0;
+}
+
+#sat4ModalQuote .sat4-quote-row{
+  padding:10px 2px !important;
+  border-bottom:1px solid rgba(15,23,42,.06) !important;
+}
+#sat4ModalQuote .sat4-quote-row:last-of-type{ border-bottom:none !important; }
+
+#sat4ModalQuote .sat4-quote-divider{ display:none !important; }
+
+#sat4ModalQuote .sat4-quote-total{
+  margin-top:10px !important;
+  padding-top:12px !important;
+  border-top:1px solid rgba(15,23,42,.10) !important;
+  border-bottom:none !important;
+}
+
+#sat4ModalQuote .sat4-quote-total .sat4-quote-v{
+  font-size:18px !important;
+  font-weight:980 !important;
+}
+
+#sat4ModalQuote .sat4-quote-foot{
+  margin-top:12px !important;
+  padding-top:10px !important;
+  border-top:1px dashed rgba(15,23,42,.14) !important;
+}
+
+/* Footer del modal: menos aire */
+#sat4ModalQuote .sat4-modal-foot{ padding:12px 18px !important; }
+
+/* =========================================================
+   PATCH · RFC Externo Modal (v1.4)
+   - Secciones + chips RFC verificados
+   - Scroll correcto dentro del listado
+   - Cards premium del render JS (sat4-ex-card)
+========================================================= */
+
+#sat4ModalExternal .sat4-form{ padding-bottom: 10px !important; }
+#sat4ModalExternal .sat4-row--ext-actions{ align-items:center !important; }
+
+#sat4ModalExternal .sat4-ext{
+  padding: 0 18px 18px;
+  display: grid;
+  gap: 12px;
+}
+
+/* Sección contenedora */
+#sat4ModalExternal .sat4-ext-sec{
+  border:1px solid rgba(15,23,42,.08);
+  background: rgba(255,255,255,.96);
+  border-radius: 20px;
+  box-shadow: var(--p360-shadow2);
+  overflow: hidden;
+}
+
+#sat4ModalExternal .sat4-ext-sec-head{
+  padding: 12px 14px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background: rgba(15,23,42,.02);
+}
+
+#sat4ModalExternal .sat4-ext-sec-ttl{
+  font-size: 12px;
+  font-weight: 980;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--p360-ink);
+}
+
+/* Chips RFC (verificados) */
+#sat4ModalExternal .sat4-ext-chips{
+  padding: 12px 14px 14px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+#sat4ModalExternal .sat4-ext-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  border:1px solid rgba(15,23,42,.10);
+  background: rgba(255,255,255,.92);
+  border-radius: 999px;
+  padding: 9px 12px;
+  box-shadow: 0 10px 24px rgba(2,6,23,.06);
+}
+
+#sat4ModalExternal .sat4-ext-chip-dot{
+  width:10px; height:10px; border-radius:999px;
+  box-shadow: 0 0 0 3px rgba(22,163,74,.14);
+  background: var(--p360-good);
+}
+#sat4ModalExternal .sat4-ext-chip-dot.is-ext{
+  background: var(--p360-accent);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.14);
+}
+
+#sat4ModalExternal .sat4-ext-chip-rfc{
+  font-weight: 980;
+  color: var(--p360-ink);
+  font-size: 12px;
+}
+#sat4ModalExternal .sat4-ext-chip-al{
+  font-size: 12px;
+  font-weight: 850;
+  color: var(--p360-mut);
+}
+
+#sat4ModalExternal .sat4-ext-chip-tag{
+  font-size: 10px;
+  font-weight: 980;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: rgba(37,99,235,.98);
+  border:1px solid rgba(37,99,235,.18);
+  background: rgba(37,99,235,.08);
+  padding: 5px 8px;
+  border-radius: 999px;
+}
+
+#sat4ModalExternal .sat4-ext-empty{
+  width:100%;
+  border:1px dashed rgba(15,23,42,.14);
+  background: rgba(15,23,42,.02);
+  border-radius: 18px;
+  padding: 12px;
+}
+
+/* Contenedor del listado (JS) */
+#sat4ModalExternal #exTable.sat4-ext-list{
+  padding: 12px 14px 14px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  max-height: 48vh;
+  overflow:auto;
+}
+
+/* Si el JS inyecta divs genéricos, dales look */
+#sat4ModalExternal #exTable.sat4-ext-list > div{
+  border:1px solid rgba(15,23,42,.10);
+  background: rgba(255,255,255,.96);
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: 0 12px 30px rgba(2,6,23,.07);
+}
+
+/* Ajuste: modal XL */
+#sat4ModalExternal .sat4-modal-card{
+  width: min(1020px, calc(100vw - 24px)) !important;
+}
+
+/* Cards premium del render nuevo (sat-v4.js) */
+#sat4ModalExternal #exTable .sat4-ex-card{
+  border:1px solid rgba(15,23,42,.10);
+  background: rgba(255,255,255,.96);
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: 0 12px 30px rgba(2,6,23,.07);
+}
+
+#sat4ModalExternal #exTable .sat4-ex-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+#sat4ModalExternal #exTable .sat4-ex-tags{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+#sat4ModalExternal #exTable .sat4-ex-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+#sat4ModalExternal #exTable .sat4-ex-title{
+  font-size: 13px;
+  font-weight: 950;
+  color: var(--p360-ink);
+}
+
+#sat4ModalExternal #exTable .sat4-ex-meta{
+  margin-top:6px;
+  font-size:12px;
+  font-weight:850;
+  color: var(--p360-mut);
+  line-height:1.35;
+}
+
+/* Botones dentro del listado: si no usan sat4-btn (fallback) */
+#sat4ModalExternal #exTable button{
+  border:1px solid rgba(15,23,42,.12);
+  background: rgba(255,255,255,.94);
+  color: var(--p360-ink);
+  border-radius: 14px;
+  padding: 8px 10px;
+  font-weight: 950;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease, opacity .12s ease;
+  box-shadow: 0 10px 24px rgba(2,6,23,.06);
+  margin-right: 8px;
+}
+#sat4ModalExternal #exTable button:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 20px 55px rgba(2,6,23,.12);
+}
+#sat4ModalExternal #exTable button:active{ transform: translateY(0); }
+
+#sat4ModalExternal #exTable button[disabled]{
+  opacity:.55;
+  cursor:not-allowed;
+  transform:none !important;
+  box-shadow:none !important;
+}
+#sat4ModalExternal #exTable button:where([data-danger="1"], .is-danger){
+  border-color: rgba(239,68,68,.22);
+  background: rgba(239,68,68,.10);
+}
+
+/* Si se llega a renderizar una tabla adentro (fallback) */
+#sat4ModalExternal #exTable table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+}
+#sat4ModalExternal #exTable td,
+#sat4ModalExternal #exTable th{
+  padding: 8px 8px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  font-size: 12px;
+  font-weight: 850;
+  color: var(--p360-ink);
+}
