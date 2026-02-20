@@ -61,6 +61,15 @@ use App\Http\Controllers\Admin\Sat\Ops\SatOpsDownloadsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsManualRequestsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsPaymentsController;
 
+// Finanzas (módulo)
+use App\Http\Controllers\Admin\Finance\CostCentersController;
+use App\Http\Controllers\Admin\Finance\IncomeController;
+use App\Http\Controllers\Admin\Finance\ExpensesController;
+use App\Http\Controllers\Admin\Finance\SalesController;
+use App\Http\Controllers\Admin\Finance\VendorsController;
+use App\Http\Controllers\Admin\Finance\CommissionsController;
+use App\Http\Controllers\Admin\Finance\ProjectionsController;
+
 /*
 |--------------------------------------------------------------------------
 | CSRF middlewares (para quitar en local en algunos POST)
@@ -958,6 +967,42 @@ Route::middleware([
         });
 
     });
+
+   /*
+    |----------------------------------------------------------------------
+    | FINANZAS (Admin) — base (CANÓNICO)
+    | Nombres: admin.finance.*
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('finance')->name('finance.')->group(function () {
+
+        // Centro de costos
+        Route::get('cost-centers', [CostCentersController::class, 'index'])
+            ->name('cost_centers.index');
+
+        // Ingresos (Ventas) - resumen
+        Route::get('income', [IncomeController::class, 'index'])
+            ->name('income.index');
+
+        // Egresos
+        Route::get('expenses', [ExpensesController::class, 'index'])
+            ->name('expenses.index');
+
+        // Ventas (CRUD base)
+        Route::get('sales', [SalesController::class, 'index'])->name('sales.index');
+        Route::get('sales/create', [SalesController::class, 'create'])->name('sales.create');
+        Route::post('sales', [SalesController::class, 'store'])->name('sales.store');
+
+        // Vendedores (CRUD base)
+        Route::get('vendors', [VendorsController::class, 'index'])->name('vendors.index');
+        Route::get('vendors/create', [VendorsController::class, 'create'])->name('vendors.create');
+        Route::post('vendors', [VendorsController::class, 'store'])->name('vendors.store');
+
+        // Submódulos
+        Route::get('commissions', [CommissionsController::class, 'index'])->name('commissions.index');
+        Route::get('projections', [ProjectionsController::class, 'index'])->name('projections.index');
+    });
+
 
     /*
     |--------------------------------------------------------------------------

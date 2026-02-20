@@ -173,6 +173,69 @@ $menu = [
         ],
       ],
 
+      // ✅ NUEVO: FINANZAS
+      [
+        'text'=>'Finanzas',
+        'icon'=>'📒',
+        'id'=>'finanzas',
+        'active_when'=>['admin.finance.*','admin.finanzas.*'],
+        'children'=>[
+
+          // Base actual
+          [
+            'text'=>'Centro de costos',
+            'icon'=>'🧩',
+            'route'=>'admin.finance.cost_centers.index',
+            'active_when'=>['admin.finance.cost_centers.*']
+          ],
+
+          [
+            'text'=>'Ingresos (Resumen)',
+            'icon'=>'💹',
+            'route'=>'admin.finance.income.index',
+            'active_when'=>['admin.finance.income.*']
+          ],
+
+          [
+            'text'=>'Egresos',
+            'icon'=>'💸',
+            'route'=>'admin.finance.expenses.index',
+            'active_when'=>['admin.finance.expenses.*']
+          ],
+
+          // 🔥 NUEVOS MÓDULOS
+          [
+            'text'=>'Ventas (CRUD)',
+            'icon'=>'🧾',
+            'route'=>'admin.finance.sales.index',
+            'active_when'=>['admin.finance.sales.*']
+          ],
+
+          [
+            'text'=>'Vendedores',
+            'icon'=>'🧑‍💼',
+            'route'=>'admin.finance.vendors.index',
+            'active_when'=>['admin.finance.vendors.*']
+          ],
+
+          [
+            'text'=>'Comisiones',
+            'icon'=>'🎯',
+            'route'=>'admin.finance.commissions.index',
+            'active_when'=>['admin.finance.commissions.*']
+          ],
+
+          [
+            'text'=>'Proyecciones',
+            'icon'=>'📈',
+            'route'=>'admin.finance.projections.index',
+            'active_when'=>['admin.finance.projections.*']
+          ],
+        ],
+      ],
+
+
+
       ['text'=>'Soporte','icon'=>'🧰','children'=>[
         ['text'=>'Tickets','route'=>'admin.soporte.tickets.index'],
         ['text'=>'SLA / Asignación','route'=>'admin.soporte.sla.index'],
