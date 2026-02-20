@@ -8,7 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Admin\Finance\FinanceVendor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
@@ -31,8 +30,8 @@ final class VendorsController extends Controller
         if ($q !== '') {
             $base->where(function ($w) use ($q) {
                 $w->where('name', 'like', '%' . $q . '%')
-                  ->orWhere('email', 'like', '%' . $q . '%')
-                  ->orWhere('phone', 'like', '%' . $q . '%');
+                    ->orWhere('email', 'like', '%' . $q . '%')
+                    ->orWhere('phone', 'like', '%' . $q . '%');
             });
         }
 
@@ -45,9 +44,8 @@ final class VendorsController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        // KPIs rápidos
-        $kpiTotal    = (int) DB::connection($this->conn)->table('finance_vendors')->count();
-        $kpiActive   = (int) DB::connection($this->conn)->table('finance_vendors')->where('is_active', 1)->count();
+        $kpiTotal  = (int) DB::connection($this->conn)->table('finance_vendors')->count();
+        $kpiActive = (int) DB::connection($this->conn)->table('finance_vendors')->where('is_active', 1)->count();
         $kpiInactive = max(0, $kpiTotal - $kpiActive);
 
         return view('admin.finance.vendors.index', [
@@ -62,80 +60,36 @@ final class VendorsController extends Controller
 
     public function create(): View
     {
-        return view('admin.finance.vendors.form', [
-            'mode' => 'create',
-            'row'  => new FinanceVendor([
-                'is_active' => true,
-            ]),
-        ]);
+        return view('admin.finance.vendors.create');
     }
 
     public function store(Request $req): RedirectResponse
     {
-        $data = $this->validateData($req);
+        $data = $req->validate([
+            'name'                   => ['required', 'string', 'max:140'],
+            'email'                  => ['nullable', 'string', 'max:190'],
+            'phone'                  => ['nullable', 'string', 'max:40'],
+            'default_commission_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'is_active'              => ['nullable'],
+        ]);
 
         $m = new FinanceVendor();
         $m->setConnection($this->conn);
-        $m->fill($data);
+
+        $m->name  = trim((string) $data['name']);
+        $m->email = isset($data['email']) && $data['email'] !== '' ? trim((string) $data['email']) : null;
+        $m->phone = isset($data['phone']) && $data['phone'] !== '' ? trim((string) $data['phone']) : null;
+
+        $pct = $data['default_commission_pct'] ?? null;
+        $m->default_commission_pct = ($pct === null || $pct === '') ? null : (float) $pct;
+
+        $m->is_active = $req->boolean('is_active', true);
+
+        $m->meta = [];
         $m->save();
 
         return redirect()
             ->route('admin.finance.vendors.index')
-            ->with('status', 'Vendedor creado.');
-    }
-
-    public function edit(int $id): View
-    {
-        $m = FinanceVendor::on($this->conn)->findOrFail($id);
-
-        return view('admin.finance.vendors.form', [
-            'mode' => 'edit',
-            'row'  => $m,
-        ]);
-    }
-
-    public function update(Request $req, int $id): RedirectResponse
-    {
-        $m = FinanceVendor::on($this->conn)->findOrFail($id);
-
-        $data = $this->validateData($req);
-
-        $m->fill($data);
-        $m->save();
-
-        return redirect()
-            ->route('admin.finance.vendors.index')
-            ->with('status', 'Vendedor actualizado.');
-    }
-
-    public function toggle(Request $req, int $id): RedirectResponse
-    {
-        $m = FinanceVendor::on($this->conn)->findOrFail($id);
-
-        $m->is_active = !$m->is_active;
-        $m->save();
-
-        return redirect()
-            ->route('admin.finance.vendors.index', Arr::only($req->query(), ['q', 'active', 'page']))
-            ->with('status', 'Estatus actualizado.');
-    }
-
-    private function validateData(Request $req): array
-    {
-        $v = $req->validate([
-            'name'            => ['required', 'string', 'max:140'],
-            'email'           => ['nullable', 'string', 'max:190'],
-            'phone'           => ['nullable', 'string', 'max:40'],
-            'commission_rate' => ['nullable', 'numeric', 'min:0', 'max:1'], // 0.050 = 5%
-            'is_active'       => ['nullable', 'boolean'],
-        ]);
-
-        $v['is_active'] = (bool) ($req->boolean('is_active', true));
-
-        // Limpieza básica
-        $v['email'] = $v['email'] !== null ? trim((string) $v['email']) : null;
-        $v['phone'] = $v['phone'] !== null ? trim((string) $v['phone']) : null;
-
-        return $v;
+            ->with('ok', 'Vendedor creado.');
     }
 }

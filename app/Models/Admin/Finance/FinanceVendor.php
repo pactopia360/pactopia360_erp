@@ -8,21 +8,20 @@ use Illuminate\Database\Eloquent\Model;
 
 final class FinanceVendor extends Model
 {
-    protected $connection = 'mysql_admin';
-    protected $table      = 'finance_vendors';
+    protected $table = 'finance_vendors';
 
     protected $fillable = [
         'name',
         'email',
         'phone',
+        'default_commission_pct',
         'is_active',
-        'commission_rate',
         'meta',
     ];
 
     protected $casts = [
-        'is_active'       => 'boolean',
-        'commission_rate' => 'decimal:3',
-        'meta'            => 'array',
+        'is_active' => 'boolean',
+        'default_commission_pct' => 'decimal:3',
+        'meta' => 'array',
     ];
 }

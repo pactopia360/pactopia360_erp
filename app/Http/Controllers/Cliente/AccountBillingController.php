@@ -967,7 +967,6 @@ final class AccountBillingController extends Controller
         }
     }
     
-
     /**
      * ==========================================================
      * ✅ RENDER PDF (single period) usando vista cliente.billing.pdf.statement
@@ -2377,9 +2376,6 @@ final class AccountBillingController extends Controller
         return [$picked];
     }
 
-
-
-
     private function enforceTwoCardsOnly(
     array $rows,
     ?string $lastPaid,
@@ -2913,7 +2909,6 @@ final class AccountBillingController extends Controller
         }
     }
 
-
     /**
      * ✅ Saldo anterior pendiente (cents) para un periodo.
      * Regla: solo integra 1 mes anterior (period-1), como estado de cuenta clásico.
@@ -2995,20 +2990,25 @@ final class AccountBillingController extends Controller
 
     private function resolveMonthlyCentsFromEstadosCuenta(int $accountId, ?string $lastPaid, ?string $payAllowed): int
     {
-        $adm = config('p360.conn.admin', 'mysql_admin');
+        $adm = $this->connAdmin();
 
         try {
             if (!Schema::connection($adm)->hasTable('estados_cuenta')) return 0;
 
             $try = array_values(array_unique(array_filter([
-                $payAllowed && $this->isValidPeriod($payAllowed) ? $payAllowed : null,
-                $lastPaid && $this->isValidPeriod($lastPaid) ? $lastPaid : null,
+                ($payAllowed && $this->isValidPeriod($payAllowed)) ? $payAllowed : null,
+                ($lastPaid   && $this->isValidPeriod($lastPaid))   ? $lastPaid   : null,
             ])));
 
-            $q = DB::connection($adm)->table('estados_cuenta')->where('account_id', $accountId);
-            if ($try) $q->whereIn('periodo', $try);
+            // ✅ Si no tengo un periodo específico, NO "adivino" el último
+            // (evita tomar cargos históricos/futuros que no corresponden al payAllowed real)
+            if (!$try) return 0;
 
-            $row = $q->orderByDesc('periodo')->first(['periodo', 'cargo']);
+            $row = DB::connection($adm)->table('estados_cuenta')
+                ->where('account_id', $accountId)
+                ->whereIn('periodo', $try)
+                ->orderByDesc('periodo')
+                ->first(['periodo', 'cargo']);
 
             if ($row && is_numeric($row->cargo ?? null) && (float) $row->cargo > 0) {
                 return (int) round(((float) $row->cargo) * 100);
@@ -3145,7 +3145,7 @@ final class AccountBillingController extends Controller
         }
 
         try {
-            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
+            $cli = $this->connClientes();
 
             if (
                 $adminAccountId > 0 &&
@@ -3448,7 +3448,7 @@ final class AccountBillingController extends Controller
 
         $pickSessionId = function (Request $req, array $keys) use ($toInt): array {
             foreach ($keys as $k) {
-                $v = $req->session()->get($k);
+                $v  = $req->session()->get($k);
                 $id = $toInt($v);
                 if ($id > 0) return [$id, 'session.' . $k];
             }
@@ -3470,10 +3470,11 @@ final class AccountBillingController extends Controller
 
         if ($accountIdFromParam > 0) {
             try {
-                $req->session()->put('billing.admin_account_id', (string) $accountIdFromParam);
+                // ✅ guarda consistente (int)
+                $req->session()->put('billing.admin_account_id', $accountIdFromParam);
                 $req->session()->put('billing.admin_account_src', 'param.account_id');
             } catch (\Throwable $e) {}
-            return [(string) $accountIdFromParam, 'param.account_id'];
+            return [$accountIdFromParam, 'param.account_id'];
         }
 
         // =========================================================
@@ -3650,37 +3651,37 @@ final class AccountBillingController extends Controller
         // =========================================================
         if ($adminFromClientCuenta > 0) {
             try {
-                $req->session()->put('billing.admin_account_id', (string) $adminFromClientCuenta);
+                $req->session()->put('billing.admin_account_id', $adminFromClientCuenta);
                 $req->session()->put('billing.admin_account_src', (string) ($adminFromClientSrc ?: 'cuentas_cliente'));
             } catch (\Throwable $e) {}
-            return [(string) $adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
+            return [$adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
         }
 
         if ($adminFromUserRel > 0) {
             try {
-                $req->session()->put('billing.admin_account_id', (string) $adminFromUserRel);
+                $req->session()->put('billing.admin_account_id', $adminFromUserRel);
                 $req->session()->put('billing.admin_account_src', 'user.cuenta.admin_account_id');
             } catch (\Throwable $e) {}
-            return [(string) $adminFromUserRel, 'user.cuenta.admin_account_id'];
+            return [$adminFromUserRel, 'user.cuenta.admin_account_id'];
         }
 
         if ($adminFromUserField > 0) {
             try {
-                $req->session()->put('billing.admin_account_id', (string) $adminFromUserField);
+                $req->session()->put('billing.admin_account_id', $adminFromUserField);
                 $req->session()->put('billing.admin_account_src', 'user.admin_account_id');
             } catch (\Throwable $e) {}
-            return [(string) $adminFromUserField, 'user.admin_account_id'];
+            return [$adminFromUserField, 'user.admin_account_id'];
         }
 
         if ($adminFromSessionDirect > 0) {
             try {
-                $req->session()->put('billing.admin_account_id', (string) $adminFromSessionDirect);
+                $req->session()->put('billing.admin_account_id', $adminFromSessionDirect);
                 $req->session()->put('billing.admin_account_src', (string) ($sessionDirectSrc ?: 'session.direct'));
             } catch (\Throwable $e) {}
-            return [(string) $adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
+            return [$adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
         }
 
-        return [null, 'unresolved'];
+        return [0, 'unresolved'];
     }
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
@@ -4325,5 +4326,18 @@ final class AccountBillingController extends Controller
         </body>
         </html>
         HTML;
+    }
+
+    private function connAdmin(): string
+    {
+        return (string) (config('p360.conn.admin') ?: 'mysql_admin');
+    }
+
+    private function connClientes(): string
+    {
+        // ✅ Unifica la key (acepta ambas por compat)
+        return (string) (config('p360.conn.clientes')
+            ?: config('p360.conn.clients')
+            ?: 'mysql_clientes');
     }
 }

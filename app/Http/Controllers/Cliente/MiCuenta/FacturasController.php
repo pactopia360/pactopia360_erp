@@ -333,43 +333,119 @@ final class FacturasController extends Controller
             );
     }
 
-    public function downloadZip(Request $request, int $id)
-    {
-        [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
-        $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
+    
+     public function downloadZip(Request $request, int $id)
+     {
+         [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
+         $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
 
-        if ($adminAccountId <= 0) {
-            return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
+         if ($adminAccountId <= 0) {
+             return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
+         }
+
+         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+         if (!Schema::connection($adm)->hasTable('invoice_requests')) {
+             return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
+         }
+
+         $fk = $this->adminFkColumn('invoice_requests');
+         if (!$fk) {
+             return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
+         }
+
+
+        // Detecta columna de ZIP path en invoice_requests (admin)
+        $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
+
+        $zipPathCol = null;
+        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $c) {
+            if ($has($c)) { $zipPathCol = $c; break; }
         }
-
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-            return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
-        }
-
-        $fk = $this->adminFkColumn('invoice_requests');
-        if (!$fk) {
-            return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
+        if (!$zipPathCol) {
+            return $this->renderHardError($request, 'invoice_requests no tiene columna de archivo ZIP (zip_path/file_path/path...).', $adminAccountId, $src);
         }
 
         $row = DB::connection($adm)->table('invoice_requests')
             ->where($fk, $adminAccountId)
             ->where('id', $id)
-            ->first(['id', 'period']);
+            ->first(['id', 'period', $zipPathCol]);
 
-        if (!$row || empty($row->period)) {
-            abort(404, 'Solicitud no encontrada o sin periodo.');
+        if (!$row) abort(404, 'Solicitud no encontrada.');
+
+        $period  = (string) ($row->period ?? '');
+        $zipPath = trim((string) ($row->{$zipPathCol} ?? ''));
+
+        if ($zipPath === '') {
+            abort(404, 'Aún no hay ZIP generado para esta solicitud.');
         }
 
-        // OJO: aquí tu descarga actual depende de AccountBillingController::downloadInvoiceZip(period)
-        // Si tu ZIP vive realmente por ID, lo ajustamos después. Por ahora mantiene tu flujo actual.
-        $period = (string) $row->period;
+        // ----------------------------
+        // Si viene como URL, redirige (rápido y compatible)
+        // ----------------------------
+        if (preg_match('#^https?://#i', $zipPath)) {
+            return redirect()->away($zipPath);
+        }
 
-        /** @var \App\Http\Controllers\Cliente\AccountBillingController $billing */
-        $billing = app(\App\Http\Controllers\Cliente\AccountBillingController::class);
+        // ----------------------------
+        // Normaliza path y disk (por defecto public)
+        // Soporta formatos:
+        // - "public:invoices/zips/x.zip"
+        // - "public|invoices/zips/x.zip"
+        // - "/storage/invoices/zips/x.zip"  -> public + strip "/storage/"
+        // - "invoices/zips/x.zip"           -> public
+        // ----------------------------
+        $disk = 'public';
+        $path = $zipPath;
 
-        return $billing->downloadInvoiceZip($request, $period);
-    }
+        if (str_contains($path, ':')) {
+            // "disk:path"
+            [$d, $p] = explode(':', $path, 2);
+            $d = trim((string)$d); $p = trim((string)$p);
+            if ($d !== '' && $p !== '') { $disk = $d; $path = $p; }
+        } elseif (str_contains($path, '|')) {
+            // "disk|path"
+            [$d, $p] = explode('|', $path, 2);
+            $d = trim((string)$d); $p = trim((string)$p);
+            if ($d !== '' && $p !== '') { $disk = $d; $path = $p; }
+        }
+
+        $path = ltrim($path, '/');
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        // Nombre de descarga
+        $safePeriod = $period !== '' ? $period : 'sin-periodo';
+        $filename = "Factura_{$safePeriod}_{$id}.zip";
+
+        // Existe?
+        try {
+            if (!Storage::disk($disk)->exists($path)) {
+                Log::warning('[FACTURAS][ZIP] file not found', [
+                    'disk' => $disk,
+                    'path' => $path,
+                    'raw'  => $zipPath,
+                    'id'   => $id,
+                    'account_id' => $adminAccountId,
+                ]);
+                abort(404, 'ZIP no encontrado en almacenamiento.');
+            }
+
+            return Storage::disk($disk)->download($path, $filename);
+        } catch (\Throwable $e) {
+            Log::warning('[FACTURAS][ZIP] download failed', [
+                'err' => $e->getMessage(),
+                'disk' => $disk,
+                'path' => $path,
+                'raw'  => $zipPath,
+                'id'   => $id,
+                'account_id' => $adminAccountId,
+            ]);
+            abort(500, 'No se pudo descargar el ZIP.');
+        }
+     }
 
     // =========================
     // Helpers
@@ -487,22 +563,205 @@ final class FacturasController extends Controller
     {
         $u = Auth::guard('web')->user();
 
-        if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-            try { $u->load('cuenta'); } catch (\Throwable $e) {}
+        $toInt = static function ($v): int {
+            if ($v === null) return 0;
+            if (is_int($v)) return $v > 0 ? $v : 0;
+            if (is_numeric($v)) {
+                $i = (int) $v;
+                return $i > 0 ? $i : 0;
+            }
+            if (is_string($v)) {
+                $v = trim($v);
+                if ($v !== '' && is_numeric($v)) {
+                    $i = (int) $v;
+                    return $i > 0 ? $i : 0;
+                }
+            }
+            return 0;
+        };
+
+        $toStr = static function ($v): string {
+            if ($v === null) return '';
+            if (is_string($v)) return trim($v);
+            return trim((string) $v);
+        };
+
+        $pickSessionId = function (Request $req, array $keys) use ($toInt): array {
+            foreach ($keys as $k) {
+                $v = $req->session()->get($k);
+                $id = $toInt($v);
+                if ($id > 0) return [$id, 'session.' . $k];
+            }
+            return [0, ''];
+        };
+
+        // 0) Param explícito si llegara (por compat)
+        $routeAccountId = null;
+        try { $routeAccountId = $req->route('account_id'); } catch (\Throwable $e) { $routeAccountId = null; }
+        $accountIdFromParam =
+            $toInt($routeAccountId)
+            ?: $toInt($req->query('account_id'))
+            ?: $toInt($req->input('account_id'))
+            ?: $toInt($req->query('aid'))
+            ?: $toInt($req->input('aid'));
+
+        if ($accountIdFromParam > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $accountIdFromParam);
+                $req->session()->put('billing.admin_account_src', 'param.account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $accountIdFromParam, 'param.account_id'];
         }
 
-        $adminId = $u?->cuenta?->admin_account_id ?? null;
-        if ($adminId) return [(string) $adminId, 'user.cuenta.admin_account_id'];
+        // 1) cuenta cliente (UUID) desde sesión o desde usuarios_cuenta por email
+        $clientCuentaIdRaw =
+            $req->session()->get('client.cuenta_id')
+            ?? $req->session()->get('cuenta_id')
+            ?? $req->session()->get('client_cuenta_id')
+            ?? null;
 
-        if (!empty($u?->admin_account_id) && is_numeric($u->admin_account_id)) {
-            return [(string) $u->admin_account_id, 'user.admin_account_id'];
+        $clientCuentaId = $toStr($clientCuentaIdRaw);
+
+        if ($clientCuentaId === '') {
+            try {
+                $email = strtolower(trim((string) ($u?->email ?? '')));
+                if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+                    if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
+                        $cols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
+                        $lc   = array_map('strtolower', $cols);
+                        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                        if ($has('email') && $has('cuenta_id')) {
+                            $q = DB::connection($cli)->table('usuarios_cuenta')
+                                ->whereRaw('LOWER(TRIM(email)) = ?', [$email]);
+
+                            if ($has('activo')) $q->where('activo', 1);
+                            if ($has('rol'))  $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
+                            if ($has('tipo')) $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
+
+                            $orderCol = $has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]);
+                            $q->orderByDesc($orderCol);
+
+                            $row = $q->first(['cuenta_id','email']);
+                            $cid = $toStr($row?->cuenta_id ?? '');
+                            if ($cid !== '') {
+                                $clientCuentaId = $cid;
+                                try { $req->session()->put('client.cuenta_id', $clientCuentaId); } catch (\Throwable $e) {}
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
         }
 
-        $fallback = $req->session()->get('client.account_id');
-        if ($fallback) return [(string) $fallback, 'session.client.account_id'];
+        // 2) resolver admin_account_id desde cuentas_cliente
+        $adminFromClientCuenta = 0;
+        $adminFromClientSrc    = '';
 
-        $fallback2 = $req->session()->get('account_id');
-        if ($fallback2) return [(string) $fallback2, 'session.account_id'];
+        if ($clientCuentaId !== '') {
+            try {
+                $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+                    $lc   = array_map('strtolower', $cols);
+                    $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
+
+                    $sel = ['id'];
+                    foreach (['admin_account_id', 'account_id', 'meta'] as $c) {
+                        if ($has($c)) $sel[] = $c;
+                    }
+                    $sel = array_values(array_unique($sel));
+
+                    $q = DB::connection($cli)->table('cuentas_cliente')->select($sel);
+                    $q->where('id', $clientCuentaId);
+
+                    $asInt = $toInt($clientCuentaId);
+                    if ($asInt > 0) $q->orWhere('id', $asInt);
+
+                    if ($has('meta')) {
+                        foreach (['$.cuenta_uuid','$.cuenta.id','$.cuenta_id','$.uuid','$.public_id','$.cliente_uuid'] as $path) {
+                            $q->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(meta, ?)) = ?", [$path, $clientCuentaId]);
+                        }
+                    }
+
+                    $cc = $q->first();
+                    if ($cc) {
+                        if ($has('admin_account_id')) {
+                            $aid = $toInt($cc->admin_account_id ?? null);
+                            if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.admin_account_id'; }
+                        }
+                        if ($adminFromClientCuenta <= 0 && $has('account_id')) {
+                            $aid = $toInt($cc->account_id ?? null);
+                            if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.account_id'; }
+                        }
+                        if ($adminFromClientCuenta <= 0 && $has('meta') && isset($cc->meta)) {
+                            try {
+                                $meta = is_string($cc->meta) ? (json_decode((string)$cc->meta, true) ?: []) : (array)$cc->meta;
+                                $aid  = $toInt(data_get($meta, 'admin_account_id'));
+                                if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.meta.admin_account_id'; }
+                            } catch (\Throwable $e) {}
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // 3) fallbacks por relación/field/session (namespaced primero)
+        $adminFromUserRel = 0;
+        try {
+            if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
+                try { $u->load('cuenta'); } catch (\Throwable $e) {}
+            }
+            $adminFromUserRel = $toInt($u?->cuenta?->admin_account_id ?? null);
+        } catch (\Throwable $e) { $adminFromUserRel = 0; }
+
+        $adminFromUserField = $toInt($u?->admin_account_id ?? null);
+
+        [$adminFromSessionDirect, $sessionDirectSrc] = $pickSessionId($req, [
+            'billing.admin_account_id',
+            'verify.account_id',
+            'paywall.account_id',
+            'client.admin_account_id',
+            // genéricas al final
+            'admin_account_id',
+            'account_id',
+            'client.account_id',
+            'client_account_id',
+        ]);
+
+        // 4) selección final
+        if ($adminFromClientCuenta > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromClientCuenta);
+                $req->session()->put('billing.admin_account_src', (string) ($adminFromClientSrc ?: 'cuentas_cliente'));
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
+        }
+
+        if ($adminFromUserRel > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromUserRel);
+                $req->session()->put('billing.admin_account_src', 'user.cuenta.admin_account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromUserRel, 'user.cuenta.admin_account_id'];
+        }
+
+        if ($adminFromUserField > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromUserField);
+                $req->session()->put('billing.admin_account_src', 'user.admin_account_id');
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromUserField, 'user.admin_account_id'];
+        }
+
+        if ($adminFromSessionDirect > 0) {
+            try {
+                $req->session()->put('billing.admin_account_id', (string) $adminFromSessionDirect);
+                $req->session()->put('billing.admin_account_src', (string) ($sessionDirectSrc ?: 'session.direct'));
+            } catch (\Throwable $e) {}
+            return [(string) $adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
+        }
 
         return [null, 'unresolved'];
     }
