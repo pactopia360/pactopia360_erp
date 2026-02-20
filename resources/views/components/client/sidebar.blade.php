@@ -65,14 +65,29 @@
   };
 
   $canAccess = function (string $key) use ($stateOf, $vaultActive): bool {
-    // ✅ Bóveda: además del SOT, requiere vault_active=1
-    if ($key === 'boveda_fiscal') {
-      return $vaultActive && ($stateOf($key) === 'active');
-    }
 
-    return $stateOf($key) === 'active';
+      // ✅ Bóveda Fiscal:
+      // - Requiere vault_active=1
+      // - Si el admin la puso en blocked u hidden, se respeta
+      // - Si está inactive pero vault está activo, SE PERMITE
+      if ($key === 'boveda_fiscal') {
+
+          if (!$vaultActive) {
+              return false;
+          }
+
+          $st = $stateOf($key);
+
+          // Solo bloquear si explícitamente está blocked o hidden
+          if (in_array($st, ['blocked','hidden'], true)) {
+              return false;
+          }
+
+          return true;
+      }
+
+      return $stateOf($key) === 'active';
   };
-
 
   $lockTitle = function (string $label, string $state): string {
     return match($state) {
