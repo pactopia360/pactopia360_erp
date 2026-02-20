@@ -1,12 +1,22 @@
 {{-- resources/views/components/client/sidebar.blade.php (v5.3.1 – Client Sidebar · label+desc + SOT módulos · FIX: bootstrapNoSotYet en closure + fallback oculto) --}}
 @php
   use Illuminate\Support\Facades\Route;
+  use Illuminate\Support\Facades\Auth;
   use Illuminate\Support\Str;
 
   $id        = $id        ?? 'sidebar';
   $isOpen    = (bool)($isOpen ?? false);
   $ariaLabel = $ariaLabel ?? 'Menú principal';
   $inst      = $inst      ?? Str::lower(Str::ulid());
+
+  // =========================
+  // Cuenta cliente (mysql_clientes) para flags runtime
+  // =========================
+  $user   = Auth::guard('web')->user();
+  $cuenta = $cuenta ?? ($user->cuenta ?? null);
+
+  // vault_active (db clientes): manda sobre el sidebar para mostrar/ocultar Bóveda
+  $vaultActive = (int) data_get($cuenta, 'vault_active', 0) === 1;
 
   // =========================
   // Helper robusto: route safe
@@ -47,13 +57,22 @@
     return $bootstrapNoSotYet ? 'hidden' : 'active';
   };
 
-  $isVisible = function (string $key) use ($stateOf): bool {
+  $isVisible = function (string $key) use ($stateOf, $vaultActive): bool {
+    // ✅ Bóveda: si no está activa a nivel cuenta (clientes), NO se muestra
+    if ($key === 'boveda_fiscal' && !$vaultActive) return false;
+
     return $stateOf($key) !== 'hidden';
   };
 
-  $canAccess = function (string $key) use ($stateOf): bool {
+  $canAccess = function (string $key) use ($stateOf, $vaultActive): bool {
+    // ✅ Bóveda: además del SOT, requiere vault_active=1
+    if ($key === 'boveda_fiscal') {
+      return $vaultActive && ($stateOf($key) === 'active');
+    }
+
     return $stateOf($key) === 'active';
   };
+
 
   $lockTitle = function (string $label, string $state): string {
     return match($state) {

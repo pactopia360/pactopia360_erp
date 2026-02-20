@@ -113,5 +113,15 @@ return [
             'ttl_hours'      => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
             'demo_ttl_hours' => (int) env('SAT_DOWNLOAD_DEMO_TTL_HOURS', 24),
         ],
+
+        // ✅ NUEVO: Vault (Bóveda SAT)
+        'vault' => [
+            // GB base incluidos si el plan es PRO (si lo quieres habilitar por plan)
+            'base_gb_pro'   => (float) env('SAT_VAULT_BASE_GB_PRO', 0),
+
+            // Forzar habilitado SOLO en local/dev/testing (útil para QA)
+            'force_enabled' => (bool) env('VAULT_FORCE_ENABLED', false),
+        ],
     ],
+
 ];

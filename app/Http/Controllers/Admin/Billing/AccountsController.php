@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class AccountsController extends Controller
 {
@@ -294,6 +297,71 @@ class AccountsController extends Controller
 
         return true;
     }
+
+        /**
+     * Sincroniza Bóveda Fiscal a DB clientes (cuentas_cliente.vault_active)
+     * - En Admin: modules_state['boveda_fiscal'] === 'active' => vault_active=1
+     * - Cualquier otro estado => vault_active=0
+     */
+    private function syncVaultActiveToClientes(int|string $adminAccountId, string $state): void
+    {
+        $cliConn = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+
+        try {
+            if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) {
+                Log::warning('AdminBilling.vaultSync.no_table', [
+                    'cli_conn' => $cliConn,
+                    'table'    => 'cuentas_cliente',
+                ]);
+                return;
+            }
+
+            if (!Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'vault_active')) {
+                Log::warning('AdminBilling.vaultSync.no_column', [
+                    'cli_conn' => $cliConn,
+                    'table'    => 'cuentas_cliente',
+                    'column'   => 'vault_active',
+                ]);
+                return;
+            }
+
+            if (!Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                Log::warning('AdminBilling.vaultSync.no_column_admin_account_id', [
+                    'cli_conn' => $cliConn,
+                    'table'    => 'cuentas_cliente',
+                    'column'   => 'admin_account_id',
+                ]);
+                return;
+            }
+
+            $st = strtolower(trim((string) $state));
+            $on = ($st === self::MOD_ACTIVE) ? 1 : 0;
+
+            $affected = DB::connection($cliConn)
+                ->table('cuentas_cliente')
+                ->where('admin_account_id', (int) $adminAccountId)
+                ->update([
+                    'vault_active' => $on,
+                    'updated_at'   => now(),
+                ]);
+
+            Log::info('AdminBilling.vaultSync.applied', [
+                'admin_account_id' => (int) $adminAccountId,
+                'state'            => $st,
+                'vault_active'     => $on,
+                'rows'             => $affected,
+                'cli_conn'         => $cliConn,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('AdminBilling.vaultSync.failed', [
+                'admin_account_id' => (int) $adminAccountId,
+                'state'            => (string) $state,
+                'cli_conn'         => $cliConn,
+                'err'              => $e->getMessage(),
+            ]);
+        }
+    }
+
 
     // ======================= INDEX =======================
     public function index(Request $request)
@@ -663,6 +731,51 @@ class AccountsController extends Controller
         return back()->with('ok', "Override {$cycle} guardado (SOT).");
     }
 
+    private function clientesConn(): string
+    {
+        return (string) (config('p360.conn.clientes') ?: env('P360_CLIENTES_CONN') ?: 'mysql_clientes');
+    }
+
+    /**
+     * Sync flags derivados en DB clientes (p360v1_clientes).
+     * Hoy: boveda_fiscal -> cuentas_cliente.vault_active
+     */
+    private function syncClientFlagsFromModulesState(string $adminAccountId, array $modulesState): void
+    {
+        $cliConn = $this->clientesConn();
+
+        // Regla: ACTIVE = 1, cualquier otro estado = 0
+        $vaultActive = (($modulesState['boveda_fiscal'] ?? self::MOD_INACTIVE) === self::MOD_ACTIVE) ? 1 : 0;
+
+        try {
+            // Solo si existe la tabla/columna (para no romper despliegues)
+            if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return;
+            if (!Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'admin_account_id')) return;
+            if (!Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'vault_active')) return;
+
+            $affected = DB::connection($cliConn)->table('cuentas_cliente')
+                ->where('admin_account_id', (int) $adminAccountId)
+                ->update([
+                    'vault_active' => $vaultActive,
+                    'updated_at'   => now(),
+                ]);
+
+            Log::info('AdminBilling.syncClientFlags.vault_active', [
+                'admin_account_id' => $adminAccountId,
+                'vault_active'     => $vaultActive,
+                'affected'         => $affected,
+                'cli_conn'         => $cliConn,
+            ]);
+        } catch (\Throwable $e) {
+            // No rompemos la acción admin, solo registramos
+            Log::error('AdminBilling.syncClientFlags.failed', [
+                'admin_account_id' => $adminAccountId,
+                'cli_conn'         => $cliConn,
+                'err'              => $e->getMessage(),
+            ]);
+        }
+    } 
+
     // ======================= UPDATE MODULES (VISIBLE/ACTIVE/BLOCKED) =======================
     public function updateModules(Request $request, string $id): RedirectResponse
     {
@@ -697,6 +810,9 @@ class AccountsController extends Controller
             'updated_at' => now(),
         ]);
 
+        // ✅ Sync automático a clientes: vault_active según boveda_fiscal
+        $this->syncVaultActiveToClientes((int)$account->id, (string)($outState['boveda_fiscal'] ?? self::MOD_INACTIVE));
+
         Cache::forget('p360:mods:acct:' . (string)$account->id);
 
         Log::info('AdminBilling.modulesStateSaved', [
@@ -704,6 +820,10 @@ class AccountsController extends Controller
             'account_id' => (string)$account->id,
             'modules_state' => $outState,
         ]);
+
+        // ✅ Sync a DB clientes: habilitar/deshabilitar flags derivados (ej. bóveda)
+        $this->syncClientFlagsFromModulesState((string)$account->id, $outState);
+
 
         return back()->with('ok', 'Módulos guardados: visible/invisible/activo/bloqueado (SOT).');
     }
