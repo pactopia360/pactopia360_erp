@@ -335,26 +335,25 @@ final class FacturasController extends Controller
 
     
      public function downloadZip(Request $request, int $id)
-     {
-         [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
-         $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
+    {
+        [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
+        $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
 
-         if ($adminAccountId <= 0) {
-             return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
-         }
+        if ($adminAccountId <= 0) {
+            return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
+        }
 
-         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-         if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-             return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
-         }
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
+            return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
+        }
 
-         $fk = $this->adminFkColumn('invoice_requests');
-         if (!$fk) {
-             return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
-         }
+        $fk = $this->adminFkColumn('invoice_requests');
+        if (!$fk) {
+            return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
+        }
 
-
-        // Detecta columna de ZIP path en invoice_requests (admin)
+        // Columnas dinámicas
         $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
         $lc   = array_map('strtolower', $cols);
         $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
@@ -363,90 +362,104 @@ final class FacturasController extends Controller
         foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $c) {
             if ($has($c)) { $zipPathCol = $c; break; }
         }
+
         if (!$zipPathCol) {
-            return $this->renderHardError($request, 'invoice_requests no tiene columna de archivo ZIP (zip_path/file_path/path...).', $adminAccountId, $src);
+            return $this->renderHardError($request, 'invoice_requests no tiene columna de ZIP (zip_path/file_path/factura_path/path/ruta_zip).', $adminAccountId, $src);
         }
+
+        $diskCol = null;
+        foreach (['zip_disk', 'pdf_disk', 'disk', 'storage_disk'] as $c) {
+            if ($has($c)) { $diskCol = $c; break; }
+        }
+
+        $select = ['id', $fk, 'period', $zipPathCol];
+        if ($diskCol) $select[] = $diskCol;
 
         $row = DB::connection($adm)->table('invoice_requests')
             ->where($fk, $adminAccountId)
             ->where('id', $id)
-            ->first(['id', 'period', $zipPathCol]);
+            ->first($select);
 
-        if (!$row) abort(404, 'Solicitud no encontrada.');
-
-        $period  = (string) ($row->period ?? '');
-        $zipPath = trim((string) ($row->{$zipPathCol} ?? ''));
-
-        if ($zipPath === '') {
-            abort(404, 'Aún no hay ZIP generado para esta solicitud.');
+        if (!$row) {
+            abort(404, 'Solicitud no encontrada.');
         }
 
-        // ----------------------------
-        // Si viene como URL, redirige (rápido y compatible)
-        // ----------------------------
-        if (preg_match('#^https?://#i', $zipPath)) {
-            return redirect()->away($zipPath);
+        $rawPath = trim((string) ($row->{$zipPathCol} ?? ''));
+        if ($rawPath === '') {
+            return $this->renderHardError($request, 'Aún no hay ZIP generado para esta solicitud.', $adminAccountId, $src);
         }
 
-        // ----------------------------
-        // Normaliza path y disk (por defecto public)
-        // Soporta formatos:
-        // - "public:invoices/zips/x.zip"
-        // - "public|invoices/zips/x.zip"
-        // - "/storage/invoices/zips/x.zip"  -> public + strip "/storage/"
-        // - "invoices/zips/x.zip"           -> public
-        // ----------------------------
-        $disk = 'public';
-        $path = $zipPath;
+        $disk = $diskCol ? trim((string) ($row->{$diskCol} ?? '')) : '';
+        if ($disk === '') $disk = 'public';
 
-        if (str_contains($path, ':')) {
-            // "disk:path"
-            [$d, $p] = explode(':', $path, 2);
-            $d = trim((string)$d); $p = trim((string)$p);
-            if ($d !== '' && $p !== '') { $disk = $d; $path = $p; }
-        } elseif (str_contains($path, '|')) {
-            // "disk|path"
-            [$d, $p] = explode('|', $path, 2);
-            $d = trim((string)$d); $p = trim((string)$p);
-            if ($d !== '' && $p !== '') { $disk = $d; $path = $p; }
+        // Normaliza "disk:path" si viene así
+        if (preg_match('/^([a-zA-Z0-9_\-]+)\s*:\s*(.+)$/', $rawPath, $m)) {
+            $disk    = trim($m[1]) !== '' ? trim($m[1]) : $disk;
+            $rawPath = trim($m[2]);
         }
 
-        $path = ltrim($path, '/');
+        // Normaliza rutas típicas
+        $path = ltrim($rawPath, '/');
+
+        // Si guardaron URL /storage/...
         if (str_starts_with($path, 'storage/')) {
-            $path = substr($path, strlen('storage/'));
+            $path = ltrim(substr($path, strlen('storage/')), '/');
         }
 
-        // Nombre de descarga
-        $safePeriod = $period !== '' ? $period : 'sin-periodo';
-        $filename = "Factura_{$safePeriod}_{$id}.zip";
+        // Si guardaron "public/..."
+        if (str_starts_with($path, 'public/')) {
+            $path = ltrim(substr($path, strlen('public/')), '/');
+            if ($disk === '') $disk = 'public';
+        }
 
-        // Existe?
+        // Si guardaron "app/public/..."
+        if (str_starts_with($path, 'app/public/')) {
+            $path = ltrim(substr($path, strlen('app/public/')), '/');
+            if ($disk === '') $disk = 'public';
+        }
+
+        // Logging de diagnóstico (solo server)
+        Log::info('[FACTURAS][ZIP] download attempt', [
+            'invoice_request_id' => $id,
+            'account_id'         => $adminAccountId,
+            'src'                => $src,
+            'disk'               => $disk,
+            'col'                => $zipPathCol,
+            'raw'                => $rawPath,
+            'path'               => $path,
+            'period'             => (string) ($row->period ?? ''),
+        ]);
+
         try {
-            if (!Storage::disk($disk)->exists($path)) {
-                Log::warning('[FACTURAS][ZIP] file not found', [
-                    'disk' => $disk,
-                    'path' => $path,
-                    'raw'  => $zipPath,
-                    'id'   => $id,
-                    'account_id' => $adminAccountId,
+            if (!\Storage::disk($disk)->exists($path)) {
+                Log::warning('[FACTURAS][ZIP] not found on disk', [
+                    'invoice_request_id' => $id,
+                    'account_id'         => $adminAccountId,
+                    'disk'               => $disk,
+                    'path'               => $path,
                 ]);
-                abort(404, 'ZIP no encontrado en almacenamiento.');
+                abort(404, 'ZIP no encontrado (storage).');
             }
 
-            return Storage::disk($disk)->download($path, $filename);
+            $period = (string) ($row->period ?? '');
+            $name = 'Factura';
+            if ($period !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)) {
+                $name = 'Factura_' . $period;
+            }
+            $filename = $name . '.zip';
+
+            return \Storage::disk($disk)->download($path, $filename);
         } catch (\Throwable $e) {
-            Log::warning('[FACTURAS][ZIP] download failed', [
-                'err' => $e->getMessage(),
-                'disk' => $disk,
-                'path' => $path,
-                'raw'  => $zipPath,
-                'id'   => $id,
-                'account_id' => $adminAccountId,
+            Log::error('[FACTURAS][ZIP] download failed', [
+                'invoice_request_id' => $id,
+                'account_id'         => $adminAccountId,
+                'disk'               => $disk,
+                'path'               => $path,
+                'err'                => $e->getMessage(),
             ]);
             abort(500, 'No se pudo descargar el ZIP.');
         }
-     }
-
+    }
     // =========================
     // Helpers
     // =========================
