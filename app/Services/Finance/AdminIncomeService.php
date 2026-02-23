@@ -71,9 +71,6 @@ final class AdminIncomeService
         // -------------------------
         // Statements existentes (año / mes)
         // -------------------------
-        // ✅ Importante:
-        // - $statementsFiltered: lo que se muestra en la tabla (respeta filtro month)
-        // - $statementsAllYear: base para baselineRecurring y para detectar statements existentes (evita proyecciones locas)
         $statementsAllYearQ = DB::connection($adm)->table('billing_statements as bs')
             ->select([
                 'bs.id',
@@ -99,16 +96,13 @@ final class AdminIncomeService
 
         $statementsAllYear = collect($statementsAllYearQ->orderBy('bs.period')->orderBy('bs.id')->get());
 
-        // ✅ Filtrado para UI (solo si month != all)
         $statementsFiltered = $statementsAllYear;
         if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
             $statementsFiltered = $statementsAllYear->where('period', '=', sprintf('%04d-%s', $year, $month))->values();
         }
 
-        // Lo que se usa para render en UI
         $statements = $statementsFiltered;
 
-        // Keys para detectar statement existente (UUID y/o admin_account_id)
         $statementKeySet = collect();
         foreach ($statementsAllYear as $s) {
             $acc = (string) $s->account_id;
@@ -259,7 +253,6 @@ final class AdminIncomeService
         $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
             ->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        // enriquecer statementKeySet con admin_account_id|period para evitar proyección duplicada
         foreach ($statementsAllYear as $s) {
             $acc = (string) $s->account_id;
             $per = (string) $s->period;
@@ -284,9 +277,6 @@ final class AdminIncomeService
         // -------------------------
         // Payments (admin.payments)
         // -------------------------
-        // ✅ Importante:
-        // payments.amount viene en CENTAVOS (bigint). Siempre convertir:
-        // amount_mxn = amount / 100
         $paymentsAggByAdminAccPeriod = collect(); // key: "admin|YYYY-MM"
         $lastPaymentByAdminAcc       = collect();
 
@@ -296,7 +286,6 @@ final class AdminIncomeService
 
             if (!empty($adminIds)) {
 
-                // ✅ Ventana robusta: 18 meses hacia atrás y 3 meses hacia adelante
                 $winFrom = Carbon::create($year, 1, 1)->startOfMonth()->subMonths(18);
                 $winTo   = Carbon::create($year, 12, 1)->endOfMonth()->addMonths(3);
 
@@ -325,7 +314,6 @@ final class AdminIncomeService
                     ->orderBy('id', 'desc')
                     ->get());
 
-                // ✅ Agregación por periodo (evita duplicados / múltiples pagos)
                 $paymentsAggByAdminAccPeriod = $payRows
                     ->filter(fn ($p) => in_array((string)($p->period ?? ''), $periodsYear, true))
                     ->groupBy(fn ($p) => (string) $p->account_id . '|' . (string) $p->period)
@@ -353,7 +341,6 @@ final class AdminIncomeService
                         ];
                     });
 
-                // ✅ ÚLTIMO PAGO "BUENO" POR CUENTA (evita amount 0 / failed / canceled)
                 $bad = ['failed','canceled','cancelled','void','refunded','chargeback'];
                 $lastPaymentByAdminAcc = $payRows
                     ->groupBy(fn ($p) => (string) $p->account_id)
@@ -379,7 +366,6 @@ final class AdminIncomeService
             $plan = strtolower(trim((string) $plan));
             $modo = strtolower(trim((string) $modo));
 
-            // Interpretación: SUBTOTAL (sin IVA)
             $map = [
                 'free'       => ['mensual' => 0.0,   'anual' => 0.0],
                 'basic'      => ['mensual' => 580.0, 'anual' => 5800.0],
@@ -393,7 +379,7 @@ final class AdminIncomeService
             return (float) $map[$plan][$modo];
         };
 
-        $baselineRecurring = []; // key UUID o admin_account_id => ['period'=>..., 'subtotal'=>...]
+        $baselineRecurring = [];
         foreach ($statementsAllYear as $s) {
             $its  = collect($itemsByStatement->get($s->id, collect()));
             $snap = $this->decodeJson($s->snapshot);
@@ -406,7 +392,6 @@ final class AdminIncomeService
 
             $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
 
-            // fallback: si items en 0 pero bs.total_cargo existe (total con IVA)
             $subtotalFromTotal = 0.0;
             $totalCargo = (float) ($s->total_cargo ?? 0);
             if ($subtotalItems <= 0 && $totalCargo > 0) {
@@ -421,7 +406,6 @@ final class AdminIncomeService
                     'subtotal' => $subtotal,
                 ];
 
-                // espejo por admin_account_id
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
                     $cc = $cuentaByUuid->get($accKey);
                     if ($cc && !empty($cc->admin_account_id)) {
@@ -552,7 +536,6 @@ final class AdminIncomeService
 
             $ecStatus = $this->normalizeStatementStatus($s);
 
-            // Vendedor best-effort
             $vendorId = $this->extractVendorId($meta, $snap, $its);
             $vendorName = null;
 
@@ -739,13 +722,11 @@ final class AdminIncomeService
                     if ($statementKeySet->contains($keyUuid)) continue;
                     if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
 
-                    // ✅ BASELINE robusto
                     $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
                     if ($base <= 0 && !empty($cc->admin_account_id)) {
                         $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
                     }
 
-                    // ✅ fallback: último pago real (amount>0) -> CONVIERTE CENTAVOS
                     if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
                         $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
                         $amtCents = (float) ($lp->amount ?? 0);
@@ -753,7 +734,6 @@ final class AdminIncomeService
                         if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
                     }
 
-                    // ✅ fallback: precio por plan
                     if ($base <= 0) {
                         $plan = (string) ($cc->plan_actual ?? '');
                         $base = (float) $planPrice($plan, $modo);
@@ -857,6 +837,20 @@ final class AdminIncomeService
 
         if (Schema::connection($adm)->hasTable('finance_sales')) {
 
+            // Compatibilidad de columna target (DB vieja vs nueva)
+            $hasStmtTarget = Schema::connection($adm)->hasColumn('finance_sales', 'statement_period_target');
+            $hasTargetPer  = Schema::connection($adm)->hasColumn('finance_sales', 'target_period');
+
+            $stmtTargetSelect = null;
+            if ($hasStmtTarget) {
+                $stmtTargetSelect = 's.statement_period_target';
+            } elseif ($hasTargetPer) {
+                $stmtTargetSelect = DB::raw('s.target_period as statement_period_target');
+            } else {
+                // no existe en DB
+                $stmtTargetSelect = DB::raw('NULL as statement_period_target');
+            }
+
             $qSales = DB::connection($adm)->table('finance_sales as s')
                 ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
                 ->select([
@@ -882,7 +876,7 @@ final class AdminIncomeService
                     's.invoice_status',
                     's.cfdi_uuid',
                     's.include_in_statement',
-                    's.statement_period_target',
+                    $stmtTargetSelect,
                     's.notes',
                     's.created_at',
                 ])
@@ -977,7 +971,7 @@ final class AdminIncomeService
 
                     'sale_id'        => (int) $s->id,
                     'include_in_statement' => (int) ($s->include_in_statement ?? 0),
-                    'statement_period_target' => $s->statement_period_target ?: null,
+                    'statement_period_target' => $s->statement_period_target ?? null,
                 ];
             });
         }
