@@ -7,9 +7,21 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
+    private function admConn(): string
+    {
+        return (string) (config('p360.conn.admin') ?: config('database.default') ?: 'mysql');
+    }
+
     public function up(): void
     {
-        Schema::create('finance_vendors', function (Blueprint $t) {
+        $conn = $this->admConn();
+
+        // Idempotente: si ya existe, no truena
+        if (Schema::connection($conn)->hasTable('finance_vendors')) {
+            return;
+        }
+
+        Schema::connection($conn)->create('finance_vendors', function (Blueprint $t) {
             $t->id();
             $t->string('name', 120);
             $t->string('email', 190)->nullable();
@@ -23,6 +35,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('finance_vendors');
+        $conn = $this->admConn();
+        Schema::connection($conn)->dropIfExists('finance_vendors');
     }
 };
