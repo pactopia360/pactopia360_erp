@@ -19,8 +19,9 @@
           <option value="">Selecciona una cuenta…</option>
           @foreach($accounts as $a)
             @php
-              $label = ($a->nombre_comercial ?: $a->razon_social) ?: ('Cuenta '.$a->id);
-              $rfc   = $a->rfc_padre ? (' · RFC: '.$a->rfc_padre) : '';
+              // accounts: id, rfc, razon_social, name
+              $label = ($a->razon_social ?: $a->name) ?: ('Cuenta '.$a->id);
+              $rfc   = !empty($a->rfc) ? (' · RFC: '.$a->rfc) : '';
             @endphp
             <option value="{{ $a->id }}">{{ $label }}{{ $rfc }}</option>
           @endforeach
@@ -54,9 +55,9 @@
         <label>
           <div style="font-size:12px;color:#64748b;margin:0 0 6px">Origen</div>
           <select name="origin" required style="width:100%;padding:10px;border:1px solid rgba(0,0,0,.12);border-radius:12px">
+            {{-- DB enum: recurrente | no_recurrente --}}
             <option value="no_recurrente" selected>No recurrente</option>
             <option value="recurrente">Recurrente</option>
-            <option value="unico">Único</option>
           </select>
         </label>
 
@@ -104,10 +105,10 @@
           <label>
             <div style="font-size:12px;color:#64748b;margin:0 0 6px">Estatus Edo Cta</div>
             <select name="statement_status" required style="width:100%;padding:10px;border:1px solid rgba(0,0,0,.12);border-radius:12px">
+              {{-- DB enum: pending | emitido | pagado --}}
               <option value="pending" selected>pending</option>
               <option value="emitido">emitido</option>
               <option value="pagado">pagado</option>
-              <option value="vencido">vencido</option>
             </select>
           </label>
 

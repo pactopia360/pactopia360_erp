@@ -69,6 +69,8 @@ use App\Http\Controllers\Admin\Finance\SalesController;
 use App\Http\Controllers\Admin\Finance\VendorsController;
 use App\Http\Controllers\Admin\Finance\CommissionsController;
 use App\Http\Controllers\Admin\Finance\ProjectionsController;
+use App\Http\Controllers\Admin\Finance\IncomeActionsController;
+use App\Http\Controllers\Admin\Finance\ExpensesActionsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -969,40 +971,89 @@ Route::middleware([
     });
 
    /*
-    |----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     | FINANZAS (Admin) — base (CANÓNICO)
     | Nombres: admin.finance.*
-    |----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     */
     Route::prefix('finance')->name('finance.')->group(function () {
 
+        // =========================
         // Centro de costos
-        Route::get('cost-centers', [CostCentersController::class, 'index'])
+        // =========================
+        Route::get('cost-centers', [\App\Http\Controllers\Admin\Finance\CostCentersController::class, 'index'])
             ->name('cost_centers.index');
 
+        // =========================
         // Ingresos (Ventas) - resumen
-        Route::get('income', [IncomeController::class, 'index'])
+        // =========================
+        Route::get('income', [\App\Http\Controllers\Admin\Finance\IncomeController::class, 'index'])
             ->name('income.index');
 
+        // ✅ Acciones (tabla Ingresos) — Upsert / Delete
+        Route::post('income/row', [\App\Http\Controllers\Admin\Finance\IncomeActionsController::class, 'upsert'])
+            ->name('income.row');
+
+        Route::delete('income/row/{id}', [\App\Http\Controllers\Admin\Finance\IncomeActionsController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('income.row.destroy');
+
+        // =========================
         // Egresos
-        Route::get('expenses', [ExpensesController::class, 'index'])
+        // =========================
+        Route::get('expenses', [\App\Http\Controllers\Admin\Finance\ExpensesController::class, 'index'])
             ->name('expenses.index');
 
+        // ✅ Acciones (tabla Egresos) — Upsert / Delete
+        Route::post('expenses/row', [\App\Http\Controllers\Admin\Finance\ExpensesActionsController::class, 'upsert'])
+            ->name('expenses.row');
+
+        Route::delete('expenses/row/{id}', [\App\Http\Controllers\Admin\Finance\ExpensesActionsController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('expenses.row.destroy');
+
+        // =========================
         // Ventas (CRUD base)
-        Route::get('sales', [SalesController::class, 'index'])->name('sales.index');
-        Route::get('sales/create', [SalesController::class, 'create'])->name('sales.create');
-        Route::post('sales', [SalesController::class, 'store'])->name('sales.store');
+        // =========================
+        Route::get('sales', [\App\Http\Controllers\Admin\Finance\SalesController::class, 'index'])
+            ->name('sales.index');
 
+        Route::get('sales/create', [\App\Http\Controllers\Admin\Finance\SalesController::class, 'create'])
+            ->name('sales.create');
+
+        Route::post('sales', [\App\Http\Controllers\Admin\Finance\SalesController::class, 'store'])
+            ->name('sales.store');
+
+        // ✅ Toggle incluir/quitar del Estado de Cuenta
+        Route::post('sales/{id}/toggle-include', [\App\Http\Controllers\Admin\Finance\SalesController::class, 'toggleInclude'])
+            ->whereNumber('id')
+            ->name('sales.toggleInclude');
+
+        // =========================
         // Vendedores (CRUD base)
-        Route::get('vendors', [VendorsController::class, 'index'])->name('vendors.index');
-        Route::get('vendors/create', [VendorsController::class, 'create'])->name('vendors.create');
-        Route::post('vendors', [VendorsController::class, 'store'])->name('vendors.store');
+        // =========================
+        Route::get('vendors', [\App\Http\Controllers\Admin\Finance\VendorsController::class, 'index'])
+            ->name('vendors.index');
 
+        Route::get('vendors/create', [\App\Http\Controllers\Admin\Finance\VendorsController::class, 'create'])
+            ->name('vendors.create');
+
+        Route::post('vendors', [\App\Http\Controllers\Admin\Finance\VendorsController::class, 'store'])
+            ->name('vendors.store');
+
+        // =========================
         // Submódulos
-        Route::get('commissions', [CommissionsController::class, 'index'])->name('commissions.index');
-        Route::get('projections', [ProjectionsController::class, 'index'])->name('projections.index');
-    });
+        // =========================
+        Route::get('commissions', [\App\Http\Controllers\Admin\Finance\CommissionsController::class, 'index'])
+            ->name('commissions.index');
 
+        Route::get('projections', [\App\Http\Controllers\Admin\Finance\ProjectionsController::class, 'index'])
+            ->name('projections.index');
+
+        Route::delete('finance/income/row/{id}', [IncomeActionsController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('income.row.destroy'); 
+    });
 
     /*
     |--------------------------------------------------------------------------

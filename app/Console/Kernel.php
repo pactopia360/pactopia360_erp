@@ -38,6 +38,9 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\ProcessScheduledBillingEmails::class,
         \App\Console\Commands\P360\SyncModulesCommand::class,
 
+        //Centro de costos
+        \App\Console\Commands\Finance\SyncAccountVendorsFromClientes::class,
+
         // ✅ SAT (Backfill meta CFDI desde ZIP/XML)
         SatBackfillCfdisMeta::class,
 

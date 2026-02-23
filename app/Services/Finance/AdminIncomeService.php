@@ -29,35 +29,52 @@ final class AdminIncomeService
 
         $st     = (string) ($req->input('status') ?: 'all'); // pending|emitido|pagado|vencido|all
         $invSt  = (string) ($req->input('invoice_status') ?: 'all');
-        $q      = trim((string) ($req->input('q') ?: ''));
+
+        // nuevo: filtro vendedor
+        $vendorId = (string) ($req->input('vendor_id') ?: 'all'); // all | <id>
+
+        $qSearch = trim((string) ($req->input('q') ?: ''));
 
         $periodFrom = Carbon::create($year, 1, 1)->startOfMonth();
         $periodTo   = Carbon::create($year, 12, 1)->endOfMonth();
 
         if (!Schema::connection($adm)->hasTable('billing_statements')) {
             return [
-                'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'q'),
+                'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch'),
                 'kpis'    => $this->blankKpis(),
                 'rows'    => collect(),
             ];
         }
 
         // -------------------------
-        // Periodos del año (para proyección y pagos)
+        // Periodos del año
         // -------------------------
         $periodsYear = [];
-        for ($m = 1; $m <= 12; $m++) {
-            $periodsYear[] = sprintf('%04d-%02d', $year, $m);
-        }
+        for ($m = 1; $m <= 12; $m++) $periodsYear[] = sprintf('%04d-%02d', $year, $m);
 
         if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
             $periodsYear = [sprintf('%04d-%s', $year, $month)];
         }
 
         // -------------------------
+        // Vendors (catálogo)
+        // -------------------------
+        $vendorsById = collect();
+        if (Schema::connection($adm)->hasTable('finance_vendors')) {
+            $vendorsById = collect(DB::connection($adm)->table('finance_vendors')
+                ->select(['id', 'name'])
+                ->orderBy('name')
+                ->get())
+                ->keyBy(fn ($v) => (string) $v->id);
+        }
+
+        // -------------------------
         // Statements existentes (año / mes)
         // -------------------------
-        $statementsQ = DB::connection($adm)->table('billing_statements as bs')
+        // ✅ Importante:
+        // - $statementsFiltered: lo que se muestra en la tabla (respeta filtro month)
+        // - $statementsAllYear: base para baselineRecurring y para detectar statements existentes (evita proyecciones locas)
+        $statementsAllYearQ = DB::connection($adm)->table('billing_statements as bs')
             ->select([
                 'bs.id',
                 'bs.account_id',
@@ -80,19 +97,29 @@ final class AdminIncomeService
                 $periodTo->format('Y-m'),
             ]);
 
+        $statementsAllYear = collect($statementsAllYearQ->orderBy('bs.period')->orderBy('bs.id')->get());
+
+        // ✅ Filtrado para UI (solo si month != all)
+        $statementsFiltered = $statementsAllYear;
         if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
-            $statementsQ->where('bs.period', '=', sprintf('%04d-%s', $year, $month));
+            $statementsFiltered = $statementsAllYear->where('period', '=', sprintf('%04d-%s', $year, $month))->values();
         }
 
-        $statements = collect($statementsQ->orderBy('bs.period')->orderBy('bs.id')->get());
+        // Lo que se usa para render en UI
+        $statements = $statementsFiltered;
 
-        // Mapa rápido: statement por account|period
-        $stByKey = $statements->keyBy(fn ($s) => (string) $s->account_id . '|' . (string) $s->period);
+        // Keys para detectar statement existente (UUID y/o admin_account_id)
+        $statementKeySet = collect();
+        foreach ($statementsAllYear as $s) {
+            $acc = (string) $s->account_id;
+            $per = (string) $s->period;
+            if ($acc !== '' && $per !== '') $statementKeySet->push($acc . '|' . $per);
+        }
 
-        $statementIds = $statements->pluck('id')->all();
+        $statementIds = $statementsAllYear->pluck('id')->filter()->values()->all();
 
         // -------------------------
-        // Items por statement (para totales / baseline recurrente)
+        // Items por statement
         // -------------------------
         $itemsByStatement = collect();
         if (Schema::connection($adm)->hasTable('billing_statement_items') && !empty($statementIds)) {
@@ -115,7 +142,7 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // Invoices (por statement_id y/o account_id+period)
+        // Invoices
         // -------------------------
         $invByStatement = collect();
         $invByAccPeriod = collect();
@@ -146,11 +173,13 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // Billing profiles (RFC receptor / forma pago CFDI)
+        // Billing profiles
         // -------------------------
-        $profiles = collect();
+        $profilesByAccountId = collect();
+        $profilesByAdminAcc  = collect();
+
         if (Schema::connection($adm)->hasTable('finance_billing_profiles')) {
-            $profiles = DB::connection($adm)->table('finance_billing_profiles')
+            $qProfiles = DB::connection($adm)->table('finance_billing_profiles')
                 ->select([
                     'account_id',
                     'rfc_receptor',
@@ -162,9 +191,23 @@ final class AdminIncomeService
                     'forma_pago',
                     'metodo_pago',
                     'meta',
-                ])
-                ->get()
-                ->keyBy('account_id');
+                ]);
+
+            if (Schema::connection($adm)->hasColumn('finance_billing_profiles', 'admin_account_id')) {
+                $qProfiles->addSelect('admin_account_id');
+            }
+
+            $profilesRaw = collect($qProfiles->get());
+
+            $profilesByAccountId = $profilesRaw
+                ->filter(fn ($r) => !empty($r->account_id))
+                ->keyBy(fn ($r) => (string) $r->account_id);
+
+            if ($profilesRaw->first() && property_exists($profilesRaw->first(), 'admin_account_id')) {
+                $profilesByAdminAcc = $profilesRaw
+                    ->filter(fn ($r) => !empty($r->admin_account_id))
+                    ->keyBy(fn ($r) => (string) $r->admin_account_id);
+            }
         }
 
         // -------------------------
@@ -173,10 +216,18 @@ final class AdminIncomeService
         $cuentas = collect();
         if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
 
-            $accIdsFromStatements = $statements->pluck('account_id')->unique()->filter()->values();
+            $accIdsFromStatements = $statementsAllYear->pluck('account_id')->unique()->filter()->values();
 
-            $uuidIds = $accIdsFromStatements->filter(fn ($x) => is_string($x) && preg_match('/^[0-9a-f\-]{36}$/i', $x))->values()->all();
-            $numIds  = $accIdsFromStatements->filter(fn ($x) => is_string($x) && preg_match('/^\d+$/', $x))->map(fn ($x) => (int)$x)->values()->all();
+            $uuidIds = $accIdsFromStatements
+                ->filter(fn ($x) => is_string($x) && preg_match('/^[0-9a-f\-]{36}$/i', $x))
+                ->values()
+                ->all();
+
+            $numIds  = $accIdsFromStatements
+                ->filter(fn ($x) => is_string($x) && preg_match('/^\d+$/', $x))
+                ->map(fn ($x) => (int) $x)
+                ->values()
+                ->all();
 
             $qAcc = DB::connection($cli)->table('cuentas_cliente')
                 ->select([
@@ -204,19 +255,52 @@ final class AdminIncomeService
             $cuentas = collect($qAcc->get());
         }
 
-        $cuentaByUuid    = $cuentas->keyBy('id');
-        $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))->keyBy('admin_account_id');
+        $cuentaByUuid    = $cuentas->keyBy(fn ($c) => (string) $c->id);
+        $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
+            ->keyBy(fn ($c) => (string) $c->admin_account_id);
+
+        // enriquecer statementKeySet con admin_account_id|period para evitar proyección duplicada
+        foreach ($statementsAllYear as $s) {
+            $acc = (string) $s->account_id;
+            $per = (string) $s->period;
+            if ($acc === '' || $per === '') continue;
+
+            if (preg_match('/^[0-9a-f\-]{36}$/i', $acc)) {
+                $cc = $cuentaByUuid->get($acc);
+                if ($cc && !empty($cc->admin_account_id)) {
+                    $statementKeySet->push((string) $cc->admin_account_id . '|' . $per);
+                }
+            }
+
+            if (preg_match('/^\d+$/', $acc)) {
+                $cc = $cuentaByAdminId->get($acc);
+                if ($cc && !empty($cc->id)) {
+                    $statementKeySet->push((string) $cc->id . '|' . $per);
+                }
+            }
+        }
+        $statementKeySet = $statementKeySet->unique()->values();
 
         // -------------------------
-        // Payments (admin.payments) — account_id BIGINT = admin_account_id
+        // Payments (admin.payments)
         // -------------------------
-        $paymentsByAdminAccPeriod = collect();
+        // ✅ Importante:
+        // payments.amount viene en CENTAVOS (bigint). Siempre convertir:
+        // amount_mxn = amount / 100
+        $paymentsAggByAdminAccPeriod = collect(); // key: "admin|YYYY-MM"
+        $lastPaymentByAdminAcc       = collect();
+
         if (Schema::connection($adm)->hasTable('payments')) {
 
             $adminIds = $cuentas->pluck('admin_account_id')->filter()->unique()->values()->all();
 
             if (!empty($adminIds)) {
-                $paymentsByAdminAccPeriod = DB::connection($adm)->table('payments')
+
+                // ✅ Ventana robusta: 18 meses hacia atrás y 3 meses hacia adelante
+                $winFrom = Carbon::create($year, 1, 1)->startOfMonth()->subMonths(18);
+                $winTo   = Carbon::create($year, 12, 1)->endOfMonth()->addMonths(3);
+
+                $payRows = collect(DB::connection($adm)->table('payments')
                     ->select([
                         'id',
                         'account_id',
@@ -234,32 +318,169 @@ final class AdminIncomeService
                         'created_at',
                     ])
                     ->whereIn('account_id', $adminIds)
-                    ->whereIn('period', $periodsYear)
+                    ->where(function ($w) use ($winFrom, $winTo) {
+                        $w->whereBetween('paid_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()])
+                          ->orWhereBetween('created_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()]);
+                    })
                     ->orderBy('id', 'desc')
-                    ->get()
-                    ->groupBy(fn ($p) => (string) $p->account_id . '|' . (string) $p->period);
+                    ->get());
+
+                // ✅ Agregación por periodo (evita duplicados / múltiples pagos)
+                $paymentsAggByAdminAccPeriod = $payRows
+                    ->filter(fn ($p) => in_array((string)($p->period ?? ''), $periodsYear, true))
+                    ->groupBy(fn ($p) => (string) $p->account_id . '|' . (string) $p->period)
+                    ->map(function ($g) {
+                        $g = collect($g);
+
+                        $sumCents = (float) $g->sum(fn ($x) => (float) ($x->amount ?? 0));
+                        $maxPaidAt = $g->max(fn ($x) => $x->paid_at ?: null);
+                        $anyPaid = $g->contains(function ($x) {
+                            $st = strtolower((string) ($x->status ?? ''));
+                            return $st === 'paid' || !empty($x->paid_at);
+                        });
+
+                        $latest = $g->sortByDesc(fn ($x) => (int) ($x->id ?? 0))->first();
+
+                        return (object) [
+                            'sum_amount_cents' => $sumCents,
+                            'sum_amount_mxn'   => round($sumCents / 100, 2),
+                            'paid_at'          => $maxPaidAt,
+                            'any_paid'         => $anyPaid ? 1 : 0,
+                            'method'           => $latest?->method ?: null,
+                            'provider'         => $latest?->provider ?: null,
+                            'status'           => $latest?->status ?: null,
+                            'latest_id'        => $latest?->id ?: null,
+                        ];
+                    });
+
+                // ✅ ÚLTIMO PAGO "BUENO" POR CUENTA (evita amount 0 / failed / canceled)
+                $bad = ['failed','canceled','cancelled','void','refunded','chargeback'];
+                $lastPaymentByAdminAcc = $payRows
+                    ->groupBy(fn ($p) => (string) $p->account_id)
+                    ->map(function ($g) use ($bad) {
+                        $g2 = collect($g)->filter(function ($p) use ($bad) {
+                            $amt = (float) ($p->amount ?? 0);
+                            $st  = strtolower((string) ($p->status ?? ''));
+                            if ($amt <= 0) return false;
+                            if ($st !== '' && in_array($st, $bad, true)) return false;
+                            return true;
+                        });
+
+                        return $g2->sortByDesc(fn ($x) => (int) $x->id)->first()
+                            ?: collect($g)->sortByDesc(fn ($x) => (int) $x->id)->first();
+                    });
             }
         }
 
         // -------------------------
-        // Baseline recurrente: último subtotal recurrente conocido por cuenta (uuid)
+        // ✅ Baseline recurrente robusto (DEBE USAR ALL YEAR, no el filtrado)
         // -------------------------
-        $baselineRecurring = [];
-        foreach ($statements as $s) {
-            $its = collect($itemsByStatement->get($s->id, collect()));
+        $planPrice = function(?string $plan, ?string $modo) : float {
+            $plan = strtolower(trim((string) $plan));
+            $modo = strtolower(trim((string) $modo));
 
-            $originGuess = $this->guessOrigin($its, $this->decodeJson($s->snapshot), $this->decodeJson($s->meta));
+            // Interpretación: SUBTOTAL (sin IVA)
+            $map = [
+                'free'       => ['mensual' => 0.0,   'anual' => 0.0],
+                'basic'      => ['mensual' => 580.0, 'anual' => 5800.0],
+                'pro'        => ['mensual' => 980.0, 'anual' => 9800.0],
+                'enterprise' => ['mensual' => 1980.0,'anual' => 19800.0],
+            ];
+
+            if (!isset($map[$plan])) return 0.0;
+            if (!isset($map[$plan][$modo])) return 0.0;
+
+            return (float) $map[$plan][$modo];
+        };
+
+        $baselineRecurring = []; // key UUID o admin_account_id => ['period'=>..., 'subtotal'=>...]
+        foreach ($statementsAllYear as $s) {
+            $its  = collect($itemsByStatement->get($s->id, collect()));
+            $snap = $this->decodeJson($s->snapshot);
+            $meta = $this->decodeJson($s->meta);
+
+            $originGuess = $this->guessOrigin($its, $snap, $meta);
             if ($originGuess !== 'recurrente') continue;
 
-            $subtotal = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
-            $key = (string) $s->account_id;
+            $accKey = (string) $s->account_id;
 
-            if (!isset($baselineRecurring[$key])) {
-                $baselineRecurring[$key] = ['period' => (string)$s->period, 'subtotal' => $subtotal];
-            } else {
-                if ((string)$s->period >= (string)$baselineRecurring[$key]['period']) {
-                    $baselineRecurring[$key] = ['period' => (string)$s->period, 'subtotal' => $subtotal];
+            $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
+
+            // fallback: si items en 0 pero bs.total_cargo existe (total con IVA)
+            $subtotalFromTotal = 0.0;
+            $totalCargo = (float) ($s->total_cargo ?? 0);
+            if ($subtotalItems <= 0 && $totalCargo > 0) {
+                $subtotalFromTotal = round($totalCargo / 1.16, 2);
+            }
+
+            $subtotal = $subtotalItems > 0 ? $subtotalItems : $subtotalFromTotal;
+
+            if ($subtotal > 0) {
+                $baselineRecurring[$accKey] = [
+                    'period'   => (string) $s->period,
+                    'subtotal' => $subtotal,
+                ];
+
+                // espejo por admin_account_id
+                if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
+                    $cc = $cuentaByUuid->get($accKey);
+                    if ($cc && !empty($cc->admin_account_id)) {
+                        $baselineRecurring[(string)$cc->admin_account_id] = [
+                            'period'   => (string) $s->period,
+                            'subtotal' => $subtotal,
+                        ];
+                    }
                 }
+            }
+        }
+
+        // -------------------------
+        // ✅ Vendor assignment fallback (finance_account_vendor)
+        // -------------------------
+        $vendorAssignByAdminAcc = collect();
+        if (Schema::connection($adm)->hasTable('finance_account_vendor') && $cuentas->isNotEmpty()) {
+
+            $adminIds = $cuentas->pluck('admin_account_id')->filter()->unique()->values()->all();
+
+            if (!empty($adminIds)) {
+                $assignRows = DB::connection($adm)->table('finance_account_vendor as fav')
+                    ->leftJoin('finance_vendors as v', 'v.id', '=', 'fav.vendor_id')
+                    ->select([
+                        'fav.id',
+                        'fav.account_id',
+                        'fav.client_uuid',
+                        'fav.vendor_id',
+                        'fav.starts_on',
+                        'fav.ends_on',
+                        'fav.is_primary',
+                        'v.name as vendor_name',
+                        'fav.created_at',
+                    ])
+                    ->whereIn('fav.account_id', $adminIds)
+                    ->orderByDesc('fav.is_primary')
+                    ->orderByDesc('fav.starts_on')
+                    ->orderByDesc('fav.id')
+                    ->get();
+
+                $best = [];
+                foreach ($assignRows as $a) {
+                    $aid = (string) $a->account_id;
+                    if (!isset($best[$aid])) { $best[$aid] = $a; continue; }
+
+                    $cur = $best[$aid];
+                    $curPrimary = (int) ($cur->is_primary ?? 0);
+                    $newPrimary = (int) ($a->is_primary ?? 0);
+
+                    if ($newPrimary > $curPrimary) { $best[$aid] = $a; continue; }
+
+                    $curStart = (string) ($cur->starts_on ?? '');
+                    $newStart = (string) ($a->starts_on ?? '');
+                    if ($newStart !== '' && ($curStart === '' || $newStart > $curStart)) {
+                        $best[$aid] = $a; continue;
+                    }
+                }
+
+                $vendorAssignByAdminAcc = collect($best);
             }
         }
 
@@ -270,10 +491,13 @@ final class AdminIncomeService
             $itemsByStatement,
             $invByStatement,
             $invByAccPeriod,
-            $profiles,
+            $profilesByAccountId,
+            $profilesByAdminAcc,
             $cuentaByUuid,
             $cuentaByAdminId,
-            $paymentsByAdminAccPeriod
+            $paymentsAggByAdminAccPeriod,
+            $vendorsById,
+            $vendorAssignByAdminAcc
         ) {
 
             $snap = $this->decodeJson($s->snapshot);
@@ -281,10 +505,11 @@ final class AdminIncomeService
 
             $cc = null;
             $sid = (string) $s->account_id;
+
             if (preg_match('/^[0-9a-f\-]{36}$/i', $sid)) {
                 $cc = $cuentaByUuid->get($sid);
             } elseif (preg_match('/^\d+$/', $sid)) {
-                $cc = $cuentaByAdminId->get((int)$sid);
+                $cc = $cuentaByAdminId->get($sid);
             }
 
             $company = (string) (
@@ -308,8 +533,12 @@ final class AdminIncomeService
             $its = collect($itemsByStatement->get($s->id, collect()));
 
             $subtotal = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
-            $iva      = round($subtotal * 0.16, 2);
-            $total    = round($subtotal + $iva, 2);
+            if ($subtotal <= 0 && (float)($s->total_cargo ?? 0) > 0) {
+                $subtotal = round(((float)$s->total_cargo) / 1.16, 2);
+            }
+
+            $iva   = round($subtotal * 0.16, 2);
+            $total = round($subtotal + $iva, 2);
 
             $origin = $this->guessOrigin($its, $snap, $meta);
 
@@ -319,14 +548,49 @@ final class AdminIncomeService
                 $periodicity = $modoCobro;
                 $origin = 'recurrente';
             }
-
-            if ($origin === 'recurrente' && $periodicity === 'unico') {
-                $periodicity = 'mensual';
-            }
+            if ($origin === 'recurrente' && $periodicity === 'unico') $periodicity = 'mensual';
 
             $ecStatus = $this->normalizeStatementStatus($s);
 
-            $bp = $profiles->get((string) $s->account_id);
+            // Vendedor best-effort
+            $vendorId = $this->extractVendorId($meta, $snap, $its);
+            $vendorName = null;
+
+            if (!empty($vendorId) && $vendorsById->has($vendorId)) {
+                $vendorName = (string) ($vendorsById->get($vendorId)?->name ?? null);
+            }
+
+            if ((empty($vendorId) || !$vendorName) && !empty($cc?->admin_account_id)) {
+                $aid = (string) $cc->admin_account_id;
+                $as  = $vendorAssignByAdminAcc->get($aid);
+
+                if ($as) {
+                    $per = (string) $s->period;
+                    $perDate = $per !== '' ? ($per . '-01') : null;
+
+                    $ok = true;
+                    if ($perDate) {
+                        $stOn = (string) ($as->starts_on ?? '');
+                        $enOn = (string) ($as->ends_on ?? '');
+
+                        if ($stOn !== '' && $perDate < $stOn) $ok = false;
+                        if ($enOn !== '' && $perDate > $enOn) $ok = false;
+                    }
+
+                    if ($ok) {
+                        $vendorId   = (string) ($as->vendor_id ?? $vendorId);
+                        $vendorName = (string) ($as->vendor_name ?? $vendorName);
+                    }
+                }
+            }
+
+            $bp = $this->resolveBillingProfile(
+                (string) $s->account_id,
+                (string) ($cc?->admin_account_id ?? ''),
+                $profilesByAccountId,
+                $profilesByAdminAcc
+            );
+
             $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
             $formaPago   = (string) ($bp->forma_pago ?? '');
 
@@ -339,13 +603,18 @@ final class AdminIncomeService
             $invoiceDate = $invRow?->issued_at ?: null;
             $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
 
+            $invMeta = $this->decodeJson($invRow?->meta ?? null);
+            $invoiceFormaPago  = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
+            $invoiceMetodoPago = (string) (data_get($invMeta, 'metodo_pago') ?? data_get($invMeta, 'cfdi.metodo_pago') ?? '');
+            $invoicePaidAt     = data_get($invMeta, 'paid_at') ?? data_get($invMeta, 'fecha_pago') ?? null;
+
             $adminAccId = $cc?->admin_account_id;
-            $p = null;
+            $pAgg = null;
             if (!empty($adminAccId)) {
-                $p = optional($paymentsByAdminAccPeriod->get((string)$adminAccId . '|' . (string)$s->period))->first();
+                $pAgg = $paymentsAggByAdminAccPeriod->get((string)$adminAccId . '|' . (string)$s->period);
             }
 
-            $paidAt = $p?->paid_at ?: $s->paid_at ?: null;
+            $paidAt = $pAgg?->paid_at ?: $s->paid_at ?: $invoicePaidAt ?: null;
 
             $ym = (string) $s->period;
             $y  = (int) substr($ym, 0, 4);
@@ -354,12 +623,15 @@ final class AdminIncomeService
             $desc = $this->buildDescriptionFromItems($its, $origin, $periodicity);
 
             return (object) [
+                'source'       => 'statement',
+                'is_projection'=> 0,
+
                 'year'         => $y,
                 'month_num'    => sprintf('%02d', $m),
                 'month_name'   => $this->monthNameEs($m),
 
-                // vendedor (se conecta por ventas)
-                'vendor'       => null,
+                'vendor_id'    => $vendorId,
+                'vendor'       => $vendorName,
 
                 'client'       => $company,
                 'description'  => $desc,
@@ -370,8 +642,8 @@ final class AdminIncomeService
                 'company'      => $company,
                 'rfc_emisor'   => $rfcEmisor,
 
-                'origin'       => $origin,        // recurrente|unico
-                'periodicity'  => $periodicity,   // mensual|anual|unico
+                'origin'       => $origin,
+                'periodicity'  => $periodicity,
 
                 'subtotal'     => $subtotal,
                 'iva'          => $iva,
@@ -383,7 +655,7 @@ final class AdminIncomeService
                 'paid_at'      => $paidAt,
 
                 'rfc_receptor' => $rfcReceptor,
-                'forma_pago'   => $formaPago,
+                'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
 
                 'f_emision'    => $s->sent_at,
                 'f_pago'       => $paidAt,
@@ -396,8 +668,10 @@ final class AdminIncomeService
                 'invoice_status_raw' => $invStatus,
                 'cfdi_uuid'      => $cfdiUuid,
 
-                'payment_method' => $p?->method ?: null,
-                'payment_status' => $p?->status ?: null,
+                'invoice_metodo_pago' => $invoiceMetodoPago !== '' ? $invoiceMetodoPago : null,
+
+                'payment_method' => $pAgg?->method ?: null,
+                'payment_status' => $pAgg?->status ?: null,
 
                 'raw_statement_status' => (string) $s->status,
             ];
@@ -459,19 +733,45 @@ final class AdminIncomeService
 
                 foreach ($expectedPeriods as $per) {
 
-                    $key = (string) $cc->id . '|' . (string) $per;
-                    if ($stByKey->has($key)) continue;
+                    $keyUuid = (string) $cc->id . '|' . (string) $per;
+                    $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
 
+                    if ($statementKeySet->contains($keyUuid)) continue;
+                    if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
+
+                    // ✅ BASELINE robusto
                     $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
+                    if ($base <= 0 && !empty($cc->admin_account_id)) {
+                        $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
+                    }
 
-                    $subtotal = $base;
+                    // ✅ fallback: último pago real (amount>0) -> CONVIERTE CENTAVOS
+                    if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
+                        $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
+                        $amtCents = (float) ($lp->amount ?? 0);
+                        $amtMxn = $amtCents > 0 ? ($amtCents / 100) : 0.0;
+                        if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
+                    }
+
+                    // ✅ fallback: precio por plan
+                    if ($base <= 0) {
+                        $plan = (string) ($cc->plan_actual ?? '');
+                        $base = (float) $planPrice($plan, $modo);
+                    }
+
+                    $subtotal = round(max(0, $base), 2);
                     $iva      = round($subtotal * 0.16, 2);
                     $total    = round($subtotal + $iva, 2);
 
                     $company = (string) (($cc->nombre_comercial ?: null) ?? ($cc->razon_social ?: null) ?? ('Cuenta ' . $cc->id));
                     $rfcEmisor = (string) (($cc->rfc_padre ?: null) ?? ($cc->rfc ?: null) ?? '');
 
-                    $bp = $profiles->get((string) $cc->id);
+                    $bp = $this->resolveBillingProfile(
+                        (string) $cc->id,
+                        (string) ($cc->admin_account_id ?? ''),
+                        $profilesByAccountId,
+                        $profilesByAdminAcc
+                    );
                     $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
                     $formaPago   = (string) ($bp->forma_pago ?? '');
 
@@ -480,13 +780,16 @@ final class AdminIncomeService
                     $invoiceDate = $invRow?->issued_at ?: null;
                     $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
 
-                    $p = null;
+                    $invMeta = $this->decodeJson($invRow?->meta ?? null);
+                    $invoiceFormaPago = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
+
+                    $pAgg = null;
                     if (!empty($cc->admin_account_id)) {
-                        $p = optional($paymentsByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per))->first();
+                        $pAgg = $paymentsAggByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per);
                     }
 
                     $ecStatus = 'pending';
-                    if (!empty($p?->paid_at) || (strtolower((string)($p?->status ?? '')) === 'paid')) {
+                    if (($pAgg?->any_paid ?? 0) === 1 || !empty($pAgg?->paid_at)) {
                         $ecStatus = 'pagado';
                     }
 
@@ -494,10 +797,14 @@ final class AdminIncomeService
                     $m = (int) substr($per, 5, 2);
 
                     $rowsProjected->push((object) [
+                        'source'        => 'projection',
+                        'is_projection' => 1,
+
                         'year'         => $y,
                         'month_num'    => sprintf('%02d', $m),
                         'month_name'   => $this->monthNameEs($m),
 
+                        'vendor_id'    => null,
                         'vendor'       => null,
 
                         'client'       => $company,
@@ -520,13 +827,13 @@ final class AdminIncomeService
                         'ec_status'    => $ecStatus,
                         'due_date'     => null,
                         'sent_at'      => null,
-                        'paid_at'      => $p?->paid_at ?: null,
+                        'paid_at'      => $pAgg?->paid_at ?: null,
 
                         'rfc_receptor' => $rfcReceptor,
-                        'forma_pago'   => $formaPago,
+                        'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
 
                         'f_emision'    => null,
-                        'f_pago'       => $p?->paid_at ?: null,
+                        'f_pago'       => $pAgg?->paid_at ?: null,
                         'f_cta'        => null,
                         'f_mov'        => null,
 
@@ -536,15 +843,15 @@ final class AdminIncomeService
                         'invoice_status_raw' => $invStatus,
                         'cfdi_uuid'      => $cfdiUuid,
 
-                        'payment_method' => $p?->method ?: null,
-                        'payment_status' => $p?->status ?: null,
+                        'payment_method' => $pAgg?->method ?: null,
+                        'payment_status' => $pAgg?->status ?: null,
                     ]);
                 }
             }
         }
 
         // -------------------------
-        // 3) VENTAS ÚNICAS DEL MES (finance_sales) — Origen Único
+        // 3) Ventas únicas (finance_sales)
         // -------------------------
         $rowsSales = collect();
 
@@ -581,8 +888,6 @@ final class AdminIncomeService
                 ])
                 ->whereIn('s.period', $periodsYear);
 
-            // Excel: ventas únicas (no recurrentes)
-            // permitimos origin unico/no_recurrente, y/o periodicity unico
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
                   ->orWhere('s.periodicity', '=', 'unico');
@@ -590,7 +895,6 @@ final class AdminIncomeService
 
             $sales = collect($qSales->orderBy('s.period')->orderBy('s.id')->get());
 
-            // company desde mysql_clientes.cuentas_cliente (sin JOIN cross-db)
             $sales = $this->attachCompanyFromClientes($sales, $cli);
 
             $rowsSales = $sales->map(function ($s) {
@@ -609,7 +913,6 @@ final class AdminIncomeService
                 $ecStatus = strtolower((string) ($s->statement_status ?? 'pending'));
                 if (!in_array($ecStatus, ['pending', 'emitido', 'pagado', 'vencido'], true)) $ecStatus = 'pending';
 
-                // Map invoice_status (finance_sales) -> filtro “tipo invoice_requests”
                 $invRaw = strtolower((string) ($s->invoice_status ?? ''));
                 $invCanonical = $this->mapSalesInvoiceStatusToCanonical($invRaw);
 
@@ -617,19 +920,22 @@ final class AdminIncomeService
                 if ($desc === '') {
                     $desc = trim((string) ($s->sale_code ?? 'Venta única'));
                 } else {
-                    // Agregar sale_code si existe para trazabilidad
                     $sc = trim((string) ($s->sale_code ?? ''));
                     if ($sc !== '') $desc = $sc . ' · ' . $desc;
                 }
 
-                // F Mov: priorizar f_mov, luego sale_date, luego created_at
                 $fMov = $s->f_mov ?: ($s->sale_date ?: ($s->created_at ?: null));
+                $vendorId = !empty($s->vendor_id) ? (string) $s->vendor_id : null;
 
                 return (object) [
+                    'source'        => 'sale',
+                    'is_projection' => 0,
+
                     'year'         => $y,
                     'month_num'    => sprintf('%02d', $m),
                     'month_name'   => $this->monthNameEs($m),
 
+                    'vendor_id'    => $vendorId,
                     'vendor'       => $s->vendor_name ?: null,
 
                     'client'       => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
@@ -652,22 +958,21 @@ final class AdminIncomeService
                     'sent_at'      => null,
                     'paid_at'      => $s->paid_date ?: null,
 
-                    // Bloque facturación (desde venta)
                     'rfc_receptor' => (string) ($s->receiver_rfc ?? ''),
                     'forma_pago'   => (string) ($s->pay_method ?? ''),
 
-                    'f_emision'    => $s->f_cta ?: null, // en ventas, lo más cercano a “emisión”/cta
+                    'f_emision'    => $s->f_cta ?: null,
                     'f_pago'       => $s->paid_date ?: null,
                     'f_cta'        => $s->f_cta ?: null,
                     'f_mov'        => $fMov,
 
                     'f_factura'      => $s->invoice_date ?: null,
                     'invoice_date'   => $s->invoice_date ?: null,
-                    'invoice_status' => $invCanonical,      // 👈 para filtro UI (requested/issued/…)
-                    'invoice_status_raw' => $invRaw,         // 👈 por si quieres mostrar raw
+                    'invoice_status' => $invCanonical,
+                    'invoice_status_raw' => $invRaw,
                     'cfdi_uuid'      => $s->cfdi_uuid ?: null,
 
-                    'payment_method' => null,                // pagos reales del payments center (admin.payments)
+                    'payment_method' => null,
                     'payment_status' => null,
 
                     'sale_id'        => (int) $s->id,
@@ -685,7 +990,7 @@ final class AdminIncomeService
         $originNorm = $origin;
         if ($originNorm === 'no_recurrente') $originNorm = 'unico';
 
-        $rows = $rows->filter(function ($r) use ($originNorm, $st, $invSt, $q) {
+        $rows = $rows->filter(function ($r) use ($originNorm, $st, $invSt, $vendorId, $qSearch) {
 
             if ($originNorm !== 'all' && strtolower((string)$r->origin) !== $originNorm) return false;
             if ($st !== 'all' && strtolower((string)$r->ec_status) !== strtolower($st)) return false;
@@ -695,7 +1000,12 @@ final class AdminIncomeService
                 if ($cmp !== strtolower($invSt)) return false;
             }
 
-            if ($q !== '') {
+            if ($vendorId !== 'all' && $vendorId !== '') {
+                $rid = (string) ($r->vendor_id ?? '');
+                if ($rid === '' || $rid !== (string) $vendorId) return false;
+            }
+
+            if ($qSearch !== '') {
                 $hay = strtolower(
                     ($r->client ?? '') . ' ' .
                     ($r->company ?? '') . ' ' .
@@ -704,15 +1014,15 @@ final class AdminIncomeService
                     ($r->rfc_receptor ?? '') . ' ' .
                     (($r->cfdi_uuid ?? '') . '') . ' ' .
                     (($r->description ?? '') . '') . ' ' .
-                    (($r->vendor ?? '') . '')
+                    (($r->vendor ?? '') . '') . ' ' .
+                    (($r->source ?? '') . '')
                 );
-                if (!str_contains($hay, strtolower($q))) return false;
+                if (!str_contains($hay, strtolower($qSearch))) return false;
             }
 
             return true;
         });
 
-        // sort: period asc, client asc, total desc
         $rows = $rows->sortBy([
             fn ($r) => (string) ($r->period ?? ''),
             fn ($r) => (string) ($r->client ?? $r->company ?? ''),
@@ -721,11 +1031,58 @@ final class AdminIncomeService
 
         $kpis = $this->computeKpis($rows);
 
+        $vendorList = $vendorsById
+            ->map(fn ($v) => ['id' => (string) $v->id, 'name' => (string) $v->name])
+            ->values();
+
         return [
-            'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'q'),
+            'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch') + [
+                'vendor_list' => $vendorList,
+            ],
             'kpis'    => $kpis,
             'rows'    => $rows,
         ];
+    }
+
+    private function resolveBillingProfile(
+        string $accountId,
+        string $adminAccountId,
+        Collection $profilesByAccountId,
+        Collection $profilesByAdminAcc
+    ): ?object {
+        $bp = $profilesByAccountId->get((string) $accountId);
+        if ($bp) return $bp;
+
+        if ($adminAccountId !== '' && $profilesByAdminAcc->isNotEmpty()) {
+            $bp = $profilesByAdminAcc->get((string) $adminAccountId);
+            if ($bp) return $bp;
+        }
+
+        if ($adminAccountId === '' && preg_match('/^\d+$/', $accountId)) {
+            $bp = $profilesByAccountId->get((string) $accountId);
+            if ($bp) return $bp;
+        }
+
+        return null;
+    }
+
+    private function extractVendorId(array $meta, array $snap, Collection $items): ?string
+    {
+        $vid = data_get($meta, 'vendor_id')
+            ?? data_get($meta, 'vendor.id')
+            ?? data_get($snap, 'vendor_id')
+            ?? data_get($snap, 'vendor.id')
+            ?? null;
+
+        if (!empty($vid)) return (string) $vid;
+
+        foreach ($items as $it) {
+            $im = $this->decodeJson($it->meta ?? null);
+            $vid2 = data_get($im, 'vendor_id') ?? data_get($im, 'vendor.id') ?? null;
+            if (!empty($vid2)) return (string) $vid2;
+        }
+
+        return null;
     }
 
     private function attachCompanyFromClientes(Collection $rows, string $cliConn): Collection
@@ -735,18 +1092,46 @@ final class AdminIncomeService
 
         if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return $rows;
 
-        $map = DB::connection($cliConn)->table('cuentas_cliente')
-            ->select(['id', 'razon_social', 'nombre_comercial', 'rfc_padre'])
-            ->whereIn('id', $ids)
-            ->get()
-            ->keyBy('id');
+        $uuidIds = [];
+        $adminIds = [];
 
-        return $rows->map(function ($r) use ($map) {
-            $c = $map->get((string) $r->account_id);
+        foreach ($ids as $id) {
+            $id = (string) $id;
+            if ($id === '') continue;
+
+            if (preg_match('/^[0-9a-f\-]{36}$/i', $id)) {
+                $uuidIds[] = $id;
+            } elseif (preg_match('/^\d+$/', $id)) {
+                $adminIds[] = (int) $id;
+            }
+        }
+
+        $q = DB::connection($cliConn)->table('cuentas_cliente')
+            ->select(['id', 'admin_account_id', 'razon_social', 'nombre_comercial', 'rfc_padre']);
+
+        if (!empty($uuidIds)) $q->whereIn('id', $uuidIds);
+        if (!empty($adminIds)) $q->orWhereIn('admin_account_id', $adminIds);
+
+        $found = collect($q->get());
+
+        $byUuid = $found->filter(fn ($c) => !empty($c->id))->keyBy(fn ($c) => (string) $c->id);
+        $byAdm  = $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id);
+
+        return $rows->map(function ($r) use ($byUuid, $byAdm) {
+            $aid = (string) ($r->account_id ?? '');
+            $c = null;
+
+            if ($aid !== '') {
+                if (preg_match('/^[0-9a-f\-]{36}$/i', $aid)) {
+                    $c = $byUuid->get($aid);
+                } elseif (preg_match('/^\d+$/', $aid)) {
+                    $c = $byAdm->get($aid);
+                }
+            }
 
             $r->company = $c
-                ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ('Cuenta ' . $r->account_id))
-                : (string) ('Cuenta ' . $r->account_id);
+                ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ('Cuenta ' . $aid))
+                : (string) ('Cuenta ' . $aid);
 
             $r->rfc_emisor = $c ? (string) ($c->rfc_padre ?? '') : '';
 
@@ -756,8 +1141,6 @@ final class AdminIncomeService
 
     private function mapSalesInvoiceStatusToCanonical(string $raw): string
     {
-        // finance_sales.invoice_status:
-        // sin_solicitud | solicitada | en_proceso | facturada | rechazada
         return match ($raw) {
             'solicitada'    => 'requested',
             'en_proceso'    => 'ready',

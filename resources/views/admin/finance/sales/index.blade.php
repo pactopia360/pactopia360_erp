@@ -16,7 +16,6 @@
         'pagado'  => ['#dcfce7','#166534','Pagado'],
         'emitido' => ['#e0f2fe','#075985','Emitido'],
         'pending' => ['#fff7ed','#9a3412','Pending'],
-        'vencido' => ['#fee2e2','#991b1b','Vencido'],
       ];
       $v = $map[$s] ?? ['#f1f5f9','#334155', strtoupper($s ?: '—')];
       return '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:'.$v[0].';color:'.$v[1].';font-weight:900;font-size:12px;letter-spacing:.2px">'.$v[2].'</span>';
@@ -40,12 +39,74 @@
       try { return \Illuminate\Support\Carbon::parse($d)->format('Y-m-d'); }
       catch (\Throwable $e) { return '—'; }
     };
+
+    $yesNoPill = function(bool $on, ?string $target){
+      if ($on) {
+        $t = $target ? (' · '.$target) : '';
+        return '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:900;font-size:12px">Sí'.$t.'</span>';
+      }
+      return '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:#f1f5f9;color:#334155;font-weight:900;font-size:12px">No</span>';
+    };
   @endphp
 
-  <div style="display:flex;flex-direction:column;gap:14px">
+  @section('content')
+  <style>
+    .income-wrap{display:flex;flex-direction:column;gap:14px}
+
+    .income-card{border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff}
+    .income-card-pad{padding:16px}
+
+    .income-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+    .income-filters{
+      display:grid;
+      grid-template-columns:repeat(8,minmax(140px,1fr));
+      gap:8px;
+      align-items:end;
+      width:100%;
+    }
+    .income-control{
+      height:38px;
+      padding:8px 10px;
+      border:1px solid rgba(0,0,0,.12);
+      border-radius:10px;
+      background:#fff;
+    }
+    .income-btn{
+      height:38px;
+      padding:9px 12px;
+      border-radius:12px;
+      font-weight:950;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      white-space:nowrap;
+    }
+    .income-btn-primary{border:0;background:#0f172a;color:#fff}
+    .income-btn-ghost{border:1px solid rgba(0,0,0,.12);background:#fff;color:#0f172a}
+
+    .income-months{display:flex;gap:6px;flex-wrap:wrap}
+    .income-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:14px}
+
+    .income-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch}
+    .income-table{width:max(1200px,100%);border-collapse:separate;border-spacing:0}
+    .income-th{position:sticky;top:0;z-index:2;background:#0f172a;color:#fff;text-align:left;padding:10px;font-size:12px;font-weight:950;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.15)}
+    .income-td{padding:10px;border-bottom:1px solid rgba(0,0,0,.06);vertical-align:top}
+
+    @media (max-width:1200px){ .income-filters{grid-template-columns:repeat(4,minmax(140px,1fr))} }
+    @media (max-width:860px){ .income-filters{grid-template-columns:repeat(2,minmax(140px,1fr))} }
+    @media (max-width:520px){
+      .income-filters{grid-template-columns:1fr}
+      .income-card-pad{padding:12px}
+      .income-th,.income-td{padding:8px}
+    }
+  </style>
+
+  <div class="income-wrap">
 
     {{-- Header / KPIs / Filtros --}}
-    <div class="card" style="border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:16px">
+    <div class="income-card income-card-pad">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div>
           <h1 style="margin:0;font-size:18px;font-weight:900">Ventas</h1>
@@ -73,7 +134,7 @@
 
         <select name="origin" style="padding:8px 10px;border:1px solid rgba(0,0,0,.12);border-radius:10px">
           <option value="" @selected(($filters['origin'] ?? '')==='')>Origen (todos)</option>
-          <option value="unico" @selected(($filters['origin'] ?? '')==='unico')>Único</option>
+          {{-- DB enum: recurrente | no_recurrente --}}
           <option value="no_recurrente" @selected(($filters['origin'] ?? '')==='no_recurrente')>No recurrente</option>
           <option value="recurrente" @selected(($filters['origin'] ?? '')==='recurrente')>Recurrente</option>
         </select>
@@ -118,7 +179,7 @@
     {{-- Tabla --}}
     <div class="card" style="border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:0;overflow:hidden">
       <div style="overflow:auto">
-        <table style="width:1900px;border-collapse:separate;border-spacing:0">
+        <table style="width:2000px;border-collapse:separate;border-spacing:0">
           <thead>
             <tr>
               @foreach([
@@ -148,12 +209,19 @@
                   $y = strlen($per) >= 4 ? (int)substr($per,0,4) : now()->year;
                   $m = strlen($per) >= 7 ? substr($per,5,2) : '01';
 
+                  // Income sí puede usar "unico" (eso es de Income, no de Sales)
                   $incomeUrl = route('admin.finance.income.index', [
                     'year'   => $y,
                     'month'  => $m,
                     'origin' => 'unico',
                     'q'      => (string)($r->account_id ?? ''),
                   ]);
+
+                  $isIncluded = !empty($r->include_in_statement);
+                  $targetEc   = (string)($r->statement_period_target ?? $r->target_period ?? '');
+
+                  $toggleUrl = route('admin.finance.sales.toggleInclude', ['id' => $r->id]);
+                  $toggleLabel = $isIncluded ? 'Quitar' : 'Incluir';
                 @endphp
 
                 <tr>
@@ -186,7 +254,7 @@
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">{{ $yn($r->f_cta ?? null) }}</td>
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">{{ $yn($r->invoice_date ?? null) }}</td>
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">{{ $yn($r->paid_date ?? null) }}</td>
-                  <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">{{ $r->statement_period_target ?? '—' }}</td>
+                  <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">{{ $r->statement_period_target ?? ($r->target_period ?? '—') }}</td>
 
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);text-align:right;font-weight:900">{{ $money($r->subtotal ?? 0) }}</td>
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);text-align:right;font-weight:900">{{ $money($r->iva ?? 0) }}</td>
@@ -197,14 +265,22 @@
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap;color:#334155">{{ $r->cfdi_uuid ?? '—' }}</td>
 
                   <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap;font-weight:900">
-                    {{ !empty($r->include_in_statement) ? 'Sí' : 'No' }}
+                    {!! $yesNoPill((bool)$isIncluded, $targetEc ?: null) !!}
                   </td>
 
-                  <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap">
+                  <td style="padding:10px;border-bottom:1px solid rgba(0,0,0,.06);white-space:nowrap;display:flex;gap:8px;align-items:center">
                     <a href="{{ $incomeUrl }}"
                        style="display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#fff;text-decoration:none;color:#0f172a;font-weight:900;font-size:12px">
                       Abrir en Ingresos
                     </a>
+
+                    <form method="POST" action="{{ $toggleUrl }}" style="display:inline">
+                      @csrf
+                      <button type="submit"
+                        style="display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:{{ $isIncluded ? '#fff' : '#0f172a' }};color:{{ $isIncluded ? '#0f172a' : '#fff' }};font-weight:900;font-size:12px;cursor:pointer">
+                        {{ $toggleLabel }} E.Cta
+                      </button>
+                    </form>
                   </td>
                 </tr>
               @endforeach
@@ -218,7 +294,7 @@
           Filas: <span style="color:#0f172a">{{ $rows->count() }}</span>
         </div>
         <div style="color:#64748b;font-size:12px">
-          Nota: “Abrir en Ingresos” filtra por <code>year/month</code> del periodo y busca por <code>account_id</code> con origen “único”.
+          Nota: “Abrir en Ingresos” filtra por <code>year/month</code> del periodo y busca por <code>account_id</code> con origen <code>unico</code> (solo en Ingresos).
         </div>
       </div>
     </div>
