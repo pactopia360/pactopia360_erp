@@ -1050,9 +1050,6 @@ Route::middleware([
         Route::get('projections', [\App\Http\Controllers\Admin\Finance\ProjectionsController::class, 'index'])
             ->name('projections.index');
 
-        Route::delete('finance/income/row/{id}', [IncomeActionsController::class, 'destroy'])
-            ->whereNumber('id')
-            ->name('income.row.destroy'); 
     });
 
     /*
