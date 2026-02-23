@@ -837,57 +837,72 @@ final class AdminIncomeService
 
         if (Schema::connection($adm)->hasTable('finance_sales')) {
 
-            // Compatibilidad de columna target (DB vieja vs nueva)
-            $hasStmtTarget = Schema::connection($adm)->hasColumn('finance_sales', 'statement_period_target');
-            $hasTargetPer  = Schema::connection($adm)->hasColumn('finance_sales', 'target_period');
+            // ✅ Compat de columnas entre versiones
+            $fsCols = collect(Schema::connection($adm)->getColumnListing('finance_sales'))->map(fn($c)=>strtolower((string)$c))->values();
 
-            $stmtTargetSelect = null;
-            if ($hasStmtTarget) {
-                $stmtTargetSelect = 's.statement_period_target';
-            } elseif ($hasTargetPer) {
-                $stmtTargetSelect = DB::raw('s.target_period as statement_period_target');
-            } else {
-                // no existe en DB
-                $stmtTargetSelect = DB::raw('NULL as statement_period_target');
-            }
+            $colPeriod = $fsCols->contains('period')
+                ? 'period'
+                : ($fsCols->contains('target_period') ? 'target_period' : null);
+
+            $colStmtTarget = $fsCols->contains('statement_period_target')
+                ? 'statement_period_target'
+                : ($fsCols->contains('target_period') ? 'target_period' : null);
 
             $qSales = DB::connection($adm)->table('finance_sales as s')
-                ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
-                ->select([
-                    's.id',
-                    's.account_id',
-                    's.sale_code',
-                    's.receiver_rfc',
-                    's.pay_method',
-                    's.origin',
-                    's.periodicity',
-                    's.vendor_id',
-                    'v.name as vendor_name',
-                    's.period',
-                    's.sale_date',
-                    's.f_cta',
-                    's.f_mov',
-                    's.invoice_date',
-                    's.paid_date',
-                    's.subtotal',
-                    's.iva',
-                    's.total',
-                    's.statement_status',
-                    's.invoice_status',
-                    's.cfdi_uuid',
-                    's.include_in_statement',
-                    $stmtTargetSelect,
-                    's.notes',
-                    's.created_at',
-                ])
-                ->whereIn('s.period', $periodsYear);
+                ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id');
 
+            // SELECT base (solo columnas que “seguro” existen)
+            $qSales->select([
+                's.id',
+                's.account_id',
+                's.sale_code',
+                's.receiver_rfc',
+                's.pay_method',
+                's.origin',
+                's.periodicity',
+                's.vendor_id',
+                'v.name as vendor_name',
+                's.sale_date',
+                's.f_cta',
+                's.f_mov',
+                's.invoice_date',
+                's.paid_date',
+                's.subtotal',
+                's.iva',
+                's.total',
+                's.statement_status',
+                's.invoice_status',
+                's.cfdi_uuid',
+                's.include_in_statement',
+                's.notes',
+                's.created_at',
+            ]);
+
+            // ✅ period con alias (si no existe, lo dejamos null y filtramos distinto)
+            if ($colPeriod) {
+                $qSales->addSelect(DB::raw("s.`{$colPeriod}` as period"));
+            } else {
+                // fallback duro: intenta derivar periodo por sale_date / created_at (YYYY-MM)
+                $qSales->addSelect(DB::raw("DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m') as period"));
+            }
+
+            // ✅ statement_period_target con alias (compat)
+            if ($colStmtTarget) {
+                $qSales->addSelect(DB::raw("s.`{$colStmtTarget}` as statement_period_target"));
+            } else {
+                $qSales->addSelect(DB::raw("NULL as statement_period_target"));
+            }
+
+            // Filtro de año/mes
+            $qSales->whereIn('period', $periodsYear);
+
+            // Solo ventas únicas (origen unico / no_recurrente o periodicity unico)
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
-                  ->orWhere('s.periodicity', '=', 'unico');
+                ->orWhere('s.periodicity', '=', 'unico');
             });
 
-            $sales = collect($qSales->orderBy('s.period')->orderBy('s.id')->get());
+            $sales = collect($qSales->orderBy('period')->orderBy('s.id')->get());
 
             $sales = $this->attachCompanyFromClientes($sales, $cli);
 
@@ -971,7 +986,7 @@ final class AdminIncomeService
 
                     'sale_id'        => (int) $s->id,
                     'include_in_statement' => (int) ($s->include_in_statement ?? 0),
-                    'statement_period_target' => $s->statement_period_target ?? null,
+                    'statement_period_target' => $s->statement_period_target ?: null,
                 ];
             });
         }
