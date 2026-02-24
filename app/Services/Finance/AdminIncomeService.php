@@ -791,6 +791,7 @@ final class AdminIncomeService
                 'payment_status' => $pAgg?->status ?: null,
 
                 'raw_statement_status' => (string) $s->status,
+                'notes' => null,
             ];
         });
 
@@ -979,6 +980,7 @@ final class AdminIncomeService
 
                             'payment_method' => $pAgg?->method ?: null,
                             'payment_status' => $pAgg?->status ?: null,
+                            'notes' => null,
                         ]);
                     }
                 }
@@ -1141,6 +1143,7 @@ final class AdminIncomeService
                     'sale_id'        => (int) $s->id,
                     'include_in_statement' => (int) ($s->include_in_statement ?? 0),
                     'statement_period_target' => $s->statement_period_target ?: null,
+                    'notes' => (string)($s->notes ?? ''),
                 ];
             });
         }
@@ -1149,6 +1152,92 @@ final class AdminIncomeService
         // Unión + filtros + sort
         // -------------------------
         $rows = $rowsExisting->concat($rowsProjected)->concat($rowsSales);
+
+        // -------------------------
+        // ✅ Apply overrides (finance_income_overrides)
+        // - statement/projection: overlay fields by key (row_type, account_id, period)
+        // - updates vendor name if vendor_id overridden
+        // -------------------------
+        if (Schema::connection($adm)->hasTable('finance_income_overrides') && $rows->isNotEmpty()) {
+
+            $ovAccountIds = $rows
+                ->filter(fn($r) => in_array((string)($r->source ?? ''), ['statement','projection'], true))
+                ->pluck('account_id')
+                ->filter(fn($x) => (string)$x !== '')
+                ->unique()
+                ->values()
+                ->all();
+
+            $ovPeriods = $rows
+                ->filter(fn($r) => in_array((string)($r->source ?? ''), ['statement','projection'], true))
+                ->pluck('period')
+                ->filter(fn($x) => (string)$x !== '')
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($ovAccountIds) && !empty($ovPeriods)) {
+
+                $ovRows = collect(DB::connection($adm)->table('finance_income_overrides')
+                    ->select([
+                        'row_type','account_id','period',
+                        'vendor_id','ec_status','invoice_status','cfdi_uuid','rfc_receptor','forma_pago',
+                        'subtotal','iva','total','notes',
+                        'updated_at','updated_by',
+                    ])
+                    ->whereIn('account_id', $ovAccountIds)
+                    ->whereIn('period', $ovPeriods)
+                    ->whereIn('row_type', ['statement','projection'])
+                    ->get());
+
+                $ovByKey = $ovRows->keyBy(function($o){
+                    return (string)$o->row_type . '|' . (string)$o->account_id . '|' . (string)$o->period;
+                });
+
+                $rows = $rows->map(function($r) use ($ovByKey, $vendorsById) {
+
+                    $src = (string)($r->source ?? '');
+                    if (!in_array($src, ['statement','projection'], true)) return $r;
+
+                    $rowType = $src === 'projection' ? 'projection' : 'statement';
+                    $key = $rowType . '|' . (string)($r->account_id ?? '') . '|' . (string)($r->period ?? '');
+
+                    $ov = $ovByKey->get($key);
+                    if (!$ov) return $r;
+
+                    // overlay fields only when override has value (keep original if null)
+                    $apply = function($prop, $val) use ($r) {
+                        if ($val === null) return;
+                        $r->{$prop} = $val;
+                    };
+
+                    $apply('vendor_id', $ov->vendor_id !== null ? (string)$ov->vendor_id : null);
+                    $apply('ec_status', $ov->ec_status !== null ? (string)$ov->ec_status : null);
+                    $apply('invoice_status', $ov->invoice_status !== null ? (string)$ov->invoice_status : null);
+                    $apply('invoice_status_raw', $ov->invoice_status !== null ? (string)$ov->invoice_status : null);
+                    $apply('cfdi_uuid', $ov->cfdi_uuid !== null ? (string)$ov->cfdi_uuid : null);
+                    $apply('rfc_receptor', $ov->rfc_receptor !== null ? (string)$ov->rfc_receptor : null);
+                    $apply('forma_pago', $ov->forma_pago !== null ? (string)$ov->forma_pago : null);
+
+                    if ($ov->subtotal !== null) $r->subtotal = round((float)$ov->subtotal, 2);
+                    if ($ov->iva !== null)      $r->iva      = round((float)$ov->iva, 2);
+                    if ($ov->total !== null)    $r->total    = round((float)$ov->total, 2);
+
+                    if ($ov->notes !== null) $r->notes = (string)$ov->notes;
+
+                    // vendor name refresh if vendor_id overridden
+                    $vid = (string)($r->vendor_id ?? '');
+                    if ($vid !== '' && $vendorsById->isNotEmpty() && $vendorsById->has($vid)) {
+                        $r->vendor = (string)($vendorsById->get($vid)?->name ?? $r->vendor ?? null);
+                    }
+
+                    // mark (optional)
+                    $r->has_override = 1;
+
+                    return $r;
+                });
+            }
+        }
 
         $originNorm = $origin;
         if ($originNorm === 'no_recurrente') $originNorm = 'unico';
