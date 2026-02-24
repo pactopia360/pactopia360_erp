@@ -752,3 +752,187 @@ code.p360-code{
   .p360-th{ padding:10px 10px; }
   .p360-td{ padding:12px 10px; }
 }
+
+/* =========================================================
+   TABLE DENSITY FIX (solo diseño)
+   Objetivo: menos amontonado y menos info visible
+   - Jerarquía tipográfica (títulos vs meta)
+   - Clamp de texto en Cliente/Descripción
+   - Meta discreta y colapsada
+   - Más aire vertical + zebra suave
+   ========================================================= */
+
+/* Contenedor */
+.p360-table-card{
+  border-radius:18px;
+  border:1px solid rgba(15,23,42,.08);
+  background:#fff;
+  overflow:hidden;
+}
+
+/* Tabla: más aire */
+.p360-table{
+  border-collapse:separate;
+  border-spacing:0;
+  background:#fff;
+}
+
+/* Header más fino */
+.p360-th{
+  padding:12px 14px;
+  font-size:11px;
+  letter-spacing:.75px;
+  color:#64748b;
+  background:rgba(255,255,255,.95);
+  backdrop-filter:saturate(140%) blur(6px);
+  -webkit-backdrop-filter:saturate(140%) blur(6px);
+  border-bottom:1px solid rgba(15,23,42,.08);
+}
+
+/* Celdas: más aire + line-height */
+.p360-td{
+  padding:18px 14px;               /* aire vertical */
+  line-height:1.35;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  vertical-align:top;
+}
+
+/* Zebra mínima */
+.p360-table tbody tr:nth-child(odd) .p360-td{
+  background:rgba(15,23,42,.012);
+}
+
+/* Hover limpio */
+.p360-table tbody tr:hover .p360-td{
+  background:rgba(2,132,199,.06);
+}
+
+/* Menos ruido general */
+.p360-muted{ color:#94a3b8; }
+.p360-small{ font-size:11px; }
+.p360-strong{
+  font-weight:950;
+  letter-spacing:-.12px;
+}
+
+/* Pills/badges más compactas */
+.p360-pill, .p360-badge{
+  padding:5px 10px;
+  font-size:11px;
+  border-radius:999px;
+  border:1px solid rgba(15,23,42,.08);
+  box-shadow:none;
+}
+
+/* Acciones: discreto */
+.p360-actions-btn{
+  padding:8px 12px;
+  font-weight:950;
+  border-radius:12px;
+  border:1px solid rgba(15,23,42,.12);
+  background:#fff;
+}
+.p360-actions-btn:hover{
+  background:rgba(15,23,42,.02);
+  box-shadow:0 6px 20px rgba(15,23,42,.10);
+}
+
+/* =========================================
+   CLAMP (menos info visible por celda)
+   Cliente y Descripción ya están en contenedores:
+   - Cliente: .p360-minw-client
+   - Descripción: .p360-minw-desc
+   ========================================= */
+
+.p360-minw-client,
+.p360-minw-desc{
+  max-width:420px; /* evita “bloques” gigantes */
+}
+
+/* 1) Título (cliente/desc) visible, meta se “apaga” */
+.p360-minw-client .p360-strong,
+.p360-minw-desc .p360-strong{
+  font-size:13px;
+  line-height:1.2;
+}
+
+/* 2) Meta: más pequeña, menos contraste */
+.p360-minw-client .p360-small,
+.p360-minw-desc .p360-small{
+  font-size:11px;
+  color:#94a3b8;
+  margin-top:6px !important;
+}
+
+/* 3) Clamp: Cliente (2 líneas) y Descripción (2 líneas) */
+.p360-minw-client .p360-strong,
+.p360-minw-desc .p360-strong{
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* Clamp para el bloque meta (1 línea) */
+.p360-minw-client .p360-small{
+  display:-webkit-box;
+  -webkit-line-clamp:1;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* “SaleID: …” en descripción: lo volvemos micro */
+.p360-minw-desc .p360-small{
+  font-size:10.5px;
+  color:#a3b0c2;
+}
+
+/* Código (Cuenta) menos protagonista */
+code.p360-code{
+  font-size:10.5px;
+  padding:2px 6px;
+  border-radius:10px;
+  background:rgba(15,23,42,.05);
+  border:1px solid rgba(15,23,42,.06);
+  color:#0f172a;
+}
+
+/* =========================================
+   Alineación y “aire” para montos
+   ========================================= */
+.p360-table td:nth-last-child(12),
+.p360-table td:nth-last-child(11),
+.p360-table td:nth-last-child(10){
+  font-variant-numeric:tabular-nums;
+}
+
+/* Si quieres asegurar Subtotal/IVA/Total a la derecha sin tocar Blade:
+   (ajusta si tu orden cambia; aquí se nota que están juntos)
+*/
+.p360-table td:nth-child(9),
+.p360-table td:nth-child(10),
+.p360-table td:nth-child(11){
+  text-align:right;
+  white-space:nowrap;
+  font-weight:900;
+}
+
+/* Evita que columnas chicas se “estrujen” demasiado */
+.p360-table th, .p360-table td{
+  white-space:nowrap;
+}
+.p360-minw-client, .p360-minw-desc{
+  white-space:normal; /* solo estas permiten wrap/clamp */
+}
+
+/* =========================================
+   Opcional: Mostrar detalle solo en hover (sin JS)
+   - Oculta meta extra por defecto y aparece al hover de la fila
+   ========================================= */
+.p360-table tbody tr .p360-minw-client .p360-small{
+  opacity:.65;
+  transition:opacity .12s ease;
+}
+.p360-table tbody tr:hover .p360-minw-client .p360-small{
+  opacity:1;
+}
