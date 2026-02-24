@@ -207,55 +207,47 @@ final class AdminIncomeService
         // -------------------------
         // Cuentas cliente (mysql_clientes)
         // -------------------------
-        $cuentas = collect();
-        if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+        $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
+        $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
+        $hasEmail      = Schema::connection($cli)->hasColumn('cuentas_cliente', 'email');
+        $hasTelefono   = Schema::connection($cli)->hasColumn('cuentas_cliente', 'telefono');
+        $hasNextInv    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'next_invoice_date');
+        $hasCreatedAt  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'created_at');
+        $hasMeta       = Schema::connection($cli)->hasColumn('cuentas_cliente', 'meta');
 
-            $accIdsFromStatements = $statementsAllYear->pluck('account_id')->unique()->filter()->values();
+        $accSelect = [
+            'id',
+            'admin_account_id',
+            'rfc',
+            'rfc_padre',
+            'razon_social',
+            'nombre_comercial',
+            'plan_actual',
+            'modo_cobro',
+            'estado_cuenta',
+        ];
 
-            $uuidIds = $accIdsFromStatements
-                ->filter(fn ($x) => is_string($x) && preg_match('/^[0-9a-f\-]{36}$/i', $x))
-                ->values()
-                ->all();
+        $accSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
+        $accSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
 
-            $numIds  = $accIdsFromStatements
-                ->filter(fn ($x) => is_string($x) && preg_match('/^\d+$/', $x))
-                ->map(fn ($x) => (int) $x)
-                ->values()
-                ->all();
+        if ($hasEmail)     $accSelect[] = 'email';
+        if ($hasTelefono)  $accSelect[] = 'telefono';
+        if ($hasNextInv)   $accSelect[] = 'next_invoice_date';
+        if ($hasCreatedAt) $accSelect[] = 'created_at';
+        if ($hasMeta)      $accSelect[] = 'meta';
 
-            $hasActivo   = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
-            $hasIsBlocked = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
+        $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
 
-            $accSelect = [
-                'id',
-                'admin_account_id',
-                'rfc',
-                'rfc_padre',
-                'razon_social',
-                'nombre_comercial',
-                'plan_actual',
-                'modo_cobro',
-                'estado_cuenta',
-            ];
+        if (!empty($uuidIds)) $qAcc->whereIn('id', $uuidIds);
+        if (!empty($numIds))  $qAcc->orWhereIn('admin_account_id', $numIds);
 
-            $accSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
-            $accSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
-
-            $accSelect = array_merge($accSelect, [
-                'email',
-                'telefono',
-                'next_invoice_date',
-                'created_at',
-                'meta',
-            ]);
-
-            $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
-
-            if (!empty($uuidIds)) $qAcc->whereIn('id', $uuidIds);
-            if (!empty($numIds))  $qAcc->orWhereIn('admin_account_id', $numIds);
-
-            $cuentas = collect($qAcc->get());
-        }
+        $cuentas = collect($qAcc->get())->map(function ($c) use ($hasEmail, $hasTelefono, $hasNextInv) {
+            // Normaliza para que el resto del servicio no truene por propiedades faltantes
+            if (!$hasEmail && !property_exists($c, 'email')) $c->email = null;
+            if (!$hasTelefono && !property_exists($c, 'telefono')) $c->telefono = null;
+            if (!$hasNextInv && !property_exists($c, 'next_invoice_date')) $c->next_invoice_date = null;
+            return $c;
+        });
 
         $cuentaByUuid    = $cuentas->keyBy(fn ($c) => (string) $c->id);
         $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
@@ -675,8 +667,14 @@ final class AdminIncomeService
 
         if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
 
-            $recQ = DB::connection($cli)->table('cuentas_cliente')
-                ->select([
+                // ✅ Compat: columnas opcionales en cuentas_cliente (PROD puede variar)
+                $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
+                $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
+                $hasNextInv    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'next_invoice_date');
+                $hasCreatedAt  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'created_at');
+                $hasMeta       = Schema::connection($cli)->hasColumn('cuentas_cliente', 'meta');
+
+                $recSelect = [
                     'id',
                     'admin_account_id',
                     'rfc',
@@ -686,160 +684,171 @@ final class AdminIncomeService
                     'plan_actual',
                     'modo_cobro',
                     'estado_cuenta',
-                    'activo',
-                    'is_blocked',
-                    'next_invoice_date',
-                    'created_at',
-                    'meta',
-                ])
-                ->whereIn('modo_cobro', ['mensual', 'anual']);
+                ];
 
-                if (Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo')) {
+                $recSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
+                $recSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
+
+                if ($hasNextInv)   $recSelect[] = 'next_invoice_date';
+                if ($hasCreatedAt) $recSelect[] = 'created_at';
+                if ($hasMeta)      $recSelect[] = 'meta';
+
+                $recQ = DB::connection($cli)->table('cuentas_cliente')
+                    ->select($recSelect)
+                    ->whereIn('modo_cobro', ['mensual', 'anual']);
+
+                if ($hasActivo) {
                     $recQ->where('activo', '=', 1);
                 }
 
-            $rec = collect($recQ->get());
+                $rec = collect($recQ->get())->map(function ($cc) use ($hasNextInv, $hasCreatedAt, $hasMeta) {
+                    // Normaliza props para evitar undefined property en el resto del flujo
+                    if (!$hasNextInv   && !property_exists($cc, 'next_invoice_date')) $cc->next_invoice_date = null;
+                    if (!$hasCreatedAt && !property_exists($cc, 'created_at'))        $cc->created_at = null;
+                    if (!$hasMeta      && !property_exists($cc, 'meta'))              $cc->meta = null;
+                    return $cc;
+                });
 
-            foreach ($rec as $cc) {
-                $modo = strtolower((string) $cc->modo_cobro);
-                if (!in_array($modo, ['mensual', 'anual'], true)) continue;
+                foreach ($rec as $cc) {
+                    $modo = strtolower((string) $cc->modo_cobro);
+                    if (!in_array($modo, ['mensual', 'anual'], true)) continue;
 
-                $expectedPeriods = [];
+                    $expectedPeriods = [];
 
-                if ($modo === 'mensual') {
-                    $expectedPeriods = $periodsYear;
-                } else {
-                    $m = 1;
-                    try {
-                        if (!empty($cc->next_invoice_date)) {
-                            $d = Carbon::parse($cc->next_invoice_date);
-                            if ((int)$d->format('Y') === $year) $m = (int)$d->format('m');
-                        }
-                        if ($m === 1 && !empty($cc->created_at)) {
-                            $d2 = Carbon::parse($cc->created_at);
-                            $m = (int)$d2->format('m');
-                        }
-                    } catch (\Throwable $e) {
+                    if ($modo === 'mensual') {
+                        $expectedPeriods = $periodsYear;
+                    } else {
                         $m = 1;
-                    }
-                    $expectedPeriods = [sprintf('%04d-%02d', $year, $m)];
-                }
-
-                foreach ($expectedPeriods as $per) {
-
-                    $keyUuid = (string) $cc->id . '|' . (string) $per;
-                    $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
-
-                    if ($statementKeySet->contains($keyUuid)) continue;
-                    if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
-
-                    $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
-                    if ($base <= 0 && !empty($cc->admin_account_id)) {
-                        $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
+                        try {
+                            if (!empty($cc->next_invoice_date)) {
+                                $d = Carbon::parse($cc->next_invoice_date);
+                                if ((int)$d->format('Y') === $year) $m = (int)$d->format('m');
+                            }
+                            if ($m === 1 && !empty($cc->created_at)) {
+                                $d2 = Carbon::parse($cc->created_at);
+                                $m = (int)$d2->format('m');
+                            }
+                        } catch (\Throwable $e) {
+                            $m = 1;
+                        }
+                        $expectedPeriods = [sprintf('%04d-%02d', $year, $m)];
                     }
 
-                    if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
-                        $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
-                        $amtCents = (float) ($lp->amount ?? 0);
-                        $amtMxn = $amtCents > 0 ? ($amtCents / 100) : 0.0;
-                        if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
+                    foreach ($expectedPeriods as $per) {
+
+                        $keyUuid = (string) $cc->id . '|' . (string) $per;
+                        $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
+
+                        if ($statementKeySet->contains($keyUuid)) continue;
+                        if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
+
+                        $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
+                        if ($base <= 0 && !empty($cc->admin_account_id)) {
+                            $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
+                        }
+
+                        if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
+                            $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
+                            $amtCents = (float) ($lp->amount ?? 0);
+                            $amtMxn = $amtCents > 0 ? ($amtCents / 100) : 0.0;
+                            if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
+                        }
+
+                        if ($base <= 0) {
+                            $plan = (string) ($cc->plan_actual ?? '');
+                            $base = (float) $planPrice($plan, $modo);
+                        }
+
+                        $subtotal = round(max(0, $base), 2);
+                        $iva      = round($subtotal * 0.16, 2);
+                        $total    = round($subtotal + $iva, 2);
+
+                        $company = (string) (($cc->nombre_comercial ?: null) ?? ($cc->razon_social ?: null) ?? ('Cuenta ' . $cc->id));
+                        $rfcEmisor = (string) (($cc->rfc_padre ?: null) ?? ($cc->rfc ?: null) ?? '');
+
+                        $bp = $this->resolveBillingProfile(
+                            (string) $cc->id,
+                            (string) ($cc->admin_account_id ?? ''),
+                            $profilesByAccountId,
+                            $profilesByAdminAcc
+                        );
+                        $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
+                        $formaPago   = (string) ($bp->forma_pago ?? '');
+
+                        $invRow = optional($invByAccPeriod->get((string)$cc->id . '|' . (string)$per))->first();
+                        $invStatus   = $invRow?->status ? (string)$invRow->status : null;
+                        $invoiceDate = $invRow?->issued_at ?: null;
+                        $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
+
+                        $invMeta = $this->decodeJson($invRow?->meta ?? null);
+                        $invoiceFormaPago = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
+
+                        $pAgg = null;
+                        if (!empty($cc->admin_account_id)) {
+                            $pAgg = $paymentsAggByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per);
+                        }
+
+                        $ecStatus = 'pending';
+                        if (($pAgg?->any_paid ?? 0) === 1 || !empty($pAgg?->paid_at)) {
+                            $ecStatus = 'pagado';
+                        }
+
+                        $y = (int) substr($per, 0, 4);
+                        $m = (int) substr($per, 5, 2);
+
+                        $rowsProjected->push((object) [
+                            'source'        => 'projection',
+                            'is_projection' => 1,
+
+                            'year'         => $y,
+                            'month_num'    => sprintf('%02d', $m),
+                            'month_name'   => $this->monthNameEs($m),
+
+                            'vendor_id'    => null,
+                            'vendor'       => null,
+
+                            'client'       => $company,
+                            'description'  => ($modo === 'anual')
+                                ? 'Recurrente Anual (proyección)'
+                                : 'Recurrente Mensual (proyección)',
+
+                            'period'       => (string) $per,
+                            'account_id'   => (string) $cc->id,
+                            'company'      => $company,
+                            'rfc_emisor'   => $rfcEmisor,
+
+                            'origin'       => 'recurrente',
+                            'periodicity'  => $modo,
+
+                            'subtotal'     => $subtotal,
+                            'iva'          => $iva,
+                            'total'        => $total,
+
+                            'ec_status'    => $ecStatus,
+                            'due_date'     => null,
+                            'sent_at'      => null,
+                            'paid_at'      => $pAgg?->paid_at ?: null,
+
+                            'rfc_receptor' => $rfcReceptor,
+                            'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
+
+                            'f_emision'    => null,
+                            'f_pago'       => $pAgg?->paid_at ?: null,
+                            'f_cta'        => null,
+                            'f_mov'        => null,
+
+                            'f_factura'      => $invoiceDate,
+                            'invoice_date'   => $invoiceDate,
+                            'invoice_status' => $invStatus,
+                            'invoice_status_raw' => $invStatus,
+                            'cfdi_uuid'      => $cfdiUuid,
+
+                            'payment_method' => $pAgg?->method ?: null,
+                            'payment_status' => $pAgg?->status ?: null,
+                        ]);
                     }
-
-                    if ($base <= 0) {
-                        $plan = (string) ($cc->plan_actual ?? '');
-                        $base = (float) $planPrice($plan, $modo);
-                    }
-
-                    $subtotal = round(max(0, $base), 2);
-                    $iva      = round($subtotal * 0.16, 2);
-                    $total    = round($subtotal + $iva, 2);
-
-                    $company = (string) (($cc->nombre_comercial ?: null) ?? ($cc->razon_social ?: null) ?? ('Cuenta ' . $cc->id));
-                    $rfcEmisor = (string) (($cc->rfc_padre ?: null) ?? ($cc->rfc ?: null) ?? '');
-
-                    $bp = $this->resolveBillingProfile(
-                        (string) $cc->id,
-                        (string) ($cc->admin_account_id ?? ''),
-                        $profilesByAccountId,
-                        $profilesByAdminAcc
-                    );
-                    $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
-                    $formaPago   = (string) ($bp->forma_pago ?? '');
-
-                    $invRow = optional($invByAccPeriod->get((string)$cc->id . '|' . (string)$per))->first();
-                    $invStatus   = $invRow?->status ? (string)$invRow->status : null;
-                    $invoiceDate = $invRow?->issued_at ?: null;
-                    $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
-
-                    $invMeta = $this->decodeJson($invRow?->meta ?? null);
-                    $invoiceFormaPago = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
-
-                    $pAgg = null;
-                    if (!empty($cc->admin_account_id)) {
-                        $pAgg = $paymentsAggByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per);
-                    }
-
-                    $ecStatus = 'pending';
-                    if (($pAgg?->any_paid ?? 0) === 1 || !empty($pAgg?->paid_at)) {
-                        $ecStatus = 'pagado';
-                    }
-
-                    $y = (int) substr($per, 0, 4);
-                    $m = (int) substr($per, 5, 2);
-
-                    $rowsProjected->push((object) [
-                        'source'        => 'projection',
-                        'is_projection' => 1,
-
-                        'year'         => $y,
-                        'month_num'    => sprintf('%02d', $m),
-                        'month_name'   => $this->monthNameEs($m),
-
-                        'vendor_id'    => null,
-                        'vendor'       => null,
-
-                        'client'       => $company,
-                        'description'  => ($modo === 'anual')
-                            ? 'Recurrente Anual (proyección)'
-                            : 'Recurrente Mensual (proyección)',
-
-                        'period'       => (string) $per,
-                        'account_id'   => (string) $cc->id,
-                        'company'      => $company,
-                        'rfc_emisor'   => $rfcEmisor,
-
-                        'origin'       => 'recurrente',
-                        'periodicity'  => $modo,
-
-                        'subtotal'     => $subtotal,
-                        'iva'          => $iva,
-                        'total'        => $total,
-
-                        'ec_status'    => $ecStatus,
-                        'due_date'     => null,
-                        'sent_at'      => null,
-                        'paid_at'      => $pAgg?->paid_at ?: null,
-
-                        'rfc_receptor' => $rfcReceptor,
-                        'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
-
-                        'f_emision'    => null,
-                        'f_pago'       => $pAgg?->paid_at ?: null,
-                        'f_cta'        => null,
-                        'f_mov'        => null,
-
-                        'f_factura'      => $invoiceDate,
-                        'invoice_date'   => $invoiceDate,
-                        'invoice_status' => $invStatus,
-                        'invoice_status_raw' => $invStatus,
-                        'cfdi_uuid'      => $cfdiUuid,
-
-                        'payment_method' => $pAgg?->method ?: null,
-                        'payment_status' => $pAgg?->status ?: null,
-                    ]);
                 }
             }
-        }
 
         // -------------------------
         // 3) Ventas únicas (finance_sales)
