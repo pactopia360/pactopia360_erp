@@ -12,14 +12,13 @@ use Illuminate\Support\Facades\Schema;
 
 final class AdminIncomeService
 {
-
     // ==========================
     // Schema helpers (PROD-safe)
     // ==========================
     private function hasCol(string $conn, string $table, string $col): bool
     {
         try {
-            return \Illuminate\Support\Facades\Schema::connection($conn)->hasColumn($table, $col);
+            return Schema::connection($conn)->hasColumn($table, $col);
         } catch (\Throwable $e) {
             return false;
         }
@@ -33,70 +32,69 @@ final class AdminIncomeService
         return null;
     }
 
-    private function pickClientName(object $row): string
+    // ==========================
+    // RFC helpers (IMPORTANT)
+    // ==========================
+    private function looksLikeRfc(?string $rfc): bool
     {
-        $name = '';
+        $rfc = strtoupper(trim((string)$rfc));
+        if ($rfc === '') return false;
 
-        $rs = trim((string)($row->razon_social ?? ''));
-        if ($rs !== '') $name = $rs;
+        // RFC: 3-4 letras/Ñ/& + 6 dígitos + 3 alfanum
+        return (bool) preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc);
+    }
 
-        if ($name === '') {
-            $nc = trim((string)($row->nombre_comercial ?? ''));
-            if ($nc !== '') $name = $nc;
+    private function pickRfcEmisor(?object $cc, array $snap = [], array $meta = []): string
+    {
+        $cand = [];
+
+        if ($cc) {
+            $cand[] = (string)($cc->rfc_padre ?? '');
+            $cand[] = (string)($cc->rfc ?? '');
         }
 
-        if ($name === '') {
-            $em = trim((string)($row->empresa ?? ''));
-            if ($em !== '') $name = $em;
+        $cand[] = (string)(data_get($snap, 'account.rfc') ?? '');
+        $cand[] = (string)(data_get($snap, 'rfc') ?? '');
+        $cand[] = (string)(data_get($meta, 'account.rfc') ?? '');
+        $cand[] = (string)(data_get($meta, 'rfc') ?? '');
+
+        foreach ($cand as $c) {
+            $c = strtoupper(trim($c));
+            if ($this->looksLikeRfc($c)) return $c;
         }
 
-        if ($name !== '') return $name;
+        return '';
+    }
 
-        $fallback = trim((string)($row->fallback_name ?? ''));
-        return $fallback !== '' ? $fallback : '—';
+    private function pickCompanyName(?object $cc, array $snap = [], array $meta = [], ?string $fallbackAccountId = null): string
+    {
+        $cand = [];
+
+        if ($cc) {
+            $cand[] = (string)($cc->nombre_comercial ?? '');
+            $cand[] = (string)($cc->razon_social ?? '');
+            $cand[] = (string)($cc->empresa ?? '');
+        }
+
+        $cand[] = (string)(data_get($snap, 'account.company') ?? '');
+        $cand[] = (string)(data_get($snap, 'company') ?? '');
+        $cand[] = (string)(data_get($snap, 'razon_social') ?? '');
+        $cand[] = (string)(data_get($meta, 'company') ?? '');
+        $cand[] = (string)(data_get($meta, 'razon_social') ?? '');
+
+        foreach ($cand as $c) {
+            $c = trim((string)$c);
+            if ($c !== '') return $c;
+        }
+
+        $aid = trim((string)($fallbackAccountId ?? ''));
+        return $aid !== '' ? ('Cuenta ' . $aid) : '—';
     }
 
     public function build(Request $req): array
     {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
         $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
-
-        // ==========================
-        // Clientes map (PROD-safe)
-        // ==========================
-        $clientesTable = 'cuentas_cliente';
-
-        // En PROD vimos que NO existe account_id. Tomamos la primera llave disponible.
-        $clientesKey = $this->firstExistingCol($cli, $clientesTable, [
-            'account_id',        // local (si existe)
-            'admin_account_id',  // algunas versiones
-            'id',                // PROD (sí existe)
-        ]);
-
-        $colRazon = $this->hasCol($cli, $clientesTable, 'razon_social') ? 'razon_social' : null;
-        $colNomCo = $this->hasCol($cli, $clientesTable, 'nombre_comercial') ? 'nombre_comercial' : null;
-        $colEmp   = $this->hasCol($cli, $clientesTable, 'empresa') ? 'empresa' : null;
-        $colRfc   = $this->hasCol($cli, $clientesTable, 'rfc') ? 'rfc' : null;
-
-        $sel = ['id'];
-        if ($clientesKey && $clientesKey !== 'id') $sel[] = $clientesKey;
-        if ($colRazon) $sel[] = $colRazon;
-        if ($colNomCo) $sel[] = $colNomCo;
-        if ($colEmp)   $sel[] = $colEmp;
-        if ($colRfc)   $sel[] = $colRfc;
-
-        $clientesByKey = collect();
-
-        if ($clientesKey) {
-            $clientes = DB::connection($cli)->table($clientesTable)->select($sel)->get();
-
-            $clientesByKey = $clientes->mapWithKeys(function ($c) use ($clientesKey) {
-                $k = (string)($c->{$clientesKey} ?? '');
-                if ($k === '') $k = (string)($c->id ?? '');
-                return [$k => $c];
-            });
-        }
-
 
         // -------------------------
         // Filtros
@@ -286,7 +284,7 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // Cuentas cliente (mysql_clientes)
+        // Cuentas cliente (mysql_clientes) para mapa
         // -------------------------
         $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
         $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
@@ -295,6 +293,7 @@ final class AdminIncomeService
         $hasNextInv    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'next_invoice_date');
         $hasCreatedAt  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'created_at');
         $hasMeta       = Schema::connection($cli)->hasColumn('cuentas_cliente', 'meta');
+        $hasEmpresa    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'empresa');
 
         $accSelect = [
             'id',
@@ -308,6 +307,8 @@ final class AdminIncomeService
             'estado_cuenta',
         ];
 
+        if ($hasEmpresa) $accSelect[] = 'empresa';
+
         $accSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
         $accSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
 
@@ -317,15 +318,11 @@ final class AdminIncomeService
         if ($hasCreatedAt) $accSelect[] = 'created_at';
         if ($hasMeta)      $accSelect[] = 'meta';
 
-        // -------------------------
         // IDs a cargar desde cuentas_cliente (uuid / admin_account_id)
-        // -------------------------
         $uuidIds = [];
         $numIds  = [];
 
-        // Tomamos ids desde statements del año (y del filtro) para no cargar toda la tabla
         $accIds = $statementsAllYear->pluck('account_id')->filter()->unique()->values()->all();
-
         foreach ($accIds as $id) {
             $id = (string) $id;
             if ($id === '') continue;
@@ -341,7 +338,6 @@ final class AdminIncomeService
         $numIds  = array_values(array_unique($numIds));
 
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
-
         if (!empty($uuidIds) || !empty($numIds)) {
             $qAcc->where(function ($w) use ($uuidIds, $numIds) {
                 if (!empty($uuidIds)) $w->whereIn('id', $uuidIds);
@@ -349,11 +345,11 @@ final class AdminIncomeService
             });
         }
 
-        $cuentas = collect($qAcc->get())->map(function ($c) use ($hasEmail, $hasTelefono, $hasNextInv) {
-            // Normaliza para que el resto del servicio no truene por propiedades faltantes
+        $cuentas = collect($qAcc->get())->map(function ($c) use ($hasEmail, $hasTelefono, $hasNextInv, $hasEmpresa) {
             if (!$hasEmail && !property_exists($c, 'email')) $c->email = null;
             if (!$hasTelefono && !property_exists($c, 'telefono')) $c->telefono = null;
             if (!$hasNextInv && !property_exists($c, 'next_invoice_date')) $c->next_invoice_date = null;
+            if (!$hasEmpresa && !property_exists($c, 'empresa')) $c->empresa = null;
             return $c;
         });
 
@@ -468,7 +464,7 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // ✅ Baseline recurrente robusto (DEBE USAR ALL YEAR, no el filtrado)
+        // Baseline recurrente robusto
         // -------------------------
         $planPrice = function(?string $plan, ?string $modo) : float {
             $plan = strtolower(trim((string) $plan));
@@ -498,9 +494,6 @@ final class AdminIncomeService
 
             $accKey = (string) $s->account_id;
 
-            // =========================
-            // Subtotal robusto baseline
-            // =========================
             $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
             $subtotal = $subtotalItems;
 
@@ -509,39 +502,12 @@ final class AdminIncomeService
                 $subtotal = round($totalCargo / 1.16, 2);
             }
 
-            if ($subtotal <= 0) {
-                $snapSubtotal =
-                    (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
-                    (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
-                    (float) (data_get($snap, 'subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'totals.subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'statement.subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'subtotal') ?? 0);
-
-                if ($snapSubtotal > 0) {
-                    $subtotal = round($snapSubtotal, 2);
-                } else {
-                    $snapTotal =
-                        (float) (data_get($snap, 'totals.total') ?? 0) ?:
-                        (float) (data_get($snap, 'statement.total') ?? 0) ?:
-                        (float) (data_get($snap, 'total') ?? 0) ?:
-                        (float) (data_get($meta, 'totals.total') ?? 0) ?:
-                        (float) (data_get($meta, 'statement.total') ?? 0) ?:
-                        (float) (data_get($meta, 'total') ?? 0);
-
-                    if ($snapTotal > 0) {
-                        $subtotal = round($snapTotal / 1.16, 2);
-                    }
-                }
-            }
-
             if ($subtotal > 0) {
                 $baselineRecurring[$accKey] = [
                     'period'   => (string) $s->period,
                     'subtotal' => $subtotal,
                 ];
 
-                // espejo para admin_account_id si account_id es UUID
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
                     $cc = $cuentaByUuid->get($accKey);
                     if ($cc && !empty($cc->admin_account_id)) {
@@ -555,7 +521,7 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // ✅ Vendor assignment fallback (finance_account_vendor)
+        // Vendor assignment fallback
         // -------------------------
         $vendorAssignByAdminAcc = collect();
         if (Schema::connection($adm)->hasTable('finance_account_vendor') && $cuentas->isNotEmpty()) {
@@ -608,20 +574,20 @@ final class AdminIncomeService
         // 1) Filas de statements existentes
         // -------------------------
         $rowsExisting = $statements->map(function ($s) use (
-                $itemsByStatement,
-                $invByStatement,
-                $invByAccPeriod,
-                $profilesByAccountId,
-                $profilesByAdminAcc,
-                $cuentaByUuid,
-                $cuentaByAdminId,
-                $paymentsAggByAdminAccPeriod,
-                $vendorsById,
-                $vendorAssignByAdminAcc,
-                $baselineRecurring,
-                $lastPaymentByAdminAcc,
-                $planPrice
-            ) {
+            $itemsByStatement,
+            $invByStatement,
+            $invByAccPeriod,
+            $profilesByAccountId,
+            $profilesByAdminAcc,
+            $cuentaByUuid,
+            $cuentaByAdminId,
+            $paymentsAggByAdminAccPeriod,
+            $vendorsById,
+            $vendorAssignByAdminAcc,
+            $baselineRecurring,
+            $lastPaymentByAdminAcc,
+            $planPrice
+        ) {
 
             $snap = $this->decodeJson($s->snapshot);
             $meta = $this->decodeJson($s->meta);
@@ -635,46 +601,25 @@ final class AdminIncomeService
                 $cc = $cuentaByAdminId->get($sid);
             }
 
-            // Payments agg para este periodo (por admin_account_id)
             $adminAccId = $cc?->admin_account_id;
             $pAgg = null;
             if (!empty($adminAccId)) {
                 $pAgg = $paymentsAggByAdminAccPeriod->get((string)$adminAccId . '|' . (string)$s->period);
             }
 
-            $company = (string) (
-                ($cc?->nombre_comercial ?: null)
-                ?? ($cc?->razon_social ?: null)
-                ?? data_get($snap, 'account.company')
-                ?? data_get($snap, 'company')
-                ?? data_get($snap, 'razon_social')
-                ?? data_get($meta, 'company')
-                ?? ('Cuenta ' . $s->account_id)
-            );
-
-            $rfcEmisor = (string) (
-                ($cc?->rfc_padre ?: null)
-                ?? ($cc?->rfc ?: null)
-                ?? data_get($snap, 'account.rfc')
-                ?? data_get($snap, 'rfc')
-                ?? ''
-            );
+            $company = $this->pickCompanyName($cc, $snap, $meta, (string)$s->account_id);
+            $rfcEmisor = $this->pickRfcEmisor($cc, $snap, $meta);
 
             $its = collect($itemsByStatement->get($s->id, collect()));
 
-            // =========================
-            // Subtotal/IVA/Total robusto
-            // =========================
             $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
             $subtotal = $subtotalItems;
 
-            // (1) Fallback: total_cargo en statement
             $totalCargo = (float) ($s->total_cargo ?? 0);
             if ($subtotal <= 0 && $totalCargo > 0) {
                 $subtotal = round($totalCargo / 1.16, 2);
             }
 
-            // (2) Fallback: snapshot/meta (legacy: guardan el monto ahí)
             if ($subtotal <= 0) {
                 $snapSubtotal =
                     (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
@@ -701,15 +646,11 @@ final class AdminIncomeService
                 }
             }
 
-            /// (3) Fallback recurrente: si es cuenta recurrente y sigue en 0, usa baseline/último pago/plan
             if ($subtotal <= 0) {
-
                 $modoCobro = strtolower((string) ($cc?->modo_cobro ?? ''));
                 $isRecurring = in_array($modoCobro, ['mensual', 'anual'], true);
 
                 if ($isRecurring) {
-
-                    // 3.1 baseline por cuenta (uuid o admin_id)
                     $accKey = (string) $s->account_id;
                     $base = (float) (data_get($baselineRecurring, $accKey . '.subtotal') ?? 0.0);
 
@@ -717,7 +658,6 @@ final class AdminIncomeService
                         $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
                     }
 
-                    // 3.2 último pago
                     if ($base <= 0 && !empty($cc?->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
                         $lp = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
                         $amtCents = (float) ($lp->amount ?? 0);
@@ -725,19 +665,15 @@ final class AdminIncomeService
                         if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
                     }
 
-                    // 3.3 planPrice
                     if ($base <= 0) {
                         $plan = strtolower((string) ($cc?->plan_actual ?? ''));
                         $base = (float) $planPrice($plan, $modoCobro);
                     }
 
-                    // si es free => se queda en 0 (correcto)
                     $subtotal = round(max(0, $base), 2);
                 }
             }
 
-            // (4) ✅ Fallback por pagos: si no hubo items/totales pero hubo pago en el periodo,
-            //     reconstruimos subtotal desde payments (aplica recurrente y único).
             if ($subtotal <= 0 && $pAgg && (float)($pAgg->sum_amount_mxn ?? 0) > 0) {
                 $subtotal = round(((float)$pAgg->sum_amount_mxn) / 1.16, 2);
             }
@@ -883,189 +819,191 @@ final class AdminIncomeService
 
         if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
 
-                // ✅ Compat: columnas opcionales en cuentas_cliente (PROD puede variar)
-                $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
-                $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
-                $hasNextInv    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'next_invoice_date');
-                $hasCreatedAt  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'created_at');
-                $hasMeta       = Schema::connection($cli)->hasColumn('cuentas_cliente', 'meta');
+            $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
+            $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
+            $hasNextInv    = Schema::connection($cli)->hasColumn('cuentas_cliente', 'next_invoice_date');
+            $hasCreatedAt  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'created_at');
+            $hasMeta       = Schema::connection($cli)->hasColumn('cuentas_cliente', 'meta');
+            $hasEmpresa2   = Schema::connection($cli)->hasColumn('cuentas_cliente', 'empresa');
 
-                $recSelect = [
-                    'id',
-                    'admin_account_id',
-                    'rfc',
-                    'rfc_padre',
-                    'razon_social',
-                    'nombre_comercial',
-                    'plan_actual',
-                    'modo_cobro',
-                    'estado_cuenta',
-                ];
+            $recSelect = [
+                'id',
+                'admin_account_id',
+                'rfc',
+                'rfc_padre',
+                'razon_social',
+                'nombre_comercial',
+                'plan_actual',
+                'modo_cobro',
+                'estado_cuenta',
+            ];
 
-                $recSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
-                $recSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
+            if ($hasEmpresa2) $recSelect[] = 'empresa';
 
-                if ($hasNextInv)   $recSelect[] = 'next_invoice_date';
-                if ($hasCreatedAt) $recSelect[] = 'created_at';
-                if ($hasMeta)      $recSelect[] = 'meta';
+            $recSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
+            $recSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
 
-                $recQ = DB::connection($cli)->table('cuentas_cliente')
-                    ->select($recSelect)
-                    ->whereIn('modo_cobro', ['mensual', 'anual']);
+            if ($hasNextInv)   $recSelect[] = 'next_invoice_date';
+            if ($hasCreatedAt) $recSelect[] = 'created_at';
+            if ($hasMeta)      $recSelect[] = 'meta';
 
-                if ($hasActivo) {
-                    $recQ->where('activo', '=', 1);
+            $recQ = DB::connection($cli)->table('cuentas_cliente')
+                ->select($recSelect)
+                ->whereIn('modo_cobro', ['mensual', 'anual']);
+
+            if ($hasActivo) {
+                $recQ->where('activo', '=', 1);
+            }
+
+            $rec = collect($recQ->get())->map(function ($cc) use ($hasNextInv, $hasCreatedAt, $hasMeta, $hasEmpresa2) {
+                if (!$hasNextInv   && !property_exists($cc, 'next_invoice_date')) $cc->next_invoice_date = null;
+                if (!$hasCreatedAt && !property_exists($cc, 'created_at'))        $cc->created_at = null;
+                if (!$hasMeta      && !property_exists($cc, 'meta'))              $cc->meta = null;
+                if (!$hasEmpresa2  && !property_exists($cc, 'empresa'))           $cc->empresa = null;
+                return $cc;
+            });
+
+            foreach ($rec as $cc) {
+                $modo = strtolower((string) $cc->modo_cobro);
+                if (!in_array($modo, ['mensual', 'anual'], true)) continue;
+
+                $expectedPeriods = [];
+
+                if ($modo === 'mensual') {
+                    $expectedPeriods = $periodsYear;
+                } else {
+                    $m = 1;
+                    try {
+                        if (!empty($cc->next_invoice_date)) {
+                            $d = Carbon::parse($cc->next_invoice_date);
+                            if ((int)$d->format('Y') === $year) $m = (int)$d->format('m');
+                        }
+                        if ($m === 1 && !empty($cc->created_at)) {
+                            $d2 = Carbon::parse($cc->created_at);
+                            $m = (int)$d2->format('m');
+                        }
+                    } catch (\Throwable $e) {
+                        $m = 1;
+                    }
+                    $expectedPeriods = [sprintf('%04d-%02d', $year, $m)];
                 }
 
-                $rec = collect($recQ->get())->map(function ($cc) use ($hasNextInv, $hasCreatedAt, $hasMeta) {
-                    // Normaliza props para evitar undefined property en el resto del flujo
-                    if (!$hasNextInv   && !property_exists($cc, 'next_invoice_date')) $cc->next_invoice_date = null;
-                    if (!$hasCreatedAt && !property_exists($cc, 'created_at'))        $cc->created_at = null;
-                    if (!$hasMeta      && !property_exists($cc, 'meta'))              $cc->meta = null;
-                    return $cc;
-                });
+                foreach ($expectedPeriods as $per) {
 
-                foreach ($rec as $cc) {
-                    $modo = strtolower((string) $cc->modo_cobro);
-                    if (!in_array($modo, ['mensual', 'anual'], true)) continue;
+                    $keyUuid = (string) $cc->id . '|' . (string) $per;
+                    $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
 
-                    $expectedPeriods = [];
+                    if ($statementKeySet->contains($keyUuid)) continue;
+                    if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
 
-                    if ($modo === 'mensual') {
-                        $expectedPeriods = $periodsYear;
-                    } else {
-                        $m = 1;
-                        try {
-                            if (!empty($cc->next_invoice_date)) {
-                                $d = Carbon::parse($cc->next_invoice_date);
-                                if ((int)$d->format('Y') === $year) $m = (int)$d->format('m');
-                            }
-                            if ($m === 1 && !empty($cc->created_at)) {
-                                $d2 = Carbon::parse($cc->created_at);
-                                $m = (int)$d2->format('m');
-                            }
-                        } catch (\Throwable $e) {
-                            $m = 1;
-                        }
-                        $expectedPeriods = [sprintf('%04d-%02d', $year, $m)];
+                    $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
+                    if ($base <= 0 && !empty($cc->admin_account_id)) {
+                        $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
                     }
 
-                    foreach ($expectedPeriods as $per) {
-
-                        $keyUuid = (string) $cc->id . '|' . (string) $per;
-                        $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
-
-                        if ($statementKeySet->contains($keyUuid)) continue;
-                        if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
-
-                        $base = (float) (data_get($baselineRecurring, (string)$cc->id . '.subtotal') ?? 0.0);
-                        if ($base <= 0 && !empty($cc->admin_account_id)) {
-                            $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
-                        }
-
-                        if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
-                            $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
-                            $amtCents = (float) ($lp->amount ?? 0);
-                            $amtMxn = $amtCents > 0 ? ($amtCents / 100) : 0.0;
-                            if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
-                        }
-
-                        if ($base <= 0) {
-                            $plan = (string) ($cc->plan_actual ?? '');
-                            $base = (float) $planPrice($plan, $modo);
-                        }
-
-                        $subtotal = round(max(0, $base), 2);
-                        $iva      = round($subtotal * 0.16, 2);
-                        $total    = round($subtotal + $iva, 2);
-
-                        $company = (string) (($cc->nombre_comercial ?: null) ?? ($cc->razon_social ?: null) ?? ('Cuenta ' . $cc->id));
-                        $rfcEmisor = (string) (($cc->rfc_padre ?: null) ?? ($cc->rfc ?: null) ?? '');
-
-                        $bp = $this->resolveBillingProfile(
-                            (string) $cc->id,
-                            (string) ($cc->admin_account_id ?? ''),
-                            $profilesByAccountId,
-                            $profilesByAdminAcc
-                        );
-                        $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
-                        $formaPago   = (string) ($bp->forma_pago ?? '');
-
-                        $invRow = optional($invByAccPeriod->get((string)$cc->id . '|' . (string)$per))->first();
-                        $invStatus   = $invRow?->status ? (string)$invRow->status : null;
-                        $invoiceDate = $invRow?->issued_at ?: null;
-                        $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
-
-                        $invMeta = $this->decodeJson($invRow?->meta ?? null);
-                        $invoiceFormaPago = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
-
-                        $pAgg = null;
-                        if (!empty($cc->admin_account_id)) {
-                            $pAgg = $paymentsAggByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per);
-                        }
-
-                        $ecStatus = 'pending';
-                        if (($pAgg?->any_paid ?? 0) === 1 || !empty($pAgg?->paid_at)) {
-                            $ecStatus = 'pagado';
-                        }
-
-                        $y = (int) substr($per, 0, 4);
-                        $m = (int) substr($per, 5, 2);
-
-                        $rowsProjected->push((object) [
-                            'source'        => 'projection',
-                            'is_projection' => 1,
-
-                            'year'         => $y,
-                            'month_num'    => sprintf('%02d', $m),
-                            'month_name'   => $this->monthNameEs($m),
-
-                            'vendor_id'    => null,
-                            'vendor'       => null,
-
-                            'client'       => $company,
-                            'description'  => ($modo === 'anual')
-                                ? 'Recurrente Anual (proyección)'
-                                : 'Recurrente Mensual (proyección)',
-
-                            'period'       => (string) $per,
-                            'account_id'   => (string) $cc->id,
-                            'company'      => $company,
-                            'rfc_emisor'   => $rfcEmisor,
-
-                            'origin'       => 'recurrente',
-                            'periodicity'  => $modo,
-
-                            'subtotal'     => $subtotal,
-                            'iva'          => $iva,
-                            'total'        => $total,
-
-                            'ec_status'    => $ecStatus,
-                            'due_date'     => null,
-                            'sent_at'      => null,
-                            'paid_at'      => $pAgg?->paid_at ?: null,
-
-                            'rfc_receptor' => $rfcReceptor,
-                            'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
-
-                            'f_emision'    => null,
-                            'f_pago'       => $pAgg?->paid_at ?: null,
-                            'f_cta'        => null,
-                            'f_mov'        => null,
-
-                            'f_factura'      => $invoiceDate,
-                            'invoice_date'   => $invoiceDate,
-                            'invoice_status' => $invStatus,
-                            'invoice_status_raw' => $invStatus,
-                            'cfdi_uuid'      => $cfdiUuid,
-
-                            'payment_method' => $pAgg?->method ?: null,
-                            'payment_status' => $pAgg?->status ?: null,
-                            'notes' => null,
-                        ]);
+                    if ($base <= 0 && !empty($cc->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
+                        $lp  = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
+                        $amtCents = (float) ($lp->amount ?? 0);
+                        $amtMxn = $amtCents > 0 ? ($amtCents / 100) : 0.0;
+                        if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
                     }
+
+                    if ($base <= 0) {
+                        $plan = (string) ($cc->plan_actual ?? '');
+                        $base = (float) $planPrice($plan, $modo);
+                    }
+
+                    $subtotal = round(max(0, $base), 2);
+                    $iva      = round($subtotal * 0.16, 2);
+                    $total    = round($subtotal + $iva, 2);
+
+                    $company = $this->pickCompanyName($cc, [], [], (string)$cc->id);
+                    $rfcEmisor = $this->pickRfcEmisor($cc, [], []);
+
+                    $bp = $this->resolveBillingProfile(
+                        (string) $cc->id,
+                        (string) ($cc->admin_account_id ?? ''),
+                        $profilesByAccountId,
+                        $profilesByAdminAcc
+                    );
+                    $rfcReceptor = (string) ($bp->rfc_receptor ?? '');
+                    $formaPago   = (string) ($bp->forma_pago ?? '');
+
+                    $invRow = optional($invByAccPeriod->get((string)$cc->id . '|' . (string)$per))->first();
+                    $invStatus   = $invRow?->status ? (string)$invRow->status : null;
+                    $invoiceDate = $invRow?->issued_at ?: null;
+                    $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
+
+                    $invMeta = $this->decodeJson($invRow?->meta ?? null);
+                    $invoiceFormaPago = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
+
+                    $pAgg = null;
+                    if (!empty($cc->admin_account_id)) {
+                        $pAgg = $paymentsAggByAdminAccPeriod->get((string)$cc->admin_account_id . '|' . (string)$per);
+                    }
+
+                    $ecStatus = 'pending';
+                    if (($pAgg?->any_paid ?? 0) === 1 || !empty($pAgg?->paid_at)) {
+                        $ecStatus = 'pagado';
+                    }
+
+                    $y = (int) substr($per, 0, 4);
+                    $m = (int) substr($per, 5, 2);
+
+                    $rowsProjected->push((object) [
+                        'source'        => 'projection',
+                        'is_projection' => 1,
+
+                        'year'         => $y,
+                        'month_num'    => sprintf('%02d', $m),
+                        'month_name'   => $this->monthNameEs($m),
+
+                        'vendor_id'    => null,
+                        'vendor'       => null,
+
+                        'client'       => $company,
+                        'description'  => ($modo === 'anual')
+                            ? 'Recurrente Anual (proyección)'
+                            : 'Recurrente Mensual (proyección)',
+
+                        'period'       => (string) $per,
+                        'account_id'   => (string) $cc->id,
+                        'company'      => $company,
+                        'rfc_emisor'   => $rfcEmisor,
+
+                        'origin'       => 'recurrente',
+                        'periodicity'  => $modo,
+
+                        'subtotal'     => $subtotal,
+                        'iva'          => $iva,
+                        'total'        => $total,
+
+                        'ec_status'    => $ecStatus,
+                        'due_date'     => null,
+                        'sent_at'      => null,
+                        'paid_at'      => $pAgg?->paid_at ?: null,
+
+                        'rfc_receptor' => $rfcReceptor,
+                        'forma_pago'   => $formaPago !== '' ? $formaPago : ($invoiceFormaPago ?: ''),
+
+                        'f_emision'    => null,
+                        'f_pago'       => $pAgg?->paid_at ?: null,
+                        'f_cta'        => null,
+                        'f_mov'        => null,
+
+                        'f_factura'      => $invoiceDate,
+                        'invoice_date'   => $invoiceDate,
+                        'invoice_status' => $invStatus,
+                        'invoice_status_raw' => $invStatus,
+                        'cfdi_uuid'      => $cfdiUuid,
+
+                        'payment_method' => $pAgg?->method ?: null,
+                        'payment_status' => $pAgg?->status ?: null,
+                        'notes' => null,
+                    ]);
                 }
             }
+        }
 
         // -------------------------
         // 3) Ventas únicas (finance_sales)
@@ -1074,8 +1012,8 @@ final class AdminIncomeService
 
         if (Schema::connection($adm)->hasTable('finance_sales')) {
 
-            // ✅ Compat de columnas entre versiones
-            $fsCols = collect(Schema::connection($adm)->getColumnListing('finance_sales'))->map(fn($c)=>strtolower((string)$c))->values();
+            $fsCols = collect(Schema::connection($adm)->getColumnListing('finance_sales'))
+                ->map(fn($c)=>strtolower((string)$c))->values();
 
             $colPeriod = $fsCols->contains('period')
                 ? 'period'
@@ -1088,7 +1026,6 @@ final class AdminIncomeService
             $qSales = DB::connection($adm)->table('finance_sales as s')
                 ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id');
 
-            // SELECT base (solo columnas que “seguro” existen)
             $qSales->select([
                 's.id',
                 's.account_id',
@@ -1115,21 +1052,20 @@ final class AdminIncomeService
                 's.created_at',
             ]);
 
-            // ✅ period con alias + filtro REAL (no alias en WHERE)
-            $periodExpr = null;
-
             if ($colPeriod) {
                 $qSales->addSelect(DB::raw("s.`{$colPeriod}` as period"));
-                $periodExpr = "s.`{$colPeriod}`";
             } else {
                 $qSales->addSelect(DB::raw("DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m') as period"));
-                $periodExpr = "DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m')";
             }
 
-            // Filtro de año/mes (usar expresión real, no alias)
-            $qSales->whereIn(DB::raw($periodExpr), $periodsYear);
+            if ($colStmtTarget) {
+                $qSales->addSelect(DB::raw("s.`{$colStmtTarget}` as statement_period_target"));
+            } else {
+                $qSales->addSelect(DB::raw("NULL as statement_period_target"));
+            }
 
-            // Solo ventas únicas (origen unico / no_recurrente o periodicity unico)
+            $qSales->whereIn('period', $periodsYear);
+
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
                 ->orWhere('s.periodicity', '=', 'unico');
@@ -1231,9 +1167,7 @@ final class AdminIncomeService
         $rows = $rowsExisting->concat($rowsProjected)->concat($rowsSales);
 
         // -------------------------
-        // ✅ Apply overrides (finance_income_overrides)
-        // - statement/projection: overlay fields by key (row_type, account_id, period)
-        // - updates vendor name if vendor_id overridden
+        // Apply overrides (finance_income_overrides)
         // -------------------------
         if (Schema::connection($adm)->hasTable('finance_income_overrides') && $rows->isNotEmpty()) {
 
@@ -1282,7 +1216,6 @@ final class AdminIncomeService
                     $ov = $ovByKey->get($key);
                     if (!$ov) return $r;
 
-                    // overlay fields only when override has value (keep original if null)
                     $apply = function($prop, $val) use ($r) {
                         if ($val === null) return;
                         $r->{$prop} = $val;
@@ -1302,13 +1235,11 @@ final class AdminIncomeService
 
                     if ($ov->notes !== null) $r->notes = (string)$ov->notes;
 
-                    // vendor name refresh if vendor_id overridden
                     $vid = (string)($r->vendor_id ?? '');
                     if ($vid !== '' && $vendorsById->isNotEmpty() && $vendorsById->has($vid)) {
                         $r->vendor = (string)($vendorsById->get($vid)?->name ?? $r->vendor ?? null);
                     }
 
-                    // mark (optional)
                     $r->has_override = 1;
 
                     return $r;
@@ -1421,14 +1352,9 @@ final class AdminIncomeService
 
         if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return $rows;
 
-        // columnas disponibles (PROD-safe)
-        $tbl = 'cuentas_cliente';
-        $hasEmpresa = Schema::connection($cliConn)->hasColumn($tbl, 'empresa');
-        $hasRfc     = Schema::connection($cliConn)->hasColumn($tbl, 'rfc');
-        $hasRfcPad  = Schema::connection($cliConn)->hasColumn($tbl, 'rfc_padre');
-        $hasRazon   = Schema::connection($cliConn)->hasColumn($tbl, 'razon_social');
-        $hasNomCom  = Schema::connection($cliConn)->hasColumn($tbl, 'nombre_comercial');
-        $hasAdminId = Schema::connection($cliConn)->hasColumn($tbl, 'admin_account_id');
+        $hasEmpresa = Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'empresa');
+        $hasRfc = Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'rfc');
+        $hasRfcPadre = Schema::connection($cliConn)->hasColumn('cuentas_cliente', 'rfc_padre');
 
         $uuidIds = [];
         $adminIds = [];
@@ -1444,58 +1370,43 @@ final class AdminIncomeService
             }
         }
 
-        $q = DB::connection($cliConn)->table($tbl)->select(array_values(array_filter([
-            'id',
-            $hasAdminId ? 'admin_account_id' : null,
-            $hasRazon   ? 'razon_social' : null,
-            $hasNomCom  ? 'nombre_comercial' : null,
-            $hasEmpresa ? 'empresa' : null,
-            $hasRfc     ? 'rfc' : null,
-            $hasRfcPad  ? 'rfc_padre' : null,
-        ])));
+        $sel = ['id', 'admin_account_id', 'razon_social', 'nombre_comercial'];
+        if ($hasEmpresa) $sel[] = 'empresa';
+        if ($hasRfc) $sel[] = 'rfc';
+        if ($hasRfcPadre) $sel[] = 'rfc_padre';
+
+        $q = DB::connection($cliConn)->table('cuentas_cliente')->select($sel);
 
         if (!empty($uuidIds) || !empty($adminIds)) {
-            $q->where(function($w) use ($uuidIds, $adminIds, $hasAdminId) {
+            $q->where(function($w) use ($uuidIds, $adminIds) {
                 if (!empty($uuidIds)) $w->whereIn('id', $uuidIds);
-                if ($hasAdminId && !empty($adminIds)) $w->orWhereIn('admin_account_id', $adminIds);
+                if (!empty($adminIds)) $w->orWhereIn('admin_account_id', $adminIds);
             });
         }
 
         $found = collect($q->get());
 
         $byUuid = $found->filter(fn ($c) => !empty($c->id))->keyBy(fn ($c) => (string) $c->id);
-        $byAdm  = $hasAdminId
-            ? $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id)
-            : collect();
+        $byAdm  = $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        return $rows->map(function ($r) use ($byUuid, $byAdm, $hasAdminId) {
-
+        return $rows->map(function ($r) use ($byUuid, $byAdm) {
             $aid = (string) ($r->account_id ?? '');
             $c = null;
 
             if ($aid !== '') {
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $aid)) {
                     $c = $byUuid->get($aid);
-                } elseif ($hasAdminId && preg_match('/^\d+$/', $aid)) {
+                } elseif (preg_match('/^\d+$/', $aid)) {
                     $c = $byAdm->get($aid);
                 }
             }
 
-            if ($c) {
-                $name =
-                    trim((string)($c->razon_social ?? '')) !== '' ? (string)$c->razon_social :
-                    (trim((string)($c->nombre_comercial ?? '')) !== '' ? (string)$c->nombre_comercial :
-                    (trim((string)($c->empresa ?? '')) !== '' ? (string)$c->empresa : ''));
+            $r->company = $c
+                ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ($c->empresa ?? null) ?? ('Cuenta ' . $aid))
+                : (string) ('Cuenta ' . $aid);
 
-                $r->company = $name !== '' ? $name : ('Cuenta ' . $aid);
-
-                $rfc = trim((string)($c->rfc_padre ?? ''));
-                if ($rfc === '') $rfc = trim((string)($c->rfc ?? ''));
-                $r->rfc_emisor = $rfc;
-            } else {
-                $r->company = (string) ('Cuenta ' . $aid);
-                $r->rfc_emisor = '';
-            }
+            // RFC robusto (NO numéricos)
+            $r->rfc_emisor = $c ? $this->pickRfcEmisor($c, [], []) : '';
 
             return $r;
         });
