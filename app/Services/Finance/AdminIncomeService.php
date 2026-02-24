@@ -236,10 +236,39 @@ final class AdminIncomeService
         if ($hasCreatedAt) $accSelect[] = 'created_at';
         if ($hasMeta)      $accSelect[] = 'meta';
 
+        // -------------------------
+        // IDs a cargar desde cuentas_cliente (uuid / admin_account_id)
+        // -------------------------
+        $uuidIds = [];
+        $numIds  = [];
+
+        // Tomamos ids desde statements del año (y del filtro) para no cargar toda la tabla
+        $accIds = $statementsAllYear->pluck('account_id')->filter()->unique()->values()->all();
+
+        foreach ($accIds as $id) {
+            $id = (string) $id;
+            if ($id === '') continue;
+
+            if (preg_match('/^[0-9a-f\-]{36}$/i', $id)) {
+                $uuidIds[] = $id;
+            } elseif (preg_match('/^\d+$/', $id)) {
+                $numIds[] = (int) $id; // admin_account_id numérico
+            }
+        }
+
+        $uuidIds = array_values(array_unique($uuidIds));
+        $numIds  = array_values(array_unique($numIds));
+
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
 
-        if (!empty($uuidIds)) $qAcc->whereIn('id', $uuidIds);
-        if (!empty($numIds))  $qAcc->orWhereIn('admin_account_id', $numIds);
+        $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
+
+        if (!empty($uuidIds) || !empty($numIds)) {
+            $qAcc->where(function ($w) use ($uuidIds, $numIds) {
+                if (!empty($uuidIds)) $w->whereIn('id', $uuidIds);
+                if (!empty($numIds))  $w->orWhereIn('admin_account_id', $numIds);
+            });
+        }
 
         $cuentas = collect($qAcc->get())->map(function ($c) use ($hasEmail, $hasTelefono, $hasNextInv) {
             // Normaliza para que el resto del servicio no truene por propiedades faltantes
