@@ -390,15 +390,42 @@ final class AdminIncomeService
 
             $accKey = (string) $s->account_id;
 
+            // =========================
+            // Subtotal robusto baseline
+            // =========================
             $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
+            $subtotal = $subtotalItems;
 
-            $subtotalFromTotal = 0.0;
             $totalCargo = (float) ($s->total_cargo ?? 0);
-            if ($subtotalItems <= 0 && $totalCargo > 0) {
-                $subtotalFromTotal = round($totalCargo / 1.16, 2);
+            if ($subtotal <= 0 && $totalCargo > 0) {
+                $subtotal = round($totalCargo / 1.16, 2);
             }
 
-            $subtotal = $subtotalItems > 0 ? $subtotalItems : $subtotalFromTotal;
+            if ($subtotal <= 0) {
+                $snapSubtotal =
+                    (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
+                    (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
+                    (float) (data_get($snap, 'subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'totals.subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'statement.subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'subtotal') ?? 0);
+
+                if ($snapSubtotal > 0) {
+                    $subtotal = round($snapSubtotal, 2);
+                } else {
+                    $snapTotal =
+                        (float) (data_get($snap, 'totals.total') ?? 0) ?:
+                        (float) (data_get($snap, 'statement.total') ?? 0) ?:
+                        (float) (data_get($snap, 'total') ?? 0) ?:
+                        (float) (data_get($meta, 'totals.total') ?? 0) ?:
+                        (float) (data_get($meta, 'statement.total') ?? 0) ?:
+                        (float) (data_get($meta, 'total') ?? 0);
+
+                    if ($snapTotal > 0) {
+                        $subtotal = round($snapTotal / 1.16, 2);
+                    }
+                }
+            }
 
             if ($subtotal > 0) {
                 $baselineRecurring[$accKey] = [
@@ -406,6 +433,7 @@ final class AdminIncomeService
                     'subtotal' => $subtotal,
                 ];
 
+                // espejo para admin_account_id si account_id es UUID
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
                     $cc = $cuentaByUuid->get($accKey);
                     if ($cc && !empty($cc->admin_account_id)) {
@@ -472,17 +500,20 @@ final class AdminIncomeService
         // 1) Filas de statements existentes
         // -------------------------
         $rowsExisting = $statements->map(function ($s) use (
-            $itemsByStatement,
-            $invByStatement,
-            $invByAccPeriod,
-            $profilesByAccountId,
-            $profilesByAdminAcc,
-            $cuentaByUuid,
-            $cuentaByAdminId,
-            $paymentsAggByAdminAccPeriod,
-            $vendorsById,
-            $vendorAssignByAdminAcc
-        ) {
+                $itemsByStatement,
+                $invByStatement,
+                $invByAccPeriod,
+                $profilesByAccountId,
+                $profilesByAdminAcc,
+                $cuentaByUuid,
+                $cuentaByAdminId,
+                $paymentsAggByAdminAccPeriod,
+                $vendorsById,
+                $vendorAssignByAdminAcc,
+                $baselineRecurring,
+                $lastPaymentByAdminAcc,
+                $planPrice
+            ) {
 
             $snap = $this->decodeJson($s->snapshot);
             $meta = $this->decodeJson($s->meta);
@@ -516,9 +547,78 @@ final class AdminIncomeService
 
             $its = collect($itemsByStatement->get($s->id, collect()));
 
-            $subtotal = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
-            if ($subtotal <= 0 && (float)($s->total_cargo ?? 0) > 0) {
-                $subtotal = round(((float)$s->total_cargo) / 1.16, 2);
+            // =========================
+            // Subtotal/IVA/Total robusto
+            // =========================
+            $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
+            $subtotal = $subtotalItems;
+
+            // (1) Fallback: total_cargo en statement
+            $totalCargo = (float) ($s->total_cargo ?? 0);
+            if ($subtotal <= 0 && $totalCargo > 0) {
+                $subtotal = round($totalCargo / 1.16, 2);
+            }
+
+            // (2) Fallback: snapshot/meta (legacy: guardan el monto ahí)
+            if ($subtotal <= 0) {
+                $snapSubtotal =
+                    (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
+                    (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
+                    (float) (data_get($snap, 'subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'totals.subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'statement.subtotal') ?? 0) ?:
+                    (float) (data_get($meta, 'subtotal') ?? 0);
+
+                if ($snapSubtotal > 0) {
+                    $subtotal = round($snapSubtotal, 2);
+                } else {
+                    $snapTotal =
+                        (float) (data_get($snap, 'totals.total') ?? 0) ?:
+                        (float) (data_get($snap, 'statement.total') ?? 0) ?:
+                        (float) (data_get($snap, 'total') ?? 0) ?:
+                        (float) (data_get($meta, 'totals.total') ?? 0) ?:
+                        (float) (data_get($meta, 'statement.total') ?? 0) ?:
+                        (float) (data_get($meta, 'total') ?? 0);
+
+                    if ($snapTotal > 0) {
+                        $subtotal = round($snapTotal / 1.16, 2);
+                    }
+                }
+            }
+
+            // (3) Fallback recurrente: si es cuenta recurrente y sigue en 0, usa baseline/último pago/plan
+            if ($subtotal <= 0) {
+
+                $modoCobro = strtolower((string) ($cc?->modo_cobro ?? ''));
+                $isRecurring = in_array($modoCobro, ['mensual', 'anual'], true);
+
+                if ($isRecurring) {
+
+                    // 3.1 baseline por cuenta (uuid o admin_id)
+                    $accKey = (string) $s->account_id;
+                    $base = (float) (data_get($baselineRecurring, $accKey . '.subtotal') ?? 0.0);
+
+                    if ($base <= 0 && !empty($cc?->admin_account_id)) {
+                        $base = (float) (data_get($baselineRecurring, (string)$cc->admin_account_id . '.subtotal') ?? 0.0);
+                    }
+
+                    // 3.2 último pago
+                    if ($base <= 0 && !empty($cc?->admin_account_id) && $lastPaymentByAdminAcc->has((string)$cc->admin_account_id)) {
+                        $lp = $lastPaymentByAdminAcc->get((string)$cc->admin_account_id);
+                        $amtCents = (float) ($lp->amount ?? 0);
+                        $amtMxn   = $amtCents > 0 ? ($amtCents / 100) : 0.0;
+                        if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
+                    }
+
+                    // 3.3 planPrice
+                    if ($base <= 0) {
+                        $plan = strtolower((string) ($cc?->plan_actual ?? ''));
+                        $base = (float) $planPrice($plan, $modoCobro);
+                    }
+
+                    // si es free => se queda en 0 (correcto)
+                    $subtotal = round(max(0, $base), 2);
+                }
             }
 
             $iva   = round($subtotal * 0.16, 2);
