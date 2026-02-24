@@ -261,8 +261,6 @@ final class AdminIncomeService
 
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
 
-        $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
-
         if (!empty($uuidIds) || !empty($numIds)) {
             $qAcc->where(function ($w) use ($uuidIds, $numIds) {
                 if (!empty($uuidIds)) $w->whereIn('id', $uuidIds);
@@ -556,6 +554,13 @@ final class AdminIncomeService
                 $cc = $cuentaByAdminId->get($sid);
             }
 
+            // Payments agg para este periodo (por admin_account_id)
+            $adminAccId = $cc?->admin_account_id;
+            $pAgg = null;
+            if (!empty($adminAccId)) {
+                $pAgg = $paymentsAggByAdminAccPeriod->get((string)$adminAccId . '|' . (string)$s->period);
+            }
+
             $company = (string) (
                 ($cc?->nombre_comercial ?: null)
                 ?? ($cc?->razon_social ?: null)
@@ -615,7 +620,7 @@ final class AdminIncomeService
                 }
             }
 
-            // (3) Fallback recurrente: si es cuenta recurrente y sigue en 0, usa baseline/último pago/plan
+            /// (3) Fallback recurrente: si es cuenta recurrente y sigue en 0, usa baseline/último pago/plan
             if ($subtotal <= 0) {
 
                 $modoCobro = strtolower((string) ($cc?->modo_cobro ?? ''));
@@ -648,6 +653,12 @@ final class AdminIncomeService
                     // si es free => se queda en 0 (correcto)
                     $subtotal = round(max(0, $base), 2);
                 }
+            }
+
+            // (4) ✅ Fallback por pagos: si no hubo items/totales pero hubo pago en el periodo,
+            //     reconstruimos subtotal desde payments (aplica recurrente y único).
+            if ($subtotal <= 0 && $pAgg && (float)($pAgg->sum_amount_mxn ?? 0) > 0) {
+                $subtotal = round(((float)$pAgg->sum_amount_mxn) / 1.16, 2);
             }
 
             $iva   = round($subtotal * 0.16, 2);
@@ -719,12 +730,6 @@ final class AdminIncomeService
             $invoiceFormaPago  = (string) (data_get($invMeta, 'forma_pago') ?? data_get($invMeta, 'cfdi.forma_pago') ?? '');
             $invoiceMetodoPago = (string) (data_get($invMeta, 'metodo_pago') ?? data_get($invMeta, 'cfdi.metodo_pago') ?? '');
             $invoicePaidAt     = data_get($invMeta, 'paid_at') ?? data_get($invMeta, 'fecha_pago') ?? null;
-
-            $adminAccId = $cc?->admin_account_id;
-            $pAgg = null;
-            if (!empty($adminAccId)) {
-                $pAgg = $paymentsAggByAdminAccPeriod->get((string)$adminAccId . '|' . (string)$s->period);
-            }
 
             $paidAt = $pAgg?->paid_at ?: $s->paid_at ?: $invoicePaidAt ?: null;
 
