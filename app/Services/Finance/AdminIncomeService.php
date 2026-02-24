@@ -12,10 +12,91 @@ use Illuminate\Support\Facades\Schema;
 
 final class AdminIncomeService
 {
+
+    // ==========================
+    // Schema helpers (PROD-safe)
+    // ==========================
+    private function hasCol(string $conn, string $table, string $col): bool
+    {
+        try {
+            return \Illuminate\Support\Facades\Schema::connection($conn)->hasColumn($table, $col);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function firstExistingCol(string $conn, string $table, array $candidates): ?string
+    {
+        foreach ($candidates as $c) {
+            if ($this->hasCol($conn, $table, $c)) return $c;
+        }
+        return null;
+    }
+
+    private function pickClientName(object $row): string
+    {
+        $name = '';
+
+        $rs = trim((string)($row->razon_social ?? ''));
+        if ($rs !== '') $name = $rs;
+
+        if ($name === '') {
+            $nc = trim((string)($row->nombre_comercial ?? ''));
+            if ($nc !== '') $name = $nc;
+        }
+
+        if ($name === '') {
+            $em = trim((string)($row->empresa ?? ''));
+            if ($em !== '') $name = $em;
+        }
+
+        if ($name !== '') return $name;
+
+        $fallback = trim((string)($row->fallback_name ?? ''));
+        return $fallback !== '' ? $fallback : '—';
+    }
+
     public function build(Request $req): array
     {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
         $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+
+        // ==========================
+        // Clientes map (PROD-safe)
+        // ==========================
+        $clientesTable = 'cuentas_cliente';
+
+        // En PROD vimos que NO existe account_id. Tomamos la primera llave disponible.
+        $clientesKey = $this->firstExistingCol($cli, $clientesTable, [
+            'account_id',        // local (si existe)
+            'admin_account_id',  // algunas versiones
+            'id',                // PROD (sí existe)
+        ]);
+
+        $colRazon = $this->hasCol($cli, $clientesTable, 'razon_social') ? 'razon_social' : null;
+        $colNomCo = $this->hasCol($cli, $clientesTable, 'nombre_comercial') ? 'nombre_comercial' : null;
+        $colEmp   = $this->hasCol($cli, $clientesTable, 'empresa') ? 'empresa' : null;
+        $colRfc   = $this->hasCol($cli, $clientesTable, 'rfc') ? 'rfc' : null;
+
+        $sel = ['id'];
+        if ($clientesKey && $clientesKey !== 'id') $sel[] = $clientesKey;
+        if ($colRazon) $sel[] = $colRazon;
+        if ($colNomCo) $sel[] = $colNomCo;
+        if ($colEmp)   $sel[] = $colEmp;
+        if ($colRfc)   $sel[] = $colRfc;
+
+        $clientesByKey = collect();
+
+        if ($clientesKey) {
+            $clientes = DB::connection($cli)->table($clientesTable)->select($sel)->get();
+
+            $clientesByKey = $clientes->mapWithKeys(function ($c) use ($clientesKey) {
+                $k = (string)($c->{$clientesKey} ?? '');
+                if ($k === '') $k = (string)($c->id ?? '');
+                return [$k => $c];
+            });
+        }
+
 
         // -------------------------
         // Filtros
@@ -1034,23 +1115,19 @@ final class AdminIncomeService
                 's.created_at',
             ]);
 
-            // ✅ period con alias (si no existe, lo dejamos null y filtramos distinto)
+            // ✅ period con alias + filtro REAL (no alias en WHERE)
+            $periodExpr = null;
+
             if ($colPeriod) {
                 $qSales->addSelect(DB::raw("s.`{$colPeriod}` as period"));
+                $periodExpr = "s.`{$colPeriod}`";
             } else {
-                // fallback duro: intenta derivar periodo por sale_date / created_at (YYYY-MM)
                 $qSales->addSelect(DB::raw("DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m') as period"));
+                $periodExpr = "DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m')";
             }
 
-            // ✅ statement_period_target con alias (compat)
-            if ($colStmtTarget) {
-                $qSales->addSelect(DB::raw("s.`{$colStmtTarget}` as statement_period_target"));
-            } else {
-                $qSales->addSelect(DB::raw("NULL as statement_period_target"));
-            }
-
-            // Filtro de año/mes
-            $qSales->whereIn('period', $periodsYear);
+            // Filtro de año/mes (usar expresión real, no alias)
+            $qSales->whereIn(DB::raw($periodExpr), $periodsYear);
 
             // Solo ventas únicas (origen unico / no_recurrente o periodicity unico)
             $qSales->where(function ($w) {
@@ -1344,6 +1421,15 @@ final class AdminIncomeService
 
         if (!Schema::connection($cliConn)->hasTable('cuentas_cliente')) return $rows;
 
+        // columnas disponibles (PROD-safe)
+        $tbl = 'cuentas_cliente';
+        $hasEmpresa = Schema::connection($cliConn)->hasColumn($tbl, 'empresa');
+        $hasRfc     = Schema::connection($cliConn)->hasColumn($tbl, 'rfc');
+        $hasRfcPad  = Schema::connection($cliConn)->hasColumn($tbl, 'rfc_padre');
+        $hasRazon   = Schema::connection($cliConn)->hasColumn($tbl, 'razon_social');
+        $hasNomCom  = Schema::connection($cliConn)->hasColumn($tbl, 'nombre_comercial');
+        $hasAdminId = Schema::connection($cliConn)->hasColumn($tbl, 'admin_account_id');
+
         $uuidIds = [];
         $adminIds = [];
 
@@ -1358,34 +1444,58 @@ final class AdminIncomeService
             }
         }
 
-        $q = DB::connection($cliConn)->table('cuentas_cliente')
-            ->select(['id', 'admin_account_id', 'razon_social', 'nombre_comercial', 'rfc_padre']);
+        $q = DB::connection($cliConn)->table($tbl)->select(array_values(array_filter([
+            'id',
+            $hasAdminId ? 'admin_account_id' : null,
+            $hasRazon   ? 'razon_social' : null,
+            $hasNomCom  ? 'nombre_comercial' : null,
+            $hasEmpresa ? 'empresa' : null,
+            $hasRfc     ? 'rfc' : null,
+            $hasRfcPad  ? 'rfc_padre' : null,
+        ])));
 
-        if (!empty($uuidIds)) $q->whereIn('id', $uuidIds);
-        if (!empty($adminIds)) $q->orWhereIn('admin_account_id', $adminIds);
+        if (!empty($uuidIds) || !empty($adminIds)) {
+            $q->where(function($w) use ($uuidIds, $adminIds, $hasAdminId) {
+                if (!empty($uuidIds)) $w->whereIn('id', $uuidIds);
+                if ($hasAdminId && !empty($adminIds)) $w->orWhereIn('admin_account_id', $adminIds);
+            });
+        }
 
         $found = collect($q->get());
 
         $byUuid = $found->filter(fn ($c) => !empty($c->id))->keyBy(fn ($c) => (string) $c->id);
-        $byAdm  = $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id);
+        $byAdm  = $hasAdminId
+            ? $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id)
+            : collect();
 
-        return $rows->map(function ($r) use ($byUuid, $byAdm) {
+        return $rows->map(function ($r) use ($byUuid, $byAdm, $hasAdminId) {
+
             $aid = (string) ($r->account_id ?? '');
             $c = null;
 
             if ($aid !== '') {
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $aid)) {
                     $c = $byUuid->get($aid);
-                } elseif (preg_match('/^\d+$/', $aid)) {
+                } elseif ($hasAdminId && preg_match('/^\d+$/', $aid)) {
                     $c = $byAdm->get($aid);
                 }
             }
 
-            $r->company = $c
-                ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ('Cuenta ' . $aid))
-                : (string) ('Cuenta ' . $aid);
+            if ($c) {
+                $name =
+                    trim((string)($c->razon_social ?? '')) !== '' ? (string)$c->razon_social :
+                    (trim((string)($c->nombre_comercial ?? '')) !== '' ? (string)$c->nombre_comercial :
+                    (trim((string)($c->empresa ?? '')) !== '' ? (string)$c->empresa : ''));
 
-            $r->rfc_emisor = $c ? (string) ($c->rfc_padre ?? '') : '';
+                $r->company = $name !== '' ? $name : ('Cuenta ' . $aid);
+
+                $rfc = trim((string)($c->rfc_padre ?? ''));
+                if ($rfc === '') $rfc = trim((string)($c->rfc ?? ''));
+                $r->rfc_emisor = $rfc;
+            } else {
+                $r->company = (string) ('Cuenta ' . $aid);
+                $r->rfc_emisor = '';
+            }
 
             return $r;
         });
