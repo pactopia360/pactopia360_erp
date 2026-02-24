@@ -223,25 +223,33 @@ final class AdminIncomeService
                 ->values()
                 ->all();
 
-            $qAcc = DB::connection($cli)->table('cuentas_cliente')
-                ->select([
-                    'id',
-                    'admin_account_id',
-                    'rfc',
-                    'rfc_padre',
-                    'razon_social',
-                    'nombre_comercial',
-                    'plan_actual',
-                    'modo_cobro',
-                    'estado_cuenta',
-                    'activo',
-                    'is_blocked',
-                    'email',
-                    'telefono',
-                    'next_invoice_date',
-                    'created_at',
-                    'meta',
-                ]);
+            $hasActivo   = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
+            $hasIsBlocked = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
+
+            $accSelect = [
+                'id',
+                'admin_account_id',
+                'rfc',
+                'rfc_padre',
+                'razon_social',
+                'nombre_comercial',
+                'plan_actual',
+                'modo_cobro',
+                'estado_cuenta',
+            ];
+
+            $accSelect[] = $hasActivo ? 'activo' : DB::raw('1 as activo');
+            $accSelect[] = $hasIsBlocked ? 'is_blocked' : DB::raw('0 as is_blocked');
+
+            $accSelect = array_merge($accSelect, [
+                'email',
+                'telefono',
+                'next_invoice_date',
+                'created_at',
+                'meta',
+            ]);
+
+            $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
 
             if (!empty($uuidIds)) $qAcc->whereIn('id', $uuidIds);
             if (!empty($numIds))  $qAcc->orWhereIn('admin_account_id', $numIds);
@@ -684,8 +692,11 @@ final class AdminIncomeService
                     'created_at',
                     'meta',
                 ])
-                ->whereIn('modo_cobro', ['mensual', 'anual'])
-                ->where('activo', '=', 1);
+                ->whereIn('modo_cobro', ['mensual', 'anual']);
+
+                if (Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo')) {
+                    $recQ->where('activo', '=', 1);
+                }
 
             $rec = collect($recQ->get());
 
