@@ -388,10 +388,15 @@ Route::middleware([
         |----------------------------------------------------------------------
         */
 
-        // ✅ Crear cliente manual (UI + store)
-        Route::get('clientes/create', [ClientesController::class, 'create'])
-            ->middleware(perm_mw('clientes.editar'))
-            ->name('clientes.create');
+        // ✅ COMPAT: si algún browser trae el form viejo y hace POST /admin/clientes/create,
+        // evitamos 405 y lo procesamos como store (alta).
+        $clientesCreateCompat = Route::post('clientes/create', [ClientesController::class, 'store'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.create.post_compat');
+
+        if ($isLocal) {
+            $clientesCreateCompat->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
 
         $clientesStore = Route::post('clientes', [ClientesController::class, 'store'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
