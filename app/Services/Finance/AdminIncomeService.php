@@ -87,6 +87,40 @@ final class AdminIncomeService
     }
 
     // ==========================
+    // Admin accounts fallback (mysql_admin.accounts)
+    // ==========================
+    private function loadAdminAccountsById(string $adm, array $adminIds): Collection
+    {
+        try {
+            if (!Schema::connection($adm)->hasTable('accounts')) return collect();
+
+            $adminIds = array_values(array_unique(array_filter(array_map(
+                fn ($x) => (int) $x,
+                $adminIds
+            ), fn ($x) => $x > 0)));
+
+            if (empty($adminIds)) return collect();
+
+            return collect(DB::connection($adm)->table('accounts')
+                ->select(['id', 'name', 'razon_social', 'rfc'])
+                ->whereIn('id', $adminIds)
+                ->get())
+                ->keyBy(fn ($a) => (string) $a->id);
+        } catch (\Throwable $e) {
+            return collect();
+        }
+    }
+
+    private function bestAdminAccountName(?object $adminAcc): string
+    {
+        if (!$adminAcc) return '';
+        $n = trim((string) (($adminAcc->razon_social ?: null) ?? ($adminAcc->name ?: null) ?? ''));
+        if ($n === '') return '';
+        if ($this->isPlaceholderName($n)) return '';
+        return $n;
+    }
+
+    // ==========================
     // Schema helpers (PROD-safe)
     // ==========================
     private function hasCol(string $conn, string $table, string $col): bool
@@ -129,12 +163,17 @@ final class AdminIncomeService
 
         $qSearch = trim((string) ($req->input('q') ?: ''));
 
+        // Nuevo: por default NO incluimos proyecciones (para que cuadre con Estados de Cuenta)
+        $includeProjections = (int) ($req->input('include_projections') ?: 0) === 1;
+
         $periodFrom = Carbon::create($year, 1, 1)->startOfMonth();
         $periodTo   = Carbon::create($year, 12, 1)->endOfMonth();
 
         if (!Schema::connection($adm)->hasTable('billing_statements')) {
             return [
-                'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch'),
+                'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch') + [
+                    'include_projections' => $includeProjections ? 1 : 0,
+                ],
                 'kpis'    => $this->blankKpis(),
                 'rows'    => collect(),
             ];
@@ -352,6 +391,9 @@ final class AdminIncomeService
         $uuidIds = array_values(array_unique($uuidIds));
         $numIds  = array_values(array_unique($numIds));
 
+        // Preload admin accounts con los IDs numéricos directos (si venían como account_id)
+        $adminAccountsById = $this->loadAdminAccountsById($adm, $numIds);
+
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
         if (!empty($uuidIds) || !empty($numIds)) {
             $qAcc->where(function ($w) use ($uuidIds, $numIds) {
@@ -371,6 +413,18 @@ final class AdminIncomeService
         $cuentaByUuid    = $cuentas->keyBy(fn ($c) => (string) $c->id);
         $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
             ->keyBy(fn ($c) => (string) $c->admin_account_id);
+
+        // Completar admin accounts con admin_account_id encontrados en cuentas_cliente (si faltaban)
+        $moreAdminIds = $cuentas->pluck('admin_account_id')->filter()->unique()->values()->all();
+        $missing = [];
+        foreach ($moreAdminIds as $aid) {
+            $aid = (int) $aid;
+            if ($aid <= 0) continue;
+            if (!$adminAccountsById->has((string) $aid)) $missing[] = $aid;
+        }
+        if (!empty($missing)) {
+            $adminAccountsById = $adminAccountsById->merge($this->loadAdminAccountsById($adm, $missing));
+        }
 
         foreach ($statementsAllYear as $s) {
             $acc = (string) $s->account_id;
@@ -429,7 +483,7 @@ final class AdminIncomeService
                     ->whereIn('account_id', $adminIds)
                     ->where(function ($w) use ($winFrom, $winTo) {
                         $w->whereBetween('paid_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()])
-                          ->orWhereBetween('created_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()]);
+                            ->orWhereBetween('created_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()]);
                     })
                     ->orderBy('id', 'desc')
                     ->get());
@@ -602,7 +656,8 @@ final class AdminIncomeService
             $vendorAssignByAdminAcc,
             $baselineRecurring,
             $lastPaymentByAdminAcc,
-            $planPrice
+            $planPrice,
+            $adminAccountsById
         ) {
 
             $snap = $this->decodeJson($s->snapshot);
@@ -617,10 +672,10 @@ final class AdminIncomeService
                 $cc = $cuentaByAdminId->get($sid);
             }
 
-            $adminAccId = $cc?->admin_account_id;
+            $adminAccId = (string) ($cc?->admin_account_id ?? '');
             $pAgg = null;
-            if (!empty($adminAccId)) {
-                $pAgg = $paymentsAggByAdminAccPeriod->get((string) $adminAccId . '|' . (string) $s->period);
+            if ($adminAccId !== '') {
+                $pAgg = $paymentsAggByAdminAccPeriod->get($adminAccId . '|' . (string) $s->period);
             }
 
             $bp = $this->resolveBillingProfile(
@@ -631,6 +686,14 @@ final class AdminIncomeService
             );
 
             $company = $this->pickCompanyName($cc, $snap, $meta, $bp);
+
+            // Fallback fuerte: si sigue placeholder, tomar nombre real de mysql_admin.accounts (admin_account_id)
+            if ($this->isPlaceholderName($company) || trim($company) === '') {
+                if ($adminAccId !== '' && $adminAccountsById->has($adminAccId)) {
+                    $best = $this->bestAdminAccountName($adminAccountsById->get($adminAccId));
+                    if ($best !== '') $company = $best;
+                }
+            }
 
             $rfcEmisor = $this->pickRfcEmisor(
                 $cc?->rfc_padre ?? null,
@@ -689,12 +752,12 @@ final class AdminIncomeService
                     $accKey = (string) $s->account_id;
                     $base = (float) (data_get($baselineRecurring, $accKey . '.subtotal') ?? 0.0);
 
-                    if ($base <= 0 && !empty($cc?->admin_account_id)) {
-                        $base = (float) (data_get($baselineRecurring, (string) $cc->admin_account_id . '.subtotal') ?? 0.0);
+                    if ($base <= 0 && $adminAccId !== '') {
+                        $base = (float) (data_get($baselineRecurring, $adminAccId . '.subtotal') ?? 0.0);
                     }
 
-                    if ($base <= 0 && !empty($cc?->admin_account_id) && $lastPaymentByAdminAcc->has((string) $cc->admin_account_id)) {
-                        $lp = $lastPaymentByAdminAcc->get((string) $cc->admin_account_id);
+                    if ($base <= 0 && $adminAccId !== '' && $lastPaymentByAdminAcc->has($adminAccId)) {
+                        $lp = $lastPaymentByAdminAcc->get($adminAccId);
                         $amtCents = (float) ($lp->amount ?? 0);
                         $amtMxn   = $amtCents > 0 ? ($amtCents / 100) : 0.0;
                         if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
@@ -735,9 +798,8 @@ final class AdminIncomeService
                 $vendorName = (string) ($vendorsById->get($vendorId)?->name ?? null);
             }
 
-            if ((empty($vendorId) || !$vendorName) && !empty($cc?->admin_account_id)) {
-                $aid = (string) $cc->admin_account_id;
-                $as  = $vendorAssignByAdminAcc->get($aid);
+            if ((empty($vendorId) || !$vendorName) && $adminAccId !== '') {
+                $as  = $vendorAssignByAdminAcc->get($adminAccId);
 
                 if ($as) {
                     $per = (string) $s->period;
@@ -845,7 +907,7 @@ final class AdminIncomeService
         // -------------------------
         $rowsProjected = collect();
 
-        if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+        if ($includeProjections && Schema::connection($cli)->hasTable('cuentas_cliente')) {
 
             $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
             $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
@@ -953,6 +1015,10 @@ final class AdminIncomeService
                     );
 
                     $company = $this->pickCompanyName($cc, [], [], $bp);
+                    if (($this->isPlaceholderName($company) || trim($company) === '') && !empty($cc->admin_account_id) && $adminAccountsById->has((string) $cc->admin_account_id)) {
+                        $best = $this->bestAdminAccountName($adminAccountsById->get((string) $cc->admin_account_id));
+                        if ($best !== '') $company = $best;
+                    }
 
                     $rfcEmisor = $this->pickRfcEmisor(
                         $cc->rfc_padre ?? null,
@@ -1109,12 +1175,12 @@ final class AdminIncomeService
 
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
-                  ->orWhere('s.periodicity', '=', 'unico');
+                    ->orWhere('s.periodicity', '=', 'unico');
             });
 
             $sales = collect($qSales->orderBy('period')->orderBy('s.id')->get());
 
-            $sales = $this->attachCompanyFromClientes($sales, $cli);
+            $sales = $this->attachCompanyFromClientes($sales, $cli, $adm, $adminAccountsById);
 
             $rowsSales = $sales->map(function ($s) {
 
@@ -1146,6 +1212,11 @@ final class AdminIncomeService
                 $fMov = $s->f_mov ?: ($s->sale_date ?: ($s->created_at ?: null));
                 $vendorId = !empty($s->vendor_id) ? (string) $s->vendor_id : null;
 
+                $clientName = (string) ($s->company ?? ('Cuenta ' . $s->account_id));
+                if ($clientName === '' || preg_match('/^Cuenta\s+\d+$/i', $clientName)) {
+                    $clientName = (string) ($s->company ?? ('Cuenta ' . $s->account_id));
+                }
+
                 return (object) [
                     'source'        => 'sale',
                     'is_projection' => 0,
@@ -1157,12 +1228,12 @@ final class AdminIncomeService
                     'vendor_id'    => $vendorId,
                     'vendor'       => $s->vendor_name ?: null,
 
-                    'client'       => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
+                    'client'       => $clientName,
                     'description'  => $desc !== '' ? $desc : 'Venta Única',
 
                     'period'       => $per,
                     'account_id'   => (string) $s->account_id,
-                    'company'      => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
+                    'company'      => $clientName,
                     'rfc_emisor'   => (string) ($s->rfc_emisor ?? ''),
 
                     'origin'       => $origin,
@@ -1205,7 +1276,9 @@ final class AdminIncomeService
         // -------------------------
         // Unión + filtros + sort
         // -------------------------
-        $rows = $rowsExisting->concat($rowsProjected)->concat($rowsSales);
+        $rows = $rowsExisting
+            ->concat($includeProjections ? $rowsProjected : collect())
+            ->concat($rowsSales);
 
         // -------------------------
         // Apply overrides (finance_income_overrides)
@@ -1339,6 +1412,7 @@ final class AdminIncomeService
         return [
             'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch') + [
                 'vendor_list' => $vendorList,
+                'include_projections' => $includeProjections ? 1 : 0,
             ],
             'kpis'    => $kpis,
             'rows'    => $rows,
@@ -1386,7 +1460,7 @@ final class AdminIncomeService
         return null;
     }
 
-    private function attachCompanyFromClientes(Collection $rows, string $cliConn): Collection
+    private function attachCompanyFromClientes(Collection $rows, string $cliConn, string $admConn, Collection $adminAccountsById): Collection
     {
         $ids = $rows->pluck('account_id')->filter()->unique()->values()->all();
         if (empty($ids)) return $rows;
@@ -1430,7 +1504,21 @@ final class AdminIncomeService
         $byUuid = $found->filter(fn ($c) => !empty($c->id))->keyBy(fn ($c) => (string) $c->id);
         $byAdm  = $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        return $rows->map(function ($r) use ($byUuid, $byAdm) {
+        // (Opcional) enriquecer adminAccountsById con los account_id numéricos de ventas únicas (si no venían)
+        if (Schema::connection($admConn)->hasTable('accounts') && !empty($adminIds)) {
+            $missing = [];
+            foreach ($adminIds as $aid) {
+                $aid = (int) $aid;
+                if ($aid <= 0) continue;
+                if (!$adminAccountsById->has((string) $aid)) $missing[] = $aid;
+            }
+            if (!empty($missing)) {
+                $more = $this->loadAdminAccountsById($admConn, $missing);
+                $adminAccountsById = $adminAccountsById->merge($more);
+            }
+        }
+
+        return $rows->map(function ($r) use ($byUuid, $byAdm, $adminAccountsById) {
             $aid = (string) ($r->account_id ?? '');
             $c = null;
 
@@ -1442,9 +1530,17 @@ final class AdminIncomeService
                 }
             }
 
-            $r->company = $c
+            $company = $c
                 ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ($c->empresa ?? null) ?? ('Cuenta ' . $aid))
                 : (string) ('Cuenta ' . $aid);
+
+            // Fallback fuerte a mysql_admin.accounts cuando quedó placeholder
+            if (($company === '' || preg_match('/^Cuenta\s+\d+$/i', $company)) && preg_match('/^\d+$/', $aid) && $adminAccountsById->has($aid)) {
+                $best = $this->bestAdminAccountName($adminAccountsById->get($aid));
+                if ($best !== '') $company = $best;
+            }
+
+            $r->company = $company;
 
             // RFC robusto (NO numéricos): solo formato RFC real
             $r->rfc_emisor = $c ? $this->pickRfcEmisor($c->rfc_padre ?? null, $c->rfc ?? null) : '';
@@ -1455,13 +1551,14 @@ final class AdminIncomeService
 
     private function mapSalesInvoiceStatusToCanonical(string $raw): string
     {
+        // Canonical: pending|requested|ready|issued|cancelled
         return match ($raw) {
             'solicitada'    => 'requested',
             'en_proceso'    => 'ready',
             'facturada'     => 'issued',
             'rechazada'     => 'cancelled',
-           'sin_solicitud' => 'sin_solicitud',
-            default         => $raw !== '' ? $raw : 'sin_solicitud',
+            'sin_solicitud' => 'pending',
+            default         => $raw !== '' ? $raw : 'pending',
         };
     }
 
@@ -1594,11 +1691,14 @@ final class AdminIncomeService
         $origin = strtolower($origin);
         $periodicity = strtolower($periodicity);
 
+        // IMPORTANTE:
+        // - source=statement => cargos / estados de cuenta (no "venta")
+        // - source=sale      => sí es venta única real (finance_sales)
         if ($items->isEmpty()) {
             if ($origin === 'recurrente') {
                 return $periodicity === 'anual' ? 'Recurrente Anual' : 'Recurrente Mensual';
             }
-            return 'Venta Única';
+            return 'Cargo Único';
         }
 
         $parts = $items
@@ -1618,7 +1718,7 @@ final class AdminIncomeService
             if ($origin === 'recurrente') {
                 return $periodicity === 'anual' ? 'Recurrente Anual' : 'Recurrente Mensual';
             }
-            return 'Venta Única';
+            return 'Cargo Único';
         }
 
         if ($origin === 'recurrente') {
@@ -1626,6 +1726,6 @@ final class AdminIncomeService
             return $prefix . ' · ' . $txt;
         }
 
-        return 'Venta Única · ' . $txt;
+        return 'Cargo Único · ' . $txt;
     }
 }
