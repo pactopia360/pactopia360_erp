@@ -1,5 +1,5 @@
 <?php
-// C:\wamp64\www\pactopia360_erp\app\Http\Controllers\Admin\CrudController.php
+// C:\wamp64\www\pactopia360_erp\app\Http\Controllers\Admin\ClientesController.php
 
 declare(strict_types=1);
 
@@ -130,13 +130,6 @@ class ClientesController extends \App\Http\Controllers\Controller
             $select[] = 'meta';
         } else {
             $select[] = DB::raw("NULL as meta");
-        }
-
-        // ✅ HARD GUARANTEE: name para accounts (PROD: NOT NULL sin default)
-        // No dependemos de hasColumn() porque en algunos ambientes/caches puede dar falso.
-        if (!array_key_exists('name', $payload) || trim((string)($payload['name'] ?? '')) === '') {
-            $fallback = $rs !== '' ? $rs : $rfc;
-            $payload['name'] = mb_substr((string) $fallback, 0, 190);
         }
 
         // alguna columna monto si existe
@@ -672,6 +665,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             'next_invoice_date' => 'nullable|date',
             'is_blocked'        => 'nullable|boolean',
             'custom_amount_mxn' => 'nullable|numeric|min:0|max:99999999',
+            'vault_active'      => 'nullable|boolean',
         ];
         $data = validator($request->all(), $rules)->validate();
 
@@ -682,8 +676,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             'updated_at'   => now(),
         ];
 
-        
-         // ✅ RFC real (solo referencia). El espejo se actualiza en syncPlanToMirror()
+        // ✅ RFC real (solo referencia). El espejo se actualiza en syncPlanToMirror()
         $rfcRealLocal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
         if ($this->hasCol($this->adminConn, 'accounts', 'plan')) {
@@ -702,6 +695,45 @@ class ClientesController extends \App\Http\Controllers\Controller
             $payload['is_blocked'] = (int) ($data['is_blocked'] ?? 0);
         }
 
+        // =========================================================
+        // ✅ VAULT ACTIVE: guardar en admin.accounts (si existe)
+        // y SIEMPRE enviar al espejo via syncPlanToMirror()
+        // =========================================================
+        if (array_key_exists('vault_active', $data)) {
+            $va = (int) ((bool) $data['vault_active']);
+
+            // Si existe la columna en admin.accounts
+            if ($this->hasCol($this->adminConn, 'accounts', 'vault_active')) {
+                $payload['vault_active'] = $va;
+            }
+
+            // Si usas meta como respaldo / compat
+            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+                try {
+                    $accRow = DB::connection($this->adminConn)
+                        ->table('accounts')
+                        ->where('id', $accountId)
+                        ->first(['meta']);
+
+                    $meta = $this->decodeMeta($accRow->meta ?? null);
+
+                    // Guarda flags coherentes (compat)
+                    data_set($meta, 'vault.active', (bool) $va);
+                    data_set($meta, 'vault_active', (bool) $va);
+
+                    $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+                } catch (\Throwable $e) {
+                    // no romper por meta
+                }
+            }
+
+            // Muy importante: que llegue al espejo
+            $payload['vault_active'] = $payload['vault_active'] ?? $va;
+        }
+
+        // =========================================================
+        // ✅ BILLING OVERRIDE
+        // =========================================================
         $custom = isset($data['custom_amount_mxn']) ? (float) $data['custom_amount_mxn'] : null;
         $custom = ($custom !== null && $custom > 0.00001) ? round($custom, 2) : null;
 
@@ -731,7 +763,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             $this->upsertClienteLegacy($rfcReal, $payload);
         }
 
-        // ✅ Espejo mysql_clientes usa rfc_padre = accounts.id (por tu implementación actual)
+        // ✅ Espejo mysql_clientes: aquí es donde realmente se refleja en el menú
         $this->syncPlanToMirror($accountId, $payload);
 
         return back()->with('ok', 'Datos guardados.');
@@ -2750,12 +2782,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         // =========================
-        // Localizar cuenta espejo
-        // PRIORIDAD:
-        // A) admin_account_id (si dup => escoger por rfcReal o rfc no vacío)
-        // B) rfc = rfcReal
-        // C) rfc_padre = rfcReal
-        // D) legacy rfc_padre = accounts.id
+        // Localizar cuenta espejo (robusto)
         // =========================
         $cuenta = null;
 
@@ -2777,7 +2804,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                     if (count($rows) > 1) {
                         $picked = null;
 
-                        // 1) match exacto por RFC real (si existe)
+                        // 1) match exacto por RFC real
                         if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
                             foreach ($rows as $r) {
                                 $rr = strtoupper(trim((string)($r->rfc ?? '')));
@@ -2835,20 +2862,19 @@ class ClientesController extends \App\Http\Controllers\Controller
         if (!$cuenta) return;
 
         // =========================
-        // UPDATE (CRÍTICO): NO mandar plan_actual si plan viene vacío/null
+        // UPDATE
         // =========================
         $upd = ['updated_at' => now()];
 
+        // plan_actual SOLO si plan no viene vacío
         $planRaw = $payload['plan'] ?? null;
         $plan    = is_string($planRaw) ? trim($planRaw) : '';
         if ($plan === '') $plan = null;
 
-        // OJO: en mysql_clientes NO existe columna "plan" (solo plan_actual)
         if ($plan !== null && $schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) {
             $upd['plan_actual'] = $plan;
         }
 
-        // opcionales (solo si vienen en payload)
         if ($schemaCli->hasColumn('cuentas_cliente', 'modo_cobro') && array_key_exists('modo_cobro', $payload)) {
             $upd['modo_cobro'] = $payload['modo_cobro'];
         }
@@ -2861,9 +2887,22 @@ class ClientesController extends \App\Http\Controllers\Controller
             $upd['next_invoice_date'] = $payload['next_invoice_date'];
         }
 
-        // Mantener RFC real en espejo (esto NO rompe aunque plan venga vacío)
+        // ✅ Mantener RFC real en espejo
         if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
             $upd['rfc'] = $rfcReal;
+        }
+
+        // ✅ VAULT ACTIVE (lo que necesitas para el menú)
+        if ($schemaCli->hasColumn('cuentas_cliente', 'vault_active') && array_key_exists('vault_active', $payload)) {
+            $upd['vault_active'] = (int) ((bool) $payload['vault_active']);
+        }
+
+        // ✅ Opcional: si quieres que bloqueo admin se refleje en espejo
+        if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked') && array_key_exists('is_blocked', $payload)) {
+            $upd['is_blocked'] = (int) $payload['is_blocked'];
+        }
+        if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta') && array_key_exists('is_blocked', $payload)) {
+            $upd['estado_cuenta'] = ((int)$payload['is_blocked'] === 1) ? 'suspendida' : 'activa';
         }
 
         if (count($upd) <= 1) return;
