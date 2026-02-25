@@ -153,8 +153,10 @@
   // ✅ Rutas generales (seguras)
   $syncLegacyUrl = $try('admin.clientes.syncToClientes') ?: route('admin.clientes.syncToClientes');
 
-  // ✅ vNext: Create route opcional (si existe)
-  $createUrl = $try('admin.clientes.create') ?: $try('admin.accounts.create') ?: '';
+  // ✅ vNext: STORE route (POST) para alta (NO usar create, porque create es GET)
+  $createStoreUrl = $try('admin.clientes.store')
+                ?: $try('admin.accounts.store')
+                ?: '';
 @endphp
 
 <div id="adminClientesPage"
@@ -879,7 +881,7 @@
         <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
       </div>
 
-      <form method="POST" id="mCreate_form" action="{{ $createUrl ?: '#' }}" class="ac-form">
+      <form method="POST" id="mCreate_form" action="{{ $createStoreUrl ?: '#' }}" class="ac-form">
         @csrf
         <div class="ac-grid" style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px">
           <div class="ac-field ac-field-wide" style="grid-column:span 8">
@@ -922,11 +924,11 @@
           </div>
 
           <div class="ac-field ac-field-wide" style="grid-column:span 12">
-            @if(!$createUrl)
+            @if(!$createStoreUrl)
               <div class="ac-note">
-                Este modal es UI-ready. Para hacerlo funcional, crea la route de alta (ej.
+                Este modal es UI-ready. Para hacerlo funcional, crea la route de alta (POST) (ej.
                 <code class="ac-mono">admin.clientes.store</code> o <code class="ac-mono">admin.accounts.store</code>)
-                y luego asigna <code class="ac-mono">$createUrl</code>.
+                y luego asigna <code class="ac-mono">$createStoreUrl</code>.
               </div>
             @endif
           </div>
@@ -934,7 +936,11 @@
 
         <div class="ac-form-actions">
           <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-          <button class="ac-btn primary" type="submit" onclick="return confirm('¿Crear cliente?')">Crear</button>
+          <button class="ac-btn primary" type="submit"
+                  {{ !$createStoreUrl ? 'disabled' : '' }}
+                  onclick="{{ $createStoreUrl ? "return confirm('¿Crear cliente?')" : 'return false;' }}">
+            Crear
+          </button>
         </div>
       </form>
     </div>
