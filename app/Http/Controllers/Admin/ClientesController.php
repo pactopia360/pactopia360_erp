@@ -195,7 +195,7 @@ class ClientesController extends \App\Http\Controllers\Controller
         return view('admin.clientes.index', compact('rows', 'extras', 'creds', 'recipients', 'billingStatuses'));
     }
 
-        // ======================= CREAR (UI SIMPLE) =======================
+    // ======================= CREAR (UI SIMPLE) =======================
     public function create(Request $request): \Illuminate\Http\Response
     {
         // UI minimalista inline (no depende de layouts)
@@ -203,123 +203,123 @@ class ClientesController extends \App\Http\Controllers\Controller
         $postUrl = route('admin.clientes.store');
 
         $html = <<<HTML
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Crear cliente · Pactopia360</title>
-  <style>
-    body{font:14px system-ui,Segoe UI,Roboto,sans-serif;background:#0b1020;color:#e5e7eb;margin:0;padding:24px}
-    .wrap{max-width:980px;margin:0 auto}
-    .card{background:#0f172a;border:1px solid #1f2a44;border-radius:14px;padding:18px 18px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-    h1{margin:0 0 8px;font-size:18px}
-    .muted{color:#94a3b8;margin:0 0 14px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    label{display:block;font-size:12px;color:#cbd5e1;margin:0 0 6px}
-    input,select{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #263252;background:#0b1228;color:#e5e7eb;padding:10px 12px}
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
-    .btn{border:1px solid #334155;background:#7c3aed;color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
-    .btn2{border:1px solid #334155;background:#111827;color:#e5e7eb;border-radius:10px;padding:10px 14px;font-weight:600;text-decoration:none;display:inline-block}
-    .chk{display:flex;gap:8px;align-items:center}
-    .chk input{width:auto}
-    .note{color:#94a3b8;font-size:12px;margin-top:10px}
-    @media (max-width:860px){ .grid{grid-template-columns:1fr} }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Crear cliente manual</h1>
-      <p class="muted">Crea cuenta SOT (admin.accounts) + espejo (mysql_clientes) + owner. Luego podrás verlo en /admin/clientes.</p>
+        <!doctype html>
+        <html lang="es">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Crear cliente · Pactopia360</title>
+        <style>
+            body{font:14px system-ui,Segoe UI,Roboto,sans-serif;background:#0b1020;color:#e5e7eb;margin:0;padding:24px}
+            .wrap{max-width:980px;margin:0 auto}
+            .card{background:#0f172a;border:1px solid #1f2a44;border-radius:14px;padding:18px 18px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+            h1{margin:0 0 8px;font-size:18px}
+            .muted{color:#94a3b8;margin:0 0 14px}
+            .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+            label{display:block;font-size:12px;color:#cbd5e1;margin:0 0 6px}
+            input,select{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #263252;background:#0b1228;color:#e5e7eb;padding:10px 12px}
+            .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+            .btn{border:1px solid #334155;background:#7c3aed;color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+            .btn2{border:1px solid #334155;background:#111827;color:#e5e7eb;border-radius:10px;padding:10px 14px;font-weight:600;text-decoration:none;display:inline-block}
+            .chk{display:flex;gap:8px;align-items:center}
+            .chk input{width:auto}
+            .note{color:#94a3b8;font-size:12px;margin-top:10px}
+            @media (max-width:860px){ .grid{grid-template-columns:1fr} }
+        </style>
+        </head>
+        <body>
+        <div class="wrap">
+            <div class="card">
+            <h1>Crear cliente manual</h1>
+            <p class="muted">Crea cuenta SOT (admin.accounts) + espejo (mysql_clientes) + owner. Luego podrás verlo en /admin/clientes.</p>
 
-      <form method="POST" action="{$postUrl}">
-        <input type="hidden" name="_token" value="{$csrf}">
+            <form method="POST" action="{$postUrl}">
+                <input type="hidden" name="_token" value="{$csrf}">
 
-        <div class="grid">
-          <div>
-            <label>RFC *</label>
-            <input name="rfc" required maxlength="20" placeholder="XAXX010101000">
-          </div>
+                <div class="grid">
+                <div>
+                    <label>RFC *</label>
+                    <input name="rfc" required maxlength="20" placeholder="XAXX010101000">
+                </div>
 
-          <div>
-            <label>Razón social *</label>
-            <input name="razon_social" required maxlength="190" placeholder="Empresa SA de CV">
-          </div>
+                <div>
+                    <label>Razón social *</label>
+                    <input name="razon_social" required maxlength="190" placeholder="Empresa SA de CV">
+                </div>
 
-          <div>
-            <label>Email (owner)</label>
-            <input name="email" type="email" maxlength="190" placeholder="correo@dominio.com">
-          </div>
+                <div>
+                    <label>Email (owner)</label>
+                    <input name="email" type="email" maxlength="190" placeholder="correo@dominio.com">
+                </div>
 
-          <div>
-            <label>Teléfono</label>
-            <input name="phone" maxlength="25" placeholder="5512345678">
-          </div>
+                <div>
+                    <label>Teléfono</label>
+                    <input name="phone" maxlength="25" placeholder="5512345678">
+                </div>
 
-          <div>
-            <label>Plan</label>
-            <select name="plan">
-              <option value="">(vacío)</option>
-              <option value="FREE">FREE</option>
-              <option value="PRO">PRO</option>
-              <option value="PRO_MENSUAL">PRO_MENSUAL</option>
-              <option value="PRO_ANUAL">PRO_ANUAL</option>
-            </select>
-          </div>
+                <div>
+                    <label>Plan</label>
+                    <select name="plan">
+                    <option value="">(vacío)</option>
+                    <option value="FREE">FREE</option>
+                    <option value="PRO">PRO</option>
+                    <option value="PRO_MENSUAL">PRO_MENSUAL</option>
+                    <option value="PRO_ANUAL">PRO_ANUAL</option>
+                    </select>
+                </div>
 
-          <div>
-            <label>Ciclo</label>
-            <select name="billing_cycle">
-              <option value="">(vacío)</option>
-              <option value="monthly">monthly</option>
-              <option value="yearly">yearly</option>
-            </select>
-          </div>
+                <div>
+                    <label>Ciclo</label>
+                    <select name="billing_cycle">
+                    <option value="">(vacío)</option>
+                    <option value="monthly">monthly</option>
+                    <option value="yearly">yearly</option>
+                    </select>
+                </div>
 
-          <div>
-            <label>Billing status</label>
-            <select name="billing_status">
-              <option value="">(vacío)</option>
-              <option value="active">active</option>
-              <option value="trial">trial</option>
-              <option value="grace">grace</option>
-              <option value="overdue">overdue</option>
-              <option value="suspended">suspended</option>
-              <option value="cancelled">cancelled</option>
-              <option value="demo">demo</option>
-            </select>
-          </div>
+                <div>
+                    <label>Billing status</label>
+                    <select name="billing_status">
+                    <option value="">(vacío)</option>
+                    <option value="active">active</option>
+                    <option value="trial">trial</option>
+                    <option value="grace">grace</option>
+                    <option value="overdue">overdue</option>
+                    <option value="suspended">suspended</option>
+                    <option value="cancelled">cancelled</option>
+                    <option value="demo">demo</option>
+                    </select>
+                </div>
 
-          <div>
-            <label>Bloqueado</label>
-            <select name="is_blocked">
-              <option value="0">0 (no)</option>
-              <option value="1">1 (sí)</option>
-            </select>
-          </div>
+                <div>
+                    <label>Bloqueado</label>
+                    <select name="is_blocked">
+                    <option value="0">0 (no)</option>
+                    <option value="1">1 (sí)</option>
+                    </select>
+                </div>
+                </div>
+
+                <div class="row">
+                <label class="chk"><input type="checkbox" name="force_email_verified" value="1"> Marcar email verificado</label>
+                <label class="chk"><input type="checkbox" name="force_phone_verified" value="1"> Marcar teléfono verificado</label>
+                <label class="chk"><input type="checkbox" name="send_credentials" value="1" checked> Enviar credenciales al email</label>
+                </div>
+
+                <div class="row">
+                <button class="btn" type="submit">Crear cliente</button>
+                <a class="btn2" href="{$this->safeAdminClientesIndexUrl()}">Volver a clientes</a>
+                </div>
+
+                <div class="note">
+                Nota: el envío de credenciales usa tu flujo <code>ClientCredentials::resetOwnerByRfc()</code>. Si falla, la cuenta se crea de todas formas.
+                </div>
+            </form>
+            </div>
         </div>
-
-        <div class="row">
-          <label class="chk"><input type="checkbox" name="force_email_verified" value="1"> Marcar email verificado</label>
-          <label class="chk"><input type="checkbox" name="force_phone_verified" value="1"> Marcar teléfono verificado</label>
-          <label class="chk"><input type="checkbox" name="send_credentials" value="1" checked> Enviar credenciales al email</label>
-        </div>
-
-        <div class="row">
-          <button class="btn" type="submit">Crear cliente</button>
-          <a class="btn2" href="{$this->safeAdminClientesIndexUrl()}">Volver a clientes</a>
-        </div>
-
-        <div class="note">
-          Nota: el envío de credenciales usa tu flujo <code>ClientCredentials::resetOwnerByRfc()</code>. Si falla, la cuenta se crea de todas formas.
-        </div>
-      </form>
-    </div>
-  </div>
-</body>
-</html>
-HTML;
+        </body>
+        </html>
+        HTML;
 
         return response($html, 200)->header('Content-Type', 'text/html; charset=utf-8');
     }
@@ -359,9 +359,11 @@ HTML;
         }
 
         // ✅ Anti-duplicado por RFC (case-insensitive)
+        $rfcColCheck = $schemaA->hasColumn('accounts', 'rfc') ? 'rfc' : $rfcCol;
+
         $exists = DB::connection($this->adminConn)->table('accounts')
-            ->whereRaw('UPPER(' . $rfcCol . ') = ?', [$rfc])
-            ->first(['id', $rfcCol]);
+            ->whereRaw('UPPER(' . $rfcColCheck . ') = ?', [$rfc])
+            ->first(['id', $rfcColCheck]);
 
         if ($exists) {
             return redirect()->route('admin.clientes.index', ['q' => $rfc])
@@ -375,14 +377,13 @@ HTML;
             'created_at'   => now(),
         ];
 
-        // ✅ PROD FIX: accounts.name es NOT NULL (sin default) en algunos schemas
-        if ($schemaA->hasColumn('accounts', 'name')) {
-            $fallback = $rs !== '' ? $rs : $rfc;
-            $payload['name'] = mb_substr((string) $fallback, 0, 190);
-        }
-
-        if ($schemaA->hasColumn('accounts', $emailCol)) {
-            $payload[$emailCol] = ($email !== '') ? $email : null;
+        // ✅ CRÍTICO: accounts.rfc es NOT NULL en PROD (sin default)
+        // Siempre llenarlo si existe, aunque colRfcAdmin() resuelva a otra columna legacy.
+        if ($schemaA->hasColumn('accounts', 'rfc')) {
+            $payload['rfc'] = $rfc;
+        } elseif ($schemaA->hasColumn('accounts', $rfcCol)) {
+            // fallback legacy (por si algún ambiente no tiene accounts.rfc)
+            $payload[$rfcCol] = $rfc;
         }
 
         if ($schemaA->hasColumn('accounts', $phoneCol)) {
@@ -977,10 +978,10 @@ HTML;
         }
 
         return back()->with('ok', 'Email marcado como verificado (admin + cliente).');
-     }
+    }
 
     public function forcePhoneVerified(string $key): RedirectResponse
-     {
+    {
 
        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
        $accountId = (string) $acc->id;
@@ -1227,33 +1228,33 @@ HTML;
     // ====== IMPERSONATE ======
     public function impersonate(string $key): RedirectResponse
     {
-    $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
-    $accountId = (string) $acc->id;
-    $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin()]);
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
 
-    $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
+        $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
 
-    $owner = UsuarioCuenta::on('mysql_clientes')->find($pack['owner']->id);
-    abort_if(!$owner || !(int) $owner->activo, 404, 'Usuario owner no disponible');
+        $owner = UsuarioCuenta::on('mysql_clientes')->find($pack['owner']->id);
+        abort_if(!$owner || !(int) $owner->activo, 404, 'Usuario owner no disponible');
 
-    // ✅ Token 1-uso en cache
-    $token = Str::random(32);
+        // ✅ Token 1-uso en cache
+        $token = Str::random(32);
 
-    Cache::put("impersonate.token.$token", [
-        'owner_id'   => (string) $owner->id,
-        'admin_id'   => (string) auth('admin')->id(),
-        'rfc'        => $rfcReal,
-        'account_id' => $accountId,
-    ], now()->addMinutes(5));
+        Cache::put("impersonate.token.$token", [
+            'owner_id'   => (string) $owner->id,
+            'admin_id'   => (string) auth('admin')->id(),
+            'rfc'        => $rfcReal,
+            'account_id' => $accountId,
+        ], now()->addMinutes(5));
 
-    // ✅ URL firmada temporal hacia /cliente/impersonate/{token}
-    $url = \URL::temporarySignedRoute(
-        'cliente.impersonate.consume',
-        now()->addMinutes(5),
-        ['token' => $token]
-    );
+        // ✅ URL firmada temporal hacia /cliente/impersonate/{token}
+        $url = \URL::temporarySignedRoute(
+            'cliente.impersonate.consume',
+            now()->addMinutes(5),
+            ['token' => $token]
+        );
 
-    return redirect($url);
+        return redirect($url);
     }
 
     public function impersonateStop(): RedirectResponse
@@ -1270,7 +1271,6 @@ HTML;
             return redirect()->route('admin.clientes.index')->with('info', 'Impersonación: usa el portal cliente para finalizarla.');
         }
     }
-
 
     // ======================= SYNC accounts -> clientes =======================
     public function syncToClientes(): RedirectResponse
@@ -2110,7 +2110,6 @@ HTML;
         }
     }
 
-
     private function genCodigoCliente(): string
     {
         do {
@@ -2794,8 +2793,6 @@ HTML;
         $conn->table('cuentas_cliente')->where('id', (string)$cuenta->id)->update($upd);
     }
 
-
-
     private function decodeMeta(mixed $meta): array
     {
         if (is_array($meta)) return $meta;
@@ -2852,7 +2849,7 @@ HTML;
      * Cache para hasColumn: reduce overhead de Schema en listados grandes.
      */
     private function hasCol(string $conn, string $table, string $col): bool
-     {
+    {
          $k = "{$conn}.{$table}.{$col}";
          if (array_key_exists($k, $this->schemaHas)) return $this->schemaHas[$k];
          try {
@@ -2860,7 +2857,7 @@ HTML;
          } catch (\Throwable $e) {
              return $this->schemaHas[$k] = false;
          }
-     }
+    }
 
     /**
      * Marca verificación en mysql_clientes (owner + opcional cuentas_cliente)
@@ -3008,83 +3005,82 @@ HTML;
     }
 
     /**
- * ✅ Normaliza duplicados en mysql_clientes.cuentas_cliente para un admin_account_id:
- * - winner: fila más “real” (tiene rfc no vacío) o rfc_padre con RFC-like; fallback: más reciente.
- * - winner queda con admin_account_id correcto + rfc/rfc_padre = RFC real (si existe columna).
- * - losers: admin_account_id = NULL y razón social marcada [DUPLICATE].
- *
- * Regresa la fila winner (object) o null si no hay filas con ese admin_account_id.
- */
-private function normalizeMirrorCuentaByAdminAccountId(int $adminAccountId, string $rfcReal): ?object
-{
-    $rfcReal = strtoupper(trim($rfcReal));
+     * ✅ Normaliza duplicados en mysql_clientes.cuentas_cliente para un admin_account_id:
+     * - winner: fila más “real” (tiene rfc no vacío) o rfc_padre con RFC-like; fallback: más reciente.
+     * - winner queda con admin_account_id correcto + rfc/rfc_padre = RFC real (si existe columna).
+     * - losers: admin_account_id = NULL y razón social marcada [DUPLICATE].
+     *
+     * Regresa la fila winner (object) o null si no hay filas con ese admin_account_id.
+     */
+    private function normalizeMirrorCuentaByAdminAccountId(int $adminAccountId, string $rfcReal): ?object
+    {
+        $rfcReal = strtoupper(trim($rfcReal));
 
-    $schemaCli = Schema::connection('mysql_clientes');
-    if (!$schemaCli->hasTable('cuentas_cliente')) return null;
+        $schemaCli = Schema::connection('mysql_clientes');
+        if (!$schemaCli->hasTable('cuentas_cliente')) return null;
 
-    $connCli = DB::connection('mysql_clientes');
+        $connCli = DB::connection('mysql_clientes');
 
-    $rows = $connCli->table('cuentas_cliente')
-        ->where('admin_account_id', $adminAccountId)
-        ->orderByDesc('updated_at')
-        ->get(['id','admin_account_id','rfc','rfc_padre','razon_social','updated_at'])
-        ->all();
+        $rows = $connCli->table('cuentas_cliente')
+            ->where('admin_account_id', $adminAccountId)
+            ->orderByDesc('updated_at')
+            ->get(['id','admin_account_id','rfc','rfc_padre','razon_social','updated_at'])
+            ->all();
 
-    if (empty($rows)) return null;
-    if (count($rows) === 1) return $rows[0];
+        if (empty($rows)) return null;
+        if (count($rows) === 1) return $rows[0];
 
-    // winner: rfc lleno
-    $winner = null;
-    foreach ($rows as $r) {
-        $rfc = strtoupper(trim((string)($r->rfc ?? '')));
-        if ($rfc !== '') { $winner = $r; break; }
-    }
-
-    // fallback: rfc_padre RFC-like
-    if (!$winner) {
+        // winner: rfc lleno
+        $winner = null;
         foreach ($rows as $r) {
-            $rp = strtoupper(trim((string)($r->rfc_padre ?? '')));
-            if ($rp !== '' && strlen($rp) >= 12 && preg_match('/[A-Z]/', $rp) && preg_match('/\d/', $rp)) {
-                $winner = $r; break;
-            }
-        }
-    }
-
-    // fallback final: el más reciente (ya viene orderByDesc)
-    if (!$winner) $winner = $rows[0];
-
-    // Curar winner
-    $updW = ['updated_at' => now(), 'admin_account_id' => $adminAccountId];
-    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
-        $updW['rfc'] = $rfcReal;
-    }
-    if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
-        $updW['rfc_padre'] = $rfcReal;
-    }
-    $connCli->table('cuentas_cliente')->where('id', $winner->id)->update($updW);
-
-    // Desasociar losers
-    foreach ($rows as $r) {
-        if ((string)$r->id === (string)$winner->id) continue;
-
-        $upd = ['updated_at' => now()];
-        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
-            $upd['admin_account_id'] = null;
+            $rfc = strtoupper(trim((string)($r->rfc ?? '')));
+            if ($rfc !== '') { $winner = $r; break; }
         }
 
-        if ($schemaCli->hasColumn('cuentas_cliente', 'razon_social')) {
-            $rs = trim((string)($r->razon_social ?? ''));
-            if (!str_starts_with($rs, '[DUPLICATE]')) {
-                $upd['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('Cuenta ' . $adminAccountId));
+        // fallback: rfc_padre RFC-like
+        if (!$winner) {
+            foreach ($rows as $r) {
+                $rp = strtoupper(trim((string)($r->rfc_padre ?? '')));
+                if ($rp !== '' && strlen($rp) >= 12 && preg_match('/[A-Z]/', $rp) && preg_match('/\d/', $rp)) {
+                    $winner = $r; break;
+                }
             }
         }
 
-        $connCli->table('cuentas_cliente')->where('id', $r->id)->update($upd);
+        // fallback final: el más reciente (ya viene orderByDesc)
+        if (!$winner) $winner = $rows[0];
+
+        // Curar winner
+        $updW = ['updated_at' => now(), 'admin_account_id' => $adminAccountId];
+        if ($schemaCli->hasColumn('cuentas_cliente', 'rfc') && $rfcReal !== '') {
+            $updW['rfc'] = $rfcReal;
+        }
+        if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre') && $rfcReal !== '') {
+            $updW['rfc_padre'] = $rfcReal;
+        }
+        $connCli->table('cuentas_cliente')->where('id', $winner->id)->update($updW);
+
+        // Desasociar losers
+        foreach ($rows as $r) {
+            if ((string)$r->id === (string)$winner->id) continue;
+
+            $upd = ['updated_at' => now()];
+            if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                $upd['admin_account_id'] = null;
+            }
+
+            if ($schemaCli->hasColumn('cuentas_cliente', 'razon_social')) {
+                $rs = trim((string)($r->razon_social ?? ''));
+                if (!str_starts_with($rs, '[DUPLICATE]')) {
+                    $upd['razon_social'] = '[DUPLICATE] ' . ($rs !== '' ? $rs : ('Cuenta ' . $adminAccountId));
+                }
+            }
+
+            $connCli->table('cuentas_cliente')->where('id', $r->id)->update($upd);
+        }
+
+        // Re-leer winner ya curado
+        return $connCli->table('cuentas_cliente')->where('id', $winner->id)->first();
     }
-
-    // Re-leer winner ya curado
-    return $connCli->table('cuentas_cliente')->where('id', $winner->id)->first();
-}
-
  
 }
