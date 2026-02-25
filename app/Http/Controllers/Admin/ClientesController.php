@@ -386,6 +386,18 @@ class ClientesController extends \App\Http\Controllers\Controller
             $payload[$rfcCol] = $rfc;
         }
 
+        // ✅ CRÍTICO: accounts.name puede ser NOT NULL (sin default) en PROD
+        // Si existe la columna, SIEMPRE mandarlo desde el primer intento.
+        if ($schemaA->hasColumn('accounts', 'name')) {
+            $fallback = $rs !== '' ? $rs : $rfc;
+            $payload['name'] = mb_substr((string) $fallback, 0, 190);
+        }
+
+        // ✅ email (si existe la columna real)
+        if ($schemaA->hasColumn('accounts', $emailCol)) {
+            $payload[$emailCol] = ($email !== '') ? $email : null;
+        }
+
         if ($schemaA->hasColumn('accounts', $phoneCol)) {
             $payload[$phoneCol] = ($phone !== '') ? $phone : null;
         }
