@@ -19,7 +19,6 @@ final class AdminIncomeService
     {
         $n = trim($name);
         if ($n === '') return true;
-        // "Cuenta 7", "Cuenta 21", etc.
         return (bool) preg_match('/^cuenta\s+\d+$/i', $n);
     }
 
@@ -28,9 +27,6 @@ final class AdminIncomeService
         $r = strtoupper(trim($rfc));
         if ($r === '') return false;
 
-        // RFC persona moral: 3 letras + 6 fecha + 3 homoclave
-        // RFC persona física: 4 letras + 6 fecha + 3 homoclave
-        // Nota: valida formato general, no existencia SAT.
         return (bool) preg_match('/^([A-ZÑ&]{3,4})(\d{6})([A-Z0-9]{3})$/', $r);
     }
 
@@ -78,46 +74,12 @@ final class AdminIncomeService
             if ($snapName !== '' && !$this->isPlaceholderName($snapName)) return $snapName;
         }
 
-        // Si ya es un buen nombre, lo dejamos
-        if ($ccName !== '') return $ccName;
+        if ($ccName !== '' && !$this->isPlaceholderName($ccName)) return $ccName;
 
-        // Último fallback
         $fallback = trim((string) (data_get($snapshot, 'company') ?? data_get($meta, 'company') ?? '—'));
-        return $fallback !== '' ? $fallback : '—';
-    }
+        if ($fallback !== '' && !$this->isPlaceholderName($fallback)) return $fallback;
 
-    // ==========================
-    // Admin accounts fallback (mysql_admin.accounts)
-    // ==========================
-    private function loadAdminAccountsById(string $adm, array $adminIds): Collection
-    {
-        try {
-            if (!Schema::connection($adm)->hasTable('accounts')) return collect();
-
-            $adminIds = array_values(array_unique(array_filter(array_map(
-                fn ($x) => (int) $x,
-                $adminIds
-            ), fn ($x) => $x > 0)));
-
-            if (empty($adminIds)) return collect();
-
-            return collect(DB::connection($adm)->table('accounts')
-                ->select(['id', 'name', 'razon_social', 'rfc'])
-                ->whereIn('id', $adminIds)
-                ->get())
-                ->keyBy(fn ($a) => (string) $a->id);
-        } catch (\Throwable $e) {
-            return collect();
-        }
-    }
-
-    private function bestAdminAccountName(?object $adminAcc): string
-    {
-        if (!$adminAcc) return '';
-        $n = trim((string) (($adminAcc->razon_social ?: null) ?? ($adminAcc->name ?: null) ?? ''));
-        if ($n === '') return '';
-        if ($this->isPlaceholderName($n)) return '';
-        return $n;
+        return '—';
     }
 
     // ==========================
@@ -132,12 +94,53 @@ final class AdminIncomeService
         }
     }
 
-    private function firstExistingCol(string $conn, string $table, array $candidates): ?string
+    // ==========================
+    // Amount normalization (clave para que cuadre)
+    // ==========================
+    /**
+     * IMPORTANT:
+     * En tu BD actual, billing_statements.total_cargo se comporta como SUBTOTAL (sin IVA) en muchos casos.
+     * El módulo "Estados de cuenta" muestra ese "Total" (sin IVA) y no un total con IVA.
+     *
+     * Por eso:
+     *  - subtotal := total_cargo (si > 0)
+     *  - iva      := subtotal * 0.16
+     *  - total    := subtotal + iva
+     *
+     * Y SOLO si total_cargo viene vacío/0, usamos snapshot/items como fallback para subtotal.
+     */
+    private function resolveStatementSubtotal(object $s, Collection $items, array $snap, array $meta): float
     {
-        foreach ($candidates as $c) {
-            if ($this->hasCol($conn, $table, $c)) return $c;
-        }
-        return null;
+        $tc = (float) ($s->total_cargo ?? 0);
+        if ($tc > 0) return round($tc, 2);
+
+        // snapshot subtotal
+        $snapSubtotal =
+            (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
+            (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
+            (float) (data_get($snap, 'subtotal') ?? 0) ?:
+            (float) (data_get($meta, 'totals.subtotal') ?? 0) ?:
+            (float) (data_get($meta, 'statement.subtotal') ?? 0) ?:
+            (float) (data_get($meta, 'subtotal') ?? 0);
+
+        if ($snapSubtotal > 0) return round($snapSubtotal, 2);
+
+        // items sum (as subtotal)
+        $sumItems = (float) $items->sum(fn ($it) => (float) ($it->amount ?? 0));
+        if ($sumItems > 0) return round($sumItems, 2);
+
+        // snapshot total -> infer subtotal
+        $snapTotal =
+            (float) (data_get($snap, 'totals.total') ?? 0) ?:
+            (float) (data_get($snap, 'statement.total') ?? 0) ?:
+            (float) (data_get($snap, 'total') ?? 0) ?:
+            (float) (data_get($meta, 'totals.total') ?? 0) ?:
+            (float) (data_get($meta, 'statement.total') ?? 0) ?:
+            (float) (data_get($meta, 'total') ?? 0);
+
+        if ($snapTotal > 0) return round($snapTotal / 1.16, 2);
+
+        return 0.0;
     }
 
     public function build(Request $req): array
@@ -163,8 +166,9 @@ final class AdminIncomeService
 
         $qSearch = trim((string) ($req->input('q') ?: ''));
 
-        // Nuevo: por default NO incluimos proyecciones (para que cuadre con Estados de Cuenta)
-        $includeProjections = (int) ($req->input('include_projections') ?: 0) === 1;
+        // flags para cuadrar
+        $includeProjections = (int) ($req->input('include_projections') ?? 1) === 1;
+        $includeSales       = (int) ($req->input('include_sales') ?? 1) === 1;
 
         $periodFrom = Carbon::create($year, 1, 1)->startOfMonth();
         $periodTo   = Carbon::create($year, 12, 1)->endOfMonth();
@@ -173,6 +177,7 @@ final class AdminIncomeService
             return [
                 'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch') + [
                     'include_projections' => $includeProjections ? 1 : 0,
+                    'include_sales'       => $includeSales ? 1 : 0,
                 ],
                 'kpis'    => $this->blankKpis(),
                 'rows'    => collect(),
@@ -236,6 +241,7 @@ final class AdminIncomeService
 
         $statements = $statementsFiltered;
 
+        // keys existentes (uuid|period o admin_id|period)
         $statementKeySet = collect();
         foreach ($statementsAllYear as $s) {
             $acc = (string) $s->account_id;
@@ -391,9 +397,6 @@ final class AdminIncomeService
         $uuidIds = array_values(array_unique($uuidIds));
         $numIds  = array_values(array_unique($numIds));
 
-        // Preload admin accounts con los IDs numéricos directos (si venían como account_id)
-        $adminAccountsById = $this->loadAdminAccountsById($adm, $numIds);
-
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
         if (!empty($uuidIds) || !empty($numIds)) {
             $qAcc->where(function ($w) use ($uuidIds, $numIds) {
@@ -414,18 +417,7 @@ final class AdminIncomeService
         $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
             ->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        // Completar admin accounts con admin_account_id encontrados en cuentas_cliente (si faltaban)
-        $moreAdminIds = $cuentas->pluck('admin_account_id')->filter()->unique()->values()->all();
-        $missing = [];
-        foreach ($moreAdminIds as $aid) {
-            $aid = (int) $aid;
-            if ($aid <= 0) continue;
-            if (!$adminAccountsById->has((string) $aid)) $missing[] = $aid;
-        }
-        if (!empty($missing)) {
-            $adminAccountsById = $adminAccountsById->merge($this->loadAdminAccountsById($adm, $missing));
-        }
-
+        // expandir keys para uuid<->admin
         foreach ($statementsAllYear as $s) {
             $acc = (string) $s->account_id;
             $per = (string) $s->period;
@@ -445,7 +437,7 @@ final class AdminIncomeService
                 }
             }
         }
-        // Set hash para lookup O(1) en proyecciones
+
         $statementKeyHash = array_fill_keys($statementKeySet->all(), true);
 
         // -------------------------
@@ -483,7 +475,7 @@ final class AdminIncomeService
                     ->whereIn('account_id', $adminIds)
                     ->where(function ($w) use ($winFrom, $winTo) {
                         $w->whereBetween('paid_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()])
-                            ->orWhereBetween('created_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()]);
+                          ->orWhereBetween('created_at', [$winFrom->toDateTimeString(), $winTo->toDateTimeString()]);
                     })
                     ->orderBy('id', 'desc')
                     ->get());
@@ -564,28 +556,21 @@ final class AdminIncomeService
 
             $accKey = (string) $s->account_id;
 
-            $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
-            $subtotal = $subtotalItems;
+            $subtotal = $this->resolveStatementSubtotal($s, $its, $snap, $meta);
+            if ($subtotal <= 0) continue;
 
-            $totalCargo = (float) ($s->total_cargo ?? 0);
-            if ($subtotal <= 0 && $totalCargo > 0) {
-                $subtotal = round($totalCargo / 1.16, 2);
-            }
+            $baselineRecurring[$accKey] = [
+                'period'   => (string) $s->period,
+                'subtotal' => $subtotal,
+            ];
 
-            if ($subtotal > 0) {
-                $baselineRecurring[$accKey] = [
-                    'period'   => (string) $s->period,
-                    'subtotal' => $subtotal,
-                ];
-
-                if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
-                    $cc = $cuentaByUuid->get($accKey);
-                    if ($cc && !empty($cc->admin_account_id)) {
-                        $baselineRecurring[(string) $cc->admin_account_id] = [
-                            'period'   => (string) $s->period,
-                            'subtotal' => $subtotal,
-                        ];
-                    }
+            if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
+                $cc = $cuentaByUuid->get($accKey);
+                if ($cc && !empty($cc->admin_account_id)) {
+                    $baselineRecurring[(string) $cc->admin_account_id] = [
+                        'period'   => (string) $s->period,
+                        'subtotal' => $subtotal,
+                    ];
                 }
             }
         }
@@ -656,8 +641,7 @@ final class AdminIncomeService
             $vendorAssignByAdminAcc,
             $baselineRecurring,
             $lastPaymentByAdminAcc,
-            $planPrice,
-            $adminAccountsById
+            $planPrice
         ) {
 
             $snap = $this->decodeJson($s->snapshot);
@@ -672,10 +656,10 @@ final class AdminIncomeService
                 $cc = $cuentaByAdminId->get($sid);
             }
 
-            $adminAccId = (string) ($cc?->admin_account_id ?? '');
+            $adminAccId = $cc?->admin_account_id;
             $pAgg = null;
-            if ($adminAccId !== '') {
-                $pAgg = $paymentsAggByAdminAccPeriod->get($adminAccId . '|' . (string) $s->period);
+            if (!empty($adminAccId)) {
+                $pAgg = $paymentsAggByAdminAccPeriod->get((string) $adminAccId . '|' . (string) $s->period);
             }
 
             $bp = $this->resolveBillingProfile(
@@ -687,20 +671,12 @@ final class AdminIncomeService
 
             $company = $this->pickCompanyName($cc, $snap, $meta, $bp);
 
-            // Fallback fuerte: si sigue placeholder, tomar nombre real de mysql_admin.accounts (admin_account_id)
-            if ($this->isPlaceholderName($company) || trim($company) === '') {
-                if ($adminAccId !== '' && $adminAccountsById->has($adminAccId)) {
-                    $best = $this->bestAdminAccountName($adminAccountsById->get($adminAccId));
-                    if ($best !== '') $company = $best;
-                }
-            }
-
             $rfcEmisor = $this->pickRfcEmisor(
                 $cc?->rfc_padre ?? null,
                 $cc?->rfc ?? null
             );
 
-            // fallback de snapshot/meta SOLO si trae un RFC válido
+            // fallback snapshot/meta SOLO si RFC válido
             if ($rfcEmisor === '') {
                 $r1 = (string) (data_get($snap, 'account.rfc') ?? data_get($snap, 'rfc') ?? '');
                 $r2 = (string) (data_get($meta, 'account.rfc') ?? data_get($meta, 'rfc') ?? '');
@@ -710,40 +686,10 @@ final class AdminIncomeService
 
             $its = collect($itemsByStatement->get($s->id, collect()));
 
-            $subtotalItems = (float) $its->sum(fn ($it) => (float) ($it->amount ?? 0));
-            $subtotal = $subtotalItems;
+            // >>> CLAVE: subtotal debe cuadrar con billing_statements.total_cargo (que es SUBTOTAL)
+            $subtotal = $this->resolveStatementSubtotal($s, $its, $snap, $meta);
 
-            $totalCargo = (float) ($s->total_cargo ?? 0);
-            if ($subtotal <= 0 && $totalCargo > 0) {
-                $subtotal = round($totalCargo / 1.16, 2);
-            }
-
-            if ($subtotal <= 0) {
-                $snapSubtotal =
-                    (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
-                    (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
-                    (float) (data_get($snap, 'subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'totals.subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'statement.subtotal') ?? 0) ?:
-                    (float) (data_get($meta, 'subtotal') ?? 0);
-
-                if ($snapSubtotal > 0) {
-                    $subtotal = round($snapSubtotal, 2);
-                } else {
-                    $snapTotal =
-                        (float) (data_get($snap, 'totals.total') ?? 0) ?:
-                        (float) (data_get($snap, 'statement.total') ?? 0) ?:
-                        (float) (data_get($snap, 'total') ?? 0) ?:
-                        (float) (data_get($meta, 'totals.total') ?? 0) ?:
-                        (float) (data_get($meta, 'statement.total') ?? 0) ?:
-                        (float) (data_get($meta, 'total') ?? 0);
-
-                    if ($snapTotal > 0) {
-                        $subtotal = round($snapTotal / 1.16, 2);
-                    }
-                }
-            }
-
+            // si es recurrente y no trae subtotal, intentamos baseline / lastPayment / plan
             if ($subtotal <= 0) {
                 $modoCobro = strtolower((string) ($cc?->modo_cobro ?? ''));
                 $isRecurring = in_array($modoCobro, ['mensual', 'anual'], true);
@@ -752,14 +698,15 @@ final class AdminIncomeService
                     $accKey = (string) $s->account_id;
                     $base = (float) (data_get($baselineRecurring, $accKey . '.subtotal') ?? 0.0);
 
-                    if ($base <= 0 && $adminAccId !== '') {
-                        $base = (float) (data_get($baselineRecurring, $adminAccId . '.subtotal') ?? 0.0);
+                    if ($base <= 0 && !empty($cc?->admin_account_id)) {
+                        $base = (float) (data_get($baselineRecurring, (string) $cc->admin_account_id . '.subtotal') ?? 0.0);
                     }
 
-                    if ($base <= 0 && $adminAccId !== '' && $lastPaymentByAdminAcc->has($adminAccId)) {
-                        $lp = $lastPaymentByAdminAcc->get($adminAccId);
+                    if ($base <= 0 && !empty($cc?->admin_account_id) && $lastPaymentByAdminAcc->has((string) $cc->admin_account_id)) {
+                        $lp = $lastPaymentByAdminAcc->get((string) $cc->admin_account_id);
                         $amtCents = (float) ($lp->amount ?? 0);
                         $amtMxn   = $amtCents > 0 ? ($amtCents / 100) : 0.0;
+                        // payments suelen traer TOTAL con IVA => infer subtotal
                         if ($amtMxn > 0) $base = round($amtMxn / 1.16, 2);
                     }
 
@@ -772,6 +719,7 @@ final class AdminIncomeService
                 }
             }
 
+            // fallback por payments agregados (si hay total con iva)
             if ($subtotal <= 0 && $pAgg && (float) ($pAgg->sum_amount_mxn ?? 0) > 0) {
                 $subtotal = round(((float) $pAgg->sum_amount_mxn) / 1.16, 2);
             }
@@ -798,8 +746,9 @@ final class AdminIncomeService
                 $vendorName = (string) ($vendorsById->get($vendorId)?->name ?? null);
             }
 
-            if ((empty($vendorId) || !$vendorName) && $adminAccId !== '') {
-                $as  = $vendorAssignByAdminAcc->get($adminAccId);
+            if ((empty($vendorId) || !$vendorName) && !empty($cc?->admin_account_id)) {
+                $aid = (string) $cc->admin_account_id;
+                $as  = $vendorAssignByAdminAcc->get($aid);
 
                 if ($as) {
                     $per = (string) $s->period;
@@ -869,6 +818,7 @@ final class AdminIncomeService
                 'origin'       => $origin,
                 'periodicity'  => $periodicity,
 
+                // SUBTOTAL debe cuadrar con Estados de cuenta "Total"
                 'subtotal'     => $subtotal,
                 'iva'          => $iva,
                 'total'        => $total,
@@ -1015,10 +965,6 @@ final class AdminIncomeService
                     );
 
                     $company = $this->pickCompanyName($cc, [], [], $bp);
-                    if (($this->isPlaceholderName($company) || trim($company) === '') && !empty($cc->admin_account_id) && $adminAccountsById->has((string) $cc->admin_account_id)) {
-                        $best = $this->bestAdminAccountName($adminAccountsById->get((string) $cc->admin_account_id));
-                        if ($best !== '') $company = $best;
-                    }
 
                     $rfcEmisor = $this->pickRfcEmisor(
                         $cc->rfc_padre ?? null,
@@ -1106,10 +1052,11 @@ final class AdminIncomeService
 
         // -------------------------
         // 3) Ventas únicas (finance_sales)
+        //    FIX CRÍTICO: evitar doble conteo cuando include_in_statement=1
         // -------------------------
         $rowsSales = collect();
 
-        if (Schema::connection($adm)->hasTable('finance_sales')) {
+        if ($includeSales && Schema::connection($adm)->hasTable('finance_sales')) {
 
             $fsCols = collect(Schema::connection($adm)->getColumnListing('finance_sales'))
                 ->map(fn ($c) => strtolower((string) $c))->values();
@@ -1163,7 +1110,6 @@ final class AdminIncomeService
                 $qSales->addSelect(DB::raw("NULL as statement_period_target"));
             }
 
-            // OJO: no usar alias "period" en WHERE (MySQL). Filtramos por columna real o por expresión.
             if ($colPeriod) {
                 $qSales->whereIn("s.{$colPeriod}", $periodsYear);
             } else {
@@ -1175,12 +1121,30 @@ final class AdminIncomeService
 
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
-                    ->orWhere('s.periodicity', '=', 'unico');
+                  ->orWhere('s.periodicity', '=', 'unico');
             });
 
             $sales = collect($qSales->orderBy('period')->orderBy('s.id')->get());
 
-            $sales = $this->attachCompanyFromClientes($sales, $cli, $adm, $adminAccountsById);
+            $sales = $this->attachCompanyFromClientes($sales, $cli);
+
+            // FIX: si la venta está marcada para incluirse en statement, NO la contamos aquí
+            // cuando existe statement para el periodo objetivo (statement_period_target) o para su periodo.
+            $sales = $sales->filter(function ($s) use ($statementKeyHash) {
+                $aid = (string) ($s->account_id ?? '');
+                if ($aid === '') return true;
+
+                $inc = (int) ($s->include_in_statement ?? 0);
+                if ($inc !== 1) return true;
+
+                $perTarget = (string) ($s->statement_period_target ?? '');
+                $per       = (string) ($s->period ?? '');
+
+                if ($perTarget !== '' && isset($statementKeyHash[$aid . '|' . $perTarget])) return false;
+                if ($per !== '' && isset($statementKeyHash[$aid . '|' . $per])) return false;
+
+                return true;
+            })->values();
 
             $rowsSales = $sales->map(function ($s) {
 
@@ -1212,11 +1176,6 @@ final class AdminIncomeService
                 $fMov = $s->f_mov ?: ($s->sale_date ?: ($s->created_at ?: null));
                 $vendorId = !empty($s->vendor_id) ? (string) $s->vendor_id : null;
 
-                $clientName = (string) ($s->company ?? ('Cuenta ' . $s->account_id));
-                if ($clientName === '' || preg_match('/^Cuenta\s+\d+$/i', $clientName)) {
-                    $clientName = (string) ($s->company ?? ('Cuenta ' . $s->account_id));
-                }
-
                 return (object) [
                     'source'        => 'sale',
                     'is_projection' => 0,
@@ -1228,17 +1187,18 @@ final class AdminIncomeService
                     'vendor_id'    => $vendorId,
                     'vendor'       => $s->vendor_name ?: null,
 
-                    'client'       => $clientName,
+                    'client'       => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
                     'description'  => $desc !== '' ? $desc : 'Venta Única',
 
                     'period'       => $per,
                     'account_id'   => (string) $s->account_id,
-                    'company'      => $clientName,
+                    'company'      => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
                     'rfc_emisor'   => (string) ($s->rfc_emisor ?? ''),
 
                     'origin'       => $origin,
                     'periodicity'  => $periodicity,
 
+                    // finance_sales ya guarda subtotal/iva/total
                     'subtotal'     => (float) ($s->subtotal ?? 0),
                     'iva'          => (float) ($s->iva ?? 0),
                     'total'        => (float) ($s->total ?? 0),
@@ -1277,7 +1237,7 @@ final class AdminIncomeService
         // Unión + filtros + sort
         // -------------------------
         $rows = $rowsExisting
-            ->concat($includeProjections ? $rowsProjected : collect())
+            ->concat($rowsProjected)
             ->concat($rowsSales);
 
         // -------------------------
@@ -1400,7 +1360,7 @@ final class AdminIncomeService
         $rows = $rows->sortBy([
             fn ($r) => (string) ($r->period ?? ''),
             fn ($r) => (string) ($r->client ?? $r->company ?? ''),
-            fn ($r) => -1 * (float) ($r->total ?? 0),
+            fn ($r) => -1 * (float) ($r->subtotal ?? 0), // mejor: ordenar por subtotal (lo que cuadra con estados)
         ])->values();
 
         $kpis = $this->computeKpis($rows);
@@ -1411,8 +1371,9 @@ final class AdminIncomeService
 
         return [
             'filters' => compact('year', 'month', 'origin', 'st', 'invSt', 'vendorId', 'qSearch') + [
-                'vendor_list' => $vendorList,
                 'include_projections' => $includeProjections ? 1 : 0,
+                'include_sales'       => $includeSales ? 1 : 0,
+                'vendor_list'         => $vendorList,
             ],
             'kpis'    => $kpis,
             'rows'    => $rows,
@@ -1460,7 +1421,7 @@ final class AdminIncomeService
         return null;
     }
 
-    private function attachCompanyFromClientes(Collection $rows, string $cliConn, string $admConn, Collection $adminAccountsById): Collection
+    private function attachCompanyFromClientes(Collection $rows, string $cliConn): Collection
     {
         $ids = $rows->pluck('account_id')->filter()->unique()->values()->all();
         if (empty($ids)) return $rows;
@@ -1504,21 +1465,7 @@ final class AdminIncomeService
         $byUuid = $found->filter(fn ($c) => !empty($c->id))->keyBy(fn ($c) => (string) $c->id);
         $byAdm  = $found->filter(fn ($c) => !empty($c->admin_account_id))->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        // (Opcional) enriquecer adminAccountsById con los account_id numéricos de ventas únicas (si no venían)
-        if (Schema::connection($admConn)->hasTable('accounts') && !empty($adminIds)) {
-            $missing = [];
-            foreach ($adminIds as $aid) {
-                $aid = (int) $aid;
-                if ($aid <= 0) continue;
-                if (!$adminAccountsById->has((string) $aid)) $missing[] = $aid;
-            }
-            if (!empty($missing)) {
-                $more = $this->loadAdminAccountsById($admConn, $missing);
-                $adminAccountsById = $adminAccountsById->merge($more);
-            }
-        }
-
-        return $rows->map(function ($r) use ($byUuid, $byAdm, $adminAccountsById) {
+        return $rows->map(function ($r) use ($byUuid, $byAdm) {
             $aid = (string) ($r->account_id ?? '');
             $c = null;
 
@@ -1530,19 +1477,20 @@ final class AdminIncomeService
                 }
             }
 
-            $company = $c
-                ? (string) (($c->nombre_comercial ?: null) ?? ($c->razon_social ?: null) ?? ($c->empresa ?? null) ?? ('Cuenta ' . $aid))
-                : (string) ('Cuenta ' . $aid);
-
-            // Fallback fuerte a mysql_admin.accounts cuando quedó placeholder
-            if (($company === '' || preg_match('/^Cuenta\s+\d+$/i', $company)) && preg_match('/^\d+$/', $aid) && $adminAccountsById->has($aid)) {
-                $best = $this->bestAdminAccountName($adminAccountsById->get($aid));
-                if ($best !== '') $company = $best;
+            $name = 'Cuenta ' . $aid;
+            if ($c) {
+                $cand = trim((string) (
+                    ($c->nombre_comercial ?? '') !== '' ? $c->nombre_comercial :
+                    (($c->razon_social ?? '') !== '' ? $c->razon_social :
+                    (($c->empresa ?? '') !== '' ? $c->empresa : ''))
+                ));
+                if ($cand !== '' && !$this->isPlaceholderName($cand)) $name = $cand;
+                elseif (($c->razon_social ?? '') !== '' && !$this->isPlaceholderName((string) $c->razon_social)) $name = (string) $c->razon_social;
+                elseif (($c->empresa ?? '') !== '' && !$this->isPlaceholderName((string) $c->empresa)) $name = (string) $c->empresa;
             }
 
-            $r->company = $company;
+            $r->company = $name;
 
-            // RFC robusto (NO numéricos): solo formato RFC real
             $r->rfc_emisor = $c ? $this->pickRfcEmisor($c->rfc_padre ?? null, $c->rfc ?? null) : '';
 
             return $r;
@@ -1551,14 +1499,13 @@ final class AdminIncomeService
 
     private function mapSalesInvoiceStatusToCanonical(string $raw): string
     {
-        // Canonical: pending|requested|ready|issued|cancelled
         return match ($raw) {
             'solicitada'    => 'requested',
             'en_proceso'    => 'ready',
             'facturada'     => 'issued',
             'rechazada'     => 'cancelled',
-            'sin_solicitud' => 'pending',
-            default         => $raw !== '' ? $raw : 'pending',
+            'sin_solicitud' => 'sin_solicitud',
+            default         => $raw !== '' ? $raw : 'sin_solicitud',
         };
     }
 
@@ -1579,12 +1526,12 @@ final class AdminIncomeService
 
         foreach ($rows as $r) {
             $k['total']['count']++;
-            $k['total']['amount'] += (float) ($r->total ?? 0);
+            $k['total']['amount'] += (float) ($r->subtotal ?? 0); // KPI base: SUBTOTAL (cuadra con estados)
 
             $st = strtolower((string) ($r->ec_status ?? ''));
             if ($st !== '' && isset($k[$st])) {
                 $k[$st]['count']++;
-                $k[$st]['amount'] += (float) ($r->total ?? 0);
+                $k[$st]['amount'] += (float) ($r->subtotal ?? 0);
             }
         }
 
@@ -1691,14 +1638,11 @@ final class AdminIncomeService
         $origin = strtolower($origin);
         $periodicity = strtolower($periodicity);
 
-        // IMPORTANTE:
-        // - source=statement => cargos / estados de cuenta (no "venta")
-        // - source=sale      => sí es venta única real (finance_sales)
         if ($items->isEmpty()) {
             if ($origin === 'recurrente') {
                 return $periodicity === 'anual' ? 'Recurrente Anual' : 'Recurrente Mensual';
             }
-            return 'Cargo Único';
+            return 'Venta Única';
         }
 
         $parts = $items
@@ -1718,7 +1662,7 @@ final class AdminIncomeService
             if ($origin === 'recurrente') {
                 return $periodicity === 'anual' ? 'Recurrente Anual' : 'Recurrente Mensual';
             }
-            return 'Cargo Único';
+            return 'Venta Única';
         }
 
         if ($origin === 'recurrente') {
@@ -1726,6 +1670,6 @@ final class AdminIncomeService
             return $prefix . ' · ' . $txt;
         }
 
-        return 'Cargo Único · ' . $txt;
+        return 'Venta Única · ' . $txt;
     }
 }
