@@ -420,13 +420,72 @@ class ClientesController extends \App\Http\Controllers\Controller
             $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
         }
 
-        // ✅ Crear en admin.accounts
+                // ✅ Crear en admin.accounts (RETRY robusto: no dependemos de hasColumn para NOT NULL sin default)
         $accountId = null;
-        try {
-            $accountId = (string) DB::connection($this->adminConn)->table('accounts')->insertGetId($payload);
-        } catch (\Throwable $e) {
-            Log::error('clientes.store insert admin.accounts failed: ' . $e->getMessage(), ['rfc' => $rfc]);
-            return back()->with('error', 'No se pudo crear la cuenta en admin.accounts: ' . $e->getMessage());
+
+        // base: asegurar razon_social siempre
+        $payload['razon_social'] = $rs;
+
+        $attempts = 0;
+        $lastErr  = null;
+
+        while ($attempts < 3) {
+            $attempts++;
+
+            try {
+                $accountId = (string) DB::connection($this->adminConn)->table('accounts')->insertGetId($payload);
+                $lastErr = null;
+                break;
+
+            } catch (\Throwable $e) {
+                $msg = (string) $e->getMessage();
+                $lastErr = $e;
+
+                // 1) Si falta NAME (NOT NULL sin default) => agregar y reintentar
+                if (stripos($msg, "Field 'name' doesn't have a default value") !== false) {
+                    if (!array_key_exists('name', $payload) || trim((string)$payload['name']) === '') {
+                        $fallback = $rs !== '' ? $rs : $rfc;
+                        $payload['name'] = mb_substr((string) $fallback, 0, 190);
+                        continue;
+                    }
+                }
+
+                // 2) Si falta RFC (NOT NULL sin default) => agregar y reintentar
+                if (stripos($msg, "Field 'rfc' doesn't have a default value") !== false) {
+                    if (!array_key_exists('rfc', $payload) || trim((string)$payload['rfc']) === '') {
+                        $payload['rfc'] = $rfc;
+                        continue;
+                    }
+                }
+
+                // 3) Si en algún ambiente NO existe la columna, quitamos y reintentamos
+                if (stripos($msg, "Unknown column 'name'") !== false) {
+                    unset($payload['name']);
+                    continue;
+                }
+                if (stripos($msg, "Unknown column 'rfc'") !== false) {
+                    unset($payload['rfc']);
+                    continue;
+                }
+
+                // Si no es un caso recuperable, salimos
+                break;
+            }
+        }
+
+        if (!$accountId) {
+            try {
+                Log::error('clientes.store insert admin.accounts failed', [
+                    'rfc'      => $rfc,
+                    'attempts' => $attempts,
+                    'payload_keys' => array_keys($payload),
+                    'error'    => $lastErr ? $lastErr->getMessage() : 'unknown',
+                ]);
+            } catch (\Throwable $e) {
+                // si logging está roto por permisos, no rompemos el flujo
+            }
+
+            return back()->with('error', 'No se pudo crear la cuenta en admin.accounts: ' . ($lastErr ? $lastErr->getMessage() : 'error desconocido'));
         }
 
         // ✅ Legacy clientes (por RFC real)
