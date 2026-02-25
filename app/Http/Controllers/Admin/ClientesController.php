@@ -375,8 +375,10 @@ HTML;
             'created_at'   => now(),
         ];
 
-        if ($schemaA->hasColumn('accounts', $rfcCol)) {
-            $payload[$rfcCol] = $rfc;
+        // ✅ PROD FIX: accounts.name es NOT NULL (sin default) en algunos schemas
+        if ($schemaA->hasColumn('accounts', 'name')) {
+            $fallback = $rs !== '' ? $rs : $rfc;
+            $payload['name'] = mb_substr((string) $fallback, 0, 190);
         }
 
         if ($schemaA->hasColumn('accounts', $emailCol)) {
@@ -400,7 +402,8 @@ HTML;
         }
 
         if ($schemaA->hasColumn('accounts', 'billing_status')) {
-            $payload['billing_status'] = $data['billing_status'] ?? null;
+            $bs = trim((string) ($data['billing_status'] ?? ''));
+            $payload['billing_status'] = ($bs !== '') ? $bs : null;
         }
 
         if ($schemaA->hasColumn('accounts', 'is_blocked')) {
