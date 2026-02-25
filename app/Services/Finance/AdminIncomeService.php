@@ -391,7 +391,8 @@ final class AdminIncomeService
                 }
             }
         }
-        $statementKeySet = $statementKeySet->unique()->values();
+        // Set hash para lookup O(1) en proyecciones
+        $statementKeyHash = array_fill_keys($statementKeySet->all(), true);
 
         // -------------------------
         // Payments (admin.payments)
@@ -920,8 +921,8 @@ final class AdminIncomeService
                     $keyUuid = (string) $cc->id . '|' . (string) $per;
                     $keyAdm  = !empty($cc->admin_account_id) ? ((string) $cc->admin_account_id . '|' . (string) $per) : null;
 
-                    if ($statementKeySet->contains($keyUuid)) continue;
-                    if ($keyAdm && $statementKeySet->contains($keyAdm)) continue;
+                    if (isset($statementKeyHash[$keyUuid])) continue;
+                    if ($keyAdm && isset($statementKeyHash[$keyAdm])) continue;
 
                     $base = (float) (data_get($baselineRecurring, (string) $cc->id . '.subtotal') ?? 0.0);
                     if ($base <= 0 && !empty($cc->admin_account_id)) {
@@ -1096,7 +1097,15 @@ final class AdminIncomeService
                 $qSales->addSelect(DB::raw("NULL as statement_period_target"));
             }
 
-            $qSales->whereIn('period', $periodsYear);
+            // OJO: no usar alias "period" en WHERE (MySQL). Filtramos por columna real o por expresión.
+            if ($colPeriod) {
+                $qSales->whereIn("s.{$colPeriod}", $periodsYear);
+            } else {
+                $qSales->whereIn(
+                    DB::raw("DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m')"),
+                    $periodsYear
+                );
+            }
 
             $qSales->where(function ($w) {
                 $w->whereIn('s.origin', ['unico', 'no_recurrente'])
