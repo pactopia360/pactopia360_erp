@@ -370,27 +370,33 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->with('error', "Ya existe una cuenta con RFC {$rfc} (account_id={$exists->id}).");
         }
 
-        // =========================================================
-        // ✅ Payload (blindado):
-        // - SIEMPRE mandar name + rfc (aunque hasColumn falle)
-        // - Si el ambiente no tiene columna, el retry la quita
-        // =========================================================
+        // Insert payload (solo columnas existentes)
         $payload = [
             'razon_social' => $rs,
             'updated_at'   => now(),
             'created_at'   => now(),
-
-            // ⚠️ Blindado: name NOT NULL en PROD
-            'name'         => mb_substr(($rs !== '' ? $rs : $rfc), 0, 190),
-
-            // ⚠️ Blindado: rfc NOT NULL en PROD
-            'rfc'          => $rfc,
         ];
 
-        // Email/phone: solo si existe columna detectada (esto sí puede variar)
+        // ==========================
+        // ✅ HARD GUARANTEE (PROD)
+        // ==========================
+        // 1) RFC: si existe columna 'rfc', SIEMPRE mandar RFC desde el primer intento
+        if ($schemaA->hasColumn('accounts', 'rfc')) {
+            $payload['rfc'] = $rfc;
+        } elseif ($schemaA->hasColumn('accounts', $rfcCol)) {
+            $payload[$rfcCol] = $rfc;
+        }
+
+        // 2) NAME: si existe columna 'name', SIEMPRE mandar name desde el primer intento
+        if ($schemaA->hasColumn('accounts', 'name')) {
+            $payload['name'] = mb_substr(($rs !== '' ? $rs : $rfc), 0, 190);
+        }
+
+        // ✅ email (si existe la columna real)
         if ($schemaA->hasColumn('accounts', $emailCol)) {
             $payload[$emailCol] = ($email !== '') ? $email : null;
         }
+
         if ($schemaA->hasColumn('accounts', $phoneCol)) {
             $payload[$phoneCol] = ($phone !== '') ? $phone : null;
         }
@@ -398,21 +404,25 @@ class ClientesController extends \App\Http\Controllers\Controller
         if ($schemaA->hasColumn('accounts', 'plan')) {
             $payload['plan'] = $data['plan'] ?? null;
         }
+
         if ($schemaA->hasColumn('accounts', 'plan_actual')) {
             $payload['plan_actual'] = $data['plan'] ?? null;
         }
+
         if ($schemaA->hasColumn('accounts', 'billing_cycle')) {
             $payload['billing_cycle'] = $data['billing_cycle'] ?? null;
         }
+
         if ($schemaA->hasColumn('accounts', 'billing_status')) {
             $bs = trim((string) ($data['billing_status'] ?? ''));
             $payload['billing_status'] = ($bs !== '') ? $bs : null;
         }
+
         if ($schemaA->hasColumn('accounts', 'is_blocked')) {
             $payload['is_blocked'] = (int) ($data['is_blocked'] ?? 0);
         }
 
-        // meta mínimo
+        // meta default mínimo
         if ($schemaA->hasColumn('accounts', 'meta')) {
             $meta = [];
             $cycle = strtolower(trim((string) ($data['billing_cycle'] ?? '')));
@@ -421,19 +431,27 @@ class ClientesController extends \App\Http\Controllers\Controller
             $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
         }
 
-        // =========================================================
-        // ✅ Insert robusto (reintentos):
-        // - Si falta name/rfc => reintenta agregándolos (por si alguien los quitó)
-        // - Si columna no existe => la quita y reintenta
-        // =========================================================
+        // ✅ Crear en admin.accounts (RETRY robusto)
         $accountId = null;
-        $attempts  = 0;
-        $lastErr   = null;
+        $attempts = 0;
+        $lastErr  = null;
 
         while ($attempts < 3) {
             $attempts++;
 
             try {
+                // 🔒 Hard guarantee antes de intentar insertar
+                if ($schemaA->hasColumn('accounts', 'name')) {
+                    if (!array_key_exists('name', $payload) || trim((string) $payload['name']) === '') {
+                        $payload['name'] = mb_substr(($rs !== '' ? $rs : $rfc), 0, 190);
+                    }
+                }
+                if ($schemaA->hasColumn('accounts', 'rfc')) {
+                    if (!array_key_exists('rfc', $payload) || trim((string) $payload['rfc']) === '') {
+                        $payload['rfc'] = $rfc;
+                    }
+                }
+
                 $accountId = (string) DB::connection($this->adminConn)->table('accounts')->insertGetId($payload);
                 $lastErr = null;
                 break;
@@ -442,19 +460,19 @@ class ClientesController extends \App\Http\Controllers\Controller
                 $msg = (string) $e->getMessage();
                 $lastErr = $e;
 
-                // 1) name NOT NULL sin default
+                // 1) Falta NAME => agregar y reintentar
                 if (stripos($msg, "Field 'name' doesn't have a default value") !== false) {
                     $payload['name'] = mb_substr(($rs !== '' ? $rs : $rfc), 0, 190);
                     continue;
                 }
 
-                // 2) rfc NOT NULL sin default
+                // 2) Falta RFC => agregar y reintentar
                 if (stripos($msg, "Field 'rfc' doesn't have a default value") !== false) {
                     $payload['rfc'] = $rfc;
                     continue;
                 }
 
-                // 3) columna no existe en algún ambiente
+                // 3) Unknown column => quitar y reintentar
                 if (stripos($msg, "Unknown column 'name'") !== false) {
                     unset($payload['name']);
                     continue;
@@ -464,7 +482,6 @@ class ClientesController extends \App\Http\Controllers\Controller
                     continue;
                 }
 
-                // No recuperable
                 break;
             }
         }
@@ -472,13 +489,13 @@ class ClientesController extends \App\Http\Controllers\Controller
         if (!$accountId) {
             try {
                 Log::error('clientes.store insert admin.accounts failed', [
-                    'rfc'         => $rfc,
-                    'attempts'    => $attempts,
-                    'payload_keys'=> array_keys($payload),
-                    'error'       => $lastErr ? $lastErr->getMessage() : 'unknown',
+                    'rfc'      => $rfc,
+                    'attempts' => $attempts,
+                    'payload_keys' => array_keys($payload),
+                    'error'    => $lastErr ? $lastErr->getMessage() : 'unknown',
                 ]);
             } catch (\Throwable $e) {
-                // no-op
+                // ignore
             }
 
             return back()->with('error', 'No se pudo crear la cuenta en admin.accounts: ' . ($lastErr ? $lastErr->getMessage() : 'error desconocido'));
@@ -486,9 +503,9 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         // ✅ Legacy clientes (por RFC real)
         try {
-            $this->upsertClienteLegacy($rfc, ['razon_social' => $rs, 'email' => $email, 'updated_at' => now()]);
+            $this->upsertClienteLegacy($rfc, ['razon_social' => $rs] + $payload);
         } catch (\Throwable $e) {
-            Log::warning('clientes.store upsert legacy failed: ' . $e->getMessage(), ['rfc' => $rfc]);
+            try { Log::warning('clientes.store upsert legacy failed: ' . $e->getMessage(), ['rfc' => $rfc]); } catch (\Throwable $e2) {}
         }
 
         // ✅ Espejo + Owner (mysql_clientes)
@@ -502,10 +519,12 @@ class ClientesController extends \App\Http\Controllers\Controller
             ]);
 
         } catch (\Throwable $e) {
-            Log::warning('clientes.store ensureMirrorAndOwner failed: ' . $e->getMessage(), [
-                'account_id' => $accountId,
-                'rfc'        => $rfc,
-            ]);
+            try {
+                Log::warning('clientes.store ensureMirrorAndOwner failed: ' . $e->getMessage(), [
+                    'account_id' => $accountId,
+                    'rfc'        => $rfc,
+                ]);
+            } catch (\Throwable $e2) {}
         }
 
         // ✅ Forzar verificados si se pidió
@@ -513,14 +532,19 @@ class ClientesController extends \App\Http\Controllers\Controller
             $forceEmail = (bool) ($data['force_email_verified'] ?? false);
             $forcePhone = (bool) ($data['force_phone_verified'] ?? false);
 
-            if ($forceEmail) $this->markVerifiedAdminAndMirror($accountId, $rfc, 'email');
-            if ($forcePhone) $this->markVerifiedAdminAndMirror($accountId, $rfc, 'phone');
-
+            if ($forceEmail) {
+                $this->markVerifiedAdminAndMirror($accountId, $rfc, 'email');
+            }
+            if ($forcePhone) {
+                $this->markVerifiedAdminAndMirror($accountId, $rfc, 'phone');
+            }
         } catch (\Throwable $e) {
-            Log::warning('clientes.store markVerified failed: ' . $e->getMessage(), [
-                'account_id' => $accountId,
-                'rfc'        => $rfc,
-            ]);
+            try {
+                Log::warning('clientes.store markVerified failed: ' . $e->getMessage(), [
+                    'account_id' => $accountId,
+                    'rfc'        => $rfc,
+                ]);
+            } catch (\Throwable $e2) {}
         }
 
         // ✅ Enviar credenciales (si hay email)
@@ -530,18 +554,20 @@ class ClientesController extends \App\Http\Controllers\Controller
                 $req2 = new Request(['to' => $email]);
                 $this->emailCredentials($accountId, $req2);
             } catch (\Throwable $e) {
-                Log::warning('clientes.store send credentials failed: ' . $e->getMessage(), [
-                    'account_id' => $accountId,
-                    'rfc'        => $rfc,
-                    'email'      => $email,
-                ]);
+                try {
+                    Log::warning('clientes.store send credentials failed: ' . $e->getMessage(), [
+                        'account_id' => $accountId,
+                        'rfc'        => $rfc,
+                        'email'      => $email,
+                    ]);
+                } catch (\Throwable $e2) {}
             }
         }
 
         return redirect()->route('admin.clientes.index', ['q' => $rfc])
             ->with('ok', "Cliente creado: RFC {$rfc} (account_id={$accountId}).");
     }
-
+    
     private function safeAdminClientesIndexUrl(): string
     {
         try {
