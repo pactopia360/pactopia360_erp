@@ -292,8 +292,8 @@
     </div>
 
     <div class="p360-card p360-table-card">
-      <div class="p360-table-wrap">
-        <table class="p360-table p360-table-excel">
+      <div class="p360-table-wrap p360-table-scroll" role="region" aria-label="Tabla de ingresos (scroll horizontal)">
+          <table class="p360-table p360-table-excel p360-table-wide">
           <thead>
             <tr>
               <th class="p360-th">Año</th>

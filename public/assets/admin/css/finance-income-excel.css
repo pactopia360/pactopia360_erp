@@ -936,3 +936,53 @@ code.p360-code{
 .p360-table tbody tr:hover .p360-minw-client .p360-small{
   opacity:1;
 }
+
+/* =====================================================
+   Income Grid · Responsive table (scroll-x) + sticky head
+   ===================================================== */
+
+.p360-table-scroll{
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 14px;
+}
+
+/* Evita que el contenido “apriete” demasiado columnas */
+.p360-table-wide{
+  width: 100%;
+  min-width: 1280px; /* baseline desktop */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Ajustes progresivos por viewport */
+@media (max-width: 1600px){
+  .p360-table-wide{ min-width: 1180px; }
+}
+@media (max-width: 1366px){
+  .p360-table-wide{ min-width: 1080px; }
+}
+@media (max-width: 1200px){
+  .p360-table-wide{ min-width: 980px; }
+}
+@media (max-width: 992px){
+  .p360-table-wide{ min-width: 920px; }
+}
+
+/* Sticky header para que siempre veas columnas al scrollear */
+.p360-table-excel thead th{
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: inherit; /* respeta tu theme */
+}
+
+/* Mejora el scroll bar en navegadores que lo soportan */
+.p360-table-scroll::-webkit-scrollbar{
+  height: 10px;
+}
+.p360-table-scroll::-webkit-scrollbar-thumb{
+  border-radius: 999px;
+}
