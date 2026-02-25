@@ -1,5 +1,5 @@
 <?php
-// C:\wamp64\www\pactopia360_erp\app\Http\Controllers\Admin\ClientesController.php
+// C:\wamp64\www\pactopia360_erp\app\Http\Controllers\Admin\CrudController.php
 
 declare(strict_types=1);
 
@@ -130,6 +130,13 @@ class ClientesController extends \App\Http\Controllers\Controller
             $select[] = 'meta';
         } else {
             $select[] = DB::raw("NULL as meta");
+        }
+
+        // ✅ HARD GUARANTEE: name para accounts (PROD: NOT NULL sin default)
+        // No dependemos de hasColumn() porque en algunos ambientes/caches puede dar falso.
+        if (!array_key_exists('name', $payload) || trim((string)($payload['name'] ?? '')) === '') {
+            $fallback = $rs !== '' ? $rs : $rfc;
+            $payload['name'] = mb_substr((string) $fallback, 0, 190);
         }
 
         // alguna columna monto si existe
