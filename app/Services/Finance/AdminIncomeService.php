@@ -12,6 +12,80 @@ use Illuminate\Support\Facades\Schema;
 
 final class AdminIncomeService
 {
+
+     // ==========================
+    // Normalización de cuenta (dedupe UUID/NUM)
+    // ==========================
+    private function normalizeAccountKey(?string $statementAccountId, ?object $cc): string
+    {
+        $sid = (string) ($statementAccountId ?? '');
+        $sid = trim($sid);
+
+        // Si tenemos cuenta cliente con admin_account_id, ese es el ID canónico para dedupe
+        if ($cc && !empty($cc->admin_account_id)) {
+            return (string) $cc->admin_account_id;
+        }
+
+        // Si el statement ya viene numérico, úsalo
+        if ($sid !== '' && preg_match('/^\d+$/', $sid)) {
+            return $sid;
+        }
+
+        // Si viene UUID, úsalo como último recurso
+        if ($sid !== '' && preg_match('/^[0-9a-f\-]{36}$/i', $sid)) {
+            return $sid;
+        }
+
+        return $sid !== '' ? $sid : '0';
+    }
+
+    private function statementScore(object $s, Collection $itemsForStatement): int
+    {
+        // Queremos elegir UN statement por (cuenta_canónica, periodo)
+        // Prioridad: pagado > emitido > locked > con items > total_cargo>0 > más nuevo
+        $score = 0;
+
+        if (!empty($s->paid_at)) $score += 1000;
+        if (!empty($s->sent_at)) $score += 500;
+        if ((int)($s->is_locked ?? 0) === 1) $score += 200;
+
+        $cntItems = (int) $itemsForStatement->count();
+        if ($cntItems > 0) $score += 100 + min(50, $cntItems);
+
+        $tc = (float) ($s->total_cargo ?? 0);
+        if ($tc > 0) $score += 50;
+
+        // desempate por updated_at/id
+        $score += (int) ($s->id ?? 0) > 0 ? 1 : 0;
+
+        return $score;
+    }
+
+    private function pickBestStatement(Collection $group, Collection $itemsByStatement): ?object
+    {
+        if ($group->isEmpty()) return null;
+
+        $best = null;
+        $bestScore = -PHP_INT_MAX;
+
+        foreach ($group as $s) {
+            $its = collect($itemsByStatement->get($s->id, collect()));
+            $sc = $this->statementScore($s, $its);
+
+            if ($sc > $bestScore) {
+                $bestScore = $sc;
+                $best = $s;
+            } elseif ($sc === $bestScore) {
+                // desempate: preferir el más nuevo por id
+                $bid = (int) ($best->id ?? 0);
+                $sid = (int) ($s->id ?? 0);
+                if ($sid > $bid) $best = $s;
+            }
+        }
+
+        return $best;
+    }
+    
     // ==========================
     // UI data hygiene
     // ==========================
@@ -417,15 +491,70 @@ final class AdminIncomeService
         $cuentaByAdminId = $cuentas->filter(fn ($c) => !empty($c->admin_account_id))
             ->keyBy(fn ($c) => (string) $c->admin_account_id);
 
-        // expandir keys para uuid<->admin
+                // -------------------------
+        // DEDUPE statements (UUID/NUM) + statementKeyHash CANÓNICO
+        // Motivo: en PROD existen duplicados (uuid + admin_id) e incluso triples por mismo periodo.
+        // -------------------------
+
+        // 1) Marcar cuenta canónica por statement usando cuentas_cliente (si existe admin_account_id)
+        $statementsAllYear = $statementsAllYear->map(function ($s) use ($cuentaByUuid, $cuentaByAdminId) {
+            $sid = (string) ($s->account_id ?? '');
+
+            $cc = null;
+            if ($sid !== '' && preg_match('/^[0-9a-f\-]{36}$/i', $sid)) {
+                $cc = $cuentaByUuid->get($sid);
+            } elseif ($sid !== '' && preg_match('/^\d+$/', $sid)) {
+                $cc = $cuentaByAdminId->get($sid);
+            }
+
+            $s->_canon_account = $this->normalizeAccountKey($sid, $cc);
+            return $s;
+        });
+
+        // 2) Agrupar por (canon_account|period) y elegir el mejor statement (score por paid/sent/locked + items)
+        $groups = $statementsAllYear->groupBy(function ($s) {
+            return (string) ($s->_canon_account ?? '0') . '|' . (string) ($s->period ?? '');
+        });
+
+        $dedup = $groups->map(function ($g) use ($itemsByStatement) {
+            return $this->pickBestStatement(collect($g), $itemsByStatement);
+        })->filter()->values();
+
+        // 3) Reemplazar universo de statements por el set deduplicado
+        $statementsAllYear = $dedup
+            ->sortBy([
+                fn ($s) => (string) ($s->period ?? ''),
+                fn ($s) => (int) ($s->id ?? 0),
+            ])
+            ->values();
+
+        // 4) Re-filtrar por mes (si aplica) usando set deduplicado
+        $statementsFiltered = $statementsAllYear;
+        if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
+            $statementsFiltered = $statementsAllYear
+                ->where('period', '=', sprintf('%04d-%s', $year, $month))
+                ->values();
+        }
+        $statements = $statementsFiltered;
+
+        // 5) Reconstruir keys existentes *canónicas* (admin_account_id si existe, si no, el mismo id)
+        $statementKeySet = collect();
         foreach ($statementsAllYear as $s) {
-            $acc = (string) $s->account_id;
-            $per = (string) $s->period;
+            $acc = (string) ($s->_canon_account ?? $s->account_id);
+            $per = (string) ($s->period ?? '');
+            if ($acc !== '' && $per !== '') $statementKeySet->push($acc . '|' . $per);
+        }
+
+        // 6) Expandir keys uuid<->admin para bloquear proyecciones/ventas en cualquiera de las dos formas
+        foreach ($statementsAllYear as $s) {
+            $acc = (string) ($s->account_id ?? '');
+            $per = (string) ($s->period ?? '');
             if ($acc === '' || $per === '') continue;
 
             if (preg_match('/^[0-9a-f\-]{36}$/i', $acc)) {
                 $cc = $cuentaByUuid->get($acc);
                 if ($cc && !empty($cc->admin_account_id)) {
+                    // si existe UUID, también marca admin_id|period
                     $statementKeySet->push((string) $cc->admin_account_id . '|' . $per);
                 }
             }
@@ -433,6 +562,7 @@ final class AdminIncomeService
             if (preg_match('/^\d+$/', $acc)) {
                 $cc = $cuentaByAdminId->get($acc);
                 if ($cc && !empty($cc->id)) {
+                    // si existe admin_id, también marca uuid|period
                     $statementKeySet->push((string) $cc->id . '|' . $per);
                 }
             }
