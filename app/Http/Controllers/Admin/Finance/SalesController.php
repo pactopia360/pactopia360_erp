@@ -154,9 +154,21 @@ final class SalesController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        // Normaliza origin
-        $origin = strtolower((string)$data['origin']);
+        // Normaliza origin (DB: recurrente | no_recurrente; UI puede mandar unico)
+        $origin = strtolower(trim((string) ($data['origin'] ?? 'no_recurrente')));
         if ($origin === 'unico') $origin = 'no_recurrente';
+        if (!in_array($origin, ['recurrente', 'no_recurrente'], true)) $origin = 'no_recurrente';
+
+        // Normaliza periodicity (DB enum)
+        $periodicity = strtolower(trim((string) ($data['periodicity'] ?? 'unico')));
+        if (!in_array($periodicity, ['unico', 'mensual', 'anual'], true)) $periodicity = 'unico';
+
+        // Normaliza statement_status (tu tabla finance_sales.status enum)
+        $statementStatus = strtolower(trim((string) ($data['statement_status'] ?? 'pending')));
+        if (!in_array($statementStatus, ['pending', 'emitido', 'pagado', 'vencido'], true)) $statementStatus = 'pending';
+
+        // invoice_status permitido por tu UI (varchar en BD; lo dejamos pasar, pero normalizado)
+        $invoiceStatus = strtolower(trim((string) ($data['invoice_status'] ?? 'sin_solicitud')));
 
         // Validar account en admin
         if (!Schema::connection($this->adm)->hasTable('accounts')) {
@@ -184,7 +196,19 @@ final class SalesController extends Controller
 
         $saleId = null;
 
-        DB::connection($this->adm)->transaction(function () use ($data, $origin, $subtotal, $iva, $total, $include, $target, &$saleId) {
+        DB::connection($this->adm)->transaction(function () use (
+            $data,
+            $origin,
+            $periodicity,
+            $statementStatus,
+            $invoiceStatus,
+            $subtotal,
+            $iva,
+            $total,
+            $include,
+            $target,
+            &$saleId
+        ) {
 
             $saleId = (int) DB::connection($this->adm)->table('finance_sales')->insertGetId([
                 'account_id'             => (int) $data['account_id'],
@@ -193,7 +217,7 @@ final class SalesController extends Controller
                 'pay_method'             => $data['pay_method'] ?? null,
 
                 'origin'                 => $origin,
-                'periodicity'            => $data['periodicity'],
+                'periodicity'            => $periodicity,
                 'vendor_id'              => $data['vendor_id'] ?? null,
                 'period'                 => (string) $data['period'],
 
@@ -207,8 +231,8 @@ final class SalesController extends Controller
                 'iva'                    => $iva,
                 'total'                  => $total,
 
-                'statement_status'       => (string) $data['statement_status'],
-                'invoice_status'         => (string) $data['invoice_status'],
+                'statement_status'       => $statementStatus,
+                'invoice_status'         => $invoiceStatus,
                 'cfdi_uuid'              => $data['cfdi_uuid'] ?? null,
 
                 'include_in_statement'    => $include ? 1 : 0,
