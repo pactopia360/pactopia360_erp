@@ -1460,8 +1460,8 @@ final class AdminIncomeService
             'en_proceso'    => 'ready',
             'facturada'     => 'issued',
             'rechazada'     => 'cancelled',
-            'sin_solicitud' => 'pending',
-            default         => $raw !== '' ? $raw : 'pending',
+           'sin_solicitud' => 'sin_solicitud',
+            default         => $raw !== '' ? $raw : 'sin_solicitud',
         };
     }
 
