@@ -1,0 +1,669 @@
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\finance-income.vnext.css */
+/* P360 Admin · Finance Income (vNext)
+   Objetivo (actualizado):
+   ✅ Layout KPI nuevo (2 niveles) SIN encimar y sin columnas raras
+   ✅ Reducir espacio vertical (hero+filtros) sin romper legibility
+   ✅ Tabla pro (sticky header + sticky 2 cols + clamp + densidad + hover)
+   ✅ Desktop = tabla / Mobile = cards (sin duplicados)
+   ✅ Harden modal/backdrop (por si otro CSS pisa position/display)
+   ✅ 1 solo encabezado (topbar) + dropdown "Más"
+*/
+
+/* =========================================================
+   Layout base
+   ========================================================= */
+.p360-income-vnext{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+/* ==============
+   Cards base
+   ============== */
+.p360-income-vnext .p360-card{
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 1px 0 rgba(15,23,42,.03);
+}
+.p360-income-vnext .p360-card-pad{ padding:14px; }
+@media (max-width:520px){
+  .p360-income-vnext .p360-card-pad{ padding:12px; }
+}
+
+/* ==============
+   Buttons / inputs (compact)
+   ============== */
+.p360-income-vnext .p360-btn{
+  height:36px;
+  padding:8px 12px;
+  border-radius:12px;
+  font-weight:950;
+  border:1px solid rgba(15,23,42,.12);
+  background:#fff;
+  color:#0f172a;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  text-decoration:none;
+  cursor:pointer;
+  user-select:none;
+  white-space:nowrap;
+}
+.p360-income-vnext .p360-btn:hover{ box-shadow:0 6px 18px rgba(15,23,42,.08); }
+.p360-income-vnext .p360-btn:active{ transform:translateY(1px); }
+.p360-income-vnext .p360-btn[disabled]{ opacity:.6; cursor:not-allowed; transform:none; box-shadow:none; }
+
+.p360-income-vnext .p360-btn-primary{
+  background:#0f172a;
+  border-color:#0f172a;
+  color:#fff;
+}
+.p360-income-vnext .p360-btn-primary:hover{ filter:brightness(1.03); }
+
+.p360-income-vnext .p360-btn-soft{
+  background:rgba(15,23,42,.03);
+  border-color:rgba(15,23,42,.10);
+  color:#0f172a;
+}
+.p360-income-vnext .p360-btn-soft:hover{ background:rgba(15,23,42,.05); }
+
+.p360-income-vnext .p360-btn-ghost{
+  background:transparent;
+  border-color:rgba(15,23,42,.14);
+}
+
+.p360-income-vnext .p360-ctl{
+  height:36px;
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:12px;
+  padding:8px 10px;
+  background:#fff;
+  color:#0f172a;
+  font-weight:800;
+  outline:none;
+}
+.p360-income-vnext .p360-ctl::placeholder{
+  color:#94a3b8;
+  font-weight:700;
+}
+.p360-income-vnext .p360-ctl:focus{
+  border-color:rgba(2,132,199,.40);
+  box-shadow:0 0 0 3px rgba(2,132,199,.14);
+}
+
+/* =========================================================
+   TOPBAR (1 solo header)
+   ========================================================= */
+.p360-topbar{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.p360-topbar-left{
+  min-width:240px;
+  flex:1;
+}
+.p360-topbar-title{
+  margin:0;
+  font-size:18px;
+  letter-spacing:-.2px;
+  font-weight:1000;
+  color:#0f172a;
+}
+.p360-topbar-sub{
+  margin-top:6px;
+  color:#64748b;
+  font-weight:800;
+  font-size:12px;
+  line-height:1.25;
+}
+.p360-topbar-right{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+/* Dropdown "Más" (sin JS) */
+.p360-more{ position:relative; }
+.p360-more > summary{ list-style:none; cursor:pointer; }
+.p360-more > summary::-webkit-details-marker{ display:none; }
+
+.p360-caret{
+  font-weight:1000;
+  opacity:.8;
+  margin-left:2px;
+}
+
+.p360-more-menu{
+  position:absolute;
+  right:0;
+  top:calc(100% + 8px);
+  min-width:220px;
+  z-index:60;
+  background:#fff;
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:14px;
+  box-shadow:0 18px 50px rgba(2,6,23,.18);
+  padding:8px;
+}
+.p360-more-item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 10px;
+  border-radius:12px;
+  text-decoration:none;
+  color:#0f172a;
+  font-weight:900;
+  font-size:13px;
+  line-height:1.1;
+}
+.p360-more-item:hover{ background:rgba(2,132,199,.08); }
+.p360-more-sep{
+  height:1px;
+  background:rgba(15,23,42,.10);
+  margin:6px 4px;
+  border-radius:999px;
+}
+
+/* =========================================================
+   FILTERS (compact + details)
+   ========================================================= */
+.p360-filters-card{ padding-top:12px; padding-bottom:12px; }
+.p360-filters-form{ display:flex; flex-direction:column; gap:10px; }
+
+.p360-filters-row{
+  display:grid;
+  grid-template-columns: 170px 170px minmax(260px, 1fr) auto;
+  gap:10px;
+  align-items:end;
+}
+@media (max-width:1100px){
+  .p360-filters-row{ grid-template-columns: 1fr 1fr; }
+  .p360-filters-row .fi-search{ grid-column: 1 / -1; }
+  .p360-filters-row .fi-actions{ grid-column: 1 / -1; }
+}
+
+.p360-filters-row .fi label,
+.p360-advanced-grid .fi label{
+  display:block;
+  margin:0 0 6px;
+  font-size:11px;
+  color:#64748b;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+}
+
+.p360-filters-row .fi-actions .btns{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+@media (max-width:1100px){
+  .p360-filters-row .fi-actions .btns{ justify-content:flex-start; }
+}
+
+.p360-advanced{
+  border:1px dashed rgba(15,23,42,.16);
+  border-radius:14px;
+  padding:10px 10px 12px;
+  background:rgba(15,23,42,.015);
+}
+.p360-advanced > summary{
+  list-style:none;
+  cursor:pointer;
+  user-select:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  font-weight:950;
+  color:#0f172a;
+}
+.p360-advanced > summary::-webkit-details-marker{ display:none; }
+.p360-advanced > summary .hint{
+  color:#64748b;
+  font-size:12px;
+  font-weight:850;
+}
+.p360-advanced[open] > summary{
+  padding-bottom:8px;
+  border-bottom:1px dashed rgba(15,23,42,.16);
+  margin-bottom:10px;
+}
+
+.p360-advanced-grid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:10px;
+  align-items:end;
+}
+@media (max-width:1100px){
+  .p360-advanced-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width:520px){
+  .p360-advanced-grid{ grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   KPIs NUEVO LAYOUT (2 niveles) — COMPACTO
+   - .p360-kpis-wrap: contenedor
+   - .p360-kpis-main: 4 tarjetas (Subtotal/IVA/Total/Filas)
+   - .p360-kpis-secondary: 2 tarjetas (Cobranza/Caja)
+   ========================================================= */
+.p360-kpis-wrap{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:10px;
+}
+
+/* 4 tarjetas arriba */
+.p360-kpis-main{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap:10px;
+}
+@media (max-width:1200px){
+  .p360-kpis-main{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width:520px){
+  .p360-kpis-main{ grid-template-columns: 1fr; }
+}
+
+.p360-kpi-card{
+  border:1px solid rgba(15,23,42,.10);
+  background:#fff;
+  border-radius:14px;
+  padding:8px 10px;          /* ↓ compact */
+  box-shadow:0 1px 0 rgba(15,23,42,.02);
+  min-height:56px;           /* ↓ */
+}
+.p360-kpi-card .k{
+  font-size:10px;            /* ↓ */
+  color:#64748b;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+  line-height:1.1;
+}
+.p360-kpi-card .v{
+  margin-top:4px;            /* ↓ */
+  font-size:13px;            /* ↓ */
+  color:#0f172a;
+  font-weight:1000;
+  letter-spacing:-.2px;
+  line-height:1.1;
+}
+.p360-kpi-card.strong{
+  border-color:rgba(15,23,42,.18);
+  background:rgba(2,132,199,.05);
+}
+
+/* 2 tarjetas debajo */
+.p360-kpis-secondary{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+}
+@media (max-width:1100px){
+  .p360-kpis-secondary{ grid-template-columns: 1fr; }
+}
+
+.p360-pay-card{
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:14px;
+  padding:8px 10px;          /* ↓ compact */
+  background:#fff;
+  overflow:hidden;
+  box-shadow:0 1px 0 rgba(15,23,42,.02);
+}
+
+.p360-pay-head{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.p360-pay-card .lbl{
+  font-size:10px;            /* ↓ */
+  color:#64748b;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+  line-height:1.1;
+}
+.p360-pay-card .hint{
+  color:#64748b;
+  font-size:12px;
+  font-weight:850;
+}
+
+/* mini-grid dentro */
+.p360-pay-cells{
+  margin-top:6px;            /* ↓ */
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:6px;                   /* ↓ */
+}
+@media (max-width:1300px){
+  .p360-pay-cells{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width:520px){
+  .p360-pay-cells{ grid-template-columns: 1fr; }
+}
+
+.p360-pay-cells .c{
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:12px;
+  padding:6px 7px;           /* ↓ */
+  background:rgba(15,23,42,.010);
+}
+.p360-pay-cells .c .k{
+  font-size:9.5px;           /* ↓ */
+  color:#64748b;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.50px;
+  line-height:1.1;
+}
+.p360-pay-cells .c .v{
+  margin-top:3px;            /* ↓ */
+  font-size:12px;            /* ↓ */
+  color:#0f172a;
+  font-weight:1000;
+  line-height:1.1;
+}
+
+/* =========================================================
+   TABLE HEADER (min)
+   ========================================================= */
+.p360-table-card-vnext{ overflow:hidden; }
+
+.p360-table-head{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  background:linear-gradient(to bottom, rgba(15,23,42,.02), rgba(15,23,42,0));
+}
+.p360-table-head .ttl{
+  font-weight:1000;
+  color:#0f172a;
+  letter-spacing:-.2px;
+}
+.p360-table-head .meta{
+  color:#64748b;
+  font-weight:850;
+  font-size:12px;
+}
+
+/* Variante “min” si decides usarla */
+.p360-table-head-min{ padding:10px 14px; }
+.p360-table-head-min .meta{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  font-size:12px;
+}
+.p360-table-head-min .meta .lbl{
+  color:#94a3b8;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+  font-size:10.5px;
+}
+.p360-table-head-min .meta .dot{
+  color:#cbd5e1;
+  font-weight:1000;
+}
+
+/* =========================================================
+   TABLE PRO
+   ========================================================= */
+.p360-table-scroll{
+  width:100%;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  background:#fff;
+}
+
+.p360-income-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  min-width:1600px;
+  background:#fff;
+}
+
+.p360-income-table thead th{
+  position:sticky;
+  top:0;
+  z-index:5;
+}
+
+.p360-income-table .p360-th{
+  background:rgba(255,255,255,.92);
+  backdrop-filter:saturate(160%) blur(8px);
+  -webkit-backdrop-filter:saturate(160%) blur(8px);
+  border-bottom:1px solid rgba(15,23,42,.10);
+  padding:11px 12px;
+  text-align:left;
+  font-size:11px;
+  font-weight:1000;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.75px;
+  white-space:nowrap;
+}
+.p360-income-table .p360-th-num{ text-align:right; }
+.p360-income-table .p360-th-actions{ text-align:center; width:92px; }
+
+.p360-income-table .p360-td{
+  border-bottom:1px solid rgba(15,23,42,.06);
+  padding:14px 12px;
+  vertical-align:top;
+  font-size:13px;
+  color:#0f172a;
+  background:#fff;
+}
+
+/* Zebra */
+.p360-income-table tbody tr:nth-child(odd) .p360-td{
+  background:rgba(15,23,42,.012);
+}
+
+/* Hover row */
+.p360-income-table tbody tr:hover .p360-td{
+  background:rgba(2,132,199,.06);
+}
+
+/* Subtle vertical separators */
+.p360-income-table .p360-th + .p360-th,
+.p360-income-table .p360-td + .p360-td{
+  box-shadow: inset 1px 0 0 rgba(15,23,42,.04);
+}
+
+/* Sticky first 2 cols */
+.p360-sticky-col{
+  position:sticky;
+  background:inherit;
+  z-index:4;
+}
+.p360-sticky-1{ left:0; }
+.p360-sticky-2{ left:70px; }
+.p360-income-table .p360-col-year{ width:70px; text-align:center; font-weight:950; }
+.p360-income-table .p360-col-month{ width:120px; }
+
+.p360-income-table thead .p360-sticky-col{
+  z-index:6;
+  background:rgba(255,255,255,.95);
+}
+
+/* Shadow cue on sticky boundary */
+.p360-income-table .p360-sticky-2{
+  box-shadow: 10px 0 18px rgba(15,23,42,.08);
+}
+
+/* Column sizing */
+.p360-income-table .p360-col-vendor{ min-width:160px; }
+.p360-income-table .p360-col-client{ min-width:320px; max-width:420px; }
+.p360-income-table .p360-col-desc{ min-width:320px; max-width:420px; }
+.p360-income-table .p360-col-origin{ width:120px; }
+.p360-income-table .p360-col-perio{ width:130px; }
+.p360-income-table .p360-col-money{ width:140px; }
+.p360-income-table .p360-col-total{ width:150px; }
+.p360-income-table .p360-col-date{ width:110px; color:#64748b; font-weight:850; }
+.p360-income-table .p360-col-status{ width:130px; }
+.p360-income-table .p360-col-actions{ width:92px; text-align:center; }
+
+.p360-income-table .p360-td-num{
+  text-align:right;
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+  font-weight:950;
+}
+
+/* Cell typography */
+.p360-cell-main{
+  font-weight:1000;
+  letter-spacing:-.12px;
+  line-height:1.15;
+}
+.p360-cell-sub{
+  margin-top:5px;
+  color:#94a3b8;
+  font-size:11.5px;
+  font-weight:850;
+  line-height:1.25;
+}
+.p360-cell-meta{ margin-top:8px; }
+
+/* Clamp helpers */
+.clamp1, .clamp2{
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.clamp1{ -webkit-line-clamp:1; }
+.clamp2{ -webkit-line-clamp:2; }
+
+/* Code chip */
+code.p360-code{
+  background:rgba(15,23,42,.06);
+  border:1px solid rgba(15,23,42,.08);
+  padding:2px 6px;
+  border-radius:10px;
+  font-weight:950;
+  font-size:11px;
+  color:#0f172a;
+}
+
+/* Action button compact */
+.p360-actions-btn-sm{
+  height:32px !important;
+  padding:7px 10px !important;
+  border-radius:12px !important;
+  font-weight:1000 !important;
+}
+
+/* Pills/badges */
+.p360-pill, .p360-badge{
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:11.5px;
+  font-weight:1000;
+  letter-spacing:.15px;
+  line-height:1;
+  border:1px solid rgba(15,23,42,.08);
+  box-shadow:0 1px 0 rgba(15,23,42,.03);
+}
+
+/* Scrollbar */
+.p360-table-scroll::-webkit-scrollbar{ height:10px; width:10px; }
+.p360-table-scroll::-webkit-scrollbar-thumb{
+  border-radius:999px;
+  border:2px solid rgba(255,255,255,.85);
+  background:rgba(15,23,42,.25);
+}
+.p360-table-scroll::-webkit-scrollbar-track{
+  background:rgba(15,23,42,.05);
+}
+
+/* =========================================================
+   RESPONSIVE: Desktop = tabla, Mobile = cards
+   ========================================================= */
+.p360-income-vnext .p360-cards{
+  display:none !important;
+}
+.p360-income-vnext .p360-table-wrap{
+  display:block;
+}
+
+@media (max-width:980px){
+  .p360-income-vnext .p360-table-wrap{ display:none; }
+  .p360-income-vnext .p360-cards{
+    display:flex !important;
+    flex-direction:column;
+    gap:10px;
+  }
+}
+
+/* Screen reader helper */
+.sr-only{
+  position:absolute !important;
+  width:1px !important;
+  height:1px !important;
+  padding:0 !important;
+  margin:-1px !important;
+  overflow:hidden !important;
+  clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important;
+  border:0 !important;
+}
+
+/* =========================================================
+   MODAL HARDEN
+   ========================================================= */
+.p360-modal-backdrop{
+  position:fixed !important;
+  inset:0 !important;
+  background:rgba(15,23,42,.55) !important;
+  display:none !important;
+  z-index:9998 !important;
+}
+.p360-modal-backdrop.is-open{ display:block !important; }
+
+.p360-modal{
+  position:fixed !important;
+  inset:0 !important;
+  display:none !important;
+  z-index:9999 !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:16px !important;
+}
+.p360-modal[aria-hidden="false"]{ display:flex !important; }
+
+.p360-modal-panel{
+  width:100% !important;
+  max-width:1040px !important;
+  background:#fff !important;
+  border-radius:18px !important;
+  border:1px solid rgba(15,23,42,.12) !important;
+  box-shadow:0 20px 60px rgba(2,6,23,.22) !important;
+  overflow:hidden !important;
+}

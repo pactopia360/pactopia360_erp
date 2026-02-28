@@ -408,19 +408,26 @@ body.theme-light{
   font: 800 12px/1 system-ui;
 }
 
+
 /* ==========================================================
-   TABLE (row cards premium, sin recortes)
+   TABLE WRAP (SIN DOBLE SCROLL: usa solo scroll del body)
    ========================================================== */
 .sx-table-wrap{
   width:100%;
-  overflow: auto;
-  max-height: calc(100vh - 340px);
-  overscroll-behavior: contain;
+
+  /* ✅ quita el scroll interno vertical */
+  overflow-y: visible;
+  max-height: none;
+
+  /* ✅ conserva comportamiento horizontal cuando haga falta */
+  overflow-x: auto;
+
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: auto; /* ya no hay “scroll container” interno */
   scrollbar-gutter: stable both-edges;
 }
 
-/* Desktop: no scroll horizontal si cabe */
+/* Desktop: si quieres evitar horizontal cuando normalmente cabe */
 @media (min-width: 901px){
   .sx-table-wrap{ overflow-x: hidden; }
 }
@@ -600,7 +607,7 @@ html.dark .sx-table tbody tr:hover{
 
 /* Mobile: vuelve a tabla normal + scroll horizontal */
 @media (max-width: 900px){
-  .sx-table-wrap{ overflow-x: auto; max-height: calc(100vh - 420px); }
+  .sx-table-wrap{ overflow-x: auto; max-height: none; overflow-y: visible; }
 
   .sx-table{
     border-collapse: collapse;

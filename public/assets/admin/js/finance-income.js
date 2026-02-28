@@ -1,5 +1,5 @@
 /* public/assets/admin/js/finance-income.js */
-/* Finanzas > Ingresos (Ventas) · Modal editor + delete (extraído de Blade) */
+/* Finanzas > Ingresos (Ventas) · Modal editor + delete (vNext UX: scroll-lock + focus restore + include flag fix) */
 
 (function(){
   'use strict';
@@ -25,6 +25,7 @@
   const delNo    = qs('#p360IncomeCancelDeleteBtn');
 
   let lastPayload = null;
+  let lastTriggerEl = null;
 
   const money = (n) => {
     const x = Number(n || 0);
@@ -51,6 +52,82 @@
     alertEl.style.display = 'block';
     alertEl.classList.add(kind === 'ok' ? 'ok' : 'bad');
     alertEl.textContent = msg;
+  }
+
+    // =========================
+  // HTTP helpers (JSON o texto + mensajes útiles)
+  // =========================
+  async function readResponseAny(res){
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    let text = '';
+    let json = null;
+
+    // Primero intenta texto (sirve para HTML/errores)
+    try { text = await res.text(); } catch(e){ text = ''; }
+
+    // Si parece JSON por content-type o por contenido
+    const looksJson = ct.includes('application/json') || /^\s*\{/.test(text) || /^\s*\[/.test(text);
+    if (looksJson) {
+      try { json = JSON.parse(text || ''); } catch(e){ json = null; }
+    }
+
+    return { text, json, contentType: ct };
+  }
+
+  function summarizeHttpError(res, parsed){
+    const status = res.status;
+
+    // Mensajes “humanos” para casos típicos en Laravel
+    if (status === 419) return 'Sesión/CSRF expirado (419). Refresca la página y vuelve a intentar.';
+    if (status === 401) return 'No autenticado (401). Parece que la sesión se perdió. Refresca e inicia sesión.';
+    if (status === 403) return 'Acceso denegado (403). Revisa permisos/middleware.';
+    if (status >= 500) return 'Error interno del servidor (' + status + '). Revisa storage/logs/laravel.log.';
+
+    // Si backend manda JSON con message/error
+    const j = parsed?.json;
+    if (j && typeof j === 'object') {
+      if (j.message) return String(j.message);
+      if (j.error) return String(j.error);
+
+      // Validación Laravel: { message, errors: {field:[...]} }
+      if (j.errors && typeof j.errors === 'object') {
+        const lines = [];
+        Object.entries(j.errors).forEach(([k, arr]) => {
+          if (Array.isArray(arr)) arr.forEach(m => lines.push(`${k}: ${m}`));
+          else if (arr) lines.push(`${k}: ${arr}`);
+        });
+        if (lines.length) return 'Validación:\n' + lines.join('\n');
+      }
+    }
+
+    // Si vino HTML (ej. redirect/login), intenta dar pista
+    const t = String(parsed?.text || '');
+    if (t.includes('<!doctype html') || t.includes('<html')) {
+      // Muchas veces es login/redirect o una página de error
+      if (t.toLowerCase().includes('login') || t.toLowerCase().includes('iniciar')) {
+        return 'Respuesta HTML (posible redirect/login). Confirma sesión activa y middleware.';
+      }
+      return 'Respuesta HTML inesperada. Abre Network > Response para ver el detalle.';
+    }
+
+    return 'Error HTTP ' + status;
+  }
+
+  async function requestJson(url, opts){
+    const headers = Object.assign({
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRF-TOKEN': CFG.csrf || '',
+    }, (opts && opts.headers) ? opts.headers : {});
+
+    const res = await fetch(url, Object.assign({}, opts || {}, {
+      headers,
+      credentials: 'same-origin',
+    }));
+
+    const parsed = await readResponseAny(res);
+
+    return { res, parsed };
   }
 
   function hideAlert(){
@@ -122,6 +199,18 @@
   attachAutoCalc();
 
   // =========================
+  // Scroll lock (modal UX)
+  // =========================
+  function lockScroll(){
+    document.documentElement.classList.add('p360-modal-open');
+    document.body.classList.add('p360-modal-open');
+  }
+  function unlockScroll(){
+    document.documentElement.classList.remove('p360-modal-open');
+    document.body.classList.remove('p360-modal-open');
+  }
+
+  // =========================
   // DELETE helpers
   // =========================
   function canDelete(payload){
@@ -157,19 +246,19 @@
 
       if (!/^\d{4}\-(0[1-9]|1[0-2])$/.test(period) || !accountId) return null;
 
-      const qs = new URLSearchParams({
+      const q = new URLSearchParams({
         period: period,
         account_id: accountId,
         row_type: rowType,
       });
 
-      return base + '?' + qs.toString();
+      return base + '?' + q.toString();
     }
 
     return null;
   }
 
-  async function doDelete(payload){
+    async function doDelete(payload){
     if (!payload) return;
 
     if (!CFG.destroyUrlTpl) {
@@ -190,31 +279,37 @@
     }
 
     try{
-      const res = await fetch(url, {
+      const { res, parsed } = await requestJson(url, {
         method: 'DELETE',
-        headers: {
-          'X-CSRF-TOKEN': CFG.csrf,
-          'Accept': 'application/json',
-        },
-        credentials: 'same-origin',
       });
 
-      let json = null;
-      try { json = await res.json(); } catch(e){}
+      // Si el backend respondió JSON {ok:true}
+      const json = parsed.json;
 
-      if (!res.ok || !json || json.ok !== true) {
-        const msg = (json && (json.message || json.error))
-          ? (json.message || json.error)
-          : ('Error HTTP ' + res.status);
-        showAlert('bad', msg);
+      if (res.ok && json && json.ok === true) {
+        showAlert('ok', 'Eliminado OK (' + (json.mode || 'ok') + '). Actualizando vista...');
+        window.setTimeout(() => window.location.reload(), 520);
         return;
       }
 
-      showAlert('ok', 'Eliminado OK (' + (json.mode || 'ok') + '). Actualizando vista...');
-      window.setTimeout(() => window.location.reload(), 520);
+      // Error: muestra mensaje con detalle
+      const msg = summarizeHttpError(res, parsed);
+      showAlert('bad', msg);
+
+      // Debug opcional (no molesta y ayuda muchísimo)
+      try {
+        console.warn('[P360_FIN_INCOME] delete failed', {
+          url,
+          status: res.status,
+          contentType: parsed.contentType,
+          json: parsed.json,
+          textPreview: String(parsed.text || '').slice(0, 500),
+        });
+      } catch(e){}
 
     } catch(err){
       showAlert('bad', 'Error de red/JS al eliminar.');
+      try { console.error('[P360_FIN_INCOME] delete exception', err); } catch(e){}
     } finally {
       if (delBtn) {
         delBtn.disabled = false;
@@ -275,9 +370,10 @@
   // =========================
   // Modal open/close
   // =========================
-  function openModal(payload){
+  function openModal(payload, triggerEl){
     if (!payload || typeof payload !== 'object') return;
 
+    lastTriggerEl = triggerEl || null;
     lastPayload = JSON.parse(JSON.stringify(payload || {}));
     hideAlert();
 
@@ -287,6 +383,10 @@
 
     if (titleEl) titleEl.textContent = `${tipo} · ${per}`;
     if (subEl)   subEl.textContent   = `${cli} · Cuenta: ${payload.account_id || '—'}`;
+
+    const incVal = (payload.include_in_statement === 1) ? 'Sí'
+                : (payload.include_in_statement === 0) ? 'No'
+                : '—';
 
     const fields = [
       ['Fuente', payload.source],
@@ -316,7 +416,7 @@
       ['UUID', payload.cfdi_uuid || '—'],
 
       ['Sale ID', payload.sale_id ? String(payload.sale_id) : '—'],
-      ['Incluir en E.Cta', payload.include_in_statement ? 'Sí' : 'No'],
+      ['Incluir en E.Cta', incVal],
       ['Periodo target (E.Cta)', payload.statement_period_target || '—'],
     ];
 
@@ -362,12 +462,21 @@
 
     if (backdrop) backdrop.classList.add('is-open');
     if (modal) modal.setAttribute('aria-hidden', 'false');
+
+    lockScroll();
+
+    // focus al primer control (close)
+    const closeBtn = modal ? modal.querySelector('[data-income-close="1"]') : null;
+    if (closeBtn) closeBtn.focus({ preventScroll:true });
+
     document.addEventListener('keydown', onEsc);
   }
 
   function closeModal(){
     if (modal) modal.setAttribute('aria-hidden', 'true');
     if (backdrop) backdrop.classList.remove('is-open');
+
+    unlockScroll();
 
     if (gridEl) gridEl.innerHTML = '';
     if (leftEl) leftEl.innerHTML = '';
@@ -379,13 +488,19 @@
     lastPayload = null;
 
     document.removeEventListener('keydown', onEsc);
+
+    // restore focus
+    if (lastTriggerEl && typeof lastTriggerEl.focus === 'function') {
+      try { lastTriggerEl.focus({ preventScroll:true }); } catch(e){}
+    }
+    lastTriggerEl = null;
   }
 
   function onEsc(e){
     if (e.key === 'Escape') closeModal();
   }
 
-  // =========================
+   // =========================
   // Submit upsert
   // =========================
   async function submitUpsert(){
@@ -393,8 +508,19 @@
       showAlert('bad', 'No está configurada la ruta admin.finance.income.row.');
       return;
     }
+    if (!formEl) {
+      showAlert('bad', 'No existe el formulario de edición (p360IncomeEditForm).');
+      return;
+    }
 
     const fd = new FormData(formEl);
+
+    // DEBUG: inspección clara de lo que realmente se envía
+    try {
+      const obj = {};
+      fd.forEach((v, k) => { obj[k] = v; });
+      console.log('[P360_FIN_INCOME] upsert payload:', obj);
+    } catch(e) {}
 
     if (saveBtn) {
       saveBtn.disabled = true;
@@ -409,26 +535,37 @@
         headers: {
           'X-CSRF-TOKEN': CFG.csrf,
           'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
         },
         body: fd,
         credentials: 'same-origin',
       });
 
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
       let json = null;
-      try { json = await res.json(); } catch(e){}
+      let text = '';
+
+      if (ct.includes('application/json')) {
+        try { json = await res.json(); } catch(e){}
+      } else {
+        try { text = await res.text(); } catch(e){}
+      }
 
       if (!res.ok || !json || json.ok !== true) {
         const msg = (json && (json.message || json.error))
           ? (json.message || json.error)
-          : ('Error HTTP ' + res.status);
+          : (text ? ('Respuesta no-JSON (HTTP ' + res.status + '): ' + text.slice(0, 200)) : ('Error HTTP ' + res.status));
+        console.warn('[P360_FIN_INCOME] upsert failed:', { status: res.status, ct, json, textPreview: (text || '').slice(0, 800) });
         showAlert('bad', msg);
         return;
       }
 
+      console.log('[P360_FIN_INCOME] upsert ok:', json);
       showAlert('ok', 'Guardado OK (' + (json.mode || 'ok') + '). Actualizando vista...');
       window.setTimeout(() => window.location.reload(), 520);
 
     } catch(err){
+      console.error('[P360_FIN_INCOME] upsert network/js error:', err);
       showAlert('bad', 'Error de red/JS al guardar.');
     } finally {
       if (saveBtn) {
@@ -450,7 +587,7 @@
       if (!raw) return;
       try {
         const payload = JSON.parse(raw);
-        openModal(payload);
+        openModal(payload, btn);
       } catch(err){}
       return;
     }

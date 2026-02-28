@@ -172,6 +172,7 @@
     $sxCssVer  = @filemtime($sxCssPath) ?: time();
   @endphp
   <link rel="stylesheet" href="{{ asset('assets/admin/css/billing-statements.css') }}?v={{ $sxCssVer }}">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/p360-pagination.css') }}?v={{ $sxCssVer }}">
 @endpush
 
 @section('content')
@@ -559,7 +560,20 @@
         </div>
 
         @if($isPaginator)
-          <div>{!! $rows->appends(request()->query())->links() !!}</div>
+          <div class="p360-pagerWrap">
+            <div class="p360-pagerMeta">
+              Mostrando
+              <span class="p360-mono">{{ (int)($rows->firstItem() ?? 0) }}</span>
+              –
+              <span class="p360-mono">{{ (int)($rows->lastItem() ?? 0) }}</span>
+              de
+              <span class="p360-mono">{{ (int)($rows->total() ?? 0) }}</span>
+            </div>
+
+            <div class="p360-pagerLinks">
+              {!! $rows->onEachSide(1)->appends(request()->query())->links('vendor.pagination.p360') !!}
+            </div>
+          </div>
         @endif
       </div>
 

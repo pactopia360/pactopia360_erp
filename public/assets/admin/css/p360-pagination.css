@@ -1,0 +1,84 @@
+/* public/assets/admin/css/p360-pagination.css */
+
+.p360-pagerWrap{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.p360-pagerMeta{
+  font-weight:850;
+  font-size:12px;
+  color: var(--sx-mut, #6b7280);
+}
+
+.p360-mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight:900;
+}
+
+/* Paginación */
+.p360-pagination{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0;
+}
+
+.p360-pages{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.p360-page{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  height:34px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid color-mix(in oklab, var(--sx-line, #e5e7eb) 90%, transparent);
+  background: color-mix(in oklab, var(--sx-card, #fff) 96%, transparent);
+  color: color-mix(in oklab, var(--sx-text, #111827) 88%, transparent);
+  font-weight:900;
+  font-size:13px;
+  text-decoration:none;
+  user-select:none;
+  white-space:nowrap;
+}
+
+.p360-page:hover{ filter: brightness(0.98); }
+
+.p360-active{
+  background: color-mix(in oklab, rgba(99,102,241,.22) 45%, var(--sx-card, #fff));
+  border-color: color-mix(in oklab, rgba(99,102,241,.55) 40%, var(--sx-line, #e5e7eb));
+}
+
+.p360-disabled{ opacity:.55; cursor:not-allowed; }
+.p360-dots{ border-style:dashed; opacity:.75; }
+
+/* Íconos blindados contra escalado global */
+.p360-ic{
+  font-size:16px !important;
+  line-height:1 !important;
+  width:auto !important;
+  height:auto !important;
+  transform:none !important;
+}
+
+.p360-pagination svg,
+.p360-pagination img{
+  width:16px !important;
+  height:16px !important;
+  max-width:16px !important;
+  max-height:16px !important;
+}
+
+/* Mobile */
+@media (max-width: 640px){
+  .p360-page .p360-lbl{ display:none; }
+  .p360-page{ padding:0 10px; height:32px; }
+}

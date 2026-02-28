@@ -66,6 +66,47 @@ final class IncomeGridService
         return $sid !== '' ? $sid : '0';
     }
 
+    // ==========================
+    // Resolve cuenta_cliente desde statement account_id
+    // (cuando account_id es uuid de ADMIN.accounts y no uuid de clientes)
+    // ==========================
+    private function resolveCuentaClienteFromStatementAccountId(
+        string $admConn,
+        string $stmtAccountId,
+        Collection $cuentaByUuid,
+        Collection $cuentaByAdmin
+    ): ?object {
+        $sid = trim((string) $stmtAccountId);
+        if ($sid === '') return null;
+
+        // 1) UUID: primero intenta clientes.id
+        if (preg_match('/^[0-9a-f\-]{36}$/i', $sid)) {
+            $cc = $cuentaByUuid->get($sid);
+            if ($cc) return $cc;
+
+            // 2) fallback: puede ser admin.accounts.uuid -> accounts.id -> clientes.admin_account_id
+            try {
+                if (Schema::connection($admConn)->hasTable('accounts')) {
+                    $accId = DB::connection($admConn)->table('accounts')->where('uuid', $sid)->value('id');
+                    if (!empty($accId)) {
+                        return $cuentaByAdmin->get((string) $accId);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // noop
+            }
+
+            return null;
+        }
+
+        // 3) Numérico: admin_account_id
+        if (preg_match('/^\d+$/', $sid)) {
+            return $cuentaByAdmin->get($sid);
+        }
+
+        return null;
+    }
+
     private function statementScore(object $s, Collection $itemsForStatement): int
     {
         // pagado > emitido > locked > con items > total_cargo>0 > más nuevo
@@ -126,9 +167,18 @@ final class IncomeGridService
      */
     private function resolveStatementSubtotal(object $s, Collection $items, array $snap, array $meta): float
     {
+        // 1) Si existen items, normalmente reflejan el "estado de cuenta" real (incluye cargos extra)
+        //    OJO: billing_statements.total_cargo muchas veces es baseline (sin extras).
+        $sumItems = (float) $items->sum(fn ($it) => (float) ($it->amount ?? 0));
+        if ($sumItems > 0) {
+            return round($sumItems, 2);
+        }
+
+        // 2) Fallback a total_cargo
         $tc = (float) ($s->total_cargo ?? 0);
         if ($tc > 0) return round($tc, 2);
 
+        // 3) Snapshot/meta subtotal
         $snapSubtotal =
             (float) (data_get($snap, 'totals.subtotal') ?? 0) ?:
             (float) (data_get($snap, 'statement.subtotal') ?? 0) ?:
@@ -139,9 +189,7 @@ final class IncomeGridService
 
         if ($snapSubtotal > 0) return round($snapSubtotal, 2);
 
-        $sumItems = (float) $items->sum(fn ($it) => (float) ($it->amount ?? 0));
-        if ($sumItems > 0) return round($sumItems, 2);
-
+        // 4) Último recurso: si hay total, infiere subtotal=total/1.16
         $snapTotal =
             (float) (data_get($snap, 'totals.total') ?? 0) ?:
             (float) (data_get($snap, 'statement.total') ?? 0) ?:
@@ -323,12 +371,17 @@ final class IncomeGridService
             }
 
             // agrupar por cuenta_canónica|period y escoger el mejor statement (dedupe)
-            $grouped = $stmts->map(function($s) use ($cuentaByUuid, $cuentaByAdmin) {
-                    $sid = (string) $s->account_id;
-                    $cc = null;
+            $grouped = $stmts->map(function($s) use ($adm, $cuentaByUuid, $cuentaByAdmin, $month) {
 
-                    if (preg_match('/^[0-9a-f\-]{36}$/i', $sid)) $cc = $cuentaByUuid->get($sid);
-                    elseif (preg_match('/^\d+$/', $sid)) $cc = $cuentaByAdmin->get($sid);
+                    $sid = (string) ($s->account_id ?? '');
+
+                    // ✅ resolve cc usando helper (soporta accounts.uuid -> accounts.id -> clientes.admin_account_id)
+                    $cc = $this->resolveCuentaClienteFromStatementAccountId(
+                        $adm,
+                        $sid,
+                        $cuentaByUuid,
+                        $cuentaByAdmin
+                    );
 
                     $canon = $this->normalizeAccountKey($sid, $cc);
 
@@ -344,81 +397,186 @@ final class IncomeGridService
                 return $this->pickBestStatement($only, $itemsByStatement);
             })->filter()->values();
 
-            $recRows = $bestStatements->map(function($s) use (
-                $itemsByStatement, $invByAccPeriod,
-                $cuentaByUuid, $cuentaByAdmin
-            ) {
-                $sid = (string) $s->account_id;
+            $recRows = $bestStatements->map(function ($s) use (
+                $adm,
+                $month,
+                $itemsByStatement,
+                $invByAccPeriod,
+                $cuentaByUuid,
+                $cuentaByAdmin
+                ) {
+                    $sid = trim((string) ($s->account_id ?? ''));
 
-                $cc = null;
-                if (preg_match('/^[0-9a-f\-]{36}$/i', $sid)) $cc = $cuentaByUuid->get($sid);
-                elseif (preg_match('/^\d+$/', $sid)) $cc = $cuentaByAdmin->get($sid);
+                    // ✅ resolve robusto (soporta: clientes.id UUID | admin_account_id int | admin.accounts.uuid -> accounts.id -> clientes.admin_account_id)
+                    $cc = $this->resolveCuentaClienteFromStatementAccountId(
+                        $adm,
+                        $sid,
+                        $cuentaByUuid,
+                        $cuentaByAdmin
+                    );
 
-                $snap = $this->decodeJson($s->snapshot);
-                $meta = $this->decodeJson($s->meta);
+                    $snap  = $this->decodeJson($s->snapshot);
+                    $meta  = $this->decodeJson($s->meta);
+                    $items = collect($itemsByStatement->get((int) ($s->id ?? 0), collect()));
 
-                $items = collect($itemsByStatement->get((int)$s->id, collect()));
+                    // ==========================
+                    // Amounts (cuadrar con Estado de cuenta)
+                    // ==========================
+                    $subtotal = $this->resolveStatementSubtotal($s, $items, $snap, $meta);
+                    $iva      = round($subtotal * 0.16, 2);
+                    $total    = round($subtotal + $iva, 2);
 
-                // CLAVE: subtotal que cuadra con estado de cuenta
-                $subtotal = $this->resolveStatementSubtotal($s, $items, $snap, $meta);
-                $iva      = round($subtotal * 0.16, 2);
-                $total    = round($subtotal + $iva, 2);
+                    // ==========================
+                    // Company
+                    // ==========================
+                    $company = $this->pickCompanyName($cc, $snap, $meta);
 
-                $company = $this->pickCompanyName($cc, $snap, $meta);
+                    // ==========================
+                    // Estado de cuenta status
+                    // ==========================
+                    $ecStatus = $this->normalizeStatementStatus($s);
 
-                $ecStatus = $this->normalizeStatementStatus($s);
+                    // ==========================
+                    // Invoice (billing_invoice_requests) — lookup robusto
+                    // ==========================
+                    $normalizeInvStatus = function (?string $st): string {
+                        $st = strtolower(trim((string) ($st ?? '')));
+                        if ($st === '') return 'sin_solicitud';
 
-                // invoice (si existe)
-                $inv = optional($invByAccPeriod->get((string)$s->account_id.'|'.$month))->first();
-                $invStatus = $inv?->status ? strtolower((string)$inv->status) : 'sin_solicitud';
-                $cfdiUuid  = $inv?->cfdi_uuid ?: null;
-                $invoiceDate = $inv?->issued_at ?: null;
+                        return match ($st) {
+                            'issued', 'facturada', 'facturado' => 'issued',
+                            'ready', 'en_proceso', 'en proceso', 'processing' => 'ready',
+                            'requested', 'solicitada', 'request' => 'requested',
+                            'cancelled', 'canceled', 'cancelada' => 'cancelled',
+                            'pending', 'pendiente' => 'pending',
+                            default => $st, // si viene un status custom lo respetamos (pero normalizado)
+                        };
+                    };
 
-                // vendor (si viene en meta/snap, lo respetamos)
-                $vendorName = null;
-                $vendorId = data_get($meta, 'vendor_id')
-                    ?? data_get($meta, 'vendor.id')
-                    ?? data_get($snap, 'vendor_id')
-                    ?? data_get($snap, 'vendor.id')
-                    ?? null;
-                $vendorId = !empty($vendorId) ? (string)$vendorId : null;
+                    $inv = null;
 
-                return (object)[
-                    'row_type' => 'statement',
-                    'row_id'   => (int) ($s->id ?? 0),
+                    // 1) key raw (tal cual viene en billing_invoice_requests.account_id)
+                    $k1 = $sid !== '' ? ($sid . '|' . $month) : null;
+                    if ($k1) {
+                        $inv = optional($invByAccPeriod->get($k1))->first();
+                    }
 
-                    'account_id' => (string) $s->account_id,
-                    'period'     => (string) $s->period,
+                    // 2) fallback: si tenemos admin_account_id canónico en cuenta_cliente
+                    if (!$inv && $cc && !empty($cc->admin_account_id)) {
+                        $k2  = (string) $cc->admin_account_id . '|' . $month;
+                        $inv = optional($invByAccPeriod->get($k2))->first();
+                    }
 
-                    'origin'      => 'recurrente',
-                    'periodicity' => strtolower((string)(data_get($snap,'license.mode') ?? data_get($meta,'license.mode') ?? 'mensual')),
+                    // 3) fallback: si sid es UUID de admin.accounts.uuid, intentar resolver a accounts.id
+                    if (!$inv && $sid !== '' && preg_match('/^[0-9a-f\-]{36}$/i', $sid)) {
+                        try {
+                            if (Schema::connection($adm)->hasTable('accounts')) {
+                                $accId = DB::connection($adm)->table('accounts')->where('uuid', $sid)->value('id');
+                                if (!empty($accId)) {
+                                    $k3  = (string) $accId . '|' . $month;
+                                    $inv = optional($invByAccPeriod->get($k3))->first();
+                                }
+                            }
+                        } catch (\Throwable $e) {
+                            // noop
+                        }
+                    }
 
-                    'sale_code'     => null,
-                    'receiver_rfc'  => (string) (data_get($snap,'receiver_rfc') ?? data_get($meta,'receiver_rfc') ?? ''), // opcional
-                    'pay_method'    => (string) (data_get($snap,'pay_method') ?? data_get($meta,'pay_method') ?? ''),      // opcional
+                    $invStatus    = $normalizeInvStatus($inv?->status ? (string) $inv->status : null);
+                    $cfdiUuid     = !empty($inv?->cfdi_uuid) ? (string) $inv->cfdi_uuid : null;
+                    $invoiceDate  = $inv?->issued_at ?: null;
 
-                    'f_cta'       => $s->sent_at ?: null,
-                    'f_mov'       => null,
-                    'invoice_date'=> $invoiceDate,
-                    'paid_date'   => $s->paid_at ?: null,
-                    'sale_date'   => $s->created_at ?: null,
+                    // ==========================
+                    // Vendor (desde snap/meta) + nombre (si existe finance_vendors)
+                    // ==========================
+                    $vendorId = data_get($meta, 'vendor_id')
+                        ?? data_get($meta, 'vendor.id')
+                        ?? data_get($snap, 'vendor_id')
+                        ?? data_get($snap, 'vendor.id')
+                        ?? null;
+                    $vendorId = !empty($vendorId) ? (string) $vendorId : null;
 
-                    // SUBTOTAL cuadra con Estado de cuenta
-                    'subtotal' => $subtotal,
-                    'iva'      => $iva,
-                    'total'    => $total,
+                    $vendorName = null;
+                    if ($vendorId && ctype_digit($vendorId) && Schema::connection($adm)->hasTable('finance_vendors')) {
+                        try {
+                            $vendorName = DB::connection($adm)->table('finance_vendors')->where('id', (int) $vendorId)->value('name');
+                            $vendorName = $vendorName !== null ? (string) $vendorName : null;
+                        } catch (\Throwable $e) {
+                            $vendorName = null;
+                        }
+                    }
 
-                    'statement_status' => $ecStatus,
-                    'invoice_status'   => $invStatus,
-                    'invoice_uuid'     => $cfdiUuid,
+                    // ==========================
+                    // Periodicity (mensual/anual) — normalizado
+                    // ==========================
+                    $perioRaw = (string) (data_get($snap, 'license.mode')
+                        ?? data_get($meta, 'license.mode')
+                        ?? data_get($snap, 'periodicity')
+                        ?? data_get($meta, 'periodicity')
+                        ?? 'mensual');
 
-                    'vendor_id'   => $vendorId,
-                    'vendor_name' => $vendorName,
+                    $perio = strtolower(trim($perioRaw));
+                    if (!in_array($perio, ['mensual', 'anual', 'unico'], true)) $perio = 'mensual';
 
-                    // extra UI
-                    'company' => $company,
-                ];
-            });
+                    // ==========================
+                    // RFC receptor / pay_method — más variantes típicas
+                    // ==========================
+                    $receiverRfc = (string) (
+                        data_get($snap, 'receiver_rfc')
+                        ?? data_get($snap, 'receptor_rfc')
+                        ?? data_get($snap, 'rfc_receptor')
+                        ?? data_get($meta, 'receiver_rfc')
+                        ?? data_get($meta, 'receptor_rfc')
+                        ?? data_get($meta, 'rfc_receptor')
+                        ?? ''
+                    );
+
+                    $payMethod = (string) (
+                        data_get($snap, 'pay_method')
+                        ?? data_get($snap, 'payment_method')
+                        ?? data_get($snap, 'forma_pago')
+                        ?? data_get($meta, 'pay_method')
+                        ?? data_get($meta, 'payment_method')
+                        ?? data_get($meta, 'forma_pago')
+                        ?? ''
+                    );
+
+                    return (object) [
+                        'row_type' => 'statement',
+                        'row_id'   => (int) ($s->id ?? 0),
+
+                        'account_id' => (string) ($s->account_id ?? ''),
+                        'period'     => (string) ($s->period ?? ''),
+
+                        'origin'      => 'recurrente',
+                        'periodicity' => $perio,
+
+                        'sale_code'    => null,
+                        'receiver_rfc' => $receiverRfc, // opcional
+                        'pay_method'   => $payMethod,   // opcional
+
+                        'f_cta'        => $s->sent_at ?: null,
+                        'f_mov'        => null,
+                        'invoice_date' => $invoiceDate,
+                        'paid_date'    => $s->paid_at ?: null,
+                        'sale_date'    => $s->created_at ?: null,
+
+                        // SUBTOTAL cuadra con Estado de cuenta
+                        'subtotal' => $subtotal,
+                        'iva'      => $iva,
+                        'total'    => $total,
+
+                        'statement_status' => $ecStatus,
+                        'invoice_status'   => $invStatus,
+                        'invoice_uuid'     => $cfdiUuid,
+
+                        'vendor_id'   => $vendorId,
+                        'vendor_name' => $vendorName,
+
+                        // extra UI
+                        'company' => $company,
+                    ];
+                });
         }
 
         // ==========================
@@ -564,9 +722,65 @@ final class IncomeGridService
             $kpi['all']['total'] += (float) ($r->subtotal ?? 0);
         }
 
-        foreach ($kpi as $k => $v) {
+                foreach ($kpi as $k => $v) {
             $kpi[$k]['total'] = round((float) $kpi[$k]['total'], 2);
         }
+
+        // ==========================
+        // KPI: CAJA (por FECHA REAL de pago) desde payments.paid_at
+        // - payments.amount es bigint (centavos) => convertir a MXN dividiendo entre 100
+        // - Esto NO depende del "period" contable del payment (justo para resolver mismatch)
+        // ==========================
+        $kpiCash = [
+            'count'           => 0,
+            'amount'          => 0.0,
+            'mismatch_count'  => 0,
+            'mismatch_amount' => 0.0,
+        ];
+
+        if (Schema::connection($adm)->hasTable('payments')) {
+            try {
+                $fromDt = (clone $from)->startOfDay();
+                $toDt   = (clone $to)->endOfDay();
+
+                // Caja total del mes por paid_at
+                $cashRow = DB::connection($adm)->table('payments')
+                    ->selectRaw('COUNT(*) as n, COALESCE(SUM(amount),0) as sum_amount')
+                    ->where('status', '=', 'paid')
+                    ->whereNotNull('paid_at')
+                    ->whereBetween('paid_at', [$fromDt->toDateTimeString(), $toDt->toDateTimeString()])
+                    ->first();
+
+                $cashCount = (int) data_get($cashRow, 'n', 0);
+                $cashSumCents = (float) data_get($cashRow, 'sum_amount', 0);
+
+                $kpiCash['count']  = $cashCount;
+                $kpiCash['amount'] = round($cashSumCents / 100.0, 2);
+
+                // Mismatch: payments.period != DATE_FORMAT(paid_at,'%Y-%m') (dentro del mes)
+                // Ej: paid_at=2025-12 pero period=2026-01
+                $misRow = DB::connection($adm)->table('payments')
+                    ->selectRaw('COUNT(*) as n, COALESCE(SUM(amount),0) as sum_amount')
+                    ->where('status', '=', 'paid')
+                    ->whereNotNull('paid_at')
+                    ->whereNotNull('period')
+                    ->whereBetween('paid_at', [$fromDt->toDateTimeString(), $toDt->toDateTimeString()])
+                    ->whereRaw('period <> DATE_FORMAT(paid_at, "%Y-%m")')
+                    ->first();
+
+                $misCount = (int) data_get($misRow, 'n', 0);
+                $misSumCents = (float) data_get($misRow, 'sum_amount', 0);
+
+                $kpiCash['mismatch_count']  = $misCount;
+                $kpiCash['mismatch_amount'] = round($misSumCents / 100.0, 2);
+
+            } catch (\Throwable $e) {
+                // no rompemos el grid si algo falla en payments
+            }
+        }
+
+        // Lo metemos dentro del mismo kpi para consumo en UI/Controller
+        $kpi['cash'] = $kpiCash;
 
         return [
             'month'   => $month,
