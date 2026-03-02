@@ -9,6 +9,7 @@ use App\Models\Admin\Billing\BillingStatementItem;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class StatementSyncService
 {
@@ -21,7 +22,8 @@ class StatementSyncService
             'notes'                      => null,
         ], $opts);
 
-        $connClients = (string) (config('p360.conn.clients') ?: 'mysql_clientes');
+        // ✅ Compat proyecto: p360.conn.clientes (pero dejamos fallback)
+        $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
 
         // Period validation
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
@@ -43,20 +45,97 @@ class StatementSyncService
             // account_id canónico para billing_statements (evita UUID huérfano)
             $canonicalAccountId = $adminAccountId > 0 ? (string) $adminAccountId : (string) $accountId;
 
-            $meta = $this->decodeMeta($acc->meta ?? null);
+            // ===== 1.1) Meta (clientes + admin)
+            // IMPORTANTE: "PERSONALIZADO" (billing.amount_mxn / billing.override.*) vive en Admin Accounts meta,
+            // no en cuentas_cliente. Si solo leemos cuentas_cliente, el statement sale 0 aunque la UI muestre $96.
+            $metaCli = $this->decodeMeta($acc->meta ?? null);
+            $metaAdm = [];
+            $admAcc  = null;
 
-            // Detecta plan/licencia desde meta['license'] o meta['billing']
-            $lic = [];
-            if (isset($meta['license']) && is_array($meta['license'])) $lic = $meta['license'];
-            if (!$lic && isset($meta['billing']) && is_array($meta['billing'])) $lic = $meta['billing'];
+            if ($adminAccountId > 0) {
+                $admConn  = 'mysql_admin';
+                $admTable = 'accounts'; // default
 
-            $planKey   = (string)($lic['plan'] ?? $meta['plan'] ?? ($acc->plan ?? '') ?? '');
-            $cycleKey  = (string)($lic['cycle'] ?? $lic['billing_cycle'] ?? $meta['billing_cycle'] ?? ($acc->billing_cycle ?? '') ?? '');
-            $priceKey  = (string)($lic['pk'] ?? $lic['price_key'] ?? $lic['price_id'] ?? '');
-            $baseAmt   = (float) ($lic['base_amount'] ?? $lic['amount'] ?? 0);
-            $override  = $lic['override'] ?? null;
+                if (Schema::connection($admConn)->hasTable($admTable)) {
+                    $admAcc = DB::connection($admConn)->table($admTable)
+                        ->where('id', $adminAccountId)
+                        ->first();
 
-            $isPro = (strtolower($planKey) === 'pro' || strtolower($planKey) === 'premium' || $priceKey !== '');
+                    if ($admAcc) {
+                        // Detectar columna meta en accounts (varía por proyecto)
+                        $metaCols = ['meta', 'billing_meta', 'settings', 'data', 'payload'];
+                        $metaCol = null;
+                        foreach ($metaCols as $c) {
+                            if (Schema::connection($admConn)->hasColumn($admTable, $c)) {
+                                $metaCol = $c;
+                                break;
+                            }
+                        }
+                        if ($metaCol) {
+                            $metaAdm = $this->decodeMeta($admAcc->{$metaCol} ?? null);
+                        }
+                    }
+                }
+            }
+
+            // Merge: admin meta gana (porque ahí vive billing.override / amount_mxn)
+            $meta = array_replace_recursive($metaCli, $metaAdm);
+
+            // ===== 1.2) Licencia canónica (alineada al AccountsController)
+            // billing.price_key, billing.billing_cycle, billing.amount_mxn, billing.override.{cycle}.amount_mxn
+            $planKey = (string)(
+                data_get($meta, 'billing.plan')
+                ?? data_get($meta, 'license.plan')
+                ?? data_get($meta, 'plan')
+                ?? ($acc->plan ?? '')
+                ?? ''
+            );
+
+            $cycleKey = (string)(
+                data_get($meta, 'billing.billing_cycle')
+                ?? data_get($meta, 'license.cycle')
+                ?? data_get($meta, 'license.billing_cycle')
+                ?? data_get($meta, 'billing_cycle')
+                ?? ($acc->billing_cycle ?? '')
+                ?? ''
+            );
+
+            $priceKey = (string)(
+                data_get($meta, 'billing.price_key')
+                ?? data_get($meta, 'license.pk')
+                ?? data_get($meta, 'license.price_key')
+                ?? data_get($meta, 'license.price_id')
+                ?? ''
+            );
+
+            // base amount (MXN) - en Admin se usa amount_mxn
+            $baseAmt = (float)(
+                data_get($meta, 'billing.amount_mxn')
+                ?? data_get($meta, 'license.amount_mxn')
+                ?? data_get($meta, 'license.base_amount')
+                ?? data_get($meta, 'license.amount')
+                ?? 0
+            );
+
+            // override por ciclo (monthly/yearly) + legacy
+            $cycleNorm = strtolower($cycleKey) ?: 'monthly';
+            $overrideByCycle = data_get($meta, "billing.override.$cycleNorm.amount_mxn");
+            $legacyOverride  = data_get($meta, 'billing.override.amount_mxn') ?? data_get($meta, 'billing.override_amount_mxn');
+
+            $overrideAmt = is_numeric($overrideByCycle)
+                ? (float) $overrideByCycle
+                : (is_numeric($legacyOverride) ? (float) $legacyOverride : null);
+
+            $override = $overrideAmt !== null
+                ? ['amount_mxn' => $overrideAmt, 'cycle' => $cycleNorm]
+                : (data_get($meta, 'license.override') ?? null);
+
+            // Regla de "billable":
+            // - si hay override o baseAmt > 0 => NO es FREE aunque cuentas_cliente diga FREE
+            $isBillable = ($overrideAmt !== null && $overrideAmt > 0.00001) || ($baseAmt > 0.00001);
+
+            // Compat: is_pro lo usamos como "tiene cargo de licencia"
+            $isPro = $isBillable || ($priceKey !== '') || in_array(strtolower($planKey), ['pro', 'premium'], true);
 
             // Correos: por defecto el email principal de la cuenta
             $emails = [];
@@ -100,7 +179,7 @@ class StatementSyncService
 
             // ===== 3) Snapshot (para PDF y consistencia)
             $snap = [
-                                'account' => [
+                'account' => [
                     // UUID de clientes (cuentas_cliente.id)
                     'client_uuid'      => (string) $acc->id,
                     // ID numérico admin (accounts.id) si existe
@@ -115,12 +194,12 @@ class StatementSyncService
                     'is_blocked'       => (int)($acc->is_blocked ?? 0),
                 ],
                 'license' => [
-                    'is_pro'     => $isPro,
-                    'plan'       => $planKey,
-                    'cycle'      => $cycleKey,
-                    'price_key'  => $priceKey,
-                    'base_amount'=> $baseAmt,
-                    'override'   => $override,
+                    'is_pro'      => $isPro,
+                    'plan'        => $planKey,
+                    'cycle'       => $cycleKey,
+                    'price_key'   => $priceKey,
+                    'base_amount' => $baseAmt,
+                    'override'    => $override,
                 ],
                 'emails' => $emails,
                 'generated_at' => now()->toISOString(),
@@ -138,12 +217,21 @@ class StatementSyncService
             // Se sincroniza aunque esté locked
             $this->syncEmails($st->id, $emails);
 
-            // ===== 5) Items (aquí está el “PRIMERA LÍNEA”)
+            // ===== 5) Items
             if (!$locked || $opts['force_rebuild_license_line']) {
 
-                // 5.1 Asegurar línea de licencia si PRO
+                // 5.1 Asegurar línea de licencia si hay cargo
                 if ($isPro) {
-                    $this->upsertLicenseLine($st->id, $period, $planKey, $cycleKey, $priceKey, $baseAmt, $override, $opts['force_rebuild_license_line']);
+                    $this->upsertLicenseLine(
+                        $st->id,
+                        $period,
+                        $planKey,
+                        $cycleKey,
+                        $priceKey,
+                        $baseAmt,
+                        $override,
+                        (bool)$opts['force_rebuild_license_line']
+                    );
                 } else {
                     // FREE => elimina cualquier línea license “fantasma”
                     BillingStatementItem::query()
@@ -152,10 +240,7 @@ class StatementSyncService
                         ->delete();
                 }
 
-                // 5.2 Aquí es donde integrarías compras/consumos/ajustes:
-                // - Si tienes tabla de compras en mysql_admin, insertas items type=purchase
-                // - Si pagaron por Stripe, insertas items type=payment (negativos)
-                // Por ahora: NO invento tablas. Solo dejo preparado el cálculo.
+                // 5.2 aquí integrarías compras/consumos/ajustes
             }
 
             // ===== 6) Recalcular totales/saldo/estatus
@@ -173,7 +258,7 @@ class StatementSyncService
                     'event'        => 'locked',
                     'actor'        => (string)$opts['actor'],
                     'notes'        => 'Auto-lock: status=paid',
-                    'meta'         => ['period'=>$period],
+                    'meta'         => ['period' => $period],
                 ]);
             }
 
@@ -182,22 +267,18 @@ class StatementSyncService
                 'event'        => 'synced',
                 'actor'        => (string)$opts['actor'],
                 'notes'        => $opts['notes'],
-                'meta'         => ['period'=>$period],
+                'meta'         => ['period' => $period],
             ]);
 
             Log::info('StatementSyncService.synced', [
-                // input (normalmente UUID)
-                'account_id_input'   => (string) $accountId,
-                // uuid cliente real
-                'account_client_uuid'=> (string) ($acc->id ?? ''),
-                // admin id si existe
-                'admin_account_id'   => $adminAccountId > 0 ? $adminAccountId : null,
-                // lo que se persistió en billing_statements.account_id
-                'account_id_canonical'=> (string) $canonicalAccountId,
+                'account_id_input'     => (string) $accountId,
+                'account_client_uuid'  => (string) ($acc->id ?? ''),
+                'admin_account_id'     => $adminAccountId > 0 ? $adminAccountId : null,
+                'account_id_canonical' => (string) $canonicalAccountId,
 
-                'period'      => $period,
-                'statement_id'=> $st->id,
-                'is_pro'      => $isPro,
+                'period'       => $period,
+                'statement_id' => $st->id,
+                'is_pro'       => $isPro,
             ]);
 
             return $st;
@@ -206,7 +287,7 @@ class StatementSyncService
 
     public function syncAllForPeriod(string $period, array $opts = []): int
     {
-         // Compat: en el proyecto se usa p360.conn.clientes (pero dejamos fallback a p360.conn.clients)
+        // Compat: en el proyecto se usa p360.conn.clientes (pero dejamos fallback a p360.conn.clients)
         $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
 
         $ids = DB::connection($connClients)->table('cuentas_cliente')->pluck('id')->all();
@@ -266,7 +347,10 @@ class StatementSyncService
         // Si override trae amount, lo aplicamos.
         $finalAmt = $baseAmt;
 
-        if (is_array($override) && isset($override['amount'])) {
+        // compat: override puede venir como ['amount_mxn'=>X] o legacy ['amount'=>X]
+        if (is_array($override) && isset($override['amount_mxn'])) {
+            $finalAmt = (float)$override['amount_mxn'];
+        } elseif (is_array($override) && isset($override['amount'])) {
             $finalAmt = (float)$override['amount'];
         } elseif (is_numeric($override)) {
             $finalAmt = (float)$override;
@@ -297,11 +381,11 @@ class StatementSyncService
                 'amount'       => $finalAmt,
                 'ref'          => $priceKey ?: null,
                 'meta'         => [
-                    'plan' => $planKey,
-                    'cycle'=> $cycleKey,
-                    'pk'   => $priceKey,
+                    'plan'        => $planKey,
+                    'cycle'       => $cycleKey,
+                    'pk'          => $priceKey,
                     'base_amount' => $baseAmt,
-                    'override' => $override,
+                    'override'    => $override,
                 ],
             ]);
         } else {
@@ -313,11 +397,11 @@ class StatementSyncService
                     'amount'      => $finalAmt,
                     'ref'         => $priceKey ?: $exists->ref,
                     'meta'        => array_merge((array)($exists->meta ?? []), [
-                        'plan' => $planKey,
-                        'cycle'=> $cycleKey,
-                        'pk'   => $priceKey,
+                        'plan'        => $planKey,
+                        'cycle'       => $cycleKey,
+                        'pk'          => $priceKey,
                         'base_amount' => $baseAmt,
-                        'override' => $override,
+                        'override'    => $override,
                     ]),
                 ]);
             }
