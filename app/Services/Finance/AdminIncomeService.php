@@ -1409,7 +1409,7 @@ final class AdminIncomeService
         $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
 
         // -------------------------
-        // Filtros
+        // Filtros base
         // -------------------------
         $year  = (int) ($req->input('year') ?: (int) now()->format('Y'));
         $month = (string) ($req->input('month') ?: 'all'); // 01..12 | all
@@ -1419,46 +1419,29 @@ final class AdminIncomeService
         $origin = strtolower((string) ($req->input('origin') ?: 'all')); // recurrente|unico|no_recurrente|all
 
         // -------------------------
-        // Normalización robusta de filtros (compat UI nueva + legacy)
-        // UI nueva manda: vendor_id, status, invoice_status, q
-        // UI legacy/vNext manda: vendorId, st, invSt, qSearch
+        // Normalización robusta de filtros (UI nueva + legacy)
         // -------------------------
         $statusFilter = strtolower(trim((string) ($req->input('status') ?: $req->input('st') ?: 'all'))); // pending|emitido|pagado|vencido|all
-        $invSt = strtolower(trim((string) ($req->input('invoice_status') ?: $req->input('invSt') ?: 'all')));
+        $invStRaw     = strtolower(trim((string) ($req->input('invoice_status') ?: $req->input('invSt') ?: 'all')));
 
         // ✅ Canonizador único invoice_status (entrada + rows)
         $canonInv = function ($val): string {
             $x = strtolower(trim((string) $val));
             if ($x === '' || in_array($x, ['all', 'todos', 'todas'], true)) return 'all';
-
-            // normaliza separadores para evitar "sin solicitud" vs "sin_solicitud"
             $x = str_replace([' ', '-'], '_', $x);
 
             return match ($x) {
-                // “sin solicitud”
                 'sin_solicitud', 'no_solicitud', 'no_solicitada', 'none', 'no_request', 'sin' => 'sin_solicitud',
-
-                // “solicitada”
                 'requested', 'solicitada', 'solicitado', 'request', 'enviada', 'enviado' => 'requested',
-
-                // “emitida / facturada”
                 'issued', 'facturada', 'facturado', 'timbrada', 'timbrado' => 'issued',
-
-                // “en proceso / lista”
                 'ready', 'en_proceso', 'procesando', 'preparando' => 'ready',
-
-                // “cancelada / rechazada”
                 'cancelled', 'canceled', 'rechazada', 'rechazado', 'cancelada', 'cancelado' => 'cancelled',
-
                 default => $x,
             };
         };
 
-        // ✅ Normaliza invoice_status request → canónico
-        $invSt = $canonInv($invSt);
-
-        // Para compat con filtros y blade (algunos esperan 'st')
-        $st = $statusFilter;
+        $invSt = $canonInv($invStRaw);
+        $st    = $statusFilter;
 
         // Vendor: UI nueva vendor_id | UI legacy vendorId
         $vendorId = (string) ($req->input('vendor_id') ?: $req->input('vendorId') ?: 'all');
@@ -1473,11 +1456,9 @@ final class AdminIncomeService
         $includeProjections = (int) ($req->input('include_projections') ?? 1) === 1;
         $includeSales       = (int) ($req->input('include_sales') ?? 1) === 1;
 
-        // ✅ SOT: si existen líneas de estado de cuenta, NO usamos proyecciones aquí
-        // ✅ SOT: NO decidimos aquí si hay líneas.
-        // Lo decidimos cuando tengamos statementIds reales del periodo/mes.
-        $linesTable = null;
-
+        // -------------------------
+        // Periodos del año
+        // -------------------------
         $periodFrom = Carbon::create($year, 1, 1)->startOfMonth();
         $periodTo   = Carbon::create($year, 12, 1)->endOfMonth();
 
@@ -1499,17 +1480,19 @@ final class AdminIncomeService
             ];
         }
 
-        // -------------------------
-        // Periodos del año
-        // -------------------------
         $periodsYear = [];
         for ($m = 1; $m <= 12; $m++) $periodsYear[] = sprintf('%04d-%02d', $year, $m);
+
+        // filtro mes al universo de periodos
+        if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
+            $periodsYear = [sprintf('%04d-%s', $year, $month)];
+        }
 
         // DEBUG
         $dbg = [
             'year'  => $year,
             'month' => $month,
-            'periodsYear_count' => 0,
+            'periodsYear_count' => count($periodsYear),
 
             'statements_raw_year' => 0,
             'statements_filtered_pre_dedupe' => 0,
@@ -1532,13 +1515,10 @@ final class AdminIncomeService
             'before_filters_sample' => [],
             'after_filters_by_source' => [],
             'after_filters_sample' => [],
-        ];
 
-        // filtro mes al universo de periodos
-        if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
-            $periodsYear = [sprintf('%04d-%s', $year, $month)];
-        }
-        $dbg['periodsYear_count'] = count($periodsYear);
+            'noFiltersHard' => 0,
+            'filters_effective' => [],
+        ];
 
         // -------------------------
         // Vendors
@@ -1589,7 +1569,7 @@ final class AdminIncomeService
         }
         $dbg['statements_filtered_pre_dedupe'] = $statementsFiltered->count();
 
-        // ✅ statementIds (necesario para items + debug)
+        // statementIds (año)
         $statementIdsAllYear = $statementsAllYear
             ->pluck('id')
             ->filter(fn ($x) => !empty($x))
@@ -1597,10 +1577,9 @@ final class AdminIncomeService
             ->unique()
             ->values()
             ->all();
-
         $dbg['statement_ids_count'] = count($statementIdsAllYear);
 
-        // ✅ Detectar tabla real de líneas: usar SOLO los statements del universo filtrado (mes si aplica)
+        // statementIds (filtrado)
         $statementIdsFiltered = $statementsFiltered
             ->pluck('id')
             ->filter(fn ($x) => !empty($x))
@@ -1609,23 +1588,11 @@ final class AdminIncomeService
             ->values()
             ->all();
 
-        // Si el mes no trae statements, no hay líneas.
-        $linesTable = $this->pickStatementLinesTable($adm, $statementIdsFiltered);
-
-        // ✅ IMPORTANTE:
-        // NO apagar proyecciones globalmente solo porque existan líneas en el mes.
-        // Las proyecciones se deben seguir construyendo para cuentas/periodos SIN statement,
-        // y luego se “shadowean” (exclude_from_kpi / filtrado) por statementKeyHash.
-        $hasSotLinesForMonth = (bool) $linesTable;
-
-        // Para items (legacy) seguimos usando el universo del año (siempre útil)
-        $statementIds = $statementIdsAllYear;
-
         // -------------------------
         // Items por statement
         // -------------------------
         $itemsByStatement = collect();
-        if (Schema::connection($adm)->hasTable('billing_statement_items') && !empty($statementIds)) {
+        if (Schema::connection($adm)->hasTable('billing_statement_items') && !empty($statementIdsAllYear)) {
             $itemsByStatement = DB::connection($adm)->table('billing_statement_items as bi')
                 ->select([
                     'bi.id',
@@ -1639,7 +1606,7 @@ final class AdminIncomeService
                     'bi.ref',
                     'bi.meta',
                 ])
-                ->whereIn('bi.statement_id', $statementIds)
+                ->whereIn('bi.statement_id', $statementIdsAllYear)
                 ->get()
                 ->groupBy('statement_id');
         }
@@ -1715,7 +1682,7 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // Cuentas cliente (mysql_clientes) para mapa
+        // Cuentas cliente (mysql_clientes)
         // -------------------------
         $hasActivo     = Schema::connection($cli)->hasColumn('cuentas_cliente', 'activo');
         $hasIsBlocked  = Schema::connection($cli)->hasColumn('cuentas_cliente', 'is_blocked');
@@ -1771,8 +1738,7 @@ final class AdminIncomeService
         $qAcc = DB::connection($cli)->table('cuentas_cliente')->select($accSelect);
 
         // =========================
-        // B.0) Detectar admin_account_id con PAYMENTS en el año/mes (aunque la cuenta sea FREE)
-        // + armar mapa por periodo para poder "pagar-driven projections"
+        // Detectar admin_account_id con PAYMENTS en el periodo (aunque la cuenta sea FREE)
         // =========================
         $payAdminIds = [];
         $payAdminIdsByPeriod = collect(); // key "YYYY-MM" => [adminId=>true]
@@ -1782,10 +1748,6 @@ final class AdminIncomeService
                 $pQ = DB::connection($adm)->table('payments')
                     ->select(['account_id', 'period'])
                     ->whereIn('period', $periodsYear);
-
-                if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
-                    $pQ->where('period', '=', sprintf('%04d-%s', $year, $month));
-                }
 
                 $pRows = collect($pQ->get());
 
@@ -1800,7 +1762,6 @@ final class AdminIncomeService
                 foreach ($pRows as $r) {
                     $aid = trim((string) ($r->account_id ?? ''));
                     $per = trim((string) ($r->period ?? ''));
-
                     if ($aid === '' || $per === '') continue;
                     if (!preg_match('/^\d+$/', $aid)) continue;
                     if (!in_array($per, $periodsYear, true)) continue;
@@ -1816,9 +1777,9 @@ final class AdminIncomeService
             }
         }
 
-        // A) incluir explícitamente cuentas ligadas a statements (uuid/admin_id)
         $hasStatementFilter = (!empty($uuidIds) || !empty($numIds));
 
+        // A) incluir explícitamente cuentas ligadas a statements
         // B) incluir recurrentes
         // C) incluir también cuentas con payments aunque sean FREE
         $qAcc->where(function ($w) use ($hasStatementFilter, $uuidIds, $numIds, $payAdminIds) {
@@ -1855,7 +1816,7 @@ final class AdminIncomeService
             ->keyBy(fn ($c) => (string) $c->admin_account_id);
 
         // -------------------------
-        // DEDUPE statements (UUID/NUM) + statementKeyHash CANÓNICO
+        // DEDUPE statements (UUID/NUM)
         // -------------------------
         $statementsAllYear = $statementsAllYear->map(function ($s) use ($adm, $cuentaByUuid, $cuentaByAdminId) {
             $sid = (string) ($s->account_id ?? '');
@@ -1895,10 +1856,12 @@ final class AdminIncomeService
 
         $statements = $statementsFiltered;
 
-        $dbg['statements_after_dedupe_year'] = $statementsAllYear->count();
-        $dbg['statements_filtered_post_dedupe'] = $statements->count();
+        $dbg['statements_after_dedupe_year']     = $statementsAllYear->count();
+        $dbg['statements_filtered_post_dedupe']  = $statements->count();
 
-        // Rebuild statementKeyHash canónico + expand uuid<->admin
+        // -------------------------
+        // statementKeyHash (para shadowing/exclusión de proyecciones/ventas)
+        // -------------------------
         $statementKeySet = collect();
         foreach ($statementsAllYear as $s) {
             $acc = (string) ($s->_canon_account ?? $s->account_id);
@@ -1928,30 +1891,21 @@ final class AdminIncomeService
 
         $statementKeyHash = array_fill_keys($statementKeySet->all(), true);
 
-        // ==========================
-        // Shadowing set: existe Estado de Cuenta por (account_id|period)
-        // - Usa cuenta CANÓNICA (NUM si existe) y expande UUID<->NUM
-        // - Se usa para marcar ventas como pipeline cuando ya hay statement/lines.
-        // ==========================
+        // Shadowing set (solo mes filtrado si aplica)
         $hasStatementByAccPeriod = [];
-
-        // 1) base: con _canon_account (ya calculado) para el universo filtrado (mes si aplica)
         foreach ($statementsFiltered as $s) {
             $canon = (string) ($s->_canon_account ?? $s->account_id ?? '');
             $per   = (string) ($s->period ?? '');
-
             if ($canon !== '' && $per !== '') {
                 $hasStatementByAccPeriod[$canon . '|' . $per] = true;
             }
         }
 
-        // 2) expand: UUID <-> admin_account_id usando mapas de cuentas (para que match con sales)
         foreach ($statementsFiltered as $s) {
             $acc = (string) ($s->account_id ?? '');
             $per = (string) ($s->period ?? '');
             if ($acc === '' || $per === '') continue;
 
-            // si statement trae UUID, agrega también admin_account_id
             if (preg_match('/^[0-9a-f\-]{36}$/i', $acc)) {
                 $cc = $cuentaByUuid->get($acc);
                 if ($cc && !empty($cc->admin_account_id)) {
@@ -1959,7 +1913,6 @@ final class AdminIncomeService
                 }
             }
 
-            // si statement trae NUM, agrega también UUID
             if (preg_match('/^\d+$/', $acc)) {
                 $cc = $cuentaByAdminId->get($acc);
                 if ($cc && !empty($cc->id)) {
@@ -1971,8 +1924,8 @@ final class AdminIncomeService
         // -------------------------
         // Payments agg
         // -------------------------
-        $paymentsAggByAdminAccPeriod = collect(); // key "adminId|YYYY-MM"
-        $lastPaymentByAdminAcc       = collect(); // key "adminId"
+        $paymentsAggByAdminAccPeriod = collect(); // key "adminId|YYYY-MM" => object agg
+        $lastPaymentByAdminAcc       = collect(); // key "adminId" => last paid row
 
         if (Schema::connection($adm)->hasTable('payments')) {
             $pHasStatus  = $this->hasCol($adm, 'payments', 'status');
@@ -1997,10 +1950,6 @@ final class AdminIncomeService
                     ]))
                     ->whereIn('period', $periodsYear);
 
-                if ($month !== 'all' && preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
-                    $pQ->where('period', '=', sprintf('%04d-%s', $year, $month));
-                }
-
                 $pRows = collect($pQ->orderByDesc('id')->get());
                 $dbg['payments_rows_period'] = $pRows->count();
 
@@ -2008,7 +1957,6 @@ final class AdminIncomeService
                 foreach ($pRows as $p) {
                     $aid = trim((string) ($p->account_id ?? ''));
                     $per = trim((string) ($p->period ?? ''));
-
                     if ($aid === '' || $per === '') continue;
                     if (!preg_match('/^\d+$/', $aid)) continue;
 
@@ -2066,10 +2014,7 @@ final class AdminIncomeService
                     $pPaidAt = $pHasPaidAt ? ($p->paid_at ?? null) : null;
                     if (empty($pPaidAt) && $pHasCreated) $pPaidAt = $p->created_at ?? null;
 
-                    if (!isset($lastPaid[$aid])) {
-                        $lastPaid[$aid] = $p;
-                        continue;
-                    }
+                    if (!isset($lastPaid[$aid])) { $lastPaid[$aid] = $p; continue; }
 
                     $cur = $lastPaid[$aid];
                     $curPaidAt = $pHasPaidAt ? ($cur->paid_at ?? null) : null;
@@ -2141,13 +2086,51 @@ final class AdminIncomeService
             }
         }
 
-        // SOT Estado de Cuenta (líneas)
+        // -------------------------
+        // 1) ROWS EXISTING (SOT por líneas si existen, si no por cabecera)
+        // -------------------------
+        $rowsExisting = collect();
+        $statementLineSaleIdSet = []; // anti-dup con finance_sales
+
+        $linesTable = $this->pickStatementLinesTable($adm, $statementIdsFiltered);
+
+        if ($linesTable) {
+            // Si tienes un builder real de líneas, úsalo aquí.
+            // IMPORTANTE: este método debe devolver rows con source='statement_line'
+            // y llenar $statementLineSaleIdSet con sale_id si aplica (desde meta/ref).
+            //
+            // 🔻 Si NO tienes este método, deja esta parte y seguirá por fallback de cabecera.
+            if (method_exists($this, 'buildRowsFromStatementLines')) {
+                $resLines = $this->buildRowsFromStatementLines(
+                    adm: $adm,
+                    cli: $cli,
+                    linesTable: $linesTable,
+                    statementIdsFiltered: $statementIdsFiltered,
+                    statementsFiltered: $statementsFiltered,
+                    itemsByStatement: $itemsByStatement,
+                    invByStatement: $invByStatement,
+                    invByAccPeriod: $invByAccPeriod,
+                    profilesByAccountId: $profilesByAccountId,
+                    profilesByAdminAcc: $profilesByAdminAcc,
+                    cuentaByUuid: $cuentaByUuid,
+                    cuentaByAdminId: $cuentaByAdminId,
+                    paymentsAggByAdminAccPeriod: $paymentsAggByAdminAccPeriod,
+                    vendorsById: $vendorsById,
+                    vendorAssignByAdminAcc: $vendorAssignByAdminAcc,
+                    canonInv: $canonInv
+                );
+
+                $rowsExisting = collect(data_get($resLines, 'rows', []));
+                $statementLineSaleIdSet = (array) (data_get($resLines, 'sale_id_set', []) ?: []);
+            }
+        }
 
         // -------------------------
-        // Fallback legacy: cabecera statement (si no hay líneas)
+        // Fallback legacy: cabecera statement (si no hay líneas o no hay builder de líneas)
         // -------------------------
         if ($rowsExisting->isEmpty()) {
-            // baseline recurrente (simplificado aquí: usa statement con origin recurrente y subtotal>0)
+
+            // baseline recurrente (para estimar subtotales faltantes)
             $baselineRecurring = [];
             foreach ($statementsAllYear as $s) {
                 $its  = collect($itemsByStatement->get($s->id, collect()));
@@ -2162,19 +2145,12 @@ final class AdminIncomeService
                 if ($subtotal <= 0) continue;
 
                 $accKey = (string) $s->account_id;
-
-                $baselineRecurring[$accKey] = [
-                    'period'   => (string) $s->period,
-                    'subtotal' => round($subtotal, 2),
-                ];
+                $baselineRecurring[$accKey] = ['period' => (string) $s->period, 'subtotal' => round($subtotal, 2)];
 
                 if (preg_match('/^[0-9a-f\-]{36}$/i', $accKey)) {
                     $cc = $cuentaByUuid->get($accKey);
                     if ($cc && !empty($cc->admin_account_id)) {
-                        $baselineRecurring[(string) $cc->admin_account_id] = [
-                            'period'   => (string) $s->period,
-                            'subtotal' => round($subtotal, 2),
-                        ];
+                        $baselineRecurring[(string) $cc->admin_account_id] = ['period' => (string) $s->period, 'subtotal' => round($subtotal, 2)];
                     }
                 }
             }
@@ -2190,10 +2166,7 @@ final class AdminIncomeService
                     'enterprise' => ['mensual' => 1980.0, 'anual' => 19800.0],
                 ];
 
-                if (!isset($map[$plan])) return 0.0;
-                if (!isset($map[$plan][$modo])) return 0.0;
-
-                return (float) $map[$plan][$modo];
+                return (float) ($map[$plan][$modo] ?? 0.0);
             };
 
             $rowsExisting = $statements->map(function ($s) use (
@@ -2210,7 +2183,8 @@ final class AdminIncomeService
                 $vendorAssignByAdminAcc,
                 $baselineRecurring,
                 $lastPaymentByAdminAcc,
-                $planPrice
+                $planPrice,
+                $canonInv
             ) {
                 $accId = (string) ($s->account_id ?? '');
                 $per   = (string) ($s->period ?? '');
@@ -2225,46 +2199,25 @@ final class AdminIncomeService
                     $cuentaByAdminId
                 );
 
-                $adminAccId = $cc?->admin_account_id ? (string) $cc->admin_account_id : '';
-
-                // ✅ Fallback duro: si account_id del statement ya es numérico, es admin_account_id
-                if ($adminAccId === '' && $accId !== '' && preg_match('/^\d+$/', $accId)) {
-                    $adminAccId = $accId;
-                }
-                $adminAccId = $cc?->admin_account_id ? (string) $cc->admin_account_id : '';
-
-                // fallback: si statement trae UUID y admin.accounts tuviera uuid (si algún día)
-                if ($adminAccId === '' && $accId !== '' && preg_match('/^[0-9a-f\-]{36}$/i', $accId)) {
-                    try {
-                        if (Schema::connection($adm)->hasTable('accounts')) {
-                            $tmpId = DB::connection($adm)->table('accounts')->where('uuid', $accId)->value('id');
-                            if (!empty($tmpId) && preg_match('/^\d+$/', (string) $tmpId)) {
-                                $adminAccId = (string) $tmpId;
-                            }
-                        }
-                    } catch (\Throwable $e) {
-                        // noop
-                    }
-                }
+                // admin_account_id canónico si existe
+                $adminAccId = '';
+                if ($cc && !empty($cc->admin_account_id)) $adminAccId = (string) $cc->admin_account_id;
+                if ($adminAccId === '' && $accId !== '' && preg_match('/^\d+$/', $accId)) $adminAccId = $accId;
 
                 $pAgg = null;
-                if ($adminAccId !== '') {
+                if ($adminAccId !== '' && $per !== '') {
                     $pAgg = $paymentsAggByAdminAccPeriod->get($adminAccId . '|' . $per);
                 }
 
                 $bp = $this->resolveBillingProfile(
-                    (string) $s->account_id,
+                    (string) $accId,
                     (string) ($cc?->admin_account_id ?? ''),
                     $profilesByAccountId,
                     $profilesByAdminAcc
                 );
 
                 $company = $this->pickCompanyName($cc, $snap, $meta, $bp);
-
-                $rfcEmisor = $this->pickRfcEmisor(
-                    $cc?->rfc_padre ?? null,
-                    $cc?->rfc ?? null
-                );
+                $rfcEmisor = $this->pickRfcEmisor($cc?->rfc_padre ?? null, $cc?->rfc ?? null);
 
                 $its = collect($itemsByStatement->get($s->id, collect()));
                 $am  = $this->resolveStatementAmounts($s, $its, $snap, $meta);
@@ -2273,12 +2226,13 @@ final class AdminIncomeService
                 $iva      = (float) ($am['iva'] ?? 0);
                 $total    = (float) ($am['total'] ?? 0);
 
+                // si falta subtotal, intentar reconstrucción
                 if ($subtotal <= 0) {
                     $modoCobro  = strtolower((string) ($cc?->modo_cobro ?? ''));
                     $isRecurring = in_array($modoCobro, ['mensual', 'anual'], true);
 
                     if ($isRecurring) {
-                        $accKey = (string) $s->account_id;
+                        $accKey = (string) $accId;
                         $base = (float) (data_get($baselineRecurring, $accKey . '.subtotal') ?? 0.0);
 
                         if ($base <= 0 && !empty($cc?->admin_account_id)) {
@@ -2303,6 +2257,7 @@ final class AdminIncomeService
                     }
                 }
 
+                // último fallback: paymentsAgg del periodo
                 if ($subtotal <= 0 && $pAgg && (float) ($pAgg->sum_amount_mxn ?? 0) > 0) {
                     $subtotal = round(((float) $pAgg->sum_amount_mxn) / 1.16, 2);
                     $total    = round($subtotal * 1.16, 2);
@@ -2321,6 +2276,7 @@ final class AdminIncomeService
 
                 $ecStatus = $this->normalizeStatementStatus($s);
 
+                // vendor desde meta/snapshot/items, fallback asignación
                 $vendorId = $this->extractVendorId($meta, $snap, $its);
                 $vendorName = null;
 
@@ -2350,15 +2306,18 @@ final class AdminIncomeService
                     }
                 }
 
+                // invoice request: statement -> (adminAcc|period) -> (accId|period)
                 $invRow = optional($invByStatement->get((int) ($s->id ?? 0)))->first();
-                if (!$invRow) {
-                    if ($adminAccId !== '') $invRow = optional($invByAccPeriod->get($adminAccId . '|' . $per))->first();
+                if (!$invRow && $adminAccId !== '' && $per !== '') {
+                    $invRow = optional($invByAccPeriod->get($adminAccId . '|' . $per))->first();
                 }
-                if (!$invRow) {
-                    $invRow = optional($invByAccPeriod->get((string) $s->account_id . '|' . (string) $s->period))->first();
+                if (!$invRow && $accId !== '' && $per !== '') {
+                    $invRow = optional($invByAccPeriod->get($accId . '|' . $per))->first();
                 }
 
-                $invStatus   = $invRow?->status ? (string) $invRow->status : null;
+                $invRaw = $invRow?->status ? (string) $invRow->status : '';
+                $invCanonical = $canonInv($invRaw);
+
                 $invoiceDate = $invRow?->issued_at ?: null;
                 $cfdiUuid    = $invRow?->cfdi_uuid ?: null;
 
@@ -2369,20 +2328,18 @@ final class AdminIncomeService
 
                 $paidAt = $pAgg?->paid_at ?: $s->paid_at ?: $invoicePaidAt ?: null;
 
-                $ym = (string) $s->period;
+                $ym = (string) $per;
                 $y  = (int) substr($ym, 0, 4);
                 $m  = (int) substr($ym, 5, 2);
 
                 $desc = $this->buildDescriptionFromItems($its, $origin, $periodicity);
 
-                               return (object) [
-                    // ✅ SOURCE correcto para no romper filtros / KPIs
-                    'source'        => $saleSource,      // 'sale' | 'sale_pipeline'
+                return (object) [
+                    'source'        => 'statement',
                     'is_projection' => 0,
 
-                    // ✅ Shadowing: si ya hay statement del periodo, NO cuenta a KPI real
-                    'has_statement'    => $hasStatementForThis ? 1 : 0,
-                    'exclude_from_kpi' => $excludeFromKpi,
+                    'has_statement'    => 1,
+                    'exclude_from_kpi' => 0,
 
                     'year'       => $y,
                     'month_num'  => sprintf('%02d', $m),
@@ -2391,48 +2348,50 @@ final class AdminIncomeService
                     'vendor_id' => $vendorId,
                     'vendor'    => $vendorName,
 
-                    'client'      => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
+                    'client'      => $company,
                     'description' => $desc,
 
                     'period'     => $per,
-                    'account_id' => (string) ($s->account_id ?? ''),
-                    'company'    => (string) ($s->company ?? ('Cuenta ' . $s->account_id)),
-                    'rfc_emisor' => (string) ($s->rfc_emisor ?? ''),
+                    'account_id' => $accId,
+                    'company'    => $company,
+                    'rfc_emisor' => $rfcEmisor,
 
                     'origin'      => $origin,
                     'periodicity' => $periodicity,
 
-                    'subtotal' => (float) ($s->subtotal ?? 0),
-                    'iva'      => (float) ($s->iva ?? 0),
-                    'total'    => (float) ($s->total ?? 0),
+                    'subtotal' => round((float) $subtotal, 2),
+                    'iva'      => round((float) $iva, 2),
+                    'total'    => round((float) $total, 2),
 
                     'ec_status' => $ecStatus,
-                    'due_date'  => null,
-                    'sent_at'   => null,
-                    'paid_at'   => $s->paid_date ?: null,
+                    'due_date'  => $s->due_date ?: null,
+                    'sent_at'   => $s->sent_at ?: null,
+                    'paid_at'   => $paidAt,
 
-                    'rfc_receptor' => (string) ($s->receiver_rfc ?? ''),
-                    'forma_pago'   => (string) ($s->pay_method ?? ''),
+                    'rfc_receptor' => (string) ($bp?->rfc_receptor ?? ''),
+                    'forma_pago'   => ($invoiceFormaPago !== '' ? $invoiceFormaPago : (string) ($bp?->forma_pago ?? '')),
 
-                    'f_emision' => $s->f_cta ?: null,
-                    'f_pago'    => $s->paid_date ?: null,
-                    'f_cta'     => $s->f_cta ?: null,
-                    'f_mov'     => $fMov,
+                    'f_emision' => $s->sent_at ?: null,
+                    'f_pago'    => $paidAt,
+                    'f_cta'     => $s->created_at ?: null,
+                    'f_mov'     => $paidAt ?: ($s->created_at ?: null),
 
                     'f_factura'          => $invoiceDate,
                     'invoice_date'       => $invoiceDate,
-                    'invoice_status'     => $invCanonical,
-                    'invoice_status_raw' => $invRaw,
+                    'invoice_status'     => ($invCanonical !== 'all' ? $invCanonical : null),
+                    'invoice_status_raw' => ($invRaw !== '' ? $invRaw : null),
+                    'cfdi_uuid'          => ($cfdiUuid !== '' ? $cfdiUuid : null),
 
-                    'cfdi_uuid' => ($uuidFromSale !== '' ? $uuidFromSale : null),
+                    'invoice_metodo_pago' => ($invoiceMetodoPago !== '' ? $invoiceMetodoPago : (string) ($bp?->metodo_pago ?? '')),
 
-                    'payment_method' => null,
-                    'payment_status' => null,
+                    'payment_method' => $pAgg?->method ?? null,
+                    'payment_status' => $pAgg?->status ?? null,
 
-                    'sale_id' => (int) ($s->id ?? 0),
-                    'include_in_statement' => (int) ($s->include_in_statement ?? 0),
-                    'statement_period_target' => $s->statement_period_target ?: null,
-                    'notes' => (string) ($s->notes ?? ''),
+                    'statement_id' => (int) ($s->id ?? 0),
+                    'line_id'      => null,
+                    'sale_id'      => 0,
+
+                    'notes' => (string) (data_get($meta, 'notes') ?? ''),
                 ];
             });
         }
@@ -2444,10 +2403,6 @@ final class AdminIncomeService
 
         if ($includeProjections && $cuentas->isNotEmpty()) {
 
-            // periodos target (ya vienen filtrados por mes si aplica)
-            $periodsTarget = $periodsYear;
-
-            // precios por plan (base subtotal)
             $planPrice = function (?string $plan, ?string $modo): float {
                 $plan = strtolower(trim((string) $plan));
                 $modo = strtolower(trim((string) $modo));
@@ -2459,10 +2414,7 @@ final class AdminIncomeService
                     'enterprise' => ['mensual' => 1980.0, 'anual' => 19800.0],
                 ];
 
-                if (!isset($map[$plan])) return 0.0;
-                if (!isset($map[$plan][$modo])) return 0.0;
-
-                return (float) $map[$plan][$modo];
+                return (float) ($map[$plan][$modo] ?? 0.0);
             };
 
             foreach ($cuentas as $cc) {
@@ -2470,31 +2422,27 @@ final class AdminIncomeService
                 $modo = strtolower((string) ($cc->modo_cobro ?? ''));
                 if (!in_array($modo, ['mensual', 'anual'], true)) continue;
 
-                // opcional: solo activos si existe columna
                 $activo = (int) ($cc->activo ?? 1);
                 if ($activo !== 1) continue;
 
-                $uuid = (string) ($cc->id ?? '');
+                $uuid  = (string) ($cc->id ?? '');
                 $admId = (string) ($cc->admin_account_id ?? '');
-
                 if ($uuid === '' && $admId === '') continue;
 
-                // account_id canónico para proyección: preferir admin_account_id (numérico)
                 $accountIdCanonical = $admId !== '' ? $admId : $uuid;
 
-                // nombre/rfc
-                $company = $this->pickCompanyName($cc, [], [], null);
+                $company   = $this->pickCompanyName($cc, [], [], null);
                 $rfcEmisor = $this->pickRfcEmisor($cc->rfc_padre ?? null, $cc->rfc ?? null);
 
-                foreach ($periodsTarget as $per) {
+                foreach ($periodsYear as $per) {
 
-                    // ✅ si ya hay statement/line (uuid o admin) en ese periodo, NO proyectar
+                    // si ya hay statement del periodo (uuid o admin), NO proyectar
                     if ($admId !== '' && isset($statementKeyHash[$admId . '|' . $per])) continue;
                     if ($uuid !== '' && isset($statementKeyHash[$uuid . '|' . $per])) continue;
 
                     $base = (float) $planPrice((string) ($cc->plan_actual ?? ''), $modo);
 
-                    // fallback: si hay payments en ese periodo, usa el monto como base (siempre SUBTOTAL)
+                    // fallback: si hay payments en ese periodo, usa el monto como SUBTOTAL
                     if ($base <= 0 && $admId !== '') {
                         $pAgg = $paymentsAggByAdminAccPeriod->get($admId . '|' . $per);
                         if ($pAgg && (float) ($pAgg->sum_amount_mxn ?? 0) > 0) {
@@ -2502,7 +2450,6 @@ final class AdminIncomeService
                         }
                     }
 
-                    // si sigue en 0, no inventamos
                     if ($base <= 0) continue;
 
                     $subtotal = round($base, 2);
@@ -2516,7 +2463,6 @@ final class AdminIncomeService
                         'source'        => 'projection',
                         'is_projection' => 1,
 
-                        // ✅ Proyección no debe inflar KPI real
                         'exclude_from_kpi' => 1,
                         'has_statement'    => 0,
 
@@ -2583,24 +2529,18 @@ final class AdminIncomeService
         }
 
         // -------------------------
-        // 3) Ventas únicas (finance_sales) con anti-doble conteo
+        // 3) Ventas únicas (finance_sales) con anti-doble conteo + shadowing
         // -------------------------
         $rowsSales = collect();
 
         if ($includeSales && Schema::connection($adm)->hasTable('finance_sales')) {
 
-            // ✅ finance_sales: validar columnas con SQL directo (SHOW COLUMNS) porque Schema::hasColumn puede mentir
             $hasPeriod       = $this->hasColSql($adm, 'finance_sales', 'period');
             $hasTargetPeriod = $this->hasColSql($adm, 'finance_sales', 'target_period');
             $hasStmtTarget   = $this->hasColSql($adm, 'finance_sales', 'statement_period_target');
 
-            $colPeriod = $hasPeriod
-                ? 'period'
-                : ($hasTargetPeriod ? 'target_period' : null);
-
-            $colStmtTarget = $hasStmtTarget
-                ? 'statement_period_target'
-                : ($hasTargetPeriod ? 'target_period' : null);
+            $colPeriod = $hasPeriod ? 'period' : ($hasTargetPeriod ? 'target_period' : null);
+            $colStmtTarget = $hasStmtTarget ? 'statement_period_target' : ($hasTargetPeriod ? 'target_period' : null);
 
             $qSales = DB::connection($adm)->table('finance_sales as s')
                 ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id');
@@ -2625,7 +2565,6 @@ final class AdminIncomeService
                 's.total',
                 's.statement_status',
                 's.invoice_status',
-                // ✅ local/prod compat: algunas migraciones usan invoice_uuid, otras cfdi_uuid
                 's.cfdi_uuid',
                 's.invoice_uuid',
                 's.include_in_statement',
@@ -2633,26 +2572,21 @@ final class AdminIncomeService
                 's.created_at',
             ]);
 
-            // Period visible siempre
             if ($colPeriod) {
                 $qSales->addSelect(DB::raw("s.`{$colPeriod}` as period"));
             } else {
                 $qSales->addSelect(DB::raw("DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m') as period"));
             }
 
-            // statement_period_target visible (si existe)
             if ($colStmtTarget) {
                 $qSales->addSelect(DB::raw("s.`{$colStmtTarget}` as statement_period_target"));
             } else {
                 $qSales->addSelect(DB::raw("NULL as statement_period_target"));
             }
 
-            // ✅ Filtrado por periodo del año/mes (blindado)
             if ($colPeriod) {
-                // ✅ NUNCA meter backticks aquí: Query Builder los envuelve y puede generar ```period```
                 $qSales->whereIn("s.$colPeriod", $periodsYear);
             } else {
-                // Si no hay columna, filtramos por fecha efectiva
                 $placeholders = implode(',', array_fill(0, count($periodsYear), '?'));
                 $qSales->whereRaw(
                     "DATE_FORMAT(COALESCE(s.sale_date, s.created_at), '%Y-%m') IN ({$placeholders})",
@@ -2665,8 +2599,8 @@ final class AdminIncomeService
 
             $sales = $this->attachCompanyFromClientes($sales, $cli);
 
+            // anti-dup: si ya vino en líneas, o si se incluyó en statement del periodo
             $sales = $sales->filter(function ($s) use ($statementKeyHash, $statementLineSaleIdSet) {
-                // ✅ si ya vino en líneas del estado de cuenta, no la dupliques aquí
                 $sid = (int) ($s->id ?? 0);
                 if ($sid > 0 && isset($statementLineSaleIdSet[$sid])) return false;
 
@@ -2696,22 +2630,12 @@ final class AdminIncomeService
                 $y   = (int) substr($per, 0, 4);
                 $m   = (int) substr($per, 5, 2);
 
-                // -------------------------
-                // Shadowing: si ya existe Estado de Cuenta para account_id|period
-                // -> se conserva visible como pipeline, pero no suma KPI real
-                // -------------------------
                 $accKey    = (string) ($s->account_id ?? '');
                 $shadowKey = ($accKey !== '' && $per !== '') ? ($accKey . '|' . $per) : '';
-
                 $hasStatementForThis = ($shadowKey !== '' && isset($hasStatementByAccPeriod[$shadowKey]));
 
-                $saleSource = 'sale';
-                $excludeFromKpi = 0;
-
-                if ($hasStatementForThis) {
-                    $saleSource = 'sale_pipeline';
-                    $excludeFromKpi = 1;
-                }
+                $saleSource = $hasStatementForThis ? 'sale_pipeline' : 'sale';
+                $excludeFromKpi = $hasStatementForThis ? 1 : 0;
 
                 $origin = strtolower((string) ($s->origin ?? ''));
                 if ($origin === 'no_recurrente') $origin = 'unico';
@@ -2721,13 +2645,8 @@ final class AdminIncomeService
                 if (!in_array($periodicity, ['mensual', 'anual', 'unico'], true)) $periodicity = 'unico';
 
                 $ecStatus = strtolower((string) ($s->statement_status ?? 'pending'));
-                if (!in_array($ecStatus, ['pending', 'emitido', 'pagado', 'vencido'], true)) {
-                    $ecStatus = 'pending';
-                }
+                if (!in_array($ecStatus, ['pending', 'emitido', 'pagado', 'vencido'], true)) $ecStatus = 'pending';
 
-                // -------------------------
-                // Invoice request (1 lookup): billing_invoice_requests por (account_id|period)
-                // -------------------------
                 $invRow = null;
                 if ($per !== '' && $accKey !== '') {
                     $invRow = optional($invByAccPeriod->get($accKey . '|' . $per))->first();
@@ -2738,7 +2657,6 @@ final class AdminIncomeService
 
                 $invoiceDate = $s->invoice_date ?: ($invRow?->issued_at ?: null);
 
-                // UUID: sale -> invoice_requests -> meta
                 $uuidFromSale = trim((string) ($s->cfdi_uuid ?? ''));
                 if ($uuidFromSale === '') $uuidFromSale = trim((string) ($s->invoice_uuid ?? ''));
 
@@ -2756,7 +2674,6 @@ final class AdminIncomeService
                     }
                 }
 
-                // descripción
                 $notes    = trim((string) ($s->notes ?? ''));
                 $saleCode = trim((string) ($s->sale_code ?? ''));
 
@@ -2801,7 +2718,7 @@ final class AdminIncomeService
                 }
 
                 return (object) [
-                    'source'        => $saleSource, // ✅ sale | sale_pipeline
+                    'source'        => $saleSource, // sale | sale_pipeline
                     'is_projection' => 0,
 
                     'has_statement'    => $hasStatementForThis ? 1 : 0,
@@ -2844,8 +2761,8 @@ final class AdminIncomeService
 
                     'f_factura'          => $invoiceDate,
                     'invoice_date'       => $invoiceDate,
-                    'invoice_status'     => $invCanonical,
-                    'invoice_status_raw' => $invRaw,
+                    'invoice_status'     => ($invCanonical !== 'all' ? $invCanonical : null),
+                    'invoice_status_raw' => ($invRaw !== '' ? $invRaw : null),
                     'cfdi_uuid'          => ($uuidFromSale !== '' ? $uuidFromSale : null),
 
                     'payment_method' => null,
@@ -2868,19 +2785,23 @@ final class AdminIncomeService
 
         // -------------------------
         // Normalización final de flags (blindaje)
-        // - statement_line/statement => siempre has_statement=1, exclude_from_kpi=0
-        // - sale_pipeline            => siempre has_statement=1, exclude_from_kpi=1
+        // - statement_line/statement => has_statement=1, exclude_from_kpi=0
+        // - projection               => exclude_from_kpi=1
+        // - sale_pipeline            => has_statement=1, exclude_from_kpi=1
         // -------------------------
         $rows = $rows->map(function ($r) {
             $src = strtolower(trim((string) ($r->source ?? '')));
 
-            // defaults seguros
             if (!property_exists($r, 'exclude_from_kpi')) $r->exclude_from_kpi = 0;
             if (!property_exists($r, 'has_statement'))    $r->has_statement    = 0;
 
             if (in_array($src, ['statement', 'statement_line'], true)) {
                 $r->has_statement = 1;
                 $r->exclude_from_kpi = 0;
+            }
+
+            if ($src === 'projection') {
+                $r->exclude_from_kpi = 1;
             }
 
             if ($src === 'sale_pipeline') {
@@ -2892,9 +2813,25 @@ final class AdminIncomeService
         });
 
         $dbg['rows_existing']  = $rowsExisting->count();
+        $dbg['rows_projected'] = $rowsProjected->count();
+        $dbg['rows_sales']     = $rowsSales->count();
+
+        $dbg['rows_total_before_filters'] = $rows->count();
+        $dbg['before_filters_by_source'] = $rows->groupBy('source')->map->count()->all();
+        $dbg['before_filters_sample'] = $rows->take(12)->map(fn ($r) => [
+            'source' => $r->source ?? null,
+            'period' => $r->period ?? null,
+            'client' => $r->client ?? ($r->company ?? null),
+            'origin' => $r->origin ?? null,
+            'ec_status' => $r->ec_status ?? null,
+            'invoice_status' => $r->invoice_status ?? null,
+            'vendor_id' => $r->vendor_id ?? null,
+            'account_id' => $r->account_id ?? null,
+            'subtotal' => $r->subtotal ?? null,
+        ])->values()->all();
 
         // -------------------------
-        // Apply overrides
+        // Apply overrides (solo statement/projection/statement_line)
         // -------------------------
         if (Schema::connection($adm)->hasTable('finance_income_overrides') && $rows->isNotEmpty()) {
             $ovAccountIds = $rows
@@ -2961,7 +2898,7 @@ final class AdminIncomeService
 
                     $vid = (string) ($r->vendor_id ?? '');
                     if ($vid !== '' && $vendorsById->isNotEmpty() && $vendorsById->has($vid)) {
-                        $r->vendor = (string) ($vendorsById->get($vid)?->name ?? $r->vendor ?? null);
+                        $r->vendor = (string) ($vendorsById->get($vid)?->name ?? ($r->vendor ?? null));
                     }
 
                     $r->has_override = 1;
@@ -2970,6 +2907,9 @@ final class AdminIncomeService
             }
         }
 
+        // -------------------------
+        // Filtros
+        // -------------------------
         $originNorm = $origin;
         if ($originNorm === 'no_recurrente') $originNorm = 'unico';
 
@@ -2982,9 +2922,6 @@ final class AdminIncomeService
             'qSearch'    => (string) $qSearch,
         ];
 
-        // -------------------------
-        // FAST-PATH HARD: si todo está en all y sin búsqueda, NO filtrar
-        // -------------------------
         $stNorm0    = strtolower(trim((string) $statusFilter));
         $invNorm0   = strtolower(trim((string) $invSt));
         $vendorNorm = (string) $vendorId;
@@ -2999,65 +2936,8 @@ final class AdminIncomeService
 
         $dbg['noFiltersHard'] = $noFiltersHard ? 1 : 0;
 
-        if ($noFiltersHard) {
-            $rows = $rows->sortBy([
-                fn ($r) => (string) ($r->period ?? ''),
-                fn ($r) => $this->sourceSortWeight($r->source ?? null), // ✅ statement_line arriba
-                fn ($r) => (string) ($r->client ?? $r->company ?? ''),
-                fn ($r) => -1 * (float) ($r->subtotal ?? 0),
-            ])->values();
-
-            $dbg['rows_total_after_filters'] = $rows->count();
-            $dbg['after_filters_by_source'] = $rows->groupBy('source')->map->count()->all();
-            $dbg['after_filters_sample'] = $rows->take(12)->map(fn ($r) => [
-                'source' => $r->source ?? null,
-                'period' => $r->period ?? null,
-                'client' => $r->client ?? ($r->company ?? null),
-                'origin' => $r->origin ?? null,
-                'ec_status' => $r->ec_status ?? null,
-                'invoice_status' => $r->invoice_status ?? null,
-                'vendor_id' => $r->vendor_id ?? null,
-                'account_id' => $r->account_id ?? null,
-                'subtotal' => $r->subtotal ?? null,
-            ])->values()->all();
-
-            $kpis = $this->computeKpis($rows);
-
-            $vendorList = $vendorsById
-                ->map(fn ($v) => ['id' => (string) $v->id, 'name' => (string) $v->name])
-                ->values();
-
-            return [
-                'filters' => [
-                    'year'   => $year,
-                    'month'  => $month,
-                    'origin' => $origin,
-                    'st'     => $statusFilter,
-                    'invSt'  => $invSt,
-                    'vendorId' => $vendorId,
-                    'qSearch'  => $qSearch,
-                    'include_projections' => $includeProjections ? 1 : 0,
-                    'include_sales'       => $includeSales ? 1 : 0,
-                    'vendor_list'         => $vendorList,
-                    'debug_counts'        => $dbg,
-                ],
-                'kpis' => $kpis,
-                'rows' => $rows,
-            ];
-        }
-
-        // -------------------------
-        // Filtros finales
-        // -------------------------
-        $noFilters =
-            ($originNorm === 'all') &&
-            ($stNorm0 === '' || in_array($stNorm0, ['all', 'todos', 'todas'], true)) &&
-            ($invNorm0 === '' || in_array($invNorm0, ['all', 'todos', 'todas'], true)) &&
-            (($vendorNorm === '') || ($vendorNorm === 'all')) &&
-            ($qNorm === '');
-
-        if (!$noFilters) {
-            $rows = $rows->filter(function ($r) use ($originNorm, $st, $invSt, $vendorId, $qSearch) {
+        if (!$noFiltersHard) {
+            $rows = $rows->filter(function ($r) use ($originNorm, $st, $invSt, $vendorId, $qSearch, $canonInv) {
                 $rowOrigin = strtolower(trim((string) ($r->origin ?? '')));
                 $rowStatus = strtolower(trim((string) ($r->ec_status ?? '')));
 
@@ -3077,14 +2957,9 @@ final class AdminIncomeService
 
                 $invNorm = $canonInv($invSt);
                 if ($invNorm !== 'all') {
-                    // primero intenta invoice_status, si viene vacío usa raw
                     $cmp = (string) ($r->invoice_status ?? '');
-                    if (trim($cmp) === '') {
-                        $cmp = (string) ($r->invoice_status_raw ?? '');
-                    }
-
+                    if (trim($cmp) === '') $cmp = (string) ($r->invoice_status_raw ?? '');
                     $cmp = $canonInv($cmp);
-
                     if ($cmp !== $invNorm) return false;
                 }
 
@@ -3119,7 +2994,7 @@ final class AdminIncomeService
 
         $rows = $rows->sortBy([
             fn ($r) => (string) ($r->period ?? ''),
-            fn ($r) => $this->sourceSortWeight($r->source ?? null), // ✅ statement_line arriba
+            fn ($r) => $this->sourceSortWeight($r->source ?? null), // statement_line arriba
             fn ($r) => (string) ($r->client ?? $r->company ?? ''),
             fn ($r) => -1 * (float) ($r->subtotal ?? 0),
         ])->values();
@@ -3162,4 +3037,5 @@ final class AdminIncomeService
             'rows' => $rows,
         ];
     }
+    
 }
