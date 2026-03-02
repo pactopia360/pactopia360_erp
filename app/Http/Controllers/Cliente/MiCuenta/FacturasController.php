@@ -810,22 +810,32 @@ final class FacturasController extends Controller
         ];
     }
 
-        /**
+    /**
      * ✅ Resuelve/crea el billing_statements.id para account_id+period (admin).
      * billing_invoice_requests.statement_id es NOT NULL -> SIEMPRE se debe mandar.
+     * FIX: SIEMPRE usa CANON admin_account_id (int) y evita crear statements con UUID.
      */
     private function resolveStatementIdForInvoice(int $accountId, string $period): int
     {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
 
-        // billing_statements.account_id es varchar(36) pero en tu sistema llega como int (6,21,...)
-        $acctCandidates = array_values(array_unique([
-            (string) $accountId,
-            (int) $accountId,
-        ]));
+        $period = trim((string) $period);
+        if ($accountId <= 0 || $period === '') return 0;
+        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) return 0;
+
+        // En cliente, el $accountId que llega aquí DEBE ser admin_account_id.
+        // Pero por seguridad intentamos resolver canon si el schema lo permite.
+        $canon = (int) $accountId;
+
+        // Si por alguna razón te llegara "cuentas_cliente.id" en vez de admin_account_id,
+        // aquí NO podemos (porque es int). Entonces mantenemos canon = $accountId.
+        // La resolución UUID->canon se hace ANTES, en tu resolver de admin_account_id.
+
+        $canonStr = (string) $canon;
 
         $st = DB::connection($adm)->table('billing_statements')
-            ->whereIn('account_id', $acctCandidates)
+            ->where('account_id', $canonStr)
             ->where('period', $period)
             ->first(['id']);
 
@@ -833,29 +843,41 @@ final class FacturasController extends Controller
             return (int) $st->id;
         }
 
-        // ✅ fallback seguro: si NO existe el statement para ese periodo, lo creamos mínimo.
-        // (esto evita que truene la solicitud de factura por el NOT NULL)
         $now = now();
 
-        DB::connection($adm)->table('billing_statements')->insert([
-            'account_id'   => (string) $accountId,
-            'period'       => $period,
-            'total_cargo'  => 0.00,
-            'total_abono'  => 0.00,
-            'saldo'        => 0.00,
-            'status'       => 'pending',
-            'due_date'     => null,
-            'sent_at'      => null,
-            'paid_at'      => null,
-            'snapshot'     => null,
-            'meta'         => null,
-            'is_locked'    => 0,
-            'created_at'   => $now,
-            'updated_at'   => $now,
-        ]);
+        try {
+            DB::connection($adm)->table('billing_statements')->insert([
+                'account_id'   => $canonStr,
+                'period'       => $period,
+                'total_cargo'  => 0.00,
+                'total_abono'  => 0.00,
+                'saldo'        => 0.00,
+                'status'       => 'pending',
+                'due_date'     => null,
+                'sent_at'      => null,
+                'paid_at'      => null,
+                'snapshot'     => null,
+                'meta'         => null,
+                'is_locked'    => 0,
+                'created_at'   => $now,
+                'updated_at'   => $now,
+            ]);
 
-        $id = (int) DB::connection($adm)->getPdo()->lastInsertId();
+            $id = (int) DB::connection($adm)->getPdo()->lastInsertId();
+            if ($id > 0) return $id;
 
-        return $id > 0 ? $id : 0;
+        } catch (\Throwable $e) {
+            $again = DB::connection($adm)->table('billing_statements')
+                ->where('account_id', $canonStr)
+                ->where('period', $period)
+                ->first(['id']);
+
+            if ($again && isset($again->id) && (int)$again->id > 0) {
+                return (int) $again->id;
+            }
+        }
+
+        return 0;
     }
+    
 }

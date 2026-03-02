@@ -172,8 +172,11 @@
   $rtInvoiceReq    = \Illuminate\Support\Facades\Route::has('admin.billing.invoices.requests.index') ? route('admin.billing.invoices.requests.index') : null;
   $rtStatementsHub = \Illuminate\Support\Facades\Route::has('admin.billing.statements_hub.index') ? route('admin.billing.statements_hub.index') : null;
 
-  // Nota: nombre real de la ruta según tu mensaje de warning (finance.income.row)
-  $rtIncomeUpsert   = \Illuminate\Support\Facades\Route::has('finance.income.row') ? route('finance.income.row') : null;
+ // ✅ Canon: routes/admin.php => admin.finance.income.row
+  $rtIncomeUpsert   = \Illuminate\Support\Facades\Route::has('admin.finance.income.row')
+    ? route('admin.finance.income.row')
+    : null;
+
   $hasToggleInclude = \Illuminate\Support\Facades\Route::has('admin.finance.sales.toggleInclude');
 
   // ==========================================================

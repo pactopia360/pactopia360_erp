@@ -756,6 +756,11 @@ final class BillingStatementsController extends Controller
                     continue;
                 }
 
+                // ✅ SOT: si el mes está marcado "pagado" por override, no se suma a prev_balance.
+                if ($this->isPeriodPaidByOverride($accountId, $p)) {
+                    continue;
+                }
+
                 $tot = $this->computeStatementTotalsForPeriod($accountId, $p, true);
 
                 $saldo = (float) ($tot['saldo'] ?? 0);
@@ -3003,6 +3008,21 @@ final class BillingStatementsController extends Controller
             }
         }
 
+        // =========================================================
+        // ✅ SOT: overrides "pagado" también cierran el mes.
+        // Si el admin marcó pagado, lo tratamos como last_paid para corte de arrastre.
+        // =========================================================
+        try {
+            $ovPaid = $this->resolveLastPaidPeriodFromOverrides($key);
+            if ($ovPaid && $this->isValidPeriod($ovPaid)) {
+                if (!$lastPaid || ($lastPaid < $ovPaid)) {
+                    $lastPaid = $ovPaid;
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         $this->cacheLastPaid[$key] = $lastPaid;
         return $lastPaid;
     }
@@ -3145,6 +3165,76 @@ final class BillingStatementsController extends Controller
     private function overrideTable(): string
     {
         return 'billing_statement_status_overrides';
+    }
+
+    /**
+     * ✅ SOT: si un periodo está marcado "pagado" por override,
+     * ese mes debe considerarse "cerrado" para:
+     * - last_paid (corte de arrastre)
+     * - prev_balance (no sumar deuda ya cerrada por admin)
+     */
+    private function isPeriodPaidByOverride(string $accountId, string $period): bool
+    {
+        try {
+            if (!$this->isValidPeriod($period)) return false;
+
+            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+                return false;
+            }
+
+            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+            $lc   = array_map('strtolower', $cols);
+            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+            // columna oficial: status_override
+            if (!$has('status_override')) return false;
+
+            return DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->where('status_override', 'pagado')
+                ->limit(1)
+                ->exists();
+
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Devuelve el periodo más reciente marcado como pagado en overrides.
+     * @return ?string YYYY-MM
+     */
+    private function resolveLastPaidPeriodFromOverrides(string $accountId): ?string
+    {
+        try {
+            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+                return null;
+            }
+
+            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+            $lc   = array_map('strtolower', $cols);
+            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+            if (!$has('account_id') || !$has('period') || !$has('status_override')) {
+                return null;
+            }
+
+            $row = DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('status_override', 'pagado')
+                ->orderByDesc('period')
+                ->first(['period']);
+
+            if ($row && !empty($row->period)) {
+                $p = $this->parseToPeriod($row->period);
+                return ($p && $this->isValidPeriod($p)) ? $p : null;
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**

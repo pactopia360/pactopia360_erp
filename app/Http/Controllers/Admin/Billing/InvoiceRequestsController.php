@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -558,24 +559,30 @@ final class InvoiceRequestsController extends Controller
         return $canonical;
     }
 
-        /**
+    /**
      * ✅ billing_invoice_requests.statement_id es NOT NULL.
      * Resuelve billing_statements.id por account_id + period.
-     * Si no existe, lo crea mínimo para evitar 500.
+     * FIX: SIEMPRE usa CANON admin_account_id (int) y evita crear statements con UUID.
      */
     private function resolveStatementIdForInvoice(string $accountId, string $period): int
     {
-        if ($accountId === '' || $period === '') return 0;
+        $accountId = trim((string) $accountId);
+        $period    = trim((string) $period);
 
-        // billing_statements.account_id es varchar(36) y en tu sistema a veces llega "6" (string),
-        // por eso usamos candidatos.
-        $acctCandidates = array_values(array_unique([
-            $accountId,
-            is_numeric($accountId) ? (string)((int)$accountId) : $accountId,
-        ]));
+        if ($accountId === '' || $period === '') return 0;
+        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) return 0;
+
+        // Canon resolver (admin_account_id)
+        $canon = $this->resolveCanonicalAdminAccountId($accountId);
+        if ($canon <= 0) {
+            // ❌ No canon => NO crear basura
+            return 0;
+        }
+
+        $canonStr = (string) $canon;
 
         $st = DB::connection($this->adm)->table('billing_statements')
-            ->whereIn('account_id', $acctCandidates)
+            ->where('account_id', $canonStr)
             ->where('period', $period)
             ->first(['id']);
 
@@ -583,28 +590,169 @@ final class InvoiceRequestsController extends Controller
             return (int) $st->id;
         }
 
-        // ✅ fallback seguro: crear statement mínimo para ese periodo
+        // ✅ Crear statement mínimo (CANON)
         $now = now();
 
-        DB::connection($this->adm)->table('billing_statements')->insert([
-            'account_id'   => (string) ($acctCandidates[0] ?? $accountId),
-            'period'       => (string) $period,
-            'total_cargo'  => 0.00,
-            'total_abono'  => 0.00,
-            'saldo'        => 0.00,
-            'status'       => 'pending',
-            'due_date'     => null,
-            'sent_at'      => null,
-            'paid_at'      => null,
-            'snapshot'     => null,
-            'meta'         => null,
-            'is_locked'    => 0,
-            'created_at'   => $now,
-            'updated_at'   => $now,
-        ]);
+        try {
+            DB::connection($this->adm)->table('billing_statements')->insert([
+                'account_id'   => $canonStr,
+                'period'       => $period,
+                'total_cargo'  => 0.00,
+                'total_abono'  => 0.00,
+                'saldo'        => 0.00,
+                'status'       => 'pending',
+                'due_date'     => null,
+                'sent_at'      => null,
+                'paid_at'      => null,
+                'snapshot'     => null,
+                'meta'         => null,
+                'is_locked'    => 0,
+                'created_at'   => $now,
+                'updated_at'   => $now,
+            ]);
 
-        $id = (int) DB::connection($this->adm)->getPdo()->lastInsertId();
-        return $id > 0 ? $id : 0;
+            $id = (int) DB::connection($this->adm)->getPdo()->lastInsertId();
+            if ($id > 0) return $id;
+
+        } catch (\Throwable $e) {
+            // Probable colisión uq_statement_account_period: re-leer
+            $again = DB::connection($this->adm)->table('billing_statements')
+                ->where('account_id', $canonStr)
+                ->where('period', $period)
+                ->first(['id']);
+
+            if ($again && isset($again->id) && (int)$again->id > 0) {
+                return (int) $again->id;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * ✅ Dado un accountId que puede ser:
+     * - "15" (admin accounts.id)
+     * - UUID de mysql_clientes.cuentas_cliente.id
+     * regresa admin_account_id (int) o 0 si no se puede.
+     */
+    private function resolveCanonicalAdminAccountId(string $accountId): int
+    {
+        $raw = trim((string) $accountId);
+        if ($raw === '') return 0;
+
+        // Si es numérico, ya es canon.
+        if (preg_match('/^\d+$/', $raw)) {
+            $n = (int) $raw;
+            return $n > 0 ? $n : 0;
+        }
+
+        // UUID => buscar en clientes
+        $isUuid = (bool) preg_match(
+            '/^[0-9a-f]{8}\-[0-9a-f]{4}\-[1-5][0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/i',
+            $raw
+        );
+
+        if (!$isUuid) return 0;
+
+        $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+
+        try {
+            if (!Schema::connection($cli)->hasTable('cuentas_cliente')) return 0;
+
+            // Preferencia: admin_account_id
+            $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
+            $lc   = array_map('strtolower', $cols);
+            $has  = fn(string $c) => in_array(strtolower($c), $lc, true);
+
+            $row = DB::connection($cli)->table('cuentas_cliente')->where('id', $raw)->first();
+
+            if (!$row) return 0;
+
+            $cand = null;
+
+            if ($has('admin_account_id')) $cand = $row->admin_account_id ?? null;
+            if (($cand === null || (int)$cand <= 0) && $has('account_id')) $cand = $row->account_id ?? null;
+
+            // meta.admin_account_id (último recurso)
+            if (($cand === null || (int)$cand <= 0) && $has('meta')) {
+                $meta = $row->meta ?? null;
+                if (is_string($meta) && $meta !== '') {
+                    $j = json_decode($meta, true);
+                    if (json_last_error() === JSON_ERROR_NONE && is_array($j)) {
+                        $cand = $j['admin_account_id'] ?? $j['account_id'] ?? null;
+                    }
+                } elseif (is_array($meta)) {
+                    $cand = $meta['admin_account_id'] ?? $meta['account_id'] ?? null;
+                }
+            }
+
+            $n = (int) $cand;
+            return $n > 0 ? $n : 0;
+
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Normaliza a admin_account_id canónico (string numérico) para operar billing_statements.
+     * Regresa: [canonId, clientUuid|null, src]
+     */
+    private function resolveCanonicalAdminAccountForStatements(string $accountId): array
+    {
+        $raw = trim((string) $accountId);
+        if ($raw === '') return ['', null, 'empty'];
+
+        // Si ya es numérico (admin id), listo
+        if (preg_match('/^\d+$/', $raw)) {
+            return [(string)((int)$raw), null, 'numeric'];
+        }
+
+        // Si es UUID, intentar resolver a admin_account_id desde mysql_clientes.cuentas_cliente
+        if (preg_match('/^[0-9a-f\-]{36}$/i', $raw)) {
+            $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+
+            try {
+                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
+                    $cc = DB::connection($cli)->table('cuentas_cliente')
+                        ->where('id', $raw)
+                        ->first(['id','admin_account_id','account_id','meta']);
+
+                    if ($cc) {
+                        $aid = (int) ($cc->admin_account_id ?? 0);
+                        if ($aid <= 0) $aid = (int) ($cc->account_id ?? 0);
+
+                        if ($aid <= 0) {
+                            $meta = $cc->meta ?? null;
+                            $arr = [];
+
+                            if (is_array($meta)) $arr = $meta;
+                            elseif (is_object($meta)) $arr = (array)$meta;
+                            elseif (is_string($meta) && $meta !== '') {
+                                $j = json_decode($meta, true);
+                                if (json_last_error() === JSON_ERROR_NONE && is_array($j)) $arr = $j;
+                            }
+
+                            $aid = (int) data_get($arr, 'admin_account_id', 0);
+                            if ($aid <= 0) $aid = (int) data_get($arr, 'account_id', 0);
+                        }
+
+                        if ($aid > 0) {
+                            return [(string)$aid, (string)$cc->id, 'clientes.cuentas_cliente'];
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[BILLING][INVOICE_REQ] resolveCanonicalAdminAccountForStatements failed', [
+                    'account_id_in' => $raw,
+                    'err'           => $e->getMessage(),
+                ]);
+            }
+
+            return ['', $raw, 'uuid.unresolved'];
+        }
+
+        return ['', null, 'unknown.format'];
     }
 
     private function syncToHubFromLegacy(int $legacyId): void
@@ -651,7 +799,18 @@ final class InvoiceRequestsController extends Controller
             if ($hub && isset($hub->statement_id) && (int)$hub->statement_id > 0) {
                 $payload['statement_id'] = (int) $hub->statement_id;
             } else {
-                $payload['statement_id'] = $stmtId > 0 ? $stmtId : 1; // paracaídas extremo
+                if ($stmtId > 0) {
+                    $payload['statement_id'] = $stmtId;
+                } else {
+                    // ❌ No hay statement_id canónico válido -> NO insertamos/actualizamos HUB.
+                    // Evita statement_id=1 que contamina datos.
+                    Log::error('[BILLING][INVOICE_REQ] HUB requires statement_id but could not be resolved', [
+                        'legacy_id'     => (int) $legacyId,
+                        'account_id_in' => (string) $accountId,
+                        'period'        => (string) $period,
+                    ]);
+                    return; // salimos sin sync (no 500)
+                }
             }
         }
 

@@ -31,10 +31,17 @@ class StatementSyncService
         return DB::connection('mysql_admin')->transaction(function () use ($connClients, $accountId, $period, $opts) {
 
             // ===== 1) Leer cuenta cliente (mysql_clientes)
+            // $accountId aquí normalmente es UUID (cuentas_cliente.id).
+            // Canon: billing_statements.account_id debe ser admin_account_id (numérico string) cuando exista.
             $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', $accountId)->first();
             if (!$acc) {
                 throw new \RuntimeException("Account not found in $connClients.cuentas_cliente: $accountId");
             }
+
+            $adminAccountId = (int) ($acc->admin_account_id ?? 0);
+
+            // account_id canónico para billing_statements (evita UUID huérfano)
+            $canonicalAccountId = $adminAccountId > 0 ? (string) $adminAccountId : (string) $accountId;
 
             $meta = $this->decodeMeta($acc->meta ?? null);
 
@@ -69,17 +76,23 @@ class StatementSyncService
             $emails = array_values(array_unique(array_map('mb_strtolower', $emails)));
 
             // ===== 2) Upsert statement
+            // IMPORTANT: billing_statements.account_id = ID canónico (admin_account_id) cuando exista
             $st = BillingStatement::query()
-                ->where('account_id', $accountId)
+                ->where('account_id', $canonicalAccountId)
                 ->where('period', $period)
                 ->lockForUpdate()
                 ->first();
 
             if (!$st) {
                 $st = new BillingStatement([
-                    'account_id' => $accountId,
+                    'account_id' => $canonicalAccountId,
                     'period'     => $period,
                 ]);
+            } else {
+                // Si por alguna razón existiera un row con account_id distinto, lo alineamos.
+                if ((string) $st->account_id !== (string) $canonicalAccountId) {
+                    $st->account_id = (string) $canonicalAccountId;
+                }
             }
 
             // Si está locked y no es rebuild explícito, no tocar items
@@ -87,8 +100,14 @@ class StatementSyncService
 
             // ===== 3) Snapshot (para PDF y consistencia)
             $snap = [
-                'account' => [
-                    'id'              => (string)$acc->id,
+                                'account' => [
+                    // UUID de clientes (cuentas_cliente.id)
+                    'client_uuid'      => (string) $acc->id,
+                    // ID numérico admin (accounts.id) si existe
+                    'admin_account_id' => $adminAccountId > 0 ? $adminAccountId : null,
+                    // ID canónico persistido en billing_statements.account_id
+                    'canonical_id'     => (string) $canonicalAccountId,
+
                     'razon_social'     => (string)($acc->razon_social ?? ''),
                     'nombre_comercial' => (string)($acc->nombre_comercial ?? ''),
                     'rfc'              => (string)($acc->rfc ?? ''),
@@ -167,10 +186,18 @@ class StatementSyncService
             ]);
 
             Log::info('StatementSyncService.synced', [
-                'account_id' => $accountId,
-                'period'     => $period,
+                // input (normalmente UUID)
+                'account_id_input'   => (string) $accountId,
+                // uuid cliente real
+                'account_client_uuid'=> (string) ($acc->id ?? ''),
+                // admin id si existe
+                'admin_account_id'   => $adminAccountId > 0 ? $adminAccountId : null,
+                // lo que se persistió en billing_statements.account_id
+                'account_id_canonical'=> (string) $canonicalAccountId,
+
+                'period'      => $period,
                 'statement_id'=> $st->id,
-                'is_pro'     => $isPro,
+                'is_pro'      => $isPro,
             ]);
 
             return $st;
@@ -179,7 +206,8 @@ class StatementSyncService
 
     public function syncAllForPeriod(string $period, array $opts = []): int
     {
-        $connClients = (string) (config('p360.conn.clients') ?: 'mysql_clientes');
+         // Compat: en el proyecto se usa p360.conn.clientes (pero dejamos fallback a p360.conn.clients)
+        $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
 
         $ids = DB::connection($connClients)->table('cuentas_cliente')->pluck('id')->all();
 
