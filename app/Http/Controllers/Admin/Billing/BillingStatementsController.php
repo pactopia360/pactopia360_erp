@@ -668,10 +668,10 @@ final class BillingStatementsController extends Controller
         ];
     }
 
-     /**
-     * Un periodo solo debe considerarse "emitido" si hay evidencia real:
+    /**
+     * Un periodo solo debe considerarse con "evidencia real" para prev_balance si hay:
      * - movimientos en estados_cuenta, o
-     * - pagos en payments (pending/paid/etc), o
+     * - pagos REALES en payments (solo PAID/succeeded/etc; pending NO cuenta para evitar meses fantasma), o
      * - override en billing_statement_status_overrides
      */
     private function hasStatementEvidence(string $accountId, string $period): bool
@@ -687,37 +687,35 @@ final class BillingStatementsController extends Controller
                 if ($cnt > 0) return true;
             }
 
-            // 2) payments
+            // 2) payments (SOT: evidencia solo si está PAGADO)
             if (Schema::connection($this->adm)->hasTable('payments')) {
                 $cols = Schema::connection($this->adm)->getColumnListing('payments');
                 $lc   = array_map('strtolower', $cols);
                 $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-                if ($has('account_id')) {
-                    $q = DB::connection($this->adm)->table('payments')->where('account_id', $accountId);
+                if ($has('account_id') && $has('status')) {
+                    $q = DB::connection($this->adm)->table('payments')
+                        ->where('account_id', $accountId);
 
                     $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
 
-                    // si no hay status, igual cuenta como evidencia
-                    if ($has('status')) {
-                        $q->whereIn('status', [
-                        'paid','succeeded','success','completed','complete','captured','authorized'
-                        ]);
+                    $q->whereIn('status', [
+                        'paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized',
+                    ]);
 
-                    }
-
-                    if ((int) $q->count() > 0) return true;
+                    if ($q->limit(1)->exists()) return true;
                 }
             }
 
             // 3) overrides
             if (Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                $cnt = (int) DB::connection($this->adm)->table($this->overrideTable())
+                if (DB::connection($this->adm)->table($this->overrideTable())
                     ->where('account_id', $accountId)
                     ->where('period', $period)
-                    ->count();
-
-                if ($cnt > 0) return true;
+                    ->limit(1)
+                    ->exists()) {
+                    return true;
+                }
             }
         } catch (\Throwable $e) {
             // en caso de error, mejor NO sumar prev para no inflar
@@ -726,7 +724,6 @@ final class BillingStatementsController extends Controller
 
         return false;
     }
-
 
     /**
      * Saldo anterior real = suma de saldos pendientes de periodos anteriores.
@@ -3453,13 +3450,23 @@ final class BillingStatementsController extends Controller
      * - method: manual | transfer | card | etc
      * - provider: manual (default)
      */
-    private function upsertPaidPaymentForStatement(
+private function upsertPaidPaymentForStatement(
     string $accountId,
     string $period,
     float $amountMxn,
     string $method = 'manual',
     string $provider = 'manual'
     ): void {
+        // =========================================================
+        // ✅ FIX GLOBAL (SOT):
+        // Un "override pagado" NO debe crear payments automáticamente.
+        // Se deja el método disponible solo si se habilita explícitamente por ENV.
+        // =========================================================
+        $enabled = (bool) env('BILLING_AUTO_CREATE_PAYMENT_ON_OVERRIDE', false);
+        if (!$enabled) {
+            return;
+        }
+
         if (!Schema::connection($this->adm)->hasTable('payments')) return;
 
         $amountMxn = round(max(0.0, $amountMxn), 2);
@@ -3560,7 +3567,6 @@ final class BillingStatementsController extends Controller
             ]);
         }
     }
-
 
   private function insertManualPaidPaymentForStatement(string $accountId, string $period, float $amountMxn, string $method): void
     {

@@ -1079,3 +1079,102 @@ body.sx-drawer-open{
 @media (max-width: 520px){
   .sx-toast{ right: 10px; bottom: 10px; }
 }
+
+/* ==========================================================
+   P360 · FIX FINAL: quitar doble scroll (layout + contenido)
+   Dejar SOLO scroll del body en Statements
+   ========================================================== */
+
+/* 1) Fuerza que el scroll principal sea del documento */
+html, body{
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-y: auto !important;
+}
+
+/* 2) Si el layout usa contenedores “app shell” con overflow, los apagamos SOLO aquí
+      (este CSS solo se carga en statements, así que es seguro) */
+.p360-page,
+#app,
+#app > main,
+main,
+.content,
+.content-body,
+.content-wrapper,
+.app-main,
+.admin-content,
+.layout-content,
+.page-content{
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* 3) Mantén el sticky funcionando con scroll del body */
+.sx-topSticky{
+  position: sticky;
+  top: var(--sx-sticky-top);
+  z-index: 50;
+}
+
+/* 4) Asegura que no se recree un scroller interno por accidente */
+.sx-wrap,
+.sx-card,
+.sx-panel{
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* 5) La tabla puede scrollear horizontal (vertical NO) */
+.sx-table-wrap{
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* ==========================================================
+   P360 · STATEMENTS: 1 SOLO SCROLL (body)
+   Layout admin trae body overflow:hidden + main overflow:auto.
+   Aquí lo invertimos SOLO para esta pantalla.
+   ========================================================== */
+
+/* 1) Rehabilita scroll global */
+html, body{
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-y: auto !important;
+}
+
+/* 2) El layout bloquea el body: lo revertimos aquí */
+body{
+  overflow: auto !important;
+}
+
+/* 3) Mata el scroll interno del main (admin-content) */
+.admin-content{
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+  -webkit-overflow-scrolling: auto !important;
+}
+
+/* 4) Compensa el header fijo (para que no “se meta” bajo topbar) */
+.admin-app{
+  padding-top: var(--header-h) !important;
+}
+
+/* 5) Como ya no hay scroll interno, el shadow del page-header se debe basar en window.
+      (No es obligatorio, pero evita “parpadeos” visuales) */
+#page-header{
+  top: 0 !important;
+}
+
+/* 6) Asegura que tu tabla NO cree scroll vertical interno */
+.sx-table-wrap{
+  overflow-y: visible !important;
+  max-height: none !important;
+}
