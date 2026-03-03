@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services\Admin\Billing;
 
 use App\Models\Admin\Billing\BillingStatement;
@@ -11,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
-class StatementSyncService
+final class StatementSyncService
 {
     // =========================
     // PUBLIC API
@@ -24,41 +26,38 @@ class StatementSyncService
             'lock_if_paid'               => true,
             'actor'                      => 'system',
             'notes'                      => null,
+
+            // ✅ NUEVO: repara automáticamente "paid+locked con saldo/cargo 0"
+            // cuando el meta de HUB dice que sí hay que cobrar.
+            'repair_locked_zero'         => true,
         ], $opts);
 
         // ✅ Compat proyecto: p360.conn.clientes (pero dejamos fallback)
         $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
         $connAdmin   = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
-        // Period validation
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
             throw new \InvalidArgumentException('Invalid period format. Expected YYYY-MM');
         }
 
         return DB::connection($connAdmin)->transaction(function () use ($connClients, $connAdmin, $accountId, $period, $opts) {
 
-            // ===== 1) Leer cuenta cliente (mysql_clientes)
-            // $accountId aquí normalmente es UUID (cuentas_cliente.id).
+            // ===== 1) Cuenta cliente
             $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', $accountId)->first();
             if (!$acc) {
                 throw new \RuntimeException("Account not found in {$connClients}.cuentas_cliente: {$accountId}");
             }
 
             $adminAccountId = (int) ($acc->admin_account_id ?? 0);
-
-            // account_id canónico para billing_statements (evita UUID huérfano)
             $canonicalAccountId = $adminAccountId > 0 ? (string) $adminAccountId : (string) $accountId;
 
             // ===== 1.1) Meta (clientes + admin/accounts)
-            // IMPORTANTE: PERSONALIZADO vive en mysql_admin.accounts.meta (billing.amount_mxn / billing.override.*)
             $metaCli = $this->decodeMeta($acc->meta ?? null);
 
-            $accountsTable = Schema::connection($connAdmin)->hasTable('accounts') ? 'accounts' : null;
+            $accountsTable  = Schema::connection($connAdmin)->hasTable('accounts') ? 'accounts' : null;
             $accountsMetaCol = $accountsTable ? $this->pickFirstMetaCol($connAdmin, $accountsTable) : null;
 
             $metaAdm = [];
-            $admAcc  = null;
-
             if ($adminAccountId > 0 && $accountsTable && $accountsMetaCol) {
                 $admAcc = DB::connection($connAdmin)->table($accountsTable)
                     ->where('id', $adminAccountId)
@@ -69,10 +68,10 @@ class StatementSyncService
                 }
             }
 
-            // Merge: admin meta gana (porque ahí vive billing.override / amount_mxn)
+            // Admin meta gana (override/amount_mxn viven ahí)
             $meta = array_replace_recursive($metaCli, $metaAdm);
 
-            // ===== 1.2) Perfil de licencia canónico (alineado a AccountsController)
+            // ===== 1.2) Perfil licencia canónico
             $planKey = (string)(
                 data_get($meta, 'billing.plan')
                 ?? data_get($meta, 'license.plan')
@@ -100,7 +99,6 @@ class StatementSyncService
 
             $cycleNorm = $this->normalizeCycle($cycleKey);
 
-            // Monto canónico (MXN) desde meta (prioridad: override por ciclo > base amount)
             $baseAmt = (float)(
                 data_get($meta, 'billing.amount_mxn')
                 ?? data_get($meta, 'license.amount_mxn')
@@ -116,16 +114,15 @@ class StatementSyncService
                 ? (float)$overrideByCycle
                 : (is_numeric($legacyOverride) ? (float)$legacyOverride : null);
 
-            // Estructura override normalizada (solo si aplica)
             $override = ($overrideAmt !== null && $overrideAmt > 0.00001)
                 ? ['amount_mxn' => $overrideAmt, 'cycle' => $cycleNorm]
                 : (data_get($meta, 'license.override') ?? null);
 
-            // Regla billable (aunque cuentas_cliente diga FREE):
+            // Monto efectivo a cobrar (prioridad override)
             $effectiveAmount = ($overrideAmt !== null && $overrideAmt > 0.00001) ? (float)$overrideAmt : (float)$baseAmt;
             $isBillable = $effectiveAmount > 0.00001;
 
-            // Compat: is_pro lo usamos como "tiene cargo"
+            // “is_pro” lo dejamos como compat (pero el driver real es isBillable)
             $isPro = $isBillable || ($priceKey !== '') || in_array(strtolower($planKey), ['pro', 'premium'], true);
 
             // ===== 1.3) Emails
@@ -164,8 +161,6 @@ class StatementSyncService
                 }
             }
 
-            $locked = (bool)($st->is_locked ?? false);
-
             // ===== 2.1) prev_saldo (roll forward)
             $prevSaldo = (float) DB::connection($connAdmin)->table('billing_statements')
                 ->where('account_id', $canonicalAccountId)
@@ -173,21 +168,20 @@ class StatementSyncService
                 ->where('saldo', '>', 0)
                 ->sum('saldo');
 
-            // Guardamos en meta del statement para trazabilidad
+            // ===== 2.2) Meta trazabilidad
             $stMeta = $this->decodeMeta($st->meta ?? null);
-            $stMeta['prev_saldo'] = $prevSaldo;
-            $stMeta['sync_amount_mxn'] = (float)$effectiveAmount;
-            $stMeta['sync_cycle'] = $cycleNorm;
-            $stMeta['sync_source'] = $isBillable ? 'meta.billing' : 'free_or_unknown';
+            $stMeta['prev_saldo']       = $prevSaldo;
+            $stMeta['sync_amount_mxn']  = (float)$effectiveAmount;
+            $stMeta['sync_cycle']       = $cycleNorm;
+            $stMeta['sync_source']      = $isBillable ? 'meta.billing' : 'free_or_unknown';
             $st->meta = $stMeta;
 
-            // ===== 3) Snapshot (para PDF y consistencia)
+            // ===== 3) Snapshot
             $snap = [
                 'account' => [
                     'client_uuid'      => (string) $acc->id,
                     'admin_account_id' => $adminAccountId > 0 ? $adminAccountId : null,
                     'canonical_id'     => (string) $canonicalAccountId,
-
                     'razon_social'     => (string)($acc->razon_social ?? ''),
                     'nombre_comercial' => (string)($acc->nombre_comercial ?? ''),
                     'rfc'              => (string)($acc->rfc ?? ''),
@@ -200,12 +194,13 @@ class StatementSyncService
                     'cycle'       => $cycleKey,
                     'cycle_norm'  => $cycleNorm,
                     'price_key'   => $priceKey,
-                    // usamos el efectivo para que el correo/PDF no dependan de items cuando falten
+
+                    // 👇 clave: dejamos el efectivo en snapshot para PDF/correo
                     'base_amount' => (float)$effectiveAmount,
                     'override'    => $override,
                 ],
-                'emails' => $emails,
-                'generated_at' => now()->toISOString(),
+                'emails'        => $emails,
+                'generated_at'  => now()->toISOString(),
             ];
 
             $st->snapshot = $snap;
@@ -214,7 +209,7 @@ class StatementSyncService
             $due = Carbon::createFromFormat('Y-m', $period)->startOfMonth()->addMonth()->day(5);
             $st->due_date = $st->due_date ?: $due->toDateString();
 
-            // ⚠️ si queda pendiente, nunca debe conservar paid_at
+            // Si aún no sabemos status, no inventamos paid_at
             if ((string)($st->status ?? '') !== 'paid') {
                 $st->paid_at = null;
             }
@@ -224,23 +219,74 @@ class StatementSyncService
             // ===== 4) Emails de envío (tabla aparte)
             $this->syncEmails($st->id, $emails);
 
-            // ===== 5) Items (solo si no está locked, o force)
+            // ===== 5) REPAIR: paid+locked con cargo 0 pero expected>0
+            // Esto es EXACTAMENTE lo que te rompió los correos.
+            if (
+                (bool)$opts['repair_locked_zero']
+                && (bool)($st->is_locked ?? false)
+                && (string)($st->status ?? '') === 'paid'
+                && $isBillable
+            ) {
+                $hasLicense = BillingStatementItem::query()
+                    ->where('statement_id', $st->id)
+                    ->where('type', 'license')
+                    ->exists();
+
+                $cargoDb = (float)($st->total_cargo ?? 0);
+                $saldoDb = (float)($st->saldo ?? 0);
+
+                // si no hay línea o está en ceros, reparamos
+                if (!$hasLicense || (abs($cargoDb) <= 0.00001 && abs($saldoDb) <= 0.00001)) {
+                    Log::warning('StatementSyncService.repair_locked_zero', [
+                        'statement_id' => $st->id,
+                        'account_id'   => (string)$canonicalAccountId,
+                        'period'       => $period,
+                        'is_locked'    => (int)$st->is_locked,
+                        'status'       => (string)$st->status,
+                        'effective'    => (float)$effectiveAmount,
+                        'has_license'  => (int)$hasLicense,
+                        'cargo_db'     => (float)$cargoDb,
+                        'saldo_db'     => (float)$saldoDb,
+                    ]);
+
+                    // desbloqueamos para permitir rebuild de items
+                    $st->is_locked = false;
+                    $st->paid_at   = null;
+                    $st->status    = 'pending';
+                    $st->save();
+
+                    BillingStatementEvent::create([
+                        'statement_id' => $st->id,
+                        'event'        => 'repair_locked_zero',
+                        'actor'        => (string)$opts['actor'],
+                        'notes'        => 'Auto-repair: paid+locked with zero totals but expected>0',
+                        'meta'         => [
+                            'period' => $period,
+                            'amount_mxn' => (float)$effectiveAmount,
+                        ],
+                    ]);
+                }
+            }
+
+            // Re-leer estado de lock tras reparación
+            $st->refresh();
+            $locked = (bool)($st->is_locked ?? false);
+
+            // ===== 6) Items (solo si no está locked, o force)
             if (!$locked || $opts['force_rebuild_license_line']) {
 
-                // Si hay monto billable -> SIEMPRE debe existir línea license
                 if ($isBillable) {
                     $this->upsertLicenseLine(
                         $st->id,
                         $period,
                         $planKey,
-                        $cycleNorm,     // usamos norm para consistencia
+                        $cycleNorm,
                         $priceKey,
                         (float)$effectiveAmount,
                         $override,
                         (bool)$opts['force_rebuild_license_line']
                     );
                 } else {
-                    // FREE real => elimina línea license
                     BillingStatementItem::query()
                         ->where('statement_id', $st->id)
                         ->where('type', 'license')
@@ -250,14 +296,14 @@ class StatementSyncService
                 // aquí integrarías compras/consumos/ajustes
             }
 
-            // ===== 6) Recalcular totales/saldo/estatus (incluye prev_saldo)
+            // ===== 7) Recalcular totales/saldo/estatus (incluye prev_saldo)
             $this->recalcStatement($st->id);
 
-            // ===== 7) Lock si pagado (solo si realmente pagado)
+            // ===== 8) Lock si pagado (solo si realmente pagado)
             $st->refresh();
-            if ($opts['lock_if_paid'] && $st->status === 'paid' && !$st->is_locked) {
+            if ($opts['lock_if_paid'] && (string)$st->status === 'paid' && !(bool)$st->is_locked) {
                 $st->is_locked = true;
-                $st->paid_at = $st->paid_at ?: now();
+                $st->paid_at   = $st->paid_at ?: now();
                 $st->save();
 
                 BillingStatementEvent::create([
@@ -275,10 +321,10 @@ class StatementSyncService
                 'actor'        => (string)$opts['actor'],
                 'notes'        => $opts['notes'],
                 'meta'         => [
-                    'period' => $period,
+                    'period'      => $period,
                     'is_billable' => $isBillable,
-                    'amount_mxn' => (float)$effectiveAmount,
-                    'cycle_norm' => $cycleNorm,
+                    'amount_mxn'  => (float)$effectiveAmount,
+                    'cycle_norm'  => $cycleNorm,
                 ],
             ]);
 
@@ -295,6 +341,7 @@ class StatementSyncService
                 'amount_mxn'           => (float)$effectiveAmount,
                 'prev_saldo'           => (float)$prevSaldo,
                 'status'               => (string)($st->status ?? ''),
+                'locked'               => (int)($st->is_locked ?? 0),
             ]);
 
             return $st;
@@ -351,14 +398,13 @@ class StatementSyncService
     {
         $c = strtolower(trim($cycle));
 
-        // aceptamos valores legacy del proyecto
+        // legacy del proyecto
         if ($c === 'mensual') return 'monthly';
         if ($c === 'anual') return 'yearly';
 
-        if ($c === 'monthly' || $c === 'month' || $c === 'mes' || $c === 'm') return 'monthly';
-        if ($c === 'yearly' || $c === 'annual' || $c === 'year' || $c === 'año' || $c === 'y') return 'yearly';
+        if (in_array($c, ['monthly', 'month', 'mes', 'm'], true)) return 'monthly';
+        if (in_array($c, ['yearly', 'annual', 'year', 'año', 'y'], true)) return 'yearly';
 
-        // default seguro
         return 'monthly';
     }
 
@@ -385,10 +431,8 @@ class StatementSyncService
         $override,
         bool $force
     ): void {
-        // Cargo positivo
         $finalAmt = $baseAmt;
 
-        // compat: override puede venir como ['amount_mxn'=>X] o legacy ['amount'=>X]
         if (is_array($override) && isset($override['amount_mxn']) && is_numeric($override['amount_mxn'])) {
             $finalAmt = (float)$override['amount_mxn'];
         } elseif (is_array($override) && isset($override['amount']) && is_numeric($override['amount'])) {
@@ -399,7 +443,7 @@ class StatementSyncService
 
         if ($finalAmt <= 0.00001) return;
 
-        $labelPlan = strtoupper(trim($planKey) !== '' ? $planKey : ($priceKey !== '' ? 'PRO' : 'LICENCIA'));
+        $labelPlan  = strtoupper(trim($planKey) !== '' ? $planKey : ($priceKey !== '' ? 'PRO' : 'LICENCIA'));
         $labelCycle = ($cycleNorm === 'yearly') ? 'ANUAL' : 'MENSUAL';
 
         $desc = "Licencia {$labelPlan} · {$labelCycle} ({$period})";
@@ -455,7 +499,7 @@ class StatementSyncService
             else $abono += abs($a);
         }
 
-        // ✅ roll-forward: prev_saldo desde meta
+        // roll-forward: prev_saldo desde meta
         $meta = $this->decodeMeta($st->meta ?? null);
         $prev = (float)($meta['prev_saldo'] ?? 0);
 
@@ -469,9 +513,9 @@ class StatementSyncService
         $st->saldo       = $saldo;
         $st->status      = $status;
 
-        // si queda pending, nunca debe mantener paid_at/lock
+        // Si queda pending, nunca debe mantener paid_at/lock
         if ($status !== 'paid') {
-            $st->paid_at = null;
+            $st->paid_at   = null;
             $st->is_locked = false;
         }
 
