@@ -133,6 +133,55 @@ final class StatementSyncService
 
             $cycleNorm = $this->normalizeCycle($cycleKey);
 
+            // =========================================================
+            // ✅ RULE: NO backfill (no crear estados de cuenta antes de que exista la cuenta)
+            // - Por defecto bloquea periodos anteriores al alta.
+            // - Para migraciones/ajustes: pasa ['allow_backfill' => true].
+            // Fuente de "inicio":
+            //   1) subscriptions.started_at (si existe) para admin_account_id
+            //   2) admin.accounts.created_at
+            //   3) clientes.cuentas_cliente.created_at
+            // =========================================================
+            $allowBackfill = (bool)($opts['allow_backfill'] ?? false);
+
+            if (!$allowBackfill) {
+                $periodStart = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+
+                $start = null;
+
+                // 1) subscriptions.started_at
+                if ($adminAccountId > 0 && Schema::connection($connAdmin)->hasTable('subscriptions')) {
+                    $sub = DB::connection($connAdmin)->table('subscriptions')
+                        ->where('account_id', $adminAccountId)
+                        ->orderByDesc('id')
+                        ->first(['id', 'started_at']);
+
+                    if ($sub && !empty($sub->started_at)) {
+                        $start = $sub->started_at;
+                    }
+                }
+
+                // 2) admin.accounts.created_at
+                if (!$start && !empty($admAccCreatedAt)) {
+                    $start = $admAccCreatedAt;
+                }
+
+                // 3) clientes.cuentas_cliente.created_at
+                if (!$start && !empty($acc->created_at)) {
+                    $start = $acc->created_at;
+                }
+
+                if ($start) {
+                    $startDt = Carbon::parse($start)->startOfMonth();
+
+                    if ($periodStart->lt($startDt)) {
+                        throw new \RuntimeException(
+                            "SKIP_BEFORE_ACCOUNT_START: account={$canonicalAccountId} period={$period} start=".$startDt->format('Y-m')
+                        );
+                    }
+                }
+            }
+
             // ======================
             // ✅ Sync modo_cobro a clientes (source of truth: meta.billing.billing_cycle)
             // Evita inconsistencia: admin yearly pero clientes free/mensual
@@ -492,7 +541,7 @@ final class StatementSyncService
                 $msg = (string) $e->getMessage();
 
                 // ✅ SKIP esperado (yearly offcycle / not due)
-                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE')) {
+                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE') || str_contains($msg, 'SKIP_BEFORE_ACCOUNT_START')) {
                     $skipped++;
 
                     // Lo dejamos como INFO (no ERROR) para que no contamine alertas
