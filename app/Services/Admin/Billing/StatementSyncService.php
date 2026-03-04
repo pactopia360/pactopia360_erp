@@ -447,37 +447,68 @@ final class StatementSyncService
             $adm  = (string) ($r->admin_account_id ?? '');
 
             $canonical = ($adm !== '' && preg_match('/^\d+$/', $adm)) ? $adm : $uuid;
-            if ($canonical === '') continue;
+            if ($canonical === '' || $uuid === '') continue;
 
             if (isset($seen[$canonical])) {
-                // ya hay otro registro apuntando a la misma cuenta canonical => saltar duplicado
-                continue;
+                continue; // duplicado por canonical
             }
 
             $seen[$canonical] = true;
-            // Importante: syncForAccountAndPeriod espera UUID de clientes (porque primero lee cuentas_cliente por id)
-            // así que guardamos el UUID "representante" para ejecutar el sync.
+
+            // Importante: syncForAccountAndPeriod espera UUID de clientes
             $idsToSync[] = $uuid;
         }
 
-        $count = 0;
+        $ok = 0;
+        $skipped = 0;
+        $failed = 0;
 
         foreach ($idsToSync as $id) {
             try {
                 $this->syncForAccountAndPeriod((string) $id, $period, $opts);
-                $count++;
+                $ok++;
             } catch (\Throwable $e) {
+
+                $msg = (string) $e->getMessage();
+
+                // ✅ SKIP esperado (yearly offcycle / not due)
+                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE')) {
+                    $skipped++;
+
+                    // Lo dejamos como INFO (no ERROR) para que no contamine alertas
+                    Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
+                        'account_id' => (string) $id,
+                        'period'     => $period,
+                        'msg'        => $msg,
+                    ]);
+
+                    continue;
+                }
+
+                // ❌ error real
+                $failed++;
+
                 Log::error('StatementSyncService.syncAllForPeriod.failed', [
                     'account_id' => (string) $id,
                     'period'     => $period,
-                    'err'        => $e->getMessage(),
+                    'err'        => $msg,
                 ]);
             }
         }
 
-        return $count;
+        // ✅ Resumen (muy útil en producción)
+        Log::info('StatementSyncService.syncAllForPeriod.summary', [
+            'period'        => $period,
+            'candidates'    => count($idsToSync),
+            'ok'            => $ok,
+            'skipped_yearly'=> $skipped,
+            'failed'        => $failed,
+        ]);
+
+        // ✅ Retornamos "procesadas" para que te dé 26 cuando todo lo demás está ok
+        return $ok + $skipped;
     }
-    
+
     // =========================
     // INTERNAL HELPERS
     // =========================
