@@ -30,6 +30,10 @@ final class StatementSyncService
             // ✅ NUEVO: repara automáticamente "paid+locked con saldo/cargo 0"
             // cuando el meta de HUB dice que sí hay que cobrar.
             'repair_locked_zero'         => true,
+
+            // ✅ NUEVO: por defecto NO facturamos ANUAL fuera de su mes de renovación
+            // (si necesitas forzar, pasa ['allow_yearly_offcycle'=>true])
+            'allow_yearly_offcycle'      => false,
         ], $opts);
 
         // ✅ Compat proyecto: p360.conn.clientes (pero dejamos fallback)
@@ -58,13 +62,16 @@ final class StatementSyncService
             $accountsMetaCol = $accountsTable ? $this->pickFirstMetaCol($connAdmin, $accountsTable) : null;
 
             $metaAdm = [];
+            $admAccCreatedAt = null;
+
             if ($adminAccountId > 0 && $accountsTable && $accountsMetaCol) {
                 $admAcc = DB::connection($connAdmin)->table($accountsTable)
                     ->where('id', $adminAccountId)
-                    ->first(['id', $accountsMetaCol]);
+                    ->first(['id', $accountsMetaCol, 'created_at']);
 
                 if ($admAcc) {
                     $metaAdm = $this->decodeMeta($admAcc->{$accountsMetaCol} ?? null);
+                    $admAccCreatedAt = $admAcc->created_at ?? null;
                 }
             }
 
@@ -121,6 +128,61 @@ final class StatementSyncService
             // Monto efectivo a cobrar (prioridad override)
             $effectiveAmount = ($overrideAmt !== null && $overrideAmt > 0.00001) ? (float)$overrideAmt : (float)$baseAmt;
             $isBillable = $effectiveAmount > 0.00001;
+
+            // =========================================================
+            // ✅ GATE ANUAL: NO generar estado de cuenta cada mes
+            // - Si cycleNorm=yearly y es cobrable => solo en su mes de renovación
+            // - Fuente de "renovación":
+            //   1) subscriptions (si existe) para admin_account_id
+            //   2) admin.accounts.created_at
+            //   3) clientes.cuentas_cliente.created_at
+            // =========================================================
+            if ($isBillable && $cycleNorm === 'yearly' && empty($opts['allow_yearly_offcycle'])) {
+
+                $periodStart = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+
+                $anchor = null;
+
+                // 1) subscriptions (si existe) para adminAccountId
+                if ($adminAccountId > 0 && Schema::connection($connAdmin)->hasTable('subscriptions')) {
+                    $sub = DB::connection($connAdmin)->table('subscriptions')
+                        ->where('account_id', $adminAccountId)
+                        ->orderByDesc('id')
+                        ->first(['id', 'status', 'started_at', 'current_period_end']);
+
+                    if ($sub) {
+                        $anchor = $sub->current_period_end ?: $sub->started_at;
+                    }
+                }
+
+                // 2) fallback: admin.accounts.created_at
+                if (!$anchor && !empty($admAccCreatedAt)) {
+                    $anchor = $admAccCreatedAt;
+                }
+
+                // 3) fallback: clientes.cuentas_cliente.created_at
+                if (!$anchor && !empty($acc->created_at)) {
+                    $anchor = $acc->created_at;
+                }
+
+                // Si no podemos determinar anchor, por seguridad NO facturamos anual offcycle
+                if (!$anchor) {
+                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: no anchor for account={$canonicalAccountId} period={$period}");
+                }
+
+                $anchorDt    = Carbon::parse($anchor)->startOfMonth();
+                $anchorMonth = (int) $anchorDt->month;
+
+                // No cobrar antes de que exista la cuenta/suscripción
+                if ($periodStart->lt($anchorDt)) {
+                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: before start account={$canonicalAccountId} period={$period} anchor=".$anchorDt->format('Y-m'));
+                }
+
+                // Cobrar anual SOLO en el mismo MES (cada año) del anchor
+                if ((int)$periodStart->month !== $anchorMonth) {
+                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: offcycle account={$canonicalAccountId} period={$period} anchor=".$anchorDt->format('Y-m'));
+                }
+            }
 
             // “is_pro” lo dejamos como compat (pero el driver real es isBillable)
             $isPro = $isBillable || ($priceKey !== '') || in_array(strtolower($planKey), ['pro', 'premium'], true);
@@ -360,10 +422,23 @@ final class StatementSyncService
                 $this->syncForAccountAndPeriod((string)$id, $period, $opts);
                 $count++;
             } catch (\Throwable $e) {
+
+                $msg = (string) $e->getMessage();
+
+                // ✅ Skip anual offcycle (NO es error)
+                if (str_starts_with($msg, 'SKIP_YEARLY_NOT_DUE:')) {
+                    Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
+                        'account_id' => (string)$id,
+                        'period'     => $period,
+                        'msg'        => $msg,
+                    ]);
+                    continue;
+                }
+
                 Log::error('StatementSyncService.syncAllForPeriod.failed', [
                     'account_id' => (string)$id,
                     'period'     => $period,
-                    'err'        => $e->getMessage(),
+                    'err'        => $msg,
                 ]);
             }
         }
