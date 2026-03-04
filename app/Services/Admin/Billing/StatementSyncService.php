@@ -106,6 +106,23 @@ final class StatementSyncService
 
             $cycleNorm = $this->normalizeCycle($cycleKey);
 
+            // =========================================================
+            // ✅ RULE: YEARLY solo en su mes due (anchor + 12n)
+            // - Por defecto NO permitimos off-cycle (mes a mes).
+            // - allow_yearly_offcycle=true lo deja pasar (solo para debugging/migraciones).
+            // =========================================================
+            $allowYearlyOffcycle = (bool)($opts['allow_yearly_offcycle'] ?? false);
+
+            if ($cycleNorm === 'yearly' && !$allowYearlyOffcycle) {
+                $anchor = $this->resolveYearlyAnchorPeriod($meta, $period);
+
+                if (!$this->isYearlyDue($anchor, $period)) {
+                    // No toca cobrar este mes.
+                    // Importante: NO creamos/actualizamos statement.
+                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: offcycle account={$canonicalAccountId} period={$period} anchor={$anchor}");
+                }
+            }
+
             $baseAmt = (float)(
                 data_get($meta, 'billing.amount_mxn')
                 ?? data_get($meta, 'license.amount_mxn')
@@ -412,32 +429,62 @@ final class StatementSyncService
 
     public function syncAllForPeriod(string $period, array $opts = []): int
     {
+        $opts = array_merge([
+            'actor' => 'system',
+
+            // ✅ default: NO permitimos offcycle en anual
+            'allow_yearly_offcycle' => false,
+
+            // ✅ si por alguna razón ya existen statements offcycle para ese periodo, los limpiamos al skip
+            'cleanup_yearly_offcycle' => true,
+        ], $opts);
+
         $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
+        $connAdmin   = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
         $ids = DB::connection($connClients)->table('cuentas_cliente')->pluck('id')->all();
 
         $count = 0;
+
         foreach ($ids as $id) {
             try {
                 $this->syncForAccountAndPeriod((string)$id, $period, $opts);
                 $count++;
             } catch (\Throwable $e) {
 
-                $msg = (string) $e->getMessage();
+                $msg = (string)$e->getMessage();
 
-                // ✅ Skip anual offcycle (NO es error)
-                if (str_starts_with($msg, 'SKIP_YEARLY_NOT_DUE:')) {
+                // ✅ Caso esperado: anual offcycle
+                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE:')) {
+
+                    // Log a archivo (ya lo estás viendo en storage/logs)
                     Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
-                        'account_id' => (string)$id,
-                        'period'     => $period,
+                        'account_id' => (string)$id,   // client uuid
+                        'period'     => (string)$period,
                         'msg'        => $msg,
                     ]);
-                    continue;
+
+                    // Limpieza defensiva: si ya existía statement para ese account_id (canonical) y periodo, lo borramos
+                    if ((bool)$opts['cleanup_yearly_offcycle']) {
+                        try {
+                            $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', (string)$id)->first(['id','admin_account_id']);
+                            $adminAccountId = (int)($acc->admin_account_id ?? 0);
+                            $canonical = $adminAccountId > 0 ? (string)$adminAccountId : (string)$id;
+
+                            // Borra SOLO el statement de ese periodo (si existe)
+                            $this->deleteStatementForAccountPeriod($connAdmin, $canonical, $period);
+                        } catch (\Throwable $ignored) {
+                            // no interrumpimos batch
+                        }
+                    }
+
+                    continue; // NO cuenta como synced
                 }
 
+                // Error real
                 Log::error('StatementSyncService.syncAllForPeriod.failed', [
                     'account_id' => (string)$id,
-                    'period'     => $period,
+                    'period'     => (string)$period,
                     'err'        => $msg,
                 ]);
             }
@@ -595,5 +642,79 @@ final class StatementSyncService
         }
 
         $st->save();
+    }
+
+        private function resolveYearlyAnchorPeriod(array $meta, string $fallbackPeriod): string
+    {
+        // 1) Si el override trae updated_at (tu caso: 2026-01-16...) -> anchor = YYYY-MM
+        $ts = (string) (data_get($meta, 'billing.override.updated_at') ?? '');
+        if ($ts !== '') {
+            try {
+                return \Carbon\Carbon::parse($ts)->format('Y-m');
+            } catch (\Throwable $e) {
+                // ignora parse
+            }
+        }
+
+        // 2) Si existe algo como billing.anchor_period explícito (si algún día lo agregas)
+        $ap = (string) (data_get($meta, 'billing.anchor_period') ?? '');
+        if (preg_match('/^\d{4}\-\d{2}$/', $ap)) {
+            return $ap;
+        }
+
+        // 3) fallback: el periodo que estás sincronizando
+        return $fallbackPeriod;
+    }
+
+    private function isYearlyDue(string $anchorPeriod, string $period): bool
+    {
+        if (!preg_match('/^\d{4}\-\d{2}$/', $anchorPeriod)) return false;
+        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) return false;
+
+        try {
+            $a = \Carbon\Carbon::createFromFormat('Y-m', $anchorPeriod)->startOfMonth();
+            $p = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+
+            // si es antes del anchor, no toca
+            if ($p->lt($a)) return false;
+
+            // diferencia en meses
+            $diff = ($a->year * 12 + $a->month) <= ($p->year * 12 + $p->month)
+                ? (($p->year * 12 + $p->month) - ($a->year * 12 + $a->month))
+                : 0;
+
+            // due si: 0, 12, 24...
+            return ($diff % 12) === 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function deleteStatementForAccountPeriod(string $connAdmin, string $accountId, string $period): void
+    {
+        $st = DB::connection($connAdmin)->table('billing_statements')
+            ->where('account_id', (string)$accountId)
+            ->where('period', (string)$period)
+            ->first(['id', 'snapshot']);
+
+        if (!$st) return;
+
+        $id = (int)($st->id ?? 0);
+        if ($id <= 0) return;
+
+        DB::connection($connAdmin)->transaction(function () use ($connAdmin, $id) {
+
+            if (Schema::connection($connAdmin)->hasTable('billing_statement_items')) {
+                DB::connection($connAdmin)->table('billing_statement_items')->where('statement_id', $id)->delete();
+            }
+            if (Schema::connection($connAdmin)->hasTable('billing_statement_emails')) {
+                DB::connection($connAdmin)->table('billing_statement_emails')->where('statement_id', $id)->delete();
+            }
+            if (Schema::connection($connAdmin)->hasTable('billing_statement_events')) {
+                DB::connection($connAdmin)->table('billing_statement_events')->where('statement_id', $id)->delete();
+            }
+
+            DB::connection($connAdmin)->table('billing_statements')->where('id', $id)->delete();
+        });
     }
 }
