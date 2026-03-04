@@ -46,35 +46,8 @@ final class StatementSyncService
 
         return DB::connection($connAdmin)->transaction(function () use ($connClients, $connAdmin, $accountId, $period, $opts) {
 
-            // ===== 1) Cuenta cliente
+           // ===== 1) Cuenta cliente
             $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', $accountId)->first();
-            
-            // ==============================
-            // RULE: no generar estados antes
-            // de que exista la cuenta
-            // ==============================
-            $accountCreatedAt = $acc->created_at ?? null;
-
-            if ($accountCreatedAt) {
-
-                try {
-
-                    $accountStart = \Carbon\Carbon::parse($accountCreatedAt)->startOfMonth();
-                    $periodStart  = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
-
-                    if ($periodStart->lt($accountStart)) {
-
-                        throw new \RuntimeException(
-                            "SKIP_BEFORE_ACCOUNT_START: account={$accountId} period={$period} created_at=".$accountStart->format('Y-m')
-                        );
-
-                    }
-
-                } catch (\Throwable $e) {
-                    // ignora parse errors
-                }
-
-            }
 
             if (!$acc) {
                 throw new \RuntimeException("Account not found in {$connClients}.cuentas_cliente: {$accountId}");
@@ -548,7 +521,7 @@ final class StatementSyncService
                     $logSkipped = (bool)($opts['log_skipped_yearly'] ?? false);
 
                     if ($logSkipped) {
-                        Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
+                        Log::info('StatementSyncService.syncAllForPeriod.skipped_expected', [
                             'account_id' => (string) $id,
                             'period'     => $period,
                             'msg'        => $msg,
@@ -574,7 +547,7 @@ final class StatementSyncService
             'period'        => $period,
             'candidates'    => count($idsToSync),
             'ok'            => $ok,
-            'skipped_yearly'=> $skipped,
+            'skipped_expected' => $skipped,
             'failed'        => $failed,
         ]);
 
