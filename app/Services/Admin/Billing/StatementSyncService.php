@@ -48,10 +48,37 @@ final class StatementSyncService
 
             // ===== 1) Cuenta cliente
             $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', $accountId)->first();
+            
+            // ==============================
+            // RULE: no generar estados antes
+            // de que exista la cuenta
+            // ==============================
+            $accountCreatedAt = $acc->created_at ?? null;
+
+            if ($accountCreatedAt) {
+
+                try {
+
+                    $accountStart = \Carbon\Carbon::parse($accountCreatedAt)->startOfMonth();
+                    $periodStart  = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+
+                    if ($periodStart->lt($accountStart)) {
+
+                        throw new \RuntimeException(
+                            "SKIP_BEFORE_ACCOUNT_START: account={$accountId} period={$period} created_at=".$accountStart->format('Y-m')
+                        );
+
+                    }
+
+                } catch (\Throwable $e) {
+                    // ignora parse errors
+                }
+
+            }
+
             if (!$acc) {
                 throw new \RuntimeException("Account not found in {$connClients}.cuentas_cliente: {$accountId}");
             }
-
             $adminAccountId = (int) ($acc->admin_account_id ?? 0);
             $canonicalAccountId = $adminAccountId > 0 ? (string) $adminAccountId : (string) $accountId;
 
