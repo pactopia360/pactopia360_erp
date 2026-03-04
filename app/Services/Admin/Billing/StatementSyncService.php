@@ -106,6 +106,54 @@ final class StatementSyncService
 
             $cycleNorm = $this->normalizeCycle($cycleKey);
 
+            // ======================
+            // ✅ Sync modo_cobro a clientes (source of truth: meta.billing.billing_cycle)
+            // Evita inconsistencia: admin yearly pero clientes free/mensual
+            // ======================
+            try {
+                $desiredModo = null;
+
+                if ($cycleNorm === 'yearly') {
+                    $desiredModo = 'anual';
+                } elseif ($cycleNorm === 'monthly') {
+                    $desiredModo = 'mensual';
+                }
+
+                if ($desiredModo) {
+                    // Solo toca si viene distinto (defensivo)
+                    $currentModo = strtolower((string)($acc->modo_cobro ?? ''));
+                    if ($currentModo !== $desiredModo) {
+                        DB::connection($connClients)->table('cuentas_cliente')
+                            ->where('id', (string)$acc->id)
+                            ->update([
+                                'modo_cobro' => $desiredModo,
+                                'updated_at' => now(),
+                            ]);
+
+                        Log::info('StatementSyncService.sync_client_modo_cobro', [
+                            'client_uuid' => (string)$acc->id,
+                            'admin_account_id' => $adminAccountId > 0 ? $adminAccountId : null,
+                            'from' => $currentModo,
+                            'to'   => $desiredModo,
+                            'cycle_norm' => $cycleNorm,
+                            'period' => $period,
+                        ]);
+
+                        // refrescar $acc para que lo que sigue (snapshot) ya lleve modo correcto
+                        $acc = DB::connection($connClients)->table('cuentas_cliente')
+                            ->where('id', (string)$acc->id)
+                            ->first();
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('StatementSyncService.sync_client_modo_cobro.failed', [
+                    'client_uuid' => (string)($acc->id ?? ''),
+                    'admin_account_id' => $adminAccountId > 0 ? $adminAccountId : null,
+                    'period' => $period,
+                    'err' => $e->getMessage(),
+                ]);
+            }
+
             // =========================================================
             // ✅ RULE: YEARLY solo en su mes due (anchor + 12n)
             // - Por defecto NO permitimos off-cycle (mes a mes).
@@ -145,61 +193,6 @@ final class StatementSyncService
             // Monto efectivo a cobrar (prioridad override)
             $effectiveAmount = ($overrideAmt !== null && $overrideAmt > 0.00001) ? (float)$overrideAmt : (float)$baseAmt;
             $isBillable = $effectiveAmount > 0.00001;
-
-            // =========================================================
-            // ✅ GATE ANUAL: NO generar estado de cuenta cada mes
-            // - Si cycleNorm=yearly y es cobrable => solo en su mes de renovación
-            // - Fuente de "renovación":
-            //   1) subscriptions (si existe) para admin_account_id
-            //   2) admin.accounts.created_at
-            //   3) clientes.cuentas_cliente.created_at
-            // =========================================================
-            if ($isBillable && $cycleNorm === 'yearly' && empty($opts['allow_yearly_offcycle'])) {
-
-                $periodStart = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
-
-                $anchor = null;
-
-                // 1) subscriptions (si existe) para adminAccountId
-                if ($adminAccountId > 0 && Schema::connection($connAdmin)->hasTable('subscriptions')) {
-                    $sub = DB::connection($connAdmin)->table('subscriptions')
-                        ->where('account_id', $adminAccountId)
-                        ->orderByDesc('id')
-                        ->first(['id', 'status', 'started_at', 'current_period_end']);
-
-                    if ($sub) {
-                        $anchor = $sub->current_period_end ?: $sub->started_at;
-                    }
-                }
-
-                // 2) fallback: admin.accounts.created_at
-                if (!$anchor && !empty($admAccCreatedAt)) {
-                    $anchor = $admAccCreatedAt;
-                }
-
-                // 3) fallback: clientes.cuentas_cliente.created_at
-                if (!$anchor && !empty($acc->created_at)) {
-                    $anchor = $acc->created_at;
-                }
-
-                // Si no podemos determinar anchor, por seguridad NO facturamos anual offcycle
-                if (!$anchor) {
-                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: no anchor for account={$canonicalAccountId} period={$period}");
-                }
-
-                $anchorDt    = Carbon::parse($anchor)->startOfMonth();
-                $anchorMonth = (int) $anchorDt->month;
-
-                // No cobrar antes de que exista la cuenta/suscripción
-                if ($periodStart->lt($anchorDt)) {
-                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: before start account={$canonicalAccountId} period={$period} anchor=".$anchorDt->format('Y-m'));
-                }
-
-                // Cobrar anual SOLO en el mismo MES (cada año) del anchor
-                if ((int)$periodStart->month !== $anchorMonth) {
-                    throw new \RuntimeException("SKIP_YEARLY_NOT_DUE: offcycle account={$canonicalAccountId} period={$period} anchor=".$anchorDt->format('Y-m'));
-                }
-            }
 
             // “is_pro” lo dejamos como compat (pero el driver real es isBillable)
             $isPro = $isBillable || ($priceKey !== '') || in_array(strtolower($planKey), ['pro', 'premium'], true);
@@ -476,11 +469,15 @@ final class StatementSyncService
                     $skipped++;
 
                     // Lo dejamos como INFO (no ERROR) para que no contamine alertas
-                    Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
-                        'account_id' => (string) $id,
-                        'period'     => $period,
-                        'msg'        => $msg,
-                    ]);
+                    $logSkipped = (bool)($opts['log_skipped_yearly'] ?? false);
+
+                    if ($logSkipped) {
+                        Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
+                            'account_id' => (string) $id,
+                            'period'     => $period,
+                            'msg'        => $msg,
+                        ]);
+                    }
 
                     continue;
                 }
@@ -660,9 +657,15 @@ final class StatementSyncService
         $st->save();
     }
 
-        private function resolveYearlyAnchorPeriod(array $meta, string $fallbackPeriod): string
+    private function resolveYearlyAnchorPeriod(array $meta, string $fallbackPeriod): string
     {
-        // 1) Si el override trae updated_at (tu caso: 2026-01-16...) -> anchor = YYYY-MM
+        // 1) ✅ anchor explícito (source of truth si ya lo guardaste)
+        $ap = (string) (data_get($meta, 'billing.anchor_period') ?? '');
+        if (preg_match('/^\d{4}\-\d{2}$/', $ap)) {
+            return $ap;
+        }
+
+        // 2) Si el override trae updated_at -> anchor = YYYY-MM (legacy compat)
         $ts = (string) (data_get($meta, 'billing.override.updated_at') ?? '');
         if ($ts !== '') {
             try {
@@ -670,12 +673,6 @@ final class StatementSyncService
             } catch (\Throwable $e) {
                 // ignora parse
             }
-        }
-
-        // 2) Si existe algo como billing.anchor_period explícito (si algún día lo agregas)
-        $ap = (string) (data_get($meta, 'billing.anchor_period') ?? '');
-        if (preg_match('/^\d{4}\-\d{2}$/', $ap)) {
-            return $ap;
         }
 
         // 3) fallback: el periodo que estás sincronizando
