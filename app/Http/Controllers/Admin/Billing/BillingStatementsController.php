@@ -46,6 +46,43 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
+    // Annual billing helpers (admin.accounts.modo_cobro)
+    // =========================================================
+
+    private function isAnnualMode(?string $modo): bool
+    {
+        $m = strtolower(trim((string) $modo));
+        return in_array($m, ['anual', 'annual', 'year', 'yearly', '12m', '12'], true);
+    }
+
+    /**
+     * Decide si una cuenta anual "toca" en el periodo YYYY-MM.
+     * Fuente: admin.subscriptions (current_period_end -> started_at) fallback accounts.created_at.
+     *
+     * @param array<string, string|null> $renewMap account_id => YYYY-MM
+     */
+    private function annualIsDueForPeriod(string $accountId, string $period, array $renewMap, ?string $createdAt): bool
+    {
+        $p = trim($period);
+        if ($p === '') return false;
+
+        $due = $renewMap[$accountId] ?? null;
+
+        if (!$due) {
+            // Fallback final: created_at de accounts (primer alta)
+            try {
+                if ($createdAt) {
+                    $due = Carbon::parse($createdAt)->format('Y-m');
+                }
+            } catch (\Throwable $e) {
+                $due = null;
+            }
+        }
+
+        return $due === $p;
+    }
+
+    // =========================================================
     // INDEX
     // =========================================================
 
@@ -73,7 +110,17 @@ final class BillingStatementsController extends Controller
             $status = 'all';
         }
 
-                // =========================================================
+        // =========================================================
+        // ✅ OPCIÓN: incluir anuales aunque NO "toquen" en el periodo
+        // - includeAnnual=1  (o include_annual=1)
+        // Por defecto: NO se incluyen (fix del bug)
+        // =========================================================
+        $includeAnnual = $req->boolean('includeAnnual')
+            || $req->boolean('include_annual')
+            || ((string)$req->get('includeAnnual', '') === '1')
+            || ((string)$req->get('include_annual', '') === '1');
+
+        // =========================================================
         // ✅ FILTRO: SOLO SELECCIONADAS (UI)
         // - only_selected=1
         // - ids=1,2,3 (CSV)  ó ids[]=1&ids[]=2
@@ -83,7 +130,6 @@ final class BillingStatementsController extends Controller
             || ((string)$req->get('only_selected', '') === '1');
 
         $selectedIds = [];
-
         $idsRaw = $req->get('ids', null);
 
         if (is_array($idsRaw)) {
@@ -140,7 +186,6 @@ final class BillingStatementsController extends Controller
             ]);
         }
 
-
         if (
             !Schema::connection($this->adm)->hasTable('accounts') ||
             !Schema::connection($this->adm)->hasTable('estados_cuenta')
@@ -192,8 +237,32 @@ final class BillingStatementsController extends Controller
             }
         }
 
-        $qb = DB::connection($this->adm)->table('accounts')
-            ->select($select)
+        // =========================================================
+        // ✅ JOIN a última subscription por account_id (si existe)
+        // - para decidir si cuenta ANUAL "toca" en el periodo YYYY-MM
+        // =========================================================
+        $hasSubs = Schema::connection($this->adm)->hasTable('subscriptions');
+
+        $qb = DB::connection($this->adm)->table('accounts');
+
+        if ($hasSubs) {
+            $subMax = DB::connection($this->adm)->table('subscriptions')
+                ->selectRaw('account_id, MAX(id) as max_id')
+                ->groupBy('account_id');
+
+            $qb->leftJoinSub($subMax, 'sx_submax', function ($j) {
+                $j->on('sx_submax.account_id', '=', 'accounts.id');
+            });
+
+            $qb->leftJoin('subscriptions as sx_sub', 'sx_sub.id', '=', 'sx_submax.max_id');
+
+            // opcional: exponer estos campos si un día los quieres mostrar/debug
+            $select[] = DB::raw('sx_sub.started_at as sub_started_at');
+            $select[] = DB::raw('sx_sub.current_period_end as sub_current_period_end');
+            $select[] = DB::raw('sx_sub.status as sub_status');
+        }
+
+        $qb->select($select)
             ->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id');
 
         // ✅ Prioridad: si viene only_selected, filtramos SOLO esos IDs
@@ -201,7 +270,6 @@ final class BillingStatementsController extends Controller
             $qb->whereIn('accounts.id', $selectedIds);
 
             // En modo "solo seleccionadas" ignoramos los filtros de cuenta exacta y búsqueda
-            // para no "vaciar" la selección por accidente.
             $accountId = null;
             $q = '';
         } else {
@@ -226,6 +294,21 @@ final class BillingStatementsController extends Controller
             }
         }
 
+        // =========================================================
+        // ✅ FIX: NO mostrar anuales mes a mes
+        // Regla:
+        // - Si accounts.modo_cobro es anual => SOLO si su "renew YYYY-MM" == $period
+        // - renew = DATE_FORMAT(COALESCE(sub.current_period_end, sub.started_at, accounts.created_at), '%Y-%m')
+        // =========================================================
+        if (!$includeAnnual && $hasSubs) {
+            $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
+            $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
+
+            $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$period]);
+        } elseif (!$includeAnnual && !$hasSubs) {
+            // Si no hay subscriptions, al menos excluye anuales por completo (safe default)
+            $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
+        }
 
         $rows = $qb->paginate($perPage)->withQueryString();
         $ids  = $rows->pluck('id')->filter()->values()->all();
@@ -330,7 +413,6 @@ final class BillingStatementsController extends Controller
         });
 
         // Nota: este filtro aplica sobre la colección ya paginada (página actual).
-        // Si quieres filtrar “global” por status, se requiere re-arquitectura (query/joins o prefetch).
         if ($status !== 'all') {
             $filtered = $rows->getCollection()
                 ->filter(static fn ($x) => (string) ($x->status_pago ?? '') === $status)
@@ -376,12 +458,12 @@ final class BillingStatementsController extends Controller
             'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
             'error'     => null,
             'kpis'      => [
-            'cargo'    => round($kCargo, 2),
-            'abono'    => round($kAbono, 2),
-            'saldo'    => round($kSaldo, 2),
-            'accounts' => (int) $rows->getCollection()->count(),
-            'paid_edo' => round($kEdo, 2),
-            'paid_pay' => round($kPay, 2),
+                'cargo'    => round($kCargo, 2),
+                'abono'    => round($kAbono, 2),
+                'saldo'    => round($kSaldo, 2),
+                'accounts' => (int) $rows->getCollection()->count(),
+                'paid_edo' => round($kEdo, 2),
+                'paid_pay' => round($kPay, 2),
             ],
         ]);
     }
