@@ -429,70 +429,55 @@ final class StatementSyncService
 
     public function syncAllForPeriod(string $period, array $opts = []): int
     {
-        $opts = array_merge([
-            'actor' => 'system',
-
-            // ✅ default: NO permitimos offcycle en anual
-            'allow_yearly_offcycle' => false,
-
-            // ✅ si por alguna razón ya existen statements offcycle para ese periodo, los limpiamos al skip
-            'cleanup_yearly_offcycle' => true,
-        ], $opts);
-
         $connClients = (string) (config('p360.conn.clientes') ?: (config('p360.conn.clients') ?: 'mysql_clientes'));
-        $connAdmin   = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
-        $ids = DB::connection($connClients)->table('cuentas_cliente')->pluck('id')->all();
+        // Traemos solo activos
+        $rows = DB::connection($connClients)->table('cuentas_cliente')
+            ->where('activo', 1)
+            ->get(['id', 'admin_account_id']);
+
+        // Dedupe por canonical:
+        // - si hay admin_account_id => canonical = admin_account_id (string)
+        // - si no => canonical = uuid
+        $seen = [];
+        $idsToSync = [];
+
+        foreach ($rows as $r) {
+            $uuid = (string) ($r->id ?? '');
+            $adm  = (string) ($r->admin_account_id ?? '');
+
+            $canonical = ($adm !== '' && preg_match('/^\d+$/', $adm)) ? $adm : $uuid;
+            if ($canonical === '') continue;
+
+            if (isset($seen[$canonical])) {
+                // ya hay otro registro apuntando a la misma cuenta canonical => saltar duplicado
+                continue;
+            }
+
+            $seen[$canonical] = true;
+            // Importante: syncForAccountAndPeriod espera UUID de clientes (porque primero lee cuentas_cliente por id)
+            // así que guardamos el UUID "representante" para ejecutar el sync.
+            $idsToSync[] = $uuid;
+        }
 
         $count = 0;
 
-        foreach ($ids as $id) {
+        foreach ($idsToSync as $id) {
             try {
-                $this->syncForAccountAndPeriod((string)$id, $period, $opts);
+                $this->syncForAccountAndPeriod((string) $id, $period, $opts);
                 $count++;
             } catch (\Throwable $e) {
-
-                $msg = (string)$e->getMessage();
-
-                // ✅ Caso esperado: anual offcycle
-                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE:')) {
-
-                    // Log a archivo (ya lo estás viendo en storage/logs)
-                    Log::info('StatementSyncService.syncAllForPeriod.skipped_yearly', [
-                        'account_id' => (string)$id,   // client uuid
-                        'period'     => (string)$period,
-                        'msg'        => $msg,
-                    ]);
-
-                    // Limpieza defensiva: si ya existía statement para ese account_id (canonical) y periodo, lo borramos
-                    if ((bool)$opts['cleanup_yearly_offcycle']) {
-                        try {
-                            $acc = DB::connection($connClients)->table('cuentas_cliente')->where('id', (string)$id)->first(['id','admin_account_id']);
-                            $adminAccountId = (int)($acc->admin_account_id ?? 0);
-                            $canonical = $adminAccountId > 0 ? (string)$adminAccountId : (string)$id;
-
-                            // Borra SOLO el statement de ese periodo (si existe)
-                            $this->deleteStatementForAccountPeriod($connAdmin, $canonical, $period);
-                        } catch (\Throwable $ignored) {
-                            // no interrumpimos batch
-                        }
-                    }
-
-                    continue; // NO cuenta como synced
-                }
-
-                // Error real
                 Log::error('StatementSyncService.syncAllForPeriod.failed', [
-                    'account_id' => (string)$id,
-                    'period'     => (string)$period,
-                    'err'        => $msg,
+                    'account_id' => (string) $id,
+                    'period'     => $period,
+                    'err'        => $e->getMessage(),
                 ]);
             }
         }
 
         return $count;
     }
-
+    
     // =========================
     // INTERNAL HELPERS
     // =========================
