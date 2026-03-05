@@ -427,6 +427,44 @@
   const drawer = $('#clientDrawer');
   DBG.log('drawer lookup', { exists: !!drawer });
 
+    // =========================================================
+  // ✅ FIX: "última fila activa" (fallback robusto)
+  //  - Si el menú se renderiza fuera del row, closest('.ac-row') puede fallar.
+  //  - Guardamos el último row que el usuario tocó (hover/focus/click)
+  // =========================================================
+  let LAST_ROW = null;
+
+  const setLastRowFromTarget = (target) => {
+    try {
+      const r = target && target.closest ? target.closest('.ac-row[data-client]') : null;
+      if (r) LAST_ROW = r;
+    } catch (_) {}
+  };
+
+  document.addEventListener('mouseover', (e) => setLastRowFromTarget(e.target), true);
+  document.addEventListener('focusin', (e) => setLastRowFromTarget(e.target), true);
+  document.addEventListener('click', (e) => setLastRowFromTarget(e.target), true);
+
+  const getRowForAction = (target) => {
+    // 1) intento directo
+    try {
+      const r = target && target.closest ? target.closest('.ac-row[data-client]') : null;
+      if (r) return r;
+    } catch (_) {}
+
+    // 2) fallback: última fila activa
+    if (LAST_ROW && LAST_ROW.getAttribute && LAST_ROW.getAttribute('data-client')) return LAST_ROW;
+
+    // 3) fallback extremo: primera fila visible
+    return document.querySelector('.ac-row[data-client]');
+  };
+
+  const setCurrentClientSafe = (client) => {
+    if (!client || typeof client !== 'object') return;
+    if (drawer) drawer._client = client;
+    window.P360_AC_CURRENT = client;
+  };
+
   const openDrawer = (client) => {
     if (!drawer || !client) return;
 
@@ -853,6 +891,33 @@
           }
         }
       }
+    }
+
+        // B) ✅ Botones dentro de filas: data-drawer-action="edit|recipients|creds|billing"
+    //    (estos NO son los mismos que data-action del menú legacy)
+    const rowActionBtn = t.closest('[data-drawer-action]');
+    if (rowActionBtn) {
+      e.preventDefault();
+
+      const action = (rowActionBtn.getAttribute('data-drawer-action') || '').trim().toLowerCase();
+      const row = getRowForAction(rowActionBtn);
+      const client = parseClient(row);
+
+      DBG.log('row data-drawer-action click', {
+        action,
+        hasRow: !!row,
+        hasClient: !!client,
+        lastRow: !!LAST_ROW
+      });
+
+      if (!client) return;
+
+      // ✅ setear current client siempre
+      setCurrentClientSafe(client);
+
+      // ✅ abrir modal correspondiente SIN depender del drawer
+      openDrawerModalAction(action, client);
+      return;
     }
 
     // 0) menu action
