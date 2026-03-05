@@ -1772,4 +1772,86 @@
     })();
   </script>
 
+  <script>
+  (function () {
+    'use strict';
+
+    const $ = (s, sc) => (sc || document).querySelector(s);
+
+    function decodeHtmlEntities(s){
+      s = String(s || '');
+      if (!s) return '';
+      const t = document.createElement('textarea');
+      t.innerHTML = s;
+      return t.value;
+    }
+
+    function parseClientFromRow(row){
+      if (!row) return null;
+      const raw = row.getAttribute('data-client') || '';
+      if (!raw) return null;
+
+      // data-client viene escapado por e() => &quot;...&quot;
+      const json = decodeHtmlEntities(raw);
+
+      try { return JSON.parse(json); } catch (e) { return null; }
+    }
+
+    function setCurrentClientFromRow(row){
+      const drawer = $('#clientDrawer');
+      if (!drawer) return false;
+
+      const c = parseClientFromRow(row);
+      if (!c) return false;
+
+      drawer._client = c;
+
+      // debug opcional (no molesta)
+      drawer.setAttribute('data-has-client', '1');
+      return true;
+    }
+
+    function findRowFromEventTarget(target){
+      if (!target) return null;
+
+      // 1) Si el click fue dentro de una fila
+      const row = target.closest('.ac-row[data-client]');
+      if (row) return row;
+
+      // 2) Si el click fue en acciones / botones
+      const wrap = target.closest('.cell.actions') || target.closest('.ac-menu') || target.closest('.ac-btn');
+      if (wrap) {
+        const r2 = wrap.closest('.ac-row[data-client]');
+        if (r2) return r2;
+      }
+
+      // 3) fallback: primera fila visible
+      return document.querySelector('.ac-row[data-client]');
+    }
+
+    // ✅ Captura “muy temprano” para garantizar que el cliente quede seteado
+    document.addEventListener('click', function (e) {
+      const row = findRowFromEventTarget(e.target);
+      if (!row) return;
+
+      setCurrentClientFromRow(row);
+    }, true);
+
+    // ✅ También al focus (teclado / accesibilidad)
+    document.addEventListener('focusin', function (e) {
+      const row = findRowFromEventTarget(e.target);
+      if (!row) return;
+
+      setCurrentClientFromRow(row);
+    }, true);
+
+    // ✅ Helper global para probar rápido en consola
+    window.__AC_SET_CURRENT_FROM_FIRST_ROW = function () {
+      const row = document.querySelector('.ac-row[data-client]');
+      return setCurrentClientFromRow(row);
+    };
+
+  })();
+</script>
+
 @endpush
