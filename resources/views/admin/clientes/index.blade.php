@@ -1491,11 +1491,25 @@
         window.P360_AC_CURRENT = c; // fallback global
       }
 
+      function decodeHtmlEntities(s){
+        s = String(s || '');
+        if (!s) return '';
+        // textarea decodifica &quot; &amp; &#039; etc.
+        const t = document.createElement('textarea');
+        t.innerHTML = s;
+        return t.value;
+      }
+
       function getClientFromRow(row){
         if (!row) return null;
+
         const raw = row.getAttribute('data-client') || '';
         if (!raw) return null;
-        try { return JSON.parse(raw); } catch(e) { return null; }
+
+        // ⚠️ data-client viene escapado con e() => &quot;...&quot;
+        const json = decodeHtmlEntities(raw);
+
+        try { return JSON.parse(json); } catch(e) { return null; }
       }
 
       // Capturar al hacer click en:
@@ -1506,11 +1520,13 @@
         const hit =
           e.target.closest('[data-open-drawer]') ||
           e.target.closest('[data-drawer-action]') ||
-          e.target.closest('[data-menu-toggle]');
+          e.target.closest('[data-menu-toggle]') ||
+          e.target.closest('.ac-row[data-client]') ||
+          e.target.closest('.cell.actions');
 
         if (!hit) return;
 
-        const row = hit.closest('.ac-row[data-client]');
+        const row = hit.closest('.ac-row[data-client]') || e.target.closest('.ac-row[data-client]');
         const c = getClientFromRow(row);
         if (c) setCurrentClient(c);
       }, true);
