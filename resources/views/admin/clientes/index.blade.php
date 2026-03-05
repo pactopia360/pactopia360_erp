@@ -1481,6 +1481,40 @@
 
       const $ = (s, sc) => (sc || document).querySelector(s);
 
+      // =====================================================
+      // ✅ FIX: Asegurar drawer._client SIEMPRE (captura desde row)
+      // =====================================================
+      function setCurrentClient(c){
+        if (!c || typeof c !== 'object') return;
+        const drawer = $('#clientDrawer');
+        if (drawer) drawer._client = c;
+        window.P360_AC_CURRENT = c; // fallback global
+      }
+
+      function getClientFromRow(row){
+        if (!row) return null;
+        const raw = row.getAttribute('data-client') || '';
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch(e) { return null; }
+      }
+
+      // Capturar al hacer click en:
+      // - Botón "Ver" (data-open-drawer)
+      // - Opciones del menú (data-drawer-action)
+      // - Botón ⋯ (data-menu-toggle)
+      document.addEventListener('click', function(e){
+        const hit =
+          e.target.closest('[data-open-drawer]') ||
+          e.target.closest('[data-drawer-action]') ||
+          e.target.closest('[data-menu-toggle]');
+
+        if (!hit) return;
+
+        const row = hit.closest('.ac-row[data-client]');
+        const c = getClientFromRow(row);
+        if (c) setCurrentClient(c);
+      }, true);
+
       function csrfToken(){
         return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
       }
@@ -1505,7 +1539,9 @@
 
       function currentClient(){
         const drawer = $('#clientDrawer');
-        return (drawer && drawer._client) ? drawer._client : null;
+        if (drawer && drawer._client) return drawer._client;
+        if (window.P360_AC_CURRENT) return window.P360_AC_CURRENT;
+        return null;
       }
 
       function resolveKey(c){
@@ -1719,5 +1755,5 @@
 
     })();
   </script>
-  
+
 @endpush
