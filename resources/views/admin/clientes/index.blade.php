@@ -1654,11 +1654,36 @@
         }
 
         const act = e.target.closest('[data-drawer-action="edit"]');
-        if (act) {
-          e.preventDefault();
-          setTimeout(openEdit, 60);
-          return;
-        }
+          if (act) {
+            e.preventDefault();
+
+            // ✅ FIX: setear current client desde la fila ANTES de abrir el modal
+            (function () {
+              const row = act.closest('.ac-row[data-client]');
+              if (!row) return;
+
+              // data-client viene escapado (&quot;)
+              const raw = row.getAttribute('data-client') || '';
+              if (!raw) return;
+
+              const t = document.createElement('textarea');
+              t.innerHTML = raw;
+              const json = t.value;
+
+              try {
+                const c = JSON.parse(json);
+                const drawer = document.querySelector('#clientDrawer');
+                if (drawer) drawer._client = c;
+                window.P360_AC_CURRENT = c;
+              } catch (err) {
+                // no alert; solo dejamos que openEdit muestre el mensaje si no hay cliente
+              }
+            })();
+
+            // Abrir modal (ya con current client seteado)
+            setTimeout(openEdit, 30);
+            return;
+          }
 
         const close = e.target.closest('[data-close-modal]');
         if (close) {
