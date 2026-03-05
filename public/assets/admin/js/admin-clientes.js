@@ -991,16 +991,118 @@
 
   // ===== Safety: normalizar lock
   (function normalizeInitialState() {
-    const anyModalOpen = !!($('.ac-modal.open') || $('.ac-modal.show'));
-    const drawerOpen = !!(drawer && drawer.classList.contains('open'));
+        const anyModalOpen = !!($('.ac-modal.open') || $('.ac-modal.show'));
+        const drawerOpen = !!(drawer && drawer.classList.contains('open'));
 
-    if (anyModalOpen || drawerOpen) {
-      Lock.reset();
-      if (drawerOpen) Lock.on();
-      if (anyModalOpen) Lock.on();
-      document.documentElement.classList.add('ac-lock');
-      DBG.log('normalizeInitialState', { anyModalOpen, drawerOpen });
-    }
-  })();
+        if (anyModalOpen || drawerOpen) {
+          Lock.reset();
+          if (drawerOpen) Lock.on();
+          if (anyModalOpen) Lock.on();
+          document.documentElement.classList.add('ac-lock');
+          DBG.log('normalizeInitialState', { anyModalOpen, drawerOpen });
+        }
+      })();
 
+    /* ============================================================
+    * PACTOPIA360 · Admin Clientes vNext
+    * FIX: asegurar drawer._client SIEMPRE (desde row[data-client])
+    * - Soporta data-client escapado (&quot;)
+    * - Captura click/focus EN CAPTURE para correr antes de otros handlers
+    * - Expone helpers globales para debug
+    * ============================================================ */
+    (function () {
+      'use strict';
+
+      const $ = (s, sc) => (sc || document).querySelector(s);
+
+      function decodeHtmlEntities(str) {
+        str = String(str || '');
+        if (!str) return '';
+        const t = document.createElement('textarea');
+        t.innerHTML = str;
+        return t.value;
+      }
+
+      function parseClientFromRow(row) {
+        if (!row) return null;
+
+        const raw = row.getAttribute('data-client') || '';
+        if (!raw) return null;
+
+        const json = decodeHtmlEntities(raw);
+        try { return JSON.parse(json); } catch (e) { return null; }
+      }
+
+      function setCurrentClient(c) {
+        if (!c || typeof c !== 'object') return false;
+
+        const drawer = $('#clientDrawer');
+        if (drawer) {
+          drawer._client = c;
+          drawer.setAttribute('data-has-client', '1');
+        }
+
+        // fallback global
+        window.P360_AC_CURRENT = c;
+
+        return true;
+      }
+
+      function setCurrentClientFromRow(row) {
+        const c = parseClientFromRow(row);
+        if (!c) return false;
+        return setCurrentClient(c);
+      }
+
+      function findRowFromEventTarget(target) {
+        if (!target) return null;
+
+        // 1) click dentro de una fila
+        const row = target.closest && target.closest('.ac-row[data-client]');
+        if (row) return row;
+
+        // 2) click en botones/acciones/menu dentro de la fila
+        const wrap =
+          (target.closest && (
+            target.closest('.cell.actions') ||
+            target.closest('.ac-menu') ||
+            target.closest('[data-open-drawer]') ||
+            target.closest('[data-drawer-action]') ||
+            target.closest('[data-menu-toggle]') ||
+            target.closest('.ac-btn')
+          ));
+
+        if (wrap) {
+          const r2 = wrap.closest && wrap.closest('.ac-row[data-client]');
+          if (r2) return r2;
+        }
+
+        return null;
+      }
+
+      // ✅ CAPTURE: corre antes que otros listeners (clave)
+      document.addEventListener('click', function (e) {
+        const row = findRowFromEventTarget(e.target);
+        if (!row) return;
+        setCurrentClientFromRow(row);
+      }, true);
+
+      document.addEventListener('focusin', function (e) {
+        const row = findRowFromEventTarget(e.target);
+        if (!row) return;
+        setCurrentClientFromRow(row);
+      }, true);
+
+      // Helpers globales para debug
+      window.__AC_SET_CURRENT_FROM_FIRST_ROW = function () {
+        const row = document.querySelector('.ac-row[data-client]');
+        return setCurrentClientFromRow(row);
+      };
+
+      window.__AC_GET_CURRENT = function () {
+        const drawer = document.querySelector('#clientDrawer');
+        return (drawer && drawer._client) ? drawer._client : (window.P360_AC_CURRENT || null);
+      };
+    })();
+    
 })();
