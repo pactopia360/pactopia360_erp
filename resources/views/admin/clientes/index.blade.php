@@ -989,81 +989,82 @@
       </div>
 
       <form method="POST"
-        id="mEdit_form"
-        action="#"
-        class="ac-form"
-        data-save-template="{{ route('admin.clientes.save', ['key' => '__KEY__', 'rfc' => '__KEY__']) }}">
+              id="mEdit_form"
+              action="#"
+              class="ac-form"
+              data-save-template="{{ route('admin.clientes.save', ['key' => '__KEY__']) }}">
 
-        @csrf
+          @csrf
 
-        {{-- ✅ Siempre mandar ID/RFC y el “unchecked” de is_blocked --}}
-        <input type="hidden" id="mEdit_id" name="id" value="">
-        <input type="hidden" name="is_blocked" value="0">
+          {{-- ✅ Siempre mandar key (RFC/ID) y el “unchecked” de is_blocked --}}
+          <input type="hidden" id="mEdit_id" name="id" value="">
+          <input type="hidden" name="is_blocked" value="0">
 
-        <div class="ac-grid">
-          <div class="ac-field ac-field-wide">
-            <label>Razón social</label>
-            <input class="ac-input" id="mEdit_rs" name="razon_social" value="" placeholder="Razón social">
-          </div>
+          <div class="ac-grid">
+            <div class="ac-field ac-field-wide">
+              <label>Razón social</label>
+              <input class="ac-input" id="mEdit_rs" name="razon_social" value="" placeholder="Razón social" autocomplete="organization">
+            </div>
 
-          <div class="ac-field">
-            <label>Email</label>
-            <input class="ac-input" id="mEdit_email" name="email" value="" placeholder="correo@dominio.com">
-          </div>
+            <div class="ac-field">
+              <label>Email</label>
+              <input class="ac-input" id="mEdit_email" name="email" value="" placeholder="correo@dominio.com" autocomplete="email" inputmode="email">
+            </div>
 
-          <div class="ac-field">
-            <label>Teléfono</label>
-            <input class="ac-input" id="mEdit_phone" name="phone" value="" placeholder="+52...">
-          </div>
+            <div class="ac-field">
+              <label>Teléfono</label>
+              <input class="ac-input" id="mEdit_phone" name="phone" value="" placeholder="+52..." autocomplete="tel" inputmode="tel">
+            </div>
 
-          <div class="ac-field">
-            <label>Plan</label>
-            <select class="ac-select" id="mEdit_plan" name="plan">
-              <option value="">—</option>
-              <option value="free">Free</option>
-              <option value="pro">Pro</option>
-            </select>
-          </div>
+            <div class="ac-field">
+              <label>Plan</label>
+              <select class="ac-select" id="mEdit_plan" name="plan">
+                <option value="">—</option>
+                <option value="free">Free</option>
+                <option value="pro">Pro</option>
+              </select>
+            </div>
 
-          <div class="ac-field">
-            <label>Ciclo</label>
-            <select class="ac-select" id="mEdit_cycle" name="billing_cycle">
-              <option value="">—</option>
-              <option value="monthly">Mensual</option>
-              <option value="yearly">Anual</option>
-            </select>
-          </div>
+            <div class="ac-field">
+              <label>Ciclo</label>
+              <select class="ac-select" id="mEdit_cycle" name="billing_cycle">
+                <option value="">—</option>
+                <option value="monthly">Mensual</option>
+                <option value="yearly">Anual</option>
+              </select>
+            </div>
 
-          <div class="ac-field">
-            <label>Próx. factura (YYYY-MM-DD)</label>
-            <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
-          </div>
+            <div class="ac-field">
+              <label>Próx. factura (YYYY-MM-DD)</label>
+              <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
+            </div>
 
-          <div class="ac-field">
-            <label>Monto personalizado (MXN)</label>
-            <input class="ac-input" id="mEdit_custom" name="custom_amount_mxn" inputmode="decimal" placeholder="0.00">
-            <div class="ac-hint">Si se deja vacío, se usa el monto calculado del plan.</div>
-          </div>
+            <div class="ac-field">
+              <label>Monto personalizado (MXN)</label>
+              <input class="ac-input" id="mEdit_custom" name="custom_amount_mxn" inputmode="decimal" placeholder="0.00" autocomplete="off">
+              <div class="ac-hint">Si se deja vacío, se usa el monto calculado del plan.</div>
+            </div>
 
-          <div class="ac-field">
-            <label>Bloqueo</label>
-            <div class="ac-check">
-              <input type="checkbox" id="mEdit_blocked" name="is_blocked" value="1">
-              <span>Cuenta bloqueada (redirige a Stripe)</span>
+            <div class="ac-field">
+              <label>Bloqueo</label>
+              <div class="ac-check">
+                <input type="checkbox" id="mEdit_blocked" name="is_blocked" value="1">
+                <span>Cuenta bloqueada (redirige a Stripe)</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="ac-note">
-          Nota: este formulario depende de tu endpoint <code class="ac-mono">/admin/clientes/{id}/save</code>.
-          Si no existe aún, el modal seguirá abriendo pero el submit no funcionará.
-        </div>
+          <div class="ac-note">
+            Nota: este formulario usa el endpoint
+            <code class="ac-mono">POST /admin/clientes/{key}/save</code>
+            (la key puede ser RFC / UUID / ID).
+          </div>
 
-        <div class="ac-form-actions">
-          <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-          <button class="ac-btn primary" type="submit">Guardar</button>
-        </div>
-      </form>
+          <div class="ac-form-actions">
+            <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+            <button class="ac-btn primary" type="submit">Guardar</button>
+          </div>
+      </form> 
     </div>
   </div>
 
@@ -1358,311 +1359,365 @@
 
   {{-- ✅ Hook para: setear action del envío de credenciales + defaults + abrir modal desde botón del drawer --}}
   <script>
-  (function () {
-    'use strict';
+    (function () {
+      'use strict';
 
-    const $ = (s, sc) => (sc || document).querySelector(s);
+      const $ = (s, sc) => (sc || document).querySelector(s);
 
-    function ensureActionAndPayload(){
-      const drawer = $('#clientDrawer');
-      const c = drawer && drawer._client ? drawer._client : null;
-
-      const form = $('#mCred_form_email_creds');
-      const missing = $('#mCred_email_creds_missing');
-      if (!form) return;
-
-      const url = c && c.email_creds_url ? String(c.email_creds_url) : '';
-      if (!url || url === '#') {
-        form.setAttribute('action', '#');
-        if (missing) missing.hidden = false;
-      } else {
-        form.setAttribute('action', url);
-        if (missing) missing.hidden = true;
+      function normCsvEmails(csv){
+        csv = String(csv || '').trim();
+        if (!csv) return '';
+        const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const ok = [];
+        const seen = new Set();
+        for (const e of parts) {
+          if (!seen.has(e) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+            seen.add(e);
+            ok.push(e);
+          }
+        }
+        return ok.join(', ');
       }
 
-      // defaults destinatarios: statement recipients → email principal → vacío
-      const to = $('#mCred_to');
-      if (to) {
-        const csv = c && c.recips_statement ? String(c.recips_statement || '') : '';
-        const fallback = c && c.email ? String(c.email || '') : '';
+      function ensureActionAndPayload(){
+        const drawer = $('#clientDrawer');
+        const c = drawer && drawer._client ? drawer._client : null;
 
-        // ✅ Si cambia el cliente, siempre refrescar el "Para"
-        const cid = c && c.id ? String(c.id) : '';
-        const prev = String(to.getAttribute('data-last-client') || '');
-        const nextVal = (csv || fallback || '').trim();
+        const form = $('#mCred_form_email_creds');
+        const missing = $('#mCred_email_creds_missing');
+        if (!form) return;
 
-        if (cid !== '' && cid !== prev) {
-          to.value = nextVal;
-          to.setAttribute('data-last-client', cid);
+        // ===== action (endpoint) =====
+        const url = c && c.email_creds_url ? String(c.email_creds_url) : '';
+        if (!url || url === '#') {
+          form.setAttribute('action', '#');
+          if (missing) missing.hidden = false;
         } else {
-          // Si NO cambió cliente, respetar lo que el admin ya escribió,
-          // pero si está vacío, prellenar.
-          if (!to.value.trim()) to.value = nextVal;
-          if (cid !== '') to.setAttribute('data-last-client', cid);
+          form.setAttribute('action', url);
+          if (missing) missing.hidden = true;
         }
+
+        // ===== default "to" =====
+        const to = $('#mCred_to');
+        if (to) {
+          const csv = c && c.recips_statement ? String(c.recips_statement || '') : '';
+          const fallback = c && c.email ? String(c.email || '') : '';
+          const nextVal = normCsvEmails(csv || fallback);
+
+          const cid = c && c.id ? String(c.id) : '';
+          const prev = String(to.getAttribute('data-last-client') || '');
+
+          // si cambia cliente: siempre refrescar
+          if (cid && cid !== prev) {
+            to.value = nextVal;
+            to.setAttribute('data-last-client', cid);
+          } else {
+            // si no cambió: respetar lo escrito, pero si está vacío, prellenar
+            if (!to.value.trim()) to.value = nextVal;
+            if (cid) to.setAttribute('data-last-client', cid);
+          }
+        }
+
+        // ===== payload hidden =====
+        const user =
+          (c && c.owner_email ? String(c.owner_email) : '') ||
+          (c && c.email ? String(c.email) : '') ||
+          (c && c.rfc ? String(c.rfc) : '') ||
+          '';
+
+        const pass =
+          (c && c.temp_pass ? String(c.temp_pass) : '') ||
+          (c && c.otp_code ? String(c.otp_code) : '') ||
+          '';
+
+        const access =
+          (c && c.access_url ? String(c.access_url) : '') ||
+          (c && c.token_url ? String(c.token_url) : '') ||
+          '';
+
+        const hu = $('#mCred_hidden_user');   if (hu) hu.value = user;
+        const hp = $('#mCred_hidden_pass');   if (hp) hp.value = pass;
+        const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
+
+        const hr  = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : '');
+        const hrs = $('#mCred_hidden_rs');  if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : '');
       }
 
-      // payload para backend: usuario = owner_email si existe; password = temp_pass si existe
-      const user = (c && c.owner_email ? String(c.owner_email) : '') || (c && c.email ? String(c.email) : '') || (c && c.rfc ? String(c.rfc) : '') || '';
-      const pass = (c && c.temp_pass ? String(c.temp_pass) : '') || (c && c.otp_code ? String(c.otp_code) : '') || '';
-      const access = (c && c.access_url ? String(c.access_url) : '') || (c && c.token_url ? String(c.token_url) : '') || '';
+      // Abre credenciales (desde drawer)
+      document.addEventListener('click', function (e) {
+        const btnCreds = e.target.closest('#btnOpenCreds');
+        if (!btnCreds) return;
+        setTimeout(ensureActionAndPayload, 80);
+      });
 
-      const hu = $('#mCred_hidden_user'); if (hu) hu.value = user;
-      const hp = $('#mCred_hidden_pass'); if (hp) hp.value = pass;
-      const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
-      const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : '');
-      const hrs= $('#mCred_hidden_rs'); if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : '');
-    }
+      // “Enviar credenciales” del drawer: abre modal Credenciales
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest('#drFormEmailCreds button');
+        if (!btn) return;
 
-    // Cuando se abre el modal de credenciales desde tu UI
-    document.addEventListener('click', function (e) {
-      const btnCreds = e.target.closest('#btnOpenCreds');
-      if (!btnCreds) return;
-      setTimeout(ensureActionAndPayload, 80);
-    });
+        e.preventDefault();
 
-    // “Enviar credenciales” del drawer: abre el modal Credenciales (sin depender del submit)
-    document.addEventListener('click', function (e) {
-      const btn = e.target.closest('#drFormEmailCreds button');
-      if (!btn) return;
+        const openCreds = $('#btnOpenCreds');
+        if (openCreds) openCreds.click();
 
-      e.preventDefault();
+        setTimeout(ensureActionAndPayload, 120);
+      });
 
-      const openCreds = $('#btnOpenCreds');
-      if (openCreds) openCreds.click();
-
-      setTimeout(ensureActionAndPayload, 120);
-    });
-
-    ['input','change','keyup'].forEach(evt => {
-      document.addEventListener(evt, function () {
-        const modal = $('#modalCreds');
-        if (modal && modal.getAttribute('aria-hidden') === 'false') {
-          ensureActionAndPayload();
-        }
-      }, true);
-    });
-  })();
+      // Mientras el modal está abierto, mantener payload consistente
+      ['input','change','keyup'].forEach(evt => {
+        document.addEventListener(evt, function () {
+          const modal = $('#modalCreds');
+          if (modal && modal.getAttribute('aria-hidden') === 'false') {
+            ensureActionAndPayload();
+          }
+        }, true);
+      });
+    })();
   </script>
 
-<script>
-(function () {
-  'use strict';
+  <script>
+    (function () {
+      'use strict';
 
-  const $ = (s, sc) => (sc || document).querySelector(s);
+      const $ = (s, sc) => (sc || document).querySelector(s);
 
-  function csrfToken(){
-    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-  }
+      function csrfToken(){
+        return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+      }
 
-  function openModal(sel){
-    const m = $(sel);
-    if (!m) return;
-    m.setAttribute('aria-hidden', 'false');
-    m.classList.add('show');
-    document.documentElement.classList.add('ac-modal-open');
-    document.body.classList.add('ac-modal-open');
-  }
+      function openModal(sel){
+        const m = $(sel);
+        if (!m) return;
+        m.setAttribute('aria-hidden', 'false');
+        m.classList.add('show');
+        document.documentElement.classList.add('ac-modal-open');
+        document.body.classList.add('ac-modal-open');
+      }
 
-  function closeModal(sel){
-    const m = $(sel);
-    if (!m) return;
-    m.setAttribute('aria-hidden', 'true');
-    m.classList.remove('show');
-    document.documentElement.classList.remove('ac-modal-open');
-    document.body.classList.remove('ac-modal-open');
-  }
-
-  function currentClient(){
-    const drawer = $('#clientDrawer');
-    return (drawer && drawer._client) ? drawer._client : null;
-  }
-
-  function resolveKey(c){
-    if (!c) return '';
-    // key canónico: rfc > id
-    const rfc = (c.rfc || '').toString().trim();
-    if (rfc) return rfc;
-    const id = (c.id || '').toString().trim();
-    return id;
-  }
-
-  function resolveEditAction(form, key){
-    if (!form) return '';
-    const tpl = (form.getAttribute('data-save-template') || '').toString();
-
-    // 1) template route Blade (preferida)
-    if (tpl && tpl.includes('__KEY__')) {
-      return tpl.replaceAll('__KEY__', encodeURIComponent(key));
-    }
-
-    // 2) fallback relativo (evita issues con origin/https)
-    return `/admin/clientes/${encodeURIComponent(key)}/save`;
-  }
-
-  function fillEditModalFromClient(c){
-    const form = $('#mEdit_form');
-    if (!form || !c) return false;
-
-    const key = resolveKey(c);
-    if (!key) return false;
-
-    const sub = $('#mEdit_sub');
-    if (sub) sub.textContent = `${key} · ${c.razon_social || ''}`.trim();
-
-    const hid = $('#mEdit_id'); if (hid) hid.value = key;
-    const rs  = $('#mEdit_rs'); if (rs) rs.value = (c.razon_social || '');
-    const em  = $('#mEdit_email'); if (em) em.value = (c.email || '');
-    const ph  = $('#mEdit_phone'); if (ph) ph.value = (c.phone || '');
-    const pl  = $('#mEdit_plan'); if (pl) pl.value = (c.plan || '');
-    const cy  = $('#mEdit_cycle'); if (cy) cy.value = (c.billing_cycle || '');
-    const nx  = $('#mEdit_next'); if (nx) nx.value = (c.next_invoice_date || '');
-    const cu  = $('#mEdit_custom'); if (cu) cu.value = (c.custom_amount_mxn || '');
-    const bl  = $('#mEdit_blocked'); if (bl) bl.checked = (String(c.blocked || '0') === '1');
-
-    // 🔒 set action SIEMPRE
-    form.setAttribute('action', resolveEditAction(form, key));
-
-    return true;
-  }
-
-  function ensureEditActionBeforeSubmit(form){
-    if (!form) return false;
-
-    // Si ya tiene action real, ok
-    const action = (form.getAttribute('action') || '').trim();
-    if (action && action !== '#') return true;
-
-    // 1) intenta con hidden id
-    const hid = $('#mEdit_id');
-    const key = (hid?.value || '').toString().trim();
-    if (key) {
-      form.setAttribute('action', resolveEditAction(form, key));
-      return true;
-    }
-
-    // 2) intenta con drawer current client
-    const c = currentClient();
-    if (c && resolveKey(c)) {
-      form.setAttribute('action', resolveEditAction(form, resolveKey(c)));
-      return true;
-    }
-
-    return false;
-  }
-
-  // ========= Abrir modal Edit =========
-  function openEdit(){
-    const c = currentClient();
-    if (!c) {
-      alert('No se detectó el cliente actual en el drawer.');
-      return;
-    }
-    if (!fillEditModalFromClient(c)) {
-      alert('No pude resolver la key (RFC/ID) para editar.');
-      return;
-    }
-    openModal('#modalEdit');
-  }
-
-  document.addEventListener('click', function (e) {
-    // Botón "Editar" del drawer
-    if (e.target.closest('#btnOpenEdit')) {
-      e.preventDefault();
-      openEdit();
-      return;
-    }
-
-    // Botón "Editar" del menú ⋯
-    const act = e.target.closest('[data-drawer-action="edit"]');
-    if (act) {
-      e.preventDefault();
-      setTimeout(openEdit, 60);
-      return;
-    }
-
-    // Cerrar modal
-    const close = e.target.closest('[data-close-modal]');
-    if (close) {
-      const modal = close.closest('.ac-modal');
-      if (modal) {
-        modal.setAttribute('aria-hidden', 'true');
-        modal.classList.remove('show');
+      function closeModal(sel){
+        const m = $(sel);
+        if (!m) return;
+        m.setAttribute('aria-hidden', 'true');
+        m.classList.remove('show');
         document.documentElement.classList.remove('ac-modal-open');
         document.body.classList.remove('ac-modal-open');
       }
-    }
-  });
 
-  // ========= Guardar (submit) =========
-  document.addEventListener('submit', async function (e) {
-    const form = e.target;
-    if (!form || form.id !== 'mEdit_form') return;
-
-    e.preventDefault();
-
-    // ✅ blindaje: siempre resolver action aquí
-    if (!ensureEditActionBeforeSubmit(form)) {
-      alert('El formulario no tiene endpoint configurado (action). No se puede guardar.');
-      return;
-    }
-
-    const action = (form.getAttribute('action') || '').trim();
-    if (!action || action === '#') {
-      alert('El formulario no tiene endpoint configurado (action).');
-      return;
-    }
-
-    const btn = form.querySelector('button[type="submit"]');
-    if (btn) { btn.disabled = true; btn.dataset.prevText = btn.textContent; btn.textContent = 'Guardando…'; }
-
-    try {
-      const fd = new FormData(form);
-
-      // ✅ checkbox unchecked: manda 0
-      if (!fd.has('is_blocked')) fd.set('is_blocked', '0');
-
-      // ✅ CSRF: ya va en _token por @csrf; pero mandamos header si existe meta (extra seguro)
-      const headers = { 'X-Requested-With': 'XMLHttpRequest' };
-      const t = csrfToken();
-      if (t) headers['X-CSRF-TOKEN'] = t;
-
-      const res = await fetch(action, {
-        method: 'POST',
-        headers,
-        body: fd,
-        credentials: 'same-origin'
-      });
-
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      const payload = ct.includes('application/json') ? await res.json() : await res.text();
-
-      if (!res.ok) {
-        let msg = `Error al guardar (HTTP ${res.status}).`;
-        if (typeof payload === 'object' && payload) {
-          msg = payload.message || msg;
-          if (payload.errors) {
-            const first = Object.values(payload.errors)[0];
-            if (Array.isArray(first) && first[0]) msg = first[0];
-          }
-        } else if (typeof payload === 'string' && payload.trim()) {
-          // Laravel 419/500 html — deja algo útil
-          msg = msg + ' Revisa session/CSRF o logs.';
-        }
-        throw new Error(msg);
+      function currentClient(){
+        const drawer = $('#clientDrawer');
+        return (drawer && drawer._client) ? drawer._client : null;
       }
 
-      closeModal('#modalEdit');
-      location.reload();
+      function resolveKey(c){
+        if (!c) return '';
+        const rfc = (c.rfc || '').toString().trim();
+        if (rfc) return rfc;
+        const id = (c.id || '').toString().trim();
+        return id;
+      }
 
-    } catch (err) {
-      alert(err?.message || 'Error inesperado al guardar.');
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.prevText || 'Guardar'; }
-    }
-  }, true);
+      function resolveEditAction(form, key){
+        if (!form) return '';
+        const tpl = (form.getAttribute('data-save-template') || '').toString();
 
-})();
-</script>
+        // 1) route Blade preferida (admin.clientes.save)
+        if (tpl && tpl.includes('__KEY__')) {
+          return tpl.replaceAll('__KEY__', encodeURIComponent(key));
+        }
 
+        // 2) fallback relativo (sin origin)
+        return `/admin/clientes/${encodeURIComponent(key)}/save`;
+      }
+
+      function setEditAction(form, key){
+        if (!form || !key) return false;
+        form.setAttribute('action', resolveEditAction(form, key));
+        return true;
+      }
+
+      function fillEditModalFromClient(c){
+        const form = $('#mEdit_form');
+        if (!form || !c) return false;
+
+        const key = resolveKey(c);
+        if (!key) return false;
+
+        const sub = $('#mEdit_sub');
+        if (sub) sub.textContent = `${key} · ${c.razon_social || ''}`.trim();
+
+        const hid = $('#mEdit_id');     if (hid) hid.value = key;
+        const rs  = $('#mEdit_rs');     if (rs) rs.value = (c.razon_social || '');
+        const em  = $('#mEdit_email');  if (em) em.value = (c.email || '');
+        const ph  = $('#mEdit_phone');  if (ph) ph.value = (c.phone || '');
+        const pl  = $('#mEdit_plan');   if (pl) pl.value = (c.plan || '');
+        const cy  = $('#mEdit_cycle');  if (cy) cy.value = (c.billing_cycle || '');
+        const nx  = $('#mEdit_next');   if (nx) nx.value = (c.next_invoice_date || '');
+        const cu  = $('#mEdit_custom'); if (cu) cu.value = (c.custom_amount_mxn || '');
+        const bl  = $('#mEdit_blocked');if (bl) bl.checked = (String(c.blocked || '0') === '1');
+
+        // 🔒 SIEMPRE setear action real
+        setEditAction(form, key);
+
+        return true;
+      }
+
+      function ensureEditActionBeforeSubmit(form){
+        if (!form) return false;
+
+        const action = (form.getAttribute('action') || '').trim();
+        if (action && action !== '#') return true;
+
+        // 1) hidden id (ya debería traer key)
+        const key = ($('#mEdit_id')?.value || '').toString().trim();
+        if (key) return setEditAction(form, key);
+
+        // 2) drawer current client
+        const c = currentClient();
+        const k2 = resolveKey(c);
+        if (k2) return setEditAction(form, k2);
+
+        return false;
+      }
+
+      // ====== Apertura Edit (siempre llenar + action) ======
+      function openEdit(){
+        const c = currentClient();
+        if (!c) {
+          alert('No se detectó el cliente actual en el drawer.');
+          return;
+        }
+        if (!fillEditModalFromClient(c)) {
+          alert('No pude resolver la key (RFC/ID) para editar.');
+          return;
+        }
+        openModal('#modalEdit');
+      }
+
+      // Click handlers (no dependemos de cómo abra el modal el otro JS)
+      document.addEventListener('click', function (e) {
+        if (e.target.closest('#btnOpenEdit')) {
+          e.preventDefault();
+          openEdit();
+          return;
+        }
+
+        const act = e.target.closest('[data-drawer-action="edit"]');
+        if (act) {
+          e.preventDefault();
+          setTimeout(openEdit, 60);
+          return;
+        }
+
+        const close = e.target.closest('[data-close-modal]');
+        if (close) {
+          const modal = close.closest('.ac-modal');
+          if (modal) {
+            modal.setAttribute('aria-hidden', 'true');
+            modal.classList.remove('show');
+            document.documentElement.classList.remove('ac-modal-open');
+            document.body.classList.remove('ac-modal-open');
+          }
+        }
+      });
+
+      // ✅ Observer: si otro JS abre el modal y deja action en '#', lo corregimos
+      (function observeEditModal(){
+        const modal = $('#modalEdit');
+        const form  = $('#mEdit_form');
+        if (!modal || !form) return;
+
+        const obs = new MutationObserver(() => {
+          const shown = modal.classList.contains('show') || modal.getAttribute('aria-hidden') === 'false';
+          if (!shown) return;
+
+          // intenta setear action desde hidden o desde drawer._client
+          setTimeout(() => {
+            ensureEditActionBeforeSubmit(form);
+          }, 30);
+        });
+
+        obs.observe(modal, { attributes:true, attributeFilter:['class','aria-hidden'] });
+      })();
+
+      // ====== Guardar (submit) ======
+      document.addEventListener('submit', async function (e) {
+        const form = e.target;
+        if (!form || form.id !== 'mEdit_form') return;
+
+        e.preventDefault();
+
+        // ✅ blindaje: siempre resolver action aquí
+        if (!ensureEditActionBeforeSubmit(form)) {
+          alert('El formulario no tiene endpoint configurado (action). No se puede guardar.');
+          return;
+        }
+
+        const action = (form.getAttribute('action') || '').trim();
+        if (!action || action === '#') {
+          alert('El formulario no tiene endpoint configurado (action).');
+          return;
+        }
+
+        const btn = form.querySelector('button[type="submit"]');
+        if (btn) {
+          btn.disabled = true;
+          btn.dataset.prevText = btn.textContent;
+          btn.textContent = 'Guardando…';
+        }
+
+        try {
+          const fd = new FormData(form);
+
+          // ✅ checkbox unchecked: manda 0
+          if (!fd.has('is_blocked')) fd.set('is_blocked', '0');
+
+          // ✅ CSRF: va en _token por @csrf; header extra si existe meta
+          const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+          const t = csrfToken();
+          if (t) headers['X-CSRF-TOKEN'] = t;
+
+          const res = await fetch(action, {
+            method: 'POST',
+            headers,
+            body: fd,
+            credentials: 'same-origin'
+          });
+
+          const ct = (res.headers.get('content-type') || '').toLowerCase();
+          const payload = ct.includes('application/json') ? await res.json() : await res.text();
+
+          if (!res.ok) {
+            let msg = `Error al guardar (HTTP ${res.status}).`;
+
+            if (res.status === 419) {
+              msg = 'Sesión/CSRF expiró (419). Recarga la página e intenta de nuevo.';
+            } else if (typeof payload === 'object' && payload) {
+              msg = payload.message || msg;
+              if (payload.errors) {
+                const first = Object.values(payload.errors)[0];
+                if (Array.isArray(first) && first[0]) msg = first[0];
+              }
+            } else if (typeof payload === 'string' && payload.trim()) {
+              msg = msg + ' Revisa logs (laravel.log) para detalle.';
+            }
+
+            throw new Error(msg);
+          }
+
+          closeModal('#modalEdit');
+          location.reload();
+
+        } catch (err) {
+          alert(err?.message || 'Error inesperado al guardar.');
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = btn.dataset.prevText || 'Guardar';
+          }
+        }
+      }, true);
+
+    })();
+  </script>
+  
 @endpush
