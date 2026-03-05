@@ -935,6 +935,9 @@
 
       if (!client) return;
 
+      // ✅ FIX CRÍTICO
+      setCurrentClientSafe(client);
+
       openDrawer(client);
 
       if (action === 'edit') { openDrawerModalAction('edit', client); return; }
@@ -1168,6 +1171,86 @@
         const drawer = document.querySelector('#clientDrawer');
         return (drawer && drawer._client) ? drawer._client : (window.P360_AC_CURRENT || null);
       };
+    })();
+
+
+    /* ============================================================
+    * PACTOPIA360 · Admin Clientes
+    * HARD FIX: Edit SIEMPRE llena form + action aunque otros JS interfieran
+    * - Usa drawer._client (ya garantizado por el helper)
+    * - Corre en CAPTURE y corta propagación
+    * ============================================================ */
+    (function () {
+      'use strict';
+
+      const $ = (s, sc) => (sc || document).querySelector(s);
+
+      function isEditTrigger(el){
+        if (!el) return false;
+
+        // botones esperados
+        if (el.closest && el.closest('#btnOpenEdit')) return true;
+
+        // menu item del drawer "Editar"
+        const da = el.closest && el.closest('[data-drawer-action="edit"]');
+        if (da) return true;
+
+        // fallback por texto (por si cambia markup)
+        const btn = el.closest && el.closest('button, a, [role="button"]');
+        if (!btn) return false;
+        const txt = (btn.textContent || '').trim().toLowerCase();
+        if (!txt) return false;
+        return (txt === 'editar' || txt.includes('editar'));
+      }
+
+      function openEditHard(){
+        const drawer = $('#clientDrawer');
+        const client = drawer && drawer._client ? drawer._client : (window.P360_AC_CURRENT || null);
+        if (!client) return false;
+
+        // usa las funciones ya definidas en admin-clientes.js
+        if (typeof fillEditModal === 'function') {
+          fillEditModal(client);
+        } else {
+          // fallback mínimo si por alguna razón no existe
+          const form = $('#mEdit_form');
+          const hid  = $('#mEdit_id');
+          if (hid) hid.value = (client.id ?? client.rfc ?? '').toString();
+          if (form) {
+            const key = (client.id ?? client.rfc ?? '').toString().trim();
+            if (key) form.setAttribute('action', `/admin/clientes/${encodeURIComponent(key)}/save`);
+          }
+        }
+
+        // abrir modal sí o sí
+        if (typeof openModal === 'function') {
+          openModal('#modalEdit');
+        } else {
+          const m = $('#modalEdit');
+          if (m) {
+            m.classList.add('open','show');
+            m.setAttribute('aria-hidden','false');
+          }
+        }
+
+        return true;
+      }
+
+      // CAPTURE: antes que cualquier otro handler
+      document.addEventListener('click', function(e){
+        if (!isEditTrigger(e.target)) return;
+
+        // si ya está abierto, igual rellenamos por seguridad
+        const ok = openEditHard();
+
+        // corta interferencias
+        if (ok) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
+      }, true);
+
     })();
     
 })();
