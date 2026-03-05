@@ -1480,11 +1480,24 @@
 
   function resolveKey(c){
     if (!c) return '';
-    // key canónico para tu route: acepta RFC/UUID/ID numérico
+    // key canónico: rfc > id
     const rfc = (c.rfc || '').toString().trim();
     if (rfc) return rfc;
     const id = (c.id || '').toString().trim();
     return id;
+  }
+
+  function resolveEditAction(form, key){
+    if (!form) return '';
+    const tpl = (form.getAttribute('data-save-template') || '').toString();
+
+    // 1) template route Blade (preferida)
+    if (tpl && tpl.includes('__KEY__')) {
+      return tpl.replaceAll('__KEY__', encodeURIComponent(key));
+    }
+
+    // 2) fallback relativo (evita issues con origin/https)
+    return `/admin/clientes/${encodeURIComponent(key)}/save`;
   }
 
   function fillEditModalFromClient(c){
@@ -1494,12 +1507,10 @@
     const key = resolveKey(c);
     if (!key) return false;
 
-    // sub header: muestra rfc + razón social
     const sub = $('#mEdit_sub');
     if (sub) sub.textContent = `${key} · ${c.razon_social || ''}`.trim();
 
-    // inputs
-    const hid = $('#mEdit_id'); if (hid) hid.value = key; // guardamos key para backend
+    const hid = $('#mEdit_id'); if (hid) hid.value = key;
     const rs  = $('#mEdit_rs'); if (rs) rs.value = (c.razon_social || '');
     const em  = $('#mEdit_email'); if (em) em.value = (c.email || '');
     const ph  = $('#mEdit_phone'); if (ph) ph.value = (c.phone || '');
@@ -1509,19 +1520,38 @@
     const cu  = $('#mEdit_custom'); if (cu) cu.value = (c.custom_amount_mxn || '');
     const bl  = $('#mEdit_blocked'); if (bl) bl.checked = (String(c.blocked || '0') === '1');
 
-    // action = template reemplazando __KEY__
-    const tpl = form.getAttribute('data-save-template') || '';
-    if (tpl && tpl.includes('__KEY__')) {
-      form.setAttribute('action', tpl.replace('__KEY__', encodeURIComponent(key)));
-    } else {
-      // fallback ultra-safe
-      form.setAttribute('action', `${location.origin}/admin/clientes/${encodeURIComponent(key)}/save`);
-    }
+    // 🔒 set action SIEMPRE
+    form.setAttribute('action', resolveEditAction(form, key));
 
     return true;
   }
 
-  // 1) Abrir modal Editar desde drawer
+  function ensureEditActionBeforeSubmit(form){
+    if (!form) return false;
+
+    // Si ya tiene action real, ok
+    const action = (form.getAttribute('action') || '').trim();
+    if (action && action !== '#') return true;
+
+    // 1) intenta con hidden id
+    const hid = $('#mEdit_id');
+    const key = (hid?.value || '').toString().trim();
+    if (key) {
+      form.setAttribute('action', resolveEditAction(form, key));
+      return true;
+    }
+
+    // 2) intenta con drawer current client
+    const c = currentClient();
+    if (c && resolveKey(c)) {
+      form.setAttribute('action', resolveEditAction(form, resolveKey(c)));
+      return true;
+    }
+
+    return false;
+  }
+
+  // ========= Abrir modal Edit =========
   function openEdit(){
     const c = currentClient();
     if (!c) {
@@ -1529,7 +1559,7 @@
       return;
     }
     if (!fillEditModalFromClient(c)) {
-      alert('No pude resolver la key (RFC/ID) para guardar.');
+      alert('No pude resolver la key (RFC/ID) para editar.');
       return;
     }
     openModal('#modalEdit');
@@ -1543,16 +1573,15 @@
       return;
     }
 
-    // Botón "Editar" del menú ⋯ dentro de fila (usa data-drawer-action="edit")
+    // Botón "Editar" del menú ⋯
     const act = e.target.closest('[data-drawer-action="edit"]');
     if (act) {
       e.preventDefault();
-      // normalmente tu JS abre drawer primero; damos un pequeño margen
       setTimeout(openEdit, 60);
       return;
     }
 
-    // Cerrar modal (tu UI ya tiene data-close-modal)
+    // Cerrar modal
     const close = e.target.closest('[data-close-modal]');
     if (close) {
       const modal = close.closest('.ac-modal');
@@ -1565,16 +1594,22 @@
     }
   });
 
-  // 2) Submit Guardar (fetch)
+  // ========= Guardar (submit) =========
   document.addEventListener('submit', async function (e) {
     const form = e.target;
     if (!form || form.id !== 'mEdit_form') return;
 
     e.preventDefault();
 
-    const action = form.getAttribute('action') || '';
+    // ✅ blindaje: siempre resolver action aquí
+    if (!ensureEditActionBeforeSubmit(form)) {
+      alert('El formulario no tiene endpoint configurado (action). No se puede guardar.');
+      return;
+    }
+
+    const action = (form.getAttribute('action') || '').trim();
     if (!action || action === '#') {
-      alert('El formulario no tiene endpoint configurado.');
+      alert('El formulario no tiene endpoint configurado (action).');
       return;
     }
 
@@ -1584,13 +1619,11 @@
     try {
       const fd = new FormData(form);
 
-      // Asegurar que SIEMPRE mandamos is_blocked aunque checkbox no esté marcado
+      // ✅ checkbox unchecked: manda 0
       if (!fd.has('is_blocked')) fd.set('is_blocked', '0');
 
-      const headers = {
-        'X-Requested-With': 'XMLHttpRequest',
-      };
-
+      // ✅ CSRF: ya va en _token por @csrf; pero mandamos header si existe meta (extra seguro)
+      const headers = { 'X-Requested-With': 'XMLHttpRequest' };
       const t = csrfToken();
       if (t) headers['X-CSRF-TOKEN'] = t;
 
@@ -1605,23 +1638,21 @@
       const payload = ct.includes('application/json') ? await res.json() : await res.text();
 
       if (!res.ok) {
-        // Laravel validation normalmente regresa 422 con JSON
-        let msg = 'Error al guardar.';
+        let msg = `Error al guardar (HTTP ${res.status}).`;
         if (typeof payload === 'object' && payload) {
           msg = payload.message || msg;
           if (payload.errors) {
             const first = Object.values(payload.errors)[0];
             if (Array.isArray(first) && first[0]) msg = first[0];
           }
+        } else if (typeof payload === 'string' && payload.trim()) {
+          // Laravel 419/500 html — deja algo útil
+          msg = msg + ' Revisa session/CSRF o logs.';
         }
         throw new Error(msg);
       }
 
-      // OK
       closeModal('#modalEdit');
-
-      // ✅ refresco rápido: recarga la lista para ver cambios sin complicarnos DOM
-      // (Si luego quieres “actualizar fila sin reload”, lo hacemos, pero primero que guarde.)
       location.reload();
 
     } catch (err) {
