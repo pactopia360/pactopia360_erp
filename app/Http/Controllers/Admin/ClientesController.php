@@ -1341,19 +1341,63 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         abort_if($rfcReal === '', 422, 'RFC no disponible en la cuenta.');
 
-        // 1) Resolver destinatarios
-        $input = $request->input('to', $request->input('recipients', ''));
-        $to = $this->normalizeEmails($input);
+        // =========================================================
+        // ✅ 1) Sanitizar robusto "to" / "recipients" ANTES de validar
+        // - acepta string CSV
+        // - acepta array (to[])
+        // - elimina vacíos, normaliza ; \n \r \t
+        // =========================================================
+        $raw = $request->input('to', $request->input('recipients', ''));
 
-        if (empty($to)) {
-            $to = $this->resolveRecipientsForAccountAdminSide($accountId);
+        // Normalización a string para casos raros (array con vacíos, saltos, etc.)
+        if (is_array($raw)) {
+            $raw = implode(',', array_map(static function ($v) {
+                return is_scalar($v) ? (string)$v : '';
+            }, $raw));
         }
 
-        if (empty($to)) {
+        $raw = (string) $raw;
+        $raw = str_replace([';', "\n", "\r", "\t"], [',', ',', ',', ' '], $raw);
+
+        // Split, trim, filtra vacíos
+        $parts = array_values(array_filter(array_map('trim', explode(',', $raw)), static fn($x) => $x !== ''));
+
+        // Lower + valida formato email + unique
+        $toClean = [];
+        foreach ($parts as $p) {
+            $e = strtolower(trim((string)$p));
+            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
+                $toClean[] = $e;
+            }
+        }
+        $toClean = array_values(array_unique($toClean));
+
+        // Si viene vacío, buscamos recipients guardados (y fallback email)
+        if (empty($toClean)) {
+            $toClean = $this->resolveRecipientsForAccountAdminSide($accountId);
+        }
+
+        if (empty($toClean)) {
             return back()->with('error', 'No hay correos destinatarios válidos para enviar credenciales.');
         }
 
-        // 2) Generar credenciales (reset password del OWNER por RFC REAL)
+        // =========================================================
+        // ✅ 2) Validación final sobre el array YA limpio (sin vacíos)
+        // =========================================================
+        $v = validator(['to' => $toClean], [
+            'to'   => 'required|array|min:1',
+            'to.*' => 'required|email',
+        ]);
+
+        if ($v->fails()) {
+            return back()->withErrors($v)->withInput();
+        }
+
+        $to = $v->validated()['to'];
+
+        // =========================================================
+        // ✅ 3) Generar credenciales (reset password del OWNER por RFC REAL)
+        // =========================================================
         $res = ClientCredentials::resetOwnerByRfc($rfcReal);
         if (empty($res['ok'])) {
             Log::warning('emailCredentials: resetOwnerByRfc failed', [
@@ -1376,7 +1420,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             Cache::put("tmp_user.$k", $usuario, now()->addMinutes(15));
         }
 
-        // 3) Payload para plantilla admin ($p)
+        // 4) Payload para plantilla admin ($p)
         $p = [
             'brand' => [
                 'name'     => config('app.name', 'Pactopia360'),
@@ -1393,7 +1437,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             ],
         ];
 
-        // 4) Enviar (admin template preferido, fallback a cliente)
+        // 5) Enviar (admin template preferido, fallback a cliente)
         try {
             if (view()->exists('emails.admin.cliente_credentials')) {
                 Mail::send('emails.admin.cliente_credentials', ['p' => $p], function ($m) use ($to) {
