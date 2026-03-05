@@ -183,14 +183,23 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         $billingStatuses = [
-            'active'    => 'Activa',
-            'trial'     => 'Prueba',
-            'grace'     => 'Gracia',
-            'overdue'   => 'Falta de pago',
-            'suspended' => 'Suspendida',
-            'cancelled' => 'Cancelada',
-            'demo'      => 'Demo/QA',
-        ];
+                // EN
+                'active'    => 'Activa',
+                'trial'     => 'Prueba',
+                'grace'     => 'Gracia',
+                'overdue'   => 'Falta de pago',
+                'suspended' => 'Suspendida',
+                'cancelled' => 'Cancelada',
+                'demo'      => 'Demo/QA',
+
+                // ES (tu DB actual)
+                'activa'     => 'Activa',
+                'prueba'     => 'Prueba',
+                'gracia'     => 'Gracia',
+                'vencida'    => 'Falta de pago',
+                'suspendida' => 'Suspendida',
+                'cancelada'  => 'Cancelada',
+            ];
 
         return view('admin.clientes.index', compact('rows', 'extras', 'creds', 'recipients', 'billingStatuses'));
     }
@@ -607,7 +616,6 @@ class ClientesController extends \App\Http\Controllers\Controller
         $this->forceVerifyInMirror($accountId, $rfcReal, $type);
     }
 
-
     protected function resolveCuentaClienteFromAdminAccount(?object $acc): ?object
     {
         if (!$acc || empty($acc->id)) return null;
@@ -647,109 +655,213 @@ class ClientesController extends \App\Http\Controllers\Controller
         return null;
     }
 
-
     // ======================= GUARDAR (accounts) =======================
     public function save(string $key, Request $request): RedirectResponse
     {
         // ✅ key puede ser accounts.id (numérico) o accounts.rfc
         $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'meta']);
         $accountId = (string) $acc->id;
-        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+        $rfcCol    = $this->colRfcAdmin();
+        $rfcReal   = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
 
         $emailCol = $this->colEmail();
         $phoneCol = $this->colPhone();
 
+        // ✅ Acepta monthly/yearly + mensual/anual
         $rules = [
             'razon_social'      => 'nullable|string|max:190',
-            'email'             => 'nullable|email|max:190',
+            'email'             => 'nullable|string|max:190', // normalizamos nosotros
             'phone'             => 'nullable|string|max:25',
             'plan'              => 'nullable|string|max:50',
-            'billing_cycle'     => ['nullable', Rule::in(['monthly', 'yearly', '', null])],
+            'billing_cycle'     => 'nullable|string|max:20',
             'billing_status'    => 'nullable|string|max:30',
             'next_invoice_date' => 'nullable|date',
             'is_blocked'        => 'nullable|boolean',
             'custom_amount_mxn' => 'nullable|numeric|min:0|max:99999999',
             'vault_active'      => 'nullable|boolean',
         ];
+
         $data = validator($request->all(), $rules)->validate();
 
+        // =========================
+        // Normalización segura
+        // =========================
+        $razon = $this->blankToNull($data['razon_social'] ?? null);
+        $email = $this->normalizeEmailNullable($data['email'] ?? null);
+        $phone = $this->normalizePhoneNullable($data['phone'] ?? null);
+
+        $plan  = $this->normalizePlanNullable($data['plan'] ?? null);
+        $cycle = $this->normalizeBillingCycleNullable($data['billing_cycle'] ?? null);
+        $bs    = $this->normalizeBillingStatusNullable($data['billing_status'] ?? null);
+
+        $isBlocked = array_key_exists('is_blocked', $data)
+            ? $this->normalizeBoolInt($data['is_blocked'], 0)
+            : null;
+
+        $vaultActive = array_key_exists('vault_active', $data)
+            ? $this->normalizeBoolInt($data['vault_active'], 0)
+            : null;
+
+        // =========================
+        // Payload: SOLO lo que venga (no pisar con null/vacío)
+        // =========================
         $payload = [
-            'razon_social' => $data['razon_social'] ?? null,
-            $emailCol      => isset($data['email']) ? strtolower((string) $data['email']) : null,
-            $phoneCol      => $data['phone'] ?? null,
-            'updated_at'   => now(),
+            'updated_at' => now(),
         ];
 
-        // ✅ RFC real (solo referencia). El espejo se actualiza en syncPlanToMirror()
-        $rfcRealLocal = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+        // =========================================================
+        // ✅ META: cargar UNA vez, mutar, y escribir UNA vez
+        // =========================================================
+        $metaDirty = false;
+        $meta      = null;
 
-        if ($this->hasCol($this->adminConn, 'accounts', 'plan')) {
-            $payload['plan'] = $data['plan'] ?? null;
+        $loadMeta = function () use (&$meta, $acc) {
+            if ($meta !== null) return;
+
+            $meta = $this->decodeMeta($acc->meta ?? null);
+            if (!is_array($meta)) $meta = [];
+        };
+
+        $flushMeta = function () use (&$meta, &$payload, &$metaDirty) {
+            if (!$metaDirty) return;
+            $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        };
+
+        // =========================
+        // Campos directos
+        // =========================
+        if ($razon !== null && $this->hasCol($this->adminConn, 'accounts', 'razon_social')) {
+            $payload['razon_social'] = (string) $razon;
         }
-        if ($this->hasCol($this->adminConn, 'accounts', 'billing_cycle')) {
-            $payload['billing_cycle'] = $data['billing_cycle'] ?? null;
+
+        if ($this->hasCol($this->adminConn, 'accounts', $emailCol) && array_key_exists('email', $data)) {
+            $payload[$emailCol] = $email; // null permitido para limpiar
         }
-        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
-            $payload['billing_status'] = $data['billing_status'] ?? null;
+
+        if ($this->hasCol($this->adminConn, 'accounts', $phoneCol) && array_key_exists('phone', $data)) {
+            $payload[$phoneCol] = $phone; // null permitido para limpiar
         }
-        if ($this->hasCol($this->adminConn, 'accounts', 'next_invoice_date')) {
-            $payload['next_invoice_date'] = $data['next_invoice_date'] ?? null;
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'plan') && array_key_exists('plan', $data)) {
+            $payload['plan'] = $plan; // null permitido
         }
-        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
-            $payload['is_blocked'] = (int) ($data['is_blocked'] ?? 0);
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'plan_actual') && array_key_exists('plan', $data)) {
+            $payload['plan_actual'] = $plan;
         }
 
         // =========================================================
-        // ✅ VAULT ACTIVE: guardar en admin.accounts (si existe)
-        // y SIEMPRE enviar al espejo via syncPlanToMirror()
+        // ✅ BILLING CYCLE (compat)
+        // - accounts.modo_cobro: mensual|anual (si existe)
+        // - accounts.meta.billing.billing_cycle: monthly|yearly
         // =========================================================
-        if (array_key_exists('vault_active', $data)) {
-            $va = (int) ((bool) $data['vault_active']);
+        if (array_key_exists('billing_cycle', $data)) {
 
-            // Si existe la columna en admin.accounts
-            if ($this->hasCol($this->adminConn, 'accounts', 'vault_active')) {
-                $payload['vault_active'] = $va;
-            }
+            // 1) modo_cobro (si existe) — aquí SÍ lo ponemos aunque antes estuviera null
+            if ($this->hasCol($this->adminConn, 'accounts', 'modo_cobro')) {
+                $modo = $this->cycleToModo($cycle); // mensual|anual|null
 
-            // Si usas meta como respaldo / compat
-            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
-                try {
-                    $accRow = DB::connection($this->adminConn)
-                        ->table('accounts')
-                        ->where('id', $accountId)
-                        ->first(['meta']);
-
-                    $meta = $this->decodeMeta($accRow->meta ?? null);
-
-                    // Guarda flags coherentes (compat)
-                    data_set($meta, 'vault.active', (bool) $va);
-                    data_set($meta, 'vault_active', (bool) $va);
-
-                    $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
-                } catch (\Throwable $e) {
-                    // no romper por meta
+                // Si vino billing_cycle pero no pudimos normalizarlo, no tocamos modo_cobro
+                if ($modo !== null) {
+                    $payload['modo_cobro'] = $modo;
                 }
             }
 
-            // Muy importante: que llegue al espejo
-            $payload['vault_active'] = $payload['vault_active'] ?? $va;
+            // 2) meta
+            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+                $loadMeta();
+
+                // guardamos ambos para compat
+                if ($cycle !== null) {
+                    data_set($meta, 'billing.billing_cycle', $cycle); // monthly|yearly
+                    data_set($meta, 'billing.cycle', $cycle);         // alias
+                }
+
+                $modo = $this->cycleToModo($cycle);
+                if ($modo) {
+                    data_set($meta, 'billing.mode', $modo);           // mensual|anual
+                }
+
+                $metaDirty = true;
+            }
         }
 
         // =========================================================
-        // ✅ BILLING OVERRIDE
+        // ✅ BACKFILL modo_cobro: si NO viene billing_cycle pero meta sí trae mode
+        // (para que nunca te quede null si meta ya trae mensual/anual)
         // =========================================================
-        $custom = isset($data['custom_amount_mxn']) ? (float) $data['custom_amount_mxn'] : null;
+        if (
+            $this->hasCol($this->adminConn, 'accounts', 'modo_cobro')
+            && !array_key_exists('billing_cycle', $data)
+            && !array_key_exists('modo_cobro', $payload) // no pisar si ya lo setearon arriba
+        ) {
+            $loadMeta();
+            $mode = strtolower(trim((string) (
+                data_get($meta, 'billing.mode')
+                ?? data_get($meta, 'billing.modo')
+                ?? ''
+            )));
+
+            if ($mode === 'mensual' || $mode === 'anual') {
+                $payload['modo_cobro'] = $mode;
+            }
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status') && array_key_exists('billing_status', $data)) {
+            $payload['billing_status'] = $bs; // normalizado
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'next_invoice_date') && array_key_exists('next_invoice_date', $data)) {
+            $payload['next_invoice_date'] = $this->blankToNull($data['next_invoice_date'] ?? null);
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked') && $isBlocked !== null) {
+            $payload['is_blocked'] = (int) $isBlocked;
+        }
+
+        // =========================================================
+        // ✅ VAULT ACTIVE: admin.accounts (si existe) + meta compat
+        // =========================================================
+        if ($vaultActive !== null) {
+
+            if ($this->hasCol($this->adminConn, 'accounts', 'vault_active')) {
+                $payload['vault_active'] = (int) $vaultActive;
+            }
+
+            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+                $loadMeta();
+
+                data_set($meta, 'vault.active', (bool) $vaultActive);
+                data_set($meta, 'vault_active', (bool) $vaultActive);
+
+                $metaDirty = true;
+            }
+
+            // Muy importante: que llegue al espejo
+            $payload['vault_active'] = $payload['vault_active'] ?? (int) $vaultActive;
+        }
+
+        // =========================================================
+        // ✅ BILLING OVERRIDE (custom_amount_mxn)
+        // =========================================================
+        $custom = array_key_exists('custom_amount_mxn', $data) ? (float) $data['custom_amount_mxn'] : null;
         $custom = ($custom !== null && $custom > 0.00001) ? round($custom, 2) : null;
 
         if ($custom !== null) {
-            $accRow = DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->first(['meta']);
-            $meta = $this->decodeMeta($accRow->meta ?? null);
-
-            data_set($meta, 'billing.override.amount_mxn', $custom);
-            data_set($meta, 'billing.override.enabled', true);
 
             if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
-                $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+                $loadMeta();
+
+                data_set($meta, 'billing.override.amount_mxn', $custom);
+                data_set($meta, 'billing.override.enabled', true);
+
+                // También guardamos modo (mensual/anual) coherente si hay cycle
+                $modo = $this->cycleToModo($cycle);
+                if ($modo) {
+                    data_set($meta, 'billing.mode', $modo);
+                }
+
+                $metaDirty = true;
             }
 
             foreach (['custom_amount_mxn', 'override_amount_mxn', 'billing_amount_mxn', 'amount_mxn', 'license_amount_mxn'] as $col) {
@@ -760,6 +872,13 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
         }
 
+        // ✅ Al final: si tocamos meta, se escribe UNA vez
+        $flushMeta();
+
+
+        // =========================================================
+        // UPDATE admin.accounts
+        // =========================================================
         DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->update($payload);
 
         // ✅ Legacy "clientes" debe ir por RFC real (no por id)
@@ -1386,6 +1505,79 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
     }
 
+    // ======================= BILLING PANEL (embed en /admin/clientes) =======================
+    /**
+     * Panel HTML embebible para Facturación (Billing Accounts) dentro de Admin Clientes.
+     *
+     * Usa account_id canónico = admin.accounts.id.
+     * key puede ser RFC o ID.
+     *
+     * URL sugerida:
+     *   GET /admin/clientes/{key}/billing/panel
+     */
+    public function billingPanel(string $key, Request $request)
+    {
+        // ✅ Resolver cuenta (SOT admin.accounts)
+        $emailCol = $this->colEmail();
+        $phoneCol = $this->colPhone();
+        $rfcCol   = $this->colRfcAdmin();
+
+        $acc = $this->requireAccount($key, [
+            'id',
+            $rfcCol,
+            'razon_social',
+            DB::raw("$emailCol as email"),
+            DB::raw("$phoneCol as phone"),
+            'plan',
+            'billing_cycle',
+            'billing_status',
+            'next_invoice_date',
+            'is_blocked',
+            'meta',
+            'created_at',
+        ]);
+
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$rfcCol} ?? '')));
+
+        // ✅ cálculo monto efectivo (ya lo tienes)
+        $licenseAmount = $this->computeEffectiveLicenseAmountMxn($acc);
+
+        // ✅ Recipients (si existen)
+        $recipients = [];
+        try {
+            $recipients = $this->resolveRecipientsForAccountAdminSide($accountId);
+        } catch (\Throwable $e) {
+            $recipients = [];
+        }
+
+        // ✅ URLS (si las rutas existen)
+        $urls = [
+            'billing_accounts_index'   => \Route::has('admin.billing.accounts.index') ? route('admin.billing.accounts.index') : url('/admin/billing/accounts'),
+            'billing_accounts_show'    => \Route::has('admin.billing.accounts.show') ? route('admin.billing.accounts.show', ['id' => $accountId]) : url("/admin/billing/accounts/{$accountId}"),
+            'billing_accounts_license' => \Route::has('admin.billing.accounts.license') ? route('admin.billing.accounts.license', ['id' => $accountId]) : url("/admin/billing/accounts/{$accountId}/license"),
+            'billing_accounts_modules' => \Route::has('admin.billing.accounts.modules') ? route('admin.billing.accounts.modules', ['id' => $accountId]) : url("/admin/billing/accounts/{$accountId}/modules"),
+            'billing_accounts_override'=> \Route::has('admin.billing.accounts.override') ? route('admin.billing.accounts.override', ['id' => $accountId]) : url("/admin/billing/accounts/{$accountId}/override"),
+        ];
+
+        // ✅ Extra: atajo a estados de cuenta si existen rutas típicas
+        $urls['billing_statements_index'] =
+            \Route::has('admin.billing.statements.index')
+                ? route('admin.billing.statements.index', ['accountId' => $accountId])
+                : (\Route::has('admin.billing.statements') ? route('admin.billing.statements', ['accountId' => $accountId]) : null);
+
+        // Render parcial “panel billing”
+        // (lo creamos abajo)
+        return view('admin.clientes._billing_panel', [
+            'acc'           => $acc,
+            'accountId'     => $accountId,
+            'rfcReal'       => $rfcReal,
+            'licenseAmount' => $licenseAmount,
+            'recipients'    => $recipients,
+            'urls'          => $urls,
+        ]);
+    }
+
     // ======================= SYNC accounts -> clientes =======================
     public function syncToClientes(): RedirectResponse
     {
@@ -1823,18 +2015,50 @@ class ClientesController extends \App\Http\Controllers\Controller
             }
         }
 
-        // 2) meta override
+        // 2) meta override + amount base
         $meta = $this->decodeMeta($accRow->meta ?? null);
+
+        // 2.1) override (si está habilitado)
         $enabled = (bool) data_get($meta, 'billing.override.enabled', false);
         $amt = data_get($meta, 'billing.override.amount_mxn', null);
+
         if ($enabled && $amt !== null && (float) $amt > 0) {
             return round((float) $amt, 2);
         }
 
+        // 2.2) fallback: meta.billing.amount_mxn (tu caso real: 899)
+        $base = data_get($meta, 'billing.amount_mxn', null);
+        if ($base !== null) {
+            if (is_numeric($base) && (float) $base > 0) {
+                return round((float) $base, 2);
+            }
+            if (is_string($base)) {
+                $s = trim(str_replace(['$', ',', 'MXN', 'mxn', ' '], '', $base));
+                if (is_numeric($s) && (float) $s > 0) {
+                    return round((float) $s, 2);
+                }
+            }
+        }
+
         // 3) default por plan/ciclo con inferencia cuando plan viene vacío
-        $plan  = strtolower(trim((string) ($accRow->plan ?? '')));
-        $cycle = strtolower(trim((string) ($accRow->billing_cycle ?? '')));
-        $bs    = strtolower(trim((string) ($accRow->billing_status ?? '')));
+        $plan = strtolower(trim((string) ($accRow->plan ?? '')));
+
+        // ✅ billing_cycle NO existe en tu accounts, así que lo sacamos de meta
+        $meta  = $this->decodeMeta($accRow->meta ?? null);
+
+        $cycle = strtolower(trim((string) (
+            $accRow->billing_cycle
+            ?? data_get($meta, 'billing.billing_cycle')
+            ?? data_get($meta, 'billing.cycle')
+            ?? ''
+        )));
+
+        // Soportar 'mensual/anual' también (por si llega modo en vez de cycle)
+        if ($cycle === 'mensual') $cycle = 'monthly';
+        if ($cycle === 'anual')   $cycle = 'yearly';
+        if ($cycle === 'annual')  $cycle = 'yearly';
+
+        $bs = strtolower(trim((string) ($accRow->billing_status ?? '')));
 
         // ✅ Si plan viene vacío, inferimos PRO cuando hay señales de suscripción/billing
         if ($plan === '' || $plan === '—') {
@@ -2875,8 +3099,14 @@ class ClientesController extends \App\Http\Controllers\Controller
         $plan    = is_string($planRaw) ? trim($planRaw) : '';
         if ($plan === '') $plan = null;
 
-        if ($plan !== null && $schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) {
-            $upd['plan_actual'] = $plan;
+        // ✅ Guardar plan en espejo (plan_actual y/o plan)
+        if ($plan !== null) {
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) {
+                $upd['plan_actual'] = $plan;
+            }
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan')) {
+                $upd['plan'] = $plan;
+            }
         }
 
         if ($schemaCli->hasColumn('cuentas_cliente', 'modo_cobro') && array_key_exists('modo_cobro', $payload)) {
@@ -3202,6 +3432,124 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         // Re-leer winner ya curado
         return $connCli->table('cuentas_cliente')->where('id', $winner->id)->first();
+    }
+
+        // =========================================================
+    // ✅ Normalizadores (evitan guardar basura y rompen menos UI)
+    // =========================================================
+
+    private function blankToNull(mixed $v): mixed
+    {
+        if ($v === null) return null;
+        if (is_string($v)) {
+            $s = trim($v);
+            return $s === '' ? null : $s;
+        }
+        return $v;
+    }
+
+    private function normalizeEmailNullable(mixed $v): ?string
+    {
+        $s = strtolower(trim((string)($v ?? '')));
+        if ($s === '') return null;
+        return filter_var($s, FILTER_VALIDATE_EMAIL) ? $s : null;
+    }
+
+    private function normalizePhoneNullable(mixed $v): ?string
+    {
+        $s = trim((string)($v ?? ''));
+        return $s === '' ? null : $s;
+    }
+
+    /**
+     * Soporta:
+     * - pro/free
+     * - PRO / FREE
+     * - PRO_MENSUAL / PRO_ANUAL (legacy)
+     * - vacío => null
+     */
+    private function normalizePlanNullable(mixed $v): ?string
+    {
+        $s = strtoupper(trim((string)($v ?? '')));
+        if ($s === '') return null;
+
+        // UI vNext (pro/free)
+        if ($s === 'PRO')  return 'PRO';
+        if ($s === 'FREE') return 'FREE';
+
+        // si llega "pro" / "free"
+        if (strtolower($s) === 'PRO')  return 'PRO';
+        if (strtolower($s) === 'FREE') return 'FREE';
+
+        // legacy
+        if (in_array($s, ['PRO_MENSUAL','PRO_ANUAL'], true)) return $s;
+
+        // fallback: no inventar
+        return $s;
+    }
+
+    /**
+     * Soporta:
+     * - monthly/yearly
+     * - mensual/anual
+     * - annual/yearly
+     */
+    private function normalizeBillingCycleNullable(mixed $v): ?string
+    {
+        $s = strtolower(trim((string)($v ?? '')));
+        if ($s === '') return null;
+
+        if ($s === 'mensual') return 'monthly';
+        if ($s === 'anual')   return 'yearly';
+        if ($s === 'annual')  return 'yearly';
+        if ($s === 'yearly')  return 'yearly';
+        if ($s === 'monthly') return 'monthly';
+
+        // si llega algo raro, no lo guardes
+        return null;
+    }
+
+    private function normalizeBillingStatusNullable(mixed $v): ?string
+    {
+        $s = strtolower(trim((string)($v ?? '')));
+        if ($s === '') return null;
+
+        // Canon EN (legacy)
+        $allowedEn = ['active','trial','grace','overdue','suspended','cancelled','demo'];
+
+        // Canon ES (tu DB actual)
+        $allowedEs = ['activa','prueba','gracia','vencida','suspendida','cancelada','demo'];
+
+        if (in_array($s, $allowedEn, true) || in_array($s, $allowedEs, true)) {
+            return $s; // guardamos tal cual para no romper tu DB actual
+        }
+
+        return null;
+    }
+
+    private function normalizeBoolInt(mixed $v, int $default = 0): int
+    {
+        if ($v === null) return $default;
+        if (is_bool($v)) return $v ? 1 : 0;
+
+        $s = strtolower(trim((string)$v));
+        if ($s === '') return $default;
+
+        if (in_array($s, ['1','true','yes','on'], true)) return 1;
+        if (in_array($s, ['0','false','no','off'], true)) return 0;
+
+        return $default;
+    }
+
+    /**
+     * Convierte el payload de cuentas (admin.accounts) a "modo" para meta (mensual/anual).
+     */
+    private function cycleToModo(?string $cycle): ?string
+    {
+        $c = strtolower(trim((string)($cycle ?? '')));
+        if ($c === 'monthly') return 'mensual';
+        if ($c === 'yearly')  return 'anual';
+        return null;
     }
  
 }

@@ -116,7 +116,11 @@
       min-height:100vh;
       display:flex;
       flex-direction:column;
-      overflow:hidden;
+
+      /* ✅ SINGLE SCROLL: el scroll vive en el viewport/body */
+      overflow-y:auto;
+      overflow-x:hidden;
+
       background:var(--bg);
       color:var(--text);
       -webkit-font-smoothing:antialiased;
@@ -151,7 +155,10 @@
       position:relative;
       flex:1 1 auto;
       min-height:0;
-      overflow:hidden;
+
+      /* ✅ SINGLE SCROLL: evita que el shell cree un scroll propio */
+      overflow:visible;
+
       padding-top: var(--header-h);
     }
 
@@ -170,9 +177,15 @@
     /* MAIN */
     .admin-content{
       position:relative;
-      height: calc(100dvh - var(--header-h));
-      overflow:auto;
-      -webkit-overflow-scrolling:touch;
+
+      /* ✅ SINGLE SCROLL:
+        - ya NO limitamos a viewport ni hacemos overflow:auto
+        - dejamos que el documento (body) haga scroll
+      */
+      height:auto;
+      min-height: calc(100dvh - var(--header-h));
+      overflow:visible;
+
       display:flex;
       flex-direction:column;
       min-width:0;
@@ -517,11 +530,19 @@
 
   cmd && cmd.addEventListener('click', (ev)=>{ if(ev.target===cmd) window.P360.closeCmd(); });
 
-  main && main.addEventListener('scroll', ()=>{
+  // ✅ SINGLE SCROLL: ahora el scroll está en window/document, no en main
+  (function(){
     const ph = document.getElementById('page-header');
     if(!ph) return;
-    ph.classList.toggle('affix-shadow', main.scrollTop > 6);
-  }, {passive:true});
+
+    function onScroll(){
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      ph.classList.toggle('affix-shadow', y > 6);
+    }
+
+    addEventListener('scroll', onScroll, { passive:true });
+    onScroll();
+  })();
 
 })();
 </script>

@@ -156,7 +156,12 @@ $menu = [
         'text'=>'Billing SaaS','icon'=>'💳','id'=>'billing-saas',
         'active_when'=>['admin.billing.*','admin.config.param.stripe_prices.*','admin.config.param.licencias.*','admin.sat.*'],
         'children'=>[
-          ['text'=>'Cuentas (Licencias)','icon'=>'👤','route'=>'admin.billing.accounts.index','active_when'=>['admin.billing.accounts.*']],
+          // ✅ (Integración a Admin -> Clientes) Se oculta el módulo "Cuentas (Licencias)" del menú
+          //    SIN eliminar rutas ni lógica (evita "truene" cualquier link directo / controller / jobs).
+          //    La administración de licencias se moverá a "Administración -> Usuarios -> Clientes".
+          //
+          // ['text'=>'Cuentas (Licencias)','icon'=>'👤','route'=>'admin.billing.accounts.index','active_when'=>['admin.billing.accounts.*']],
+
           ['text'=>'Estados de cuenta','icon'=>'🧾','route'=>'admin.billing.statements.index','active_when'=>['admin.billing.statements.*']],
           ['text'=>'Pagos','icon'=>'💰','route'=>'admin.billing.payments.index','active_when'=>['admin.billing.payments.*']],
           ['text'=>'Solicitudes de factura','icon'=>'🧷','route'=>'admin.billing.invoices.requests.index','active_when'=>['admin.billing.invoices.*']],
@@ -169,7 +174,6 @@ $menu = [
 
           // ✅ SAT Backoffice (Operación) — nuevo módulo admin.sat.ops.*
           ['text'=>'SAT · Operación','icon'=>'🛰️','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
-
         ],
       ],
 

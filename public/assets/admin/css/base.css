@@ -44,9 +44,13 @@ html, body{
 }
 *, *::before, *::after{ box-sizing:border-box; }
 
-/* Estructura y scroll (el scroll vive en el contenido, no en body) */
+/* ✅ SINGLE SCROLL (viewport)
+   El scroll vive en el viewport (body/window).
+   Evita doble scroll provocado por .admin-content overflow:auto.
+*/
 body{
-  overflow:hidden;
+  overflow-y:auto;
+  overflow-x:hidden;
   background:var(--bg);
   color:var(--text);
 }
@@ -76,12 +80,15 @@ html.sidebar-collapsed{
    ====================================================================== */
 .admin-content{
   position:relative !important;
+
+  /* ✅ Mantener anti-overlap con sidebar */
   margin-left: var(--sidebar-offset) !important;
   width: calc(100% - var(--sidebar-offset)) !important;
-  height: calc(100vh - var(--header-h)) !important;
 
-  overflow:auto !important;
-  -webkit-overflow-scrolling:touch;
+  /* ✅ SINGLE SCROLL: NO forzar un viewport interno scrolleable */
+  height:auto !important;
+  min-height: calc(100dvh - var(--header-h)) !important;
+  overflow:visible !important;
 
   background:var(--bg);
   display:flex;

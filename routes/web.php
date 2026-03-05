@@ -28,6 +28,22 @@ $isLocal = app()->environment(['local', 'development', 'testing']);
 
 /*
 |--------------------------------------------------------------------------
+| ✅ Stack de middlewares a remover para endpoints públicos sin cookies/sesión
+|--------------------------------------------------------------------------
+| OJO: web.php normalmente corre con el grupo "web" (cookies + sesión).
+| Para redirects/trackers públicos que NO deben tocar sesión, removemos esto.
+*/
+$noCookies = [
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \App\Http\Middleware\VerifyCsrfToken::class,
+    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+];
+
+/*
+|--------------------------------------------------------------------------
 | PÚBLICO
 |--------------------------------------------------------------------------
 */
@@ -39,6 +55,38 @@ Route::redirect('/', '/cliente')->name('home.public');
  * - Fallback a admin.login
  */
 Route::get('/login', SmartLoginController::class)->name('login');
+
+/*
+|--------------------------------------------------------------------------
+| ✅ COMPAT / ALIASES (NO /admin) — Billing
+|--------------------------------------------------------------------------
+| Estos redirects existen para links viejos o bookmarks que apuntan a rutas
+| fuera del prefijo /admin, pero el módulo real vive en /admin/billing/*.
+|
+| Importante:
+| - Los dejamos "neutros": sin cookies/sesión/CSRF
+| - 301/302: usamos 302 (temporal) para no “cementar” en caches de navegador.
+*/
+Route::middleware('throttle:120,1')
+    ->withoutMiddleware($noCookies)
+    ->group(function () {
+
+        // Canon: /admin/billing/accounts
+        Route::match(['GET', 'HEAD'], '/billing/accounts', function () {
+            return redirect()->route('admin.billing.accounts.index');
+        })->name('compat.billing.accounts');
+
+        // ✅ Compat detalle: /billing/accounts/{id} -> /admin/billing/accounts/{id}
+        Route::match(['GET', 'HEAD'], '/billing/accounts/{id}', function (string $id) {
+            return redirect()->route('admin.billing.accounts.show', ['id' => $id]);
+        })->where('id', '[A-Za-z0-9\-]+')
+          ->name('compat.billing.accounts.show');
+
+        // Opcional: si alguien entra a /billing, mándalo al hub billing admin.
+        Route::match(['GET', 'HEAD'], '/billing', function () {
+            return redirect()->route('admin.billing.accounts.index');
+        })->name('compat.billing.root');
+    });
 
 /*
 |--------------------------------------------------------------------------

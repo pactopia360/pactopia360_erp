@@ -1,413 +1,160 @@
-/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\admin-clientes.css
-   Admin · Clientes — UI v14.1 (vNext Hybrid + drawer + modales)
-   - ✅ Topbar sticky robusto (sin encimados)
-   - ✅ ac-list-head sticky con offset dinámico (--ac-topbar-h)
-   - ✅ Lista 6 columnas (Cliente/Contacto/Estado/Plan/Factura/Acciones) coherente con Blade vNext
-   - ✅ Mantiene drawer/modales/tabs/recipients + lock scroll
-*/
+/* ============================================================
+   ✅ FIX: Quitar doble scroll (dejar SOLO el scroll del viewport)
+   - Objetivo: desactivar wrappers del layout que meten height:100vh + overflow:auto/hidden
+   - Scope: SOLO esta vista (#adminClientesPage)
+   - Mantiene: html.ac-lock (modal/drawer) sigue bloqueando el scroll
+   ============================================================ */
 
-:root{
-  --ink:#0f172a;
-  --mut:#64748b;
-  --mut2:#94a3b8;
-
-  --bg:#f6f7fb;
-  --card:#ffffff;
-
-  --line:rgba(15,23,42,.10);
-  --line2:rgba(15,23,42,.06);
-
-  --pri:#7c3aed;
-  --pri2:#6d28d9;
-
-  --ok:#16a34a;
-  --bad:#ef4444;
-  --warn:#f59e0b;
-  --info:#0ea5e9;
-
-  --shadow:0 10px 30px rgba(15, 23, 42, .08);
-  --shadow2:0 18px 46px rgba(15, 23, 42, .12);
-
-  --radius:14px;
-  --radius-sm:12px;
-
-  --ring:0 0 0 3px rgba(124,58,237,.18);
-  --ring2:0 0 0 3px rgba(14,165,233,.18);
-
-  --h:42px;
-  --container:1320px;
-
-  --soft:color-mix(in oklab, var(--card) 86%, rgba(2,6,23,.04) 14%);
-  --soft2:color-mix(in oklab, var(--card) 92%, transparent);
-
-  /* ✅ JS setea esto: altura real del topbar */
-  --ac-topbar-h: 92px;
+/* 0) Garantiza que el scroll “real” sea el del documento (SIN afectar otras vistas)
+      OJO: no tocamos html/body global porque rompería pantallas fuera de Clientes */
+#adminClientesPage{
+  position: relative;
 }
 
-/* Dark */
-html.theme-dark, html[data-theme="dark"]{
-  --ink:#e5e7eb;
-  --mut:#9ca3af;
-  --mut2:#6b7280;
-
-  --bg:#0b1220;
-  --card:#0f172a;
-
-  --line:rgba(255,255,255,.14);
-  --line2:rgba(255,255,255,.08);
-
-  --shadow:0 14px 40px rgba(0,0,0,.45);
-  --shadow2:0 20px 56px rgba(0,0,0,.55);
-
-  --soft:color-mix(in oklab, var(--card) 88%, rgba(255,255,255,.04) 12%);
-  --soft2:color-mix(in oklab, var(--card) 94%, transparent);
+/* 1) La página NO debe ser contenedor scrolleable */
+#adminClientesPage{
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  overflow:visible !important;
 }
 
-*{ box-sizing:border-box; }
-
-/* ✅ FIX: respeta hidden SIEMPRE (evita panes apilados) */
-[hidden]{ display:none !important; }
-
-.ac-page{
-  background:var(--bg);
-  color:var(--ink);
-  padding:16px;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  -webkit-font-smoothing:antialiased;
-  -moz-osx-font-smoothing:grayscale;
+/* 2) Neutraliza wrappers típicos del layout SOLO si suelen forzar scroll */
+#adminClientesPage :is(
+  .container,
+  .container-fluid,
+  .content,
+  .content-body,
+  .content-wrapper,
+  .main-content,
+  .page-content,
+  .app-content,
+  .app-content-body,
+  .layout-content,
+  .layout-page,
+  .layout-wrapper,
+  .layout-container,
+  .layout-navbar-fixed,
+  .layout-menu-fixed,
+  .layout-content-navbar
+){
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  overflow:visible !important;     /* 👈 clave: mata el scroll interno */
 }
 
-.ac-shell{
-  max-width:var(--container);
-  margin:0 auto;
-  display:flex;
-  flex-direction:column;
-  gap:14px;
+/* 3) Si tu layout tiene un “body wrapper” con overflow (muy común), lo neutralizamos */
+#adminClientesPage :is(
+  .layout-page,
+  .layout-content,
+  .layout-container,
+  .content-wrapper
+){
+  overflow-y:visible !important;
+  overflow-x:visible !important;
 }
 
-/* Utilities */
-.ac-ellipsis{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
-.ac-wrap{ white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
-.ac-mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--ink); }
-.mut{ color:var(--mut); }
-.meta{ font-size:12px; color:var(--mut); margin-top:3px; line-height:1.35; }
-
-/* KV (Contacto) */
-.ac-kv{ display:grid; grid-template-columns: 78px 1fr; gap:8px 10px; font-size:12px; }
-.ac-kv .k{
-  font-size:11px; color:var(--mut);
-  font-weight:950; text-transform:uppercase; letter-spacing:.06em;
-}
-.ac-kv .v{ font-weight:900; color:var(--ink); min-width:0; }
-.ac-kv .v span,
-.ac-kv .v code{
-  display:block;
-  white-space:normal;
-  word-break:break-word;
-  overflow-wrap:anywhere;
+/* 4) No generes scroll interno en la lista, pero NO recortes overlays/menus */
+#adminClientesPage .ac-list{
+  overflow: visible !important;   /* permite dropdowns/menus fuera del contenedor */
 }
 
-/* =========================
-   Topbar (sticky vNext)
-   ========================= */
-.ac-topbar{
-  position:sticky;
-  top:0;
-  z-index:40;
-
-  border:1px solid var(--line);
-  background:rgba(248,250,252,.88);
-  backdrop-filter: blur(10px) saturate(140%);
-  border-radius:var(--radius);
-
-  padding:14px;
-  box-shadow:var(--shadow);
-
-  /* para fallback si JS no corre */
-  --ac-topbar-h: var(--ac-topbar-h, 92px);
+/* 5) Modales/drawer: lock global */
+html.ac-lock{
+  overflow:hidden !important;
+}
+body.ac-lock{
+  overflow:hidden !important;
 }
 
-/* Dark topbar */
-html.theme-dark .ac-topbar,
-html[data-theme="dark"] .ac-topbar{
-  background:rgba(15,23,42,.72);
+/* TURBO: si el layout impone 100vh en un wrapper, lo neutralizamos por atributo */
+#adminClientesPage *{
+  scroll-margin-top: var(--ac-sticky-top, 8px);
 }
 
-.ac-topbar .ac-topbar-left{
-  display:flex;
-  gap:14px;
-  align-items:flex-start;
-  justify-content:flex-start;
-  flex-wrap:wrap;
-  min-width:0;
-}
-.ac-topbar .ac-topbar-right{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
-  margin-left:auto;
+/* Solo neutraliza 100vh en wrappers típicos del layout (evita romper componentes internos) */
+#adminClientesPage :is(
+  .layout-page,
+  .layout-content,
+  .layout-container,
+  .content-wrapper,
+  .page-content,
+  .app-content
+):is([style*="100vh"], [style*="height: 100vh"], [style*="height:100vh"]){
+  height:auto !important;
+  max-height:none !important;
+  overflow:visible !important;
 }
 
-.ac-title h1{ margin:0; font-size:18px; font-weight:950; letter-spacing:-.015em; line-height:1.2; }
-.ac-sub{ margin-top:2px; font-size:12px; color:var(--mut); }
+/* ============================================================
+   ✅ FIX: Quitar doble scroll (dejar SOLO el scroll del viewport)
+   - Objetivo: desactivar wrappers del layout que meten height:100vh + overflow:auto/hidden
+   - Scope: SOLO esta vista (#adminClientesPage)
+   - Mantiene: html.ac-lock (modal/drawer) sigue bloqueando el scroll
+   ============================================================ */
 
-.ac-search{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
-
-  flex:1 1 520px;
-  min-width:280px;
-
-  padding:8px 10px;
-  border:1px solid var(--line);
-  background:var(--card);
-  border-radius:999px;
-  box-shadow:0 8px 22px rgba(15,23,42,.06);
-}
-.ac-search .ac-input{
-  border:0; background:transparent; outline:0;
-
-  flex:1 1 auto;
-  width:clamp(240px, 38vw, 620px);
-  min-width:240px;
+/* 0) Garantiza que el scroll “real” sea el del documento */
+html, body{
+  height:auto;
 }
 
-/* Pills row debajo */
-.ac-meta-row{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  align-items:center;
-  justify-content:space-between;
-
-  margin-top:10px;
-  padding-top:10px;
-  border-top:1px dashed var(--line2);
-}
-.ac-meta-row .left{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  align-items:center;
-  min-width:0;
-}
-.ac-meta-row .right{ margin-left:auto; }
-
-.ac-pill{
-  display:inline-flex; align-items:center; gap:8px;
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:var(--card);
-  font-size:12px;
-  font-weight:900;
-}
-.ac-pill .mut{ font-weight:800; opacity:.85; }
-
-/* =========================
-   Buttons / inputs
-   ========================= */
-.ac-input, .ac-select, .ac-textarea{
-  width:100%;
-  min-height:var(--h);
-  padding:10px 12px;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:var(--card);
-  color:var(--ink);
-  outline:none;
-  font-size:14px;
-}
-.ac-textarea{ min-height:120px; resize:vertical; }
-.ac-input:focus, .ac-select:focus, .ac-textarea:focus{
-  box-shadow:var(--ring2);
-  border-color:color-mix(in oklab, var(--info) 40%, var(--line) 60%);
+/* 1) La página NO debe ser contenedor scrolleable */
+#adminClientesPage{
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  overflow:visible !important;
 }
 
-.ac-btn{
-  min-height:var(--h);
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background:var(--card);
-  color:var(--ink);
-  font-weight:950;
-  cursor:pointer;
-  text-decoration:none;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:8px;
-  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
-}
-.ac-btn:hover{ filter:brightness(1.02); box-shadow:0 10px 24px rgba(15,23,42,.08); }
-.ac-btn:active{ transform:translateY(1px); }
-
-.ac-btn.primary{
-  background:linear-gradient(135deg,var(--pri),var(--pri2));
-  border:0;
-  color:#fff;
-  box-shadow:0 16px 34px rgba(124,58,237,.22);
-}
-.ac-btn.primary:hover{ box-shadow:0 18px 42px rgba(124,58,237,.28); }
-
-.ac-btn.ghost{
-  background:transparent;
-  border-color:transparent;
-  box-shadow:none;
-  color:var(--pri);
-}
-.ac-btn.small{ min-height:34px; padding:7px 10px; border-radius:10px; font-size:12px; }
-.ac-btn.tiny{ min-height:30px; padding:6px 10px; border-radius:10px; font-size:12px; }
-.ac-btn.is-disabled{ opacity:.55; pointer-events:none; filter:saturate(.7); }
-
-.ac-field label{ display:block; font-size:12px; color:var(--mut); margin:0 0 6px; font-weight:900; }
-.ac-hint{ margin-top:6px; font-size:12px; color:var(--mut); line-height:1.35; }
-
-/* =========================
-   KPIs
-   ========================= */
-.ac-kpis{
-  display:grid;
-  grid-template-columns:repeat(12, minmax(0,1fr));
-  gap:12px;
-}
-.ac-kpi{
-  grid-column: span 3;
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:12px;
-  box-shadow:var(--shadow);
-}
-.ac-kpi .v{ font-weight:950; font-size:18px; letter-spacing:-.01em; }
-.ac-kpi .k{ margin-top:4px; font-size:12px; color:var(--mut); font-weight:850; }
-.ac-kpi.clickable{ cursor:pointer; }
-.ac-kpi.ghost{ background:transparent; border-style:dashed; box-shadow:none; }
-
-@media (max-width:1100px){
-  .ac-kpis{ grid-template-columns:repeat(12, minmax(0,1fr)); }
-  .ac-kpi{ grid-column: span 6; }
+/* 2) Neutraliza wrappers típicos del layout SOLO si suelen forzar scroll */
+#adminClientesPage :is(
+  .container,
+  .container-fluid,
+  .content,
+  .content-body,
+  .content-wrapper,
+  .main-content,
+  .page-content,
+  .app-content,
+  .app-content-body,
+  .layout-content,
+  .layout-page,
+  .layout-wrapper,
+  .layout-container,
+  .layout-navbar-fixed,
+  .layout-menu-fixed,
+  .layout-content-navbar
+){
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  overflow:visible !important;     /* 👈 clave: mata el scroll interno */
 }
 
-/* =========================
-   Toolbar (segmented + filters)
-   ========================= */
-.ac-toolbar{
-  display:flex;
-  gap:12px;
-  flex-wrap:wrap;
-  align-items:center;
-  justify-content:space-between;
+/* 3) Si tu layout tiene un “body wrapper” con overflow (muy común), lo neutralizamos */
+#adminClientesPage :is(
+  .layout-page,
+  .layout-content,
+  .layout-container,
+  .content-wrapper
+){
+  overflow-y:visible !important;
+  overflow-x:visible !important;
 }
 
-.ac-seg{
-  display:inline-flex;
-  gap:6px;
-  padding:6px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:var(--card);
-  box-shadow:0 10px 24px rgba(15,23,42,.06);
-}
-.ac-seg a{
-  padding:8px 10px;
-  border-radius:999px;
-  font-weight:950;
-  font-size:12px;
-  text-decoration:none;
-  color:var(--ink);
-  opacity:.82;
-}
-.ac-seg a.active{
-  background:color-mix(in oklab, var(--pri) 12%, transparent);
-  color:color-mix(in oklab, var(--pri) 72%, var(--ink) 28%);
-  opacity:1;
+/* 4) Importante: NO mates todos los overflow:auto (evita romper dropdowns/componentes)
+      En lugar de eso, solo asegura que la LISTA no genere scroll vertical interno */
+#adminClientesPage .ac-list{
+  overflow: clip; /* sin scrollbars, mantiene borde */
 }
 
-details.ac-filters{
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  background:var(--card);
-  box-shadow:var(--shadow);
-  padding:10px 12px;
-  min-width:min(560px, 100%);
+/* 5) Modales/drawer: lock global */
+html.ac-lock{
+  overflow:hidden !important;
 }
-.ac-filters-summary{
-  cursor:pointer;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
-}
-.ac-filters-summary .ac-meta{ font-size:12px; color:var(--mut); font-weight:850; }
-
-.ac-filters-form{ margin-top:10px; }
-.ac-filters-grid{
-  display:grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap:12px;
-}
-.ac-field{ grid-column: span 3; }
-.ac-field.ac-field-wide{ grid-column: span 6; }
-.ac-form-actions{
-  display:flex;
-  gap:10px;
-  justify-content:flex-end;
-  margin-top:12px;
-}
-
-@media (max-width:1100px){
-  .ac-topbar .ac-topbar-left,
-  .ac-topbar .ac-topbar-right{ width:100%; }
-  .ac-topbar .ac-topbar-right{ justify-content:flex-start; }
-  .ac-search{ flex:1 1 100%; }
-  .ac-field{ grid-column: span 6; }
-  .ac-field.ac-field-wide{ grid-column: span 12; }
-}
-@media (max-width:780px){
-  .ac-field{ grid-column: span 12; }
-}
-
-/* =========================
-   Alerts
-   ========================= */
-.ac-alerts{ display:flex; flex-direction:column; gap:10px; }
-.ac-alert{
-  background:var(--card);
-  border:1px solid var(--line);
-  border-left:6px solid var(--info);
-  border-radius:var(--radius);
-  padding:10px 12px;
-  box-shadow:var(--shadow);
-  font-size:13px;
-}
-.ac-alert.ok{ border-left-color:var(--ok); }
-.ac-alert.bad{ border-left-color:var(--bad); }
-.ac-alert.warn{ border-left-color:var(--warn); }
-.ac-alert.info{ border-left-color:var(--info); }
-
-/* =========================
-   List HYBRID (6 cols)
-   ========================= */
-.ac-list{
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  background:var(--card);
-  box-shadow:var(--shadow);
-  overflow:hidden;
-}
-
-.ac-list-head,
-.ac-row{
-  display:grid;
-  grid-template-columns: 2.1fr 1.6fr 1.6fr 1.1fr 1.0fr 1.1fr; /* ✅ 6 columnas */
-  gap:0;
-  align-items:start;
+body.ac-lock{
+  overflow:hidden !important;
 }
 
 .ac-list-head{
@@ -415,436 +162,19 @@ details.ac-filters{
   font-weight:950;
   letter-spacing:.02em;
   color:var(--mut);
-  background:color-mix(in oklab, var(--card) 86%, rgba(2,6,23,.04) 14%);
+
+  background:var(--card); /* fondo sólido */
   border-bottom:1px solid var(--line);
 
   position:sticky;
-  top: var(--ac-sticky-top, 8px); /* ✅ offset real (bottom topbar + gap) */
-  z-index:20;
-}
-.ac-list-head > div{ padding:12px 14px; }
-.ac-list-head .actions{ text-align:right; }
+  top: calc(var(--ac-sticky-top, 8px) + 2px);
 
-.ac-row{
-  padding:14px;
-  border-bottom:1px solid var(--line2);
-}
-.ac-row:hover{ background:color-mix(in oklab, var(--pri) 3%, transparent); }
+  z-index:120;
 
-.cell{ min-width:0; }
-.cell.actions{
-  display:flex;
-  justify-content:flex-end;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-}
+  /* mejora visual cuando se pega */
+  box-shadow:
+    0 2px 0 rgba(15,23,42,.04),
+    0 10px 24px rgba(15,23,42,.06);
 
-/* Cliente cell */
-.ac-titleline{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.ac-rfc{ font-weight:950; font-size:13px; letter-spacing:.02em; }
-.ac-rs{ font-weight:950; opacity:.92; margin-top:4px; line-height:1.2; }
-.ac-subline{ font-size:12px; color:var(--mut); margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; }
-.ac-subline strong{ color:var(--ink); font-weight:950; }
-
-/* Badges */
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding:7px 10px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:color-mix(in oklab, var(--ink) 2.2%, transparent);
-  font-weight:950;
-  font-size:12px;
-  color:var(--ink);
-  white-space:nowrap;
+  backdrop-filter: blur(6px) saturate(120%);
 }
-.badge .dot{ width:8px; height:8px; border-radius:999px; background:currentColor; opacity:.9; }
-
-.badge.ok{
-  background:color-mix(in oklab, var(--ok) 12%, transparent);
-  border-color:color-mix(in oklab, var(--ok) 24%, var(--line) 76%);
-  color:color-mix(in oklab, var(--ok) 72%, var(--ink) 28%);
-}
-.badge.bad{
-  background:color-mix(in oklab, var(--bad) 10%, transparent);
-  border-color:color-mix(in oklab, var(--bad) 24%, var(--line) 76%);
-  color:color-mix(in oklab, var(--bad) 72%, var(--ink) 28%);
-}
-.badge.warn{
-  background:color-mix(in oklab, var(--warn) 14%, transparent);
-  border-color:color-mix(in oklab, var(--warn) 24%, var(--line) 76%);
-  color:color-mix(in oklab, var(--warn) 70%, var(--ink) 30%);
-}
-.badge.primary{
-  background:color-mix(in oklab, var(--pri) 12%, transparent);
-  border-color:color-mix(in oklab, var(--pri) 26%, var(--line) 74%);
-  color:color-mix(in oklab, var(--pri) 72%, var(--ink) 28%);
-}
-.badge.neutral{
-  background:color-mix(in oklab, var(--mut2) 14%, transparent);
-  border-color:var(--line);
-  color:var(--ink);
-}
-.ac-badges{ display:flex; gap:8px; flex-wrap:wrap; }
-
-/* Menu ⋯ */
-.ac-menu{ position:relative; }
-.ac-menu-panel{
-  position:absolute;
-  right:0;
-  top:40px;
-  min-width:220px;
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:14px;
-  box-shadow:0 18px 40px rgba(2,6,23,.10);
-  padding:8px;
-  display:none;
-  z-index:80;
-}
-.ac-menu.open .ac-menu-panel{ display:block; }
-.ac-menu a,
-.ac-menu button{
-  width:100%;
-  text-align:left;
-  display:flex;
-  gap:10px;
-  align-items:center;
-  padding:10px 10px;
-  border-radius:12px;
-  border:0;
-  background:transparent;
-  font-weight:950;
-  font-size:13px;
-  cursor:pointer;
-  color:var(--ink);
-}
-.ac-menu a:hover,
-.ac-menu button:hover{ background:rgba(2,6,23,.04); }
-.ac-menu .danger:hover{ background:rgba(239,68,68,.10); }
-
-/* Responsive = cards */
-@media (max-width: 980px){
-  .ac-list-head{ display:none; }
-  .ac-list{ overflow:visible; border:0; background:transparent; box-shadow:none; }
-  .ac-row{
-    grid-template-columns:1fr;
-    background:var(--card);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    box-shadow:var(--shadow);
-    margin-top:10px;
-  }
-  .cell.actions{ justify-content:flex-start; }
-}
-
-/* Pager */
-.ac-pager{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  flex-wrap:wrap;
-}
-.ac-pager .info{ color:var(--mut); font-size:13px; font-weight:950; }
-.ac-pager .links{ overflow:auto; }
-
-/* Divider */
-.ac-divider{ height:1px; background:var(--line); margin:14px 0; }
-
-/* =========================
-   Drawer
-   ========================= */
-.ac-drawer{ position:fixed; inset:0; display:none; z-index:9998; }
-.ac-drawer.open{ display:block; }
-
-.ac-drawer-backdrop{
-  position:absolute; inset:0;
-  background:rgba(15,23,42,.25);
-  backdrop-filter: blur(3px);
-}
-html.theme-dark .ac-drawer-backdrop,
-html[data-theme="dark"] .ac-drawer-backdrop{ background:rgba(0,0,0,.45); }
-
-.ac-drawer-panel{
-  position:absolute; right:10px; top:10px; bottom:10px;
-  width:min(560px, 96vw);
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  box-shadow:var(--shadow2);
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-
-.ac-drawer-head{
-  padding:12px 14px;
-  border-bottom:1px solid var(--line);
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:12px;
-  background:var(--soft);
-}
-.ac-drawer-head .rfc{ font-weight:950; font-size:13px; letter-spacing:.02em; }
-.ac-drawer-head .rs{ margin-top:2px; font-weight:950; color:var(--ink); }
-.ac-drawer-head .meta{ margin-top:6px; font-size:12px; color:var(--mut); font-weight:850; }
-
-.ac-drawer-head .x{
-  border:1px solid var(--line);
-  background:var(--card);
-  border-radius:12px;
-  padding:8px 10px;
-  cursor:pointer;
-  font-weight:950;
-}
-.ac-drawer-head .x:hover{ filter:brightness(1.02); }
-
-.ac-drawer-body{ padding:14px; overflow:auto; }
-
-.ac-drawer-kpis{
-  display:grid;
-  grid-template-columns:repeat(4, minmax(0,1fr));
-  gap:10px;
-}
-@media (max-width:520px){
-  .ac-drawer-kpis{ grid-template-columns:repeat(2, minmax(0,1fr)); }
-}
-.ac-drawer-kpis .kpi{
-  border:1px solid var(--line);
-  border-radius:14px;
-  padding:10px;
-  background:color-mix(in oklab, var(--card) 92%, transparent);
-}
-.ac-drawer-kpis .kpi .v{ font-weight:950; font-size:14px; }
-.ac-drawer-kpis .kpi .k{ font-size:12px; color:var(--mut); margin-top:3px; font-weight:850; }
-
-.ac-drawer-badges{ margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }
-
-.ac-drawer-contact{
-  margin-top:12px;
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:12px;
-  background:color-mix(in oklab, var(--card) 92%, transparent);
-}
-.ac-drawer-contact .tt{
-  font-weight:950; font-size:11px; color:var(--mut);
-  text-transform:uppercase; letter-spacing:.08em;
-}
-.ac-drawer-contact .grid{ margin-top:10px; display:grid; grid-template-columns:1fr; gap:10px; }
-.ac-drawer-contact .item{
-  display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
-  padding:10px 12px;
-  border:1px dashed var(--line);
-  border-radius:12px;
-  background:color-mix(in oklab, var(--card) 94%, transparent);
-}
-.ac-drawer-contact .label{
-  font-size:11px; color:var(--mut);
-  font-weight:950; text-transform:uppercase; letter-spacing:.08em;
-}
-.ac-drawer-contact .value{ font-weight:950; min-width:0; text-align:right; }
-.ac-drawer-contact .value code{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight:950;
-  display:inline-block;
-  max-width:360px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-@media (max-width:520px){
-  .ac-drawer-contact .value code{ max-width:210px; }
-}
-
-.ac-drawer-actions{
-  margin-top:12px;
-  display:grid;
-  grid-template-columns:repeat(4, minmax(0,1fr));
-  gap:10px;
-}
-@media (max-width:520px){
-  .ac-drawer-actions{ grid-template-columns:repeat(2, minmax(0,1fr)); }
-}
-
-.ac-drawer-block{
-  margin-top:12px;
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:12px;
-  background:color-mix(in oklab, var(--card) 92%, transparent);
-}
-.ac-drawer-block .tt{
-  font-weight:950; font-size:11px; color:var(--mut);
-  text-transform:uppercase; letter-spacing:.08em;
-}
-.ac-drawer-block .mono{ margin-top:8px; font-weight:950; }
-.ac-drawer-block .mut{ margin-top:6px; font-size:12px; }
-
-/* =========================
-   Modal
-   ========================= */
-.ac-modal{ position:fixed; inset:0; display:none; z-index:9999; }
-.ac-modal.open{ display:block; }
-.ac-modal.show{ display:block; } /* compat */
-
-.ac-modal-backdrop{
-  position:absolute; inset:0;
-  background:rgba(15,23,42,.25);
-  backdrop-filter: blur(3px);
-}
-html.theme-dark .ac-modal-backdrop,
-html[data-theme="dark"] .ac-modal-backdrop{ background:rgba(0,0,0,.45); }
-
-.ac-modal-card{
-  position:relative;
-  width:min(980px, 96vw);
-  max-height:90vh;
-  margin:5vh auto;
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  box-shadow:var(--shadow2);
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-
-.ac-modal-head{
-  padding:12px 14px;
-  border-bottom:1px solid var(--line);
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:12px;
-  background:var(--soft);
-}
-.ac-modal-head .ttl{ font-weight:950; font-size:16px; }
-.ac-modal-head .sub{ margin-top:6px; font-size:12px; color:var(--mut); font-weight:850; }
-
-.ac-modal-head .x{
-  border:1px solid var(--line);
-  background:var(--card);
-  border-radius:12px;
-  padding:8px 10px;
-  cursor:pointer;
-  font-weight:950;
-}
-
-.ac-form{ padding:14px; overflow:auto; }
-.ac-grid{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
-@media (max-width:900px){ .ac-grid{ grid-template-columns:1fr; } }
-
-.ac-inline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-
-.ac-form-actions{
-  padding:12px 14px;
-  border-top:1px solid var(--line);
-  display:flex;
-  justify-content:flex-end;
-  gap:10px;
-  background:var(--soft);
-}
-
-.ac-note{
-  margin:14px;
-  border:1px dashed var(--line);
-  background:color-mix(in oklab, var(--card) 92%, transparent);
-  border-radius:var(--radius);
-  padding:12px;
-  color:var(--mut);
-  font-weight:900;
-  font-size:13px;
-}
-
-/* =========================
-   Tabs (FIX + polish)
-   ========================= */
-.ac-tabs{ padding:14px; }
-.ac-tabbar{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
-
-.ac-tab{
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid var(--line);
-  background:var(--card);
-  font-weight:950;
-  cursor:pointer;
-  transition: box-shadow .12s ease, filter .12s ease, transform .12s ease;
-}
-.ac-tab:hover{ filter:brightness(1.02); }
-.ac-tab:active{ transform:translateY(1px); }
-
-.ac-tab.active{
-  border-color:color-mix(in oklab, var(--pri) 45%, var(--line) 55%);
-  box-shadow:0 12px 30px rgba(124,58,237,.16);
-}
-
-.ac-tabpane{ display:none; }
-.ac-tabpane.show{ display:block; }
-
-/* =========================
-   Credenciales
-   ========================= */
-.ac-credgrid{
-  padding:14px;
-  display:grid;
-  grid-template-columns:repeat(3, minmax(0,1fr));
-  gap:10px;
-}
-@media (max-width:900px){ .ac-credgrid{ grid-template-columns:1fr; } }
-
-.ac-cred{
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:12px;
-  background:color-mix(in oklab, var(--card) 92%, transparent);
-  min-width:0;
-}
-.ac-cred-wide{ grid-column:1 / -1; }
-.ac-cred .k{
-  font-size:11px; color:var(--mut); font-weight:950;
-  text-transform:uppercase; letter-spacing:.08em;
-}
-.ac-cred .v{
-  margin-top:8px;
-  font-weight:950;
-  min-width:0;
-  white-space:normal;
-  word-break:break-word;
-  overflow-wrap:anywhere;
-}
-.ac-cred .a{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
-
-.ac-row-actions{ padding:0 14px 14px; display:flex; gap:10px; flex-wrap:wrap; }
-
-/* Lock scroll */
-html.ac-lock{ overflow:hidden; }
-
-/* ============================================================
-   Modal Destinatarios (más usable y limpio)
-   ============================================================ */
-#modalRecipients .ac-modal-card{ width:min(920px, 96vw); }
-#modalRecipients .ac-tabs{ padding:14px; }
-#modalRecipients .ac-form{ padding:12px 0 0; overflow:visible; }
-
-#modalRecipients .ac-textarea{ min-height:140px; line-height:1.45; }
-
-#modalRecipients .ac-form-actions{
-  position:sticky;
-  bottom:0;
-  z-index:3;
-  margin-top:12px;
-  border-top:1px solid var(--line);
-  background:color-mix(in oklab, var(--card) 86%, rgba(2,6,23,.04) 14%);
-  backdrop-filter: blur(10px) saturate(140%);
-}
-
-#modalRecipients .ac-tabpane .ac-form{ padding:0; }
-#modalRecipients .ac-tabpane .ac-grid{ gap:12px; }
-#modalRecipients .ac-hint{ opacity:.9; }

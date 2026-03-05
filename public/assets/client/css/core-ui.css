@@ -171,7 +171,21 @@ button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer }
 }
 
 /* ====================== CONTENT ====================== */
-.content{ overflow:auto; padding:14px; min-width:0; }
+/* ✅ Single scroll: el scroll vive en la página (body), NO en .content */
+.content{
+  overflow: visible;          /* antes: auto */
+  padding:14px;
+  min-width:0;
+}
+
+/* Asegura que el documento pueda crecer y scrollear normalmente */
+html, body{
+  height:auto;                /* antes tenías height:100% arriba; esto evita layout “encerrado” */
+}
+body{
+  overflow-y:auto;            /* scroll único del navegador */
+}
+
 .container{ width:100%; max-width: var(--container); margin:0 auto }
 
 /* Main blanco uniforme (solo en tema claro) */

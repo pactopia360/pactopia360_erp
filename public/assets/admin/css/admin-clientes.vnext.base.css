@@ -1,41 +1,161 @@
 /* public/assets/admin/css/admin-clientes.vnext.base.css
    Admin Clientes vNext — Base tokens + controls (NO layout/list)
+   ✅ Mejora: tokens completos + focus ring + hovers + helpers
 */
 
 .ac-page{
-  --ac-gap:14px;
-  --ac-radius:14px;
-  --ac-border:rgba(15,23,42,.08);
-  --ac-bg:#fff;
+  /* Spacing / radius */
+  --ac-gap: 14px;
+  --ac-radius: 14px;
+  --ac-radius-sm: 12px;
+
+  /* Color system */
+  --ac-border: rgba(15,23,42,.08);
+  --ac-border-strong: rgba(15,23,42,.14);
+  --ac-bg: #ffffff;
+  --ac-surface: #ffffff;
+  --ac-surface-2: rgba(15,23,42,.02);
+
+  --ac-text: rgba(15,23,42,.92);
+  --ac-muted: rgba(15,23,42,.62);
+  --ac-muted-2: rgba(15,23,42,.46);
+
+  /* Brand */
+  --ac-primary: #6d28d9;
+  --ac-primary-weak: rgba(109,40,217,.14);
+
+  /* Shadows */
+  --ac-shadow: 0 10px 30px rgba(15,23,42,.08);
+  --ac-shadow-sm: 0 6px 18px rgba(15,23,42,.08);
+
+  /* Focus ring */
+  --ac-ring: 0 0 0 3px rgba(109,40,217,.18);
+
+  /* Sticky helpers (lo usa scrollfix) */
+  --ac-sticky-top: 8px;
+
+  color: var(--ac-text);
 }
 
 .ac-mono,.mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+/* Text helpers */
+.mut, .ac-muted{ color: var(--ac-muted); }
+.ac-muted-2{ color: var(--ac-muted-2); }
+.ac-ellipsis{
+  display:inline-block;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
 /* Inputs / selects */
-.ac-input,.ac-select,.ac-textarea{
+.ac-input,
+.ac-select,
+.ac-textarea{
   width:100%;
   border:1px solid var(--ac-border);
-  border-radius:12px;
+  border-radius: var(--ac-radius-sm);
   padding:10px 12px;
+  background: var(--ac-surface);
+  color: var(--ac-text);
+  font-size:13px;
+  line-height:1.25;
+  outline:none;
 }
-.ac-textarea{ min-height:90px; resize:vertical; }
+
+.ac-textarea{
+  min-height:90px;
+  resize:vertical;
+}
+
+.ac-input::placeholder,
+.ac-textarea::placeholder{
+  color: rgba(15,23,42,.38);
+}
+
+/* Focus (accesible) */
+.ac-input:focus,
+.ac-select:focus,
+.ac-textarea:focus{
+  border-color: rgba(109,40,217,.40);
+  box-shadow: var(--ac-ring);
+}
+
+.ac-input:focus-visible,
+.ac-select:focus-visible,
+.ac-textarea:focus-visible{
+  border-color: rgba(109,40,217,.45);
+  box-shadow: var(--ac-ring);
+}
+
+/* Disabled */
+.ac-input[disabled],
+.ac-select[disabled],
+.ac-textarea[disabled]{
+  opacity:.65;
+  cursor:not-allowed;
+  background: rgba(15,23,42,.03);
+}
 
 /* Buttons */
 .ac-btn{
   border:1px solid var(--ac-border);
-  background:#fff;
-  border-radius:12px;
+  background: var(--ac-surface);
+  border-radius: var(--ac-radius-sm);
   padding:10px 12px;
-  font-weight:600;
+  font-weight:700;
   font-size:13px;
+  line-height:1;
   cursor:pointer;
+  user-select:none;
+  transition: transform .05s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease, opacity .12s ease;
 }
-.ac-btn.primary{ background:#6d28d9; color:#fff; border-color:rgba(109,40,217,.2); }
-.ac-btn.ghost{ background:transparent; }
-.ac-btn.small{ padding:8px 10px; border-radius:10px; font-size:12px; }
-.ac-btn[disabled]{ opacity:.5; cursor:not-allowed; }
+
+.ac-btn:hover{
+  border-color: var(--ac-border-strong);
+  background: var(--ac-surface-2);
+}
+
+.ac-btn:active{
+  transform: translateY(1px);
+}
+
+.ac-btn:focus-visible{
+  box-shadow: var(--ac-ring);
+  border-color: rgba(109,40,217,.40);
+}
+
+.ac-btn.primary{
+  background: var(--ac-primary);
+  color:#fff;
+  border-color: rgba(109,40,217,.22);
+}
+
+.ac-btn.primary:hover{
+  filter: brightness(1.02);
+  box-shadow: 0 8px 18px rgba(109,40,217,.18);
+}
+
+.ac-btn.ghost{
+  background: transparent;
+}
+
+.ac-btn.small{
+  padding:8px 10px;
+  border-radius: 10px;
+  font-size:12px;
+}
+
+.ac-btn[disabled]{
+  opacity:.5;
+  cursor:not-allowed;
+  transform:none !important;
+  box-shadow:none !important;
+}
 
 /* Pills */
 .ac-pill{
@@ -45,25 +165,43 @@
   padding:8px 10px;
   border-radius:999px;
   border:1px solid var(--ac-border);
-  background:#fff;
+  background: var(--ac-surface);
   font-size:12px;
-  font-weight:700;
+  font-weight:800;
+  line-height:1;
 }
-.ac-pill .mut{ font-weight:600; opacity:.7; }
+.ac-pill .mut{ font-weight:700; opacity:.75; }
 
 /* Alerts */
-.ac-alerts{ display:flex; flex-direction:column; gap:10px; }
+.ac-alerts{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
 .ac-alert{
   border:1px solid var(--ac-border);
-  border-radius:var(--ac-radius);
+  border-radius: var(--ac-radius);
   padding:12px;
-  background:#fff;
+  background: var(--ac-surface);
   font-size:13px;
+  line-height:1.25;
 }
-.ac-alert.ok{ border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.05); }
-.ac-alert.bad{ border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.05); }
+
+.ac-alert.ok{   border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.05); }
+.ac-alert.bad{  border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.05); }
 .ac-alert.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.06); }
 .ac-alert.info{ border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.05); }
 
 /* Helpers */
-.ac-hint{ font-size:12px; opacity:.7; margin-top:6px; }
+.ac-hint{
+  font-size:12px;
+  color: var(--ac-muted);
+  margin-top:6px;
+}
+
+/* Code blocks inside UI (muy usado en alerts/notes) */
+.ac-page code,
+.ac-page .ac-mono{
+  font-size: 12px;
+}

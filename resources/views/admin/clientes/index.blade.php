@@ -11,6 +11,10 @@
   <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.base.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.base.css')) }}">
   <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.layout.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.layout.css')) }}">
   <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.list.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.list.css')) }}">
+
+  {{-- ✅ Scroll fix: elimina doble scroll (solo scroll de pantalla completa) --}}
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.scrollfix.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.scrollfix.css')) }}">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.modal.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.modal.css')) }}">
 @endpush
 
 @section('content')
@@ -229,43 +233,59 @@
     </div>
 
     {{-- =========================
-        KPIs (reducidos, clickeables)
-       ========================= --}}
-    <div class="ac-kpis">
-      <a class="ac-kpi clickable" href="{{ route('admin.clientes.index') }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $total ?? '—' }}</div><div class="k">Total</div>
-      </a>
+    KPIs (compactos + colapsables)
+   ========================= --}}
+    <div class="ac-kpis ac-kpis--compact">
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntPro }}</div><div class="k">PRO</div>
-      </a>
+      {{-- ✅ 4 KPIs principales (siempre visibles) --}}
+      <div class="ac-kpis-main">
+        <a class="ac-kpi clickable" href="{{ route('admin.clientes.index') }}" style="text-decoration:none;color:inherit;">
+          <div class="v">{{ $total ?? '—' }}</div><div class="k">Total</div>
+        </a>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntFree }}</div><div class="k">FREE</div>
-      </a>
+        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+          <div class="v">{{ $cntPro }}</div><div class="k">PRO</div>
+        </a>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntBlocked }}</div><div class="k">Bloqueados</div>
-      </a>
+        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+          <div class="v">{{ $cntActive }}</div><div class="k">Activas</div>
+        </a>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntActive }}</div><div class="k">Activas</div>
-      </a>
+        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+          <div class="v">{{ $cntBlocked }}</div><div class="k">Bloqueados</div>
+        </a>
+      </div>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntTrial }}</div><div class="k">Prueba</div>
-      </a>
+      {{-- ✅ Resto: colapsable (no empuja tabla) --}}
+      <details class="ac-kpis-more">
+        <summary class="ac-kpis-more__summary">
+          <span><strong>Ver más KPIs</strong></span>
+          <span class="mut">
+            FREE: {{ $cntFree }} · Trial: {{ $cntTrial }} · Overdue: {{ $cntOverdue }} · Suspend/Cancel: {{ $cntSuspended + $cntCancelled }} · Verif mail: {{ $verMail }} · Verif tel: {{ $verPhone }}
+          </span>
+        </summary>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntOverdue }}</div><div class="k">Overdue</div>
-      </a>
+        <div class="ac-kpis-grid">
+          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+            <div class="v">{{ $cntFree }}</div><div class="k">FREE</div>
+          </a>
 
-      <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'suspended','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-        <div class="v">{{ $cntSuspended + $cntCancelled }}</div><div class="k">Suspend/Cancel</div>
-      </a>
+          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+            <div class="v">{{ $cntTrial }}</div><div class="k">Prueba</div>
+          </a>
 
-      <div class="ac-kpi ghost"><div class="v">{{ $verMail }}</div><div class="k">Correo verificado</div></div>
-      <div class="ac-kpi ghost"><div class="v">{{ $verPhone }}</div><div class="k">Tel verificado</div></div>
+          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+            <div class="v">{{ $cntOverdue }}</div><div class="k">Overdue</div>
+          </a>
+
+          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'suspended','page'=>null]) }}" style="text-decoration:none;color:inherit;">
+            <div class="v">{{ $cntSuspended + $cntCancelled }}</div><div class="k">Suspend/Cancel</div>
+          </a>
+
+          <div class="ac-kpi ghost"><div class="v">{{ $verMail }}</div><div class="k">Correo verificado</div></div>
+          <div class="ac-kpi ghost"><div class="v">{{ $verPhone }}</div><div class="k">Tel verificado</div></div>
+        </div>
+      </details>
     </div>
 
     {{-- =========================
@@ -814,35 +834,42 @@
         <div class="ac-drawer-foot">
           <div class="ac-divider" style="margin:12px 0"></div>
 
-          <div class="ac-drawer-actions" style="display:flex;flex-wrap:wrap;gap:8px">
-            <form method="POST" id="drFormBlock" action="#" onsubmit="return confirm('¿Bloquear cuenta? (redirigirá a Stripe)')">
-              @csrf
-              <button class="ac-btn small" type="submit">Bloquear</button>
-            </form>
+          <details class="ac-adv">
+            <summary class="ac-adv__summary">
+              <strong>Acciones avanzadas</strong>
+              <span class="mut">Bloquear / Baja / Eliminar</span>
+            </summary>
 
-            <form method="POST" id="drFormUnblock" action="#" onsubmit="return confirm('¿Desbloquear cuenta?')">
-              @csrf
-              <button class="ac-btn small" type="submit">Desbloquear</button>
-            </form>
+            <div class="ac-drawer-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+              <form method="POST" id="drFormBlock" action="#" onsubmit="return confirm('¿Bloquear cuenta? (redirigirá a Stripe)')">
+                @csrf
+                <button class="ac-btn small" type="submit">Bloquear</button>
+              </form>
 
-            <form method="POST" id="drFormDeactivate" action="#" onsubmit="return confirm('¿Dar de baja? (cancelled/suspended)')">
-              @csrf
-              <button class="ac-btn small" type="submit">Dar de baja</button>
-            </form>
+              <form method="POST" id="drFormUnblock" action="#" onsubmit="return confirm('¿Desbloquear cuenta?')">
+                @csrf
+                <button class="ac-btn small" type="submit">Desbloquear</button>
+              </form>
 
-            <form method="POST" id="drFormReactivate" action="#" onsubmit="return confirm('¿Reactivar cuenta?')">
-              @csrf
-              <button class="ac-btn small" type="submit">Reactivar</button>
-            </form>
+              <form method="POST" id="drFormDeactivate" action="#" onsubmit="return confirm('¿Dar de baja? (cancelled/suspended)')">
+                @csrf
+                <button class="ac-btn small" type="submit">Dar de baja</button>
+              </form>
 
-            <form method="POST" id="drFormDelete" action="#" onsubmit="return confirm('¿Eliminar? Recomendado: soft-delete. ¿Continuar?')">
-              @csrf
-              <button class="ac-btn small" type="submit">Eliminar</button>
-            </form>
-          </div>
+              <form method="POST" id="drFormReactivate" action="#" onsubmit="return confirm('¿Reactivar cuenta?')">
+                @csrf
+                <button class="ac-btn small" type="submit">Reactivar</button>
+              </form>
+
+              <form method="POST" id="drFormDelete" action="#" onsubmit="return confirm('¿Eliminar? Recomendado: soft-delete. ¿Continuar?')">
+                @csrf
+                <button class="ac-btn small" type="submit">Eliminar</button>
+              </form>
+            </div>
+          </details>
 
           <div class="ac-note" id="drCoreActionsMissing" hidden style="margin-top:10px">
-            Algunas acciones no están disponibles porque faltan rutas (block/unblock/deactivate/reactivate/delete).
+          Algunas acciones no están disponibles porque faltan rutas (block/unblock/deactivate/reactivate/delete).
           </div>
 
           <form method="POST" id="drFormImpersonate" action="#" onsubmit="return confirm('Vas a iniciar sesión como el cliente. ¿Continuar?')">
@@ -961,8 +988,18 @@
         <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
       </div>
 
-      <form method="POST" id="mEdit_form" action="#" class="ac-form">
+      <form method="POST"
+        id="mEdit_form"
+        action="#"
+        class="ac-form"
+        data-save-template="{{ route('admin.clientes.save', ['key' => '__KEY__', 'rfc' => '__KEY__']) }}">
+
         @csrf
+
+        {{-- ✅ Siempre mandar ID/RFC y el “unchecked” de is_blocked --}}
+        <input type="hidden" id="mEdit_id" name="id" value="">
+        <input type="hidden" name="is_blocked" value="0">
+
         <div class="ac-grid">
           <div class="ac-field ac-field-wide">
             <label>Razón social</label>
@@ -1407,4 +1444,194 @@
     });
   })();
   </script>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = (s, sc) => (sc || document).querySelector(s);
+
+  function csrfToken(){
+    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+  }
+
+  function openModal(sel){
+    const m = $(sel);
+    if (!m) return;
+    m.setAttribute('aria-hidden', 'false');
+    m.classList.add('show');
+    document.documentElement.classList.add('ac-modal-open');
+    document.body.classList.add('ac-modal-open');
+  }
+
+  function closeModal(sel){
+    const m = $(sel);
+    if (!m) return;
+    m.setAttribute('aria-hidden', 'true');
+    m.classList.remove('show');
+    document.documentElement.classList.remove('ac-modal-open');
+    document.body.classList.remove('ac-modal-open');
+  }
+
+  function currentClient(){
+    const drawer = $('#clientDrawer');
+    return (drawer && drawer._client) ? drawer._client : null;
+  }
+
+  function resolveKey(c){
+    if (!c) return '';
+    // key canónico para tu route: acepta RFC/UUID/ID numérico
+    const rfc = (c.rfc || '').toString().trim();
+    if (rfc) return rfc;
+    const id = (c.id || '').toString().trim();
+    return id;
+  }
+
+  function fillEditModalFromClient(c){
+    const form = $('#mEdit_form');
+    if (!form || !c) return false;
+
+    const key = resolveKey(c);
+    if (!key) return false;
+
+    // sub header: muestra rfc + razón social
+    const sub = $('#mEdit_sub');
+    if (sub) sub.textContent = `${key} · ${c.razon_social || ''}`.trim();
+
+    // inputs
+    const hid = $('#mEdit_id'); if (hid) hid.value = key; // guardamos key para backend
+    const rs  = $('#mEdit_rs'); if (rs) rs.value = (c.razon_social || '');
+    const em  = $('#mEdit_email'); if (em) em.value = (c.email || '');
+    const ph  = $('#mEdit_phone'); if (ph) ph.value = (c.phone || '');
+    const pl  = $('#mEdit_plan'); if (pl) pl.value = (c.plan || '');
+    const cy  = $('#mEdit_cycle'); if (cy) cy.value = (c.billing_cycle || '');
+    const nx  = $('#mEdit_next'); if (nx) nx.value = (c.next_invoice_date || '');
+    const cu  = $('#mEdit_custom'); if (cu) cu.value = (c.custom_amount_mxn || '');
+    const bl  = $('#mEdit_blocked'); if (bl) bl.checked = (String(c.blocked || '0') === '1');
+
+    // action = template reemplazando __KEY__
+    const tpl = form.getAttribute('data-save-template') || '';
+    if (tpl && tpl.includes('__KEY__')) {
+      form.setAttribute('action', tpl.replace('__KEY__', encodeURIComponent(key)));
+    } else {
+      // fallback ultra-safe
+      form.setAttribute('action', `${location.origin}/admin/clientes/${encodeURIComponent(key)}/save`);
+    }
+
+    return true;
+  }
+
+  // 1) Abrir modal Editar desde drawer
+  function openEdit(){
+    const c = currentClient();
+    if (!c) {
+      alert('No se detectó el cliente actual en el drawer.');
+      return;
+    }
+    if (!fillEditModalFromClient(c)) {
+      alert('No pude resolver la key (RFC/ID) para guardar.');
+      return;
+    }
+    openModal('#modalEdit');
+  }
+
+  document.addEventListener('click', function (e) {
+    // Botón "Editar" del drawer
+    if (e.target.closest('#btnOpenEdit')) {
+      e.preventDefault();
+      openEdit();
+      return;
+    }
+
+    // Botón "Editar" del menú ⋯ dentro de fila (usa data-drawer-action="edit")
+    const act = e.target.closest('[data-drawer-action="edit"]');
+    if (act) {
+      e.preventDefault();
+      // normalmente tu JS abre drawer primero; damos un pequeño margen
+      setTimeout(openEdit, 60);
+      return;
+    }
+
+    // Cerrar modal (tu UI ya tiene data-close-modal)
+    const close = e.target.closest('[data-close-modal]');
+    if (close) {
+      const modal = close.closest('.ac-modal');
+      if (modal) {
+        modal.setAttribute('aria-hidden', 'true');
+        modal.classList.remove('show');
+        document.documentElement.classList.remove('ac-modal-open');
+        document.body.classList.remove('ac-modal-open');
+      }
+    }
+  });
+
+  // 2) Submit Guardar (fetch)
+  document.addEventListener('submit', async function (e) {
+    const form = e.target;
+    if (!form || form.id !== 'mEdit_form') return;
+
+    e.preventDefault();
+
+    const action = form.getAttribute('action') || '';
+    if (!action || action === '#') {
+      alert('El formulario no tiene endpoint configurado.');
+      return;
+    }
+
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.dataset.prevText = btn.textContent; btn.textContent = 'Guardando…'; }
+
+    try {
+      const fd = new FormData(form);
+
+      // Asegurar que SIEMPRE mandamos is_blocked aunque checkbox no esté marcado
+      if (!fd.has('is_blocked')) fd.set('is_blocked', '0');
+
+      const headers = {
+        'X-Requested-With': 'XMLHttpRequest',
+      };
+
+      const t = csrfToken();
+      if (t) headers['X-CSRF-TOKEN'] = t;
+
+      const res = await fetch(action, {
+        method: 'POST',
+        headers,
+        body: fd,
+        credentials: 'same-origin'
+      });
+
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      const payload = ct.includes('application/json') ? await res.json() : await res.text();
+
+      if (!res.ok) {
+        // Laravel validation normalmente regresa 422 con JSON
+        let msg = 'Error al guardar.';
+        if (typeof payload === 'object' && payload) {
+          msg = payload.message || msg;
+          if (payload.errors) {
+            const first = Object.values(payload.errors)[0];
+            if (Array.isArray(first) && first[0]) msg = first[0];
+          }
+        }
+        throw new Error(msg);
+      }
+
+      // OK
+      closeModal('#modalEdit');
+
+      // ✅ refresco rápido: recarga la lista para ver cambios sin complicarnos DOM
+      // (Si luego quieres “actualizar fila sin reload”, lo hacemos, pero primero que guarde.)
+      location.reload();
+
+    } catch (err) {
+      alert(err?.message || 'Error inesperado al guardar.');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.prevText || 'Guardar'; }
+    }
+  }, true);
+
+})();
+</script>
+
 @endpush

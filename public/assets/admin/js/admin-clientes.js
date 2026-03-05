@@ -1,13 +1,15 @@
 /* public/assets/admin/js/admin-clientes.js
-   Admin · Clientes — UI v14.3 (hybrid list + drawer + modales) + DEBUG
+   Admin · Clientes — UI v14.4 (hybrid list + drawer + modales) + DEBUG
    - ✅ DEBUG: ?acdbg=1 o localStorage.acdbg=1 -> console + overlay
    - ✅ FIX: Drawer buttons (Editar/Destinatarios/Credenciales/Billing) abren modales (v13+v14)
+   - ✅ FIX CRÍTICO: había un setText('#mEdit_sub', `${client...}`) fuera de scope -> rompía TODO el script
    - ✅ Sticky offset real para list-head (setea --ac-sticky-top)
+   - ✅ Copy handler + backdrop click close
 */
 (function () {
   'use strict';
 
-  const VERSION = 'admin-clientes.js v14.3-debug';
+  const VERSION = 'admin-clientes.js v14.4';
 
   const $ = (s, sc) => (sc || document).querySelector(s);
   const $$ = (s, sc) => Array.from((sc || document).querySelectorAll(s));
@@ -101,7 +103,7 @@
         state.enabled = false;
         box.remove();
         state.overlay = null;
-        console.log('[ACDBG] disabled');
+        try { console.log('[ACDBG] disabled'); } catch (_) {}
       };
 
       actions.appendChild(btnClear);
@@ -156,6 +158,98 @@
   }
   DBG.log('found #adminClientesPage', {});
 
+    // =========================================================
+  // ✅ FIX: Doble scroll (solo en esta página)
+  //  - Detecta el primer ancestor scrolleable real del page
+  //  - Lo neutraliza para que el scroll sea del viewport (html/body)
+  //  - Respeta lock: si html.ac-lock activo, NO toca overflow (para modales/drawer)
+  // =========================================================
+  const DoubleScrollFix = (() => {
+    const isScrollable = (el) => {
+      if (!el || el === document.documentElement || el === document.body) return false;
+      const cs = getComputedStyle(el);
+      const oy = (cs.overflowY || '').toLowerCase();
+      const canScroll = (oy === 'auto' || oy === 'scroll' || oy === 'overlay');
+      if (!canScroll) return false;
+      // scrollbar real
+      return (el.scrollHeight - el.clientHeight) > 2;
+    };
+
+    const findScrollParent = (start) => {
+      let el = start?.parentElement || null;
+      while (el && el !== document.body && el !== document.documentElement) {
+        if (isScrollable(el)) return el;
+        el = el.parentElement;
+      }
+      return null;
+    };
+
+    const apply = () => {
+      // si hay lock activo, no movemos overflow para no romper modales/drawer
+      if (document.documentElement.classList.contains('ac-lock')) {
+        DBG.log('DoubleScrollFix: skipped (ac-lock active)', {});
+        return;
+      }
+
+      const sp = findScrollParent(page);
+
+      // fuerza que el scroll sea del viewport
+      try {
+        document.documentElement.style.overflowY = 'auto';
+        document.body.style.overflowY = 'auto';
+        document.documentElement.style.height = 'auto';
+        document.body.style.height = 'auto';
+      } catch (_) {}
+
+      if (!sp) {
+        DBG.log('DoubleScrollFix: no scroll parent detected', {});
+        return;
+      }
+
+      // neutraliza SOLO ese contenedor (inline style; scoped a esta vista porque solo corre aquí)
+      sp.style.overflowY = 'visible';
+      sp.style.overflowX = 'visible';
+      sp.style.height = 'auto';
+      sp.style.minHeight = '0';
+      sp.style.maxHeight = 'none';
+
+      // si el layout usa algo como contain/position, lo suavizamos
+      // (esto reduce casos donde sigue “capturando” scroll)
+      try {
+        const cs = getComputedStyle(sp);
+        if ((cs.position || '').toLowerCase() === 'fixed') sp.style.position = 'relative';
+      } catch (_) {}
+
+      DBG.log('DoubleScrollFix: neutralized scroll parent', {
+        tag: (sp.tagName || '').toLowerCase(),
+        id: sp.id || '',
+        cls: (sp.className || '').toString().trim().slice(0, 120),
+        scrollH: sp.scrollHeight,
+        clientH: sp.clientHeight,
+        overflowY: getComputedStyle(sp).overflowY
+      });
+    };
+
+    // throttle
+    let raf = 0;
+    const run = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        apply();
+      });
+    };
+
+    return { run, apply };
+  })();
+
+  // correr al inicio + tras load (cuando layout termina de medir)
+  DoubleScrollFix.run();
+  window.addEventListener('load', DoubleScrollFix.run, { passive: true });
+  window.addEventListener('resize', DoubleScrollFix.run, { passive: true });
+  setTimeout(DoubleScrollFix.run, 80);
+  setTimeout(DoubleScrollFix.run, 220);
+
   const defaultPeriod = page.getAttribute('data-default-period') || '';
 
   // =========================================================
@@ -168,12 +262,17 @@
       raf = 0;
 
       const root = document.documentElement;
-      const topbar = document.querySelector('.ac-topbar');
+      // intenta detectar header real (ac-topbar o navbar/layout global)
+      const topbar =
+        document.querySelector('.ac-topbar')
+        || document.querySelector(
+          '.layout-navbar, .navbar, header.navbar, header, .topbar, .app-header, .main-header'
+        );
 
       if (!topbar) {
         root.style.setProperty('--ac-sticky-top', '8px');
         root.style.setProperty('--ac-topbar-h', '0px');
-        DBG.log('sticky: no .ac-topbar', {});
+        DBG.log('sticky: no topbar/nav found', {});
         return;
       }
 
@@ -275,7 +374,7 @@
     const f = typeof formId === 'string' ? $(formId) : formId;
     if (!f) return;
     f.setAttribute('action', action || '#');
-    if (!action) f.classList.add('is-disabled');
+    if (!action || action === '#') f.classList.add('is-disabled');
     else f.classList.remove('is-disabled');
   };
 
@@ -308,9 +407,18 @@
   };
 
   const enc = (v) => encodeURIComponent((v ?? '').toString());
-  const guessRfcKey = (client) => (client && (client.rfc || client.id)) ? (client.rfc || client.id) : '';
+  // ✅ Para endpoints admin usamos SIEMPRE id numérico (accounts.id). RFC sólo para display.
+  const guessRouteId = (client) => {
+    if (!client) return '';
+    const id = (client.id ?? '').toString().trim();
+    if (id && /^\d+$/.test(id)) return id; // ✅ preferir numérico
+    // fallback (por si llega sin id)
+    const rfc = (client.rfc ?? '').toString().trim();
+    return rfc || id || '';
+  };
+
   const buildFallbackUrl = (client, suffix) => {
-    const key = guessRfcKey(client);
+    const key = guessRouteId(client);
     if (!key) return '';
     return `/admin/clientes/${enc(key)}/${suffix}`;
   };
@@ -394,7 +502,7 @@
     m.setAttribute('aria-hidden', 'false');
     Lock.on();
 
-    DBG.log('openModal: opened', { id });
+    DBG.log('openModal: opened', { id: m.id || '' });
   };
 
   const closeModal = (m) => {
@@ -411,22 +519,90 @@
     DBG.log('closeModal', { id: m.id || '' });
   };
 
+  // ===== Copy
+  const handleCopy = async (btn) => {
+    if (!btn) return;
+    const sel = (btn.getAttribute('data-copy') || '').trim();
+    if (!sel) return;
+
+    const target = sel.startsWith('#') ? $(sel) : $(sel);
+    const text = (() => {
+      if (!target) return '';
+      if ('value' in target) return String(target.value || '');
+      return String(target.textContent || '');
+    })().trim();
+
+    if (!text) {
+      DBG.log('copy: empty', { sel });
+      return;
+    }
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+
+      btn.classList.add('is-copied');
+      setTimeout(() => btn.classList.remove('is-copied'), 900);
+
+      DBG.log('copy: ok', { sel, len: text.length });
+    } catch (e) {
+      DBG.log('copy: fail', { sel, err: String(e) });
+    }
+  };
+
   // ===== Fill modales
   const fillEditModal = (client) => {
     if (!client) return;
+
     setText('#mEdit_sub', `${client.rfc} · ${client.razon_social || '—'}`);
-    setAction('#mEdit_form', buildFallbackUrl(client, 'save'));
 
-    const rs = $('#mEdit_rs'); if (rs) rs.value = client.razon_social || '';
-    const em = $('#mEdit_email'); if (em) em.value = client.email || '';
-    const ph = $('#mEdit_phone'); if (ph) ph.value = client.phone || '';
-    const pl = $('#mEdit_plan'); if (pl) pl.value = (client.plan || '').toLowerCase();
-    const cy = $('#mEdit_cycle'); if (cy) cy.value = (client.billing_cycle || '').toLowerCase();
-    const nx = $('#mEdit_next'); if (nx) nx.value = (client.next_invoice_date || '');
-    const ca = $('#mEdit_custom'); if (ca) ca.value = client.custom_amount_mxn || '';
-    const bl = $('#mEdit_blocked'); if (bl) bl.checked = !!client.blocked;
+    const form = $('#mEdit_form');
 
-    DBG.log('fillEditModal', { rfc: client.rfc });
+    // ✅ 1) action correcto: usar save_url que viene del blade
+    const saveUrl = (client.save_url || '').toString().trim() || buildFallbackUrl(client, 'save');
+    if (form) setAction(form, saveUrl);
+
+    // ✅ 2) hidden id (en tu blade existe: #mEdit_id)
+    const hid = $('#mEdit_id');
+    if (hid) hid.value = (client.id ?? '').toString();
+
+    // helper
+    const setVal = (sel, v) => {
+      const el = $(sel);
+      if (!el) return;
+      el.value = (v ?? '').toString();
+    };
+
+    // ✅ IDs reales del blade:
+    setVal('#mEdit_rs', client.razon_social || '');
+    setVal('#mEdit_email', client.email || '');
+
+    // OJO: en DB existe telefono y phone. UI usa phone.
+    // Mostramos lo que venga y mandamos lo editado en "phone".
+    setVal('#mEdit_phone', client.phone || client.telefono || '');
+
+    setVal('#mEdit_plan', (client.plan || '').toString().toLowerCase()); // tu select usa free/pro
+    setVal('#mEdit_cycle', client.billing_cycle || ''); // si existe en payload; si no, queda vacío
+    setVal('#mEdit_next', client.next_invoice_date || '');
+
+    setVal('#mEdit_custom', client.custom_amount_mxn || client.effective_amount_mxn || '');
+
+    const chkBlocked = $('#mEdit_blocked');
+    if (chkBlocked) chkBlocked.checked = !!client.blocked;
+
+    DBG.log('fillEditModal OK', { rfc: client.rfc, saveUrl, id: client.id });
   };
 
   const fillRecipientsModal = (client) => {
@@ -761,7 +937,7 @@
     if (copyBtn) {
       e.preventDefault();
       DBG.log('copy click', { sel: copyBtn.getAttribute('data-copy') });
-      // no usamos handleCopy aquí para no hacer largo; si lo necesitas lo reincorporo
+      handleCopy(copyBtn);
       return;
     }
 
@@ -771,6 +947,21 @@
       DBG.log('close modal click', { id: m ? m.id : '' });
       closeModal(m);
       return;
+    }
+
+    // re-asegura que no regrese scroll interno del layout
+    if (typeof DoubleScrollFix !== 'undefined') DoubleScrollFix.run();
+
+    // 8) backdrop click -> cerrar modal
+    const modal = t.closest('.ac-modal.open, .ac-modal.show');
+    if (modal) {
+      const isBackdrop = t === modal;
+      const clickedInside = !!t.closest('.ac-modal-card,.ac-modal__card,.modal-card,.modal-content');
+      if (isBackdrop && !clickedInside) {
+        DBG.log('backdrop click -> close modal', { id: modal.id || '' });
+        closeModal(modal);
+        return;
+      }
     }
   });
 

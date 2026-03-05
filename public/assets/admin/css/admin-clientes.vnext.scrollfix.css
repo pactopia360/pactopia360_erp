@@ -1,0 +1,103 @@
+/* public/assets/admin/css/admin-clientes.vnext.scrollfix.css
+   Admin Clientes vNext — Scroll FIX (single scroll)
+   Objetivo: eliminar doble scroll dejando SOLO el de la pantalla (documento)
+   y permitir scroll interno solo en drawer/modal (cuando aplique).
+*/
+
+:root{
+  --ac-sticky-top: 8px;
+}
+
+/* 1) Documento: un solo scroll */
+html, body{
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* 2) Neutralizar scroll interno típico del layout admin (sin romper otras pantallas)
+      Lo limitamos SOLO cuando estamos dentro de #adminClientesPage */
+#adminClientesPage{
+  /* evita que el wrapper cree su propio contexto de scroll */
+  overflow: visible !important;
+}
+
+/* Contenedores comunes del layout que suelen traer overflow/height */
+#adminClientesPage :is(
+  .admin-content,
+  .admin-main,
+  .content,
+  main,
+  .container,
+  .container-fluid,
+  .page-content,
+  .layout-content,
+  .layout-body
+){
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* 3) Si algún wrapper viene forzado a viewport height, lo neutralizamos */
+#adminClientesPage :is(
+  [style*="height: 100vh"],
+  [style*="height:100vh"],
+  [style*="100vh"],
+  [style*="max-height: 100vh"],
+  [style*="max-height:100vh"]
+){
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* 4) Tu shell/list: jamás deben scrollear; el scroll es del documento */
+#adminClientesPage .ac-shell,
+#adminClientesPage .ac-list{
+  overflow: visible !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* 5) Sticky: ok con scroll del documento */
+#adminClientesPage .ac-topbar{
+  top: var(--ac-sticky-top, 8px);
+}
+
+/* 6) PERMITIR scroll interno SOLO donde sí es UX correcto (drawer/modal) */
+#adminClientesPage .ac-drawer-panel,
+#adminClientesPage .ac-modal-card{
+  /* estos sí pueden necesitar scroll interno */
+  overflow: auto;
+  max-height: calc(100vh - 40px);
+}
+
+/* 7) Evitar “scroll chaining” raro en mobile/trackpad */
+#adminClientesPage .ac-drawer-panel,
+#adminClientesPage .ac-modal-card{
+  overscroll-behavior: contain;
+}
+
+/* 8) Si el body queda “lock” por modal, forzamos desbloqueo para esta pantalla
+      (si tu JS usa body.modal-open o similar) */
+body.modal-open #adminClientesPage{
+  overflow: visible !important;
+}
+
+/* Fuerza scroll único del documento */
+#adminClientesPage,
+#adminClientesPage .ac-shell,
+#adminClientesPage .ac-list{
+  overflow: visible !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Evita contenedores tipo viewport */
+#adminClientesPage :is([style*="100vh"], [style*="100dvh"]){
+  height:auto !important;
+  overflow:visible !important;
+}

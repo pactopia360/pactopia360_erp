@@ -1,13 +1,13 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\admin.php
 // PACTOPIA360 · ADMIN routes (SOT)
-// ✅ Mejoras incluidas (v2026-01-21):
-// - FIX 419/logout: añade GET /admin/logout (compat) + POST /admin/logout (real)
-// - FIX “arrastre” de sesión: AdminSessionConfig aplicado en guest/auth
-// - FIX: evita 500 si NO existe BillingStatementsHubController::scheduleEmail (route condicional)
-// - Orden + cierre de braces consistente (route:cache safe)
-// - SAT Admin (prices/discounts) queda dentro de auth:admin (como debe ser)
-// - CSRF bypass en local solo en rutas POST críticas
+// ✅ Mejoras incluidas (v2026-03-04):
+// - Mantiene route:cache safe (feature-flags por method_exists)
+// - Tracking billing OPEN/CLICK sin sesión/cookies
+// - PayLink público sin sesión/cookies
+// - Orden consistente, sin compat redirects que deben vivir en web.php
+// - CSRF bypass SOLO en local y SOLO en POST/DELETE sensibles
+// - ✅ FIX: /admin/clientes/{id} ya no hace loop (agrega GET clientes/{key} → show/edit)
 // ✅ + /admin/_cfg para diagnóstico rápido del contexto admin (cookie/guard/driver)
 
 declare(strict_types=1);
@@ -16,9 +16,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Controladores ADMIN
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\HomeController;
@@ -73,17 +73,17 @@ use App\Http\Controllers\Admin\Finance\IncomeActionsController;
 use App\Http\Controllers\Admin\Finance\ExpensesActionsController;
 
 /*
-|--------------------------------------------------------------------------
-| CSRF middlewares (para quitar en local en algunos POST)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
+| CSRF middlewares (para quitar en local en algunos POST/DELETE)
+|---------------------------------------------------------------------------
 */
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | ENV + throttles
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -98,9 +98,9 @@ $thrDevPosts    = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
 $thrAdminPosts  = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Helper permisos → middleware 'can:perm,<clave>'
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
@@ -116,9 +116,9 @@ if (!function_exists('perm_mw')) {
 }
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Placeholder rápido (si falta una vista admin)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 if (!function_exists('admin_placeholder_view')) {
     function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360')
@@ -139,9 +139,9 @@ if (!function_exists('admin_placeholder_view')) {
 }
 
 /*
-|--------------------------------------------------------------------------
-| ✅ Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
+| ✅ Stack de middlewares a remover para endpoints públicos sin cookies/sesión
+|---------------------------------------------------------------------------
 */
 $noCookies = [
     \Illuminate\Cookie\Middleware\EncryptCookies::class,
@@ -152,8 +152,15 @@ $noCookies = [
     \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
 ];
 
+/*
+|---------------------------------------------------------------------------
+| ✅ Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
+| Ruta final (por prefix global del provider): /admin/t/billing/*
+| Names: admin.billing.hub.*
+|---------------------------------------------------------------------------
+*/
 Route::prefix('t/billing')
-    ->name('billing.hub.') // 👈 importante: produce admin.billing.hub.*
+    ->name('billing.hub.')
     ->middleware('throttle:240,1')
     ->group(function () use ($noCookies) {
 
@@ -173,22 +180,22 @@ Route::prefix('t/billing')
             ->name('track_click');
     });
 
-
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | ✅ PayLink público (GET) para Estados de Cuenta (HUB)
-|--------------------------------------------------------------------------
+| Ruta final: /admin/billing/statements-hub/paylink
+| Name: admin.billing.hub.paylink
+|---------------------------------------------------------------------------
 */
 Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
     ->middleware('throttle:240,1')
     ->withoutMiddleware($noCookies)
-    ->name('billing.hub.paylink'); // 👈 produce admin.billing.hub.paylink
-
+    ->name('billing.hub.paylink');
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | UI (heartbeat, log)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 Route::match(['GET', 'HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware($thrUiHeartbeat)
@@ -203,9 +210,9 @@ if ($isLocal) {
 }
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | ✅ Diag rápido (admin context): /admin/_cfg
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 Route::get('_cfg', function () {
     return response()->json([
@@ -222,15 +229,14 @@ Route::get('_cfg', function () {
   ->name('cfg');
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Auth admin (guest:admin + sesión aislada)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 Route::middleware([
-    'admin',        // 👈 usa el middlewareGroup admin del Kernel
+    'admin',        // middlewareGroup admin del Kernel
     'guest:admin',
 ])->group(function () use ($isLocal, $thrLogin) {
-
 
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
 
@@ -244,24 +250,23 @@ Route::middleware([
 });
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Notificaciones públicas (contador)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
     ->middleware('throttle:60,1')
     ->name('notificaciones.count');
 
 /*
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 | Área autenticada ADMIN (auth:admin + sesión aislada)
-|--------------------------------------------------------------------------
+|---------------------------------------------------------------------------
 */
 Route::middleware([
-    'admin',        // 👈 usa el middlewareGroup admin del Kernel
+    'admin',
     'auth:admin',
 ])->group(function () use (
-
     $thrHomeStats,
     $thrUiDiag,
     $thrUiBotAsk,
@@ -296,7 +301,7 @@ Route::middleware([
             ],
             'super'  => ($u && method_exists($u, 'isSuperAdmin'))
                 ? (bool) $u->isSuperAdmin()
-                : false,
+                : (bool) ($u?->es_superadmin ?? false),
         ]);
     })->name('whoami');
 
@@ -376,20 +381,14 @@ Route::middleware([
         ->middleware(perm_mw('reportes.ver'))
         ->name('reportes.index');
 
-    /* ---------- Clientes (accounts / soporte) ---------- */
+    /*
+    |-----------------------------------------------------------------------
+    | CLIENTES (accounts / soporte)
+    |-----------------------------------------------------------------------
+    */
     if (class_exists(\App\Http\Controllers\Admin\ClientesController::class)) {
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ CLIENTES (accounts / soporte)
-        | - Route-cache safe
-        | - Feature-flag por method_exists en acciones opcionales
-        | - CSRF relax SOLO en local para POST sensibles
-        |----------------------------------------------------------------------
-        */
-
-        // ✅ COMPAT: si algún browser trae el form viejo y hace POST /admin/clientes/create,
-        // evitamos 405 y lo procesamos como store (alta).
+        // ✅ COMPAT: POST /admin/clientes/create => store()
         $clientesCreateCompat = Route::post('clientes/create', [ClientesController::class, 'store'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.create.post_compat');
@@ -406,33 +405,90 @@ Route::middleware([
             $clientesStore->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // ✅ Listado
         Route::get('clientes', [ClientesController::class, 'index'])
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
 
-        // ✅ Guardar (modal editar)
-        $clientesSave = Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
+        /*
+        | ✅ FIX: GET /admin/clientes/{key}
+        | - Canon: show() si existe; si no, edit()
+        | - Evita loop a /admin/home cuando se intenta abrir /admin/clientes/16
+        */
+        if (method_exists(ClientesController::class, 'show')) {
+
+            Route::get('clientes/{key}', [ClientesController::class, 'show'])
+                ->where('key', '[A-Za-z0-9\-]+')
+                ->middleware(perm_mw('clientes.ver'))
+                ->name('clientes.show');
+
+        } elseif (method_exists(ClientesController::class, 'edit')) {
+
+            Route::get('clientes/{key}', [ClientesController::class, 'edit'])
+                ->where('key', '[A-Za-z0-9\-]+')
+                ->middleware(perm_mw('clientes.ver'))
+                ->name('clientes.show');
+
+        } else {
+
+            Route::get('clientes/{key}', function (string $key) {
+                return admin_placeholder_view('Cliente · Pendiente', 'PACTOPIA 360');
+            })->where('key', '[A-Za-z0-9\-]+')
+              ->middleware(perm_mw('clientes.ver'))
+              ->name('clientes.show');
+        }
+
+        // ==========================
+        // ✅ SAVE aliases (FIX UI legacy / forms)
+        // - Algunas vistas mandan POST/PUT/PATCH a /clientes/{key}
+        // - Otras mandan POST a /clientes/{key}/save (canónico actual)
+        // ==========================
+        $clientesSavePostDirect = Route::post('clientes/{key}', [ClientesController::class, 'save'])
+            ->where('key', '[A-Za-z0-9\-]+')
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.save.post_direct');
+
+        $clientesSavePutDirect = Route::match(['put', 'patch'], 'clientes/{key}', [ClientesController::class, 'save'])
+            ->where('key', '[A-Za-z0-9\-]+')
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.save.put_direct');
+
+        if ($isLocal) {
+            foreach ([$clientesSavePostDirect, $clientesSavePutDirect] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
+
+        // ✅ SAVE (canónico): acepta RFC / ID numérico / UUID
+        $clientesSaveKey = Route::post('clientes/{key}/save', [ClientesController::class, 'save'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.save');
 
+        // ✅ COMPAT legacy: por si algún lugar todavía usa {rfc} explícito
+        $clientesSaveRfcCompat = Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
+            ->where('rfc', '[A-Za-z0-9]+')
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.save.rfc_compat');
+
         if ($isLocal) {
-            $clientesSave->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            foreach ([$clientesSaveKey, $clientesSaveRfcCompat] as $rt) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Acciones CORE recomendadas (bloquear / desbloquear / baja / reactivar / eliminar)
-        | - Se registran SOLO si existe el método (evita 500/route:cache)
-        | - Names canónicos: admin.clientes.block/unblock/deactivate/reactivate/destroy
-        | - Alias compat: delete
-        |----------------------------------------------------------------------
-        */
+        // Panel Billing embebible dentro de Admin Clientes (feature-flag)
+        if (method_exists(ClientesController::class, 'billingPanel')) {
+            Route::get('clientes/{key}/billing/panel', [ClientesController::class, 'billingPanel'])
+                ->where('key', '[A-Za-z0-9\-]+')
+                ->middleware(perm_mw('clientes.ver'))
+                ->name('admin.clientes.billing.panel');
+        }
+
+        // Acciones CORE (feature-flag por método)
         if (method_exists(ClientesController::class, 'block')) {
             $rt = Route::post('clientes/{rfc}/block', [ClientesController::class, 'block'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.block');
-
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
@@ -440,16 +496,13 @@ Route::middleware([
             $rt = Route::post('clientes/{rfc}/unblock', [ClientesController::class, 'unblock'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.unblock');
-
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // “Dar de baja” (soft) recomendado: cambia estado/billing y opcionalmente bloquea.
         if (method_exists(ClientesController::class, 'deactivate')) {
             $rt = Route::post('clientes/{rfc}/deactivate', [ClientesController::class, 'deactivate'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.deactivate');
-
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
@@ -457,31 +510,25 @@ Route::middleware([
             $rt = Route::post('clientes/{rfc}/reactivate', [ClientesController::class, 'reactivate'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.reactivate');
-
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // Eliminación (idealmente soft-delete en controller). POST para compat con forms.
         if (method_exists(ClientesController::class, 'destroy')) {
             $rt = Route::post('clientes/{rfc}/destroy', [ClientesController::class, 'destroy'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.destroy');
 
-            if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-
-            // Alias compat por si front usa "delete"
             $rt2 = Route::post('clientes/{rfc}/delete', [ClientesController::class, 'destroy'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.delete');
 
-            if ($isLocal) $rt2->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            if ($isLocal) {
+                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                $rt2->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Verificaciones / OTP
-        |----------------------------------------------------------------------
-        */
+        // OTP / Verificaciones
         $resendV = Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmailVerification');
@@ -498,13 +545,7 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
-        if ($isLocal) {
-            foreach ([$resendV, $sendOtp, $forceMail, $forcePhone] as $rt) {
-                $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-            }
-        }
-
-        // ✅ Aliases (compat)
+        // Aliases compat
         $resendV2 = Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
@@ -522,16 +563,12 @@ Route::middleware([
             ->name('clientes.forcePhone');
 
         if ($isLocal) {
-            foreach ([$resendV2, $sendOtp2, $forceMail2, $forcePhone2] as $rt) {
+            foreach ([$resendV, $sendOtp, $forceMail, $forcePhone, $resendV2, $sendOtp2, $forceMail2, $forcePhone2] as $rt) {
                 $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
             }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Reset password + Email credenciales
-        |----------------------------------------------------------------------
-        */
+        // Reset password + Email credenciales
         $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
@@ -546,11 +583,7 @@ Route::middleware([
             }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Impersonate
-        |----------------------------------------------------------------------
-        */
+        // Impersonate
         $imp = Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
@@ -569,11 +602,7 @@ Route::middleware([
             }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Sync + Bulk
-        |----------------------------------------------------------------------
-        */
+        // Sync + Bulk
         $sync = Route::post('clientes/sync-to-clientes', [ClientesController::class, 'syncToClientes'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.syncToClientes');
@@ -588,13 +617,8 @@ Route::middleware([
             }
         }
 
-        /*
-        |----------------------------------------------------------------------
-        | ✅ Opcionales (feature-flag por método)
-        |----------------------------------------------------------------------
-        */
+        // Opcional (feature-flag)
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
-
             $r1 = Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipientsUpsert');
@@ -633,8 +657,11 @@ Route::middleware([
             ->name('clientes.index');
     }
 
-
-    /* ---------- Soporte interno admin ---------- */
+    /*
+    |-----------------------------------------------------------------------
+    | Soporte interno admin
+    |-----------------------------------------------------------------------
+    */
     Route::prefix('soporte')->as('soporte.')->group(function () use ($thrAdminPosts, $isLocal) {
 
         Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
@@ -649,15 +676,22 @@ Route::middleware([
         }
     });
 
-    /* ---------- Logout admin (POST real + GET compat) ---------- */
+    /*
+    |-----------------------------------------------------------------------
+    | Logout admin (POST real + GET compat)
+    |-----------------------------------------------------------------------
+    */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
-    // Compatibilidad: si alguien pega /admin/logout (GET) en navegador, evita 419
     Route::get('logout', function () {
         return redirect()->route('admin.home');
     })->name('logout.get');
 
-    /* ---------- DEV / QA interno ---------- */
+    /*
+    |-----------------------------------------------------------------------
+    | DEV / QA interno
+    |-----------------------------------------------------------------------
+    */
     Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
 
         Route::get('qa', [QaController::class, 'index'])
@@ -688,12 +722,13 @@ Route::middleware([
     });
 
     /*
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     | BILLING (DEBE IR ANTES DEL FALLBACK)
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     */
     Route::prefix('billing')->name('billing.')->group(function () use ($thrAdminPosts, $isLocal) {
 
+        // Accounts
         Route::get('accounts', [AccountsController::class, 'index'])->name('accounts.index');
 
         Route::get('accounts/{id}', [AccountsController::class, 'show'])
@@ -712,11 +747,12 @@ Route::middleware([
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('accounts.modules');
 
+        // Invoice requests helper
         Route::post('invoices/requests/{id}/email-ready', [InvoiceRequestsController::class, 'emailReady'])
             ->whereNumber('id')
             ->name('invoices.requests.email_ready');
 
-        // ✅ Facturas (archivos PDF/XML) – Admin
+        // Facturas (archivos PDF/XML) – Admin
         Route::post('invoices/requests/{id}/attach', [InvoiceRequestsController::class, 'attachInvoice'])
             ->whereNumber('id')
             ->name('invoices.requests.attach');
@@ -728,6 +764,7 @@ Route::middleware([
             ])
             ->name('invoices.download');
 
+        // HUB
         Route::get('statements-hub/preview-email', [BillingStatementsHubController::class, 'previewEmail'])
             ->name('statements_hub.preview_email');
 
@@ -751,10 +788,10 @@ Route::middleware([
             $bulkPay->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
+        // Legacy statements
         Route::get('statements', [BillingStatementsController::class, 'index'])
             ->name('statements.index');
 
-        // ✅ AJAX: actualizar estatus override + pay_method override (por cuenta+periodo)
         $stStatus = Route::post('statements/status', [BillingStatementsController::class, 'statusAjax'])
             ->middleware($thrAdminPosts)
             ->name('statements.status');
@@ -791,6 +828,7 @@ Route::middleware([
             ])
             ->name('statements.email');
 
+        // HUB main
         Route::get('statements-hub', [BillingStatementsHubController::class, 'index'])
             ->name('statements_hub.index');
 
@@ -814,7 +852,6 @@ Route::middleware([
         Route::post('statements-hub/invoice-status', [BillingStatementsHubController::class, 'invoiceStatus'])
             ->name('statements_hub.invoice_status');
 
-        // ✅ Feature-flag automático: solo registra la ruta si el método existe.
         if (method_exists(BillingStatementsHubController::class, 'scheduleEmail')) {
             Route::post('statements-hub/schedule', [BillingStatementsHubController::class, 'scheduleEmail'])
                 ->name('statements_hub.schedule');
@@ -865,13 +902,9 @@ Route::middleware([
             ->name('licenses.email.license');
 
         // Pagos
-        // Pagos (Payments Center)
         Route::get('payments', [PaymentsController::class, 'index'])->name('payments.index');
-
-        // Crear pago manual (compat con lo existente)
         Route::post('payments/manual', [PaymentsController::class, 'manual'])->name('payments.manual');
 
-        // CRUD nuevo
         Route::put('payments/{id}', [PaymentsController::class, 'update'])
             ->whereNumber('id')
             ->name('payments.update');
@@ -880,29 +913,25 @@ Route::middleware([
             ->whereNumber('id')
             ->name('payments.destroy');
 
-        // Email recibo
         Route::post('payments/{id}/email', [PaymentsController::class, 'emailReceipt'])
             ->whereNumber('id')
             ->name('payments.email');
 
-        // Facturas
+        // Facturas (requests)
         Route::get('invoices/requests', [InvoiceRequestsController::class, 'index'])->name('invoices.requests.index');
         Route::post('invoices/requests/{id}/status', [InvoiceRequestsController::class, 'setStatus'])
             ->whereNumber('id')
             ->name('invoices.requests.status');
 
-                /*
-        |----------------------------------------------------------------------
+        /*
+        |-----------------------------------------------------------------------
         | ✅ COMPAT: SAT Admin bajo billing (admin.billing.sat.*)
-        | Motivo: código legacy/redirecciones usan admin.billing.sat.discounts.*
-        | Canon actual: admin.sat.discounts.* (fuera de billing)
-        |----------------------------------------------------------------------
+        | Canon actual: admin.sat.* (fuera de billing)
+        |-----------------------------------------------------------------------
         */
         Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
 
-            // === PRICE RULES (compat) ===
             Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
-
                 Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
                 Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
 
@@ -936,9 +965,7 @@ Route::middleware([
                 }
             });
 
-            // === DISCOUNT CODES (compat) ===
             Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
-
                 Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
                 Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
 
@@ -972,48 +999,31 @@ Route::middleware([
                 }
             });
         });
-
     });
 
-   /*
-    |--------------------------------------------------------------------------
-    | FINANZAS (Admin) — base (CANÓNICO)
-    | Nombres: admin.finance.*
-    |--------------------------------------------------------------------------
+    /*
+    |-----------------------------------------------------------------------
+    | FINANZAS (Admin) — base (CANÓNICO)  admin.finance.*
+    |-----------------------------------------------------------------------
     */
     Route::prefix('finance')->name('finance.')->group(function () {
 
-        // =========================
-        // Centro de costos
-        // =========================
         Route::get('cost-centers', [CostCentersController::class, 'index'])
             ->name('cost_centers.index');
 
-        // =========================
-        // Ingresos (Ventas) - resumen
-        // =========================
         Route::get('income', [IncomeController::class, 'index'])
             ->name('income.index');
 
-        // ✅ Acciones (tabla Ingresos) — Upsert / Delete
-        // POST: upsert (sales o overrides)
         Route::post('income/row', [IncomeActionsController::class, 'upsert'])
             ->name('income.row');
 
-        // DELETE:
-        // - id > 0 => elimina venta (finance_sales)
-        // - id == 0 => elimina override por query/body (row_type + account_id + period)
         Route::delete('income/row/{id}', [IncomeActionsController::class, 'destroy'])
             ->whereNumber('id')
             ->name('income.row.destroy');
 
-        // =========================
-        // Egresos
-        // =========================
         Route::get('expenses', [ExpensesController::class, 'index'])
             ->name('expenses.index');
 
-        // ✅ Acciones (tabla Egresos) — Upsert / Delete
         Route::post('expenses/row', [ExpensesActionsController::class, 'upsert'])
             ->name('expenses.row');
 
@@ -1021,9 +1031,6 @@ Route::middleware([
             ->whereNumber('id')
             ->name('expenses.row.destroy');
 
-        // =========================
-        // Ventas (CRUD base)
-        // =========================
         Route::get('sales', [SalesController::class, 'index'])
             ->name('sales.index');
 
@@ -1033,14 +1040,10 @@ Route::middleware([
         Route::post('sales', [SalesController::class, 'store'])
             ->name('sales.store');
 
-        // ✅ Toggle incluir/quitar del Estado de Cuenta
         Route::post('sales/{id}/toggle-include', [SalesController::class, 'toggleInclude'])
             ->whereNumber('id')
             ->name('sales.toggleInclude');
 
-        // =========================
-        // Vendedores (CRUD base)
-        // =========================
         Route::get('vendors', [VendorsController::class, 'index'])
             ->name('vendors.index');
 
@@ -1050,28 +1053,29 @@ Route::middleware([
         Route::post('vendors', [VendorsController::class, 'store'])
             ->name('vendors.store');
 
-        // =========================
-        // Submódulos
-        // =========================
         Route::get('commissions', [CommissionsController::class, 'index'])
             ->name('commissions.index');
 
         Route::get('projections', [ProjectionsController::class, 'index'])
             ->name('projections.index');
-
     });
 
     /*
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     | USUARIOS (ADMIN)
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     */
     Route::prefix('usuarios')->name('usuarios.')->group(function () {
-        Route::get('administrativos', [AdministrativosController::class, 'index'])->name('administrativos.index');
-        Route::get('administrativos/create', [AdministrativosController::class, 'create'])->name('administrativos.create');
-        Route::post('administrativos', [AdministrativosController::class, 'store'])->name('administrativos.store');
 
-        // ✅ soporta UUID (local) o int (prod)
+        Route::get('administrativos', [AdministrativosController::class, 'index'])
+            ->name('administrativos.index');
+
+        Route::get('administrativos/create', [AdministrativosController::class, 'create'])
+            ->name('administrativos.create');
+
+        Route::post('administrativos', [AdministrativosController::class, 'store'])
+            ->name('administrativos.store');
+
         Route::get('administrativos/{id}/edit', [AdministrativosController::class, 'edit'])
             ->where('id', '[A-Za-z0-9\-]+')
             ->name('administrativos.edit');
@@ -1094,75 +1098,57 @@ Route::middleware([
     });
 
     /*
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     | SAT · Lista de precios + Códigos de descuento (Admin) — CANÓNICO
-    |--------------------------------------------------------------------------
+    | admin.sat.*
+    |-----------------------------------------------------------------------
     */
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
 
         /*
-        |----------------------------------------------------------------------
+        |-------------------------------------------------------------------
         | SAT · OPERACIÓN (Backoffice) — admin.sat.ops.*
-        |----------------------------------------------------------------------
+        |-------------------------------------------------------------------
         */
         Route::prefix('ops')->name('ops.')->group(function () {
 
-        // HUB
-        Route::get('/', [SatOpsController::class, 'index'])->name('index');
+            Route::get('/', [SatOpsController::class, 'index'])->name('index');
 
-        /*
-        |----------------------------------------------------------------------
-        | OPS · CREDENCIALES — admin.sat.ops.credentials.*
-        |----------------------------------------------------------------------
-        */
-        Route::prefix('credentials')->name('credentials.')->group(function () {
+            Route::prefix('credentials')->name('credentials.')->group(function () {
 
-            Route::get('/', [SatOpsCredentialsController::class, 'index'])
-                ->name('index');
+                Route::get('/', [SatOpsCredentialsController::class, 'index'])->name('index');
 
-            // Descargas
-            Route::get('{id}/cer', [SatOpsCredentialsController::class, 'cer'])
-                ->where('id', '[A-Za-z0-9\-]+')
-                ->name('cer');
+                Route::get('{id}/cer', [SatOpsCredentialsController::class, 'cer'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('cer');
 
-            Route::get('{id}/key', [SatOpsCredentialsController::class, 'key'])
-                ->where('id', '[A-Za-z0-9\-]+')
-                ->name('key');
+                Route::get('{id}/key', [SatOpsCredentialsController::class, 'key'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('key');
 
-            // ✅ DELETE correcto:
-            // URL : /admin/sat/ops/credentials/{id}
-            // NAME: admin.sat.ops.credentials.destroy
-            $destroy = Route::delete('{id}', [SatOpsCredentialsController::class, 'destroy'])
-                ->where('id', '[A-Za-z0-9\-]+')
-                ->name('destroy');
+                $destroy = Route::delete('{id}', [SatOpsCredentialsController::class, 'destroy'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('destroy');
 
-            // En local, si usas fetch() sin token o con headers raros, esto evita fricción.
-            // Si ya lo mandas bien con X-CSRF-TOKEN, puedes quitarlo.
-            if (app()->environment(['local', 'development', 'testing'])) {
-                $destroy->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-            }
+                if (app()->environment(['local', 'development', 'testing'])) {
+                    $destroy->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
+            });
+
+            Route::prefix('downloads')->name('downloads.')->group(function () {
+                Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
+            });
+
+            Route::prefix('manual')->name('manual.')->group(function () {
+                Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
+            });
+
+            Route::prefix('payments')->name('payments.')->group(function () {
+                Route::get('/', [SatOpsPaymentsController::class, 'index'])->name('index');
+            });
         });
 
-        /*
-        |----------------------------------------------------------------------
-        | OPS · DESCARGAS / MANUAL / PAYMENTS
-        |----------------------------------------------------------------------
-        */
-        Route::prefix('downloads')->name('downloads.')->group(function () {
-            Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
-        });
-
-        Route::prefix('manual')->name('manual.')->group(function () {
-            Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
-        });
-
-        Route::prefix('payments')->name('payments.')->group(function () {
-            Route::get('/', [SatOpsPaymentsController::class, 'index'])->name('index');
-        });
-    });
-
-
-        // SAT · PRICE RULES
+        // SAT · PRICE RULES (canónico)
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
 
             Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
@@ -1205,11 +1191,9 @@ Route::middleware([
             Route::get('credentials/{id}/key', [SatCredentialsController::class, 'downloadKey'])
                 ->where('id', '[0-9]+')
                 ->name('credentials.key');
-
-
         });
 
-        // SAT · DISCOUNT CODES
+        // SAT · DISCOUNT CODES (canónico)
         Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
 
             Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
@@ -1247,9 +1231,9 @@ Route::middleware([
     });
 
     /*
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     | ✅ Fallback interno admin (SIEMPRE AL FINAL)
-    |--------------------------------------------------------------------------
+    |-----------------------------------------------------------------------
     */
     Route::fallback(fn () => redirect()->route('admin.home'));
 });

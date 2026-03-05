@@ -16,14 +16,20 @@ body{
   min-height:100vh;
   display:flex;
   flex-direction:column;
-  overflow:hidden;
+
+  /* ✅ SINGLE SCROLL (source of truth en admin.blade.php)
+     frame.css NO debe bloquear el viewport scroll */
+  overflow-y:auto;
+  overflow-x:hidden;
 }
 
 /* Contenedor de app */
 .admin-app{
   flex:1 1 auto;
   min-height:0;
-  overflow:hidden;
+
+  /* ✅ SINGLE SCROLL: evita que el shell cree scroll propio */
+  overflow:visible;
 }
 
 /* ⚠️ IMPORTANTE:
