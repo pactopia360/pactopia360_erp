@@ -1,0 +1,112 @@
+/* public/assets/admin/css/admin-clientes.vnext.page.extras.css */
+/* Pactopia360 · Admin Clientes · vNext (extras)
+   - Extrae estilos inline del Blade
+   - Mantiene UI consistente
+*/
+
+.ac-toolbar-row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+.ac-actions-inline{
+  display:inline;
+}
+
+.ac-menu-sep{
+  height:1px;
+  background: rgba(15,23,42,.08);
+  margin: 6px 0;
+}
+
+.ac-subline.mt8{ margin-top:8px; }
+.ac-subline.mt6{ margin-top:6px; }
+
+.ac-pager{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.ac-pager .info{
+  opacity:.8;
+  font-weight:800;
+}
+
+/* Create modal grid (12 columns) */
+.ac-grid-12{
+  display:grid;
+  grid-template-columns:repeat(12,minmax(0,1fr));
+  gap:12px;
+}
+
+.ac-col-12{ grid-column: span 12; }
+.ac-col-8{ grid-column: span 8; }
+.ac-col-6{ grid-column: span 6; }
+.ac-col-4{ grid-column: span 4; }
+
+.ac-actions-end{
+  justify-content:flex-end;
+}
+
+/* Iframe modal body */
+.ac-if-wrap{
+  position:relative;
+  height:min(86vh, 980px);
+  background:#fff;
+  overflow:hidden;
+}
+
+.ac-if-fallback{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+  z-index:5;
+  background:#fff;
+}
+
+.ac-if-card{
+  width:min(860px,96%);
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:16px;
+  padding:14px;
+  background:#fff;
+}
+
+.ac-if-ttl{
+  font-weight:1000;
+  color:#0f172a;
+}
+
+.ac-if-desc{
+  margin-top:6px;
+  color:#475569;
+  font-weight:850;
+  font-size:13px;
+  line-height:1.35;
+}
+
+.ac-if-url{
+  margin-top:10px;
+  font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,'Liberation Mono','Courier New', monospace;
+  background:#f8fafc;
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:14px;
+  padding:10px;
+  max-height:200px;
+  overflow:auto;
+}
+
+.ac-if-frame{
+  width:100%;
+  height:100%;
+  border:0;
+  background:#fff;
+}

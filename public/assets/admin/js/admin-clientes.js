@@ -1,168 +1,432 @@
 /* public/assets/admin/js/admin-clientes.js
-   Admin · Clientes — UI v14.4 (hybrid list + drawer + modales) + DEBUG
-   - ✅ DEBUG: ?acdbg=1 o localStorage.acdbg=1 -> console + overlay
-   - ✅ FIX: Drawer buttons (Editar/Destinatarios/Credenciales/Billing) abren modales (v13+v14)
-   - ✅ FIX CRÍTICO: había un setText('#mEdit_sub', `${client...}`) fuera de scope -> rompía TODO el script
-   - ✅ Sticky offset real para list-head (setea --ac-sticky-top)
-   - ✅ Copy handler + backdrop click close
+   Admin · Clientes — UI v15.0 (clean)
+   - 1 solo flujo de eventos (sin duplicados)
+   - currentClient robusto (row[data-client] + fallback global)
+   - Drawer + Modales consistentes
+   - Tabs + Copy + ESC + menú ⋯
+   - Debug opcional: ?acdbg=1 o localStorage.acdbg=1 (solo console, sin overlay)
 */
 (function () {
   'use strict';
 
-  const VERSION = 'admin-clientes.js v14.4';
+  const VERSION = 'admin-clientes.js v15.0-clean';
 
   const $ = (s, sc) => (sc || document).querySelector(s);
   const $$ = (s, sc) => Array.from((sc || document).querySelectorAll(s));
 
+  const page = $('#adminClientesPage');
+  if (!page) return;
+
+    // =========================================================
+  // Export CSV (client-side) - reemplaza vnext.page.js
   // =========================================================
-  // ✅ DEBUG (console + overlay)
-  //  - Enable: ?acdbg=1  OR  localStorage.acdbg=1
+  const safeCsv = (v) => {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/\r?\n/g, ' ').trim();
+  };
+
+  const csvEscape = (v) => {
+    v = safeCsv(v);
+    if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+    return v;
+  };
+
+  const getRowsData = () => {
+    const rows = $$('.ac-row[data-client]');
+    const out = [];
+    for (const row of rows) {
+      const c = parseClientFromRow(row);
+      if (c) out.push(c);
+    }
+    return out;
+  };
+
+  const buildCsv = (data) => {
+    const cols = [
+      ['id', 'ID'],
+      ['rfc', 'RFC'],
+      ['razon_social', 'RAZON_SOCIAL'],
+      ['email', 'EMAIL'],
+      ['phone', 'TELEFONO'],
+      ['plan', 'PLAN'],
+      ['billing_cycle_label', 'CICLO'],
+      ['billing_status_label', 'BILLING_STATUS'],
+      ['next_invoice_label', 'PROX_FACTURA'],
+      ['blocked', 'BLOQUEADO'],
+      ['custom_amount_mxn', 'MONTO_CUSTOM_MXN'],
+      ['effective_amount_mxn', 'MONTO_EFECTIVO_MXN'],
+      ['estado_cuenta', 'ESTADO_CUENTA'],
+      ['modo_cobro', 'MODO_COBRO'],
+      ['stripe_customer_id', 'STRIPE_CUSTOMER_ID'],
+      ['stripe_subscription_id', 'STRIPE_SUBSCRIPTION_ID'],
+      ['current_period_start', 'PERIODO_INICIO'],
+      ['current_period_end', 'PERIODO_FIN'],
+      ['recips_statement', 'RECIPS_ESTADO_CUENTA'],
+      ['recips_invoice', 'RECIPS_FACTURA'],
+      ['recips_general', 'RECIPS_GENERAL'],
+      ['owner_email', 'OWNER_EMAIL'],
+    ];
+
+    const header = cols.map(c => csvEscape(c[1])).join(',');
+    const lines = [header];
+
+    for (const r of data) {
+      const line = cols.map(([k]) => csvEscape(r?.[k]));
+      lines.push(line.join(','));
+    }
+    return lines.join('\n');
+  };
+
+  const downloadCsv = (csvText) => {
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    const qp = new URLSearchParams(location.search);
+    const q = (qp.get('q') || '').trim();
+    const plan = (qp.get('plan') || '').trim();
+    const blocked = (qp.get('blocked') || '').trim();
+    const bs = (qp.get('billing_status') || '').trim();
+    const pp = (qp.get('per_page') || '').trim();
+    const pageN = (qp.get('page') || '').trim();
+
+    const parts = [
+      'clientes',
+      stamp,
+      plan ? `plan-${plan}` : null,
+      blocked !== '' ? `blocked-${blocked}` : null,
+      bs ? `billing-${bs}` : null,
+      pp ? `pp-${pp}` : null,
+      pageN ? `p-${pageN}` : null,
+      q ? `q-${q.replace(/\s+/g, '_').slice(0, 24)}` : null,
+    ].filter(Boolean);
+
+    const filename = parts.join('_') + '.csv';
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const handleExportCsv = () => {
+    const btn = $('#btnExportCsv');
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.prevText = btn.textContent;
+      btn.textContent = 'Exportando…';
+    }
+
+    try {
+      const data = getRowsData();
+      if (!data.length) {
+        alert('No hay filas en pantalla para exportar (página actual).');
+        return;
+      }
+      downloadCsv(buildCsv(data));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.prevText || 'Exportar';
+      }
+    }
+  };
+
+  // =========================================================
+  // Iframe modal (submódulos) - reemplaza vnext.page.js
+  // =========================================================
+  const openAcIframeModal = ({ title, subtitle, url }) => {
+    const modal = $('#acIframeModal');
+    const wrap = $('#acIf_wrap');
+    const frame = $('#acIf_frame');
+    const tEl = $('#acIf_title');
+    const sEl = $('#acIf_sub');
+    const openN = $('#acIf_open_new');
+    const openN2 = $('#acIf_open_new_2');
+
+    const fb = $('#acIf_fallback');
+    const fbUrl = $('#acIf_fallback_url');
+    const fbReason = $('#acIf_fallback_reason');
+    const retryBtn = $('#acIf_retry');
+
+    const status = $('#acIf_status');
+    const statusText = $('#acIf_status_text');
+
+    if (!modal || !wrap || !frame) return;
+    url = String(url || '').trim();
+
+    if (!url || url === '#') {
+      alert('No hay URL disponible para este submódulo (falta route o payload).');
+      return;
+    }
+
+    if (tEl) tEl.textContent = title || '—';
+    if (sEl) sEl.textContent = subtitle || '—';
+    if (openN) openN.href = url;
+    if (openN2) openN2.href = url;
+
+    if (fb) fb.hidden = true;
+    if (fbUrl) fbUrl.textContent = url;
+    if (fbReason) {
+      fbReason.textContent = 'La página puede haber redirigido al login, cargado un layout no embebible o haber respondido con un error.';
+    }
+
+    if (status) {
+      status.classList.remove('is-ready', 'is-error');
+      status.classList.add('is-loading');
+    }
+    if (statusText) statusText.textContent = 'Cargando panel…';
+
+    wrap.dataset.state = 'loading';
+
+    openModal(modal);
+
+    const token = String(Date.now()) + Math.random().toString(16).slice(2);
+    frame.dataset.fbToken = token;
+    frame.dataset.currentUrl = url;
+
+    if (retryBtn) retryBtn.setAttribute('data-url', url);
+
+    try {
+      frame.onload = null;
+      frame.onerror = null;
+      frame.src = 'about:blank';
+    } catch (_) {}
+
+    const fail = (reason) => {
+      if (!frame || frame.dataset.fbToken !== token) return;
+
+      wrap.dataset.state = 'error';
+
+      if (fb) fb.hidden = false;
+      if (fbUrl) fbUrl.textContent = url;
+      if (fbReason) fbReason.textContent = reason || 'No se pudo mostrar el panel dentro del modal.';
+
+      if (status) {
+        status.classList.remove('is-loading', 'is-ready');
+        status.classList.add('is-error');
+      }
+      if (statusText) statusText.textContent = 'No se pudo cargar dentro del modal';
+    };
+
+    const success = () => {
+      if (!frame || frame.dataset.fbToken !== token) return;
+
+      if (fb) fb.hidden = true;
+      wrap.dataset.state = 'ready';
+
+      if (status) {
+        status.classList.remove('is-loading', 'is-error');
+        status.classList.add('is-ready');
+      }
+      if (statusText) statusText.textContent = 'Panel cargado';
+    };
+
+    const inspectFrame = () => {
+      if (!frame || frame.dataset.fbToken !== token) return;
+
+      try {
+        const doc = frame.contentDocument || frame.contentWindow?.document;
+        if (!doc) {
+          success();
+          return;
+        }
+
+        const href = String(frame.contentWindow?.location?.href || '');
+        const titleText = String(doc.title || '').trim().toLowerCase();
+        const bodyText = String(doc.body?.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 900).toLowerCase();
+
+        const loginHints = [
+          'iniciar sesión',
+          'inicia sesión',
+          'login',
+          'sign in',
+          'credenciales',
+          'email',
+          'contraseña',
+        ];
+
+        const errorHints = [
+          'server error',
+          'internal server error',
+          '419',
+          '403',
+          '404',
+          '500',
+          'forbidden',
+          'unauthorized',
+          'csrf',
+          'sqlstate',
+          'exception',
+          'stack trace',
+        ];
+
+        if (href && /\/admin\/login(?:[/?#]|$)/i.test(href)) {
+          fail('La URL redirigió al login de admin. Abre el panel completo para revisar sesión/guard.');
+          return;
+        }
+
+        if (loginHints.some(x => titleText.includes(x) || bodyText.includes(x))) {
+          fail('La respuesta parece ser una pantalla de login o autenticación, no el panel embebido.');
+          return;
+        }
+
+        if (errorHints.some(x => titleText.includes(x) || bodyText.includes(x))) {
+          fail('La página respondió con un error o mensaje técnico. Ábrela en pestaña para ver el detalle real.');
+          return;
+        }
+
+        success();
+      } catch (_) {
+        // Si no podemos inspeccionarlo, asumimos que al menos cargó.
+        success();
+      }
+    };
+
+    frame.onload = () => {
+      setTimeout(inspectFrame, 120);
+    };
+
+    frame.onerror = () => {
+      fail('El iframe no pudo cargar el recurso solicitado.');
+    };
+
+    setTimeout(() => {
+      if (!frame || frame.dataset.fbToken !== token) return;
+      frame.src = url;
+    }, 30);
+
+    setTimeout(() => {
+      if (!frame || frame.dataset.fbToken !== token) return;
+      if (wrap.dataset.state === 'loading') {
+        fail('El panel tardó demasiado en responder o no pudo renderizarse dentro del modal.');
+      }
+    }, 3500);
+  };
+
+  const closeAcIframeModal = () => {
+    const modal = $('#acIframeModal');
+    const wrap = $('#acIf_wrap');
+    const frame = $('#acIf_frame');
+    const fb = $('#acIf_fallback');
+    const fbUrl = $('#acIf_fallback_url');
+    const fbReason = $('#acIf_fallback_reason');
+    const status = $('#acIf_status');
+    const statusText = $('#acIf_status_text');
+
+    if (!modal) return;
+
+    closeModal(modal);
+
+    if (frame) {
+      frame.onload = null;
+      frame.onerror = null;
+      frame.dataset.fbToken = '';
+      frame.dataset.currentUrl = '';
+      frame.src = 'about:blank';
+    }
+
+    if (wrap) wrap.dataset.state = 'idle';
+    if (fb) fb.hidden = true;
+    if (fbUrl) fbUrl.textContent = '—';
+    if (fbReason) {
+      fbReason.textContent = 'La página puede haber redirigido al login, cargado un layout no embebible o haber respondido con un error.';
+    }
+
+    if (status) {
+      status.classList.remove('is-loading', 'is-ready', 'is-error');
+    }
+    if (statusText) statusText.textContent = 'Cargando panel…';
+  };
+
+  // =========================================================
+  // DEBUG (solo console; sin overlay)
   // =========================================================
   const DBG = (() => {
     const qs = new URLSearchParams(location.search || '');
     const enabled = qs.get('acdbg') === '1' || String(localStorage.getItem('acdbg') || '') === '1';
-
-    const state = {
-      enabled,
-      overlay: null,
-      lines: []
-    };
-
-    const fmt = (v) => {
-      try {
-        if (v === null) return 'null';
-        if (v === undefined) return 'undefined';
-        if (typeof v === 'string') return v;
-        return JSON.stringify(v);
-      } catch (_) {
-        return String(v);
-      }
-    };
-
-    const ensureOverlay = () => {
-      if (!state.enabled) return null;
-      if (state.overlay) return state.overlay;
-
-      const box = document.createElement('div');
-      box.id = 'acdbg';
-      box.style.position = 'fixed';
-      box.style.top = '10px';
-      box.style.right = '10px';
-      box.style.width = '420px';
-      box.style.maxWidth = '92vw';
-      box.style.maxHeight = '55vh';
-      box.style.overflow = 'auto';
-      box.style.zIndex = '999999';
-      box.style.background = 'rgba(15,23,42,.92)';
-      box.style.color = '#e5e7eb';
-      box.style.border = '1px solid rgba(255,255,255,.15)';
-      box.style.borderRadius = '12px';
-      box.style.boxShadow = '0 18px 48px rgba(0,0,0,.35)';
-      box.style.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-
-      const head = document.createElement('div');
-      head.style.display = 'flex';
-      head.style.alignItems = 'center';
-      head.style.justifyContent = 'space-between';
-      head.style.gap = '10px';
-      head.style.padding = '10px 10px';
-      head.style.borderBottom = '1px solid rgba(255,255,255,.12)';
-      head.innerHTML = `<strong style="font-weight:900">${VERSION}</strong>
-                        <span style="opacity:.85">DBG ON</span>`;
-
-      const actions = document.createElement('div');
-      actions.style.display = 'flex';
-      actions.style.gap = '8px';
-      actions.style.marginLeft = 'auto';
-
-      const btnClear = document.createElement('button');
-      btnClear.type = 'button';
-      btnClear.textContent = 'Clear';
-      btnClear.style.cursor = 'pointer';
-      btnClear.style.border = '1px solid rgba(255,255,255,.18)';
-      btnClear.style.background = 'rgba(255,255,255,.06)';
-      btnClear.style.color = '#e5e7eb';
-      btnClear.style.borderRadius = '10px';
-      btnClear.style.padding = '6px 8px';
-      btnClear.onclick = () => {
-        state.lines = [];
-        render();
-      };
-
-      const btnOff = document.createElement('button');
-      btnOff.type = 'button';
-      btnOff.textContent = 'Off';
-      btnOff.style.cursor = 'pointer';
-      btnOff.style.border = '1px solid rgba(239,68,68,.35)';
-      btnOff.style.background = 'rgba(239,68,68,.12)';
-      btnOff.style.color = '#fecaca';
-      btnOff.style.borderRadius = '10px';
-      btnOff.style.padding = '6px 8px';
-      btnOff.onclick = () => {
-        localStorage.removeItem('acdbg');
-        state.enabled = false;
-        box.remove();
-        state.overlay = null;
-        try { console.log('[ACDBG] disabled'); } catch (_) {}
-      };
-
-      actions.appendChild(btnClear);
-      actions.appendChild(btnOff);
-      head.appendChild(actions);
-
-      const body = document.createElement('div');
-      body.style.padding = '10px';
-      body.style.whiteSpace = 'pre-wrap';
-      body.style.wordBreak = 'break-word';
-      body.id = 'acdbg_body';
-
-      box.appendChild(head);
-      box.appendChild(body);
-      document.body.appendChild(box);
-
-      state.overlay = box;
-      return box;
-    };
-
-    const render = () => {
-      if (!state.enabled) return;
-      const box = ensureOverlay();
-      if (!box) return;
-      const body = box.querySelector('#acdbg_body');
-      if (!body) return;
-      body.textContent = state.lines.join('\n');
-      body.scrollTop = body.scrollHeight;
-    };
-
-    const log = (msg, meta) => {
-      if (!state.enabled) return;
-      const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}${meta !== undefined ? ' ' + fmt(meta) : ''}`;
-      state.lines.push(line);
-      if (state.lines.length > 80) state.lines.shift();
-      try { console.log('[ACDBG]', msg, meta); } catch (_) {}
-      render();
-    };
-
-    return { state, log };
+    const log = (...args) => { if (enabled) { try { console.log('[AC]', ...args); } catch (_) {} } };
+    log('loaded', VERSION);
+    return { enabled, log };
   })();
 
-  DBG.log('script loaded', { href: location.href });
+  const defaultPeriod = page.getAttribute('data-default-period') || '';
 
   // =========================================================
-  // Guard: page exists
+  // Scroll lock (drawer/modales)
   // =========================================================
-  const page = $('#adminClientesPage');
-  if (!page) {
-    DBG.log('NO #adminClientesPage -> abort', {});
-    return;
-  }
-  DBG.log('found #adminClientesPage', {});
+  const Lock = {
+    _count: 0,
+    on() {
+      this._count = Math.max(0, this._count + 1);
+      document.documentElement.classList.add('ac-lock');
+      document.body.classList.add('ac-lock');
+      DBG.log('Lock.on', { count: this._count });
+    },
+    off() {
+      this._count = Math.max(0, this._count - 1);
+      if (this._count === 0) {
+        document.documentElement.classList.remove('ac-lock');
+        document.body.classList.remove('ac-lock');
+      }
+      DBG.log('Lock.off', { count: this._count });
+    },
+    reset() {
+      this._count = 0;
+      document.documentElement.classList.remove('ac-lock');
+      document.body.classList.remove('ac-lock');
+      DBG.log('Lock.reset');
+    }
+  };
 
-    // =========================================================
-  // ✅ FIX: Doble scroll (solo en esta página)
-  //  - Detecta el primer ancestor scrolleable real del page
-  //  - Lo neutraliza para que el scroll sea del viewport (html/body)
-  //  - Respeta lock: si html.ac-lock activo, NO toca overflow (para modales/drawer)
+  // =========================================================
+  // Sticky vars (para head fijo)
+  // =========================================================
+  const updateStickyVars = (() => {
+    let raf = 0;
+    const run = () => {
+      raf = 0;
+      const root = document.documentElement;
+
+      const topbar =
+        document.querySelector('.ac-topbar') ||
+        document.querySelector('.layout-navbar, .navbar, header.navbar, header, .topbar, .app-header, .main-header');
+
+      if (!topbar) {
+        root.style.setProperty('--ac-sticky-top', '8px');
+        root.style.setProperty('--ac-topbar-h', '0px');
+        return;
+      }
+
+      const r = topbar.getBoundingClientRect();
+      const gap = 8;
+      const stickyTop = Math.max(0, Math.round(r.bottom + gap));
+      const topbarH = Math.max(0, Math.round(r.height));
+
+      root.style.setProperty('--ac-sticky-top', `${stickyTop}px`);
+      root.style.setProperty('--ac-topbar-h', `${topbarH}px`);
+    };
+
+    return () => {
+      if (raf) return;
+      raf = requestAnimationFrame(run);
+    };
+  })();
+
+  updateStickyVars();
+  window.addEventListener('load', updateStickyVars, { passive: true });
+  window.addEventListener('resize', updateStickyVars, { passive: true });
+  window.addEventListener('scroll', updateStickyVars, { passive: true });
+
+  // =========================================================
+  // Double scroll fix (solo si NO hay lock)
   // =========================================================
   const DoubleScrollFix = (() => {
     const isScrollable = (el) => {
@@ -171,7 +435,6 @@
       const oy = (cs.overflowY || '').toLowerCase();
       const canScroll = (oy === 'auto' || oy === 'scroll' || oy === 'overlay');
       if (!canScroll) return false;
-      // scrollbar real
       return (el.scrollHeight - el.clientHeight) > 2;
     };
 
@@ -185,15 +448,9 @@
     };
 
     const apply = () => {
-      // si hay lock activo, no movemos overflow para no romper modales/drawer
-      if (document.documentElement.classList.contains('ac-lock')) {
-        DBG.log('DoubleScrollFix: skipped (ac-lock active)', {});
-        return;
-      }
+      if (document.documentElement.classList.contains('ac-lock')) return;
 
-      const sp = findScrollParent(page);
-
-      // fuerza que el scroll sea del viewport
+      // scroll del viewport
       try {
         document.documentElement.style.overflowY = 'auto';
         document.body.style.overflowY = 'auto';
@@ -201,36 +458,21 @@
         document.body.style.height = 'auto';
       } catch (_) {}
 
-      if (!sp) {
-        DBG.log('DoubleScrollFix: no scroll parent detected', {});
-        return;
-      }
+      const sp = findScrollParent(page);
+      if (!sp) return;
 
-      // neutraliza SOLO ese contenedor (inline style; scoped a esta vista porque solo corre aquí)
       sp.style.overflowY = 'visible';
       sp.style.overflowX = 'visible';
       sp.style.height = 'auto';
       sp.style.minHeight = '0';
       sp.style.maxHeight = 'none';
 
-      // si el layout usa algo como contain/position, lo suavizamos
-      // (esto reduce casos donde sigue “capturando” scroll)
       try {
         const cs = getComputedStyle(sp);
         if ((cs.position || '').toLowerCase() === 'fixed') sp.style.position = 'relative';
       } catch (_) {}
-
-      DBG.log('DoubleScrollFix: neutralized scroll parent', {
-        tag: (sp.tagName || '').toLowerCase(),
-        id: sp.id || '',
-        cls: (sp.className || '').toString().trim().slice(0, 120),
-        scrollH: sp.scrollHeight,
-        clientH: sp.clientHeight,
-        overflowY: getComputedStyle(sp).overflowY
-      });
     };
 
-    // throttle
     let raf = 0;
     const run = () => {
       if (raf) return;
@@ -243,135 +485,38 @@
     return { run, apply };
   })();
 
-  // correr al inicio + tras load (cuando layout termina de medir)
   DoubleScrollFix.run();
   window.addEventListener('load', DoubleScrollFix.run, { passive: true });
   window.addEventListener('resize', DoubleScrollFix.run, { passive: true });
   setTimeout(DoubleScrollFix.run, 80);
-  setTimeout(DoubleScrollFix.run, 220);
-
-  const defaultPeriod = page.getAttribute('data-default-period') || '';
 
   // =========================================================
-  // ✅ Sticky offset REAL para .ac-list-head (evita encimados)
+  // Helpers UI
   // =========================================================
-  const updateStickyVars = (() => {
-    let raf = 0;
-
-    const run = () => {
-      raf = 0;
-
-      const root = document.documentElement;
-      // intenta detectar header real (ac-topbar o navbar/layout global)
-      const topbar =
-        document.querySelector('.ac-topbar')
-        || document.querySelector(
-          '.layout-navbar, .navbar, header.navbar, header, .topbar, .app-header, .main-header'
-        );
-
-      if (!topbar) {
-        root.style.setProperty('--ac-sticky-top', '8px');
-        root.style.setProperty('--ac-topbar-h', '0px');
-        DBG.log('sticky: no topbar/nav found', {});
-        return;
-      }
-
-      const r = topbar.getBoundingClientRect();
-      const gap = 8;
-
-      const stickyTop = Math.max(0, Math.round(r.bottom + gap));
-      const topbarH = Math.max(0, Math.round(r.height));
-
-      root.style.setProperty('--ac-sticky-top', `${stickyTop}px`);
-      root.style.setProperty('--ac-topbar-h', `${topbarH}px`);
-
-      DBG.log('sticky: set vars', { stickyTop, topbarH });
-    };
-
-    return () => {
-      if (raf) return;
-      raf = requestAnimationFrame(run);
-    };
-  })();
-
-  updateStickyVars();
-  window.addEventListener('load', updateStickyVars, { passive: true });
-  window.addEventListener('resize', updateStickyVars, { passive: true });
-  window.addEventListener('scroll', updateStickyVars, { passive: true });
-  setTimeout(updateStickyVars, 60);
-  setTimeout(updateStickyVars, 240);
-
-  // ===== Scroll lock manager
-  const Lock = {
-    _count: 0,
-    on() {
-      this._count = Math.max(0, this._count + 1);
-      document.documentElement.classList.add('ac-lock');
-      DBG.log('Lock.on', { count: this._count });
-    },
-    off() {
-      this._count = Math.max(0, this._count - 1);
-      if (this._count === 0) document.documentElement.classList.remove('ac-lock');
-      DBG.log('Lock.off', { count: this._count });
-    },
-    reset() {
-      this._count = 0;
-      document.documentElement.classList.remove('ac-lock');
-      DBG.log('Lock.reset', {});
-    }
-  };
-
-  // QuickSearch: ESC limpia
-  const qf = $('#quickSearchForm');
-  if (qf) {
-    const q = qf.querySelector('input[name="q"]');
-    if (q) {
-      q.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          q.value = '';
-          qf.submit();
-        }
-      });
-      DBG.log('QuickSearch ready', {});
-    }
-  }
-
-  // Filtros: autosubmit selects
-  const filtersForm = $('#filtersForm');
-  if (filtersForm) {
-    filtersForm.querySelectorAll('select').forEach((sel) =>
-      sel.addEventListener('change', () => filtersForm.submit())
-    );
-    DBG.log('filtersForm ready', {});
-  }
-
-  // ===== Helpers UI
-  const setText = (id, val) => {
-    const el = typeof id === 'string' ? $(id) : id;
+  const setText = (selOrEl, val) => {
+    const el = typeof selOrEl === 'string' ? $(selOrEl) : selOrEl;
     if (!el) return;
     const t = (val ?? '').toString().trim();
     el.textContent = t || '—';
   };
 
-  const setHref = (id, href) => {
-    const el = typeof id === 'string' ? $(id) : id;
+  const setHref = (selOrEl, href) => {
+    const el = typeof selOrEl === 'string' ? $(selOrEl) : selOrEl;
     if (!el) return;
-
-    const isAnchor = (el.tagName || '').toLowerCase() === 'a';
-
+    const isA = (el.tagName || '').toLowerCase() === 'a';
     if (!href) {
-      if (isAnchor) el.setAttribute('href', '#');
+      if (isA) el.setAttribute('href', '#');
       el.classList.add('is-disabled');
       el.setAttribute('aria-disabled', 'true');
       return;
     }
     el.classList.remove('is-disabled');
     el.removeAttribute('aria-disabled');
-    if (isAnchor) el.setAttribute('href', href);
+    if (isA) el.setAttribute('href', href);
   };
 
-  const setAction = (formId, action) => {
-    const f = typeof formId === 'string' ? $(formId) : formId;
+  const setAction = (selOrEl, action) => {
+    const f = typeof selOrEl === 'string' ? $(selOrEl) : selOrEl;
     if (!f) return;
     f.setAttribute('action', action || '#');
     if (!action || action === '#') f.classList.add('is-disabled');
@@ -393,78 +538,79 @@
     return t.value;
   };
 
-  const parseClient = (row) => {
+  const parseClientFromRow = (row) => {
     if (!row) return null;
     try {
-      let raw = row.getAttribute('data-client') || '{}';
+      let raw = row.getAttribute('data-client') || '';
+      if (!raw) return null;
       raw = decodeHtml(raw);
       const obj = JSON.parse(raw);
-      return obj && typeof obj === 'object' ? obj : null;
+      return (obj && typeof obj === 'object') ? obj : null;
     } catch (e) {
-      DBG.log('parseClient JSON error', { err: String(e) });
+      DBG.log('parseClientFromRow error', e);
       return null;
     }
   };
 
   const enc = (v) => encodeURIComponent((v ?? '').toString());
-  // ✅ Para endpoints admin usamos SIEMPRE id numérico (accounts.id). RFC sólo para display.
   const guessRouteId = (client) => {
     if (!client) return '';
     const id = (client.id ?? '').toString().trim();
-    if (id && /^\d+$/.test(id)) return id; // ✅ preferir numérico
-    // fallback (por si llega sin id)
+    if (id && /^\d+$/.test(id)) return id; // preferir id numérico
     const rfc = (client.rfc ?? '').toString().trim();
     return rfc || id || '';
   };
 
   const buildFallbackUrl = (client, suffix) => {
-    const key = guessRouteId(client);
+    const key = (client.key || guessRouteId(client) || '').toString().trim();
     if (!key) return '';
     return `/admin/clientes/${enc(key)}/${suffix}`;
   };
 
-  // ===== Drawer
-  const drawer = $('#clientDrawer');
-  DBG.log('drawer lookup', { exists: !!drawer });
-
-    // =========================================================
-  // ✅ FIX: "última fila activa" (fallback robusto)
-  //  - Si el menú se renderiza fuera del row, closest('.ac-row') puede fallar.
-  //  - Guardamos el último row que el usuario tocó (hover/focus/click)
   // =========================================================
-  let LAST_ROW = null;
+  // current client (1 solo mecanismo)
+  // =========================================================
+  const drawer = $('#clientDrawer');
+  let CURRENT = null;
 
-  const setLastRowFromTarget = (target) => {
-    try {
-      const r = target && target.closest ? target.closest('.ac-row[data-client]') : null;
-      if (r) LAST_ROW = r;
-    } catch (_) {}
-  };
-
-  document.addEventListener('mouseover', (e) => setLastRowFromTarget(e.target), true);
-  document.addEventListener('focusin', (e) => setLastRowFromTarget(e.target), true);
-  document.addEventListener('click', (e) => setLastRowFromTarget(e.target), true);
-
-  const getRowForAction = (target) => {
-    // 1) intento directo
-    try {
-      const r = target && target.closest ? target.closest('.ac-row[data-client]') : null;
-      if (r) return r;
-    } catch (_) {}
-
-    // 2) fallback: última fila activa
-    if (LAST_ROW && LAST_ROW.getAttribute && LAST_ROW.getAttribute('data-client')) return LAST_ROW;
-
-    // 3) fallback extremo: primera fila visible
-    return document.querySelector('.ac-row[data-client]');
-  };
-
-  const setCurrentClientSafe = (client) => {
-    if (!client || typeof client !== 'object') return;
+  const setCurrentClient = (client) => {
+    if (!client || typeof client !== 'object') return false;
+    CURRENT = client;
     if (drawer) drawer._client = client;
     window.P360_AC_CURRENT = client;
+    return true;
   };
 
+  const getCurrentClient = () => {
+    if (drawer && drawer._client) return drawer._client;
+    if (CURRENT) return CURRENT;
+    if (window.P360_AC_CURRENT) return window.P360_AC_CURRENT;
+    return null;
+  };
+
+  const findRowFromEventTarget = (target) => {
+    if (!target) return null;
+    const row = target.closest && target.closest('.ac-row[data-client]');
+    if (row) return row;
+
+    const wrap = target.closest && (
+      target.closest('.cell.actions') ||
+      target.closest('.ac-menu') ||
+      target.closest('[data-open-drawer]') ||
+      target.closest('[data-drawer-action]') ||
+      target.closest('[data-menu-toggle]') ||
+      target.closest('.ac-btn')
+    );
+    if (wrap) {
+      const r2 = wrap.closest && wrap.closest('.ac-row[data-client]');
+      if (r2) return r2;
+    }
+    return null;
+  };
+
+  // =========================================================
+  // Drawer open/close
+  // =========================================================
   const openDrawer = (client) => {
     if (!drawer || !client) return;
 
@@ -500,13 +646,11 @@
     const credsUrl = (client.email_creds_url || '').toString().trim();
     setAction('#drFormEmailCreds', credsUrl || buildFallbackUrl(client, 'email-credentials'));
 
-    drawer._client = client;
+    setCurrentClient(client);
 
     drawer.classList.add('open');
     drawer.setAttribute('aria-hidden', 'false');
     Lock.on();
-
-    DBG.log('drawer opened', { rfc: client.rfc, hasClient: !!drawer._client });
   };
 
   const closeDrawer = () => {
@@ -519,154 +663,131 @@
 
     Lock.off();
     updateStickyVars();
-
-    DBG.log('drawer closed', {});
   };
 
-  // ===== Modales
-  const openModal = (id) => {
-    const m = typeof id === 'string' ? $(id) : id;
-    DBG.log('openModal called', { id, exists: !!m });
-
+  // =========================================================
+  // Modales open/close
+  // =========================================================
+  const openModal = (sel) => {
+    const m = typeof sel === 'string' ? $(sel) : sel;
     if (!m) return;
+    if (m.classList.contains('open') || m.classList.contains('show')) return;
 
-    if (m.classList.contains('open') || m.classList.contains('show')) {
-      DBG.log('openModal: already open', { id });
-      return;
-    }
-
-    m.classList.add('open');
-    m.classList.add('show');
+    m.classList.add('open', 'show');
     m.setAttribute('aria-hidden', 'false');
     Lock.on();
-
-    DBG.log('openModal: opened', { id: m.id || '' });
   };
 
   const closeModal = (m) => {
     if (!m) return;
-
     if (!m.classList.contains('open') && !m.classList.contains('show')) return;
 
-    m.classList.remove('open');
-    m.classList.remove('show');
+    m.classList.remove('open', 'show');
     m.setAttribute('aria-hidden', 'true');
     Lock.off();
     updateStickyVars();
-
-    DBG.log('closeModal', { id: m.id || '' });
   };
 
-  // ===== Copy
-  const handleCopy = async (btn) => {
-    if (!btn) return;
-    const sel = (btn.getAttribute('data-copy') || '').trim();
-    if (!sel) return;
-
-    const target = sel.startsWith('#') ? $(sel) : $(sel);
-    const text = (() => {
-      if (!target) return '';
-      if ('value' in target) return String(target.value || '');
-      return String(target.textContent || '');
-    })().trim();
-
-    if (!text) {
-      DBG.log('copy: empty', { sel });
-      return;
-    }
-
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        ta.style.top = '-9999px';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-      }
-
-      btn.classList.add('is-copied');
-      setTimeout(() => btn.classList.remove('is-copied'), 900);
-
-      DBG.log('copy: ok', { sel, len: text.length });
-    } catch (e) {
-      DBG.log('copy: fail', { sel, err: String(e) });
-    }
-  };
-
-  // ===== Fill modales
+  // =========================================================
+  // Fill modales
+  // =========================================================
   const fillEditModal = (client) => {
     if (!client) return;
 
-    setText('#mEdit_sub', `${client.rfc} · ${client.razon_social || '—'}`);
+    const key = guessRouteId(client); // RFC o ID (preferimos numérico si existe)
+    const rs = (client.razon_social || '').toString().trim();
+    const rfc = (client.rfc || client.id || '').toString().trim();
+
+    setText('#mEdit_sub', `${rfc || '—'} · ${rs || '—'}`);
+
+    // ✅ Mostrar RFC/ID en readonly (si existe el input en el Blade)
+    const keyShow = $('#mEdit_key_show');
+    if (keyShow) keyShow.value = (rfc || key || '').toString();
 
     const form = $('#mEdit_form');
+    if (form) {
+      const tpl = (form.getAttribute('data-save-template') || '').toString();
+      // data-save-template trae algo como: /admin/clientes/__KEY__/save
+      const action =
+        (tpl && tpl.includes('__KEY__') && key) ? tpl.replace('__KEY__', encodeURIComponent(key))
+        : buildFallbackUrl(client, 'save');
 
-    // ✅ 1) action correcto: usar save_url que viene del blade
-    const saveUrl = (client.save_url || '').toString().trim() || buildFallbackUrl(client, 'save');
-    if (form) setAction(form, saveUrl);
+      setAction(form, action);
+    }
 
-    // ✅ 2) hidden id (en tu blade existe: #mEdit_id)
+    // ✅ Hidden id debe coincidir con el KEY real que usa el action
     const hid = $('#mEdit_id');
-    if (hid) hid.value = (client.id ?? '').toString();
+    if (hid) hid.value = (key || '').toString();
 
-    // helper
     const setVal = (sel, v) => {
       const el = $(sel);
-      if (!el) return;
-      el.value = (v ?? '').toString();
+      if (el) el.value = (v ?? '').toString();
     };
 
-    // ✅ IDs reales del blade:
-    setVal('#mEdit_rs', client.razon_social || '');
+    setVal('#mEdit_rs', rs);
     setVal('#mEdit_email', client.email || '');
-
-    // OJO: en DB existe telefono y phone. UI usa phone.
-    // Mostramos lo que venga y mandamos lo editado en "phone".
     setVal('#mEdit_phone', client.phone || client.telefono || '');
-
-    setVal('#mEdit_plan', (client.plan || '').toString().toLowerCase()); // tu select usa free/pro
-    setVal('#mEdit_cycle', client.billing_cycle || ''); // si existe en payload; si no, queda vacío
+    setVal('#mEdit_plan', (client.plan || '').toString().toLowerCase());
+    setVal('#mEdit_cycle', client.billing_cycle || '');
     setVal('#mEdit_next', client.next_invoice_date || '');
 
-    setVal('#mEdit_custom', client.custom_amount_mxn || client.effective_amount_mxn || '');
+    // ✅ IMPORTANTE: el campo es "custom_amount_mxn". NO metas el effective.
+    setVal('#mEdit_custom', client.custom_amount_mxn || '');
 
     const chkBlocked = $('#mEdit_blocked');
     if (chkBlocked) chkBlocked.checked = !!client.blocked;
-
-    DBG.log('fillEditModal OK', { rfc: client.rfc, saveUrl, id: client.id });
   };
 
-  const fillRecipientsModal = (client) => {
-    if (!client) return;
-    setText('#mRec_sub', `${client.rfc} · ${client.razon_social || '—'}`);
+    const fillRecipientsModal = (client) => {
+        if (!client) return;
 
-    const missing = $('#mRec_missing');
-    const hasRoute = !!(client.recip_url && String(client.recip_url).trim());
-    if (missing) missing.hidden = hasRoute;
+        setText('#mRec_sub', `${client.rfc} · ${client.razon_social || '—'}`);
 
-    const recipUrl = hasRoute ? String(client.recip_url).trim() : '';
-    setAction('#mRec_form_statement', recipUrl || '#');
-    setAction('#mRec_form_invoice', recipUrl || '#');
-    setAction('#mRec_form_general', recipUrl || '#');
+        const missing = $('#mRec_missing');
+        const hasRoute = !!(client.recip_url && String(client.recip_url).trim());
+        if (missing) missing.hidden = hasRoute;
 
-    const st = $('#mRec_stmt_list'); if (st) st.value = client.recips_statement || '';
-    const sp = $('#mRec_stmt_primary'); if (sp) sp.value = client.primary_statement || '';
+        const recipUrl = hasRoute ? String(client.recip_url).trim() : '';
+        setAction('#mRec_form_statement', recipUrl || '#');
+        setAction('#mRec_form_invoice', recipUrl || '#');
+        setAction('#mRec_form_general', recipUrl || '#');
 
-    const il = $('#mRec_inv_list'); if (il) il.value = client.recips_invoice || '';
-    const ip = $('#mRec_inv_primary'); if (ip) ip.value = client.primary_invoice || '';
+        const st = $('#mRec_stmt_list'); if (st) st.value = client.recips_statement || '';
+        const sp = $('#mRec_stmt_primary'); if (sp) sp.value = client.primary_statement || '';
 
-    const gl = $('#mRec_gen_list'); if (gl) gl.value = client.recips_general || '';
-    const gp = $('#mRec_gen_primary'); if (gp) gp.value = client.primary_general || '';
+        const il = $('#mRec_inv_list'); if (il) il.value = client.recips_invoice || '';
+        const ip = $('#mRec_inv_primary'); if (ip) ip.value = client.primary_invoice || '';
 
-    DBG.log('fillRecipientsModal', { rfc: client.rfc, hasRoute });
-  };
+        const gl = $('#mRec_gen_list'); if (gl) gl.value = client.recips_general || '';
+        const gp = $('#mRec_gen_primary'); if (gp) gp.value = client.primary_general || '';
+
+        // Reset visual de tabs al abrir el modal
+        const tabsRoot = $('#modalRecipients [data-tabs]');
+        if (tabsRoot) {
+          tabsRoot.querySelectorAll('.ac-tab').forEach((b) => {
+            b.classList.remove('active');
+            b.setAttribute('aria-selected', 'false');
+          });
+
+          tabsRoot.querySelectorAll('.ac-tabpane').forEach((p) => {
+            p.classList.remove('show');
+            p.setAttribute('hidden', 'hidden');
+          });
+
+          const firstBtn = tabsRoot.querySelector('.ac-tab[data-tab="tabRecStmt"]');
+          const firstPane = $('#tabRecStmt');
+
+          if (firstBtn) {
+            firstBtn.classList.add('active');
+            firstBtn.setAttribute('aria-selected', 'true');
+          }
+
+          if (firstPane) {
+            firstPane.classList.add('show');
+            firstPane.removeAttribute('hidden');
+          }
+        }
+      };
 
   const fillCredsModal = (client) => {
     if (!client) return;
@@ -675,6 +796,13 @@
     setText('#mCred_rfc', client.rfc);
     setText('#mCred_owner', client.owner_email || client.email || '—');
     setText('#mCred_pass', client.temp_pass || '—');
+
+    // Mostrar/ocultar contraseña visual
+    const passEl = $('#mCred_pass');
+    if (passEl) {
+      const v = (client.temp_pass || '').toString().trim();
+      passEl.classList.toggle('is-empty', !v);
+    }
 
     const otp = client.otp_code ? `${client.otp_code} (${(client.otp_channel || '—').toUpperCase()})` : '—';
     setText('#mCred_otp', otp);
@@ -717,7 +845,6 @@
 
       const cid = (client.id || client.rfc || '').toString();
       const prev = (to.getAttribute('data-last-client') || '').toString();
-
       if (cid && cid !== prev) {
         to.value = nextVal;
         to.setAttribute('data-last-client', cid);
@@ -736,9 +863,9 @@
     const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
     const hr = $('#mCred_hidden_rfc'); if (hr) hr.value = (client.rfc || '').toString();
     const hrs = $('#mCred_hidden_rs'); if (hrs) hrs.value = (client.razon_social || '').toString();
-
-    DBG.log('fillCredsModal', { rfc: client.rfc, hasTokenUrl: !!tok });
   };
+
+
 
   const fillBillingModal = (client) => {
     if (!client) return;
@@ -778,10 +905,48 @@
       setAction('#mBill_form_email', '#');
       if (emailMissing) emailMissing.hidden = false;
     }
-
-    DBG.log('fillBillingModal', { rfc: client.rfc, hasSeed: !!client.seed_url });
   };
 
+  const openDrawerModalAction = (action, client) => {
+    if (!client) return false;
+
+    setCurrentClient(client);
+
+    if (action === 'edit') {
+      fillEditModal(client);
+      DBG.log('open edit modal', {
+        key: guessRouteId(client),
+        action: $('#mEdit_form')?.getAttribute('action'),
+        id: $('#mEdit_id')?.value
+      });
+      openModal('#modalEdit');
+      return true;
+    }
+
+    if (action === 'recipients') {
+      fillRecipientsModal(client);
+      openModal('#modalRecipients');
+      return true;
+    }
+
+    if (action === 'creds') {
+      fillCredsModal(client);
+      openModal('#modalCreds');
+      return true;
+    }
+
+    if (action === 'billing') {
+      fillBillingModal(client);
+      openModal('#modalBilling');
+      return true;
+    }
+
+    return false;
+  };
+
+  // =========================================================
+  // Tabs
+  // =========================================================
   const handleTabs = (tabBtn) => {
     const tabs = tabBtn.closest('[data-tabs]');
     if (!tabs) return;
@@ -806,137 +971,98 @@
   };
 
   // =========================================================
-  // ✅ Drawer buttons resolver (v13 + v14)
+  // Copy
   // =========================================================
-  const resolveDrawerActionFromButton = (btn) => {
-    if (!btn) return '';
+  const handleCopy = async (btn) => {
+    const sel = (btn.getAttribute('data-copy') || '').trim();
+    if (!sel) return;
 
-    const da = (btn.getAttribute('data-drawer-action') || '').trim().toLowerCase();
-    if (da) return da;
+    const target = $(sel);
+    const text = (() => {
+      if (!target) return '';
+      if ('value' in target) return String(target.value || '');
+      return String(target.textContent || '');
+    })().trim();
 
-    const id = (btn.getAttribute('id') || '').trim();
-    if (id === 'btnOpenEdit') return 'edit';
-    if (id === 'btnOpenRecipients') return 'recipients';
-    if (id === 'btnOpenCreds') return 'creds';
-    if (id === 'btnOpenBilling') return 'billing';
+    if (!text) return;
 
-    const txt = (btn.textContent || '').trim().toLowerCase();
-    if (!txt) return '';
-
-    if (txt === 'editar') return 'edit';
-    if (txt === 'destinatarios' || txt === 'destinatario') return 'recipients';
-    if (txt === 'credenciales' || txt === 'credencial') return 'creds';
-    if (txt === 'billing') return 'billing';
-
-    if (txt.includes('editar')) return 'edit';
-    if (txt.includes('destinat')) return 'recipients';
-    if (txt.includes('credenc')) return 'creds';
-    if (txt.includes('billing')) return 'billing';
-
-    return '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      btn.classList.add('is-copied');
+      setTimeout(() => btn.classList.remove('is-copied'), 900);
+    } catch (_) {}
   };
 
-  const openDrawerModalAction = (action, client) => {
-    DBG.log('drawer action', { action, hasClient: !!client });
-
-    if (!client) return false;
-
-    if (action === 'edit') {
-      fillEditModal(client);
-      openModal('#modalEdit');
-      return true;
-    }
-    if (action === 'recipients') {
-      fillRecipientsModal(client);
-      openModal('#modalRecipients');
-      return true;
-    }
-    if (action === 'creds') {
-      fillCredsModal(client);
-      openModal('#modalCreds');
-      return true;
-    }
-    if (action === 'billing') {
-      fillBillingModal(client);
-      openModal('#modalBilling');
-      return true;
-    }
-    return false;
+  // =========================================================
+  // Menú ⋯ (toggle)
+  // =========================================================
+  const closeAllMenusExcept = (keep) => {
+    $$('.ac-menu.open,[data-menu].open').forEach(m => { if (m !== keep) m.classList.remove('open'); });
   };
 
-  // ===== Click handler
+  // =========================================================
+  // QuickSearch: ESC limpia
+  // =========================================================
+  const qf = $('#quickSearchForm');
+  if (qf) {
+    const q = qf.querySelector('input[name="q"]');
+    if (q) {
+      q.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          q.value = '';
+          qf.submit();
+        }
+      });
+    }
+  }
+
+  // Filtros: autosubmit selects
+  const filtersForm = $('#filtersForm');
+  if (filtersForm) {
+    filtersForm.querySelectorAll('select').forEach((sel) =>
+      sel.addEventListener('change', () => filtersForm.submit())
+    );
+  }
+
+  // =========================================================
+  // ÚNICO handler global
+  // =========================================================
   document.addEventListener('click', (e) => {
     const t = e.target;
 
-    // A) Drawer quick buttons
-    if (drawer && drawer.classList.contains('open')) {
-      const inDrawer = t.closest('#clientDrawer');
-      if (inDrawer) {
-        const btn = t.closest('button, a, [role="button"]');
-        if (btn) {
-          const action = resolveDrawerActionFromButton(btn);
-
-          DBG.log('click in drawer', {
-            tag: (btn.tagName || '').toLowerCase(),
-            text: (btn.textContent || '').trim().slice(0, 40),
-            action,
-            drawerOpen: drawer.classList.contains('open'),
-            hasClient: !!drawer._client
-          });
-
-          if (action) {
-            e.preventDefault();
-            openDrawerModalAction(action, drawer._client || null);
-            return;
-          }
-        }
-      }
+    // 1) Captura y setea current client si aplica (fila tocada)
+    const row = findRowFromEventTarget(t);
+    if (row) {
+      const c = parseClientFromRow(row);
+      if (c) setCurrentClient(c);
     }
 
-        // B) ✅ Botones dentro de filas: data-drawer-action="edit|recipients|creds|billing"
-    //    (estos NO son los mismos que data-action del menú legacy)
-    const rowActionBtn = t.closest('[data-drawer-action]');
-    if (rowActionBtn) {
-      e.preventDefault();
-
-      const action = (rowActionBtn.getAttribute('data-drawer-action') || '').trim().toLowerCase();
-      const row = getRowForAction(rowActionBtn);
-      const client = parseClient(row);
-
-      DBG.log('row data-drawer-action click', {
-        action,
-        hasRow: !!row,
-        hasClient: !!client,
-        lastRow: !!LAST_ROW
-      });
-
-      if (!client) return;
-
-      // ✅ setear current client siempre
-      setCurrentClientSafe(client);
-
-      // ✅ abrir modal correspondiente SIN depender del drawer
-      openDrawerModalAction(action, client);
-      return;
-    }
-
-    // 0) menu action
+    // 2) Menu action (block/unblock/etc. legacy) -> abrimos drawer
     const menuAction = t.closest('[data-menu] [data-action]');
     if (menuAction) {
       e.preventDefault();
+
       const action = (menuAction.getAttribute('data-action') || '').trim();
-      const row = menuAction.closest('.ac-row');
-      const client = parseClient(row);
+      const row2 = menuAction.closest('.ac-row[data-client]');
+      const client = parseClientFromRow(row2) || getCurrentClient();
 
       const menu = menuAction.closest('[data-menu]');
       if (menu) menu.classList.remove('open');
 
-      DBG.log('menu action', { action, hasClient: !!client });
-
       if (!client) return;
-
-      // ✅ FIX CRÍTICO
-      setCurrentClientSafe(client);
 
       openDrawer(client);
 
@@ -945,312 +1071,240 @@
       if (action === 'creds') { openDrawerModalAction('creds', client); return; }
       if (action === 'billing') { openDrawerModalAction('billing', client); return; }
 
+      // acciones core se quedan como forms del drawer (ya las tienes)
       return;
     }
 
-    // 1) menu toggle
+    // 2.5) Acciones de fila/menú que abren modales (edit/recipients/creds/billing)
+    const rowDrawerAction = t.closest('[data-drawer-action]');
+    if (rowDrawerAction && !t.closest('#clientDrawer')) {
+      e.preventDefault();
+
+      const action = (rowDrawerAction.getAttribute('data-drawer-action') || '').trim().toLowerCase();
+      const row2 = rowDrawerAction.closest('.ac-row[data-client]');
+      const client = parseClientFromRow(row2) || getCurrentClient();
+
+      const menu = rowDrawerAction.closest('[data-menu]');
+      if (menu) menu.classList.remove('open');
+
+      if (!client || !action) return;
+
+      openDrawerModalAction(action, client);
+      return;
+    }
+
+    // 3) Menu toggle
     const menuToggle = t.closest('[data-menu-toggle]');
     if (menuToggle) {
       e.preventDefault();
       const menu = menuToggle.closest('[data-menu]');
       if (!menu) return;
-
-      $$('.ac-menu.open,[data-menu].open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+      closeAllMenusExcept(menu);
       menu.classList.toggle('open');
-      DBG.log('menu toggle', { open: menu.classList.contains('open') });
       return;
     } else {
       const insideMenu = t.closest('[data-menu]');
-      if (!insideMenu) $$('.ac-menu.open,[data-menu].open').forEach(m => m.classList.remove('open'));
+      if (!insideMenu) closeAllMenusExcept(null);
     }
 
-    // 2) abrir modal por atributo
+    // 4) data-open-modal
     const openModalBtn = t.closest('[data-open-modal]');
     if (openModalBtn) {
       e.preventDefault();
       const sel = (openModalBtn.getAttribute('data-open-modal') || '').trim();
-      DBG.log('data-open-modal click', { sel });
       if (sel) openModal(sel);
       return;
     }
 
-    // 3) abrir drawer
+     // 4.6) Export CSV
+    if (t.closest && t.closest('#btnExportCsv')) {
+      e.preventDefault();
+      handleExportCsv();
+      return;
+    }
+
+    // 4.7) Cerrar iframe modal
+    if (t.closest('[data-close-ac-iframe]')) {
+      e.preventDefault();
+      closeAcIframeModal();
+      return;
+    }
+
+    // 4.75) Reintentar iframe modal
+    const retryIf = t.closest('#acIf_retry');
+    if (retryIf) {
+      e.preventDefault();
+
+      const c = getCurrentClient();
+      const url = String(retryIf.getAttribute('data-url') || '').trim();
+
+      if (!url || !c) return;
+
+      const rs = (c.razon_social || '').toString().trim();
+      const rfc = (c.rfc || c.id || '').toString().trim();
+      const currentTitle = ($('#acIf_title')?.textContent || 'Submódulo').trim();
+
+      openAcIframeModal({
+        title: currentTitle,
+        subtitle: (rs ? (rs + ' · ') : '') + (rfc ? ('RFC/ID ' + rfc) : ''),
+        url
+      });
+      return;
+    }
+
+    // 4.8) Abrir iframe modal (admin/state)
+    const openIf = t.closest('[data-open-iframe]');
+    if (openIf) {
+      e.preventDefault();
+
+      const mode = String(openIf.getAttribute('data-open-iframe') || '').trim();
+      const c = getCurrentClient();
+      if (!c) {
+        alert('No se detectó el cliente actual.');
+        return;
+      }
+
+      const rs = (c.razon_social || '').toString().trim();
+      const rfc = (c.rfc || c.id || '').toString().trim();
+
+      if (mode === 'admin') {
+        const url = (c.billing_admin_url || '').toString().trim();
+        openAcIframeModal({
+          title: 'Administrar (Billing)',
+          subtitle: (rs ? (rs + ' · ') : '') + (rfc ? ('RFC/ID ' + rfc) : ''),
+          url
+        });
+        return;
+      }
+
+      if (mode === 'state') {
+        const url = (c.billing_statehub_url || '').toString().trim();
+        openAcIframeModal({
+          title: 'Estado (Hub)',
+          subtitle: (rs ? (rs + ' · ') : '') + (rfc ? ('RFC/ID ' + rfc) : ''),
+          url
+        });
+        return;
+      }
+    }
+
+    // 5) Abrir drawer
     const openBtn = t.closest('[data-open-drawer]');
     if (openBtn) {
-      const row = openBtn.closest('.ac-row');
-      const client = parseClient(row);
-      DBG.log('open drawer btn', { hasClient: !!client });
+      const row3 = openBtn.closest('.ac-row[data-client]');
+      const client = parseClientFromRow(row3) || getCurrentClient();
       if (client) openDrawer(client);
       return;
     }
 
-    // 4) cerrar drawer
+    // 6) Drawer: acciones -> abrir modales
+    if (drawer && drawer.classList.contains('open') && t.closest('#clientDrawer')) {
+     const btn = t.closest('[data-drawer-action], #btnOpenEdit, #btnOpenRecipients, #btnOpenCreds, #btnOpenBilling, #drFormEmailCreds button');
+      if (btn) {
+        e.preventDefault();
+        const c = getCurrentClient();
+        if (!c) return;
+
+        const da = (btn.getAttribute('data-drawer-action') || '').trim().toLowerCase();
+        const id = (btn.getAttribute('id') || '').trim();
+
+        const action =
+          da ||
+          (id === 'btnOpenEdit' ? 'edit' :
+           id === 'btnOpenRecipients' ? 'recipients' :
+           id === 'btnOpenCreds' ? 'creds' :
+           id === 'btnOpenBilling' ? 'billing' :
+           (btn.closest && btn.closest('#drFormEmailCreds') ? 'creds' : '')
+          );
+
+        if (action) openDrawerModalAction(action, c);
+        return;
+      }
+    }
+
+    // 7) Cerrar drawer
     if (t.closest('[data-close-drawer]')) {
-      DBG.log('close drawer click', {});
       closeDrawer();
       return;
     }
 
-    // 5) tabs
+    // 8) Tabs
     const tabBtn = t.closest('.ac-tab[data-tab]');
     if (tabBtn) {
       e.preventDefault();
-      DBG.log('tab click', { tab: tabBtn.getAttribute('data-tab') });
       handleTabs(tabBtn);
       return;
     }
 
-    // 6) copiar
+    // 9) Copy
     const copyBtn = t.closest('[data-copy]');
     if (copyBtn) {
       e.preventDefault();
-      DBG.log('copy click', { sel: copyBtn.getAttribute('data-copy') });
       handleCopy(copyBtn);
       return;
     }
 
-    // 7) cerrar modales
+    // 10) Close modal
     if (t.closest('[data-close-modal]')) {
       const m = t.closest('.ac-modal');
-      DBG.log('close modal click', { id: m ? m.id : '' });
       closeModal(m);
       return;
     }
 
-    // re-asegura que no regrese scroll interno del layout
-    if (typeof DoubleScrollFix !== 'undefined') DoubleScrollFix.run();
-
-    // 8) backdrop click -> cerrar modal
+    // 11) Backdrop click -> close modal (si aplica)
     const modal = t.closest('.ac-modal.open, .ac-modal.show');
     if (modal) {
       const isBackdrop = t === modal;
       const clickedInside = !!t.closest('.ac-modal-card,.ac-modal__card,.modal-card,.modal-content');
       if (isBackdrop && !clickedInside) {
-        DBG.log('backdrop click -> close modal', { id: modal.id || '' });
         closeModal(modal);
         return;
       }
     }
-  });
 
-  // ===== ESC
+    // 12) asegurar no vuelva scroll interno
+    DoubleScrollFix.run();
+  }, true);
+
+  // =========================================================
+  // ESC
+  // =========================================================
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
 
     const anyMenu = $('.ac-menu.open,[data-menu].open');
     if (anyMenu) {
-      $$('.ac-menu.open,[data-menu].open').forEach(m => m.classList.remove('open'));
-      DBG.log('ESC -> close menus', {});
+      closeAllMenusExcept(null);
       return;
     }
 
     const openModalEl = $('.ac-modal.open') || $('.ac-modal.show');
     if (openModalEl) {
-      DBG.log('ESC -> close modal', { id: openModalEl.id || '' });
       closeModal(openModalEl);
       return;
     }
 
     if (drawer && drawer.classList.contains('open')) {
-      DBG.log('ESC -> close drawer', {});
       closeDrawer();
     }
   });
 
-  // ===== Safety: normalizar lock
+  // =========================================================
+  // Normalize initial lock state
+  // =========================================================
   (function normalizeInitialState() {
-        const anyModalOpen = !!($('.ac-modal.open') || $('.ac-modal.show'));
-        const drawerOpen = !!(drawer && drawer.classList.contains('open'));
+    const anyModalOpen = !!($('.ac-modal.open') || $('.ac-modal.show'));
+    const drawerOpen = !!(drawer && drawer.classList.contains('open'));
 
-        if (anyModalOpen || drawerOpen) {
-          Lock.reset();
-          if (drawerOpen) Lock.on();
-          if (anyModalOpen) Lock.on();
-          document.documentElement.classList.add('ac-lock');
-          DBG.log('normalizeInitialState', { anyModalOpen, drawerOpen });
-        }
-      })();
+    if (anyModalOpen || drawerOpen) {
+      Lock.reset();
+      if (drawerOpen) Lock.on();
+      if (anyModalOpen) Lock.on();
+      document.documentElement.classList.add('ac-lock');
+      document.body.classList.add('ac-lock');
+    } else {
+      Lock.reset();
+    }
+  })();
 
-    /* ============================================================
-    * PACTOPIA360 · Admin Clientes vNext
-    * FIX: asegurar drawer._client SIEMPRE (desde row[data-client])
-    * - Soporta data-client escapado (&quot;)
-    * - Captura click/focus EN CAPTURE para correr antes de otros handlers
-    * - Expone helpers globales para debug
-    * ============================================================ */
-    (function () {
-      'use strict';
-
-      const $ = (s, sc) => (sc || document).querySelector(s);
-
-      function decodeHtmlEntities(str) {
-        str = String(str || '');
-        if (!str) return '';
-        const t = document.createElement('textarea');
-        t.innerHTML = str;
-        return t.value;
-      }
-
-      function parseClientFromRow(row) {
-        if (!row) return null;
-
-        const raw = row.getAttribute('data-client') || '';
-        if (!raw) return null;
-
-        const json = decodeHtmlEntities(raw);
-        try { return JSON.parse(json); } catch (e) { return null; }
-      }
-
-      function setCurrentClient(c) {
-        if (!c || typeof c !== 'object') return false;
-
-        const drawer = $('#clientDrawer');
-        if (drawer) {
-          drawer._client = c;
-          drawer.setAttribute('data-has-client', '1');
-        }
-
-        // fallback global
-        window.P360_AC_CURRENT = c;
-
-        return true;
-      }
-
-      function setCurrentClientFromRow(row) {
-        const c = parseClientFromRow(row);
-        if (!c) return false;
-        return setCurrentClient(c);
-      }
-
-      function findRowFromEventTarget(target) {
-        if (!target) return null;
-
-        // 1) click dentro de una fila
-        const row = target.closest && target.closest('.ac-row[data-client]');
-        if (row) return row;
-
-        // 2) click en botones/acciones/menu dentro de la fila
-        const wrap =
-          (target.closest && (
-            target.closest('.cell.actions') ||
-            target.closest('.ac-menu') ||
-            target.closest('[data-open-drawer]') ||
-            target.closest('[data-drawer-action]') ||
-            target.closest('[data-menu-toggle]') ||
-            target.closest('.ac-btn')
-          ));
-
-        if (wrap) {
-          const r2 = wrap.closest && wrap.closest('.ac-row[data-client]');
-          if (r2) return r2;
-        }
-
-        return null;
-      }
-
-      // ✅ CAPTURE: corre antes que otros listeners (clave)
-      document.addEventListener('click', function (e) {
-        const row = findRowFromEventTarget(e.target);
-        if (!row) return;
-        setCurrentClientFromRow(row);
-      }, true);
-
-      document.addEventListener('focusin', function (e) {
-        const row = findRowFromEventTarget(e.target);
-        if (!row) return;
-        setCurrentClientFromRow(row);
-      }, true);
-
-      // Helpers globales para debug
-      window.__AC_SET_CURRENT_FROM_FIRST_ROW = function () {
-        const row = document.querySelector('.ac-row[data-client]');
-        return setCurrentClientFromRow(row);
-      };
-
-      window.__AC_GET_CURRENT = function () {
-        const drawer = document.querySelector('#clientDrawer');
-        return (drawer && drawer._client) ? drawer._client : (window.P360_AC_CURRENT || null);
-      };
-    })();
-
-
-    /* ============================================================
-    * PACTOPIA360 · Admin Clientes
-    * HARD FIX: Edit SIEMPRE llena form + action aunque otros JS interfieran
-    * - Usa drawer._client (ya garantizado por el helper)
-    * - Corre en CAPTURE y corta propagación
-    * ============================================================ */
-    (function () {
-      'use strict';
-
-      const $ = (s, sc) => (sc || document).querySelector(s);
-
-      function isEditTrigger(el){
-        if (!el) return false;
-
-        // botones esperados
-        if (el.closest && el.closest('#btnOpenEdit')) return true;
-
-        // menu item del drawer "Editar"
-        const da = el.closest && el.closest('[data-drawer-action="edit"]');
-        if (da) return true;
-
-        // fallback por texto (por si cambia markup)
-        const btn = el.closest && el.closest('button, a, [role="button"]');
-        if (!btn) return false;
-        const txt = (btn.textContent || '').trim().toLowerCase();
-        if (!txt) return false;
-        return (txt === 'editar' || txt.includes('editar'));
-      }
-
-      function openEditHard(){
-        const drawer = $('#clientDrawer');
-        const client = drawer && drawer._client ? drawer._client : (window.P360_AC_CURRENT || null);
-        if (!client) return false;
-
-        // usa las funciones ya definidas en admin-clientes.js
-        if (typeof fillEditModal === 'function') {
-          fillEditModal(client);
-        } else {
-          // fallback mínimo si por alguna razón no existe
-          const form = $('#mEdit_form');
-          const hid  = $('#mEdit_id');
-          if (hid) hid.value = (client.id ?? client.rfc ?? '').toString();
-          if (form) {
-            const key = (client.id ?? client.rfc ?? '').toString().trim();
-            if (key) form.setAttribute('action', `/admin/clientes/${encodeURIComponent(key)}/save`);
-          }
-        }
-
-        // abrir modal sí o sí
-        if (typeof openModal === 'function') {
-          openModal('#modalEdit');
-        } else {
-          const m = $('#modalEdit');
-          if (m) {
-            m.classList.add('open','show');
-            m.setAttribute('aria-hidden','false');
-          }
-        }
-
-        return true;
-      }
-
-      // CAPTURE: antes que cualquier otro handler
-      document.addEventListener('click', function(e){
-        if (!isEditTrigger(e.target)) return;
-
-        // si ya está abierto, igual rellenamos por seguridad
-        const ok = openEditHard();
-
-        // corta interferencias
-        if (ok) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        }
-      }, true);
-
-    })();
-    
 })();

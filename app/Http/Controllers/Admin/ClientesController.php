@@ -669,17 +669,23 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         // ✅ Acepta monthly/yearly + mensual/anual
         $rules = [
-            'razon_social'      => 'nullable|string|max:190',
-            'email'             => 'nullable|string|max:190', // normalizamos nosotros
-            'phone'             => 'nullable|string|max:25',
-            'plan'              => 'nullable|string|max:50',
-            'billing_cycle'     => 'nullable|string|max:20',
-            'billing_status'    => 'nullable|string|max:30',
-            'next_invoice_date' => 'nullable|date',
-            'is_blocked'        => 'nullable|boolean',
-            'custom_amount_mxn' => 'nullable|numeric|min:0|max:99999999',
-            'vault_active'      => 'nullable|boolean',
-        ];
+                'razon_social'      => 'nullable|string|max:190',
+                'email'             => 'nullable|string|max:190',
+                'phone'             => 'nullable|string|max:25',
+                'plan'              => 'nullable|string|max:50',
+                'billing_cycle'     => 'nullable|string|max:20',
+                'billing_status'    => 'nullable|string|max:30',
+                'next_invoice_date' => 'nullable|date',
+
+                // ✅ checkbox actual UI (alias)
+                'blocked'           => 'nullable|boolean',
+
+                // ✅ compat / api
+                'is_blocked'        => 'nullable|boolean',
+
+                'custom_amount_mxn' => 'nullable|numeric|min:0|max:99999999',
+                'vault_active'      => 'nullable|boolean',
+            ];
 
         $data = validator($request->all(), $rules)->validate();
 
@@ -694,60 +700,101 @@ class ClientesController extends \App\Http\Controllers\Controller
         $cycle = $this->normalizeBillingCycleNullable($data['billing_cycle'] ?? null);
         $bs    = $this->normalizeBillingStatusNullable($data['billing_status'] ?? null);
 
-        $isBlocked = array_key_exists('is_blocked', $data)
-            ? $this->normalizeBoolInt($data['is_blocked'], 0)
+        // ✅ UI manda "blocked", backend/legacy manda "is_blocked"
+        $blockedKey = array_key_exists('is_blocked', $data) ? 'is_blocked'
+                    : (array_key_exists('blocked', $data) ? 'blocked' : null);
+
+        $isBlocked = $blockedKey
+            ? $this->normalizeBoolInt($data[$blockedKey], 0)
             : null;
 
         $vaultActive = array_key_exists('vault_active', $data)
             ? $this->normalizeBoolInt($data['vault_active'], 0)
             : null;
 
-        // =========================
-        // Payload: SOLO lo que venga (no pisar con null/vacío)
-        // =========================
-        $payload = [
-            'updated_at' => now(),
-        ];
+        // =========================================================
+        // ✅ IMPORTANTE:
+        // - $payloadAdmin: SOLO columnas que EXISTEN en admin.accounts
+        // - $payloadMirror: lo que queremos reflejar en mysql_clientes (aunque admin no tenga columna)
+        // =========================================================
+        $payloadAdmin  = ['updated_at' => now()];
+        $payloadMirror = ['updated_at' => now()];
 
         // =========================================================
-        // ✅ META: cargar UNA vez, mutar, y escribir UNA vez
+        // ✅ META: cargar UNA vez, mutar, y escribir UNA vez (solo admin si existe meta)
         // =========================================================
         $metaDirty = false;
         $meta      = null;
 
         $loadMeta = function () use (&$meta, $acc) {
             if ($meta !== null) return;
-
             $meta = $this->decodeMeta($acc->meta ?? null);
             if (!is_array($meta)) $meta = [];
         };
 
-        $flushMeta = function () use (&$meta, &$payload, &$metaDirty) {
+        $flushMeta = function () use (&$meta, &$payloadAdmin, &$metaDirty) {
             if (!$metaDirty) return;
-            $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+            $payloadAdmin['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
         };
 
         // =========================
-        // Campos directos
+        // Campos directos (ADMIN)
         // =========================
         if ($razon !== null && $this->hasCol($this->adminConn, 'accounts', 'razon_social')) {
-            $payload['razon_social'] = (string) $razon;
+            $payloadAdmin['razon_social'] = (string) $razon;
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', $emailCol) && array_key_exists('email', $data)) {
-            $payload[$emailCol] = $email; // null permitido para limpiar
+            $payloadAdmin[$emailCol] = $email; // null permitido para limpiar
         }
 
-        if ($this->hasCol($this->adminConn, 'accounts', $phoneCol) && array_key_exists('phone', $data)) {
-            $payload[$phoneCol] = $phone; // null permitido para limpiar
+        // ===== PATCH: columns cache local (por request) =====
+        $colsAccounts = null;
+        $getAccountsCols = function () use (&$colsAccounts) {
+            if (is_array($colsAccounts)) return $colsAccounts;
+            try {
+                $colsAccounts = collect(DB::connection($this->adminConn)->select("SHOW COLUMNS FROM accounts"))
+                    ->pluck('Field')
+                    ->map(fn($x) => strtolower((string)$x))
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                $colsAccounts = [];
+            }
+            return $colsAccounts;
+        };
+        $accHas = function (string $col) use ($getAccountsCols) : bool {
+            $col = strtolower(trim($col));
+            if ($col === '') return false;
+            return in_array($col, $getAccountsCols(), true);
+        };
+
+        // ===== Teléfono (sync phone/telefono SIEMPRE) =====
+        if (array_key_exists('phone', $data)) {
+
+            // preferido (tu colPhone), si existe
+            if ($phoneCol && $accHas($phoneCol)) {
+                $payloadAdmin[$phoneCol] = $phone; // null permitido para limpiar
+            }
+
+            // ✅ mantener ambas SI existen (en tu schema sí existen ambas)
+            if ($accHas('phone')) {
+                $payloadAdmin['phone'] = $phone;
+            }
+            if ($accHas('telefono')) {
+                $payloadAdmin['telefono'] = $phone;
+            }
+
+            // mirror (cuentas_cliente usa telefono)
+            $payloadMirror['telefono'] = $phone;
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', 'plan') && array_key_exists('plan', $data)) {
-            $payload['plan'] = $plan; // null permitido
+            $payloadAdmin['plan'] = $plan;
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', 'plan_actual') && array_key_exists('plan', $data)) {
-            $payload['plan_actual'] = $plan;
+            $payloadAdmin['plan_actual'] = $plan;
         }
 
         // =========================================================
@@ -757,88 +804,95 @@ class ClientesController extends \App\Http\Controllers\Controller
         // =========================================================
         if (array_key_exists('billing_cycle', $data)) {
 
-            // 1) modo_cobro (si existe) — aquí SÍ lo ponemos aunque antes estuviera null
+            // 1) modo_cobro (admin) si existe
             if ($this->hasCol($this->adminConn, 'accounts', 'modo_cobro')) {
                 $modo = $this->cycleToModo($cycle); // mensual|anual|null
-
-                // Si vino billing_cycle pero no pudimos normalizarlo, no tocamos modo_cobro
                 if ($modo !== null) {
-                    $payload['modo_cobro'] = $modo;
+                    $payloadAdmin['modo_cobro'] = $modo;
+                    // también al espejo si existe
+                    $payloadMirror['modo_cobro'] = $modo;
                 }
             }
 
-            // 2) meta
+            // 2) meta (admin) si existe
             if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
                 $loadMeta();
 
-                // guardamos ambos para compat
                 if ($cycle !== null) {
-                    data_set($meta, 'billing.billing_cycle', $cycle); // monthly|yearly
-                    data_set($meta, 'billing.cycle', $cycle);         // alias
+                    data_set($meta, 'billing.billing_cycle', $cycle);
+                    data_set($meta, 'billing.cycle', $cycle);
                 }
 
                 $modo = $this->cycleToModo($cycle);
                 if ($modo) {
-                    data_set($meta, 'billing.mode', $modo);           // mensual|anual
+                    data_set($meta, 'billing.mode', $modo);
                 }
 
                 $metaDirty = true;
             }
+
+            // 3) espejo billing_cycle (si existe en mysql_clientes)
+            if ($cycle !== null) {
+                $payloadMirror['billing_cycle'] = $cycle;
+            }
         }
 
-        // =========================================================
-        // ✅ BACKFILL modo_cobro: si NO viene billing_cycle pero meta sí trae mode
-        // (para que nunca te quede null si meta ya trae mensual/anual)
-        // =========================================================
+        // backfill modo_cobro desde meta si aplica (admin)
         if (
             $this->hasCol($this->adminConn, 'accounts', 'modo_cobro')
             && !array_key_exists('billing_cycle', $data)
-            && !array_key_exists('modo_cobro', $payload) // no pisar si ya lo setearon arriba
+            && !array_key_exists('modo_cobro', $payloadAdmin)
         ) {
-            $loadMeta();
-            $mode = strtolower(trim((string) (
-                data_get($meta, 'billing.mode')
-                ?? data_get($meta, 'billing.modo')
-                ?? ''
-            )));
-
-            if ($mode === 'mensual' || $mode === 'anual') {
-                $payload['modo_cobro'] = $mode;
+            if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+                $loadMeta();
+                $mode = strtolower(trim((string) (
+                    data_get($meta, 'billing.mode')
+                    ?? data_get($meta, 'billing.modo')
+                    ?? ''
+                )));
+                if ($mode === 'mensual' || $mode === 'anual') {
+                    $payloadAdmin['modo_cobro'] = $mode;
+                    $payloadMirror['modo_cobro'] = $mode;
+                }
             }
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', 'billing_status') && array_key_exists('billing_status', $data)) {
-            $payload['billing_status'] = $bs; // normalizado
+            $payloadAdmin['billing_status'] = $bs;
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', 'next_invoice_date') && array_key_exists('next_invoice_date', $data)) {
-            $payload['next_invoice_date'] = $this->blankToNull($data['next_invoice_date'] ?? null);
+            $payloadAdmin['next_invoice_date'] = $this->blankToNull($data['next_invoice_date'] ?? null);
+            $payloadMirror['next_invoice_date'] = $payloadAdmin['next_invoice_date'];
         }
 
         if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked') && $isBlocked !== null) {
-            $payload['is_blocked'] = (int) $isBlocked;
+            $payloadAdmin['is_blocked'] = (int) $isBlocked;
+            $payloadMirror['is_blocked'] = (int) $isBlocked;
         }
 
         // =========================================================
-        // ✅ VAULT ACTIVE: admin.accounts (si existe) + meta compat
+        // ✅ VAULT ACTIVE:
+        // - admin.accounts SOLO si la columna existe (CRÍTICO)
+        // - espejo SIEMPRE intentamos reflejar (si existe col)
+        // - meta compat si existe
         // =========================================================
         if ($vaultActive !== null) {
 
             if ($this->hasCol($this->adminConn, 'accounts', 'vault_active')) {
-                $payload['vault_active'] = (int) $vaultActive;
+                $payloadAdmin['vault_active'] = (int) $vaultActive;
             }
 
+            // meta (admin) si existe
             if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
                 $loadMeta();
-
                 data_set($meta, 'vault.active', (bool) $vaultActive);
                 data_set($meta, 'vault_active', (bool) $vaultActive);
-
                 $metaDirty = true;
             }
 
-            // Muy importante: que llegue al espejo
-            $payload['vault_active'] = $payload['vault_active'] ?? (int) $vaultActive;
+            // espejo: aunque admin no tenga columna, lo mandamos a syncPlanToMirror
+            $payloadMirror['vault_active'] = (int) $vaultActive;
         }
 
         // =========================================================
@@ -855,7 +909,6 @@ class ClientesController extends \App\Http\Controllers\Controller
                 data_set($meta, 'billing.override.amount_mxn', $custom);
                 data_set($meta, 'billing.override.enabled', true);
 
-                // También guardamos modo (mensual/anual) coherente si hay cycle
                 $modo = $this->cycleToModo($cycle);
                 if ($modo) {
                     data_set($meta, 'billing.mode', $modo);
@@ -866,28 +919,45 @@ class ClientesController extends \App\Http\Controllers\Controller
 
             foreach (['custom_amount_mxn', 'override_amount_mxn', 'billing_amount_mxn', 'amount_mxn', 'license_amount_mxn'] as $col) {
                 if ($this->hasCol($this->adminConn, 'accounts', $col)) {
-                    $payload[$col] = $custom;
+                    $payloadAdmin[$col] = $custom;
                     break;
                 }
             }
+
+            // espejo (si existiera alguna col equivalente en cuentas_cliente) lo manejarías allá;
+            // por ahora basta con meta/admin.
         }
 
         // ✅ Al final: si tocamos meta, se escribe UNA vez
         $flushMeta();
 
+        // =========================================================
+        // UPDATE admin.accounts (solo payloadAdmin)
+        // =========================================================
+        $affected = DB::connection($this->adminConn)
+            ->table('accounts')
+            ->where('id', (int) $accountId)
+            ->update($payloadAdmin);
 
-        // =========================================================
-        // UPDATE admin.accounts
-        // =========================================================
-        DB::connection($this->adminConn)->table('accounts')->where('id', $accountId)->update($payload);
+        if ($affected < 1) {
+            \Log::warning('[CLIENTES] save(): UPDATE 0 rows', [
+                'key'       => $key,
+                'accountId' => $accountId,
+                'conn'      => $this->adminConn,
+                'payload'   => $payloadAdmin,
+            ]);
+
+            return back()->with('error', 'No se aplicaron cambios (UPDATE=0). Revisa el form (name=) y el key.');
+        }
 
         // ✅ Legacy "clientes" debe ir por RFC real (no por id)
         if ($rfcReal !== '') {
-            $this->upsertClienteLegacy($rfcReal, $payload);
+            $this->upsertClienteLegacy($rfcReal, $payloadAdmin);
         }
 
-        // ✅ Espejo mysql_clientes: aquí es donde realmente se refleja en el menú
-        $this->syncPlanToMirror($accountId, $payload);
+        // ✅ Espejo mysql_clientes: reflejar lo relevante aunque admin no tenga columna
+        // (vault_active era el que te rompía el save)
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
 
         return back()->with('ok', 'Datos guardados.');
     }
@@ -1626,7 +1696,8 @@ class ClientesController extends \App\Http\Controllers\Controller
     public function syncToClientes(): RedirectResponse
     {
         if (!$this->legacyHasTable('clientes')) {
-            return back()->with('ok', 'Sync omitido: no existe tabla clientes (legacy).');
+            return redirect()->route('admin.clientes.index')
+                ->with('info', 'Sync omitido: no existe tabla clientes (legacy).');
         }
 
         $created = 0;
@@ -1677,7 +1748,10 @@ class ClientesController extends \App\Http\Controllers\Controller
                 }
             });
 
-        return back()->with('ok', "Sync clientes OK. Creados {$created}, Actualizados {$updated}.");
+        // ✅ IMPORTANTÍSIMO: NO usar back() aquí
+        // porque el referer puede ser /admin/clientes/sync-to-clientes (GET => 404)
+        return redirect()->route('admin.clientes.index')
+            ->with('ok', "Sync clientes OK. Creados {$created}, Actualizados {$updated}.");
     }
 
     // ======================= BULK =======================
@@ -2831,8 +2905,8 @@ class ClientesController extends \App\Http\Controllers\Controller
      */
     private function ensureMirrorAndOwner(string $accountId, string $rfcReal): array
     {
-        $accountId = trim($accountId);
-        $rfcReal   = strtoupper(trim($rfcReal));
+        $accountId = trim((string) $accountId);
+        $rfcReal   = strtoupper(trim((string) $rfcReal));
 
         abort_unless(
             Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')
@@ -2861,33 +2935,34 @@ class ClientesController extends \App\Http\Controllers\Controller
         $schemaCli = Schema::connection('mysql_clientes');
         $connCli   = DB::connection('mysql_clientes');
 
-        // Si normalizeMirrorCuenta devolvió winner, úsalo como cuenta espejo canónica
-        $cuenta = null;
-        if (isset($winner) && $winner) {
-            $cuenta = $winner;
-        }
-
-
         // ================================
-        // ✅ NORMALIZACIÓN ANTI-DUPLICADOS (SOT: normalizeMirrorCuenta)
+        // ✅ NORMALIZACIÓN ANTI-DUPLICADOS
+        // - Si existen duplicados, deja UN "winner" amarrado a accounts.id
+        // - IMPORTANTE: si winner existe, lo usamos como cuenta canónica
         // ================================
+        $winner = null;
         try {
-            // Normaliza cualquier colisión por admin_account_id / rfc / rfc_padre
-            // y deja un solo "winner" amarrado al accounts.id.
-            $winner = $this->normalizeMirrorCuenta((string)$acc->id, $rfcReal);
+            $winner = $this->normalizeMirrorCuenta((string) $acc->id, $rfcReal);
         } catch (\Throwable $e) {
-            // no rompe
-            $winner = null;
+            $winner = null; // no rompe flujo
         }
 
-
         // ==========================
-        // Resolver cuenta espejo
+        // Resolver cuenta espejo (determinístico)
         // ==========================
         $cuenta = null;
+
+        // 0) Si normalizeMirrorCuenta ya eligió winner, úsalo
+        if ($winner && is_object($winner) && !empty($winner->id)) {
+            try {
+                $cuenta = $connCli->table('cuentas_cliente')->where('id', (string) $winner->id)->first();
+            } catch (\Throwable $e) {
+                $cuenta = $winner; // fallback mínimo
+            }
+        }
 
         // 1) Canon: admin_account_id
-        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+        if (!$cuenta && $schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
             $cuenta = $connCli->table('cuentas_cliente')
                 ->where('admin_account_id', (int) $acc->id)
                 ->orderByDesc('updated_at')
@@ -2922,8 +2997,9 @@ class ClientesController extends \App\Http\Controllers\Controller
                 ->first();
         }
 
-
-        // ====== Crear si no existe ======
+        // ==========================
+        // Crear si no existe
+        // ==========================
         if (!$cuenta) {
             $cid = (string) Str::uuid();
 
@@ -2966,16 +3042,20 @@ class ClientesController extends \App\Http\Controllers\Controller
             if (!$cuenta) {
                 $cuenta = (object) ['id' => $cid];
             }
-
         } else {
 
-            // ====== Cura registro existente (consistencia mínima) ======
+            // ==========================
+            // Cura registro existente (consistencia mínima)
+            // ==========================
             try {
                 $upd2 = ['updated_at' => now()];
 
                 // admin_account_id obligatorio si existe la columna
-                if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id') && empty($cuenta->admin_account_id)) {
-                    $upd2['admin_account_id'] = (int) $acc->id;
+                if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                    $curA = (string) ($cuenta->admin_account_id ?? '');
+                    if ($curA === '' || (int) $curA !== (int) $acc->id) {
+                        $upd2['admin_account_id'] = (int) $acc->id;
+                    }
                 }
 
                 // rfc real
@@ -3013,7 +3093,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 if (count($upd2) > 1) {
                     $connCli->table('cuentas_cliente')->where('id', $cuenta->id)->update($upd2);
 
-                    // refrescar objeto
+                    // refrescar objeto local
                     foreach ($upd2 as $k => $v) {
                         if ($k === 'updated_at') continue;
                         $cuenta->{$k} = $v;
@@ -3134,60 +3214,129 @@ class ClientesController extends \App\Http\Controllers\Controller
         if (!$cuenta) return;
 
         // =========================
-        // UPDATE
+        // Helpers (normalización local)
+        // =========================
+        $blankToNull = function ($v) {
+            $v = is_string($v) ? trim($v) : $v;
+            if ($v === null) return null;
+            if (is_string($v) && $v === '') return null;
+            return $v;
+        };
+
+        $normEmail = function ($v) use ($blankToNull) {
+            $v = $blankToNull($v);
+            if ($v === null) return null;
+            $v = strtolower(trim((string)$v));
+            return $v === '' ? null : $v;
+        };
+
+        $normPhone = function ($v) use ($blankToNull) {
+            $v = $blankToNull($v);
+            if ($v === null) return null;
+            return trim((string)$v) ?: null;
+        };
+
+        $normPlan = function ($v) use ($blankToNull) {
+            $v = $blankToNull($v);
+            if ($v === null) return null;
+            $v = strtoupper(trim((string)$v));
+            // normaliza compat: "pro/free/PRO/FREE"
+            if ($v === 'PRO' || $v === 'FREE') return $v;
+            return $v; // fallback en mayúsculas
+        };
+
+        $normModoCobro = function ($v) use ($blankToNull) {
+            $v = $blankToNull($v);
+            if ($v === null) return null;
+            $v = strtolower(trim((string)$v));
+            if ($v === 'monthly') return 'mensual';
+            if ($v === 'yearly' || $v === 'annual') return 'anual';
+            if ($v === 'mensual' || $v === 'anual') return $v;
+            return $v ?: null;
+        };
+
+        $normBillingCycle = function ($v) use ($blankToNull) {
+            $v = $blankToNull($v);
+            if ($v === null) return null;
+            $v = strtolower(trim((string)$v));
+            if ($v === 'mensual') return 'monthly';
+            if ($v === 'anual' || $v === 'annual') return 'yearly';
+            if ($v === 'monthly' || $v === 'yearly') return $v;
+            return $v ?: null;
+        };
+
+        $normBoolInt = function ($v) {
+            if ($v === null) return null;
+            if (is_bool($v)) return $v ? 1 : 0;
+            $s = strtolower(trim((string)$v));
+            if ($s === '1' || $s === 'true' || $s === 'on' || $s === 'yes') return 1;
+            if ($s === '0' || $s === 'false' || $s === 'off' || $s === 'no') return 0;
+            return ((int)$v) ? 1 : 0;
+        };
+
+        // =========================
+        // UPDATE (solo lo que llega en payload)
         // =========================
         $upd = ['updated_at' => now()];
 
-        // plan_actual SOLO si plan no viene vacío
-        $planRaw = $payload['plan'] ?? null;
-        $plan    = is_string($planRaw) ? trim($planRaw) : '';
-        if ($plan === '') $plan = null;
+        // plan
+        $planRaw = $payload['plan'] ?? ($payload['plan_actual'] ?? null);
+        $plan    = $normPlan($planRaw);
 
-        // ✅ Guardar plan en espejo (plan_actual y/o plan)
         if ($plan !== null) {
-            if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) {
-                $upd['plan_actual'] = $plan;
-            }
-            if ($schemaCli->hasColumn('cuentas_cliente', 'plan')) {
-                $upd['plan'] = $plan;
-            }
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) $upd['plan_actual'] = $plan;
+            if ($schemaCli->hasColumn('cuentas_cliente', 'plan'))       $upd['plan'] = $plan;
         }
 
+        // email
+        if ($schemaCli->hasColumn('cuentas_cliente', 'email') && array_key_exists('email', $payload)) {
+            $upd['email'] = $normEmail($payload['email']);
+        }
+
+        // telefono (mirror usa "telefono") — SIEMPRE que venga en payload phone|telefono
+        if ($schemaCli->hasColumn('cuentas_cliente', 'telefono') && (array_key_exists('phone', $payload) || array_key_exists('telefono', $payload))) {
+            $tel = array_key_exists('telefono', $payload) ? $payload['telefono'] : ($payload['phone'] ?? null);
+            $upd['telefono'] = $normPhone($tel);
+        }
+
+        // modo_cobro
         if ($schemaCli->hasColumn('cuentas_cliente', 'modo_cobro') && array_key_exists('modo_cobro', $payload)) {
-            $upd['modo_cobro'] = $payload['modo_cobro'];
+            $upd['modo_cobro'] = $normModoCobro($payload['modo_cobro']);
         }
 
+        // billing_cycle
         if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle') && array_key_exists('billing_cycle', $payload)) {
-            $upd['billing_cycle'] = $payload['billing_cycle'];
+            $upd['billing_cycle'] = $normBillingCycle($payload['billing_cycle']);
         }
 
+        // next_invoice_date
         if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date') && array_key_exists('next_invoice_date', $payload)) {
-            $upd['next_invoice_date'] = $payload['next_invoice_date'];
+            $upd['next_invoice_date'] = $blankToNull($payload['next_invoice_date']);
         }
 
-        // ✅ Mantener RFC real en espejo
+        // mantener RFC real en espejo
         if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
             $upd['rfc'] = $rfcReal;
         }
 
-        // ✅ VAULT ACTIVE (lo que necesitas para el menú)
+        // vault_active
         if ($schemaCli->hasColumn('cuentas_cliente', 'vault_active') && array_key_exists('vault_active', $payload)) {
-            $upd['vault_active'] = (int) ((bool) $payload['vault_active']);
+            $upd['vault_active'] = (int)($normBoolInt($payload['vault_active']) ?? 0);
         }
 
-        // ✅ Opcional: si quieres que bloqueo admin se refleje en espejo
+        // bloqueo -> espejo
         if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked') && array_key_exists('is_blocked', $payload)) {
-            $upd['is_blocked'] = (int) $payload['is_blocked'];
+            $upd['is_blocked'] = (int)($normBoolInt($payload['is_blocked']) ?? 0);
         }
+
         if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta') && array_key_exists('is_blocked', $payload)) {
-            $upd['estado_cuenta'] = ((int)$payload['is_blocked'] === 1) ? 'suspendida' : 'activa';
+            $upd['estado_cuenta'] = ((int)($normBoolInt($payload['is_blocked']) ?? 0) === 1) ? 'suspendida' : 'activa';
         }
 
         if (count($upd) <= 1) return;
 
         $conn->table('cuentas_cliente')->where('id', (string)$cuenta->id)->update($upd);
     }
-
     private function decodeMeta(mixed $meta): array
     {
         if (is_array($meta)) return $meta;
@@ -3514,21 +3663,26 @@ class ClientesController extends \App\Http\Controllers\Controller
      */
     private function normalizePlanNullable(mixed $v): ?string
     {
-        $s = strtoupper(trim((string)($v ?? '')));
-        if ($s === '') return null;
+        $raw = trim((string)($v ?? ''));
+        if ($raw === '') return null;
 
-        // UI vNext (pro/free)
+        $s = strtoupper($raw);
+
+        // Canon
         if ($s === 'PRO')  return 'PRO';
         if ($s === 'FREE') return 'FREE';
 
-        // si llega "pro" / "free"
-        if (strtolower($s) === 'PRO')  return 'PRO';
-        if (strtolower($s) === 'FREE') return 'FREE';
+        // Legacy
+        if ($s === 'PRO_MENSUAL') return 'PRO_MENSUAL';
+        if ($s === 'PRO_ANUAL')   return 'PRO_ANUAL';
 
-        // legacy
-        if (in_array($s, ['PRO_MENSUAL','PRO_ANUAL'], true)) return $s;
+        // Si llega "monthly/yearly" por error, no lo metas como plan
+        $sl = strtolower($raw);
+        if (in_array($sl, ['monthly','yearly','mensual','anual','annual'], true)) {
+            return null;
+        }
 
-        // fallback: no inventar
+        // fallback: guardamos lo que venga (pero normalizado a upper)
         return $s;
     }
 

@@ -14,7 +14,11 @@
 
   {{-- ✅ Scroll fix: elimina doble scroll (solo scroll de pantalla completa) --}}
   <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.scrollfix.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.scrollfix.css')) }}">
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.modal.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.modal.css')) }}">
+   <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.modal.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.modal.css')) }}">
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.overlays.v2.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.overlays.v2.css')) }}">
+
+  {{-- ✅ Extras: estilos extraídos de inline del Blade --}}
+  <link rel="stylesheet" href="{{ asset('assets/admin/css/admin-clientes.vnext.page.extras.css') }}?v={{ @filemtime(public_path('assets/admin/css/admin-clientes.vnext.page.extras.css')) }}">
 @endpush
 
 @section('content')
@@ -235,55 +239,48 @@
     {{-- =========================
     KPIs (compactos + colapsables)
    ========================= --}}
-    <div class="ac-kpis ac-kpis--compact">
+        {{-- =========================
+       KPIs ultra-compactos (pills)
+       ========================= --}}
+    <div class="ac-kpi-bar" role="region" aria-label="KPIs">
+      <a class="ac-pill kpi" href="{{ route('admin.clientes.index') }}">
+        <strong>{{ $total ?? '—' }}</strong> <span class="mut">Total</span>
+      </a>
 
-      {{-- ✅ 4 KPIs principales (siempre visibles) --}}
-      <div class="ac-kpis-main">
-        <a class="ac-kpi clickable" href="{{ route('admin.clientes.index') }}" style="text-decoration:none;color:inherit;">
-          <div class="v">{{ $total ?? '—' }}</div><div class="k">Total</div>
-        </a>
+      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}">
+        <strong>{{ $cntPro }}</strong> <span class="mut">PRO</span>
+      </a>
 
-        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-          <div class="v">{{ $cntPro }}</div><div class="k">PRO</div>
-        </a>
+      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}">
+        <strong>{{ $cntActive }}</strong> <span class="mut">Activas</span>
+      </a>
 
-        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-          <div class="v">{{ $cntActive }}</div><div class="k">Activas</div>
-        </a>
+      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}">
+        <strong>{{ $cntBlocked }}</strong> <span class="mut">Bloqueados</span>
+      </a>
 
-        <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-          <div class="v">{{ $cntBlocked }}</div><div class="k">Bloqueados</div>
-        </a>
-      </div>
-
-      {{-- ✅ Resto: colapsable (no empuja tabla) --}}
-      <details class="ac-kpis-more">
-        <summary class="ac-kpis-more__summary">
-          <span><strong>Ver más KPIs</strong></span>
-          <span class="mut">
-            FREE: {{ $cntFree }} · Trial: {{ $cntTrial }} · Overdue: {{ $cntOverdue }} · Suspend/Cancel: {{ $cntSuspended + $cntCancelled }} · Verif mail: {{ $verMail }} · Verif tel: {{ $verPhone }}
-          </span>
+      <details class="ac-kpi-more">
+        <summary class="ac-pill kpi more">
+          <strong>Más…</strong>
+          <span class="mut">FREE {{ $cntFree }} · Trial {{ $cntTrial }} · Overdue {{ $cntOverdue }}</span>
         </summary>
 
-        <div class="ac-kpis-grid">
-          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-            <div class="v">{{ $cntFree }}</div><div class="k">FREE</div>
+        <div class="ac-kpi-more__row">
+          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">
+            <strong>{{ $cntFree }}</strong> <span class="mut">FREE</span>
           </a>
-
-          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-            <div class="v">{{ $cntTrial }}</div><div class="k">Prueba</div>
+          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">
+            <strong>{{ $cntTrial }}</strong> <span class="mut">Prueba</span>
           </a>
-
-          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-            <div class="v">{{ $cntOverdue }}</div><div class="k">Overdue</div>
+          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">
+            <strong>{{ $cntOverdue }}</strong> <span class="mut">Overdue</span>
           </a>
-
-          <a class="ac-kpi clickable" href="{{ request()->fullUrlWithQuery(['billing_status'=>'suspended','page'=>null]) }}" style="text-decoration:none;color:inherit;">
-            <div class="v">{{ $cntSuspended + $cntCancelled }}</div><div class="k">Suspend/Cancel</div>
-          </a>
-
-          <div class="ac-kpi ghost"><div class="v">{{ $verMail }}</div><div class="k">Correo verificado</div></div>
-          <div class="ac-kpi ghost"><div class="v">{{ $verPhone }}</div><div class="k">Tel verificado</div></div>
+          <span class="ac-pill kpi ghost">
+            <strong>{{ $verMail }}</strong> <span class="mut">Mail✔</span>
+          </span>
+          <span class="ac-pill kpi ghost">
+            <strong>{{ $verPhone }}</strong> <span class="mut">Tel✔</span>
+          </span>
         </div>
       </details>
     </div>
@@ -292,7 +289,7 @@
         Toolbar: segmented + filtros
        ========================= --}}
     <div class="ac-toolbar">
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div class="ac-toolbar-row">
         <div class="ac-seg" aria-label="Bloqueo">
           <a class="{{ $is('blocked','0')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'0','page'=>null]) }}">Operando</a>
           <a class="{{ $is('blocked','1')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}">Bloqueados</a>
@@ -388,7 +385,7 @@
             </div>
 
             <div class="ac-field ac-field-wide" style="grid-column: span 12;">
-              <div class="ac-form-actions" style="justify-content:flex-end">
+              <div class="ac-form-actions ac-actions-end">
                 <button class="ac-btn primary" type="submit">Aplicar</button>
                 <a class="ac-btn ghost" href="{{ route('admin.clientes.index') }}">Reset</a>
               </div>
@@ -429,16 +426,13 @@
 
       <div class="ac-list-head" aria-hidden="true">
         <div>Cliente</div>
-        <div>Contacto</div>
-        <div>Estado</div>
-        <div>Plan</div>
-        <div>Factura</div>
+        <div>Facturación</div>
         <div class="actions">Acciones</div>
       </div>
 
       @forelse($rows as $r)
         @php
-          $RFC_FULL = strtoupper(trim((string) (data_get($r,'rfc') ?: data_get($r,'tax_id') ?: data_get($r,'id'))));
+          $RFC_FULL = strtoupper(trim((string) (data_get($r,'rfc') ?: data_get($r,'id'))));
           $created  = $dtLabel($r->created_at ?? '');
           $idStr    = (string)($r->id ?? '');
 
@@ -467,6 +461,26 @@
           // ✅ Rutas seguras por fila (evita errores si cambia el nombre)
           $seedUrl   = $try('admin.clientes.seedStatement', ['rfc'=>$r->id]) ?: $try('admin.clientes.seedStatement', ['accountId'=>$r->id]);
           $recipUrl  = $try('admin.clientes.recipientsUpsert', ['rfc'=>$r->id]) ?: $try('admin.clientes.recipients.upsert', ['rfc'=>$r->id]);
+
+          // ✅ Billing Accounts (iframe modal) + Statements HUB (iframe modal)
+          $billingAdminUrl = '';
+          if (Route::has('admin.billing.accounts.show')) {
+            try {
+              // show de Billing Accounts (admin) por id del account (SOT)
+              $billingAdminUrl = route('admin.billing.accounts.show', ['id' => $r->id, 'modal' => 1]);
+            } catch (\Throwable $e) { $billingAdminUrl = ''; }
+          }
+
+          $billingStateHubUrl = '';
+          if (Route::has('admin.billing.statements_hub.index')) {
+            try {
+              $billingStateHubUrl = route('admin.billing.statements_hub.index', [
+                'period' => $defaultPeriod,
+                'q'      => $r->id,
+                'modal'  => 1,
+              ]);
+            } catch (\Throwable $e) { $billingStateHubUrl = ''; }
+          }
 
           $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.show',  ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
           $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.email', ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
@@ -555,7 +569,9 @@
             "razon_social" => (string)($r->razon_social ?? ''),
             "created" => $created,
             "email" => (string)($r->email ?? ''),
-            "phone" => (string)($r->phone ?? ''),
+            "phone" => (string)($r->phone ?? $r->telefono ?? ''),
+
+            "key" => $idStr, // o RFC si prefieres usar RFC como key de rutas
 
             "plan" => (string)($r->plan ?? ''),
             "billing_cycle" => (string)($bcRaw ?? ''),
@@ -585,6 +601,9 @@
             "seed_url" => $seedUrl ?: '',
             "stmt_show_url" => $stmtShow ?: '',
             "stmt_email_url" => $stmtEmail ?: '',
+
+            "billing_admin_url" => $billingAdminUrl ?: '',
+            "billing_statehub_url" => $billingStateHubUrl ?: '',
 
             "block_url" => $blockUrl ?: '',
             "unblock_url" => $unblockUrl ?: '',
@@ -617,108 +636,115 @@
           $clientJson = e(json_encode($clientPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         @endphp
 
-        <div class="ac-row" data-client="{{ $clientJson }}">
+                <div class="ac-row" data-client="{{ $clientJson }}">
 
-          {{-- Cliente --}}
+          {{-- =========================
+              Col 1: Cliente
+             ========================= --}}
           <div class="cell client" data-label="Cliente">
             <div class="ac-titleline">
               <div class="ac-rfc">{{ $RFC_FULL }}</div>
-              <span class="badge {{ $planVal==='pro' ? 'primary' : 'warn' }}"><span class="dot"></span>{{ $r->plan ? strtoupper((string)$r->plan) : '—' }}</span>
+              <span class="badge {{ $planVal==='pro' ? 'primary' : 'warn' }}">
+                <span class="dot"></span>{{ $r->plan ? strtoupper((string)$r->plan) : '—' }}
+              </span>
             </div>
+
             <div class="ac-rs">{{ $r->razon_social ?: '—' }}</div>
+
             <div class="ac-subline">
               <span>ID: <strong class="ac-mono">{{ $idStr ?: '—' }}</strong></span>
               <span>Creado: <strong>{{ $created }}</strong></span>
               <span>Edo: <strong>{{ $estadoCuenta ?: '—' }}</strong></span>
               @if($modoCobro)
-                <span>Modo cobro: <strong>{{ strtoupper($modoCobro) }}</strong></span>
+                <span>Modo: <strong>{{ strtoupper($modoCobro) }}</strong></span>
               @endif
             </div>
           </div>
 
-          {{-- Contacto --}}
-          <div class="cell" data-label="Contacto">
-            <div class="ac-kv">
-              <div class="k">Email</div>
-              <div class="v"><span class="ac-ellipsis mono" title="{{ $r->email ?: '' }}">{{ $r->email ?: '—' }}</span></div>
+          {{-- =========================
+              Col 2: Facturación (estado + ciclo + monto + contacto)
+             ========================= --}}
+          <div class="cell billing" data-label="Facturación">
 
-              <div class="k">Tel</div>
-              <div class="v"><span class="ac-ellipsis mono" title="{{ $r->phone ?: '' }}">{{ $r->phone ?: '—' }}</span></div>
-
-              <div class="k">Owner</div>
-              <div class="v"><span class="ac-ellipsis mono" title="{{ $ownerEmail ?: '' }}">{{ $ownerEmail ?: '—' }}</span></div>
-            </div>
-
-            <div class="ac-subline" style="margin-top:10px">
-              <span class="ac-ellipsis" title="{{ $stmtMain ?: '' }}"><strong>Edo. cuenta:</strong> {{ $stmtMain ?: '—' }}</span>
-            </div>
-          </div>
-
-          {{-- Estado --}}
-          <div class="cell" data-label="Estado">
+            {{-- Badges principales (máximo 3 para no saturar) --}}
             <div class="ac-badges">
-              <span class="badge {{ $isBlocked ? 'bad':'ok' }}"><span class="dot"></span>{{ $isBlocked ? 'Bloqueado' : 'Operando' }}</span>
-              <span class="badge {{ $bsCls }}"><span class="dot"></span>{{ $bsLbl }}</span>
+              <span class="badge {{ $isBlocked ? 'bad':'ok' }}">
+                <span class="dot"></span>{{ $isBlocked ? 'Bloqueado' : 'Operando' }}
+              </span>
+
+              <span class="badge {{ $bsCls }}">
+                <span class="dot"></span>{{ $bsLbl }}
+              </span>
+
               <span class="badge {{ ($mailOk && $phoneOk) ? 'ok':'warn' }}">
                 <span class="dot"></span>
-                Verif: {{ $mailOk?'Mail✔':'Mail⏳' }} · {{ $phoneOk?'Tel✔':'Tel⏳' }}
+                {{ $mailOk ? 'Mail✔' : 'Mail⏳' }} · {{ $phoneOk ? 'Tel✔' : 'Tel⏳' }}
               </span>
             </div>
 
+            {{-- Línea de billing (ciclo / próxima / monto) --}}
+            <div class="ac-billline">
+              <div class="it">
+                <div class="k">Ciclo</div>
+                <div class="v mono">{{ $bcLabel }}</div>
+              </div>
+
+              <div class="it">
+                <div class="k">Próx. factura</div>
+                <div class="v mono">{{ $nextLabel }}</div>
+              </div>
+
+              <div class="it">
+                <div class="k">Monto</div>
+                <div class="v"><strong>{{ $amtShow }}</strong> <span class="mut">({{ $amtMeta }})</span></div>
+              </div>
+            </div>
+
+            {{-- Contacto compacto + destinatario principal --}}
+            <div class="ac-subline mt8">
+              <span class="ac-ellipsis" title="{{ $r->email ?: '' }}">
+                <strong>Email:</strong> <span class="mono">{{ $r->email ?: '—' }}</span>
+              </span>
+
+              <span class="ac-ellipsis" title="{{ ($r->phone ?? $r->telefono) ?: '' }}">
+                <strong>Tel:</strong> <span class="mono">{{ ($r->phone ?? $r->telefono) ?: '—' }}</span>
+              </span>
+
+              <span class="ac-ellipsis" title="{{ $stmtMain ?: '' }}">
+                <strong>Edo. cuenta:</strong> <span class="mono">{{ $stmtMain ?: '—' }}</span>
+              </span>
+            </div>
+
+            {{-- Stripe IDs (solo si existen; una sola línea para no ensuciar) --}}
             @if(!empty($stripeCust) || !empty($stripeSub))
-              <div class="ac-subline" style="margin-top:10px">
-                <span class="ac-ellipsis" title="{{ $stripeCust }}">Stripe C: <span class="ac-mono">{{ $stripeCust ?: '—' }}</span></span>
-                <span class="ac-ellipsis" title="{{ $stripeSub }}">Sub: <span class="ac-mono">{{ $stripeSub ?: '—' }}</span></span>
+              <div class="ac-subline mt6">
+                @if(!empty($stripeCust))
+                  <span class="ac-ellipsis" title="{{ $stripeCust }}"><strong>Stripe C:</strong> <span class="ac-mono">{{ $stripeCust }}</span></span>
+                @endif
+                @if(!empty($stripeSub))
+                  <span class="ac-ellipsis" title="{{ $stripeSub }}"><strong>Sub:</strong> <span class="ac-mono">{{ $stripeSub }}</span></span>
+                @endif
               </div>
             @endif
+
           </div>
 
-          {{-- Plan/Ciclo --}}
-          <div class="cell" data-label="Plan">
-            <div class="mono" style="font-weight:900">{{ $bcLabel }}</div>
-            <div class="ac-subline">
-              <span>Próx periodo: <strong class="mono">{{ $nextPeriodEndLbl }}</strong></span>
-            </div>
-            @if($emailToken)
-              <div class="ac-subline" title="{{ $emailToken }}">
-                <span>Token: <span class="ac-mono">{{ \Illuminate\Support\Str::limit($emailToken, 14, '…') }}</span></span>
-                @if($emailTokenExp) <span>Exp: <strong>{{ $emailTokenExp }}</strong></span>@endif
-              </div>
-            @endif
-            @if($otpCode)
-              <div class="ac-subline">
-                <span>OTP: <span class="ac-mono">{{ $otpCode }}</span></span>
-                @if($otpChannel) <span><strong>{{ strtoupper($otpChannel) }}</strong></span>@endif
-                @if($otpExp) <span>Exp: <strong>{{ $otpExp }}</strong></span>@endif
-              </div>
-            @endif
-          </div>
-
-          {{-- Factura/Monto --}}
-          <div class="cell" data-label="Factura">
-            <div class="mono" style="font-weight:900">{{ $nextLabel }}</div>
-            <div class="ac-subline">
-              <span>Periodo: <strong>{{ $defaultPeriod }}</strong></span>
-            </div>
-            <div class="ac-subline" style="margin-top:10px">
-              <span><strong>{{ $amtShow }}</strong> <span style="opacity:.7">({{ $amtMeta }})</span></span>
-            </div>
-          </div>
-
-          {{-- Acciones --}}
+          {{-- =========================
+              Col 3: Acciones
+             ========================= --}}
           <div class="cell actions" data-label="Acciones">
             <button class="ac-btn small" type="button" data-open-drawer title="Abrir drawer">Ver</button>
 
             {{-- Reenvíos rápidos --}}
             @if($resendVerifyUrl)
-              <form method="POST" action="{{ $resendVerifyUrl }}" class="inline" style="display:inline">
+              <form method="POST" action="{{ $resendVerifyUrl }}" class="inline ac-actions-inline">
                 @csrf
                 <button class="ac-btn small" type="submit" title="Reenviar verificación">Reenviar</button>
               </form>
             @endif
 
             @if($sendOtpUrl)
-              <form method="POST" action="{{ $sendOtpUrl }}" class="inline" style="display:inline">
+              <form method="POST" action="{{ $sendOtpUrl }}" class="inline ac-actions-inline">
                 @csrf
                 <input type="hidden" name="channel" value="sms">
                 <button class="ac-btn small" type="submit" title="Enviar OTP">OTP</button>
@@ -734,7 +760,10 @@
                 <button type="button" class="ac-btn" data-drawer-action="creds">Credenciales</button>
                 <button type="button" class="ac-btn" data-drawer-action="billing">Billing</button>
 
-                <div style="height:1px;background:rgba(15,23,42,.08);margin:6px 0"></div>
+                <button type="button" class="ac-btn" data-open-iframe="admin">Administrar (Billing)</button>
+                <button type="button" class="ac-btn" data-open-iframe="state">Estado (Hub)</button>
+
+                <div class="ac-menu-sep"></div>
                 <button type="button" role="menuitem" data-action="block" {{ $blockUrl ? '' : 'disabled' }}>Bloquear</button>
                 <button type="button" role="menuitem" data-action="unblock" {{ $unblockUrl ? '' : 'disabled' }}>Desbloquear</button>
                 <button type="button" role="menuitem" data-action="deactivate" {{ $deactivateUrl ? '' : 'disabled' }}>Dar de baja</button>
@@ -752,8 +781,8 @@
     </div>
 
     {{-- Paginación --}}
-    <div class="ac-pager" aria-label="Paginación" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <div class="info" style="opacity:.8;font-weight:800">
+    <div class="ac-pager" aria-label="Paginación">
+       <div class="info">
         @php
           $from = method_exists($rows,'firstItem') ? $rows->firstItem() : (count($rows)?1:0);
           $to   = method_exists($rows,'lastItem')  ? $rows->lastItem()  : ($total ?? null);
@@ -910,26 +939,26 @@
 
       <form method="POST" id="mCreate_form" action="{{ $createStoreUrl ?: '#' }}" class="ac-form">
         @csrf
-        <div class="ac-grid" style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px">
-          <div class="ac-field ac-field-wide" style="grid-column:span 8">
+        <div class="ac-grid ac-grid-12">
+          <div class="ac-field ac-field-wide ac-col-8">
             <label>Razón social</label>
             <input class="ac-input" name="razon_social" placeholder="Razón social">
           </div>
-          <div class="ac-field" style="grid-column:span 4">
+          <div class="ac-field ac-col-4">
             <label>RFC</label>
             <input class="ac-input" name="rfc" placeholder="AAA010101AAA">
           </div>
 
-          <div class="ac-field ac-field-wide" style="grid-column:span 6">
+          <div class="ac-field ac-field-wide ac-col-6">
             <label>Email</label>
             <input class="ac-input" name="email" placeholder="correo@dominio.com">
           </div>
-          <div class="ac-field" style="grid-column:span 6">
+          <div class="ac-field ac-col-6">
             <label>Teléfono</label>
             <input class="ac-input" name="phone" placeholder="+52...">
           </div>
 
-          <div class="ac-field" style="grid-column:span 4">
+          <div class="ac-field ac-col-4">
             <label>Plan</label>
             <select class="ac-select" name="plan">
               <option value="pro">Pro</option>
@@ -937,7 +966,7 @@
             </select>
           </div>
 
-          <div class="ac-field" style="grid-column:span 4">
+          <div class="ac-field ac-col-4">
             <label>Ciclo</label>
             <select class="ac-select" name="billing_cycle">
               <option value="monthly">Mensual</option>
@@ -945,12 +974,12 @@
             </select>
           </div>
 
-          <div class="ac-field" style="grid-column:span 4">
+          <div class="ac-field ac-col-4">
             <label>Monto (MXN)</label>
             <input class="ac-input" name="custom_amount_mxn" inputmode="decimal" placeholder="0.00">
           </div>
 
-          <div class="ac-field ac-field-wide" style="grid-column:span 12">
+          <div class="ac-field ac-field-wide ac-col-12">
             @if(!$createStoreUrl)
               <div class="ac-note">
                 Este modal es UI-ready. Para hacerlo funcional, crea la route de alta (POST) (ej.
@@ -1000,245 +1029,363 @@
           <input type="hidden" id="mEdit_id" name="id" value="">
           <input type="hidden" name="is_blocked" value="0">
 
-          <div class="ac-grid">
-            <div class="ac-field ac-field-wide">
-              <label>Razón social</label>
-              <input class="ac-input" id="mEdit_rs" name="razon_social" value="" placeholder="Razón social" autocomplete="organization">
-            </div>
+          <div class="ac-grid ac-grid-12">
 
-            <div class="ac-field">
-              <label>Email</label>
-              <input class="ac-input" id="mEdit_email" name="email" value="" placeholder="correo@dominio.com" autocomplete="email" inputmode="email">
-            </div>
-
-            <div class="ac-field">
-              <label>Teléfono</label>
-              <input class="ac-input" id="mEdit_phone" name="phone" value="" placeholder="+52..." autocomplete="tel" inputmode="tel">
-            </div>
-
-            <div class="ac-field">
-              <label>Plan</label>
-              <select class="ac-select" id="mEdit_plan" name="plan">
-                <option value="">—</option>
-                <option value="free">Free</option>
-                <option value="pro">Pro</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Ciclo</label>
-              <select class="ac-select" id="mEdit_cycle" name="billing_cycle">
-                <option value="">—</option>
-                <option value="monthly">Mensual</option>
-                <option value="yearly">Anual</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Próx. factura (YYYY-MM-DD)</label>
-              <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
-            </div>
-
-            <div class="ac-field">
-              <label>Monto personalizado (MXN)</label>
-              <input class="ac-input" id="mEdit_custom" name="custom_amount_mxn" inputmode="decimal" placeholder="0.00" autocomplete="off">
-              <div class="ac-hint">Si se deja vacío, se usa el monto calculado del plan.</div>
-            </div>
-
-            <div class="ac-field">
-              <label>Bloqueo</label>
-              <div class="ac-check">
-                <input type="checkbox" id="mEdit_blocked" name="is_blocked" value="1">
-                <span>Cuenta bloqueada (redirige a Stripe)</span>
-              </div>
-            </div>
+          {{-- Razón social --}}
+          <div class="ac-field ac-field-wide ac-col-8">
+            <label>Razón social</label>
+            <input class="ac-input" id="mEdit_rs" name="razon_social" value=""
+                  placeholder="Razón social" autocomplete="organization">
           </div>
 
-          <div class="ac-note">
-            Nota: este formulario usa el endpoint
-            <code class="ac-mono">POST /admin/clientes/{key}/save</code>
-            (la key puede ser RFC / UUID / ID).
+          {{-- (solo display) RFC/ID --}}
+          <div class="ac-field ac-col-4">
+            <label>RFC / ID</label>
+            <input class="ac-input" id="mEdit_key_show" value="" readonly>
+            <div class="ac-hint">Identificador de la cuenta (solo lectura).</div>
           </div>
 
-          <div class="ac-form-actions">
-            <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-            <button class="ac-btn primary" type="submit">Guardar</button>
+          {{-- Email --}}
+          <div class="ac-field ac-col-6">
+            <label>Email</label>
+            <input class="ac-input" id="mEdit_email" name="email" value=""
+                  placeholder="correo@dominio.com" autocomplete="email" inputmode="email">
           </div>
+
+          {{-- Teléfono --}}
+          <div class="ac-field ac-col-6">
+            <label>Teléfono</label>
+            <input class="ac-input" id="mEdit_phone" name="phone" value=""
+                  placeholder="+52..." autocomplete="tel" inputmode="tel">
+          </div>
+
+          {{-- Plan --}}
+          <div class="ac-field ac-col-4">
+            <label>Plan</label>
+            <select class="ac-select" id="mEdit_plan" name="plan">
+              <option value="">—</option>
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+
+          {{-- Ciclo --}}
+          <div class="ac-field ac-col-4">
+            <label>Ciclo</label>
+            <select class="ac-select" id="mEdit_cycle" name="billing_cycle">
+              <option value="">—</option>
+              <option value="monthly">Mensual</option>
+              <option value="yearly">Anual</option>
+            </select>
+          </div>
+
+          {{-- Próx factura --}}
+          <div class="ac-field ac-col-4">
+            <label>Próx. factura</label>
+            <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
+            <div class="ac-hint">La fecha se usa para el siguiente statement.</div>
+          </div>
+
+          {{-- Monto --}}
+          <div class="ac-field ac-col-8">
+            <label>Monto personalizado (MXN)</label>
+            <input class="ac-input" id="mEdit_custom" name="custom_amount_mxn"
+                  inputmode="decimal" placeholder="0.00" autocomplete="off">
+            <div class="ac-hint">Déjalo vacío para usar el monto calculado del plan.</div>
+          </div>
+
+          {{-- Bloqueo (mejor presentado) --}}
+          <div class="ac-field ac-col-4">
+            <label>Bloqueo</label>
+            <label class="ac-check ac-check-card" style="align-items:flex-start">
+              <input type="checkbox" id="mEdit_blocked" name="is_blocked" value="1">
+              <span>
+                <strong>Cuenta bloqueada</strong>
+                <div class="ac-hint" style="margin-top:4px">Al iniciar sesión redirige a Stripe Checkout.</div>
+              </span>
+            </label>
+          </div>
+
+          {{-- Nota discreta (no “técnica” para el usuario final) --}}
+          <div class="ac-field ac-col-12">
+            <div class="ac-note" style="opacity:.85">
+              Cambios impactan plan/ciclo, próxima factura y estado de acceso. Guarda solo si estás seguro.
+            </div>
+          </div>
+        </div>
+
+        <div class="ac-form-actions">
+          <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+          <button class="ac-btn primary" type="submit">Guardar cambios</button>
+        </div>
       </form> 
     </div>
   </div>
 
-  {{-- =========================
+    {{-- =========================
       MODAL: Destinatarios
      ========================= --}}
-  <div class="ac-modal" id="modalRecipients" aria-hidden="true">
+  <div class="ac-modal ac-modal--recipients" id="modalRecipients" aria-hidden="true">
     <div class="ac-modal-backdrop" data-close-modal></div>
 
     <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Destinatarios">
-      <div class="ac-modal-head">
-        <div>
+      <div class="ac-modal-head ac-modal-head--recipients">
+        <div class="ac-modal-head-copy">
           <div class="ttl">Destinatarios</div>
           <div class="sub" id="mRec_sub">—</div>
         </div>
         <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
       </div>
 
-      <div class="ac-note" id="mRec_missing" hidden>
-        No se detectó ruta para guardar destinatarios (recip_url). Revisa que exista la route
-        <code class="ac-mono">admin.clientes.recipientsUpsert</code>.
-      </div>
-
-      <div class="ac-tabs" data-tabs>
-        <div class="ac-tabbar">
-          <button type="button" class="ac-tab active" aria-selected="true" data-tab="tabRecStmt">Estado de cuenta</button>
-          <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecInv">Factura</button>
-          <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecGen">General</button>
+      <div class="ac-modal-body ac-modal-body--recipients">
+        <div class="ac-note ac-note--modal" id="mRec_missing" hidden>
+          No se detectó ruta para guardar destinatarios (recip_url). Revisa que exista la route
+          <code class="ac-mono">admin.clientes.recipientsUpsert</code>.
         </div>
 
-        {{-- Estado de cuenta --}}
-        <div class="ac-tabpane show" id="tabRecStmt">
-          <form method="POST" id="mRec_form_statement" action="#" class="ac-form">
-            @csrf
-            <div class="ac-grid">
-              <div class="ac-field ac-field-wide">
-                <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_stmt_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
-                <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
-              </div>
-              <div class="ac-field ac-field-wide">
-                <label>Primary</label>
-                <input class="ac-input" id="mRec_stmt_primary" name="primary" placeholder="correo@dominio.com">
-              </div>
+        <div class="ac-tabs ac-tabs--recipients" data-tabs>
+          <div class="ac-tabbar ac-tabbar--recipients" role="tablist" aria-label="Tipos de destinatarios">
+            <button type="button" class="ac-tab active" aria-selected="true" data-tab="tabRecStmt">Estado de cuenta</button>
+            <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecInv">Factura</button>
+            <button type="button" class="ac-tab" aria-selected="false" data-tab="tabRecGen">General</button>
+          </div>
 
-              <input type="hidden" name="kind" value="statement">
-              <input type="hidden" name="active" value="1">
-            </div>
+          {{-- Estado de cuenta --}}
+          <div class="ac-tabpane show" id="tabRecStmt">
+            <form method="POST" id="mRec_form_statement" action="#" class="ac-form ac-form--recipients">
+              @csrf
 
-            <div class="ac-form-actions">
-              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-              <button class="ac-btn primary" type="submit">Guardar</button>
-            </div>
-          </form>
-        </div>
+              <div class="ac-rec-section">
+                <div class="ac-rec-section__head">
+                  <div class="ac-rec-section__title">Estado de cuenta</div>
+                  <div class="ac-rec-section__desc">Correos que recibirán estados de cuenta y recordatorios relacionados.</div>
+                </div>
 
-        {{-- Factura --}}
-        <div class="ac-tabpane" id="tabRecInv" hidden>
-          <form method="POST" id="mRec_form_invoice" action="#" class="ac-form">
-            @csrf
-            <div class="ac-grid">
-              <div class="ac-field ac-field-wide">
-                <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_inv_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
-              </div>
-              <div class="ac-field ac-field-wide">
-                <label>Primary</label>
-                <input class="ac-input" id="mRec_inv_primary" name="primary" placeholder="correo@dominio.com">
-              </div>
+                <div class="ac-grid ac-grid-12">
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Destinatarios (CSV)</label>
+                    <textarea
+                      class="ac-textarea ac-textarea--recipients"
+                      id="mRec_stmt_list"
+                      name="recipients"
+                      placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                    <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
+                  </div>
 
-              <input type="hidden" name="kind" value="invoice">
-              <input type="hidden" name="active" value="1">
-            </div>
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Primary</label>
+                    <input class="ac-input" id="mRec_stmt_primary" name="primary" placeholder="correo@dominio.com">
+                    <div class="ac-hint">Correo principal que se tomará como preferente para este tipo.</div>
+                  </div>
 
-            <div class="ac-form-actions">
-              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-              <button class="ac-btn primary" type="submit">Guardar</button>
-            </div>
-          </form>
-        </div>
-
-        {{-- General --}}
-        <div class="ac-tabpane" id="tabRecGen" hidden>
-          <form method="POST" id="mRec_form_general" action="#" class="ac-form">
-            @csrf
-            <div class="ac-grid">
-              <div class="ac-field ac-field-wide">
-                <label>Destinatarios (CSV)</label>
-                <textarea class="ac-textarea" id="mRec_gen_list" name="recipients" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
-              </div>
-              <div class="ac-field ac-field-wide">
-                <label>Primary</label>
-                <input class="ac-input" id="mRec_gen_primary" name="primary" placeholder="correo@dominio.com">
+                  <input type="hidden" name="kind" value="statement">
+                  <input type="hidden" name="active" value="1">
+                </div>
               </div>
 
-              <input type="hidden" name="kind" value="general">
-              <input type="hidden" name="active" value="1">
-            </div>
+              <div class="ac-form-actions ac-form-actions--recipients">
+                <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+                <button class="ac-btn primary" type="submit">Guardar</button>
+              </div>
+            </form>
+          </div>
 
-            <div class="ac-form-actions">
-              <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
-              <button class="ac-btn primary" type="submit">Guardar</button>
-            </div>
-          </form>
+          {{-- Factura --}}
+          <div class="ac-tabpane" id="tabRecInv" hidden>
+            <form method="POST" id="mRec_form_invoice" action="#" class="ac-form ac-form--recipients">
+              @csrf
+
+              <div class="ac-rec-section">
+                <div class="ac-rec-section__head">
+                  <div class="ac-rec-section__title">Factura</div>
+                  <div class="ac-rec-section__desc">Correos para CFDI, avisos de facturación y seguimiento administrativo.</div>
+                </div>
+
+                <div class="ac-grid ac-grid-12">
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Destinatarios (CSV)</label>
+                    <textarea
+                      class="ac-textarea ac-textarea--recipients"
+                      id="mRec_inv_list"
+                      name="recipients"
+                      placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                    <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
+                  </div>
+
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Primary</label>
+                    <input class="ac-input" id="mRec_inv_primary" name="primary" placeholder="correo@dominio.com">
+                    <div class="ac-hint">Correo principal para el flujo de facturación.</div>
+                  </div>
+
+                  <input type="hidden" name="kind" value="invoice">
+                  <input type="hidden" name="active" value="1">
+                </div>
+              </div>
+
+              <div class="ac-form-actions ac-form-actions--recipients">
+                <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+                <button class="ac-btn primary" type="submit">Guardar</button>
+              </div>
+            </form>
+          </div>
+
+          {{-- General --}}
+          <div class="ac-tabpane" id="tabRecGen" hidden>
+            <form method="POST" id="mRec_form_general" action="#" class="ac-form ac-form--recipients">
+              @csrf
+
+              <div class="ac-rec-section">
+                <div class="ac-rec-section__head">
+                  <div class="ac-rec-section__title">General</div>
+                  <div class="ac-rec-section__desc">Correos de contacto general para avisos no ligados a billing o CFDI.</div>
+                </div>
+
+                <div class="ac-grid ac-grid-12">
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Destinatarios (CSV)</label>
+                    <textarea
+                      class="ac-textarea ac-textarea--recipients"
+                      id="mRec_gen_list"
+                      name="recipients"
+                      placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                    <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
+                  </div>
+
+                  <div class="ac-field ac-field-wide ac-col-12">
+                    <label>Primary</label>
+                    <input class="ac-input" id="mRec_gen_primary" name="primary" placeholder="correo@dominio.com">
+                    <div class="ac-hint">Correo principal para comunicación general.</div>
+                  </div>
+
+                  <input type="hidden" name="kind" value="general">
+                  <input type="hidden" name="active" value="1">
+                </div>
+              </div>
+
+              <div class="ac-form-actions ac-form-actions--recipients">
+                <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+                <button class="ac-btn primary" type="submit">Guardar</button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  {{-- =========================
+    {{-- =========================
       MODAL: Credenciales
      ========================= --}}
-  <div class="ac-modal" id="modalCreds" aria-hidden="true">
+  <div class="ac-modal ac-modal--creds" id="modalCreds" aria-hidden="true">
     <div class="ac-modal-backdrop" data-close-modal></div>
 
     <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Credenciales">
-      <div class="ac-modal-head">
-        <div>
+      <div class="ac-modal-head ac-modal-head--creds">
+        <div class="ac-modal-head-copy">
           <div class="ttl">Credenciales</div>
           <div class="sub" id="mCred_sub">—</div>
         </div>
         <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
       </div>
 
-      <div class="ac-credgrid">
-        <div class="ac-cred">
-          <div class="k">RFC</div>
-          <div class="v"><span class="ac-mono" id="mCred_rfc">—</span></div>
-        </div>
+      <div class="ac-modal-body ac-modal-body--creds">
 
-        <div class="ac-cred">
-          <div class="k">OWNER</div>
-          <div class="v"><span class="ac-mono" id="mCred_owner">—</span></div>
-        </div>
-
-        <div class="ac-cred">
-          <div class="k">Temp pass</div>
-          <div class="v"><span class="ac-mono" id="mCred_pass">—</span></div>
-        </div>
-
-        <div class="ac-cred">
-          <div class="k">OTP</div>
-          <div class="v"><span class="ac-mono" id="mCred_otp">—</span></div>
-        </div>
-
-        <div class="ac-cred ac-cred-wide">
-          <div class="k">Token / URL</div>
-          <div class="v">
-            <span class="ac-mono" id="mCred_tok">—</span>
-            <div class="meta" id="mCred_tok_exp" style="margin-top:6px">—</div>
-          </div>
-          <div class="a" id="mCred_tok_actions" hidden>
-            <a class="ac-btn small" id="mCred_tok_open" href="#" target="_blank" rel="noopener">Abrir</a>
-            <button class="ac-btn small" type="button" data-copy="#mCred_tok">Copiar</button>
-          </div>
-        </div>
-
-        {{-- ✅ Enviar credenciales por correo --}}
-        <div class="ac-cred ac-cred-wide">
-          <div class="k">Enviar credenciales por correo</div>
-          <div class="v">
-            Envía <strong>usuario (OWNER email)</strong>, <strong>contraseña temporal</strong> y <strong>liga de acceso</strong> a uno o varios correos.
+        {{-- Resumen / identidad --}}
+        <section class="ac-cred-section ac-cred-section--identity">
+          <div class="ac-cred-section__head">
+            <div>
+              <div class="ac-cred-section__eyebrow">Identidad</div>
+              <div class="ac-cred-section__title">Cuenta y acceso</div>
+            </div>
           </div>
 
-          <div class="ac-note" style="margin-top:10px">
-            Logo usado en la plantilla: <code class="ac-mono">{{ $brandLogoUrl }}</code>
+          <div class="ac-cred-kv-grid">
+            <div class="ac-cred-kv">
+              <div class="k">RFC</div>
+              <div class="v">
+                <code class="ac-mono" id="mCred_rfc">—</code>
+              </div>
+            </div>
+
+            <div class="ac-cred-kv">
+              <div class="k">OWNER</div>
+              <div class="v">
+                <code class="ac-mono" id="mCred_owner">—</code>
+              </div>
+            </div>
+
+            <div class="ac-cred-kv">
+              <div class="k">Temp pass</div>
+              <div class="v">
+                <code class="ac-mono" id="mCred_pass">—</code>
+              </div>
+            </div>
+
+            <div class="ac-cred-kv">
+              <div class="k">OTP</div>
+              <div class="v">
+                <span class="ac-otp-badge">
+                  <code class="ac-mono" id="mCred_otp">—</code>
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {{-- Token / URL --}}
+        <section class="ac-cred-section">
+          <div class="ac-cred-section__head">
+            <div>
+              <div class="ac-cred-section__eyebrow">Verificación</div>
+              <div class="ac-cred-section__title">Token / URL</div>
+            </div>
           </div>
 
-          <form method="POST" id="mCred_form_email_creds" action="#" class="ac-form" style="margin-top:10px">
+          <div class="ac-cred-token-card">
+            <div class="ac-cred-token-main">
+              <div class="ac-cred-token-value">
+                <code class="ac-mono ac-break" id="mCred_tok">—</code>
+              </div>
+              <div class="ac-cred-token-meta" id="mCred_tok_exp">—</div>
+            </div>
+
+            <div class="ac-cred-token-actions" id="mCred_tok_actions" hidden>
+              <a class="ac-btn small" id="mCred_tok_open" href="#" target="_blank" rel="noopener">Abrir</a>
+              <button class="ac-btn small" type="button" data-copy="#mCred_tok">Copiar</button>
+            </div>
+          </div>
+        </section>
+
+        {{-- Envío por correo --}}
+        <section class="ac-cred-section">
+          <div class="ac-cred-section__head">
+            <div>
+              <div class="ac-cred-section__eyebrow">Distribución</div>
+              <div class="ac-cred-section__title">Enviar credenciales por correo</div>
+              <div class="ac-cred-section__desc">
+                Envía <strong>usuario (OWNER email)</strong>, <strong>contraseña temporal</strong> y
+                <strong>liga de acceso</strong> a uno o varios correos.
+              </div>
+            </div>
+          </div>
+
+          <div class="ac-note ac-note--soft">
+            Logo usado en la plantilla:
+            <code class="ac-mono ac-break">{{ $brandLogoUrl }}</code>
+          </div>
+
+          <form method="POST" id="mCred_form_email_creds" action="#" class="ac-form ac-form--creds-email">
             @csrf
-            <div class="ac-grid">
-              <div class="ac-field ac-field-wide">
+
+            <div class="ac-grid ac-grid-12">
+              <div class="ac-field ac-field-wide ac-col-12">
                 <label>Para (CSV)</label>
-                <textarea class="ac-textarea" id="mCred_to" name="to" placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
+                <textarea
+                  class="ac-textarea ac-textarea--creds"
+                  id="mCred_to"
+                  name="to"
+                  placeholder="correo1@dominio.com, correo2@dominio.com"></textarea>
                 <div class="ac-hint">Separados por coma. Se normaliza a minúsculas.</div>
               </div>
 
@@ -1250,8 +1397,12 @@
               <input type="hidden" name="rs" id="mCred_hidden_rs" value="">
               <input type="hidden" name="logo_url" value="{{ $brandLogoUrl }}">
 
-              <div class="ac-form-actions" style="margin-top:0">
-                <button class="ac-btn primary" type="submit" onclick="return confirm('¿Enviar credenciales por correo?')">Enviar</button>
+              <div class="ac-col-12">
+                <div class="ac-cred-primary-actions">
+                  <button class="ac-btn primary" type="submit" onclick="return confirm('¿Enviar credenciales por correo?')">
+                    Enviar
+                  </button>
+                </div>
               </div>
             </div>
           </form>
@@ -1260,12 +1411,21 @@
             No se detectó ruta para enviar credenciales. Se esperaba:
             <code class="ac-mono">admin.clientes.emailCreds</code> o <code class="ac-mono">admin.clientes.emailCredentials</code>.
           </div>
-        </div>
+        </section>
 
-        <div class="ac-cred ac-cred-wide">
-          <div class="k">Forzar verificaciones</div>
-          <div class="v">Útil para soporte cuando el cliente ya confirmó por otro canal.</div>
-          <div class="a">
+        {{-- Forzar verificaciones --}}
+        <section class="ac-cred-section">
+          <div class="ac-cred-section__head">
+            <div>
+              <div class="ac-cred-section__eyebrow">Soporte</div>
+              <div class="ac-cred-section__title">Forzar verificaciones</div>
+              <div class="ac-cred-section__desc">
+                Útil para soporte cuando el cliente ya confirmó por otro canal.
+              </div>
+            </div>
+          </div>
+
+          <div class="ac-cred-secondary-actions">
             <form method="POST" id="mCred_form_force_email" action="#" class="inline" onsubmit="return confirm('¿Forzar verificación de correo?')">
               @csrf
               <button class="ac-btn small" type="submit">Forzar correo</button>
@@ -1277,13 +1437,14 @@
             </form>
           </div>
 
-          <div class="ac-note" id="mCred_force_phone_missing" hidden>
+          <div class="ac-note" id="mCred_force_phone_missing" hidden style="margin-top:10px">
             No existe endpoint para force-phone.
           </div>
-        </div>
+        </section>
+
       </div>
 
-      <div class="ac-form-actions">
+      <div class="ac-form-actions ac-form-actions--creds">
         <button class="ac-btn" type="button" data-close-modal>Cerrar</button>
       </div>
     </div>
@@ -1351,532 +1512,80 @@
     </div>
   </div>
 
+  {{-- =====================================
+  MODAL IFRAME: Submódulos (Administrar / Estado HUB)
+  Mejorado: loader + inspección same-origin + fallback limpio
+===================================== --}}
+<div class="ac-modal ac-modal--iframe" id="acIframeModal" aria-hidden="true">
+  <div class="ac-modal-backdrop" data-close-ac-iframe></div>
+
+  <div class="ac-modal-card ac-if-card-shell" role="dialog" aria-modal="true" aria-label="Submódulo">
+    <div class="ac-modal-head ac-if-head">
+      <div class="ac-if-head-copy">
+        <div class="ttl" id="acIf_title">—</div>
+        <div class="sub" id="acIf_sub">—</div>
+      </div>
+
+      <div class="ac-if-head-actions">
+        <a class="ac-btn small" id="acIf_open_new" href="#" target="_blank" rel="noopener">Abrir en pestaña</a>
+        <button class="x" type="button" data-close-ac-iframe aria-label="Cerrar">✕</button>
+      </div>
+    </div>
+
+    <div class="ac-if-status" id="acIf_status">
+      <span class="dot"></span>
+      <span id="acIf_status_text">Cargando panel…</span>
+    </div>
+
+    <div class="ac-if-wrap" id="acIf_wrap" data-state="idle">
+      <div class="ac-if-loader" id="acIf_loader" aria-hidden="true">
+        <div class="ac-if-loader-card">
+          <div class="ac-if-spinner" aria-hidden="true"></div>
+          <div class="ac-if-loader-ttl">Cargando panel</div>
+          <div class="ac-if-loader-desc">
+            Estamos intentando abrir el submódulo dentro del modal.
+          </div>
+        </div>
+      </div>
+
+      <div id="acIf_fallback" class="ac-if-fallback" hidden>
+        <div class="ac-if-fallback-card">
+          <div class="ac-if-fallback-icon">⚠️</div>
+          <div class="ac-if-ttl">No pudimos mostrar este panel dentro del modal</div>
+          <div class="ac-if-desc" id="acIf_fallback_reason">
+            La página puede haber redirigido al login, cargado un layout no embebible o haber respondido con un error.
+          </div>
+
+          <div class="ac-if-actions">
+            <a class="ac-btn primary" id="acIf_open_new_2" href="#" target="_blank" rel="noopener">Abrir panel completo</a>
+            <button class="ac-btn" type="button" id="acIf_retry">Reintentar</button>
+          </div>
+
+          <div class="ac-if-url-wrap">
+            <div class="ac-if-url-label">URL</div>
+            <div id="acIf_fallback_url" class="ac-if-url">—</div>
+          </div>
+        </div>
+      </div>
+
+      <iframe
+        id="acIf_frame"
+        src="about:blank"
+        title="Contenido"
+        class="ac-if-frame"
+        loading="eager"
+        referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    </div>
+
+    <div class="ac-form-actions">
+      <button class="ac-btn" type="button" data-close-ac-iframe>Cerrar</button>
+    </div>
+  </div>
+</div>
+
 </div>
 @endsection
+ @push('scripts')
+<script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.js')) }}"></script>
 
-@push('scripts')
-  <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.js')) }}"></script>
-
-  {{-- ✅ Hook para: setear action del envío de credenciales + defaults + abrir modal desde botón del drawer --}}
-  <script>
-    (function () {
-      'use strict';
-
-      const $ = (s, sc) => (sc || document).querySelector(s);
-
-      function normCsvEmails(csv){
-        csv = String(csv || '').trim();
-        if (!csv) return '';
-        const parts = csv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-        const ok = [];
-        const seen = new Set();
-        for (const e of parts) {
-          if (!seen.has(e) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
-            seen.add(e);
-            ok.push(e);
-          }
-        }
-        return ok.join(', ');
-      }
-
-      function ensureActionAndPayload(){
-        const drawer = $('#clientDrawer');
-        const c = drawer && drawer._client ? drawer._client : null;
-
-        const form = $('#mCred_form_email_creds');
-        const missing = $('#mCred_email_creds_missing');
-        if (!form) return;
-
-        // ===== action (endpoint) =====
-        const url = c && c.email_creds_url ? String(c.email_creds_url) : '';
-        if (!url || url === '#') {
-          form.setAttribute('action', '#');
-          if (missing) missing.hidden = false;
-        } else {
-          form.setAttribute('action', url);
-          if (missing) missing.hidden = true;
-        }
-
-        // ===== default "to" =====
-        const to = $('#mCred_to');
-        if (to) {
-          const csv = c && c.recips_statement ? String(c.recips_statement || '') : '';
-          const fallback = c && c.email ? String(c.email || '') : '';
-          const nextVal = normCsvEmails(csv || fallback);
-
-          const cid = c && c.id ? String(c.id) : '';
-          const prev = String(to.getAttribute('data-last-client') || '');
-
-          // si cambia cliente: siempre refrescar
-          if (cid && cid !== prev) {
-            to.value = nextVal;
-            to.setAttribute('data-last-client', cid);
-          } else {
-            // si no cambió: respetar lo escrito, pero si está vacío, prellenar
-            if (!to.value.trim()) to.value = nextVal;
-            if (cid) to.setAttribute('data-last-client', cid);
-          }
-        }
-
-        // ===== payload hidden =====
-        const user =
-          (c && c.owner_email ? String(c.owner_email) : '') ||
-          (c && c.email ? String(c.email) : '') ||
-          (c && c.rfc ? String(c.rfc) : '') ||
-          '';
-
-        const pass =
-          (c && c.temp_pass ? String(c.temp_pass) : '') ||
-          (c && c.otp_code ? String(c.otp_code) : '') ||
-          '';
-
-        const access =
-          (c && c.access_url ? String(c.access_url) : '') ||
-          (c && c.token_url ? String(c.token_url) : '') ||
-          '';
-
-        const hu = $('#mCred_hidden_user');   if (hu) hu.value = user;
-        const hp = $('#mCred_hidden_pass');   if (hp) hp.value = pass;
-        const ha = $('#mCred_hidden_access'); if (ha) ha.value = access;
-
-        const hr  = $('#mCred_hidden_rfc'); if (hr) hr.value = (c && c.rfc ? String(c.rfc) : '');
-        const hrs = $('#mCred_hidden_rs');  if (hrs) hrs.value = (c && c.razon_social ? String(c.razon_social) : '');
-      }
-
-      // Abre credenciales (desde drawer)
-      document.addEventListener('click', function (e) {
-        const btnCreds = e.target.closest('#btnOpenCreds');
-        if (!btnCreds) return;
-        setTimeout(ensureActionAndPayload, 80);
-      });
-
-      // “Enviar credenciales” del drawer: abre modal Credenciales
-      document.addEventListener('click', function (e) {
-        const btn = e.target.closest('#drFormEmailCreds button');
-        if (!btn) return;
-
-        e.preventDefault();
-
-        const openCreds = $('#btnOpenCreds');
-        if (openCreds) openCreds.click();
-
-        setTimeout(ensureActionAndPayload, 120);
-      });
-
-      // Mientras el modal está abierto, mantener payload consistente
-      ['input','change','keyup'].forEach(evt => {
-        document.addEventListener(evt, function () {
-          const modal = $('#modalCreds');
-          if (modal && modal.getAttribute('aria-hidden') === 'false') {
-            ensureActionAndPayload();
-          }
-        }, true);
-      });
-    })();
-  </script>
-
-  <script>
-    (function () {
-      'use strict';
-
-      const $ = (s, sc) => (sc || document).querySelector(s);
-
-      // =====================================================
-      // ✅ FIX: Asegurar drawer._client SIEMPRE (captura desde row)
-      // =====================================================
-      function setCurrentClient(c){
-        if (!c || typeof c !== 'object') return;
-        const drawer = $('#clientDrawer');
-        if (drawer) drawer._client = c;
-        window.P360_AC_CURRENT = c; // fallback global
-      }
-
-      function decodeHtmlEntities(s){
-        s = String(s || '');
-        if (!s) return '';
-        // textarea decodifica &quot; &amp; &#039; etc.
-        const t = document.createElement('textarea');
-        t.innerHTML = s;
-        return t.value;
-      }
-
-      function getClientFromRow(row){
-        if (!row) return null;
-
-        const raw = row.getAttribute('data-client') || '';
-        if (!raw) return null;
-
-        // ⚠️ data-client viene escapado con e() => &quot;...&quot;
-        const json = decodeHtmlEntities(raw);
-
-        try { return JSON.parse(json); } catch(e) { return null; }
-      }
-
-      // Capturar al hacer click en:
-      // - Botón "Ver" (data-open-drawer)
-      // - Opciones del menú (data-drawer-action)
-      // - Botón ⋯ (data-menu-toggle)
-      document.addEventListener('click', function(e){
-        const hit =
-          e.target.closest('[data-open-drawer]') ||
-          e.target.closest('[data-drawer-action]') ||
-          e.target.closest('[data-menu-toggle]') ||
-          e.target.closest('.ac-row[data-client]') ||
-          e.target.closest('.cell.actions');
-
-        if (!hit) return;
-
-        const row = hit.closest('.ac-row[data-client]') || e.target.closest('.ac-row[data-client]');
-        const c = getClientFromRow(row);
-        if (c) setCurrentClient(c);
-      }, true);
-
-      function csrfToken(){
-        return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-      }
-
-      function openModal(sel){
-        const m = $(sel);
-        if (!m) return;
-        m.setAttribute('aria-hidden', 'false');
-        m.classList.add('show');
-        document.documentElement.classList.add('ac-modal-open');
-        document.body.classList.add('ac-modal-open');
-      }
-
-      function closeModal(sel){
-        const m = $(sel);
-        if (!m) return;
-        m.setAttribute('aria-hidden', 'true');
-        m.classList.remove('show');
-        document.documentElement.classList.remove('ac-modal-open');
-        document.body.classList.remove('ac-modal-open');
-      }
-
-      function currentClient(){
-        const drawer = $('#clientDrawer');
-        if (drawer && drawer._client) return drawer._client;
-        if (window.P360_AC_CURRENT) return window.P360_AC_CURRENT;
-        return null;
-      }
-
-      function resolveKey(c){
-        if (!c) return '';
-        const rfc = (c.rfc || '').toString().trim();
-        if (rfc) return rfc;
-        const id = (c.id || '').toString().trim();
-        return id;
-      }
-
-      function resolveEditAction(form, key){
-        if (!form) return '';
-        const tpl = (form.getAttribute('data-save-template') || '').toString();
-
-        // 1) route Blade preferida (admin.clientes.save)
-        if (tpl && tpl.includes('__KEY__')) {
-          return tpl.replaceAll('__KEY__', encodeURIComponent(key));
-        }
-
-        // 2) fallback relativo (sin origin)
-        return `/admin/clientes/${encodeURIComponent(key)}/save`;
-      }
-
-      function setEditAction(form, key){
-        if (!form || !key) return false;
-        form.setAttribute('action', resolveEditAction(form, key));
-        return true;
-      }
-
-      function fillEditModalFromClient(c){
-        const form = $('#mEdit_form');
-        if (!form || !c) return false;
-
-        const key = resolveKey(c);
-        if (!key) return false;
-
-        const sub = $('#mEdit_sub');
-        if (sub) sub.textContent = `${key} · ${c.razon_social || ''}`.trim();
-
-        const hid = $('#mEdit_id');     if (hid) hid.value = key;
-        const rs  = $('#mEdit_rs');     if (rs) rs.value = (c.razon_social || '');
-        const em  = $('#mEdit_email');  if (em) em.value = (c.email || '');
-        const ph  = $('#mEdit_phone');  if (ph) ph.value = (c.phone || '');
-        const pl  = $('#mEdit_plan');   if (pl) pl.value = (c.plan || '');
-        const cy  = $('#mEdit_cycle');  if (cy) cy.value = (c.billing_cycle || '');
-        const nx  = $('#mEdit_next');   if (nx) nx.value = (c.next_invoice_date || '');
-        const cu  = $('#mEdit_custom'); if (cu) cu.value = (c.custom_amount_mxn || '');
-        const bl  = $('#mEdit_blocked');if (bl) bl.checked = (String(c.blocked || '0') === '1');
-
-        // 🔒 SIEMPRE setear action real
-        setEditAction(form, key);
-
-        return true;
-      }
-
-      function ensureEditActionBeforeSubmit(form){
-        if (!form) return false;
-
-        const action = (form.getAttribute('action') || '').trim();
-        if (action && action !== '#') return true;
-
-        // 1) hidden id (ya debería traer key)
-        const key = ($('#mEdit_id')?.value || '').toString().trim();
-        if (key) return setEditAction(form, key);
-
-        // 2) drawer current client
-        const c = currentClient();
-        const k2 = resolveKey(c);
-        if (k2) return setEditAction(form, k2);
-
-        return false;
-      }
-
-      // ====== Apertura Edit (siempre llenar + action) ======
-      function openEdit(){
-        const c = currentClient();
-        if (!c) {
-          alert('No se detectó el cliente actual en el drawer.');
-          return;
-        }
-        if (!fillEditModalFromClient(c)) {
-          alert('No pude resolver la key (RFC/ID) para editar.');
-          return;
-        }
-        openModal('#modalEdit');
-      }
-
-      // Click handlers (no dependemos de cómo abra el modal el otro JS)
-      document.addEventListener('click', function (e) {
-        if (e.target.closest('#btnOpenEdit')) {
-          e.preventDefault();
-          openEdit();
-          return;
-        }
-
-        const act = e.target.closest('[data-drawer-action="edit"]');
-          if (act) {
-            e.preventDefault();
-
-            // ✅ FIX: setear current client desde la fila ANTES de abrir el modal
-            (function () {
-              const row = act.closest('.ac-row[data-client]');
-              if (!row) return;
-
-              // data-client viene escapado (&quot;)
-              const raw = row.getAttribute('data-client') || '';
-              if (!raw) return;
-
-              const t = document.createElement('textarea');
-              t.innerHTML = raw;
-              const json = t.value;
-
-              try {
-                const c = JSON.parse(json);
-                const drawer = document.querySelector('#clientDrawer');
-                if (drawer) drawer._client = c;
-                window.P360_AC_CURRENT = c;
-              } catch (err) {
-                // no alert; solo dejamos que openEdit muestre el mensaje si no hay cliente
-              }
-            })();
-
-            // Abrir modal (ya con current client seteado)
-            setTimeout(openEdit, 30);
-            return;
-          }
-
-        const close = e.target.closest('[data-close-modal]');
-        if (close) {
-          const modal = close.closest('.ac-modal');
-          if (modal) {
-            modal.setAttribute('aria-hidden', 'true');
-            modal.classList.remove('show');
-            document.documentElement.classList.remove('ac-modal-open');
-            document.body.classList.remove('ac-modal-open');
-          }
-        }
-      });
-
-      // ✅ Observer: si otro JS abre el modal y deja action en '#', lo corregimos
-      (function observeEditModal(){
-        const modal = $('#modalEdit');
-        const form  = $('#mEdit_form');
-        if (!modal || !form) return;
-
-        const obs = new MutationObserver(() => {
-          const shown = modal.classList.contains('show') || modal.getAttribute('aria-hidden') === 'false';
-          if (!shown) return;
-
-          // intenta setear action desde hidden o desde drawer._client
-          setTimeout(() => {
-            ensureEditActionBeforeSubmit(form);
-          }, 30);
-        });
-
-        obs.observe(modal, { attributes:true, attributeFilter:['class','aria-hidden'] });
-      })();
-
-      // ====== Guardar (submit) ======
-      document.addEventListener('submit', async function (e) {
-        const form = e.target;
-        if (!form || form.id !== 'mEdit_form') return;
-
-        e.preventDefault();
-
-        // ✅ blindaje: siempre resolver action aquí
-        if (!ensureEditActionBeforeSubmit(form)) {
-          alert('El formulario no tiene endpoint configurado (action). No se puede guardar.');
-          return;
-        }
-
-        const action = (form.getAttribute('action') || '').trim();
-        if (!action || action === '#') {
-          alert('El formulario no tiene endpoint configurado (action).');
-          return;
-        }
-
-        const btn = form.querySelector('button[type="submit"]');
-        if (btn) {
-          btn.disabled = true;
-          btn.dataset.prevText = btn.textContent;
-          btn.textContent = 'Guardando…';
-        }
-
-        try {
-          const fd = new FormData(form);
-
-          // ✅ checkbox unchecked: manda 0
-          if (!fd.has('is_blocked')) fd.set('is_blocked', '0');
-
-          // ✅ CSRF: va en _token por @csrf; header extra si existe meta
-          const headers = { 'X-Requested-With': 'XMLHttpRequest' };
-          const t = csrfToken();
-          if (t) headers['X-CSRF-TOKEN'] = t;
-
-          const res = await fetch(action, {
-            method: 'POST',
-            headers,
-            body: fd,
-            credentials: 'same-origin'
-          });
-
-          const ct = (res.headers.get('content-type') || '').toLowerCase();
-          const payload = ct.includes('application/json') ? await res.json() : await res.text();
-
-          if (!res.ok) {
-            let msg = `Error al guardar (HTTP ${res.status}).`;
-
-            if (res.status === 419) {
-              msg = 'Sesión/CSRF expiró (419). Recarga la página e intenta de nuevo.';
-            } else if (typeof payload === 'object' && payload) {
-              msg = payload.message || msg;
-              if (payload.errors) {
-                const first = Object.values(payload.errors)[0];
-                if (Array.isArray(first) && first[0]) msg = first[0];
-              }
-            } else if (typeof payload === 'string' && payload.trim()) {
-              msg = msg + ' Revisa logs (laravel.log) para detalle.';
-            }
-
-            throw new Error(msg);
-          }
-
-          closeModal('#modalEdit');
-          location.reload();
-
-        } catch (err) {
-          alert(err?.message || 'Error inesperado al guardar.');
-        } finally {
-          if (btn) {
-            btn.disabled = false;
-            btn.textContent = btn.dataset.prevText || 'Guardar';
-          }
-        }
-      }, true);
-
-    })();
-  </script>
-
-  <script>
-  (function () {
-    'use strict';
-
-    const $ = (s, sc) => (sc || document).querySelector(s);
-
-    function decodeHtmlEntities(s){
-      s = String(s || '');
-      if (!s) return '';
-      const t = document.createElement('textarea');
-      t.innerHTML = s;
-      return t.value;
-    }
-
-    function parseClientFromRow(row){
-      if (!row) return null;
-      const raw = row.getAttribute('data-client') || '';
-      if (!raw) return null;
-
-      // data-client viene escapado por e() => &quot;...&quot;
-      const json = decodeHtmlEntities(raw);
-
-      try { return JSON.parse(json); } catch (e) { return null; }
-    }
-
-    function setCurrentClientFromRow(row){
-      const drawer = $('#clientDrawer');
-      if (!drawer) return false;
-
-      const c = parseClientFromRow(row);
-      if (!c) return false;
-
-      drawer._client = c;
-
-      // debug opcional (no molesta)
-      drawer.setAttribute('data-has-client', '1');
-      return true;
-    }
-
-    function findRowFromEventTarget(target){
-      if (!target) return null;
-
-      // 1) Si el click fue dentro de una fila
-      const row = target.closest('.ac-row[data-client]');
-      if (row) return row;
-
-      // 2) Si el click fue en acciones / botones
-      const wrap = target.closest('.cell.actions') || target.closest('.ac-menu') || target.closest('.ac-btn');
-      if (wrap) {
-        const r2 = wrap.closest('.ac-row[data-client]');
-        if (r2) return r2;
-      }
-
-      // 3) fallback: primera fila visible
-      return document.querySelector('.ac-row[data-client]');
-    }
-
-    // ✅ Captura “muy temprano” para garantizar que el cliente quede seteado
-    document.addEventListener('click', function (e) {
-      const row = findRowFromEventTarget(e.target);
-      if (!row) return;
-
-      setCurrentClientFromRow(row);
-    }, true);
-
-    // ✅ También al focus (teclado / accesibilidad)
-    document.addEventListener('focusin', function (e) {
-      const row = findRowFromEventTarget(e.target);
-      if (!row) return;
-
-      setCurrentClientFromRow(row);
-    }, true);
-
-    // ✅ Helper global para probar rápido en consola
-    window.__AC_SET_CURRENT_FROM_FIRST_ROW = function () {
-      const row = document.querySelector('.ac-row[data-client]');
-      return setCurrentClientFromRow(row);
-    };
-
-  })();
-</script>
-
-@endpush
+<script src="{{ asset('assets/admin/js/admin-clientes.vnext.overlays.v2.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.vnext.overlays.v2.js')) }}"></script> @endpush

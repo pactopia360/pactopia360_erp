@@ -123,10 +123,14 @@ class AccountsController extends Controller
     // ======================= SHOW =======================
     public function show(Request $request, string $id): Response
     {
+        $isModal = $request->boolean('modal');
+
         $account = $this->svc->getAccountOrFail($id);
 
         $savedBilling = $this->svc->ensureBillingMetaIntegrityInPlace($account);
-        if ($savedBilling) $account = $this->svc->getAccountOrFail($id);
+        if ($savedBilling) {
+            $account = $this->svc->getAccountOrFail($id);
+        }
 
         $hasMeta = $this->svc->hasMetaColumn();
         $meta = $hasMeta
@@ -146,8 +150,8 @@ class AccountsController extends Controller
             ?? data_get($meta, 'billing.override_amount_mxn');
 
         $overrideAmount = is_numeric($overrideByCycle)
-            ? (int)$overrideByCycle
-            : (is_numeric($legacyMonthly) ? (int)$legacyMonthly : null);
+            ? (int) $overrideByCycle
+            : (is_numeric($legacyMonthly) ? (int) $legacyMonthly : null);
 
         $overrideEffective = (string) (
             data_get($meta, "billing.override.$cycle.effective")
@@ -164,41 +168,44 @@ class AccountsController extends Controller
         );
 
         $currentAmount = ($overrideAmount !== null) ? $overrideAmount : $baseAmount;
-
         $modulesState = $this->svc->buildModulesStateFromMeta($meta);
 
-        $isBlocked = (int)($account->is_blocked ?? 0) === 1;
+        $isBlocked = (int) ($account->is_blocked ?? 0) === 1;
         $periodNow = now()->format('Y-m');
 
         $payload = [
-            'account' => $account,
-            'meta' => $meta,
-            'catalog' => $catalog,
-            'price_key' => $pk,
-            'billing_cycle' => $cycle,
-            'stripe_price_id' => $stripePriceId,
-            'base_amount_mxn' => $baseAmount,
+            'account'             => $account,
+            'meta'                => $meta,
+            'catalog'             => $catalog,
+            'price_key'           => $pk,
+            'billing_cycle'       => $cycle,
+            'stripe_price_id'     => $stripePriceId,
+            'base_amount_mxn'     => $baseAmount,
             'override_amount_mxn' => $overrideAmount,
-            'override_effective' => $overrideEffective,
+            'override_effective'  => $overrideEffective,
             'override_updated_at' => $overrideAt,
-            'current_amount_mxn' => $currentAmount,
+            'current_amount_mxn'  => $currentAmount,
 
-            'modules_catalog' => $this->svc->modulesCatalog(),
-            'modules_state'   => $modulesState,
+            'modules_catalog'     => $this->svc->modulesCatalog(),
+            'modules_state'       => $modulesState,
 
-            'isBlocked' => $isBlocked,
-            'periodNow' => $periodNow,
-            'isModal' => $request->boolean('modal'),
-            'conn_used' => $this->svc->conn(),
-            'meta_col' => $this->svc->metaCol(),
-            'has_meta' => $hasMeta,
+            'isBlocked'           => $isBlocked,
+            'periodNow'           => $periodNow,
+            'isModal'             => $isModal,
+            'conn_used'           => $this->svc->conn(),
+            'meta_col'            => $this->svc->metaCol(),
+            'has_meta'            => $hasMeta,
         ];
 
         $resp = response()->view('admin.billing.accounts.show', $payload);
 
-        if ($request->boolean('modal')) {
+        if ($isModal) {
             $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
             $resp->headers->set('Content-Security-Policy', "frame-ancestors 'self'");
+            $resp->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+            $resp->headers->set('Pragma', 'no-cache');
+            $resp->headers->set('X-Robots-Tag', 'noindex, nofollow');
+            $resp->headers->set('X-Pactopia-Embedded', '1');
         }
 
         return $resp;

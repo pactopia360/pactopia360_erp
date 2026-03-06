@@ -1,12 +1,17 @@
 /* public/assets/admin/css/admin-clientes.vnext.modal.css
    Admin Clientes vNext — Modal + Drawer system
-   ✅ Hace que los modales sean emergentes (fixed) y NO aparezcan en el flujo
-   ✅ Controla visibilidad por aria-hidden="true|false"
+   ✅ Modales fixed, fuera del flujo
+   ✅ Control de visibilidad por aria-hidden="true|false"
+   ✅ Header/footer sticky
+   ✅ Drawer consistente
+   ✅ Modales especializados: Destinatarios / Credenciales / Iframe submódulos
+   ✅ FIX REAL: hidden respeta fallback/loader
+   ✅ FIX REAL: modal iframe centrado de verdad
 */
 
-/* =========================
-   MODAL
-   ========================= */
+/* =========================================================
+   MODAL BASE
+   ========================================================= */
 #adminClientesPage .ac-modal{
   position: fixed;
   inset: 0;
@@ -19,7 +24,7 @@
   padding: 24px;
 }
 
-/* 🔥 CLAVE: si está hidden, NO debe ocupar espacio */
+/* Si está hidden, no ocupa espacio */
 #adminClientesPage .ac-modal[aria-hidden="true"]{
   display: none !important;
 }
@@ -32,38 +37,43 @@
   backdrop-filter: blur(6px);
 }
 
-/* Card */
+/* Card base */
 #adminClientesPage .ac-modal-card{
   position: relative;
   z-index: 1;
 
   width: 100%;
   max-width: 860px;
+  margin: 0 auto;
 
   background: #fff;
   border: 1px solid rgba(15,23,42,.10);
-  border-radius: 16px;
+  border-radius: 18px;
   box-shadow: 0 30px 80px rgba(2,6,23,.25);
 
   max-height: calc(100vh - 48px);
-  overflow: auto; /* scroll interno SOLO del contenido del modal */
+
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-/* Header del modal (tu HTML usa .ac-modal-head) */
+/* Header sticky */
 #adminClientesPage .ac-modal-head{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap: 12px;
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(15,23,42,.08);
-  background: rgba(248,250,252,.85);
+  background: rgba(248,250,252,.92);
+  backdrop-filter: blur(8px);
 }
 
 #adminClientesPage .ac-modal-head .ttl{
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 900;
+  letter-spacing: .2px;
   color: rgba(15,23,42,.92);
 }
 
@@ -75,51 +85,80 @@
 }
 
 #adminClientesPage .ac-modal-head .x{
+  width: 38px;
+  height: 38px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
   border: 1px solid rgba(15,23,42,.10);
   background: #fff;
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 12px;
   cursor: pointer;
   font-weight: 900;
   line-height: 1;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
 }
 
-/* Form padding (tu HTML usa .ac-form directamente) */
+#adminClientesPage .ac-modal-head .x:hover{
+  background: rgba(15,23,42,.04);
+  border-color: rgba(15,23,42,.16);
+  transform: translateY(-1px);
+}
+
+/* Form/body scroll */
 #adminClientesPage .ac-modal-card .ac-form{
+  flex: 1 1 auto;
+  overflow: auto;
   padding: 14px 16px;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 
-/* Footer / acciones (tu HTML usa .ac-form-actions) */
+/* Footer sticky */
 #adminClientesPage .ac-modal-card .ac-form-actions{
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+
   padding: 12px 16px 16px;
   border-top: 1px solid rgba(15,23,42,.08);
-  background: rgba(248,250,252,.65);
+  background: rgba(248,250,252,.88);
+  backdrop-filter: blur(8px);
 }
 
-/* Mobile: modal tipo bottom-sheet */
+/* Mobile: modal como bottom-sheet */
 @media (max-width: 720px){
   #adminClientesPage .ac-modal{
     align-items: flex-end;
     padding: 10px;
   }
+
   #adminClientesPage .ac-modal-card{
     max-width: 100%;
-    border-radius: 16px 16px 10px 10px;
+    border-radius: 18px 18px 12px 12px;
     max-height: calc(100vh - 20px);
+  }
+
+  #adminClientesPage .ac-modal-card .ac-form{
+    padding: 12px 12px;
+  }
+
+  #adminClientesPage .ac-modal-card .ac-form-actions{
+    padding: 10px 12px 12px;
   }
 }
 
-/* =========================
+/* =========================================================
    DRAWER
-   (tu HTML ya tiene .ac-drawer, .ac-drawer-backdrop, .ac-drawer-panel)
-   ========================= */
+   ========================================================= */
 #adminClientesPage .ac-drawer{
   position: fixed;
   inset: 0;
   z-index: 230;
 }
 
-/* 🔥 CLAVE: si está hidden, NO debe ocupar espacio */
 #adminClientesPage .ac-drawer[aria-hidden="true"]{
   display: none !important;
 }
@@ -161,11 +200,13 @@
   font-weight: 950;
   font-size: 13px;
 }
+
 #adminClientesPage .ac-drawer-head .rs{
   font-weight: 850;
   margin-top: 2px;
   opacity: .85;
 }
+
 #adminClientesPage .ac-drawer-head .meta{
   margin-top: 6px;
   font-size: 12px;
@@ -186,4 +227,933 @@
 #adminClientesPage .ac-drawer-body{
   padding: 14px 16px;
   overflow: auto;
+}
+
+/* =========================================================
+   CHECK "CARD" (bloqueo)
+   ========================================================= */
+#adminClientesPage .ac-check-card{
+  display:flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15,23,42,.12);
+  border-radius: 14px;
+  background: rgba(248,250,252,.65);
+  cursor: pointer;
+  user-select: none;
+}
+
+#adminClientesPage .ac-check-card input[type="checkbox"]{
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: #6d28d9;
+}
+
+#adminClientesPage .ac-check-card:hover{
+  border-color: rgba(109,40,217,.35);
+  background: rgba(109,40,217,.05);
+}
+
+/* =========================================================
+   MODAL ESPECÍFICO: DESTINATARIOS
+   ========================================================= */
+#adminClientesPage .ac-modal--recipients{
+  align-items: center;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-card{
+  width: min(960px, calc(100vw - 40px));
+  max-width: 960px;
+  min-height: 0;
+  max-height: calc(100vh - 44px);
+  border-radius: 22px;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-head--recipients{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid rgba(15,23,42,.08);
+  background: linear-gradient(180deg, rgba(248,250,252,.96) 0%, rgba(255,255,255,.94) 100%);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-head-copy{
+  min-width: 0;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-head .ttl{
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: .1px;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-head .sub{
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(15,23,42,.62);
+  font-weight: 700;
+  word-break: break-word;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-head .x{
+  flex: 0 0 auto;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-body{
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 16px 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.55) 100%);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-note--modal{
+  margin: 0 0 10px;
+  border-radius: 14px;
+}
+
+#adminClientesPage .ac-tabs--recipients{
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+#adminClientesPage .ac-tabbar--recipients{
+  position: sticky;
+  top: 0;
+  z-index: 3;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  margin: 0;
+  padding: 8px;
+  border: 1px solid rgba(15,23,42,.08);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: rgba(248,250,252,.97);
+  box-shadow: none;
+}
+
+#adminClientesPage .ac-tabbar--recipients .ac-tab{
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(15,23,42,.72);
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+  min-height: 42px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+#adminClientesPage .ac-tabbar--recipients .ac-tab:hover{
+  background: rgba(15,23,42,.05);
+  color: rgba(15,23,42,.92);
+}
+
+#adminClientesPage .ac-tabbar--recipients .ac-tab.active{
+  background: #0f172a;
+  color: #fff;
+  box-shadow: none;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-tabpane{
+  min-height: 0;
+  margin: 0;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-tabpane.show{
+  display: block;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-form--recipients{
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section{
+  border: 1px solid rgba(15,23,42,.08);
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-radius: 0 0 18px 18px;
+  background: #fff;
+  box-shadow: none;
+  overflow: hidden;
+  min-height: 0;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section__head{
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid rgba(15,23,42,.06);
+  background: linear-gradient(180deg, rgba(248,250,252,.8) 0%, rgba(255,255,255,1) 100%);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section__title{
+  font-size: 16px;
+  line-height: 1.15;
+  font-weight: 900;
+  color: rgba(15,23,42,.95);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section__desc{
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(15,23,42,.62);
+  font-weight: 700;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section .ac-grid{
+  padding: 14px 18px 16px;
+  row-gap: 12px;
+  column-gap: 14px;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section .ac-field{
+  margin: 0;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-rec-section label{
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  color: rgba(15,23,42,.85);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-textarea--recipients{
+  min-height: 128px;
+  height: 128px;
+  max-height: 220px;
+  resize: vertical;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-input,
+#adminClientesPage .ac-modal--recipients .ac-textarea{
+  width: 100%;
+  border-radius: 14px;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-hint{
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(15,23,42,.58);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-form-actions--recipients{
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  margin-top: 0;
+  padding: 12px 14px 0;
+  border-top: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,.86) 18%,
+    rgba(248,250,252,.98) 100%
+  );
+  backdrop-filter: blur(8px);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-form-actions--recipients .ac-btn{
+  min-width: 114px;
+}
+
+#adminClientesPage .ac-modal--recipients .ac-form-actions--recipients .ac-btn.primary{
+  box-shadow: 0 10px 24px rgba(109,40,217,.22);
+}
+
+#adminClientesPage .ac-modal--recipients .ac-modal-body > .ac-tabs--recipients{
+  max-width: 100%;
+}
+
+@media (max-width: 820px){
+  #adminClientesPage .ac-modal--recipients{
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-modal-card{
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 12px);
+    border-radius: 20px 20px 12px 12px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-modal-head--recipients{
+    padding: 14px 14px 12px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-modal-head .ttl{
+    font-size: 16px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-modal-body{
+    padding: 8px 10px 12px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-tabbar--recipients{
+    border-radius: 16px 16px 0 0;
+    padding: 6px;
+    gap: 6px;
+  }
+
+  #adminClientesPage .ac-tabbar--recipients .ac-tab{
+    flex: 1 1 auto;
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-rec-section__head{
+    padding: 14px 14px 10px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-rec-section .ac-grid{
+    padding: 12px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-textarea--recipients{
+    min-height: 110px;
+    height: 110px;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-form-actions--recipients{
+    padding: 12px 2px 0;
+  }
+
+  #adminClientesPage .ac-modal--recipients .ac-form-actions--recipients .ac-btn{
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+}
+
+/* =========================================================
+   MODAL ESPECÍFICO: CREDENCIALES
+   ========================================================= */
+#adminClientesPage .ac-modal--creds .ac-modal-card{
+  width: min(920px, calc(100vw - 40px));
+  max-width: 920px;
+  max-height: calc(100vh - 44px);
+  border-radius: 22px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-modal-head--creds{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  padding:16px 20px 14px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  background: linear-gradient(180deg, rgba(248,250,252,.96) 0%, rgba(255,255,255,.94) 100%);
+}
+
+#adminClientesPage .ac-modal--creds .ac-modal-head-copy{
+  min-width:0;
+}
+
+#adminClientesPage .ac-modal--creds .ac-modal-head .ttl{
+  font-size:18px;
+  font-weight:900;
+  line-height:1.1;
+  letter-spacing:.1px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-modal-head .sub{
+  margin-top:5px;
+  font-size:13px;
+  line-height:1.35;
+  color: rgba(15,23,42,.62);
+  font-weight:700;
+  word-break:break-word;
+}
+
+#adminClientesPage .ac-modal--creds .ac-modal-body--creds{
+  flex:1 1 auto;
+  overflow:auto;
+  padding:14px 18px 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.55) 100%);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section{
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:18px;
+  background:#fff;
+  box-shadow: 0 12px 30px rgba(15,23,42,.05);
+  overflow:hidden;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section + .ac-cred-section{
+  margin-top:14px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section__head{
+  padding:16px 18px 12px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background: linear-gradient(180deg, rgba(248,250,252,.82) 0%, rgba(255,255,255,1) 100%);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section__eyebrow{
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  color: rgba(109,40,217,.82);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section__title{
+  margin-top:4px;
+  font-size:16px;
+  line-height:1.15;
+  font-weight:900;
+  color: rgba(15,23,42,.96);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-section__desc{
+  margin-top:6px;
+  font-size:12px;
+  line-height:1.45;
+  color: rgba(15,23,42,.62);
+  font-weight:700;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-kv-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap:14px;
+  padding:16px 18px 18px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-kv{
+  min-width:0;
+  padding:14px 14px 12px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:16px;
+  background: linear-gradient(180deg, rgba(248,250,252,.68) 0%, rgba(255,255,255,1) 100%);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-kv .k{
+  margin-bottom:7px;
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+  color: rgba(15,23,42,.56);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-kv .v{
+  font-size:14px;
+  font-weight:800;
+  color: rgba(15,23,42,.95);
+  min-width:0;
+}
+
+#adminClientesPage .ac-modal--creds .ac-otp-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:34px;
+  padding:6px 12px;
+  border-radius:12px;
+  border:1px solid rgba(109,40,217,.16);
+  background: rgba(109,40,217,.08);
+  color: #5b21b6;
+  font-weight:900;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-token-card{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  padding:16px 18px 18px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-token-main{
+  min-width:0;
+  flex:1 1 auto;
+  padding:14px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:16px;
+  background: linear-gradient(180deg, rgba(248,250,252,.68) 0%, rgba(255,255,255,1) 100%);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-token-value{
+  font-size:13px;
+  line-height:1.55;
+  color: rgba(15,23,42,.96);
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-token-meta{
+  margin-top:8px;
+  font-size:12px;
+  line-height:1.45;
+  color: rgba(15,23,42,.58);
+  font-weight:700;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-token-actions{
+  flex:0 0 auto;
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+#adminClientesPage .ac-modal--creds .ac-form--creds-email{
+  padding:14px 18px 18px;
+  overflow:visible;
+  background:transparent;
+}
+
+#adminClientesPage .ac-modal--creds .ac-textarea--creds{
+  min-height:110px;
+  max-height:220px;
+  resize:vertical;
+  border-radius:14px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-primary-actions{
+  display:flex;
+  justify-content:flex-end;
+  padding-top:4px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-cred-secondary-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  padding:16px 18px 18px;
+}
+
+#adminClientesPage .ac-modal--creds .ac-note--soft{
+  margin:14px 18px 0;
+  border:1px solid rgba(15,23,42,.08);
+  background: rgba(248,250,252,.78);
+}
+
+#adminClientesPage .ac-modal--creds .ac-form-actions--creds{
+  position:sticky;
+  bottom:0;
+  z-index:4;
+  padding:12px 16px 16px;
+  border-top:1px solid rgba(15,23,42,.08);
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,.86) 18%,
+    rgba(248,250,252,.98) 100%
+  );
+  backdrop-filter: blur(8px);
+}
+
+#adminClientesPage .ac-modal--creds .ac-break{
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+@media (max-width: 820px){
+  #adminClientesPage .ac-modal--creds{
+    align-items:flex-end;
+    padding:10px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-modal-card{
+    width:100%;
+    max-width:100%;
+    max-height: calc(100vh - 12px);
+    border-radius:20px 20px 12px 12px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-modal-head--creds{
+    padding:14px 14px 12px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-modal-head .ttl{
+    font-size:16px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-modal-body--creds{
+    padding:12px 14px 14px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-kv-grid{
+    grid-template-columns: 1fr;
+    padding:14px;
+    gap:12px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-section__head{
+    padding:14px 14px 10px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-token-card{
+    flex-direction:column;
+    padding:14px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-form--creds-email{
+    padding:14px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-note--soft{
+    margin:14px 14px 0;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-secondary-actions{
+    padding:14px;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-primary-actions{
+    justify-content:stretch;
+  }
+
+  #adminClientesPage .ac-modal--creds .ac-cred-primary-actions .ac-btn{
+    width:100%;
+  }
+}
+
+/* =========================================================
+   MODAL ESPECÍFICO: IFRAME SUBMÓDULOS
+   ========================================================= */
+#adminClientesPage .ac-modal--iframe{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-card-shell{
+  position:relative;
+  left:auto !important;
+  right:auto !important;
+  transform:none !important;
+
+  width:min(1180px, calc(100vw - 120px));
+  max-width:1180px;
+  max-height:calc(100vh - 36px);
+  border-radius:22px;
+  margin:0 auto !important;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  padding:16px 18px 14px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  background: linear-gradient(180deg, rgba(248,250,252,.96) 0%, rgba(255,255,255,.94) 100%);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-head-copy{
+  min-width:0;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-head .ttl{
+  font-size:18px;
+  font-weight:900;
+  line-height:1.1;
+  letter-spacing:.1px;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-head .sub{
+  margin-top:5px;
+  font-size:13px;
+  line-height:1.35;
+  color:rgba(15,23,42,.62);
+  font-weight:700;
+  word-break:break-word;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-head-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:0 0 auto;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-status{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:42px;
+  padding:10px 18px;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background:rgba(248,250,252,.78);
+  color:rgba(15,23,42,.72);
+  font-size:12px;
+  font-weight:800;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-status .dot{
+  width:9px;
+  height:9px;
+  border-radius:999px;
+  background:#94a3b8;
+  flex:0 0 auto;
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_status.is-loading .dot{
+  background:#f59e0b;
+  box-shadow:0 0 0 6px rgba(245,158,11,.14);
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_status.is-ready .dot{
+  background:#10b981;
+  box-shadow:0 0 0 6px rgba(16,185,129,.12);
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_status.is-error .dot{
+  background:#ef4444;
+  box-shadow:0 0 0 6px rgba(239,68,68,.12);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-wrap{
+  position:relative;
+  flex:1 1 auto;
+  min-height:420px;
+  background: linear-gradient(180deg, rgba(248,250,252,.85) 0%, rgba(255,255,255,1) 100%);
+  overflow:hidden;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-loader,
+#adminClientesPage .ac-modal--iframe .ac-if-fallback{
+  position:absolute;
+  inset:0;
+  z-index:2;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-loader{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(255,255,255,.72);
+  backdrop-filter:blur(6px);
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_wrap[data-state="loading"] .ac-if-loader{
+  display:flex;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-loader-card{
+  width:min(420px, 100%);
+  padding:24px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:20px;
+  background:#fff;
+  box-shadow:0 20px 50px rgba(15,23,42,.10);
+  text-align:center;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-spinner{
+  width:34px;
+  height:34px;
+  margin:0 auto 14px;
+  border-radius:999px;
+  border:3px solid rgba(109,40,217,.16);
+  border-top-color:#6d28d9;
+  animation: acIfSpin .85s linear infinite;
+}
+
+@keyframes acIfSpin{
+  to{ transform:rotate(360deg); }
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-loader-ttl{
+  font-size:15px;
+  font-weight:900;
+  color:rgba(15,23,42,.95);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-loader-desc{
+  margin-top:6px;
+  font-size:12px;
+  line-height:1.45;
+  color:rgba(15,23,42,.62);
+  font-weight:700;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-frame{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  border:0;
+  background:#fff;
+  opacity:0;
+  transition:opacity .18s ease;
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_wrap[data-state="ready"] .ac-if-frame{
+  opacity:1;
+}
+
+#adminClientesPage .ac-modal--iframe #acIf_wrap[data-state="error"] .ac-if-frame{
+  opacity:.02;
+  pointer-events:none;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-fallback{
+  align-items:center;
+  justify-content:center;
+  padding:28px;
+  background:
+    radial-gradient(circle at top, rgba(109,40,217,.08), transparent 35%),
+    linear-gradient(180deg, rgba(248,250,252,.94) 0%, rgba(255,255,255,1) 100%);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-fallback:not([hidden]){
+  display:flex;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-fallback-card{
+  width:min(620px, 100%);
+  padding:26px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:22px;
+  background:#fff;
+  box-shadow:0 24px 60px rgba(15,23,42,.10);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-fallback-icon{
+  font-size:24px;
+  line-height:1;
+  margin-bottom:12px;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-ttl{
+  font-size:18px;
+  line-height:1.15;
+  font-weight:900;
+  color:rgba(15,23,42,.96);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-desc{
+  margin-top:8px;
+  font-size:13px;
+  line-height:1.6;
+  color:rgba(15,23,42,.64);
+  font-weight:700;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:16px;
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-url-wrap{
+  margin-top:16px;
+  padding-top:14px;
+  border-top:1px solid rgba(15,23,42,.08);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-url-label{
+  margin-bottom:6px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+  font-weight:900;
+  color:rgba(15,23,42,.52);
+}
+
+#adminClientesPage .ac-modal--iframe .ac-if-url{
+  font-size:12px;
+  line-height:1.55;
+  color:rgba(15,23,42,.70);
+  word-break:break-word;
+  overflow-wrap:anywhere;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+}
+
+/* Respetar hidden del loader/fallback */
+#adminClientesPage .ac-modal--iframe .ac-if-loader[hidden],
+#adminClientesPage .ac-modal--iframe .ac-if-fallback[hidden]{
+  display:none !important;
+}
+
+/* Hotfix extra contra wrappers del layout */
+body #adminClientesPage .ac-modal--iframe{
+  inset:0 !important;
+  width:100vw !important;
+  height:100vh !important;
+}
+
+@media (min-width: 861px){
+  #adminClientesPage .ac-modal--iframe .ac-if-card-shell{
+    width:min(1180px, calc(100vw - 120px));
+  }
+}
+
+@media (max-width: 860px){
+  #adminClientesPage .ac-modal--iframe{
+    align-items:flex-end !important;
+    padding:10px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-card-shell{
+    width:100%;
+    max-width:100%;
+    max-height:calc(100vh - 12px);
+    border-radius:20px 20px 12px 12px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-head{
+    padding:14px 14px 12px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-head .ttl{
+    font-size:16px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-head-actions{
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-status{
+    padding:10px 14px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-wrap{
+    min-height:340px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-fallback{
+    padding:14px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-fallback-card{
+    padding:18px;
+    border-radius:18px;
+  }
+
+  #adminClientesPage .ac-modal--iframe .ac-if-actions .ac-btn{
+    flex:1 1 auto;
+    min-width:0;
+  }
 }
