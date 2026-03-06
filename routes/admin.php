@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Route;
 |---------------------------------------------------------------------------
 */
 use App\Http\Controllers\Admin\Auth\LoginController;
+use App\Http\Controllers\Admin\Auth\AdminPasswordResetController;
 use App\Http\Controllers\Admin\HomeController;
 use App\Http\Controllers\Admin\SearchController;
 use App\Http\Controllers\Admin\NotificationController;
@@ -263,8 +264,25 @@ Route::middleware([
         ->middleware($thrLogin)
         ->name('login.do');
 
+    Route::get('password/forgot', [AdminPasswordResetController::class, 'showRequestForm'])
+        ->name('password.request');
+
+    $passwordEmail = Route::post('password/email', [AdminPasswordResetController::class, 'sendResetLink'])
+        ->middleware($thrLogin)
+        ->name('password.email');
+
+    Route::get('password/reset/{token}', [AdminPasswordResetController::class, 'showResetForm'])
+        ->where('token', '[A-Za-z0-9]+')
+        ->name('password.reset');
+
+    $passwordReset = Route::post('password/reset', [AdminPasswordResetController::class, 'reset'])
+        ->middleware($thrLogin)
+        ->name('password.update');
+
     if ($isLocal) {
         $loginPost->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        $passwordEmail->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        $passwordReset->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
     }
 });
 

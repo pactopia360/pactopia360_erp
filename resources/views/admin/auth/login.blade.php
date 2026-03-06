@@ -1,224 +1,202 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Pactopia360 · Admin | Iniciar sesión</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link rel="stylesheet" href="{{ asset('assets/admin/css/login.css') }}">
+    <meta charset="UTF-8">
+    <title>Pactopia360 · Admin | Iniciar sesión</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ asset('assets/admin/css/login.css') }}?v={{ @filemtime(public_path('assets/admin/css/login.css')) }}">
 
-  <script>
-    // Persistencia de tema (admin) — sin dependencia del JS externo
-    (function(){
-      const KEY='p360-theme-admin';
-      const saved = localStorage.getItem(KEY);
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const initial = saved || (prefersDark ? 'dark' : 'light');
+    <script>
+        (function () {
+            const KEY = 'p360-theme-admin';
+            const saved = localStorage.getItem(KEY);
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const initial = saved || (prefersDark ? 'dark' : 'light');
 
-      function setUI(dark){
-        const btn = document.getElementById('themeToggle');
-        if (!btn) return;
-        btn.setAttribute('aria-pressed', String(dark));
-        const i = btn.querySelector('.icon');  if(i) i.textContent  = dark ? '🌞' : '🌙';
-        const l = btn.querySelector('.label'); if(l) l.textContent = dark ? 'Modo claro' : 'Modo oscuro';
-      }
+            function applyTheme(mode) {
+                document.documentElement.setAttribute('data-theme', mode);
+                document.body.classList.toggle('theme-dark', mode === 'dark');
+                document.body.classList.toggle('theme-light', mode !== 'dark');
 
-      document.addEventListener('DOMContentLoaded', function(){
-        document.body.classList.toggle('theme-dark',  initial==='dark');
-        document.body.classList.toggle('theme-light', initial!=='dark');
-        setUI(initial==='dark');
+                const btn = document.getElementById('themeToggle');
+                if (!btn) return;
 
-        const btn = document.getElementById('themeToggle');
-        btn && btn.addEventListener('click', () => {
-          const toDark = !document.body.classList.contains('theme-dark');
-          document.body.classList.toggle('theme-dark', toDark);
-          document.body.classList.toggle('theme-light', !toDark);
-          localStorage.setItem(KEY, toDark ? 'dark' : 'light');
-          setUI(toDark);
-        });
-      });
-    })();
+                btn.setAttribute('aria-pressed', String(mode === 'dark'));
 
-    // ✅ Toggle password ULTRA-robusto: disponible incluso si no carga login.js
-    window.P360_togglePwd = function(){
-      const inp = document.getElementById('password');
-      const btn = document.getElementById('btnTogglePassword');
-      if (!inp || !btn) return;
+                const icon = btn.querySelector('.theme-btn__icon');
+                const text = btn.querySelector('.theme-btn__text');
 
-      const isPw = (inp.getAttribute('type') || '').toLowerCase() === 'password';
-      inp.setAttribute('type', isPw ? 'text' : 'password');
-      btn.textContent = isPw ? 'Ocultar' : 'Mostrar';
-      btn.setAttribute('aria-pressed', String(isPw));
-    };
-  </script>
+                if (icon) icon.textContent = mode === 'dark' ? '☀' : '☾';
+                if (text) text.textContent = mode === 'dark' ? 'Modo claro' : 'Modo oscuro';
+            }
 
-  {{-- ✅ Micro-fix CSS inline SOLO para asegurar que el botón sea clickeable --}}
-  <style>
-    /* Si tu CSS trae overlays/position raros, esto asegura el click */
-    .pwd-field{ position:relative; }
-    .pwd-field .toggle{
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      z-index: 50;
-      pointer-events: auto !important;
-      touch-action: manipulation;
-    }
-    /* Asegura espacio para el botón */
-    .pwd-field input.input{ padding-right: 92px; }
-  </style>
+            window.P360AdminThemeToggle = function () {
+                const current = document.documentElement.getAttribute('data-theme') || 'light';
+                const next = current === 'dark' ? 'light' : 'dark';
+                localStorage.setItem(KEY, next);
+                applyTheme(next);
+            };
+
+            window.P360_togglePwd = function (inputId, btnId) {
+                const input = document.getElementById(inputId || 'password');
+                const btn = document.getElementById(btnId || 'btnTogglePassword');
+                if (!input || !btn) return;
+
+                const isPassword = (input.getAttribute('type') || '').toLowerCase() === 'password';
+                input.setAttribute('type', isPassword ? 'text' : 'password');
+                btn.textContent = isPassword ? 'Ocultar' : 'Mostrar';
+                btn.setAttribute('aria-pressed', String(isPassword));
+            };
+
+            document.addEventListener('DOMContentLoaded', function () {
+                applyTheme(initial);
+            });
+        })();
+    </script>
 </head>
+<body class="auth-page auth-page--pactopia">
+    <div class="auth-bg">
+        <div class="auth-glow auth-glow--1"></div>
+        <div class="auth-glow auth-glow--2"></div>
+        <div class="auth-grid-lines"></div>
+    </div>
 
-<body>
-  {{-- Botón flotante para cambiar de tema --}}
-  <div class="theme-switch">
-    <button type="button" class="theme-btn" id="themeToggle" aria-pressed="false">
-      <span class="icon">🌙</span>
-      <span class="label">Modo oscuro</span>
-    </button>
-  </div>
+    <div class="theme-switch">
+        <button type="button" class="theme-btn" id="themeToggle" onclick="window.P360AdminThemeToggle()" aria-pressed="false">
+            <span class="theme-btn__icon">☾</span>
+            <span class="theme-btn__text">Modo oscuro</span>
+        </button>
+    </div>
 
-  <noscript><p class="nojs">Activa JavaScript para una mejor experiencia.</p></noscript>
+    <main class="auth-shell">
+        <section class="login-wrap" aria-label="Acceso administrativo Pactopia360">
+            <aside class="login-hero">
+                <div class="login-hero__inner">
+                    <div class="login-brand">
+                        <img class="login-brand__logo login-brand__logo--dark" src="{{ asset('assets/admin/img/logo-pactopia360-white.png') }}" alt="Pactopia360">
+                        <img class="login-brand__logo login-brand__logo--light" src="{{ asset('assets/admin/img/logo-pactopia360-dark.png') }}" alt="Pactopia360">
+                    </div>
 
-  <div class="shell" role="main">
-    <!-- IZQUIERDA: Branding / valor -->
-    <section class="brand" aria-label="Acerca de Pactopia360">
-      <div>
-        <div class="logo" aria-label="Pactopia360">
-          {{-- Logo para tema oscuro --}}
-          <img class="logo-img logo-dark" src="{{ asset('assets/admin/img/logo-pactopia360-white.png') }}" alt="Pactopia360">
-          {{-- Logo para tema claro --}}
-          <img class="logo-img logo-light" src="{{ asset('assets/admin/img/logo-pactopia360-dark.png') }}"  alt="Pactopia360">
-        </div>
+                    <span class="login-chip">ADMIN</span>
 
-        <h2 class="slogan">Acceso seguro al panel administrativo</h2>
-        <div class="points" role="list">
-          <div class="point" role="listitem">✅ <b>Roles y permisos</b> granulares (superadmin, perfiles y overrides).</div>
-          <div class="point" role="listitem">📊 <b>Dashboard</b> con KPIs y módulos clave.</div>
-          <div class="point" role="listitem">🛡️ <b>Sesión protegida</b> y auditoría de accesos.</div>
-        </div>
-      </div>
-      <div class="foot-note">© {{ date('Y') }} Pactopia360. Todos los derechos reservados.</div>
-    </section>
+                    <h1 class="login-hero__title">Hola, bienvenido</h1>
 
-    <!-- DERECHA: Formulario -->
-    <section class="panel" aria-label="Formulario de inicio de sesión para administradores">
-      <form class="card" method="POST" action="{{ route('admin.login.do') }}" id="loginForm" novalidate autocomplete="on" accept-charset="UTF-8">
-        @csrf
+                    <p class="login-hero__text">
+                        Accede al panel administrativo de Pactopia360 para gestionar operación, clientes, facturación, SAT y finanzas.
+                    </p>
 
-        <h1 class="title">Iniciar sesión</h1>
-        <p class="subtitle">Usa tus credenciales administrativas para continuar.</p>
+                    <div class="login-hero__mini">
+                        <span>Control centralizado</span>
+                        <span>Acceso seguro</span>
+                        <span>Operación crítica</span>
+                    </div>
 
-        {{-- ALERTA ROBUSTA: errores y/o mensaje de sesión --}}
-        <div aria-live="polite" aria-atomic="true">
-          @php
-            $hasErrors = $errors && $errors->any();
-            $sessErr   = session('error') ?: session('warn');
-          @endphp
+                    <div class="login-hero__footer">
+                        © {{ date('Y') }} Pactopia360 · Panel administrativo
+                    </div>
+                </div>
+            </aside>
 
-          @if ($hasErrors || $sessErr)
-            <div class="err" role="alert">
-              @if ($sessErr)
-                <div>• {{ $sessErr }}</div>
-              @endif
+            <section class="login-panel">
+                <form class="login-card" method="POST" action="{{ route('admin.login.do') }}" id="loginForm" novalidate autocomplete="on">
+                    @csrf
 
-              @if ($hasErrors)
-                @foreach ($errors->all() as $e)
-                  <div>• {{ $e }}</div>
-                @endforeach
-              @endif
-            </div>
-          @endif
-        </div>
+                    <div class="login-card__header">
+                        <p class="login-card__eyebrow">Acceso administrativo</p>
+                        <h2 class="login-card__title">Iniciar sesión</h2>
+                        <p class="login-card__subtitle">
+                            Ingresa con tus credenciales para continuar al entorno de administración.
+                        </p>
+                    </div>
 
-        <div>
-          <label for="email">Email</label>
-          <input
-            class="input"
-            id="email"
-            type="text"
-            name="email"
-            value="{{ old('email') }}"
-            required
-            autofocus
-            autocomplete="username"
-            inputmode="email"
-            placeholder="micorreo@dominio.com"
-            maxlength="150">
-        </div>
+                    @if (session('status'))
+                        <div class="ok" role="status">{{ session('status') }}</div>
+                    @endif
 
-        <div class="pwd-wrap">
-          <label for="password">Contraseña</label>
+                    @if (session('warn'))
+                        <div class="err" role="alert">{{ session('warn') }}</div>
+                    @endif
 
-          <div class="pwd-field">
-            <input
-              class="input"
-              id="password"
-              type="password"
-              name="password"
-              required
-              autocomplete="current-password"
-              placeholder="********"
-              minlength="6"
-              maxlength="72"
-              aria-describedby="capsTip">
+                    @if ($errors->any())
+                        <div class="err" role="alert">
+                            @foreach ($errors->all() as $error)
+                                <div>• {{ $error }}</div>
+                            @endforeach
+                        </div>
+                    @endif
 
-            {{-- ✅ onclick directo (no depende de listeners) --}}
-            <button
-              type="button"
-              class="toggle"
-              id="btnTogglePassword"
-              aria-controls="password"
-              aria-pressed="false"
-              aria-label="Mostrar u ocultar contraseña"
-              onclick="window.P360_togglePwd && window.P360_togglePwd()">Mostrar</button>
-          </div>
+                    <div class="field">
+                        <label for="email">Correo electrónico o usuario</label>
+                        <div class="input-wrap">
+                            <span class="input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M20 7L12.9 12.05C12.35 12.44 11.65 12.44 11.1 12.05L4 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                                </svg>
+                            </span>
+                            <input
+                                class="input"
+                                id="email"
+                                type="text"
+                                name="email"
+                                value="{{ old('email') }}"
+                                required
+                                autofocus
+                                autocomplete="username"
+                                inputmode="email"
+                                placeholder="admin@pactopia360.com">
+                        </div>
+                    </div>
 
-          <div id="capsTip" class="hint hint-caps" style="display:none;">🔠 Bloq Mayús está activado</div>
-        </div>
+                    <div class="field">
+                        <div class="field-head">
+                            <label for="password">Contraseña</label>
+                            <a class="link-muted" href="{{ route('admin.password.request') }}">¿Olvidaste tu contraseña?</a>
+                        </div>
 
-        <div class="row">
-          <label class="remember">
-            <input type="checkbox" name="remember" value="1"> Recordarme
-          </label>
-          <a class="link-muted" href="#" aria-disabled="true">¿Olvidaste tu contraseña?</a>
-        </div>
+                        <div class="pwd-field input-wrap">
+                            <span class="input-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M8 10V7.5A4 4 0 0 1 12 3.5A4 4 0 0 1 16 7.5V10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                                </svg>
+                            </span>
+                            <input
+                                class="input"
+                                id="password"
+                                type="password"
+                                name="password"
+                                required
+                                autocomplete="current-password"
+                                placeholder="Escribe tu contraseña"
+                                minlength="6"
+                                maxlength="200">
+                            <button
+                                type="button"
+                                class="toggle"
+                                id="btnTogglePassword"
+                                aria-controls="password"
+                                aria-pressed="false"
+                                onclick="window.P360_togglePwd('password','btnTogglePassword')">Mostrar</button>
+                        </div>
+                    </div>
 
-        <button class="btn" id="btnSubmit" type="submit">Entrar</button>
-        <div class="hint">Al continuar aceptas las políticas de seguridad de Pactopia360.</div>
-      </form>
-    </section>
-  </div>
+                    <div class="row">
+                        <label class="remember">
+                            <input type="checkbox" name="remember" value="1" {{ old('remember') ? 'checked' : '' }}>
+                            <span>Recordarme</span>
+                        </label>
+                    </div>
 
-  {{-- ✅ Listener adicional (por si quitas onclick) + CapsLock tip --}}
-  <script>
-    (function(){
-      const btn = document.getElementById('btnTogglePassword');
-      const inp = document.getElementById('password');
-      const tip = document.getElementById('capsTip');
+                    <button class="btn btn-primary" id="btnSubmit" type="submit">Entrar</button>
 
-      if (btn && inp) {
-        btn.addEventListener('click', function(e){
-          // redundante, pero asegura que NUNCA se “pierda” el click
-          e.preventDefault();
-          if (window.P360_togglePwd) window.P360_togglePwd();
-        });
-
-        inp.addEventListener('keyup', function(e){
-          try {
-            const on = e.getModifierState && e.getModifierState('CapsLock');
-            if (tip) tip.style.display = on ? 'block' : 'none';
-          } catch (_) {}
-        });
-        inp.addEventListener('blur', function(){
-          if (tip) tip.style.display = 'none';
-        });
-      }
-    })();
-  </script>
-
-  {{-- Tu JS externo (si existe). Ya NO es necesario para el toggle. --}}
-  <script src="{{ asset('assets/admin/js/login.js') }}"></script>
+                    <div class="card-note">
+                        Acceso exclusivo para administradores autorizados de Pactopia360.
+                    </div>
+                </form>
+            </section>
+        </section>
+    </main>
 </body>
 </html>
