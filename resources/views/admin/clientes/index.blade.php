@@ -440,9 +440,9 @@
           $cred     = $creds[$r->id] ?? null;
 
           $planVal  = strtolower((string)($r->plan ?? ''));
-          $bcRaw    = (string)($r->billing_cycle ?? '');
-          $nextRaw  = (string)($r->next_invoice_date ?? '');
-          $bsRaw    = (string)($r->billing_status ?? '');
+          $bcRaw    = (string)(data_get($r, 'billing_cycle') ?: (is_array($info) ? ($info['billing_cycle'] ?? '') : ''));
+          $nextRaw  = (string)(data_get($r, 'next_invoice_date') ?: (is_array($info) ? ($info['next_invoice_date'] ?? '') : ''));
+          $bsRaw    = (string)(data_get($r, 'billing_status') ?: (is_array($info) ? ($info['estado_cuenta'] ?? '') : ''));
 
           $bcLabel   = $cycleLabel($bcRaw);
           $nextLabel = $dateLabel($nextRaw);
@@ -525,7 +525,7 @@
           $stmtMain = $stmtCount ? ($primaryStatement ?: trim(explode(',', $recipsStatement)[0] ?? '')) : 'Sin correos';
 
           // ✅ extras
-          $estadoCuenta = is_array($info) ? (string)($info['estado_cuenta'] ?? $info['account_status'] ?? '') : '';
+          $estadoCuenta = is_array($info) ? (string)($info['estado_cuenta'] ?? $info['account_status'] ?? $bsRaw ?? '') : $bsRaw;
           $modoCobro    = is_array($info) ? (string)($info['modo_cobro'] ?? $info['billing_mode'] ?? '') : '';
           $stripeCust   = is_array($info) ? (string)($info['stripe_customer_id'] ?? '') : '';
           $stripeSub    = is_array($info) ? (string)($info['stripe_subscription_id'] ?? '') : '';
@@ -789,8 +789,8 @@
         @endphp
         Mostrando {{ $from }}–{{ $to }} de {{ $total ?? '—' }}
       </div>
-      <div class="links">
-        {{ $rows->links() }}
+      <div class="links ac-pagination-wrap">
+        {{ $rows->onEachSide(1)->links() }}
       </div>
     </div>
 

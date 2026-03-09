@@ -7,7 +7,8 @@
 .ac-shell{
   display:flex;
   flex-direction:column;
-  gap:var(--ac-gap);
+  gap:var(--ac-gap, 14px);
+  min-height:0;
 }
 
 /* =========================
@@ -332,56 +333,33 @@ details.ac-filters > summary::-webkit-details-marker{
   .ac-toolbar{ gap: 10px; }
 }
 
-/* ======================================================================
-   P360 · Admin Clientes · FIX: dejar UN SOLO scroll (window)
-   - Evita scroll interno en contenedores tipo 100vh/overflow:auto
-   - Mantiene sticky headers sin crear "scroll container" extra
-   ====================================================================== */
+/* =========================
+   Layout guardrails (scoped)
+   ========================= */
 
-/* 1) El scroll debe vivir en la ventana */
-html, body{
-  height: auto !important;
-  min-height: 100% !important;
-  overflow-y: auto !important;
-}
-
-/* 2) Neutraliza contenedores que suelen atrapar el scroll */
-#adminClientesPage,
 #adminClientesPage .ac-shell,
-#adminClientesPage .admin-content,
-#adminClientesPage .admin-main,
-#adminClientesPage .ac-list{
-  height: auto !important;
-  max-height: none !important;
-  overflow: visible !important;
+#adminClientesPage .ac-toolbar,
+#adminClientesPage .ac-topbar,
+#adminClientesPage .ac-kpi-bar,
+#adminClientesPage .ac-pager{
+  width: 100%;
 }
 
-/* 3) Si algún wrapper fuerza viewport-height, lo neutralizamos */
-#adminClientesPage :is([style*="100vh"], [style*="height:100vh"], [style*="height: 100vh"]){
-  height: auto !important;
-  max-height: none !important;
-  overflow: visible !important;
-}
-
-/* 4) Si la lista tenía scroll propio, lo apagamos explícitamente */
-#adminClientesPage .ac-list{
-  overflow-y: visible !important;
-}
-
-/* 5) Evita que un flex parent “recorte” y obligue a overflow */
-#adminClientesPage .ac-shell{
-  display: block !important;
-}
-
-/* 6) Sticky OK sin crear scroll interno */
-#adminClientesPage .ac-sticky,
-#adminClientesPage .sticky,
-#adminClientesPage [data-sticky="1"]{
+#adminClientesPage .ac-topbar{
   position: sticky;
   top: var(--ac-sticky-top, 8px);
 }
 
-/* 7) Si por algún CSS global el body queda con overflow hidden, lo revierte */
-body{
-  overflow: auto !important;
+#adminClientesPage .ac-toolbar{
+  align-items: flex-start;
+}
+
+#adminClientesPage details.ac-filters{
+  width: 100%;
+}
+
+/* evita que flex/grid generen alturas raras */
+#adminClientesPage .ac-list,
+#adminClientesPage .ac-pager{
+  min-height: 0;
 }

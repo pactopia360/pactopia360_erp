@@ -87,76 +87,6 @@ body.ac-lock{
   overflow:visible !important;
 }
 
-/* ============================================================
-   ✅ FIX: Quitar doble scroll (dejar SOLO el scroll del viewport)
-   - Objetivo: desactivar wrappers del layout que meten height:100vh + overflow:auto/hidden
-   - Scope: SOLO esta vista (#adminClientesPage)
-   - Mantiene: html.ac-lock (modal/drawer) sigue bloqueando el scroll
-   ============================================================ */
-
-/* 0) Garantiza que el scroll “real” sea el del documento */
-html, body{
-  height:auto;
-}
-
-/* 1) La página NO debe ser contenedor scrolleable */
-#adminClientesPage{
-  height:auto !important;
-  min-height:0 !important;
-  max-height:none !important;
-  overflow:visible !important;
-}
-
-/* 2) Neutraliza wrappers típicos del layout SOLO si suelen forzar scroll */
-#adminClientesPage :is(
-  .container,
-  .container-fluid,
-  .content,
-  .content-body,
-  .content-wrapper,
-  .main-content,
-  .page-content,
-  .app-content,
-  .app-content-body,
-  .layout-content,
-  .layout-page,
-  .layout-wrapper,
-  .layout-container,
-  .layout-navbar-fixed,
-  .layout-menu-fixed,
-  .layout-content-navbar
-){
-  height:auto !important;
-  min-height:0 !important;
-  max-height:none !important;
-  overflow:visible !important;     /* 👈 clave: mata el scroll interno */
-}
-
-/* 3) Si tu layout tiene un “body wrapper” con overflow (muy común), lo neutralizamos */
-#adminClientesPage :is(
-  .layout-page,
-  .layout-content,
-  .layout-container,
-  .content-wrapper
-){
-  overflow-y:visible !important;
-  overflow-x:visible !important;
-}
-
-/* 4) Importante: NO mates todos los overflow:auto (evita romper dropdowns/componentes)
-      En lugar de eso, solo asegura que la LISTA no genere scroll vertical interno */
-#adminClientesPage .ac-list{
-  overflow: clip; /* sin scrollbars, mantiene borde */
-}
-
-/* 5) Modales/drawer: lock global */
-html.ac-lock{
-  overflow:hidden !important;
-}
-body.ac-lock{
-  overflow:hidden !important;
-}
-
 .ac-list-head{
   font-size:12px;
   font-weight:950;
@@ -177,4 +107,61 @@ body.ac-lock{
     0 10px 24px rgba(15,23,42,.06);
 
   backdrop-filter: blur(6px) saturate(120%);
+}
+
+/* ============================================================
+   Admin Clientes — scroll fix limpio y scoped
+   ============================================================ */
+
+#adminClientesPage{
+  position: relative;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* neutraliza wrappers internos SOLO dentro del módulo */
+#adminClientesPage :is(
+  .container,
+  .container-fluid,
+  .content,
+  .content-body,
+  .content-wrapper,
+  .main-content,
+  .page-content,
+  .app-content,
+  .app-content-body,
+  .layout-content,
+  .layout-page,
+  .layout-wrapper,
+  .layout-container,
+  .layout-navbar-fixed,
+  .layout-menu-fixed,
+  .layout-content-navbar
+){
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+/* la lista no debe crear scroll propio ni recortar menús */
+#adminClientesPage .ac-list{
+  overflow: visible !important;
+}
+
+/* lock real solo para drawer/modales */
+html.ac-lock,
+body.ac-lock{
+  overflow: hidden !important;
+}
+
+/* sticky head visual */
+#adminClientesPage .ac-list-head{
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: var(--ac-muted, rgba(15,23,42,.62));
+  background: var(--ac-bg, #fff);
+  border-bottom: 1px solid var(--ac-border);
+  box-shadow: 0 2px 0 rgba(15,23,42,.04);
 }

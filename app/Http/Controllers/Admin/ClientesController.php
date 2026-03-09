@@ -144,6 +144,9 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $rows = $query->paginate($perPage)->appends($request->query());
 
+        // ✅ Enriquecer filas del listado con fallbacks reales
+        $this->enrichRowsForListing($rows->items());
+
         // ✅ IMPORTANTE: aquí son IDs (accounts.id)
         $accountIds = $rows->pluck('id')->all();
 
@@ -180,6 +183,18 @@ class ClientesController extends \App\Http\Controllers\Controller
 
             // monto pagando (MXN)
             $extras[$id]['license_amount_mxn_effective'] = $this->computeEffectiveLicenseAmountMxn($r);
+
+            // extras visibles para listado/drawer
+            $extras[$id]['estado_cuenta'] = $extras[$id]['estado_cuenta']
+                ?? (string) ($r->billing_status ?? '');
+
+            if (!empty($r->billing_cycle)) {
+                $extras[$id]['billing_cycle'] = (string) $r->billing_cycle;
+            }
+
+            if (!empty($r->next_invoice_date)) {
+                $extras[$id]['next_invoice_date'] = (string) $r->next_invoice_date;
+            }
         }
 
         $billingStatuses = [
@@ -2074,6 +2089,192 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         return $out;
+    }
+
+     /**
+     * Enriquece datos del listado con fallbacks desde:
+     * - admin.accounts.meta
+     * - admin.accounts.modo_cobro
+     * - mysql_clientes.cuentas_cliente
+     */
+    private function enrichRowsForListing(iterable $rows): void
+    {
+        $schemaA = Schema::connection($this->adminConn);
+
+        foreach ($rows as $r) {
+            if (!$r || !isset($r->id)) continue;
+
+            $meta = $this->decodeMeta($r->meta ?? null);
+
+            $mirror = $this->resolveMirrorCuentaForListing((string) $r->id, (string) ($r->rfc ?? ''));
+
+            // -------------------------------------------------
+            // billing_cycle
+            // prioridad:
+            // 1) accounts.billing_cycle
+            // 2) accounts.meta.billing.billing_cycle / billing.cycle
+            // 3) accounts.modo_cobro
+            // 4) mirror.billing_cycle
+            // 5) mirror.modo_cobro
+            // -------------------------------------------------
+            $cycle = strtolower(trim((string) ($r->billing_cycle ?? '')));
+            if ($cycle === '') {
+                $cycle = strtolower(trim((string) (
+                    data_get($meta, 'billing.billing_cycle')
+                    ?? data_get($meta, 'billing.cycle')
+                    ?? ''
+                )));
+            }
+
+            if ($cycle === '' && $schemaA->hasColumn('accounts', 'modo_cobro')) {
+                try {
+                    $modo = DB::connection($this->adminConn)
+                        ->table('accounts')
+                        ->where('id', (int) $r->id)
+                        ->value('modo_cobro');
+
+                    $cycle = strtolower(trim((string) ($modo ?? '')));
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            }
+
+            if ($cycle === '' && $mirror) {
+                $cycle = strtolower(trim((string) (
+                    ($mirror->billing_cycle ?? '')
+                    ?: ($mirror->modo_cobro ?? '')
+                )));
+            }
+
+            if ($cycle === 'mensual') $cycle = 'monthly';
+            if ($cycle === 'anual' || $cycle === 'annual') $cycle = 'yearly';
+
+            if ($cycle !== '') {
+                $r->billing_cycle = $cycle;
+            }
+
+            // -------------------------------------------------
+            // next_invoice_date
+            // prioridad:
+            // 1) accounts.next_invoice_date
+            // 2) meta.billing.next_invoice_date / next_invoice_date
+            // 3) mirror.next_invoice_date
+            // -------------------------------------------------
+            $next = trim((string) ($r->next_invoice_date ?? ''));
+
+            if ($next === '') {
+                $next = trim((string) (
+                    data_get($meta, 'billing.next_invoice_date')
+                    ?? data_get($meta, 'next_invoice_date')
+                    ?? ''
+                ));
+            }
+
+            if ($next === '' && $mirror) {
+                $next = trim((string) ($mirror->next_invoice_date ?? ''));
+            }
+
+            if ($next !== '') {
+                $r->next_invoice_date = $next;
+            }
+
+            // -------------------------------------------------
+            // billing_status fallback
+            // -------------------------------------------------
+            $bs = strtolower(trim((string) ($r->billing_status ?? '')));
+            if ($bs === '' && $mirror) {
+                $bs = strtolower(trim((string) (
+                    ($mirror->billing_status ?? '')
+                    ?: ($mirror->estado_cuenta ?? '')
+                )));
+            }
+            if ($bs !== '') {
+                $r->billing_status = $bs;
+            }
+        }
+    }
+
+    /**
+     * Busca la cuenta espejo correcta para el listado.
+     */
+    private function resolveMirrorCuentaForListing(string $accountId, string $rfcReal = ''): ?object
+    {
+        $accountId = trim($accountId);
+        $rfcReal   = strtoupper(trim($rfcReal));
+
+        try {
+            $schemaCli = Schema::connection('mysql_clientes');
+            if (!$schemaCli->hasTable('cuentas_cliente')) return null;
+
+            $connCli = DB::connection('mysql_clientes');
+
+            $select = ['id', 'updated_at'];
+            foreach ([
+                'admin_account_id',
+                'rfc',
+                'rfc_padre',
+                'billing_cycle',
+                'modo_cobro',
+                'next_invoice_date',
+                'billing_status',
+                'estado_cuenta',
+            ] as $col) {
+                if ($schemaCli->hasColumn('cuentas_cliente', $col)) {
+                    $select[] = $col;
+                }
+            }
+
+            // 1) canónico: admin_account_id
+            if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                $row = $connCli->table('cuentas_cliente')
+                    ->where('admin_account_id', (int) $accountId)
+                    ->orderByDesc('updated_at')
+                    ->first($select);
+
+                if ($row) return $row;
+            }
+
+            // 2) rfc exacto
+            if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+                $row = $connCli->table('cuentas_cliente')
+                    ->whereRaw('UPPER(rfc) = ?', [$rfcReal])
+                    ->orderByDesc('updated_at')
+                    ->first($select);
+
+                if ($row) return $row;
+            }
+
+            // 3) rfc_padre exacto RFC real
+            if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+                $row = $connCli->table('cuentas_cliente')
+                    ->whereRaw('UPPER(rfc_padre) = ?', [$rfcReal])
+                    ->orderByDesc('updated_at')
+                    ->first($select);
+
+                if ($row) return $row;
+            }
+
+            // 4) legacy
+            if ($schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+                $row = $connCli->table('cuentas_cliente')
+                    ->where('rfc_padre', $accountId)
+                    ->orderByDesc('updated_at')
+                    ->first($select);
+
+                if ($row) return $row;
+            }
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('resolveMirrorCuentaForListing: ' . $e->getMessage(), [
+                    'account_id' => $accountId,
+                    'rfc'        => $rfcReal,
+                ]);
+            } catch (\Throwable $e2) {
+                // ignore
+            }
+        }
+
+        return null;
     }
 
     private function resolveRecipientsForAccountAdminSide(string $accountId): array
