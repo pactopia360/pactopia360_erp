@@ -563,6 +563,7 @@ final class AdminIncomeDashboardService
 
             $includeInStatement = (int) ($sale->include_in_statement ?? 0);
             $statementId = !empty($sale->statement_id) ? (int) $sale->statement_id : null;
+
             $statementPeriodTarget = '';
             if (!empty($sale->statement_period_target)) {
                 $statementPeriodTarget = (string) $sale->statement_period_target;
@@ -634,7 +635,7 @@ final class AdminIncomeDashboardService
             ];
         })->values();
     }
-
+    
     private function applyFilters(Collection $rows, array $filters): Collection
     {
         return $rows->filter(function ($row) use ($filters) {
