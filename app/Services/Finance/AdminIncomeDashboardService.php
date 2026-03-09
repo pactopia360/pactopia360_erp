@@ -438,80 +438,76 @@ final class AdminIncomeDashboardService
             return collect();
         }
 
-        $salesSelect = [
-            's.id',
-            's.sale_code',
-            's.account_id',
-            's.period',
-            's.vendor_id',
-            's.origin',
-            's.periodicity',
-            's.f_cta',
-            's.f_mov',
-            's.invoice_date',
-            's.paid_date',
-            's.sale_date',
-            's.receiver_rfc',
-            's.pay_method',
-            's.subtotal',
-            's.iva',
-            's.total',
-            's.statement_status',
-            's.invoice_status',
-            's.include_in_statement',
-            's.target_period',
-            's.statement_period_target',
-            's.statement_id',
-            's.statement_item_id',
-            's.notes',
-            's.meta',
-            's.created_at',
-            's.updated_at',
+        $optionalSalesCols = [
+            'sale_code',
+            'account_id',
+            'period',
+            'vendor_id',
+            'origin',
+            'periodicity',
+            'f_cta',
+            'f_mov',
+            'invoice_date',
+            'paid_date',
+            'sale_date',
+            'receiver_rfc',
+            'pay_method',
+            'subtotal',
+            'iva',
+            'total',
+            'statement_status',
+            'invoice_status',
+            'invoice_uuid',
+            'cfdi_uuid',
+            'include_in_statement',
+            'target_period',
+            'statement_period_target',
+            'statement_id',
+            'statement_item_id',
+            'notes',
+            'meta',
+            'created_at',
+            'updated_at',
         ];
 
-        if ($this->hasCol($this->adm, 'finance_sales', 'invoice_uuid')) {
-            $salesSelect[] = 's.invoice_uuid';
-        } else {
-            $salesSelect[] = DB::raw('NULL as invoice_uuid');
+        $salesSelect = ['s.id'];
+
+        foreach ($optionalSalesCols as $col) {
+            if ($this->hasCol($this->adm, 'finance_sales', $col)) {
+                $salesSelect[] = "s.{$col}";
+            } else {
+                $salesSelect[] = DB::raw("NULL as {$col}");
+            }
         }
 
-        if ($this->hasCol($this->adm, 'finance_sales', 'cfdi_uuid')) {
-            $salesSelect[] = 's.cfdi_uuid';
-        } else {
-            $salesSelect[] = DB::raw('NULL as cfdi_uuid');
-        }
+        $vendorSelect = $this->hasCol($this->adm, 'finance_vendors', 'name')
+            ? ['v.name as vendor_name']
+            : [DB::raw('NULL as vendor_name')];
 
         $accountSelect = [];
-        if ($this->hasCol($this->adm, 'accounts', 'name')) {
-            $accountSelect[] = 'a.name as account_name';
-        } else {
-            $accountSelect[] = DB::raw('NULL as account_name');
-        }
+        $accountSelect[] = $this->hasCol($this->adm, 'accounts', 'name')
+            ? 'a.name as account_name'
+            : DB::raw('NULL as account_name');
 
-        if ($this->hasCol($this->adm, 'accounts', 'razon_social')) {
-            $accountSelect[] = 'a.razon_social as account_razon_social';
-        } else {
-            $accountSelect[] = DB::raw('NULL as account_razon_social');
-        }
+        $accountSelect[] = $this->hasCol($this->adm, 'accounts', 'razon_social')
+            ? 'a.razon_social as account_razon_social'
+            : DB::raw('NULL as account_razon_social');
 
-        if ($this->hasCol($this->adm, 'accounts', 'rfc')) {
-            $accountSelect[] = 'a.rfc as account_rfc';
-        } else {
-            $accountSelect[] = DB::raw('NULL as account_rfc');
-        }
+        $accountSelect[] = $this->hasCol($this->adm, 'accounts', 'rfc')
+            ? 'a.rfc as account_rfc'
+            : DB::raw('NULL as account_rfc');
 
         $q = DB::connection($this->adm)
             ->table('finance_sales as s')
             ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
             ->leftJoin('accounts as a', 'a.id', '=', 's.account_id')
-            ->select(array_merge(
-                $salesSelect,
-                [
-                    'v.name as vendor_name',
-                ],
-                $accountSelect
-            ))
-            ->whereIn('s.period', $filters['periods']);
+            ->select(array_merge($salesSelect, $vendorSelect, $accountSelect));
+
+        if ($this->hasCol($this->adm, 'finance_sales', 'period')) {
+            $q->whereIn('s.period', $filters['periods']);
+        } else {
+            return collect();
+        }
 
         if ($this->hasCol($this->adm, 'finance_sales', 'deleted_at')) {
             $q->whereNull('s.deleted_at');
@@ -533,8 +529,8 @@ final class AdminIncomeDashboardService
             $accountAdmin = $context['accounts']->get($accountId);
             $clientObj    = $context['cuentas_cliente_by_admin']->get($accountId);
 
-            $company      = $this->resolveCompanyName($clientObj, $accountAdmin);
-            $rfcEmisor    = $this->resolveRfcEmisor($clientObj, $accountAdmin);
+            $company   = $this->resolveCompanyName($clientObj, $accountAdmin);
+            $rfcEmisor = $this->resolveRfcEmisor($clientObj, $accountAdmin);
 
             $origin = strtolower(trim((string) ($sale->origin ?? 'unico')));
             if ($origin === 'no_recurrente') {
@@ -550,7 +546,7 @@ final class AdminIncomeDashboardService
             }
 
             $invoiceStatus = $this->normalizeInvoiceStatus((string) ($sale->invoice_status ?? ''), false);
-            $ecStatus = $this->normalizeSaleStatus((string) ($sale->statement_status ?? 'pending'));
+            $ecStatus      = $this->normalizeSaleStatus((string) ($sale->statement_status ?? 'pending'));
 
             $description = trim((string) ($sale->notes ?? ''));
             if ($description === '') {
@@ -565,13 +561,22 @@ final class AdminIncomeDashboardService
                 $cfdiUuid = trim((string) ($sale->invoice_uuid ?? ''));
             }
 
+            $includeInStatement = (int) ($sale->include_in_statement ?? 0);
+            $statementId = !empty($sale->statement_id) ? (int) $sale->statement_id : null;
+            $statementPeriodTarget = '';
+            if (!empty($sale->statement_period_target)) {
+                $statementPeriodTarget = (string) $sale->statement_period_target;
+            } elseif (!empty($sale->target_period)) {
+                $statementPeriodTarget = (string) $sale->target_period;
+            }
+
             return (object) [
-                'source'                  => ((int) ($sale->include_in_statement ?? 0) === 1) ? 'sale_linked' : 'sale',
+                'source'                  => ($includeInStatement === 1) ? 'sale_linked' : 'sale',
                 'source_label'            => 'Venta',
-                'source_priority'         => ((int) ($sale->include_in_statement ?? 0) === 1) ? 30 : 20,
+                'source_priority'         => ($includeInStatement === 1) ? 30 : 20,
                 'is_projection'           => 0,
                 'exclude_from_kpi'        => 0,
-                'has_statement'           => ((int) ($sale->include_in_statement ?? 0) === 1 && !empty($sale->statement_id)) ? 1 : 0,
+                'has_statement'           => ($includeInStatement === 1 && !empty($statementId)) ? 1 : 0,
 
                 'period'                  => $period,
                 'year'                    => $this->periodYear($period),
@@ -618,10 +623,10 @@ final class AdminIncomeDashboardService
                 'payment_status'          => null,
 
                 'cfdi_uuid'               => $cfdiUuid,
-                'statement_id'            => !empty($sale->statement_id) ? (int) $sale->statement_id : null,
+                'statement_id'            => $statementId,
                 'sale_id'                 => (int) ($sale->id ?? 0),
-                'include_in_statement'    => (int) ($sale->include_in_statement ?? 0),
-                'statement_period_target' => (string) (($sale->statement_period_target ?: null) ?? ($sale->target_period ?: '')),
+                'include_in_statement'    => $includeInStatement,
+                'statement_period_target' => $statementPeriodTarget,
 
                 'notes'                   => (string) ($sale->notes ?? ''),
                 'audit_key'               => 'sale|' . (int) ($sale->id ?? 0),
