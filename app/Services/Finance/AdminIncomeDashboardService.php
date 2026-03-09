@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -14,39 +15,62 @@ final class AdminIncomeDashboardService
 {
     private string $adm;
     private string $cli;
+    private ?BillingStatementsHubController $hub = null;
 
     public function __construct()
     {
         $this->adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
         $this->cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
+
+        try {
+            $this->hub = app(BillingStatementsHubController::class);
+        } catch (\Throwable $e) {
+            $this->hub = null;
+        }
     }
 
     public function build(Request $request): array
     {
         $filters = $this->resolveFilters($request);
-
         $context = $this->loadContext($filters);
 
-        $statementRows  = $this->loadStatementRows($filters, $context);
-        $salesRows      = $this->loadSalesRows($filters, $context);
-        $projectionRows = $this->loadProjectionRows($filters, $context, $statementRows, $salesRows);
+        $statementRows = $this->loadStatementRows($filters, $context);
 
-        $rows = $statementRows
-            ->concat($salesRows)
-            ->concat($projectionRows)
-            ->values();
+        $linkedSaleIds = $statementRows
+            ->flatMap(fn ($r) => collect($r->linked_sale_ids ?? []))
+            ->filter(fn ($v) => (int) $v > 0)
+            ->map(fn ($v) => (int) $v)
+            ->unique()
+            ->values()
+            ->all();
 
-        $rows = $this->applyOverrides($rows, $context);
+        $salesRows = $this->loadSalesRows($filters, $context, $linkedSaleIds);
+
+        $rows = collect();
+
+        if ($filters['source'] === 'statements') {
+            $rows = $statementRows;
+        } elseif ($filters['source'] === 'sales') {
+            $rows = $salesRows;
+        } else {
+            $rows = $statementRows->concat($salesRows)->values();
+        }
+
         $rows = $this->applyFilters($rows, $filters);
         $rows = $this->sortRows($rows);
 
         $kpis       = $this->buildKpis($rows);
         $charts     = $this->buildCharts($rows, $filters);
-        $highlights = $this->buildHighlights($rows, $filters);
+        $highlights = $this->buildHighlights($rows);
 
         return [
             'filters'    => $filters + [
                 'vendor_list' => $context['vendor_list'],
+                'source_list' => [
+                    ['id' => 'all', 'name' => 'Todos'],
+                    ['id' => 'sales', 'name' => 'Ventas'],
+                    ['id' => 'statements', 'name' => 'Estados de cuenta'],
+                ],
             ],
             'kpis'       => $kpis,
             'charts'     => $charts,
@@ -56,7 +80,7 @@ final class AdminIncomeDashboardService
                 'counts' => [
                     'statements'  => $statementRows->count(),
                     'sales'       => $salesRows->count(),
-                    'projections' => $projectionRows->count(),
+                    'projections' => 0,
                     'rows'        => $rows->count(),
                 ],
             ],
@@ -75,6 +99,11 @@ final class AdminIncomeDashboardService
             $month = 'all';
         }
 
+        $source = strtolower(trim((string) ($request->input('source') ?: 'all')));
+        if (!in_array($source, ['all', 'sales', 'statements'], true)) {
+            $source = 'all';
+        }
+
         $origin = strtolower(trim((string) ($request->input('origin') ?: 'all')));
         if ($origin === 'no_recurrente') {
             $origin = 'unico';
@@ -84,7 +113,7 @@ final class AdminIncomeDashboardService
         }
 
         $status = strtolower(trim((string) ($request->input('status') ?: 'all')));
-        if (!in_array($status, ['all', 'pending', 'emitido', 'pagado', 'vencido'], true)) {
+        if (!in_array($status, ['all', 'pending', 'emitido', 'pagado', 'vencido', 'parcial', 'sin_mov'], true)) {
             $status = 'all';
         }
 
@@ -98,9 +127,6 @@ final class AdminIncomeDashboardService
 
         $q = trim((string) ($request->input('q') ?: ''));
 
-        $includeSales = (int) ($request->input('include_sales', 1)) === 1;
-        $includeProjections = (int) ($request->input('include_projections', 1)) === 1;
-
         $periods = [];
         for ($m = 1; $m <= 12; $m++) {
             $periods[] = sprintf('%04d-%02d', $year, $m);
@@ -111,16 +137,15 @@ final class AdminIncomeDashboardService
         }
 
         return [
-            'year'                => $year,
-            'month'               => $month,
-            'origin'              => $origin,
-            'status'              => $status,
-            'invoice_status'      => $invoiceStatus,
-            'vendor_id'           => $vendorId,
-            'q'                   => $q,
-            'include_sales'       => $includeSales ? 1 : 0,
-            'include_projections' => $includeProjections ? 1 : 0,
-            'periods'             => $periods,
+            'year'           => $year,
+            'month'          => $month,
+            'source'         => $source,
+            'origin'         => $origin,
+            'status'         => $status,
+            'invoice_status' => $invoiceStatus,
+            'vendor_id'      => $vendorId,
+            'q'              => $q,
+            'periods'        => $periods,
         ];
     }
 
@@ -139,40 +164,22 @@ final class AdminIncomeDashboardService
 
         $vendorById = $vendors->keyBy(fn ($v) => (string) $v->id);
 
-        $billingProfilesByAccountId = collect();
-        if (Schema::connection($this->adm)->hasTable('finance_billing_profiles')) {
-            $billingProfilesByAccountId = collect(
-                DB::connection($this->adm)
-                    ->table('finance_billing_profiles')
-                    ->select([
-                        'account_id',
-                        'rfc_receptor',
-                        'razon_social',
-                        'forma_pago',
-                        'metodo_pago',
-                        'meta',
-                    ])
-                    ->get()
-            )->keyBy(fn ($r) => (string) $r->account_id);
-        }
-
-        $accountsAdmin = collect();
+        $accounts = collect();
         if (Schema::connection($this->adm)->hasTable('accounts')) {
-            $select = ['id'];
-            if ($this->hasCol($this->adm, 'accounts', 'name')) {
-                $select[] = 'name';
-            }
-            if ($this->hasCol($this->adm, 'accounts', 'razon_social')) {
-                $select[] = 'razon_social';
-            }
-            if ($this->hasCol($this->adm, 'accounts', 'rfc')) {
-                $select[] = 'rfc';
-            }
-            if ($this->hasCol($this->adm, 'accounts', 'meta')) {
-                $select[] = 'meta';
+            $select = ['id', 'email'];
+            foreach ([
+                'name', 'razon_social', 'rfc', 'plan', 'plan_actual', 'modo_cobro',
+                'billing_cycle', 'is_blocked', 'estado_cuenta', 'meta', 'created_at',
+                'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
+                'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
+                'billing_amount', 'amount', 'precio', 'monto',
+            ] as $col) {
+                if ($this->hasCol($this->adm, 'accounts', $col)) {
+                    $select[] = $col;
+                }
             }
 
-            $accountsAdmin = collect(
+            $accounts = collect(
                 DB::connection($this->adm)
                     ->table('accounts')
                     ->select($select)
@@ -181,14 +188,10 @@ final class AdminIncomeDashboardService
         }
 
         $cuentasClienteByAdmin = collect();
-        $cuentasClienteByUuid  = collect();
         if (Schema::connection($this->cli)->hasTable('cuentas_cliente')) {
             $select = ['id', 'admin_account_id', 'rfc', 'rfc_padre', 'razon_social', 'nombre_comercial', 'modo_cobro', 'plan_actual'];
             if ($this->hasCol($this->cli, 'cuentas_cliente', 'empresa')) {
                 $select[] = 'empresa';
-            }
-            if ($this->hasCol($this->cli, 'cuentas_cliente', 'activo')) {
-                $select[] = 'activo';
             }
 
             $cc = collect(
@@ -201,10 +204,6 @@ final class AdminIncomeDashboardService
             $cuentasClienteByAdmin = $cc
                 ->filter(fn ($r) => !empty($r->admin_account_id))
                 ->keyBy(fn ($r) => (string) $r->admin_account_id);
-
-            $cuentasClienteByUuid = $cc
-                ->filter(fn ($r) => !empty($r->id))
-                ->keyBy(fn ($r) => (string) $r->id);
         }
 
         $accountVendorMap = collect();
@@ -228,368 +227,281 @@ final class AdminIncomeDashboardService
             )->groupBy(fn ($r) => (string) $r->account_id);
         }
 
-        $invoiceByStatementId = collect();
-        $invoiceByAccountPeriod = collect();
-        if (Schema::connection($this->adm)->hasTable('billing_invoice_requests')) {
-            $invoiceRows = collect(
-                DB::connection($this->adm)
-                    ->table('billing_invoice_requests')
-                    ->select([
-                        'id',
-                        'statement_id',
-                        'account_id',
-                        'period',
-                        'status',
-                        'cfdi_uuid',
-                        'issued_at',
-                        'meta',
-                    ])
-                    ->whereIn('period', $filters['periods'])
-                    ->orderByDesc('id')
-                    ->get()
-            );
-
-            $invoiceByStatementId = $invoiceRows
-                ->filter(fn ($r) => !empty($r->statement_id))
-                ->groupBy(fn ($r) => (int) $r->statement_id);
-
-            $invoiceByAccountPeriod = $invoiceRows
-                ->groupBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->period);
-        }
-
-        $paymentsByAccountPeriod = collect();
-        if (Schema::connection($this->adm)->hasTable('payments')) {
-            $paymentRows = collect(
-                DB::connection($this->adm)
-                    ->table('payments')
-                    ->select([
-                        'id',
-                        'account_id',
-                        'amount',
-                        'period',
-                        'method',
-                        'status',
-                        'paid_at',
-                        'reference',
-                        'meta',
-                    ])
-                    ->whereIn('period', $filters['periods'])
-                    ->orderByDesc('id')
-                    ->get()
-            );
-
-            $agg = [];
-            foreach ($paymentRows as $p) {
-                $accountId = (string) ($p->account_id ?? '');
-                $period    = (string) ($p->period ?? '');
-                if ($accountId === '' || $period === '') {
-                    continue;
-                }
-
-                $key = $accountId . '|' . $period;
-                if (!isset($agg[$key])) {
-                    $agg[$key] = (object) [
-                        'account_id' => $accountId,
-                        'period'     => $period,
-                        'amount'     => 0.0,
-                        'status'     => null,
-                        'method'     => null,
-                        'paid_at'    => null,
-                        'reference'  => null,
-                    ];
-                }
-
-                $amountMxn = ((float) ($p->amount ?? 0)) / 100;
-                $agg[$key]->amount += $amountMxn;
-
-                $status = strtolower(trim((string) ($p->status ?? '')));
-                if ($agg[$key]->status === null || $this->paymentStatusWeight($status) >= $this->paymentStatusWeight((string) $agg[$key]->status)) {
-                    $agg[$key]->status    = $status;
-                    $agg[$key]->method    = $p->method ?? null;
-                    $agg[$key]->reference = $p->reference ?? null;
-                }
-
-                if (!empty($p->paid_at) && (empty($agg[$key]->paid_at) || (string) $p->paid_at > (string) $agg[$key]->paid_at)) {
-                    $agg[$key]->paid_at = $p->paid_at;
-                }
-            }
-
-            $paymentsByAccountPeriod = collect($agg);
-        }
+        $paymentsAgg = $this->loadPaymentsAgg($filters['periods']);
+        $paymentsMeta = $this->loadPaymentsMeta($filters['periods']);
+        $overrides = $this->loadStatementOverrides($filters['periods']);
+        $subsRenewMap = $this->loadSubscriptionsRenewMap();
 
         return [
-            'vendor_by_id'               => $vendorById,
-            'vendor_list'                => $vendors->map(fn ($v) => ['id' => (string) $v->id, 'name' => (string) $v->name])->values()->all(),
-            'billing_profiles_by_acc'    => $billingProfilesByAccountId,
-            'accounts_admin'             => $accountsAdmin,
-            'cuentas_cliente_by_admin'   => $cuentasClienteByAdmin,
-            'cuentas_cliente_by_uuid'    => $cuentasClienteByUuid,
-            'account_vendor_map'         => $accountVendorMap,
-            'invoice_by_statement_id'    => $invoiceByStatementId,
-            'invoice_by_account_period'  => $invoiceByAccountPeriod,
-            'payments_by_account_period' => $paymentsByAccountPeriod,
+            'vendor_by_id'              => $vendorById,
+            'vendor_list'               => $vendors->map(fn ($v) => ['id' => (string) $v->id, 'name' => (string) $v->name])->values()->all(),
+            'accounts'                  => $accounts,
+            'cuentas_cliente_by_admin'  => $cuentasClienteByAdmin,
+            'account_vendor_map'        => $accountVendorMap,
+            'payments_agg'              => $paymentsAgg,
+            'payments_meta'             => $paymentsMeta,
+            'statement_overrides'       => $overrides,
+            'subs_renew_map'            => $subsRenewMap,
         ];
     }
 
     private function loadStatementRows(array $filters, array $context): Collection
     {
-        if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+        if (!Schema::connection($this->adm)->hasTable('accounts')) {
             return collect();
         }
 
-        $statementRows = collect(
-            DB::connection($this->adm)
-                ->table('billing_statements')
-                ->select([
-                    'id',
-                    'account_id',
-                    'period',
-                    'total_cargo',
-                    'status',
-                    'due_date',
-                    'sent_at',
-                    'paid_at',
-                    'snapshot',
-                    'meta',
-                    'created_at',
-                    'updated_at',
-                ])
-                ->whereIn('period', $filters['periods'])
-                ->orderBy('period')
-                ->orderBy('id')
-                ->get()
-        );
+        $periods = $filters['periods'];
 
-        $itemsByStatementId = collect();
-        if (Schema::connection($this->adm)->hasTable('billing_statement_items') && $statementRows->isNotEmpty()) {
-            $itemsByStatementId = collect(
+        $edoAgg = collect();
+        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            $select = [
+                'account_id',
+                'periodo',
+                DB::raw('SUM(COALESCE(cargo,0)) as cargo'),
+                DB::raw('SUM(COALESCE(abono,0)) as abono'),
+                DB::raw('MAX(updated_at) as updated_at'),
+                DB::raw('MAX(created_at) as created_at'),
+            ];
+
+            $edoAgg = collect(
                 DB::connection($this->adm)
-                    ->table('billing_statement_items')
-                    ->select([
-                        'id',
-                        'statement_id',
-                        'type',
-                        'code',
-                        'description',
-                        'qty',
-                        'unit_price',
-                        'amount',
-                        'ref',
-                        'meta',
-                    ])
-                    ->whereIn('statement_id', $statementRows->pluck('id')->map(fn ($v) => (int) $v)->all())
-                    ->orderBy('statement_id')
+                    ->table('estados_cuenta')
+                    ->select($select)
+                    ->whereIn('periodo', $periods)
+                    ->groupBy('account_id', 'periodo')
+                    ->get()
+            )->keyBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->periodo);
+        }
+
+        $edoItems = collect();
+        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            $itemSelect = ['id', 'account_id', 'periodo', 'concepto', 'detalle', 'cargo', 'abono'];
+            foreach (['source', 'ref', 'meta', 'updated_at', 'created_at'] as $col) {
+                if ($this->hasCol($this->adm, 'estados_cuenta', $col)) {
+                    $itemSelect[] = $col;
+                }
+            }
+
+            $edoItems = collect(
+                DB::connection($this->adm)
+                    ->table('estados_cuenta')
+                    ->select($itemSelect)
+                    ->whereIn('periodo', $periods)
+                    ->orderBy('periodo')
                     ->orderBy('id')
                     ->get()
-            )->groupBy(fn ($r) => (int) $r->statement_id);
+            )->groupBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->periodo);
         }
 
-        return $statementRows->map(function ($st) use ($context, $itemsByStatementId) {
-            $accountRaw = trim((string) ($st->account_id ?? ''));
-            $period     = (string) ($st->period ?? '');
-            $items      = collect($itemsByStatementId->get((int) ($st->id ?? 0), collect()));
-            $snapshot   = $this->decodeJson($st->snapshot ?? null);
-            $meta       = $this->decodeJson($st->meta ?? null);
+        $rows = collect();
 
-            [$adminAccountId, $clientUuid, $clientObj, $accountAdmin] = $this->resolveAccountReferences($accountRaw, $context);
+        foreach ($context['accounts'] as $accountId => $acc) {
+            $meta = $this->decodeMeta($acc->meta ?? null);
+            $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
 
-            $displayAccountId = $adminAccountId !== '' ? $adminAccountId : $accountRaw;
-            $clientName       = $this->resolveClientName($clientObj, $accountAdmin, $snapshot, $meta);
-            $rfcEmisor        = $this->resolveRfcEmisor($clientObj, $accountAdmin);
-            $billingProfile   = $this->resolveBillingProfile($displayAccountId, $accountRaw, $context);
+            foreach ($periods as $period) {
+                $key      = (string) $accountId . '|' . $period;
+                $agg      = $edoAgg->get($key);
+                $items    = collect($edoItems->get($key, collect()));
+                $payAgg   = $context['payments_agg']->get($key);
+                $payMeta  = $context['payments_meta']->get($key, []);
+                $override = $context['statement_overrides']->get($key);
 
-            [$vendorId, $vendorName] = $this->resolveVendorForStatement(
-                $displayAccountId,
-                $clientUuid,
-                $period,
-                $items,
-                $snapshot,
-                $meta,
-                $context
-            );
+                $cargoEdo = round((float) ($agg->cargo ?? 0), 2);
+                $abonoEdo = round((float) ($agg->abono ?? 0), 2);
+                $abonoPay = round((float) ($payAgg->amount ?? 0), 2);
+                $abonoTot = round($abonoEdo + $abonoPay, 2);
 
-            $invoiceRow = $this->resolveInvoiceForStatement(
-                (int) ($st->id ?? 0),
-                $displayAccountId,
-                $accountRaw,
-                $period,
-                $context
-            );
+                $expectedTotal = $this->resolveExpectedAmountForStatement(
+                    (object) $acc,
+                    $meta,
+                    $period,
+                    $lastPaid,
+                    $context['subs_renew_map']
+                );
 
-            $paymentAgg = $displayAccountId !== ''
-                ? $context['payments_by_account_period']->get($displayAccountId . '|' . $period)
-                : null;
+                $hasEvidence = $cargoEdo > 0.00001
+                    || $abonoEdo > 0.00001
+                    || $abonoPay > 0.00001
+                    || $items->isNotEmpty()
+                    || !empty($override)
+                    || $expectedTotal > 0.00001;
 
-            $amounts = $this->resolveStatementAmounts(
-                (float) ($st->total_cargo ?? 0),
-                $items,
-                $snapshot,
-                $meta
-            );
+                if (!$hasEvidence) {
+                    continue;
+                }
 
-            $origin      = $this->resolveOriginFromStatement($items, $snapshot, $meta, $clientObj);
-            $periodicity = $this->resolvePeriodicityFromStatement($items, $snapshot, $meta, $clientObj);
+                $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : $expectedTotal;
+                $saldoShown = round(max(0.0, $totalShown - $abonoTot), 2);
 
-            $ecStatus = $this->normalizeStatementStatus(
-                (string) ($st->status ?? ''),
-                $st->due_date ?? null,
-                $paymentAgg?->status ?? null,
-                $st->paid_at ?? null,
-                $paymentAgg?->paid_at ?? null,
-                $st->sent_at ?? null
-            );
+                $statusPago = $this->computeStatementStatus(
+                    $period,
+                    $totalShown,
+                    $abonoTot,
+                    $saldoShown,
+                    $payMeta['due_date'] ?? null
+                );
 
-            $invoiceStatus = $this->normalizeInvoiceStatus(
-                (string) ($invoiceRow?->status ?? ''),
-                false
-            );
+                $display = $this->applyStatementOverrideDisplay(
+                    totalShown: $totalShown,
+                    abonoEdo: $abonoEdo,
+                    abonoPay: $abonoPay,
+                    saldoShown: $saldoShown,
+                    statusPago: $statusPago,
+                    override: is_array($override) ? $override : null
+                );
 
-            $invoiceMeta = $this->decodeJson($invoiceRow?->meta ?? null);
-            $paidAt = $paymentAgg?->paid_at ?: ($st->paid_at ?? null);
-            $fPago  = $paidAt ?: (data_get($invoiceMeta, 'paid_at') ?: null);
+                $company = $this->resolveCompanyName($context['cuentas_cliente_by_admin']->get((string) $accountId), $acc);
+                $rfcEmisor = $this->resolveRfcEmisor($context['cuentas_cliente_by_admin']->get((string) $accountId), $acc);
+                [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod((string) $accountId, $period, $context['account_vendor_map']);
 
-            $description = $this->buildStatementDescription($items, $origin, $periodicity);
+                $description = $this->buildStatementDescriptionFromItems($items, $expectedTotal, $cargoEdo);
+                $origin = $this->resolveStatementOrigin($items, $acc, $meta);
+                $periodicity = $this->resolveStatementPeriodicity($acc, $meta);
 
-            return (object) [
-                'source'                  => 'statement',
-                'source_label'            => 'Statement',
-                'source_priority'         => 10,
-                'is_projection'           => 0,
-                'exclude_from_kpi'        => 0,
-                'has_statement'           => 1,
+                $invoiceStatus = $this->resolveStatementInvoiceStatusFromItemsOrOverride($items, $override);
+                $cfdiUuid = $this->resolveStatementCfdiFromItemsOrOverride($items, $override);
+                $linkedSaleIds = $this->extractLinkedSaleIdsFromItems($items);
 
-                'period'                  => $period,
-                'year'                    => $this->periodYear($period),
-                'month_num'               => $this->periodMonth($period),
-                'month_name'              => $this->monthNameEsFromPeriod($period),
+                $rows->push((object) [
+                    'source'                  => 'statement',
+                    'source_label'            => 'Estado de cuenta',
+                    'source_priority'         => 10,
+                    'is_projection'           => 0,
+                    'exclude_from_kpi'        => 0,
+                    'has_statement'           => 1,
 
-                'account_id'              => $displayAccountId,
-                'account_id_raw'          => $accountRaw,
-                'client_account_id'       => $clientUuid !== '' ? $clientUuid : null,
+                    'period'                  => $period,
+                    'year'                    => $this->periodYear($period),
+                    'month_num'               => $this->periodMonth($period),
+                    'month_name'              => $this->monthNameEsFromPeriod($period),
 
-                'client'                  => $clientName,
-                'company'                 => $clientName,
-                'description'             => $description,
+                    'account_id'              => (string) $accountId,
+                    'account_id_raw'          => (string) $accountId,
+                    'client_account_id'       => $context['cuentas_cliente_by_admin']->get((string) $accountId)?->id ?? null,
 
-                'vendor_id'               => $vendorId,
-                'vendor'                  => $vendorName,
+                    'client'                  => $company,
+                    'company'                 => $company,
+                    'description'             => $description,
 
-                'origin'                  => $origin,
-                'periodicity'             => $periodicity,
+                    'vendor_id'               => $vendorId,
+                    'vendor'                  => $vendorName,
 
-                'subtotal'                => $amounts['subtotal'],
-                'iva'                     => $amounts['iva'],
-                'total'                   => $amounts['total'],
+                    'origin'                  => $origin,
+                    'periodicity'             => $periodicity,
 
-                'ec_status'               => $ecStatus,
-                'invoice_status'          => $invoiceStatus,
-                'invoice_status_raw'      => (string) ($invoiceRow?->status ?? ''),
+                    'subtotal'                => round($display['total'] / 1.16, 2),
+                    'iva'                     => round($display['total'] - round($display['total'] / 1.16, 2), 2),
+                    'total'                   => round($display['total'], 2),
 
-                'rfc_emisor'              => $rfcEmisor,
-                'rfc_receptor'            => (string) ($billingProfile?->rfc_receptor ?? ''),
-                'forma_pago'              => (string) ($billingProfile?->forma_pago ?? (data_get($invoiceMeta, 'forma_pago') ?: '')),
-                'invoice_metodo_pago'     => (string) ($billingProfile?->metodo_pago ?? (data_get($invoiceMeta, 'metodo_pago') ?: '')),
+                    'ec_status'               => (string) $display['status'],
+                    'invoice_status'          => $invoiceStatus,
+                    'invoice_status_raw'      => $invoiceStatus,
 
-                'f_cta'                   => $st->created_at ?? null,
-                'f_mov'                   => $st->updated_at ?? null,
-                'f_factura'               => $invoiceRow?->issued_at ?? null,
-                'f_pago'                  => $fPago,
+                    'rfc_emisor'              => $rfcEmisor,
+                    'rfc_receptor'            => null,
+                    'forma_pago'              => $override['pay_method'] ?? ($payMeta['method'] ?? null),
+                    'invoice_metodo_pago'     => null,
 
-                'sent_at'                 => $st->sent_at ?? null,
-                'paid_at'                 => $paidAt,
-                'due_date'                => $st->due_date ?? null,
+                    'f_cta'                   => $agg->created_at ?? null,
+                    'f_mov'                   => $agg->updated_at ?? null,
+                    'f_factura'               => null,
+                    'f_pago'                  => $override['paid_at'] ?? ($payMeta['last_paid_at'] ?? null),
 
-                'payment_method'          => $paymentAgg?->method ?? null,
-                'payment_status'          => $paymentAgg?->status ?? null,
+                    'sent_at'                 => null,
+                    'paid_at'                 => $override['paid_at'] ?? ($payMeta['last_paid_at'] ?? null),
+                    'due_date'                => $payMeta['due_date'] ?? null,
 
-                'cfdi_uuid'               => (string) ($invoiceRow?->cfdi_uuid ?? ''),
-                'statement_id'            => (int) ($st->id ?? 0),
-                'sale_id'                 => 0,
-                'include_in_statement'    => null,
-                'statement_period_target' => null,
+                    'payment_method'          => $override['pay_method'] ?? ($payMeta['method'] ?? null),
+                    'payment_status'          => $override['pay_status'] ?? ($payMeta['status'] ?? null),
 
-                'notes'                   => (string) (data_get($meta, 'notes') ?? ''),
-                'audit_key'               => 'statement|' . $displayAccountId . '|' . $period,
-            ];
-        })->values();
+                    'cfdi_uuid'               => $cfdiUuid,
+                    'statement_id'            => null,
+                    'sale_id'                 => 0,
+                    'include_in_statement'    => null,
+                    'statement_period_target' => null,
+
+                    'notes'                   => $this->extractStatementNotes($items, $override),
+                    'audit_key'               => 'statement|' . $accountId . '|' . $period,
+                    'linked_sale_ids'         => $linkedSaleIds,
+                ]);
+            }
+        }
+
+        return $rows->values();
     }
 
-    private function loadSalesRows(array $filters, array $context): Collection
+    private function loadSalesRows(array $filters, array $context, array $linkedSaleIds): Collection
     {
-        if ((int) $filters['include_sales'] !== 1) {
-            return collect();
-        }
-
         if (!Schema::connection($this->adm)->hasTable('finance_sales')) {
             return collect();
         }
 
+        $q = DB::connection($this->adm)
+            ->table('finance_sales as s')
+            ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
+            ->leftJoin('accounts as a', 'a.id', '=', 's.account_id')
+            ->select([
+                's.id',
+                's.sale_code',
+                's.account_id',
+                's.period',
+                's.vendor_id',
+                's.origin',
+                's.periodicity',
+                's.f_cta',
+                's.f_mov',
+                's.invoice_date',
+                's.paid_date',
+                's.sale_date',
+                's.receiver_rfc',
+                's.pay_method',
+                's.subtotal',
+                's.iva',
+                's.total',
+                's.statement_status',
+                's.invoice_status',
+                's.invoice_uuid',
+                's.cfdi_uuid',
+                's.include_in_statement',
+                's.target_period',
+                's.statement_period_target',
+                's.statement_id',
+                's.statement_item_id',
+                's.notes',
+                's.meta',
+                's.created_at',
+                's.updated_at',
+                'v.name as vendor_name',
+                'a.name as account_name',
+                'a.razon_social as account_razon_social',
+                'a.rfc as account_rfc',
+            ])
+            ->whereIn('s.period', $filters['periods']);
+
+        if ($this->hasCol($this->adm, 'finance_sales', 'deleted_at')) {
+            $q->whereNull('s.deleted_at');
+        }
+
+        if ($filters['source'] === 'all' && !empty($linkedSaleIds)) {
+            $q->whereNotIn('s.id', $linkedSaleIds);
+        }
+
         $sales = collect(
-            DB::connection($this->adm)
-                ->table('finance_sales as s')
-                ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
-                ->leftJoin('accounts as a', 'a.id', '=', 's.account_id')
-                ->select([
-                    's.id',
-                    's.sale_code',
-                    's.account_id',
-                    's.period',
-                    's.vendor_id',
-                    's.origin',
-                    's.periodicity',
-                    's.f_cta',
-                    's.f_mov',
-                    's.invoice_date',
-                    's.paid_date',
-                    's.sale_date',
-                    's.receiver_rfc',
-                    's.pay_method',
-                    's.subtotal',
-                    's.iva',
-                    's.total',
-                    's.statement_status',
-                    's.invoice_status',
-                    's.invoice_uuid',
-                    's.cfdi_uuid',
-                    's.include_in_statement',
-                    's.target_period',
-                    's.statement_period_target',
-                    's.statement_id',
-                    's.statement_item_id',
-                    's.notes',
-                    's.meta',
-                    's.created_at',
-                    's.updated_at',
-                    'v.name as vendor_name',
-                    'a.name as account_name',
-                    'a.razon_social as account_razon_social',
-                    'a.rfc as account_rfc',
-                ])
-                ->whereIn('s.period', $filters['periods'])
-                ->orderBy('s.period')
+            $q->orderBy('s.period')
                 ->orderBy('s.id')
                 ->get()
         );
 
         return $sales->map(function ($sale) use ($context) {
-            $period         = (string) ($sale->period ?? '');
-            $accountId      = (string) ($sale->account_id ?? '');
-            $accountAdmin   = $context['accounts_admin']->get($accountId);
-            $clientObj      = $context['cuentas_cliente_by_admin']->get($accountId);
-            $clientName     = $this->resolveClientName($clientObj, $accountAdmin, [], []);
-            $rfcEmisor      = $this->resolveRfcEmisor($clientObj, $accountAdmin);
-            $invoiceStatus  = $this->normalizeInvoiceStatus((string) ($sale->invoice_status ?? ''), false);
-            $ecStatus       = $this->normalizeSaleStatus((string) ($sale->statement_status ?? 'pending'));
+            $period       = (string) ($sale->period ?? '');
+            $accountId    = (string) ($sale->account_id ?? '');
+            $accountAdmin = $context['accounts']->get($accountId);
+            $clientObj    = $context['cuentas_cliente_by_admin']->get($accountId);
 
-            $description = trim((string) ($sale->notes ?? ''));
-            if ($description === '') {
-                $description = trim((string) ($sale->sale_code ?? ''));
-            }
-            if ($description === '') {
-                $description = strtolower((string) ($sale->origin ?? '')) === 'recurrente'
-                    ? 'Venta recurrente'
-                    : 'Venta única';
-            }
+            $company      = $this->resolveCompanyName($clientObj, $accountAdmin);
+            $rfcEmisor    = $this->resolveRfcEmisor($clientObj, $accountAdmin);
 
             $origin = strtolower(trim((string) ($sale->origin ?? 'unico')));
             if ($origin === 'no_recurrente') {
@@ -602,6 +514,17 @@ final class AdminIncomeDashboardService
             $periodicity = strtolower(trim((string) ($sale->periodicity ?? 'unico')));
             if (!in_array($periodicity, ['mensual', 'anual', 'unico'], true)) {
                 $periodicity = 'unico';
+            }
+
+            $invoiceStatus = $this->normalizeInvoiceStatus((string) ($sale->invoice_status ?? ''), false);
+            $ecStatus = $this->normalizeSaleStatus((string) ($sale->statement_status ?? 'pending'));
+
+            $description = trim((string) ($sale->notes ?? ''));
+            if ($description === '') {
+                $description = trim((string) ($sale->sale_code ?? ''));
+            }
+            if ($description === '') {
+                $description = $origin === 'recurrente' ? 'Venta recurrente' : 'Venta única';
             }
 
             return (object) [
@@ -621,8 +544,8 @@ final class AdminIncomeDashboardService
                 'account_id_raw'          => $accountId,
                 'client_account_id'       => $clientObj?->id ? (string) $clientObj->id : null,
 
-                'client'                  => $clientName,
-                'company'                 => $clientName,
+                'client'                  => $company,
+                'company'                 => $company,
                 'description'             => $description,
 
                 'vendor_id'               => !empty($sale->vendor_id) ? (string) $sale->vendor_id : null,
@@ -664,262 +587,8 @@ final class AdminIncomeDashboardService
 
                 'notes'                   => (string) ($sale->notes ?? ''),
                 'audit_key'               => 'sale|' . (int) ($sale->id ?? 0),
+                'linked_sale_ids'         => [],
             ];
-        })->values();
-    }
-
-    private function loadProjectionRows(
-        array $filters,
-        array $context,
-        Collection $statementRows,
-        Collection $salesRows
-    ): Collection {
-        if ((int) $filters['include_projections'] !== 1) {
-            return collect();
-        }
-
-        $existingKeys = [];
-
-        foreach ($statementRows as $row) {
-            $key = (string) ($row->account_id ?? '') . '|' . (string) ($row->period ?? '');
-            if ($key !== '|') {
-                $existingKeys[$key] = true;
-            }
-        }
-
-        foreach ($salesRows as $row) {
-            $key = (string) ($row->account_id ?? '') . '|' . (string) ($row->period ?? '');
-            if ($key !== '|') {
-                $existingKeys[$key] = true;
-            }
-        }
-
-        $rows = collect();
-
-        foreach ($context['cuentas_cliente_by_admin'] as $adminAccountId => $cc) {
-            $modo = strtolower(trim((string) ($cc->modo_cobro ?? '')));
-            if (!in_array($modo, ['mensual', 'anual'], true)) {
-                continue;
-            }
-
-            $plan = strtolower(trim((string) ($cc->plan_actual ?? '')));
-            $baseSubtotal = $this->guessProjectionSubtotalFromPlan($plan, $modo);
-            if ($baseSubtotal <= 0) {
-                continue;
-            }
-
-            foreach ($filters['periods'] as $period) {
-                $key = (string) $adminAccountId . '|' . (string) $period;
-                if (isset($existingKeys[$key])) {
-                    continue;
-                }
-
-                [$vendorId, $vendorName] = $this->resolveVendorFallback(
-                    (string) $adminAccountId,
-                    (string) ($cc->id ?? ''),
-                    (string) $period,
-                    $context
-                );
-
-                $clientName = $this->resolveClientName($cc, $context['accounts_admin']->get((string) $adminAccountId), [], []);
-                $rfcEmisor  = $this->resolveRfcEmisor($cc, $context['accounts_admin']->get((string) $adminAccountId));
-
-                $subtotal = round($baseSubtotal, 2);
-                $iva      = round($subtotal * 0.16, 2);
-                $total    = round($subtotal + $iva, 2);
-
-                $rows->push((object) [
-                    'source'                  => 'projection',
-                    'source_label'            => 'Proyección',
-                    'source_priority'         => 40,
-                    'is_projection'           => 1,
-                    'exclude_from_kpi'        => 1,
-                    'has_statement'           => 0,
-
-                    'period'                  => $period,
-                    'year'                    => $this->periodYear($period),
-                    'month_num'               => $this->periodMonth($period),
-                    'month_name'              => $this->monthNameEsFromPeriod($period),
-
-                    'account_id'              => (string) $adminAccountId,
-                    'account_id_raw'          => (string) $adminAccountId,
-                    'client_account_id'       => !empty($cc->id) ? (string) $cc->id : null,
-
-                    'client'                  => $clientName,
-                    'company'                 => $clientName,
-                    'description'             => $modo === 'anual' ? 'Proyección recurrente anual' : 'Proyección recurrente mensual',
-
-                    'vendor_id'               => $vendorId,
-                    'vendor'                  => $vendorName,
-
-                    'origin'                  => 'recurrente',
-                    'periodicity'             => $modo,
-
-                    'subtotal'                => $subtotal,
-                    'iva'                     => $iva,
-                    'total'                   => $total,
-
-                    'ec_status'               => 'pending',
-                    'invoice_status'          => 'sin_solicitud',
-                    'invoice_status_raw'      => 'sin_solicitud',
-
-                    'rfc_emisor'              => $rfcEmisor,
-                    'rfc_receptor'            => '',
-                    'forma_pago'              => '',
-                    'invoice_metodo_pago'     => '',
-
-                    'f_cta'                   => null,
-                    'f_mov'                   => null,
-                    'f_factura'               => null,
-                    'f_pago'                  => null,
-
-                    'sent_at'                 => null,
-                    'paid_at'                 => null,
-                    'due_date'                => null,
-
-                    'payment_method'          => null,
-                    'payment_status'          => null,
-
-                    'cfdi_uuid'               => '',
-                    'statement_id'            => null,
-                    'sale_id'                 => 0,
-                    'include_in_statement'    => 0,
-                    'statement_period_target' => null,
-
-                    'notes'                   => '',
-                    'audit_key'               => 'projection|' . $adminAccountId . '|' . $period,
-                ]);
-            }
-        }
-
-        return $rows->values();
-    }
-
-    private function applyOverrides(Collection $rows, array $context): Collection
-    {
-        if ($rows->isEmpty()) {
-            return $rows;
-        }
-
-        if (!Schema::connection($this->adm)->hasTable('finance_income_overrides')) {
-            return $rows;
-        }
-
-        $accountIds = $rows
-            ->pluck('account_id')
-            ->filter(fn ($v) => (string) $v !== '')
-            ->unique()
-            ->values()
-            ->all();
-
-        $periods = $rows
-            ->pluck('period')
-            ->filter(fn ($v) => (string) $v !== '')
-            ->unique()
-            ->values()
-            ->all();
-
-        if (empty($accountIds) || empty($periods)) {
-            return $rows;
-        }
-
-        $overrideRows = collect(
-            DB::connection($this->adm)
-                ->table('finance_income_overrides')
-                ->select([
-                    'row_type',
-                    'account_id',
-                    'period',
-                    'sale_id',
-                    'vendor_id',
-                    'ec_status',
-                    'invoice_status',
-                    'cfdi_uuid',
-                    'rfc_receptor',
-                    'forma_pago',
-                    'subtotal',
-                    'iva',
-                    'total',
-                    'notes',
-                    'updated_by',
-                    'updated_at',
-                ])
-                ->whereIn('account_id', $accountIds)
-                ->whereIn('period', $periods)
-                ->get()
-        );
-
-        $byKey = $overrideRows->keyBy(function ($ov) {
-            return (string) $ov->row_type . '|' . (string) $ov->account_id . '|' . (string) $ov->period;
-        });
-
-        return $rows->map(function ($row) use ($byKey, $context) {
-            $rowType = match ((string) ($row->source ?? '')) {
-                'projection' => 'projection',
-                default      => 'statement',
-            };
-
-            if ($rowType === 'statement' && (int) ($row->sale_id ?? 0) > 0) {
-                return $row;
-            }
-
-            $key = $rowType . '|' . (string) ($row->account_id ?? '') . '|' . (string) ($row->period ?? '');
-            $ov  = $byKey->get($key);
-
-            if (!$ov) {
-                return $row;
-            }
-
-            if ($ov->vendor_id !== null) {
-                $row->vendor_id = (string) $ov->vendor_id;
-                $vendorRow = $context['vendor_by_id']->get((string) $ov->vendor_id);
-                if ($vendorRow) {
-                    $row->vendor = (string) ($vendorRow->name ?? $row->vendor ?? '');
-                }
-            }
-
-            if ($ov->ec_status !== null) {
-                $row->ec_status = strtolower(trim((string) $ov->ec_status));
-            }
-
-            if ($ov->invoice_status !== null) {
-                $row->invoice_status = $this->normalizeInvoiceStatus((string) $ov->invoice_status, false);
-                $row->invoice_status_raw = (string) $ov->invoice_status;
-            }
-
-            if ($ov->cfdi_uuid !== null) {
-                $row->cfdi_uuid = (string) $ov->cfdi_uuid;
-            }
-
-            if ($ov->rfc_receptor !== null) {
-                $row->rfc_receptor = (string) $ov->rfc_receptor;
-            }
-
-            if ($ov->forma_pago !== null) {
-                $row->forma_pago = (string) $ov->forma_pago;
-            }
-
-            if ($ov->subtotal !== null) {
-                $row->subtotal = round((float) $ov->subtotal, 2);
-            }
-
-            if ($ov->iva !== null) {
-                $row->iva = round((float) $ov->iva, 2);
-            }
-
-            if ($ov->total !== null) {
-                $row->total = round((float) $ov->total, 2);
-            }
-
-            if ($ov->notes !== null) {
-                $row->notes = (string) $ov->notes;
-            }
-
-            $row->has_override      = 1;
-            $row->override_updated_by = $ov->updated_by !== null ? (int) $ov->updated_by : null;
-            $row->override_updated_at = $ov->updated_at ?? null;
-
-            return $row;
         })->values();
     }
 
@@ -957,6 +626,7 @@ final class AdminIncomeDashboardService
                     (string) ($row->rfc_receptor ?? ''),
                     (string) ($row->cfdi_uuid ?? ''),
                     (string) ($row->source ?? ''),
+                    (string) ($row->source_label ?? ''),
                 ])));
 
                 if (!str_contains($haystack, strtolower($filters['q']))) {
@@ -982,21 +652,17 @@ final class AdminIncomeDashboardService
 
     private function buildKpis(Collection $rows): array
     {
-        $realRows = $rows->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)->values();
-        $projectionRows = $rows->filter(fn ($r) => (string) ($r->source ?? '') === 'projection')->values();
+        $realRows = $rows->values();
 
         $pending  = $realRows->where('ec_status', 'pending');
         $emitido  = $realRows->where('ec_status', 'emitido');
+        $parcial  = $realRows->where('ec_status', 'parcial');
         $pagado   = $realRows->where('ec_status', 'pagado');
         $vencido  = $realRows->where('ec_status', 'vencido');
 
-        $realTotal = round((float) $realRows->sum('total'), 2);
-        $projected = round((float) $projectionRows->sum('total'), 2);
-        $collected = round((float) $pagado->sum('total'), 2);
-        $receivable = round((float) ($pending->sum('total') + $emitido->sum('total') + $vencido->sum('total')), 2);
-
-        $goal = round($realTotal + $projected, 2);
-        $goalProgress = $goal > 0 ? round(($realTotal / $goal) * 100, 2) : 0.0;
+        $realTotal  = round((float) $realRows->sum('total'), 2);
+        $collected  = round((float) $pagado->sum('total'), 2);
+        $receivable = round((float) ($pending->sum('total') + $emitido->sum('total') + $parcial->sum('total') + $vencido->sum('total')), 2);
 
         return [
             'total' => [
@@ -1020,16 +686,16 @@ final class AdminIncomeDashboardService
                 'amount' => round((float) $vencido->sum('total'), 2),
             ],
             'projected' => [
-                'count'  => $projectionRows->count(),
-                'amount' => $projected,
+                'count'  => 0,
+                'amount' => 0.0,
             ],
             'receivable' => [
-                'count'  => $pending->count() + $emitido->count() + $vencido->count(),
+                'count'  => $pending->count() + $emitido->count() + $parcial->count() + $vencido->count(),
                 'amount' => $receivable,
             ],
             'goal' => [
-                'amount'   => $goal,
-                'progress' => $goalProgress,
+                'amount'   => $realTotal,
+                'progress' => $realTotal > 0 ? 100.0 : 0.0,
             ],
             'mix' => [
                 'recurrente' => round((float) $realRows->where('origin', 'recurrente')->sum('total'), 2),
@@ -1047,33 +713,28 @@ final class AdminIncomeDashboardService
 
     private function buildCharts(Collection $rows, array $filters): array
     {
-        $allPeriods = $filters['periods'];
-
         $monthly = [];
-        foreach ($allPeriods as $period) {
+        foreach ($filters['periods'] as $period) {
             $slice = $rows->where('period', $period);
 
-            $real = round((float) $slice->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)->sum('total'), 2);
-            $projected = round((float) $slice->where('source', 'projection')->sum('total'), 2);
+            $real = round((float) $slice->sum('total'), 2);
             $collected = round((float) $slice->where('ec_status', 'pagado')->sum('total'), 2);
 
             $monthly[] = [
                 'period'     => $period,
                 'label'      => $this->monthNameEsFromPeriod($period),
                 'real'       => $real,
-                'projected'  => $projected,
+                'projected'  => 0.0,
                 'collected'  => $collected,
             ];
         }
 
-        $realRows = $rows->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)->values();
-
         $originMix = [
-            ['label' => 'Recurrente', 'value' => round((float) $realRows->where('origin', 'recurrente')->sum('total'), 2)],
-            ['label' => 'Único',      'value' => round((float) $realRows->where('origin', 'unico')->sum('total'), 2)],
+            ['label' => 'Recurrente', 'value' => round((float) $rows->where('origin', 'recurrente')->sum('total'), 2)],
+            ['label' => 'Único',      'value' => round((float) $rows->where('origin', 'unico')->sum('total'), 2)],
         ];
 
-        $vendorTop = $realRows
+        $vendorTop = $rows
             ->groupBy(fn ($r) => (string) ($r->vendor ?: 'Sin vendedor'))
             ->map(function ($group, $vendorName) {
                 return [
@@ -1093,11 +754,9 @@ final class AdminIncomeDashboardService
         ];
     }
 
-    private function buildHighlights(Collection $rows, array $filters): array
+    private function buildHighlights(Collection $rows): array
     {
-        $realRows = $rows->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)->values();
-
-        $bestMonth = $realRows
+        $bestMonth = $rows
             ->groupBy('period')
             ->map(fn ($group, $period) => [
                 'period' => (string) $period,
@@ -1107,7 +766,7 @@ final class AdminIncomeDashboardService
             ->sortByDesc('total')
             ->first();
 
-        $topVendor = $realRows
+        $topVendor = $rows
             ->groupBy(fn ($r) => (string) ($r->vendor ?: 'Sin vendedor'))
             ->map(fn ($group, $vendor) => [
                 'vendor' => $vendor,
@@ -1116,8 +775,8 @@ final class AdminIncomeDashboardService
             ->sortByDesc('total')
             ->first();
 
-        $criticalPending = $realRows
-            ->filter(fn ($r) => in_array((string) ($r->ec_status ?? ''), ['pending', 'vencido'], true))
+        $criticalPending = $rows
+            ->filter(fn ($r) => in_array((string) ($r->ec_status ?? ''), ['pending', 'vencido', 'parcial'], true))
             ->sortByDesc(fn ($r) => (float) ($r->total ?? 0))
             ->first();
 
@@ -1145,52 +804,395 @@ final class AdminIncomeDashboardService
         ];
     }
 
-    private function resolveAccountReferences(string $accountRaw, array $context): array
+    private function loadPaymentsAgg(array $periods): Collection
     {
-        $adminAccountId = '';
-        $clientUuid = '';
-        $clientObj = null;
-        $accountAdmin = null;
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return collect();
+        }
 
-        if ($accountRaw !== '' && preg_match('/^\d+$/', $accountRaw)) {
-            $adminAccountId = $accountRaw;
-            $clientObj = $context['cuentas_cliente_by_admin']->get($accountRaw);
-            if ($clientObj && !empty($clientObj->id)) {
-                $clientUuid = (string) $clientObj->id;
-            }
-            $accountAdmin = $context['accounts_admin']->get($accountRaw);
-        } elseif ($accountRaw !== '' && preg_match('/^[0-9a-f\-]{36}$/i', $accountRaw)) {
-            $clientUuid = $accountRaw;
-            $clientObj = $context['cuentas_cliente_by_uuid']->get($accountRaw);
-            if ($clientObj && !empty($clientObj->admin_account_id)) {
-                $adminAccountId = (string) $clientObj->admin_account_id;
-                $accountAdmin = $context['accounts_admin']->get($adminAccountId);
+        $q = DB::connection($this->adm)->table('payments');
+        if ($this->hasCol($this->adm, 'payments', 'period')) {
+            $q->whereIn('period', $periods);
+        }
+
+        if ($this->hasCol($this->adm, 'payments', 'status')) {
+            $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
+        }
+
+        $amountExpr = $this->hasCol($this->adm, 'payments', 'amount_mxn')
+            ? 'SUM(COALESCE(amount_mxn,0))'
+            : 'SUM(COALESCE(amount,0))/100';
+
+        return collect(
+            $q->selectRaw('account_id, period, ' . $amountExpr . ' as amount')
+                ->groupBy('account_id', 'period')
+                ->get()
+        )->keyBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->period);
+    }
+
+    private function loadPaymentsMeta(array $periods): Collection
+    {
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return collect();
+        }
+
+        $select = ['account_id', 'period'];
+        foreach (['status', 'method', 'provider', 'due_date', 'paid_at', 'created_at', 'updated_at'] as $col) {
+            if ($this->hasCol($this->adm, 'payments', $col)) {
+                $select[] = $col;
             }
         }
 
-        return [$adminAccountId, $clientUuid, $clientObj, $accountAdmin];
+        $q = DB::connection($this->adm)->table('payments')->select($select);
+        if ($this->hasCol($this->adm, 'payments', 'period')) {
+            $q->whereIn('period', $periods);
+        }
+
+        $orderCol = $this->hasCol($this->adm, 'payments', 'paid_at')
+            ? 'paid_at'
+            : ($this->hasCol($this->adm, 'payments', 'updated_at')
+                ? 'updated_at'
+                : ($this->hasCol($this->adm, 'payments', 'created_at') ? 'created_at' : 'period'));
+
+        $rows = collect($q->orderByDesc($orderCol)->get());
+
+        $out = [];
+        foreach ($rows as $r) {
+            $key = (string) ($r->account_id ?? '') . '|' . (string) ($r->period ?? '');
+            if ($key === '|' || isset($out[$key])) {
+                continue;
+            }
+
+            $out[$key] = [
+                'status'       => isset($r->status) ? (string) $r->status : null,
+                'method'       => isset($r->method) ? (string) $r->method : null,
+                'provider'     => isset($r->provider) ? (string) $r->provider : null,
+                'due_date'     => $r->due_date ?? null,
+                'last_paid_at' => $r->paid_at ?? ($r->updated_at ?? ($r->created_at ?? null)),
+            ];
+        }
+
+        return collect($out);
     }
 
-    private function resolveClientName(?object $clientObj, ?object $accountAdmin, array $snapshot, array $meta): string
+    private function loadStatementOverrides(array $periods): Collection
     {
-        $candidates = [
+        $table = 'billing_statement_status_overrides';
+        if (!Schema::connection($this->adm)->hasTable($table)) {
+            return collect();
+        }
+
+        $select = ['account_id', 'period', 'status_override', 'reason', 'updated_by', 'updated_at'];
+        foreach (['pay_method', 'pay_provider', 'pay_status', 'status', 'paid_at', 'meta'] as $col) {
+            if ($this->hasCol($this->adm, $table, $col)) {
+                $select[] = $col;
+            }
+        }
+
+        $rows = collect(
+            DB::connection($this->adm)
+                ->table($table)
+                ->select($select)
+                ->whereIn('period', $periods)
+                ->get()
+        );
+
+        return $rows->mapWithKeys(function ($r) {
+            $meta = $this->decodeMeta($r->meta ?? null);
+
+            $payMethod = trim((string) ($r->pay_method ?? ''));
+            if ($payMethod === '') {
+                $payMethod = (string) data_get($meta, 'pay_method', '');
+            }
+
+            $payProvider = trim((string) ($r->pay_provider ?? ''));
+            if ($payProvider === '') {
+                $payProvider = (string) data_get($meta, 'pay_provider', '');
+            }
+
+            $payStatus = trim((string) ($r->pay_status ?? ($r->status ?? '')));
+            if ($payStatus === '') {
+                $payStatus = (string) data_get($meta, 'pay_status', '');
+            }
+
+            $paidAt = $r->paid_at ?? data_get($meta, 'paid_at');
+
+            $key = (string) $r->account_id . '|' . (string) $r->period;
+
+            return [$key => [
+                'status'       => (string) ($r->status_override ?? ''),
+                'reason'       => isset($r->reason) ? (string) $r->reason : null,
+                'updated_by'   => isset($r->updated_by) ? (int) $r->updated_by : null,
+                'updated_at'   => isset($r->updated_at) ? (string) $r->updated_at : null,
+                'pay_method'   => $payMethod !== '' ? $payMethod : null,
+                'pay_provider' => $payProvider !== '' ? $payProvider : null,
+                'pay_status'   => $payStatus !== '' ? $payStatus : null,
+                'paid_at'      => $paidAt,
+            ]];
+        });
+    }
+
+    private function loadSubscriptionsRenewMap(): array
+    {
+        if (!Schema::connection($this->adm)->hasTable('subscriptions')) {
+            return [];
+        }
+
+        $subMax = DB::connection($this->adm)->table('subscriptions')
+            ->selectRaw('account_id, MAX(id) as max_id')
+            ->groupBy('account_id');
+
+        $rows = DB::connection($this->adm)->table('subscriptions as s')
+            ->joinSub($subMax, 'mx', function ($j) {
+                $j->on('mx.max_id', '=', 's.id');
+            })
+            ->select(['s.account_id', 's.started_at', 's.current_period_end'])
+            ->get();
+
+        $map = [];
+        foreach ($rows as $r) {
+            $date = $r->current_period_end ?: $r->started_at;
+            if (!$date) {
+                continue;
+            }
+
+            try {
+                $map[(string) $r->account_id] = Carbon::parse((string) $date)->format('Y-m');
+            } catch (\Throwable $e) {
+                // noop
+            }
+        }
+
+        return $map;
+    }
+
+    private function resolveExpectedAmountForStatement(
+        object $acc,
+        array $meta,
+        string $period,
+        ?string $lastPaid,
+        array $subsRenewMap
+    ): float {
+        $modo = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? 'mensual')));
+        $isAnnual = in_array($modo, ['anual', 'annual', 'year', 'yearly', '12m', '12'], true);
+
+        if ($isAnnual) {
+            $duePeriod = $subsRenewMap[(string) $acc->id] ?? null;
+
+            if (!$duePeriod) {
+                try {
+                    if (!empty($acc->created_at)) {
+                        $duePeriod = Carbon::parse((string) $acc->created_at)->format('Y-m');
+                    }
+                } catch (\Throwable $e) {
+                    $duePeriod = null;
+                }
+            }
+
+            if ($duePeriod !== $period) {
+                return 0.0;
+            }
+        }
+
+        $payAllowed = $lastPaid
+            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+            : $period;
+
+        try {
+            if ($this->hub && method_exists($this->hub, 'resolveEffectiveAmountForPeriodFromMeta')) {
+                $res = $this->hub->resolveEffectiveAmountForPeriodFromMeta($meta, $period, $payAllowed);
+
+                if (is_array($res) && isset($res[0]) && is_numeric($res[0])) {
+                    return round((float) $res[0], 2);
+                }
+
+                if (is_numeric($res)) {
+                    return round((float) $res, 2);
+                }
+            }
+        } catch (\Throwable $e) {
+            // fallback abajo
+        }
+
+        foreach ([
+            data_get($meta, 'billing.override.amount_mxn'),
+            data_get($meta, 'billing.custom.amount_mxn'),
+            data_get($meta, 'license.override.amount_mxn'),
+            data_get($meta, 'pricing.override.amount_mxn'),
+            $acc->override_amount_mxn ?? null,
+            $acc->custom_amount_mxn ?? null,
+            $acc->billing_amount_mxn ?? null,
+            $acc->amount_mxn ?? null,
+            $acc->precio_mxn ?? null,
+            $acc->monto_mxn ?? null,
+            $acc->license_amount_mxn ?? null,
+            $acc->billing_amount ?? null,
+            $acc->amount ?? null,
+            $acc->precio ?? null,
+            $acc->monto ?? null,
+        ] as $v) {
+            $n = $this->toFloat($v);
+            if ($n !== null && $n > 0.00001) {
+                return round($n, 2);
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function resolveLastPaidPeriodForAccount(string $accountId, array $meta): ?string
+    {
+        foreach ([
+            data_get($meta, 'stripe.last_paid_at'),
+            data_get($meta, 'stripe.lastPaidAt'),
+            data_get($meta, 'billing.last_paid_at'),
+            data_get($meta, 'billing.lastPaidAt'),
+            data_get($meta, 'last_paid_at'),
+            data_get($meta, 'lastPaidAt'),
+        ] as $v) {
+            $p = $this->parseToPeriod($v);
+            if ($p) {
+                return $p;
+            }
+        }
+
+        if (Schema::connection($this->adm)->hasTable('payments') && $this->hasCol($this->adm, 'payments', 'period')) {
+            try {
+                $q = DB::connection($this->adm)->table('payments')
+                    ->where('account_id', $accountId);
+
+                if ($this->hasCol($this->adm, 'payments', 'status')) {
+                    $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
+                }
+
+                $row = $q->orderByDesc(
+                    $this->hasCol($this->adm, 'payments', 'paid_at')
+                        ? 'paid_at'
+                        : ($this->hasCol($this->adm, 'payments', 'created_at') ? 'created_at' : 'period')
+                )->first(['period']);
+
+                if ($row && !empty($row->period)) {
+                    $p = $this->parseToPeriod($row->period);
+                    if ($p) {
+                        return $p;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // noop
+            }
+        }
+
+        $table = 'billing_statement_status_overrides';
+        if (Schema::connection($this->adm)->hasTable($table)) {
+            try {
+                $row = DB::connection($this->adm)->table($table)
+                    ->where('account_id', $accountId)
+                    ->where('status_override', 'pagado')
+                    ->orderByDesc('period')
+                    ->first(['period']);
+
+                if ($row && !empty($row->period)) {
+                    $p = $this->parseToPeriod($row->period);
+                    if ($p) {
+                        return $p;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // noop
+            }
+        }
+
+        return null;
+    }
+
+    private function computeStatementStatus(
+        string $period,
+        float $totalShown,
+        float $abonoTotal,
+        float $saldoShown,
+        mixed $dueDate
+    ): string {
+        if ($totalShown <= 0.00001) {
+            return 'sin_mov';
+        }
+
+        if ($saldoShown <= 0.00001) {
+            return 'pagado';
+        }
+
+        if ($abonoTotal > 0.00001 && $abonoTotal < ($totalShown - 0.00001)) {
+            return 'parcial';
+        }
+
+        if ($this->isOverdue($period, $dueDate)) {
+            return 'vencido';
+        }
+
+        return 'pending';
+    }
+
+    private function applyStatementOverrideDisplay(
+        float $totalShown,
+        float $abonoEdo,
+        float $abonoPay,
+        float $saldoShown,
+        string $statusPago,
+        ?array $override
+    ): array {
+        $abono = round($abonoEdo + $abonoPay, 2);
+        $saldo = round($saldoShown, 2);
+        $status = $statusPago;
+
+        if (!$override || empty($override['status'])) {
+            return [
+                'total'  => round($totalShown, 2),
+                'abono'  => $abono,
+                'saldo'  => $saldo,
+                'status' => $status,
+            ];
+        }
+
+        $s = strtolower(trim((string) $override['status']));
+        if (!in_array($s, ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
+            return [
+                'total'  => round($totalShown, 2),
+                'abono'  => $abono,
+                'saldo'  => $saldo,
+                'status' => $status,
+            ];
+        }
+
+        $status = $s === 'pendiente' ? 'pending' : $s;
+
+        if ($s === 'pagado') {
+            return [
+                'total'  => round($totalShown, 2),
+                'abono'  => round($totalShown, 2),
+                'saldo'  => 0.0,
+                'status' => 'pagado',
+            ];
+        }
+
+        return [
+            'total'  => round($totalShown, 2),
+            'abono'  => round($abonoEdo, 2),
+            'saldo'  => round(max(0.0, $totalShown - $abonoEdo), 2),
+            'status' => $status,
+        ];
+    }
+
+    private function resolveCompanyName(?object $clientObj, ?object $accountAdmin): string
+    {
+        foreach ([
             $clientObj?->nombre_comercial ?? null,
             $clientObj?->razon_social ?? null,
             $clientObj?->empresa ?? null,
             $accountAdmin?->razon_social ?? null,
             $accountAdmin?->name ?? null,
-            data_get($snapshot, 'account.company'),
-            data_get($snapshot, 'company'),
-            data_get($snapshot, 'razon_social'),
-            data_get($meta, 'account.company'),
-            data_get($meta, 'company'),
-            data_get($meta, 'razon_social'),
-        ];
-
-        foreach ($candidates as $value) {
-            $value = trim((string) ($value ?? ''));
-            if ($value !== '' && !$this->isPlaceholderName($value)) {
-                return $value;
+        ] as $v) {
+            $v = trim((string) ($v ?? ''));
+            if ($v !== '') {
+                return $v;
             }
         }
 
@@ -1199,268 +1201,47 @@ final class AdminIncomeDashboardService
 
     private function resolveRfcEmisor(?object $clientObj, ?object $accountAdmin): string
     {
-        $candidates = [
+        foreach ([
             $clientObj?->rfc_padre ?? null,
             $clientObj?->rfc ?? null,
             $accountAdmin?->rfc ?? null,
-        ];
-
-        foreach ($candidates as $value) {
-            $value = strtoupper(trim((string) ($value ?? '')));
-            if ($value !== '' && $this->isValidRfc($value)) {
-                return $value;
+        ] as $v) {
+            $v = strtoupper(trim((string) ($v ?? '')));
+            if ($v !== '') {
+                return $v;
             }
         }
 
         return '';
     }
 
-    private function resolveBillingProfile(string $accountId, string $accountRaw, array $context): ?object
+    private function resolveVendorForAccountPeriod(string $accountId, string $period, Collection $accountVendorMap): array
     {
-        if ($accountId !== '' && $context['billing_profiles_by_acc']->has($accountId)) {
-            return $context['billing_profiles_by_acc']->get($accountId);
+        if (!$accountVendorMap->has($accountId)) {
+            return [null, null];
         }
 
-        if ($accountRaw !== '' && $context['billing_profiles_by_acc']->has($accountRaw)) {
-            return $context['billing_profiles_by_acc']->get($accountRaw);
-        }
-
-        return null;
-    }
-
-    private function resolveVendorForStatement(
-        string $adminAccountId,
-        string $clientUuid,
-        string $period,
-        Collection $items,
-        array $snapshot,
-        array $meta,
-        array $context
-    ): array {
-        $vendorId = null;
-
-        $candidateIds = [];
-
-        $candidateIds[] = data_get($meta, 'vendor_id');
-        $candidateIds[] = data_get($meta, 'vendor.id');
-        $candidateIds[] = data_get($snapshot, 'vendor_id');
-        $candidateIds[] = data_get($snapshot, 'vendor.id');
-
-        foreach ($items as $item) {
-            $itemMeta = $this->decodeJson($item->meta ?? null);
-            $candidateIds[] = data_get($itemMeta, 'vendor_id');
-            $candidateIds[] = data_get($itemMeta, 'vendor.id');
-        }
-
-        foreach ($candidateIds as $candidate) {
-            $candidate = trim((string) ($candidate ?? ''));
-            if ($candidate !== '') {
-                $vendorId = $candidate;
-                break;
-            }
-        }
-
-        if ($vendorId !== null && $context['vendor_by_id']->has((string) $vendorId)) {
-            $vendor = $context['vendor_by_id']->get((string) $vendorId);
-            return [(string) $vendorId, (string) ($vendor->name ?? '')];
-        }
-
-        return $this->resolveVendorFallback($adminAccountId, $clientUuid, $period, $context);
-    }
-
-    private function resolveVendorFallback(string $adminAccountId, string $clientUuid, string $period, array $context): array
-    {
-        if ($adminAccountId !== '' && $context['account_vendor_map']->has($adminAccountId)) {
-            foreach ($context['account_vendor_map']->get($adminAccountId) as $assign) {
-                if ($this->assignmentMatchesPeriod($assign, $period)) {
-                    return [
-                        !empty($assign->vendor_id) ? (string) $assign->vendor_id : null,
-                        !empty($assign->vendor_name) ? (string) $assign->vendor_name : null,
-                    ];
-                }
+        foreach ($accountVendorMap->get($accountId) as $assign) {
+            if ($this->assignmentMatchesPeriod($assign, $period)) {
+                return [
+                    !empty($assign->vendor_id) ? (string) $assign->vendor_id : null,
+                    !empty($assign->vendor_name) ? (string) $assign->vendor_name : null,
+                ];
             }
         }
 
         return [null, null];
     }
 
-    private function resolveInvoiceForStatement(
-        int $statementId,
-        string $displayAccountId,
-        string $accountRaw,
-        string $period,
-        array $context
-    ): ?object {
-        if ($statementId > 0 && $context['invoice_by_statement_id']->has($statementId)) {
-            return $context['invoice_by_statement_id']->get($statementId)->first();
-        }
-
-        if ($displayAccountId !== '') {
-            $key = $displayAccountId . '|' . $period;
-            if ($context['invoice_by_account_period']->has($key)) {
-                return $context['invoice_by_account_period']->get($key)->first();
-            }
-        }
-
-        if ($accountRaw !== '') {
-            $key = $accountRaw . '|' . $period;
-            if ($context['invoice_by_account_period']->has($key)) {
-                return $context['invoice_by_account_period']->get($key)->first();
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveStatementAmounts(float $totalCargo, Collection $items, array $snapshot, array $meta): array
-    {
-        $snapSubtotal = (float) (
-            data_get($snapshot, 'totals.subtotal')
-            ?? data_get($snapshot, 'statement.subtotal')
-            ?? data_get($snapshot, 'subtotal')
-            ?? data_get($meta, 'totals.subtotal')
-            ?? data_get($meta, 'statement.subtotal')
-            ?? data_get($meta, 'subtotal')
-            ?? 0
-        );
-
-        $snapIva = (float) (
-            data_get($snapshot, 'totals.iva')
-            ?? data_get($snapshot, 'statement.iva')
-            ?? data_get($snapshot, 'iva')
-            ?? data_get($meta, 'totals.iva')
-            ?? data_get($meta, 'statement.iva')
-            ?? data_get($meta, 'iva')
-            ?? 0
-        );
-
-        $snapTotal = (float) (
-            data_get($snapshot, 'totals.total')
-            ?? data_get($snapshot, 'statement.total')
-            ?? data_get($snapshot, 'total')
-            ?? data_get($meta, 'totals.total')
-            ?? data_get($meta, 'statement.total')
-            ?? data_get($meta, 'total')
-            ?? 0
-        );
-
-        if ($snapTotal > 0 || $snapSubtotal > 0) {
-            $subtotal = $snapSubtotal > 0 ? round($snapSubtotal, 2) : round($snapTotal / 1.16, 2);
-            $total    = $snapTotal > 0 ? round($snapTotal, 2) : round($subtotal * 1.16, 2);
-            $iva      = $snapIva > 0 ? round($snapIva, 2) : round($total - $subtotal, 2);
-
-            return [
-                'subtotal' => round(max(0, $subtotal), 2),
-                'iva'      => round(max(0, $iva), 2),
-                'total'    => round(max(0, $total), 2),
-            ];
-        }
-
-        $totalCargo = round((float) $totalCargo, 2);
-        if ($totalCargo > 0) {
-            $subtotal = round($totalCargo / 1.16, 2);
-            $iva      = round($totalCargo - $subtotal, 2);
-
-            return [
-                'subtotal' => $subtotal,
-                'iva'      => $iva,
-                'total'    => $totalCargo,
-            ];
-        }
-
-        $itemsAmount = round((float) $items->sum(fn ($r) => (float) ($r->amount ?? 0)), 2);
-        if ($itemsAmount > 0) {
-            $subtotal = round($itemsAmount, 2);
-            $iva      = round($subtotal * 0.16, 2);
-            $total    = round($subtotal + $iva, 2);
-
-            return [
-                'subtotal' => $subtotal,
-                'iva'      => $iva,
-                'total'    => $total,
-            ];
-        }
-
-        return [
-            'subtotal' => 0.0,
-            'iva'      => 0.0,
-            'total'    => 0.0,
-        ];
-    }
-
-    private function resolveOriginFromStatement(Collection $items, array $snapshot, array $meta, ?object $clientObj): string
-    {
-        $mode = strtolower(trim((string) (
-            data_get($snapshot, 'license.mode')
-            ?? data_get($meta, 'license.mode')
-            ?? ($clientObj?->modo_cobro ?? '')
-        )));
-
-        if (in_array($mode, ['mensual', 'anual'], true)) {
-            return 'recurrente';
-        }
-
-        foreach ($items as $item) {
-            $itemMeta = $this->decodeJson($item->meta ?? null);
-
-            $origin = strtolower(trim((string) (
-                data_get($itemMeta, 'origin')
-                ?? ''
-            )));
-
-            if ($origin === 'no_recurrente') {
-                return 'unico';
-            }
-
-            if (in_array($origin, ['recurrente', 'unico'], true)) {
-                return $origin;
-            }
-
-            $type = strtolower(trim((string) ($item->type ?? '')));
-            if (in_array($type, ['license', 'subscription', 'plan'], true)) {
-                return 'recurrente';
-            }
-        }
-
-        return 'unico';
-    }
-
-    private function resolvePeriodicityFromStatement(Collection $items, array $snapshot, array $meta, ?object $clientObj): string
-    {
-        $mode = strtolower(trim((string) (
-            data_get($snapshot, 'license.mode')
-            ?? data_get($meta, 'license.mode')
-            ?? ($clientObj?->modo_cobro ?? '')
-        )));
-
-        if (in_array($mode, ['mensual', 'anual'], true)) {
-            return $mode;
-        }
-
-        foreach ($items as $item) {
-            $itemMeta = $this->decodeJson($item->meta ?? null);
-            $periodicity = strtolower(trim((string) (
-                data_get($itemMeta, 'periodicity')
-                ?? ''
-            )));
-
-            if (in_array($periodicity, ['mensual', 'anual', 'unico'], true)) {
-                return $periodicity;
-            }
-        }
-
-        return 'unico';
-    }
-
-    private function buildStatementDescription(Collection $items, string $origin, string $periodicity): string
+    private function buildStatementDescriptionFromItems(Collection $items, float $expectedTotal, float $cargoEdo): string
     {
         $parts = $items
             ->map(function ($item) {
-                $desc = trim((string) ($item->description ?? ''));
-                if ($desc === '') {
-                    $desc = trim((string) ($item->code ?? ''));
+                $c = trim((string) ($item->concepto ?? ''));
+                if ($c === '') {
+                    $c = trim((string) ($item->detalle ?? ''));
                 }
-                return $desc;
+                return $c;
             })
             ->filter()
             ->unique()
@@ -1472,55 +1253,113 @@ final class AdminIncomeDashboardService
             return implode(' · ', $parts);
         }
 
-        if ($origin === 'recurrente') {
-            return $periodicity === 'anual'
-                ? 'Estado de cuenta recurrente anual'
-                : 'Estado de cuenta recurrente mensual';
+        if ($cargoEdo <= 0.00001 && $expectedTotal > 0.00001) {
+            return 'Estado de cuenta calculado por tarifa';
         }
 
         return 'Estado de cuenta';
     }
 
-    private function normalizeStatementStatus(
-        string $statusRaw,
-        mixed $dueDate,
-        ?string $paymentStatus,
-        mixed $paidAt,
-        mixed $paymentPaidAt,
-        mixed $sentAt
-    ): string {
-        if (!empty($paidAt) || !empty($paymentPaidAt)) {
-            return 'pagado';
+    private function resolveStatementOrigin(Collection $items, object $acc, array $meta): string
+    {
+        $mode = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? '')));
+        if (in_array($mode, ['mensual', 'anual'], true)) {
+            return 'recurrente';
         }
 
-        $paymentStatus = strtolower(trim((string) ($paymentStatus ?? '')));
-        if (in_array($paymentStatus, ['paid', 'pagado', 'succeeded', 'success', 'complete', 'completed'], true)) {
-            return 'pagado';
-        }
-
-        if (!empty($sentAt)) {
-            return 'emitido';
-        }
-
-        $status = strtolower(trim((string) $statusRaw));
-        $status = match ($status) {
-            'paid', 'pagado'      => 'pagado',
-            'sent', 'emitido'     => 'emitido',
-            'overdue', 'vencido'  => 'vencido',
-            default               => 'pending',
-        };
-
-        if ($status === 'pending' && !empty($dueDate)) {
-            try {
-                if (Carbon::parse((string) $dueDate)->startOfDay()->lt(now()->startOfDay())) {
-                    return 'vencido';
-                }
-            } catch (\Throwable $e) {
-                // noop
+        foreach ($items as $item) {
+            $concepto = strtolower(trim((string) ($item->concepto ?? '')));
+            if (str_contains($concepto, 'servicio mensual') || str_contains($concepto, 'servicio anual') || str_contains($concepto, 'licencia')) {
+                return 'recurrente';
             }
         }
 
-        return $status;
+        return 'unico';
+    }
+
+    private function resolveStatementPeriodicity(object $acc, array $meta): string
+    {
+        $mode = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? '')));
+        if (in_array($mode, ['mensual', 'anual'], true)) {
+            return $mode;
+        }
+
+        return 'unico';
+    }
+
+    private function resolveStatementInvoiceStatusFromItemsOrOverride(Collection $items, ?array $override): string
+    {
+        if (!empty($override['pay_status']) && strtolower((string) $override['pay_status']) === 'paid') {
+            return 'issued';
+        }
+
+        foreach ($items as $item) {
+            $meta = $this->decodeMeta($item->meta ?? null);
+            $cfdi = trim((string) (data_get($meta, 'cfdi_uuid') ?? data_get($meta, 'invoice_uuid') ?? ''));
+            if ($cfdi !== '') {
+                return 'issued';
+            }
+        }
+
+        return 'sin_solicitud';
+    }
+
+    private function resolveStatementCfdiFromItemsOrOverride(Collection $items, ?array $override): string
+    {
+        foreach ($items as $item) {
+            $meta = $this->decodeMeta($item->meta ?? null);
+            $cfdi = trim((string) (data_get($meta, 'cfdi_uuid') ?? data_get($meta, 'invoice_uuid') ?? ''));
+            if ($cfdi !== '') {
+                return $cfdi;
+            }
+        }
+
+        return '';
+    }
+
+    private function extractLinkedSaleIdsFromItems(Collection $items): array
+    {
+        $ids = [];
+
+        foreach ($items as $item) {
+            $source = strtolower(trim((string) ($item->source ?? '')));
+            $ref = trim((string) ($item->ref ?? ''));
+
+            if ($source === 'finance_sale' && preg_match('/finance_sale\:(\d+)/', $ref, $m)) {
+                $ids[] = (int) $m[1];
+                continue;
+            }
+
+            $meta = $this->decodeMeta($item->meta ?? null);
+            $saleId = (int) (data_get($meta, 'finance_sale_id') ?? 0);
+            if ($saleId > 0) {
+                $ids[] = $saleId;
+            }
+        }
+
+        $ids = array_values(array_unique(array_filter($ids, fn ($v) => (int) $v > 0)));
+        sort($ids);
+
+        return $ids;
+    }
+
+    private function extractStatementNotes(Collection $items, ?array $override): string
+    {
+        if (!empty($override['reason'])) {
+            return (string) $override['reason'];
+        }
+
+        $notes = $items
+            ->map(function ($item) {
+                $d = trim((string) ($item->detalle ?? ''));
+                return $d;
+            })
+            ->filter()
+            ->unique()
+            ->take(2)
+            ->implode(' · ');
+
+        return (string) $notes;
     }
 
     private function normalizeSaleStatus(string $statusRaw): string
@@ -1528,10 +1367,11 @@ final class AdminIncomeDashboardService
         $status = strtolower(trim($statusRaw));
 
         return match ($status) {
-            'emitido' => 'emitido',
-            'pagado'  => 'pagado',
-            'vencido' => 'vencido',
-            default   => 'pending',
+            'emitido', 'sent'  => 'emitido',
+            'pagado', 'paid'   => 'pagado',
+            'vencido'          => 'vencido',
+            'parcial'          => 'parcial',
+            default            => 'pending',
         };
     }
 
@@ -1549,17 +1389,8 @@ final class AdminIncomeDashboardService
             'requested', 'solicitada', 'solicitado'                          => 'requested',
             'ready', 'en_proceso', 'procesando'                              => 'ready',
             'issued', 'facturada', 'facturado', 'timbrada', 'timbrado'      => 'issued',
-            'cancelled', 'canceled', 'rechazada', 'rechazado'                => 'cancelled',
+            'cancelled', 'canceled', 'rechazada', 'rechazado', 'cancelada', 'cancelado' => 'cancelled',
             default                                                          => $allowAll ? 'all' : 'sin_solicitud',
-        };
-    }
-
-    private function paymentStatusWeight(string $status): int
-    {
-        return match (strtolower(trim($status))) {
-            'paid', 'pagado', 'succeeded', 'success', 'complete', 'completed' => 100,
-            'pending'                                                          => 50,
-            default                                                            => 0,
         };
     }
 
@@ -1584,30 +1415,17 @@ final class AdminIncomeDashboardService
         return true;
     }
 
-    private function guessProjectionSubtotalFromPlan(string $plan, string $modo): float
+    private function decodeMeta(mixed $value): array
     {
-        $map = [
-            'free'       => ['mensual' => 0.00,   'anual' => 0.00],
-            'basic'      => ['mensual' => 580.00, 'anual' => 5800.00],
-            'pro'        => ['mensual' => 980.00, 'anual' => 9800.00],
-            'enterprise' => ['mensual' => 1980.00, 'anual' => 19800.00],
-        ];
+        if ($this->hub && method_exists($this->hub, 'decodeMeta')) {
+            try {
+                $decoded = $this->hub->decodeMeta($value);
+                return is_array($decoded) ? $decoded : [];
+            } catch (\Throwable $e) {
+                // fallback abajo
+            }
+        }
 
-        return (float) ($map[$plan][$modo] ?? 0.0);
-    }
-
-    private function isPlaceholderName(string $name): bool
-    {
-        return (bool) preg_match('/^cuenta\s+\d+$/i', trim($name));
-    }
-
-    private function isValidRfc(string $rfc): bool
-    {
-        return (bool) preg_match('/^([A-ZÑ&]{3,4})(\d{6})([A-Z0-9]{3})$/', strtoupper(trim($rfc)));
-    }
-
-    private function decodeJson(mixed $value): array
-    {
         if ($value === null || $value === '') {
             return [];
         }
@@ -1661,5 +1479,105 @@ final class AdminIncomeDashboardService
             12 => 'Diciembre',
             default => '—',
         };
+    }
+
+    private function toFloat(mixed $v): ?float
+    {
+        if ($v === null) {
+            return null;
+        }
+
+        if (is_float($v) || is_int($v)) {
+            return (float) $v;
+        }
+
+        if (is_string($v)) {
+            $s = trim($v);
+            if ($s === '') {
+                return null;
+            }
+
+            $s = str_replace(['$', ',', ' '], '', $s);
+            if (!is_numeric($s)) {
+                return null;
+            }
+
+            return (float) $s;
+        }
+
+        if (is_numeric($v)) {
+            return (float) $v;
+        }
+
+        return null;
+    }
+
+    private function parseToPeriod(mixed $value): ?string
+    {
+        try {
+            if ($value instanceof \DateTimeInterface) {
+                return Carbon::instance($value)->format('Y-m');
+            }
+
+            if (is_numeric($value)) {
+                $ts = (int) $value;
+                if ($ts > 0) {
+                    return Carbon::createFromTimestamp($ts)->format('Y-m');
+                }
+            }
+
+            if (is_string($value)) {
+                $v = trim($value);
+                if ($v === '') {
+                    return null;
+                }
+
+                $v = str_replace('/', '-', $v);
+                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $v)) {
+                    return $v;
+                }
+
+                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/', $v)) {
+                    return Carbon::parse($v)->format('Y-m');
+                }
+
+                return Carbon::parse($v)->format('Y-m');
+            }
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private function isOverdue(string $period, mixed $dueDate): bool
+    {
+        $now = now();
+
+        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
+            return false;
+        }
+
+        $currentPeriod = $now->format('Y-m');
+        if ($period >= $currentPeriod) {
+            return false;
+        }
+
+        try {
+            if ($dueDate !== null && $dueDate !== '') {
+                $due = $dueDate instanceof Carbon ? $dueDate : Carbon::parse((string) $dueDate);
+                return $due->lt($now);
+            }
+        } catch (\Throwable $e) {
+            // fallback abajo
+        }
+
+        try {
+            $start = Carbon::createFromFormat('Y-m-d', $period . '-01')->startOfMonth();
+            $cut   = $start->copy()->endOfMonth()->addDays(4)->endOfDay();
+            return $now->gt($cut);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

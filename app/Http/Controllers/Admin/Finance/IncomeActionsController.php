@@ -48,6 +48,43 @@ final class IncomeActionsController extends Controller
 
         $saleId = (int) ($data['sale_id'] ?? 0);
         $period = (string) $data['period'];
+        $source = strtolower(trim((string) ($data['source'] ?? '')));
+        $rowType = strtolower(trim((string) ($data['row_type'] ?? '')));
+
+        // =========================================================================
+        // SOT: INGRESOS ES SOLO REPORTE
+        // - statements: SOLO lectura
+        // - projections: bloqueado
+        // - overrides: bloqueado
+        // - solo permitimos actualizar finance_sales cuando sale_id > 0
+        // =========================================================================
+        if ($saleId <= 0) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Ingresos es solo reporte. Los registros de Estados de Cuenta no se editan aquí; edítalos en su módulo origen.',
+                'mode'    => 'read_only',
+                'source'  => $source !== '' ? $source : ($rowType !== '' ? $rowType : 'statement'),
+            ], 422);
+        }
+
+        if (!Schema::connection($this->adm)->hasTable('finance_sales')) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Tabla finance_sales no existe.',
+            ], 422);
+        }
+
+        $before = DB::connection($this->adm)
+            ->table('finance_sales')
+            ->where('id', '=', $saleId)
+            ->first();
+
+        if (!$before) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No existe la venta (sale_id=' . $saleId . ').',
+            ], 404);
+        }
 
         $vendorId = $data['vendor_id'] ?? null;
         $vendorId = is_string($vendorId) && trim($vendorId) !== '' ? (int) trim($vendorId) : null;
@@ -82,486 +119,146 @@ final class IncomeActionsController extends Controller
             ? trim((string) $notes)
             : null;
 
-        /*
-        |--------------------------------------------------------------------------
-        | A) UPDATE finance_sales
-        |--------------------------------------------------------------------------
-        */
-        if ($saleId > 0 && Schema::connection($this->adm)->hasTable('finance_sales')) {
-            $before = DB::connection($this->adm)
-                ->table('finance_sales')
-                ->where('id', '=', $saleId)
-                ->first();
+        $allowedStatementStatuses = $this->getEnumValues('finance_sales', 'statement_status');
+        $allowedInvoiceStatuses   = $this->getEnumValues('finance_sales', 'invoice_status');
 
-            if (!$before) {
-                return response()->json([
-                    'ok'      => false,
-                    'message' => 'No existe la venta (sale_id=' . $saleId . ').',
-                ], 404);
+        $dbStatementStatus = $this->normalizeFinanceSalesStatementStatus(
+            $ecStatusInput,
+            $allowedStatementStatuses,
+            (string) ($before->statement_status ?? '')
+        );
+
+        $dbInvoiceStatus = $this->normalizeFinanceSalesInvoiceStatus(
+            $invStatusInput,
+            $allowedInvoiceStatuses,
+            (string) ($before->invoice_status ?? '')
+        );
+
+        $upd = [];
+
+        if ($vendorId !== null) {
+            $upd['vendor_id'] = $vendorId;
+        }
+
+        if ($dbStatementStatus !== null) {
+            $upd['statement_status'] = $dbStatementStatus;
+        }
+
+        if ($dbInvoiceStatus !== null) {
+            $upd['invoice_status'] = $dbInvoiceStatus;
+        }
+
+        if ($cfdiUuid !== null) {
+            $upd['cfdi_uuid'] = $cfdiUuid;
+        }
+
+        if ($rfcRec !== null) {
+            $upd['receiver_rfc'] = $rfcRec;
+        }
+
+        if ($formaPago !== null) {
+            $upd['pay_method'] = $formaPago;
+        }
+
+        if (array_key_exists('subtotal', $data)) {
+            $upd['subtotal'] = $data['subtotal'] !== null ? round((float) $data['subtotal'], 2) : null;
+        }
+
+        if (array_key_exists('iva', $data)) {
+            $upd['iva'] = $data['iva'] !== null ? round((float) $data['iva'], 2) : null;
+        }
+
+        if (array_key_exists('total', $data)) {
+            $upd['total'] = $data['total'] !== null ? round((float) $data['total'], 2) : null;
+        }
+
+        if ($notes !== null) {
+            $upd['notes'] = $notes;
+        }
+
+        if (array_key_exists('include_in_statement', $data)) {
+            $upd['include_in_statement'] = (int) ($data['include_in_statement'] ?? 0);
+        }
+
+        if (array_key_exists('statement_period_target', $data)) {
+            $spt = trim((string) ($data['statement_period_target'] ?? ''));
+            if ($spt === '') {
+                $upd['statement_period_target'] = null;
+            } elseif (preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $spt)) {
+                $upd['statement_period_target'] = $spt;
             }
+        }
 
-            $allowedStatementStatuses = $this->getEnumValues('finance_sales', 'statement_status');
-            $allowedInvoiceStatuses   = $this->getEnumValues('finance_sales', 'invoice_status');
-
-            $dbStatementStatus = $this->normalizeFinanceSalesStatementStatus(
-                $ecStatusInput,
-                $allowedStatementStatuses,
-                (string) ($before->statement_status ?? '')
-            );
-
-            $dbInvoiceStatus = $this->normalizeFinanceSalesInvoiceStatus(
-                $invStatusInput,
-                $allowedInvoiceStatuses,
-                (string) ($before->invoice_status ?? '')
-            );
-
-            $upd = [];
-
-            if ($vendorId !== null) {
-                $upd['vendor_id'] = $vendorId;
-            }
-
-            if ($dbStatementStatus !== null) {
-                $upd['statement_status'] = $dbStatementStatus;
-            }
-
-            if ($dbInvoiceStatus !== null) {
-                $upd['invoice_status'] = $dbInvoiceStatus;
-            }
-
-            if ($cfdiUuid !== null) {
-                $upd['cfdi_uuid'] = $cfdiUuid;
-            }
-
-            if ($rfcRec !== null) {
-                $upd['receiver_rfc'] = $rfcRec;
-            }
-
-            if ($formaPago !== null) {
-                $upd['pay_method'] = $formaPago;
-            }
-
-            if (array_key_exists('subtotal', $data)) {
-                $upd['subtotal'] = $data['subtotal'] !== null ? round((float) $data['subtotal'], 2) : null;
-            }
-
-            if (array_key_exists('iva', $data)) {
-                $upd['iva'] = $data['iva'] !== null ? round((float) $data['iva'], 2) : null;
-            }
-
-            if (array_key_exists('total', $data)) {
-                $upd['total'] = $data['total'] !== null ? round((float) $data['total'], 2) : null;
-            }
-
-            if ($notes !== null) {
-                $upd['notes'] = $notes;
-            }
-
-            if (array_key_exists('include_in_statement', $data)) {
-                $upd['include_in_statement'] = (int) ($data['include_in_statement'] ?? 0);
-            }
-
-            if (array_key_exists('statement_period_target', $data)) {
-                $spt = trim((string) ($data['statement_period_target'] ?? ''));
-                if ($spt === '') {
-                    $upd['statement_period_target'] = null;
-                } elseif (preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $spt)) {
-                    $upd['statement_period_target'] = $spt;
-                }
-            }
-
-            if (empty($upd)) {
-                return response()->json([
-                    'ok'      => true,
-                    'mode'    => 'finance_sales_no_changes',
-                    'sale_id' => $saleId,
-                ]);
-            }
-
-            $upd['updated_at'] = now();
-
-            DB::connection($this->adm)->table('finance_sales')
-                ->where('id', '=', $saleId)
-                ->update($upd);
-
-            $after = DB::connection($this->adm)
-                ->table('finance_sales')
-                ->where('id', '=', $saleId)
-                ->first();
-
-            $changedFields = $this->diffFields(
-                $this->normalizeRecordForAudit((array) $before),
-                $this->normalizeRecordForAudit((array) $after)
-            );
-
-            $this->writeAudit(
-                action: 'finance_income.sale.update',
-                entityType: 'finance_sale',
-                entityId: $saleId,
-                meta: [
-                    'module'         => 'finance_income',
-                    'action_scope'   => 'sale_update',
-                    'changed_fields' => $changedFields,
-                    'before'         => $this->normalizeRecordForAudit((array) $before),
-                    'after'          => $this->normalizeRecordForAudit((array) $after),
-                    'context'        => [
-                        'sale_id'                  => $saleId,
-                        'period'                   => $period,
-                        'account_id'               => (string) ($after->account_id ?? $before->account_id ?? ''),
-                        'ui_ec_status'             => $ecStatusInput,
-                        'db_statement_status'      => $dbStatementStatus,
-                        'ui_invoice_status'        => $invStatusInput,
-                        'db_invoice_status'        => $dbInvoiceStatus,
-                        'allowed_statement_status' => $allowedStatementStatuses,
-                        'allowed_invoice_status'   => $allowedInvoiceStatuses,
-                    ],
-                ],
-                request: $req
-            );
-
+        if (empty($upd)) {
             return response()->json([
-                'ok'                  => true,
-                'mode'                => 'finance_sales',
-                'sale_id'             => $saleId,
-                'statement_status_db' => $dbStatementStatus,
-                'invoice_status_db'   => $dbInvoiceStatus,
+                'ok'      => true,
+                'mode'    => 'finance_sales_no_changes',
+                'sale_id' => $saleId,
             ]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | B) UPSERT finance_income_overrides
-        |--------------------------------------------------------------------------
-        */
-        if (!Schema::connection($this->adm)->hasTable('finance_income_overrides')) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Tabla finance_income_overrides no existe.',
-            ], 422);
-        }
+        $upd['updated_at'] = now();
 
-        $accountId = (string) ($data['account_id'] ?? '');
-        if ($accountId === '') {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'account_id requerido cuando no hay sale_id.',
-            ], 422);
-        }
+        DB::connection($this->adm)->table('finance_sales')
+            ->where('id', '=', $saleId)
+            ->update($upd);
 
-        $rowType = $this->resolveOverrideRowType($data);
-
-        $beforeOverride = DB::connection($this->adm)
-            ->table('finance_income_overrides')
-            ->where('row_type', '=', $rowType)
-            ->where('account_id', '=', $accountId)
-            ->where('period', '=', $period)
-            ->first();
-
-        $payload = [
-            'row_type'       => $rowType,
-            'account_id'     => $accountId,
-            'period'         => $period,
-            'sale_id'        => null,
-
-            'vendor_id'      => $vendorId,
-            'ec_status'      => $ecStatusInput,
-            'invoice_status' => $invStatusInput,
-            'cfdi_uuid'      => $cfdiUuid,
-            'rfc_receptor'   => $rfcRec,
-            'forma_pago'     => $formaPago,
-
-            'subtotal'       => array_key_exists('subtotal', $data) && $data['subtotal'] !== null ? round((float) $data['subtotal'], 2) : null,
-            'iva'            => array_key_exists('iva', $data) && $data['iva'] !== null ? round((float) $data['iva'], 2) : null,
-            'total'          => array_key_exists('total', $data) && $data['total'] !== null ? round((float) $data['total'], 2) : null,
-
-            'notes'          => $notes,
-            'updated_by'     => auth('admin')->id() ? (int) auth('admin')->id() : null,
-            'updated_at'     => now(),
-        ];
-
-        DB::connection($this->adm)->table('finance_income_overrides')->updateOrInsert(
-            [
-                'row_type'   => $rowType,
-                'account_id' => $accountId,
-                'period'     => $period,
-            ],
-            $payload + ['created_at' => now()]
-        );
-
-        $afterOverride = DB::connection($this->adm)
-            ->table('finance_income_overrides')
-            ->where('row_type', '=', $rowType)
-            ->where('account_id', '=', $accountId)
-            ->where('period', '=', $period)
+        $after = DB::connection($this->adm)
+            ->table('finance_sales')
+            ->where('id', '=', $saleId)
             ->first();
 
         $changedFields = $this->diffFields(
-            $this->normalizeRecordForAudit((array) ($beforeOverride ? (array) $beforeOverride : [])),
-            $this->normalizeRecordForAudit((array) ($afterOverride ? (array) $afterOverride : []))
+            $this->normalizeRecordForAudit((array) $before),
+            $this->normalizeRecordForAudit((array) $after)
         );
 
         $this->writeAudit(
-            action: $beforeOverride ? 'finance_income.override.update' : 'finance_income.override.create',
-            entityType: 'finance_income_override',
-            entityId: (int) ($afterOverride->id ?? 0),
+            action: 'finance_income.sale.update',
+            entityType: 'finance_sale',
+            entityId: $saleId,
             meta: [
                 'module'         => 'finance_income',
-                'action_scope'   => $beforeOverride ? 'override_update' : 'override_create',
+                'action_scope'   => 'sale_update_from_income_readonly_mode',
                 'changed_fields' => $changedFields,
-                'before'         => $beforeOverride ? $this->normalizeRecordForAudit((array) $beforeOverride) : null,
-                'after'          => $afterOverride ? $this->normalizeRecordForAudit((array) $afterOverride) : null,
+                'before'         => $this->normalizeRecordForAudit((array) $before),
+                'after'          => $this->normalizeRecordForAudit((array) $after),
                 'context'        => [
-                    'row_type'          => $rowType,
-                    'account_id'        => $accountId,
-                    'period'            => $period,
-                    'ui_ec_status'      => $ecStatusInput,
-                    'ui_invoice_status' => $invStatusInput,
+                    'sale_id'                  => $saleId,
+                    'period'                   => $period,
+                    'account_id'               => (string) ($after->account_id ?? $before->account_id ?? ''),
+                    'ui_ec_status'             => $ecStatusInput,
+                    'db_statement_status'      => $dbStatementStatus,
+                    'ui_invoice_status'        => $invStatusInput,
+                    'db_invoice_status'        => $dbInvoiceStatus,
+                    'allowed_statement_status' => $allowedStatementStatuses,
+                    'allowed_invoice_status'   => $allowedInvoiceStatuses,
                 ],
             ],
             request: $req
         );
 
         return response()->json([
-            'ok'         => true,
-            'mode'       => 'override',
-            'row_type'   => $rowType,
-            'account_id' => $accountId,
-            'period'     => $period,
+            'ok'                  => true,
+            'mode'                => 'finance_sales',
+            'sale_id'             => $saleId,
+            'statement_status_db' => $dbStatementStatus,
+            'invoice_status_db'   => $dbInvoiceStatus,
         ]);
     }
 
     /**
      * DELETE:
-     * - Si $id > 0: elimina una venta (finance_sales.id)
-     * - Si $id == 0: elimina un override por (row_type + account_id + period)
+     * - Bloqueado desde Ingresos para mantener modo espejo / solo lectura
      */
     public function destroy(Request $req, int $id): JsonResponse
     {
-        /*
-        |--------------------------------------------------------------------------
-        | A) DELETE finance_sales
-        |--------------------------------------------------------------------------
-        */
-        if ($id > 0) {
-            if (!Schema::connection($this->adm)->hasTable('finance_sales')) {
-                return response()->json([
-                    'ok'      => false,
-                    'message' => 'Tabla finance_sales no existe.',
-                ], 422);
-            }
-
-            $before = DB::connection($this->adm)
-                ->table('finance_sales')
-                ->where('id', '=', $id)
-                ->first();
-
-            if (!$before) {
-                return response()->json([
-                    'ok'      => false,
-                    'message' => 'No existe la venta (sale_id=' . $id . ').',
-                ], 404);
-            }
-
-            $hasDeletedAt = Schema::connection($this->adm)->hasColumn('finance_sales', 'deleted_at');
-
-            if ($hasDeletedAt) {
-                DB::connection($this->adm)->table('finance_sales')
-                    ->where('id', '=', $id)
-                    ->update([
-                        'deleted_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                $after = DB::connection($this->adm)
-                    ->table('finance_sales')
-                    ->where('id', '=', $id)
-                    ->first();
-
-                $this->writeAudit(
-                    action: 'finance_income.sale.soft_delete',
-                    entityType: 'finance_sale',
-                    entityId: $id,
-                    meta: [
-                        'module'         => 'finance_income',
-                        'action_scope'   => 'sale_soft_delete',
-                        'changed_fields' => ['deleted_at', 'updated_at'],
-                        'before'         => $this->normalizeRecordForAudit((array) $before),
-                        'after'          => $after ? $this->normalizeRecordForAudit((array) $after) : null,
-                        'context'        => [
-                            'sale_id'    => $id,
-                            'account_id' => (string) ($before->account_id ?? ''),
-                            'period'     => (string) ($before->period ?? ''),
-                        ],
-                    ],
-                    request: $req
-                );
-
-                return response()->json([
-                    'ok'      => true,
-                    'mode'    => 'finance_sales_soft_delete',
-                    'sale_id' => $id,
-                ]);
-            }
-
-            DB::connection($this->adm)->table('finance_sales')
-                ->where('id', '=', $id)
-                ->delete();
-
-            $this->writeAudit(
-                action: 'finance_income.sale.delete',
-                entityType: 'finance_sale',
-                entityId: $id,
-                meta: [
-                    'module'         => 'finance_income',
-                    'action_scope'   => 'sale_delete',
-                    'changed_fields' => ['deleted'],
-                    'before'         => $this->normalizeRecordForAudit((array) $before),
-                    'after'          => null,
-                    'context'        => [
-                        'sale_id'    => $id,
-                        'account_id' => (string) ($before->account_id ?? ''),
-                        'period'     => (string) ($before->period ?? ''),
-                    ],
-                ],
-                request: $req
-            );
-
-            return response()->json([
-                'ok'      => true,
-                'mode'    => 'finance_sales_delete',
-                'sale_id' => $id,
-            ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | B) DELETE finance_income_overrides
-        |--------------------------------------------------------------------------
-        */
-        if (!Schema::connection($this->adm)->hasTable('finance_income_overrides')) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Tabla finance_income_overrides no existe.',
-            ], 422);
-        }
-
-        $period    = (string) ($req->input('period') ?? $req->query('period') ?? '');
-        $accountId = (string) ($req->input('account_id') ?? $req->query('account_id') ?? '');
-        $rowType   = (string) ($req->input('row_type') ?? $req->query('row_type') ?? '');
-        $source    = (string) ($req->input('source') ?? $req->query('source') ?? '');
-
-        $isProjection = $req->input('is_projection', $req->query('is_projection', null));
-
-        if ($rowType === '' && $source !== '') {
-            $rowType = strtolower(trim($source));
-        }
-
-        if ($rowType === '') {
-            $rowType = !empty($isProjection) ? 'projection' : 'statement';
-        }
-
-        $rowType = strtolower(trim($rowType));
-
-        if ($rowType === 'sale') {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'row_type sale no es válido para overrides.',
-            ], 422);
-        }
-
-        if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'period inválido (se requiere YYYY-MM).',
-            ], 422);
-        }
-
-        if ($accountId === '') {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'account_id requerido para eliminar override.',
-            ], 422);
-        }
-
-        if (!in_array($rowType, ['projection', 'statement', 'statement_line'], true)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'row_type inválido (projection|statement|statement_line).',
-            ], 422);
-        }
-
-        $before = DB::connection($this->adm)->table('finance_income_overrides')
-            ->where('row_type', '=', $rowType)
-            ->where('account_id', '=', $accountId)
-            ->where('period', '=', $period)
-            ->first();
-
-        if (!$before && $rowType === 'statement_line') {
-            $before = DB::connection($this->adm)->table('finance_income_overrides')
-                ->where('row_type', '=', 'statement')
-                ->where('account_id', '=', $accountId)
-                ->where('period', '=', $period)
-                ->first();
-
-            if ($before) {
-                $rowType = 'statement';
-            }
-        }
-
-        if (!$before) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'No existe override para esa key.',
-            ], 404);
-        }
-
-        DB::connection($this->adm)->table('finance_income_overrides')
-            ->where('row_type', '=', $rowType)
-            ->where('account_id', '=', $accountId)
-            ->where('period', '=', $period)
-            ->delete();
-
-        $this->writeAudit(
-            action: 'finance_income.override.delete',
-            entityType: 'finance_income_override',
-            entityId: (int) ($before->id ?? 0),
-            meta: [
-                'module'         => 'finance_income',
-                'action_scope'   => 'override_delete',
-                'changed_fields' => ['deleted'],
-                'before'         => $this->normalizeRecordForAudit((array) $before),
-                'after'          => null,
-                'context'        => [
-                    'row_type'   => $rowType,
-                    'account_id' => $accountId,
-                    'period'     => $period,
-                ],
-            ],
-            request: $req
-        );
-
         return response()->json([
-            'ok'         => true,
-            'mode'       => 'override_delete',
-            'row_type'   => $rowType,
-            'account_id' => $accountId,
-            'period'     => $period,
-        ]);
-    }
-
-    private function resolveOverrideRowType(array $data): string
-    {
-        $rowType = strtolower(trim((string) ($data['row_type'] ?? $data['source'] ?? '')));
-
-        if ($rowType === 'sale') {
-            return 'statement';
-        }
-
-        if (in_array($rowType, ['projection', 'statement', 'statement_line'], true)) {
-            return $rowType;
-        }
-
-        return !empty($data['is_projection']) ? 'projection' : 'statement';
+            'ok'      => false,
+            'message' => 'Ingresos es solo reporte. Las eliminaciones deben hacerse en el módulo origen.',
+            'mode'    => 'read_only',
+            'id'      => $id,
+        ], 422);
     }
 
     private function normalizeFinanceSalesStatementStatus(
@@ -576,11 +273,12 @@ final class IncomeActionsController extends Controller
         $v = strtolower(trim($uiStatus));
 
         $mapped = match ($v) {
-            'paid', 'pagado'     => 'pagado',
-            'sent', 'emitido'    => 'emitido',
-            'overdue', 'vencido' => 'vencido',
-            'pending', 'pendiente' => 'pending',
-            default              => $v,
+            'paid', 'pagado'         => 'pagado',
+            'sent', 'emitido'        => 'emitido',
+            'overdue', 'vencido'     => 'vencido',
+            'pending', 'pendiente'   => 'pending',
+            'parcial', 'partial'     => 'pending',
+            default                  => $v,
         };
 
         if (empty($allowed)) {
@@ -746,7 +444,7 @@ final class IncomeActionsController extends Controller
                 'updated_at'  => now(),
             ]);
         } catch (\Throwable $e) {
-            // noop: la acción principal no debe fallar por auditoría
+            // noop
         }
     }
 
