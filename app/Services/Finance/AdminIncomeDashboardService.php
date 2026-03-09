@@ -247,186 +247,174 @@ final class AdminIncomeDashboardService
 
     private function loadStatementRows(array $filters, array $context): Collection
     {
-        if (!Schema::connection($this->adm)->hasTable('accounts')) {
+        if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
             return collect();
         }
 
         $periods = $filters['periods'];
 
-        $edoAgg = collect();
-        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-            $select = [
-                'account_id',
-                'periodo',
-                DB::raw('SUM(COALESCE(cargo,0)) as cargo'),
-                DB::raw('SUM(COALESCE(abono,0)) as abono'),
-                DB::raw('MAX(updated_at) as updated_at'),
-                DB::raw('MAX(created_at) as created_at'),
-            ];
+        $itemSelect = [
+            'id',
+            'account_id',
+            'periodo',
+            'concepto',
+            'detalle',
+            'cargo',
+            'abono',
+        ];
 
-            $edoAgg = collect(
-                DB::connection($this->adm)
-                    ->table('estados_cuenta')
-                    ->select($select)
-                    ->whereIn('periodo', $periods)
-                    ->groupBy('account_id', 'periodo')
-                    ->get()
-            )->keyBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->periodo);
-        }
-
-        $edoItems = collect();
-        if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-            $itemSelect = ['id', 'account_id', 'periodo', 'concepto', 'detalle', 'cargo', 'abono'];
-            foreach (['source', 'ref', 'meta', 'updated_at', 'created_at'] as $col) {
-                if ($this->hasCol($this->adm, 'estados_cuenta', $col)) {
-                    $itemSelect[] = $col;
-                }
+        foreach (['source', 'ref', 'meta', 'updated_at', 'created_at'] as $col) {
+            if ($this->hasCol($this->adm, 'estados_cuenta', $col)) {
+                $itemSelect[] = $col;
             }
-
-            $edoItems = collect(
-                DB::connection($this->adm)
-                    ->table('estados_cuenta')
-                    ->select($itemSelect)
-                    ->whereIn('periodo', $periods)
-                    ->orderBy('periodo')
-                    ->orderBy('id')
-                    ->get()
-            )->groupBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->periodo);
         }
+
+        $edoItems = collect(
+            DB::connection($this->adm)
+                ->table('estados_cuenta')
+                ->select($itemSelect)
+                ->whereIn('periodo', $periods)
+                ->orderBy('periodo')
+                ->orderBy('account_id')
+                ->orderBy('id')
+                ->get()
+        )->groupBy(fn ($r) => (string) $r->account_id . '|' . (string) $r->periodo);
 
         $rows = collect();
 
-        foreach ($context['accounts'] as $accountId => $acc) {
-            $meta = $this->decodeMeta($acc->meta ?? null);
-            $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
-
-            foreach ($periods as $period) {
-                $key      = (string) $accountId . '|' . $period;
-                $agg      = $edoAgg->get($key);
-                $items    = collect($edoItems->get($key, collect()));
-                $payAgg   = $context['payments_agg']->get($key);
-                $payMeta  = $context['payments_meta']->get($key, []);
-                $override = $context['statement_overrides']->get($key);
-
-                $cargoEdo = round((float) ($agg->cargo ?? 0), 2);
-                $abonoEdo = round((float) ($agg->abono ?? 0), 2);
-                $abonoPay = round((float) ($payAgg->amount ?? 0), 2);
-                $abonoTot = round($abonoEdo + $abonoPay, 2);
-
-                $expectedTotal = $this->resolveExpectedAmountForStatement(
-                    (object) $acc,
-                    $meta,
-                    $period,
-                    $lastPaid,
-                    $context['subs_renew_map']
-                );
-
-                $hasEvidence = $cargoEdo > 0.00001
-                    || $abonoEdo > 0.00001
-                    || $abonoPay > 0.00001
-                    || $items->isNotEmpty()
-                    || !empty($override)
-                    || $expectedTotal > 0.00001;
-
-                if (!$hasEvidence) {
-                    continue;
-                }
-
-                $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : $expectedTotal;
-                $saldoShown = round(max(0.0, $totalShown - $abonoTot), 2);
-
-                $statusPago = $this->computeStatementStatus(
-                    $period,
-                    $totalShown,
-                    $abonoTot,
-                    $saldoShown,
-                    $payMeta['due_date'] ?? null
-                );
-
-                $display = $this->applyStatementOverrideDisplay(
-                    totalShown: $totalShown,
-                    abonoEdo: $abonoEdo,
-                    abonoPay: $abonoPay,
-                    saldoShown: $saldoShown,
-                    statusPago: $statusPago,
-                    override: is_array($override) ? $override : null
-                );
-
-                $company = $this->resolveCompanyName($context['cuentas_cliente_by_admin']->get((string) $accountId), $acc);
-                $rfcEmisor = $this->resolveRfcEmisor($context['cuentas_cliente_by_admin']->get((string) $accountId), $acc);
-                [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod((string) $accountId, $period, $context['account_vendor_map']);
-
-                $description = $this->buildStatementDescriptionFromItems($items, $expectedTotal, $cargoEdo);
-                $origin = $this->resolveStatementOrigin($items, $acc, $meta);
-                $periodicity = $this->resolveStatementPeriodicity($acc, $meta);
-
-                $invoiceStatus = $this->resolveStatementInvoiceStatusFromItemsOrOverride($items, $override);
-                $cfdiUuid = $this->resolveStatementCfdiFromItemsOrOverride($items, $override);
-                $linkedSaleIds = $this->extractLinkedSaleIdsFromItems($items);
-
-                $rows->push((object) [
-                    'source'                  => 'statement',
-                    'source_label'            => 'Estado de cuenta',
-                    'source_priority'         => 10,
-                    'is_projection'           => 0,
-                    'exclude_from_kpi'        => 0,
-                    'has_statement'           => 1,
-
-                    'period'                  => $period,
-                    'year'                    => $this->periodYear($period),
-                    'month_num'               => $this->periodMonth($period),
-                    'month_name'              => $this->monthNameEsFromPeriod($period),
-
-                    'account_id'              => (string) $accountId,
-                    'account_id_raw'          => (string) $accountId,
-                    'client_account_id'       => $context['cuentas_cliente_by_admin']->get((string) $accountId)?->id ?? null,
-
-                    'client'                  => $company,
-                    'company'                 => $company,
-                    'description'             => $description,
-
-                    'vendor_id'               => $vendorId,
-                    'vendor'                  => $vendorName,
-
-                    'origin'                  => $origin,
-                    'periodicity'             => $periodicity,
-
-                    'subtotal'                => round($display['total'] / 1.16, 2),
-                    'iva'                     => round($display['total'] - round($display['total'] / 1.16, 2), 2),
-                    'total'                   => round($display['total'], 2),
-
-                    'ec_status'               => (string) $display['status'],
-                    'invoice_status'          => $invoiceStatus,
-                    'invoice_status_raw'      => $invoiceStatus,
-
-                    'rfc_emisor'              => $rfcEmisor,
-                    'rfc_receptor'            => null,
-                    'forma_pago'              => $override['pay_method'] ?? ($payMeta['method'] ?? null),
-                    'invoice_metodo_pago'     => null,
-
-                    'f_cta'                   => $agg->created_at ?? null,
-                    'f_mov'                   => $agg->updated_at ?? null,
-                    'f_factura'               => null,
-                    'f_pago'                  => $override['paid_at'] ?? ($payMeta['last_paid_at'] ?? null),
-
-                    'sent_at'                 => null,
-                    'paid_at'                 => $override['paid_at'] ?? ($payMeta['last_paid_at'] ?? null),
-                    'due_date'                => $payMeta['due_date'] ?? null,
-
-                    'payment_method'          => $override['pay_method'] ?? ($payMeta['method'] ?? null),
-                    'payment_status'          => $override['pay_status'] ?? ($payMeta['status'] ?? null),
-
-                    'cfdi_uuid'               => $cfdiUuid,
-                    'statement_id'            => null,
-                    'sale_id'                 => 0,
-                    'include_in_statement'    => null,
-                    'statement_period_target' => null,
-
-                    'notes'                   => $this->extractStatementNotes($items, $override),
-                    'audit_key'               => 'statement|' . $accountId . '|' . $period,
-                    'linked_sale_ids'         => $linkedSaleIds,
-                ]);
+        foreach ($edoItems as $key => $itemsGroup) {
+            $items = collect($itemsGroup);
+            if ($items->isEmpty()) {
+                continue;
             }
+
+            [$accountId, $period] = explode('|', (string) $key, 2);
+
+            if ($accountId === '' || $period === '') {
+                continue;
+            }
+
+            $acc       = $context['accounts']->get((string) $accountId);
+            $clientObj = $context['cuentas_cliente_by_admin']->get((string) $accountId);
+            $override  = $context['statement_overrides']->get((string) $key);
+
+            $cargoEdo = round((float) $items->sum(fn ($x) => (float) ($x->cargo ?? 0)), 2);
+            $abonoEdo = round((float) $items->sum(fn ($x) => (float) ($x->abono ?? 0)), 2);
+
+            // =========================================================
+            // SOT:
+            // Para fuente "statement" en Ingresos usamos SOLO estados_cuenta.
+            // No metemos payments ni expectedTotal para evitar descuadres
+            // contra el ejercicio manual del mismo mes.
+            // =========================================================
+            $totalShown = $cargoEdo;
+            $saldoShown = round(max(0.0, $cargoEdo - $abonoEdo), 2);
+
+            $statusPago = $this->computeStatementStatusFromEstadoCuenta(
+                totalCargo: $cargoEdo,
+                totalAbono: $abonoEdo,
+                period: $period
+            );
+
+            $display = $this->applyStatementOverrideDisplayFromEstadoCuenta(
+                totalShown: $totalShown,
+                abonoEdo: $abonoEdo,
+                saldoShown: $saldoShown,
+                statusPago: $statusPago,
+                override: is_array($override) ? $override : null
+            );
+
+            $company = $this->resolveCompanyName($clientObj, $acc);
+            $rfcEmisor = $this->resolveRfcEmisor($clientObj, $acc);
+            [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod((string) $accountId, $period, $context['account_vendor_map']);
+
+            $description = $this->buildStatementDescriptionFromItems($items, 0.0, $cargoEdo);
+            $origin = $this->resolveStatementOrigin($items, $acc ?: (object) [], []);
+            $periodicity = $this->resolveStatementPeriodicity($acc ?: (object) [], []);
+
+            $invoiceStatus = $this->resolveStatementInvoiceStatusFromItemsOrOverride($items, $override);
+            $cfdiUuid = $this->resolveStatementCfdiFromItemsOrOverride($items, $override);
+            $linkedSaleIds = $this->extractLinkedSaleIdsFromItems($items);
+
+            $firstCreated = $items
+                ->pluck('created_at')
+                ->filter()
+                ->sort()
+                ->first();
+
+            $lastUpdated = $items
+                ->pluck('updated_at')
+                ->filter()
+                ->sortDesc()
+                ->first();
+
+            $lastPaidAt = null;
+            if ($display['status'] === 'pagado') {
+                $lastPaidAt = $override['paid_at'] ?? $lastUpdated ?? $firstCreated;
+            }
+
+            $rows->push((object) [
+                'source'                  => 'statement',
+                'source_label'            => 'Estado de cuenta',
+                'source_priority'         => 10,
+                'is_projection'           => 0,
+                'exclude_from_kpi'        => 0,
+                'has_statement'           => 1,
+
+                'period'                  => $period,
+                'year'                    => $this->periodYear($period),
+                'month_num'               => $this->periodMonth($period),
+                'month_name'              => $this->monthNameEsFromPeriod($period),
+
+                'account_id'              => (string) $accountId,
+                'account_id_raw'          => (string) $accountId,
+                'client_account_id'       => $clientObj?->id ?? null,
+
+                'client'                  => $company,
+                'company'                 => $company,
+                'description'             => $description,
+
+                'vendor_id'               => $vendorId,
+                'vendor'                  => $vendorName,
+
+                'origin'                  => $origin,
+                'periodicity'             => $periodicity,
+
+                'subtotal'                => round($display['total'] / 1.16, 2),
+                'iva'                     => round($display['total'] - round($display['total'] / 1.16, 2), 2),
+                'total'                   => round($display['total'], 2),
+
+                'ec_status'               => (string) $display['status'],
+                'invoice_status'          => $invoiceStatus,
+                'invoice_status_raw'      => $invoiceStatus,
+
+                'rfc_emisor'              => $rfcEmisor,
+                'rfc_receptor'            => null,
+                'forma_pago'              => $override['pay_method'] ?? null,
+                'invoice_metodo_pago'     => null,
+
+                'f_cta'                   => $firstCreated,
+                'f_mov'                   => $lastUpdated,
+                'f_factura'               => null,
+                'f_pago'                  => $lastPaidAt,
+
+                'sent_at'                 => null,
+                'paid_at'                 => $lastPaidAt,
+                'due_date'                => null,
+
+                'payment_method'          => $override['pay_method'] ?? null,
+                'payment_status'          => $override['pay_status'] ?? null,
+
+                'cfdi_uuid'               => $cfdiUuid,
+                'statement_id'            => null,
+                'sale_id'                 => 0,
+                'include_in_statement'    => null,
+                'statement_period_target' => null,
+
+                'notes'                   => $this->extractStatementNotes($items, $override),
+                'audit_key'               => 'statement|' . $accountId . '|' . $period,
+                'linked_sale_ids'         => $linkedSaleIds,
+            ]);
         }
 
         return $rows->values();
@@ -513,8 +501,17 @@ final class AdminIncomeDashboardService
             $q->whereNull('s.deleted_at');
         }
 
-        if ($filters['source'] === 'all' && !empty($linkedSaleIds)) {
-            $q->whereNotIn('s.id', $linkedSaleIds);
+        if ($filters['source'] === 'all') {
+            if ($this->hasCol($this->adm, 'finance_sales', 'include_in_statement')) {
+                $q->where(function ($w) {
+                    $w->whereNull('s.include_in_statement')
+                    ->orWhere('s.include_in_statement', 0);
+                });
+            }
+
+            if (!empty($linkedSaleIds)) {
+                $q->whereNotIn('s.id', $linkedSaleIds);
+            }
         }
 
         $sales = collect(
@@ -635,7 +632,103 @@ final class AdminIncomeDashboardService
             ];
         })->values();
     }
-    
+
+    private function computeStatementStatusFromEstadoCuenta(
+    float $totalCargo,
+    float $totalAbono,
+    string $period
+    ): string {
+        $totalCargo = round(max(0.0, $totalCargo), 2);
+        $totalAbono = round(max(0.0, $totalAbono), 2);
+        $saldo      = round(max(0.0, $totalCargo - $totalAbono), 2);
+
+        if ($totalCargo <= 0.00001 && $totalAbono <= 0.00001) {
+            return 'sin_mov';
+        }
+
+        if ($saldo <= 0.00001 && $totalCargo > 0.00001) {
+            return 'pagado';
+        }
+
+        if ($totalAbono > 0.00001 && $saldo > 0.00001) {
+            return 'parcial';
+        }
+
+        if ($this->isOverdue($period, null)) {
+            return 'vencido';
+        }
+
+        return 'pending';
+    }
+
+    private function applyStatementOverrideDisplayFromEstadoCuenta(
+        float $totalShown,
+        float $abonoEdo,
+        float $saldoShown,
+        string $statusPago,
+        ?array $override
+    ): array {
+        $total  = round(max(0.0, $totalShown), 2);
+        $abono  = round(max(0.0, $abonoEdo), 2);
+        $saldo  = round(max(0.0, $saldoShown), 2);
+        $status = $statusPago;
+
+        if (!$override || empty($override['status'])) {
+            return [
+                'total'  => $total,
+                'abono'  => $abono,
+                'saldo'  => $saldo,
+                'status' => $status,
+            ];
+        }
+
+        $s = strtolower(trim((string) $override['status']));
+        if (!in_array($s, ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
+            return [
+                'total'  => $total,
+                'abono'  => $abono,
+                'saldo'  => $saldo,
+                'status' => $status,
+            ];
+        }
+
+        $status = $s === 'pendiente' ? 'pending' : $s;
+
+        if ($s === 'pagado') {
+            return [
+                'total'  => $total,
+                'abono'  => $total,
+                'saldo'  => 0.0,
+                'status' => 'pagado',
+            ];
+        }
+
+        if ($s === 'sin_mov') {
+            return [
+                'total'  => $total,
+                'abono'  => 0.0,
+                'saldo'  => $total,
+                'status' => 'sin_mov',
+            ];
+        }
+
+        if ($s === 'parcial') {
+            return [
+                'total'  => $total,
+                'abono'  => $abono,
+                'saldo'  => round(max(0.0, $total - $abono), 2),
+                'status' => 'parcial',
+            ];
+        }
+
+        return [
+            'total'  => $total,
+            'abono'  => $abono,
+            'saldo'  => round(max(0.0, $total - $abono), 2),
+            'status' => $status,
+        ];
+    }
+
     private function applyFilters(Collection $rows, array $filters): Collection
     {
         return $rows->filter(function ($row) use ($filters) {
@@ -696,7 +789,9 @@ final class AdminIncomeDashboardService
 
     private function buildKpis(Collection $rows): array
     {
-        $realRows = $rows->values();
+        $realRows = $rows
+            ->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)
+            ->values();
 
         $pending  = $realRows->where('ec_status', 'pending');
         $emitido  = $realRows->where('ec_status', 'emitido');
@@ -706,7 +801,12 @@ final class AdminIncomeDashboardService
 
         $realTotal  = round((float) $realRows->sum('total'), 2);
         $collected  = round((float) $pagado->sum('total'), 2);
-        $receivable = round((float) ($pending->sum('total') + $emitido->sum('total') + $parcial->sum('total') + $vencido->sum('total')), 2);
+        $receivable = round((float) (
+            $pending->sum('total')
+            + $emitido->sum('total')
+            + $parcial->sum('total')
+            + $vencido->sum('total')
+        ), 2);
 
         return [
             'total' => [
@@ -757,9 +857,13 @@ final class AdminIncomeDashboardService
 
     private function buildCharts(Collection $rows, array $filters): array
     {
+        $baseRows = $rows
+            ->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)
+            ->values();
+
         $monthly = [];
         foreach ($filters['periods'] as $period) {
-            $slice = $rows->where('period', $period);
+            $slice = $baseRows->where('period', $period);
 
             $real = round((float) $slice->sum('total'), 2);
             $collected = round((float) $slice->where('ec_status', 'pagado')->sum('total'), 2);
@@ -774,11 +878,11 @@ final class AdminIncomeDashboardService
         }
 
         $originMix = [
-            ['label' => 'Recurrente', 'value' => round((float) $rows->where('origin', 'recurrente')->sum('total'), 2)],
-            ['label' => 'Único',      'value' => round((float) $rows->where('origin', 'unico')->sum('total'), 2)],
+            ['label' => 'Recurrente', 'value' => round((float) $baseRows->where('origin', 'recurrente')->sum('total'), 2)],
+            ['label' => 'Único',      'value' => round((float) $baseRows->where('origin', 'unico')->sum('total'), 2)],
         ];
 
-        $vendorTop = $rows
+        $vendorTop = $baseRows
             ->groupBy(fn ($r) => (string) ($r->vendor ?: 'Sin vendedor'))
             ->map(function ($group, $vendorName) {
                 return [
