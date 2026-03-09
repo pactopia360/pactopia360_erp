@@ -438,46 +438,79 @@ final class AdminIncomeDashboardService
             return collect();
         }
 
+        $salesSelect = [
+            's.id',
+            's.sale_code',
+            's.account_id',
+            's.period',
+            's.vendor_id',
+            's.origin',
+            's.periodicity',
+            's.f_cta',
+            's.f_mov',
+            's.invoice_date',
+            's.paid_date',
+            's.sale_date',
+            's.receiver_rfc',
+            's.pay_method',
+            's.subtotal',
+            's.iva',
+            's.total',
+            's.statement_status',
+            's.invoice_status',
+            's.include_in_statement',
+            's.target_period',
+            's.statement_period_target',
+            's.statement_id',
+            's.statement_item_id',
+            's.notes',
+            's.meta',
+            's.created_at',
+            's.updated_at',
+        ];
+
+        if ($this->hasCol($this->adm, 'finance_sales', 'invoice_uuid')) {
+            $salesSelect[] = 's.invoice_uuid';
+        } else {
+            $salesSelect[] = DB::raw('NULL as invoice_uuid');
+        }
+
+        if ($this->hasCol($this->adm, 'finance_sales', 'cfdi_uuid')) {
+            $salesSelect[] = 's.cfdi_uuid';
+        } else {
+            $salesSelect[] = DB::raw('NULL as cfdi_uuid');
+        }
+
+        $accountSelect = [];
+        if ($this->hasCol($this->adm, 'accounts', 'name')) {
+            $accountSelect[] = 'a.name as account_name';
+        } else {
+            $accountSelect[] = DB::raw('NULL as account_name');
+        }
+
+        if ($this->hasCol($this->adm, 'accounts', 'razon_social')) {
+            $accountSelect[] = 'a.razon_social as account_razon_social';
+        } else {
+            $accountSelect[] = DB::raw('NULL as account_razon_social');
+        }
+
+        if ($this->hasCol($this->adm, 'accounts', 'rfc')) {
+            $accountSelect[] = 'a.rfc as account_rfc';
+        } else {
+            $accountSelect[] = DB::raw('NULL as account_rfc');
+        }
+
         $q = DB::connection($this->adm)
             ->table('finance_sales as s')
             ->leftJoin('finance_vendors as v', 'v.id', '=', 's.vendor_id')
             ->leftJoin('accounts as a', 'a.id', '=', 's.account_id')
-            ->select([
-                's.id',
-                's.sale_code',
-                's.account_id',
-                's.period',
-                's.vendor_id',
-                's.origin',
-                's.periodicity',
-                's.f_cta',
-                's.f_mov',
-                's.invoice_date',
-                's.paid_date',
-                's.sale_date',
-                's.receiver_rfc',
-                's.pay_method',
-                's.subtotal',
-                's.iva',
-                's.total',
-                's.statement_status',
-                's.invoice_status',
-                's.invoice_uuid',
-                's.cfdi_uuid',
-                's.include_in_statement',
-                's.target_period',
-                's.statement_period_target',
-                's.statement_id',
-                's.statement_item_id',
-                's.notes',
-                's.meta',
-                's.created_at',
-                's.updated_at',
-                'v.name as vendor_name',
-                'a.name as account_name',
-                'a.razon_social as account_razon_social',
-                'a.rfc as account_rfc',
-            ])
+            ->select(array_merge(
+                $salesSelect,
+                [
+                    'v.name as vendor_name',
+                ],
+                $accountSelect
+            ))
             ->whereIn('s.period', $filters['periods']);
 
         if ($this->hasCol($this->adm, 'finance_sales', 'deleted_at')) {
@@ -525,6 +558,11 @@ final class AdminIncomeDashboardService
             }
             if ($description === '') {
                 $description = $origin === 'recurrente' ? 'Venta recurrente' : 'Venta única';
+            }
+
+            $cfdiUuid = trim((string) ($sale->cfdi_uuid ?? ''));
+            if ($cfdiUuid === '') {
+                $cfdiUuid = trim((string) ($sale->invoice_uuid ?? ''));
             }
 
             return (object) [
@@ -579,7 +617,7 @@ final class AdminIncomeDashboardService
                 'payment_method'          => null,
                 'payment_status'          => null,
 
-                'cfdi_uuid'               => (string) (($sale->cfdi_uuid ?: null) ?? ($sale->invoice_uuid ?: '')),
+                'cfdi_uuid'               => $cfdiUuid,
                 'statement_id'            => !empty($sale->statement_id) ? (int) $sale->statement_id : null,
                 'sale_id'                 => (int) ($sale->id ?? 0),
                 'include_in_statement'    => (int) ($sale->include_in_statement ?? 0),
