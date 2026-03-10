@@ -15,6 +15,13 @@
     $monthSel = (string) data_get($f, 'month', 'all');
 
     $sourceSel = (string) data_get($f, 'source', 'all');
+    if (!in_array($sourceSel, ['all', 'sales', 'statements'], true)) {
+        $sourceSel = 'all';
+    }
+
+    $isStatementsOnly = $sourceSel === 'statements';
+    $isSalesOnly      = $sourceSel === 'sales';
+    $isAllSources     = $sourceSel === 'all';
 
     $originSel = (string) data_get($f, 'origin', 'all');
     if ($originSel === 'no_recurrente') $originSel = 'unico';
@@ -86,7 +93,9 @@
             'pagado'  => ['#dcfce7','#166534','Pagado'],
             'emitido' => ['#e0f2fe','#075985','Emitido'],
             'pending' => ['#fff7ed','#9a3412','Pending'],
+            'parcial' => ['#fff7ed','#9a3412','Parcial'],
             'vencido' => ['#fee2e2','#991b1b','Vencido'],
+            'sin_mov' => ['#f1f5f9','#334155','Sin mov.'],
         ];
         $v = $map[$s] ?? ['#f1f5f9','#334155', strtoupper($s ?: '—')];
         return '<span class="p360-badge" style="background:' . $v[0] . ';color:' . $v[1] . '">' . $v[2] . '</span>';
@@ -129,7 +138,9 @@
         ['value' => 'pending', 'label' => 'Pending'],
         ['value' => 'emitido', 'label' => 'Emitido'],
         ['value' => 'pagado',  'label' => 'Pagado'],
+        ['value' => 'parcial', 'label' => 'Parcial'],
         ['value' => 'vencido', 'label' => 'Vencido'],
+        ['value' => 'sin_mov', 'label' => 'Sin mov.'],
     ];
 
     $invOptions = [
@@ -212,6 +223,37 @@
     };
 
     $rowsCount = (int) $rows->count();
+    $realRowsCount = (int) $rows->filter(fn ($r) => (int) data_get($r, 'is_projection', 0) !== 1)->count();
+    $projectionRowsCount = (int) $rows->filter(fn ($r) => (int) data_get($r, 'is_projection', 0) === 1)->count();
+
+    $heroText = $isStatementsOnly
+        ? 'Resumen exacto del módulo de <strong>Estados de cuenta</strong>. Aquí solo se muestran cargos reales existentes en ese módulo, con su abono y saldo correspondiente.'
+        : ($isSalesOnly
+            ? 'Resumen exacto del módulo de <strong>Ventas</strong>. Aquí solo se muestran registros existentes en ventas, sin recalcular ni inventar cargos.'
+            : 'Vista consolidada de <strong>ventas</strong>, <strong>estados de cuenta</strong> y <strong>proyecciones recurrentes esperadas</strong>. Los importes reales se respetan exactamente desde sus módulos origen y las proyecciones se muestran aparte como expectativa.');
+
+    $kpi1Title = $isStatementsOnly ? 'Total estados de cuenta' : ($isSalesOnly ? 'Total ventas' : 'Ingresos reales');
+    $kpi2Title = $isStatementsOnly ? 'Abono registrado' : ($isSalesOnly ? 'Cobrado' : 'Cobrado');
+    $kpi3Title = $isStatementsOnly ? 'Saldo pendiente' : ($isSalesOnly ? 'Por cobrar' : 'Por cobrar');
+    $kpi4Title = $isStatementsOnly ? 'Fuente activa' : ($isSalesOnly ? 'Fuente activa' : 'Proyectado esperado');
+    $kpi4Value = $isAllSources ? $money($projectedAmount) : ($isStatementsOnly ? 'E.Cta' : 'Ventas');
+    $kpi4Sub   = $isAllSources
+        ? ((int) data_get($k, 'projected.count', 0) . ' proyecciones recurrentes')
+        : ($isStatementsOnly ? 'Resumen exacto de estados de cuenta' : 'Resumen exacto de ventas');
+
+    $detailHint = $isStatementsOnly
+        ? 'Vista alineada a Estados de cuenta: cargo, abono y saldo.'
+        : ($isSalesOnly
+            ? 'Vista alineada a Ventas: subtotal, IVA y total.'
+            : 'Vista consolidada: reales primero y proyecciones esperadas al final.');
+
+    $sourceExplain = function ($src) {
+        return match ($src) {
+            'projection' => 'Esperado',
+            'sale', 'sale_linked' => 'Venta',
+            default => 'Estado de cuenta',
+        };
+    };
 @endphp
 
 @section('content')
@@ -615,7 +657,7 @@
 
         .fi360-table{
             width:100%;
-            min-width:1240px;
+            min-width:1320px;
             border-collapse:separate;
             border-spacing:0;
         }
@@ -863,10 +905,7 @@
                 <div class="fi360-top">
                     <div>
                         <h1>Ingresos</h1>
-                        <div class="fi360-sub">
-                            Vista consolidada de <strong>ventas</strong>, <strong>estados de cuenta</strong> y <strong>proyección</strong>.
-                            Este módulo funciona como tablero ejecutivo para análisis, seguimiento y control.
-                        </div>
+                        <div class="fi360-sub">{!! $heroText !!}</div>
 
                         <div class="fi360-mini-meta">
                             <span class="fi360-mini-chip">Periodo: {{ $selectedLabel }}</span>
@@ -878,11 +917,19 @@
                                 @elseif($sourceSel === 'statements')
                                     Estados de cuenta
                                 @else
-                                    Todas
+                                    Consolidado
                                 @endif
                             </span>
 
                             <span class="fi360-mini-chip">{{ $rowsCount }} registros visibles</span>
+
+                            @if($isStatementsOnly)
+                                <span class="fi360-mini-chip">Vista fiel: Cargo / Abono / Saldo</span>
+                            @elseif($isSalesOnly)
+                                <span class="fi360-mini-chip">Vista fiel: Subtotal / IVA / Total</span>
+                            @else
+                                <span class="fi360-mini-chip">Reales: {{ $realRowsCount }} · Proyecciones: {{ $projectionRowsCount }}</span>
+                            @endif
                         </div>
                     </div>
 
@@ -1019,7 +1066,9 @@
                                     <option value="pending" @selected($stSel === 'pending')>Pending</option>
                                     <option value="emitido" @selected($stSel === 'emitido')>Emitido</option>
                                     <option value="pagado" @selected($stSel === 'pagado')>Pagado</option>
+                                    <option value="parcial" @selected($stSel === 'parcial')>Parcial</option>
                                     <option value="vencido" @selected($stSel === 'vencido')>Vencido</option>
+                                    <option value="sin_mov" @selected($stSel === 'sin_mov')>Sin mov.</option>
                                 </select>
                             </div>
 
@@ -1042,33 +1091,47 @@
             {{-- KPIS --}}
             <section class="fi360-kpis">
                 <div class="fi360-kpi is-strong fi360-card">
-                    <div class="k">Ingresos reales</div>
+                    <div class="k">{{ $kpi1Title }}</div>
                     <div class="v">{{ $money($totalAmount) }}</div>
                     <div class="s">{{ $selectedLabel }}</div>
                 </div>
 
                 <div class="fi360-kpi fi360-card">
-                    <div class="k">Cobrado</div>
+                    <div class="k">{{ $kpi2Title }}</div>
                     <div class="v">{{ $money($pagadoAmount) }}</div>
                     <div class="s">{{ (int) data_get($k, 'pagado.count', 0) }} registros pagados</div>
                 </div>
 
                 <div class="fi360-kpi fi360-card">
-                    <div class="k">Por cobrar</div>
+                    <div class="k">{{ $kpi3Title }}</div>
                     <div class="v">{{ $money($receivableAmount) }}</div>
-                    <div class="s">Pending + emitido + vencido</div>
+                    <div class="s">
+                        @if($isStatementsOnly)
+                            Cargo menos abono registrado
+                        @elseif($isSalesOnly)
+                            Total pendiente de ventas
+                        @else
+                            Solo saldo real por cobrar
+                        @endif
+                    </div>
                 </div>
 
                 <div class="fi360-kpi fi360-card">
-                    <div class="k">Proyectado</div>
-                    <div class="v">{{ $money($projectedAmount) }}</div>
-                    <div class="s">{{ (int) data_get($k, 'projected.count', 0) }} proyecciones</div>
+                    <div class="k">{{ $kpi4Title }}</div>
+                    <div class="v">{{ $kpi4Value }}</div>
+                    <div class="s">{{ $kpi4Sub }}</div>
                 </div>
 
                 <div class="fi360-kpi fi360-card">
                     <div class="k">Cumplimiento</div>
                     <div class="v">{{ number_format($goalProgress, 1) }}%</div>
-                    <div class="s">Meta visual: {{ $money($goalAmount) }}</div>
+                    <div class="s">
+                        @if($isAllSources)
+                            Cobrado real vs real + proyección
+                        @else
+                            Relación cobrado / total visible
+                        @endif
+                    </div>
                 </div>
             </section>
 
@@ -1077,8 +1140,24 @@
                 <div class="fi360-card fi360-pad">
                     <div class="fi360-chart-head">
                         <div>
-                            <div class="fi360-title">Tendencia mensual</div>
-                            <div class="fi360-hint">Comparativo de ingreso real, cobrado y proyectado por periodo.</div>
+                            <div class="fi360-title">
+                                @if($isStatementsOnly)
+                                    Tendencia de estados de cuenta
+                                @elseif($isSalesOnly)
+                                    Tendencia de ventas
+                                @else
+                                    Tendencia mensual consolidada
+                                @endif
+                            </div>
+                            <div class="fi360-hint">
+                                @if($isStatementsOnly)
+                                    Comparativo del total visible vs cobrado registrado en estados de cuenta.
+                                @elseif($isSalesOnly)
+                                    Comparativo del total visible vs cobrado registrado en ventas.
+                                @else
+                                    Comparativo de ingreso real, cobrado y proyección recurrente esperada por periodo.
+                                @endif
+                            </div>
                         </div>
                         <div class="fi360-hint">{{ $selectedLabel }}</div>
                     </div>
@@ -1252,9 +1331,7 @@
                         </div>
                     </div>
 
-                    <div class="fi360-hint">
-                        Panel consolidado de consulta y análisis.
-                    </div>
+                    <div class="fi360-hint">{{ $detailHint }}</div>
                 </div>
 
                 <div class="fi360-table-wrap" role="region" aria-label="Tabla de ingresos">
@@ -1268,7 +1345,21 @@
                                 <th>Descripción</th>
                                 <th>Origen</th>
                                 <th>Periodicidad</th>
-                                <th class="fi360-num">Total</th>
+
+                                @if($isStatementsOnly)
+                                    <th class="fi360-num">Cargo</th>
+                                    <th class="fi360-num">Abono</th>
+                                    <th class="fi360-num">Saldo</th>
+                                @elseif($isSalesOnly)
+                                    <th class="fi360-num">Subtotal</th>
+                                    <th class="fi360-num">IVA</th>
+                                    <th class="fi360-num">Total</th>
+                                @else
+                                    <th class="fi360-num">Total</th>
+                                    <th class="fi360-num">Cobrado</th>
+                                    <th class="fi360-num">Saldo</th>
+                                @endif
+
                                 <th>Estatus</th>
                                 <th>Factura</th>
                                 <th>Pago</th>
@@ -1301,6 +1392,14 @@
 
                                     $fPago = data_get($r, 'f_pago') ?: data_get($r, 'paid_at') ?: data_get($r, 'paid_date') ?: null;
 
+                                    $subtotalRow = (float) data_get($r, 'subtotal', 0);
+                                    $ivaRow      = (float) data_get($r, 'iva', 0);
+                                    $totalRow    = (float) data_get($r, 'total', 0);
+                                    $abonoRow    = (float) data_get($r, 'abono', 0);
+                                    $saldoRow    = (float) data_get($r, 'saldo', max(0, $totalRow - $abonoRow));
+                                    $cargoRow    = (float) data_get($r, 'cargo_raw', $totalRow);
+                                    $isProjectionRow = (int) data_get($r, 'is_projection', 0) === 1;
+
                                     $rowPayload = [
                                         'source' => $srcAction,
                                         'tipo' => $tipo,
@@ -1313,9 +1412,12 @@
                                         'vendor' => $vendor,
                                         'vendor_id' => (string) data_get($r, 'vendor_id', ''),
                                         'description' => $desc,
-                                        'subtotal' => (float) data_get($r, 'subtotal', 0),
-                                        'iva' => (float) data_get($r, 'iva', 0),
-                                        'total' => (float) data_get($r, 'total', 0),
+                                        'subtotal' => $subtotalRow,
+                                        'iva' => $ivaRow,
+                                        'total' => $totalRow,
+                                        'abono' => $abonoRow,
+                                        'saldo' => $saldoRow,
+                                        'cargo_raw' => $cargoRow,
                                         'ec_status' => $ecSt,
                                         'invoice_status' => $invSt,
                                         'invoice_status_raw' => (string) data_get($r, 'invoice_status_raw', ''),
@@ -1330,6 +1432,7 @@
                                         'include_in_statement' => (int) data_get($r, 'include_in_statement', 0),
                                         'statement_period_target' => (string) data_get($r, 'statement_period_target', ''),
                                         'notes' => (string) data_get($r, 'notes', ''),
+                                        'is_projection' => $isProjectionRow ? 1 : 0,
                                     ];
                                 @endphp
 
@@ -1339,7 +1442,12 @@
                                         <div class="fi360-row-sub">{{ $monthName($periodToMonth($period)) }} {{ $periodToYear($period) }}</div>
                                     </td>
 
-                                    <td>{!! $pill($tipo, $tipoToneValue) !!}</td>
+                                    <td>
+                                        {!! $pill($tipo, $tipoToneValue) !!}
+                                        @if($isAllSources)
+                                            <div class="fi360-row-sub">{{ $sourceExplain($srcRaw) }}</div>
+                                        @endif
+                                    </td>
 
                                     <td>
                                         <div class="fi360-row-main">{{ $client }}</div>
@@ -1374,10 +1482,43 @@
                                     <td>{!! $pill($origin ?: '—', $originTone) !!}</td>
                                     <td>{!! $pill($perio ?: '—', $perioTone) !!}</td>
 
-                                    <td class="fi360-num">
-                                        <div class="fi360-row-main">{{ $money(data_get($r, 'total', 0)) }}</div>
-                                        <div class="fi360-row-sub">Sub: {{ $money(data_get($r, 'subtotal', 0)) }}</div>
-                                    </td>
+                                    @if($isStatementsOnly)
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($cargoRow) }}</div>
+                                            <div class="fi360-row-sub">E.Cta</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($abonoRow) }}</div>
+                                            <div class="fi360-row-sub">Aplicado</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($saldoRow) }}</div>
+                                            <div class="fi360-row-sub">Pendiente</div>
+                                        </td>
+                                    @elseif($isSalesOnly)
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($subtotalRow) }}</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($ivaRow) }}</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($totalRow) }}</div>
+                                        </td>
+                                    @else
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($totalRow) }}</div>
+                                            <div class="fi360-row-sub">{{ $isProjectionRow ? 'Esperado' : 'Real' }}</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($abonoRow) }}</div>
+                                            <div class="fi360-row-sub">{{ $isProjectionRow ? 'Sin cobro' : 'Cobrado' }}</div>
+                                        </td>
+                                        <td class="fi360-num">
+                                            <div class="fi360-row-main">{{ $money($saldoRow) }}</div>
+                                            <div class="fi360-row-sub">{{ $isProjectionRow ? 'Esperado' : 'Saldo' }}</div>
+                                        </td>
+                                    @endif
 
                                     <td>{!! $badgeEc($ecSt) !!}</td>
                                     <td>{!! $badgeInvoice($invSt) !!}</td>
@@ -1394,7 +1535,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="12" class="fi360-empty">No hay registros con los filtros actuales.</td>
+                                    <td colspan="16" class="fi360-empty">No hay registros con los filtros actuales.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -1425,6 +1566,14 @@
                             $ecSt  = (string) data_get($r, 'ec_status', 'pending');
                             $invSt = (string) data_get($r, 'invoice_status', 'sin_solicitud');
 
+                            $subtotalRow = (float) data_get($r, 'subtotal', 0);
+                            $ivaRow      = (float) data_get($r, 'iva', 0);
+                            $totalRow    = (float) data_get($r, 'total', 0);
+                            $abonoRow    = (float) data_get($r, 'abono', 0);
+                            $saldoRow    = (float) data_get($r, 'saldo', max(0, $totalRow - $abonoRow));
+                            $cargoRow    = (float) data_get($r, 'cargo_raw', $totalRow);
+                            $isProjectionRow = (int) data_get($r, 'is_projection', 0) === 1;
+
                             $rowPayload = [
                                 'source' => $srcAction,
                                 'tipo' => $tipo,
@@ -1437,9 +1586,12 @@
                                 'vendor' => $vendor,
                                 'vendor_id' => (string) data_get($r, 'vendor_id', ''),
                                 'description' => (string) data_get($r, 'description', ''),
-                                'subtotal' => (float) data_get($r, 'subtotal', 0),
-                                'iva' => (float) data_get($r, 'iva', 0),
-                                'total' => (float) data_get($r, 'total', 0),
+                                'subtotal' => $subtotalRow,
+                                'iva' => $ivaRow,
+                                'total' => $totalRow,
+                                'abono' => $abonoRow,
+                                'saldo' => $saldoRow,
+                                'cargo_raw' => $cargoRow,
                                 'ec_status' => $ecSt,
                                 'invoice_status' => $invSt,
                                 'invoice_status_raw' => (string) data_get($r, 'invoice_status_raw', ''),
@@ -1454,6 +1606,7 @@
                                 'include_in_statement' => (int) data_get($r, 'include_in_statement', 0),
                                 'statement_period_target' => (string) data_get($r, 'statement_period_target', ''),
                                 'notes' => (string) data_get($r, 'notes', ''),
+                                'is_projection' => $isProjectionRow ? 1 : 0,
                             ];
                         @endphp
 
@@ -1461,7 +1614,12 @@
                             <div class="fi360-rowcard-top">
                                 <div>
                                     <div class="fi360-rowcard-name">{{ $client }}</div>
-                                    <div class="fi360-rowcard-sub">{{ $period }} · {{ $vendor }}</div>
+                                    <div class="fi360-rowcard-sub">
+                                        {{ $period }} · {{ $vendor }}
+                                        @if($isAllSources)
+                                            · {{ $sourceExplain($srcRaw) }}
+                                        @endif
+                                    </div>
                                 </div>
 
                                 <button
@@ -1481,18 +1639,46 @@
                             </div>
 
                             <div class="fi360-amt-grid">
-                                <div class="fi360-amt-box">
-                                    <div class="k">Subtotal</div>
-                                    <div class="v">{{ $money(data_get($r, 'subtotal', 0)) }}</div>
-                                </div>
-                                <div class="fi360-amt-box">
-                                    <div class="k">IVA</div>
-                                    <div class="v">{{ $money(data_get($r, 'iva', 0)) }}</div>
-                                </div>
-                                <div class="fi360-amt-box">
-                                    <div class="k">Total</div>
-                                    <div class="v">{{ $money(data_get($r, 'total', 0)) }}</div>
-                                </div>
+                                @if($isStatementsOnly)
+                                    <div class="fi360-amt-box">
+                                        <div class="k">Cargo</div>
+                                        <div class="v">{{ $money($cargoRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">Abono</div>
+                                        <div class="v">{{ $money($abonoRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">Saldo</div>
+                                        <div class="v">{{ $money($saldoRow) }}</div>
+                                    </div>
+                                @elseif($isSalesOnly)
+                                    <div class="fi360-amt-box">
+                                        <div class="k">Subtotal</div>
+                                        <div class="v">{{ $money($subtotalRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">IVA</div>
+                                        <div class="v">{{ $money($ivaRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">Total</div>
+                                        <div class="v">{{ $money($totalRow) }}</div>
+                                    </div>
+                                @else
+                                    <div class="fi360-amt-box">
+                                        <div class="k">{{ $isProjectionRow ? 'Esperado' : 'Total' }}</div>
+                                        <div class="v">{{ $money($totalRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">{{ $isProjectionRow ? 'Cobrado' : 'Cobrado' }}</div>
+                                        <div class="v">{{ $money($abonoRow) }}</div>
+                                    </div>
+                                    <div class="fi360-amt-box">
+                                        <div class="k">{{ $isProjectionRow ? 'Pendiente esperado' : 'Saldo' }}</div>
+                                        <div class="v">{{ $money($saldoRow) }}</div>
+                                    </div>
+                                @endif
                             </div>
 
                             <div class="fi360-mobile-meta">

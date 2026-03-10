@@ -47,12 +47,35 @@ final class BillingStatementsHubController extends Controller
         $accountId = trim((string) $req->get('accountId', ''));
 
         // filtros PRO (UI)
-        $status   = strtolower(trim((string) $req->get('status', ''))); // pagado|pendiente|parcial|vencido|sin_mov
+        $status = strtolower(trim((string) $req->get('status', '')));
+        $status = str_replace([' ', '-'], '_', $status);
+
+        // normalizar "all" / "todos" para NO filtrar
+        if (in_array($status, ['', 'all', 'todos', 'todas'], true)) {
+            $status = '';
+        } elseif ($status === 'pendiente') {
+            $status = 'pending';
+        }
+
         $saldoMin = $this->toFloat($req->get('saldo_min', null));
         $saldoMax = $this->toFloat($req->get('saldo_max', null));
-        $plan     = strtolower(trim((string) $req->get('plan', '')));
-        $modo     = strtolower(trim((string) $req->get('modo', '')));   // mensual|anual (meta.billing.mode)
-        $sent     = strtolower(trim((string) $req->get('sent', '')));   // never|today|7d|30d
+
+        $plan = strtolower(trim((string) $req->get('plan', '')));
+        if (in_array($plan, ['', 'all', 'todos', 'todas'], true)) {
+            $plan = '';
+        }
+
+        $modo = strtolower(trim((string) $req->get('modo', '')));
+        $modo = str_replace([' ', '-'], '_', $modo);
+        if (in_array($modo, ['', 'all', 'todos', 'todas'], true)) {
+            $modo = '';
+        }
+
+        $sent = strtolower(trim((string) $req->get('sent', '')));
+        $sent = str_replace([' ', '-'], '_', $sent);
+        if (in_array($sent, ['', 'all', 'todos', 'todas'], true)) {
+            $sent = '';
+        }
 
         $perPage  = (int) $req->get('per_page', 25);
         if ($perPage <= 0) $perPage = 25;
@@ -224,7 +247,16 @@ final class BillingStatementsHubController extends Controller
             // APLICAR FILTROS PRO (collection)
             // ==========================
             if ($status !== '') {
-                $rows = $rows->filter(fn($r) => strtolower((string) ($r->status_pago ?? '')) === $status)->values();
+                $rows = $rows->filter(function ($r) use ($status) {
+                    $rowStatus = strtolower(trim((string) ($r->status_pago ?? '')));
+                    $rowStatus = str_replace([' ', '-'], '_', $rowStatus);
+
+                    if ($rowStatus === 'pendiente') {
+                        $rowStatus = 'pending';
+                    }
+
+                    return $rowStatus === $status;
+                })->values();
             }
 
             if ($saldoMin !== null) {
@@ -1482,13 +1514,17 @@ final class BillingStatementsHubController extends Controller
 
     private function sumPaymentsPaidForAccountPeriod(string $accountId, string $period): float
     {
-        if (!Schema::connection($this->adm)->hasTable('payments')) return 0.0;
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return 0.0;
+        }
 
         $cols = Schema::connection($this->adm)->getColumnListing('payments');
         $lc   = array_map('strtolower', $cols);
         $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
 
-        if (!$has('account_id') || !$has('period')) return 0.0;
+        if (!$has('account_id') || !$has('period')) {
+            return 0.0;
+        }
 
         $q = DB::connection($this->adm)->table('payments')
             ->where('account_id', $accountId)
@@ -1498,12 +1534,9 @@ final class BillingStatementsHubController extends Controller
             $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
         }
 
-        if ($has('provider')) {
-            $q->where(function ($w) {
-                $w->whereNull('provider')->orWhere('provider', '')->orWhere('provider', 'stripe');
-            });
-        }
-
+        // IMPORTANTE:
+        // NO filtrar provider. El HUB real está considerando pagos pagados
+        // tanto stripe como manual.
         if ($has('amount_mxn')) {
             $sumMxn = (float) $q->sum('amount_mxn');
             return round(max(0.0, $sumMxn), 2);
@@ -1534,14 +1567,22 @@ final class BillingStatementsHubController extends Controller
     private function sumPaymentsPaidByAccountForPeriod(array $accountIds, string $period): array
     {
         $out = [];
-        if (empty($accountIds)) return $out;
-        if (!Schema::connection($this->adm)->hasTable('payments')) return $out;
+
+        if (empty($accountIds)) {
+            return $out;
+        }
+
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return $out;
+        }
 
         $cols = Schema::connection($this->adm)->getColumnListing('payments');
         $lc   = array_map('strtolower', $cols);
         $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
 
-        if (!$has('account_id') || !$has('period')) return $out;
+        if (!$has('account_id') || !$has('period')) {
+            return $out;
+        }
 
         $q = DB::connection($this->adm)->table('payments')
             ->whereIn('account_id', $accountIds)
@@ -1551,12 +1592,8 @@ final class BillingStatementsHubController extends Controller
             $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
         }
 
-        if ($has('provider')) {
-            $q->where(function ($w) {
-                $w->whereNull('provider')->orWhere('provider', '')->orWhere('provider', 'stripe');
-            });
-        }
-
+        // IMPORTANTE:
+        // NO filtrar provider. Deben entrar manual + stripe + cualquier provider pagado.
         if ($has('amount_mxn')) {
             $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(amount_mxn,0)) as mxn')
                 ->groupBy('account_id')
@@ -1565,8 +1602,27 @@ final class BillingStatementsHubController extends Controller
             foreach ($rows as $r) {
                 $aid = (string) ($r->aid ?? '');
                 $mxn = (float) ($r->mxn ?? 0);
-                if ($aid !== '') $out[$aid] = round(max(0.0, $mxn), 2);
+                if ($aid !== '') {
+                    $out[$aid] = round(max(0.0, $mxn), 2);
+                }
             }
+
+            return $out;
+        }
+
+        if ($has('monto_mxn')) {
+            $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(monto_mxn,0)) as mxn')
+                ->groupBy('account_id')
+                ->get();
+
+            foreach ($rows as $r) {
+                $aid = (string) ($r->aid ?? '');
+                $mxn = (float) ($r->mxn ?? 0);
+                if ($aid !== '') {
+                    $out[$aid] = round(max(0.0, $mxn), 2);
+                }
+            }
+
             return $out;
         }
 
@@ -1578,22 +1634,28 @@ final class BillingStatementsHubController extends Controller
             foreach ($rows as $r) {
                 $aid = (string) ($r->aid ?? '');
                 $mxn = ((float) ($r->cents ?? 0)) / 100.0;
-                if ($aid !== '') $out[$aid] = round(max(0.0, $mxn), 2);
+                if ($aid !== '') {
+                    $out[$aid] = round(max(0.0, $mxn), 2);
+                }
             }
+
             return $out;
         }
 
-        $colMxn = $has('monto_mxn') ? 'monto_mxn' : null;
-        if (!$colMxn) return $out;
+        if ($has('amount_cents')) {
+            $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(amount_cents,0)) as cents')
+                ->groupBy('account_id')
+                ->get();
 
-        $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(' . $colMxn . ',0)) as mxn')
-            ->groupBy('account_id')
-            ->get();
+            foreach ($rows as $r) {
+                $aid = (string) ($r->aid ?? '');
+                $mxn = ((float) ($r->cents ?? 0)) / 100.0;
+                if ($aid !== '') {
+                    $out[$aid] = round(max(0.0, $mxn), 2);
+                }
+            }
 
-        foreach ($rows as $r) {
-            $aid = (string) ($r->aid ?? '');
-            $mxn = (float) ($r->mxn ?? 0);
-            if ($aid !== '') $out[$aid] = round(max(0.0, $mxn), 2);
+            return $out;
         }
 
         return $out;

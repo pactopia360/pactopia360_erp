@@ -1,5 +1,12 @@
 /* public/assets/admin/js/finance-income.js */
-/* Finanzas > Ingresos (Ventas) · Modal editor + delete (vNext UX: scroll-lock + focus restore + include flag fix) */
+/* Finanzas > Ingresos · Modal editor + delete
+   v2026.03.09
+   - Respeta origen real: statement / sale / projection
+   - Modal fiel para estados de cuenta: cargo / abono / saldo
+   - No inventa montos visuales
+   - Mejor manejo de respuestas HTTP
+   - Soporte parcial / sin_mov
+*/
 
 (function(){
   'use strict';
@@ -46,6 +53,40 @@
     .replaceAll('"','&quot;')
     .replaceAll("'","&#039;");
 
+  const asNumber = (v, fallback = 0) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : fallback;
+  };
+
+  const normalizeSource = (payload) => {
+    const src = String(payload?.source || '').trim().toLowerCase();
+    if (src === 'sale' || src === 'sale_linked') return 'sale';
+    if (src === 'projection') return 'projection';
+    return 'statement';
+  };
+
+  const resolveAmounts = (payload) => {
+    const subtotal = asNumber(payload?.subtotal, 0);
+    const iva      = asNumber(payload?.iva, 0);
+    const total    = asNumber(payload?.total, 0);
+
+    const abono    = asNumber(payload?.abono, 0);
+    const saldo    = asNumber(payload?.saldo, Math.max(0, total - abono));
+    const cargoRaw = asNumber(
+      payload?.cargo_raw,
+      payload?.facturado ?? payload?.total ?? 0
+    );
+
+    return {
+      subtotal,
+      iva,
+      total,
+      abono,
+      saldo,
+      cargoRaw,
+    };
+  };
+
   function showAlert(kind, msg){
     if (!alertEl) return;
     alertEl.classList.remove('ok','bad');
@@ -54,18 +95,13 @@
     alertEl.textContent = msg;
   }
 
-    // =========================
-  // HTTP helpers (JSON o texto + mensajes útiles)
-  // =========================
   async function readResponseAny(res){
     const ct = String(res.headers.get('content-type') || '').toLowerCase();
     let text = '';
     let json = null;
 
-    // Primero intenta texto (sirve para HTML/errores)
     try { text = await res.text(); } catch(e){ text = ''; }
 
-    // Si parece JSON por content-type o por contenido
     const looksJson = ct.includes('application/json') || /^\s*\{/.test(text) || /^\s*\[/.test(text);
     if (looksJson) {
       try { json = JSON.parse(text || ''); } catch(e){ json = null; }
@@ -77,19 +113,16 @@
   function summarizeHttpError(res, parsed){
     const status = res.status;
 
-    // Mensajes “humanos” para casos típicos en Laravel
     if (status === 419) return 'Sesión/CSRF expirado (419). Refresca la página y vuelve a intentar.';
     if (status === 401) return 'No autenticado (401). Parece que la sesión se perdió. Refresca e inicia sesión.';
     if (status === 403) return 'Acceso denegado (403). Revisa permisos/middleware.';
     if (status >= 500) return 'Error interno del servidor (' + status + '). Revisa storage/logs/laravel.log.';
 
-    // Si backend manda JSON con message/error
     const j = parsed?.json;
     if (j && typeof j === 'object') {
       if (j.message) return String(j.message);
       if (j.error) return String(j.error);
 
-      // Validación Laravel: { message, errors: {field:[...]} }
       if (j.errors && typeof j.errors === 'object') {
         const lines = [];
         Object.entries(j.errors).forEach(([k, arr]) => {
@@ -100,10 +133,8 @@
       }
     }
 
-    // Si vino HTML (ej. redirect/login), intenta dar pista
     const t = String(parsed?.text || '');
     if (t.includes('<!doctype html') || t.includes('<html')) {
-      // Muchas veces es login/redirect o una página de error
       if (t.toLowerCase().includes('login') || t.toLowerCase().includes('iniciar')) {
         return 'Respuesta HTML (posible redirect/login). Confirma sesión activa y middleware.';
       }
@@ -152,9 +183,6 @@
     }).join('');
   }
 
-  // =========================
-  // Autocálculo montos
-  // =========================
   function attachAutoCalc(){
     if (!formEl) return;
     const inSub = formEl.querySelector('input[name="subtotal"]');
@@ -198,29 +226,27 @@
   }
   attachAutoCalc();
 
-  // =========================
-  // Scroll lock (modal UX)
-  // =========================
   function lockScroll(){
     document.documentElement.classList.add('p360-modal-open');
     document.body.classList.add('p360-modal-open');
   }
+
   function unlockScroll(){
     document.documentElement.classList.remove('p360-modal-open');
     document.body.classList.remove('p360-modal-open');
   }
 
-  // =========================
-  // DELETE helpers
-  // =========================
   function canDelete(payload){
     if (!payload || typeof payload !== 'object') return false;
 
-    if (payload.source === 'sale') return Number(payload.sale_id || 0) > 0;
+    const src = normalizeSource(payload);
 
-    if (payload.source === 'projection' || payload.source === 'statement') {
+    if (src === 'sale') return Number(payload.sale_id || 0) > 0;
+
+    if (src === 'projection' || src === 'statement') {
       return !!payload.account_id && !!payload.period;
     }
+
     return false;
   }
 
@@ -233,16 +259,18 @@
   function buildDestroyUrl(payload){
     if (!CFG.destroyUrlTpl || !payload) return null;
 
-    if (payload.source === 'sale' && Number(payload.sale_id || 0) > 0) {
+    const src = normalizeSource(payload);
+
+    if (src === 'sale' && Number(payload.sale_id || 0) > 0) {
       return CFG.destroyUrlTpl.replace('__ID__', String(payload.sale_id));
     }
 
-    if (payload.source === 'projection' || payload.source === 'statement') {
+    if (src === 'projection' || src === 'statement') {
       const base = CFG.destroyUrlTpl.replace('__ID__', '0');
 
       const period = String(payload.period || '');
       const accountId = String(payload.account_id || '');
-      const rowType = payload.source === 'projection' ? 'projection' : 'statement';
+      const rowType = src === 'projection' ? 'projection' : 'statement';
 
       if (!/^\d{4}\-(0[1-9]|1[0-2])$/.test(period) || !accountId) return null;
 
@@ -258,7 +286,7 @@
     return null;
   }
 
-    async function doDelete(payload){
+  async function doDelete(payload){
     if (!payload) return;
 
     if (!CFG.destroyUrlTpl) {
@@ -283,7 +311,6 @@
         method: 'DELETE',
       });
 
-      // Si el backend respondió JSON {ok:true}
       const json = parsed.json;
 
       if (res.ok && json && json.ok === true) {
@@ -292,11 +319,9 @@
         return;
       }
 
-      // Error: muestra mensaje con detalle
       const msg = summarizeHttpError(res, parsed);
       showAlert('bad', msg);
 
-      // Debug opcional (no molesta y ayuda muchísimo)
       try {
         console.warn('[P360_FIN_INCOME] delete failed', {
           url,
@@ -320,16 +345,15 @@
     }
   }
 
-  // =========================
-  // Fill form
-  // =========================
   function fillEditForm(payload){
     if (!formEl) return;
+
+    const src = normalizeSource(payload);
 
     formEl.querySelector('input[name="account_id"]').value = payload.account_id || '';
     formEl.querySelector('input[name="period"]').value = payload.period || '';
     formEl.querySelector('input[name="sale_id"]').value = payload.sale_id ? String(payload.sale_id) : '';
-    formEl.querySelector('input[name="is_projection"]').value = (payload.source === 'projection') ? '1' : '0';
+    formEl.querySelector('input[name="is_projection"]').value = (src === 'projection') ? '1' : '0';
 
     buildSelectOptions(
       formEl.querySelector('select[name="vendor_id"]'),
@@ -350,7 +374,7 @@
     const incSel = formEl.querySelector('select[name="include_in_statement"]');
     const sptInp = formEl.querySelector('input[name="statement_period_target"]');
 
-    const isSale = payload.source === 'sale' && Number(payload.sale_id || 0) > 0;
+    const isSale = src === 'sale' && Number(payload.sale_id || 0) > 0;
     if (incSel) incSel.disabled = !isSale;
     if (sptInp) sptInp.disabled = !isSale;
 
@@ -367,9 +391,95 @@
     }
   }
 
-  // =========================
-  // Modal open/close
-  // =========================
+  function buildDetailFields(payload){
+    const src = normalizeSource(payload);
+    const amounts = resolveAmounts(payload);
+
+    const common = [
+      ['Fuente', src === 'sale' ? 'Venta' : (src === 'projection' ? 'Proyección' : 'Estado de cuenta')],
+      ['Periodo', payload.period || '—'],
+      ['Cliente', payload.client || '—'],
+      ['Cuenta', payload.account_id || '—'],
+      ['RFC Emisor', payload.rfc_emisor || '—'],
+      ['Origen', payload.origin || '—'],
+      ['Periodicidad', payload.periodicity || '—'],
+      ['Vendedor', payload.vendor || '—'],
+      ['Descripción', payload.description || '—'],
+    ];
+
+    const statementFields = [
+      ['Cargo', money(amounts.cargoRaw)],
+      ['Abono', money(amounts.abono)],
+      ['Saldo', money(amounts.saldo)],
+      ['Estatus E.Cta', payload.ec_status || '—'],
+      ['Factura', payload.invoice_status || '—'],
+      ['Forma de pago', payload.forma_pago || '—'],
+      ['F Cta', fmtDate(payload.f_cta)],
+      ['F Mov', fmtDate(payload.f_mov)],
+      ['F Factura', fmtDate(payload.f_factura)],
+      ['F Pago', fmtDate(payload.f_pago)],
+      ['UUID', payload.cfdi_uuid || '—'],
+      ['Notas', payload.notes || '—'],
+    ];
+
+    const saleFields = [
+      ['Subtotal', money(amounts.subtotal)],
+      ['IVA', money(amounts.iva)],
+      ['Total', money(amounts.total)],
+      ['Estatus E.Cta', payload.ec_status || '—'],
+      ['Factura', payload.invoice_status || '—'],
+      ['RFC Receptor', payload.rfc_receptor || '—'],
+      ['Forma de pago', payload.forma_pago || '—'],
+      ['F Cta', fmtDate(payload.f_cta)],
+      ['F Mov', fmtDate(payload.f_mov)],
+      ['F Factura', fmtDate(payload.f_factura)],
+      ['F Pago', fmtDate(payload.f_pago)],
+      ['UUID', payload.cfdi_uuid || '—'],
+      ['Sale ID', payload.sale_id ? String(payload.sale_id) : '—'],
+      ['Incluir en E.Cta', payload.include_in_statement === 1 ? 'Sí' : (payload.include_in_statement === 0 ? 'No' : '—')],
+      ['Periodo target (E.Cta)', payload.statement_period_target || '—'],
+      ['Notas', payload.notes || '—'],
+    ];
+
+    const projectionFields = [
+      ['Subtotal', money(amounts.subtotal)],
+      ['IVA', money(amounts.iva)],
+      ['Total', money(amounts.total)],
+      ['Estatus E.Cta', payload.ec_status || '—'],
+      ['Factura', payload.invoice_status || '—'],
+      ['RFC Receptor', payload.rfc_receptor || '—'],
+      ['Forma de pago', payload.forma_pago || '—'],
+      ['F Cta', fmtDate(payload.f_cta)],
+      ['F Mov', fmtDate(payload.f_mov)],
+      ['F Factura', fmtDate(payload.f_factura)],
+      ['F Pago', fmtDate(payload.f_pago)],
+      ['UUID', payload.cfdi_uuid || '—'],
+      ['Notas', payload.notes || '—'],
+    ];
+
+    if (src === 'sale') return common.concat(saleFields);
+    if (src === 'projection') return common.concat(projectionFields);
+    return common.concat(statementFields);
+  }
+
+  function buildQuickActions(payload){
+    const src = normalizeSource(payload);
+    const links = [];
+
+    if (CFG.salesCreate) links.push(`<a class="p360-btn p360-btn-primary" href="${CFG.salesCreate}">+ Crear venta</a>`);
+    if (CFG.salesIndex)  links.push(`<a class="p360-btn" href="${CFG.salesIndex}">Ver ventas</a>`);
+    if (CFG.invoicesReq) links.push(`<a class="p360-btn" href="${CFG.invoicesReq}">Solicitud de facturas</a>`);
+    if (CFG.stHub)       links.push(`<a class="p360-btn" href="${CFG.stHub}">Statements HUB</a>`);
+
+    const isSale = src === 'sale' && Number(payload.sale_id || 0) > 0;
+    if (CFG.hasToggleInclude && isSale) {
+      const lbl = payload.include_in_statement ? 'Quitar de Estado de Cuenta' : 'Incluir en Estado de Cuenta';
+      links.push(`<button type="button" class="p360-btn" id="p360IncomeToggleIncludeBtn">${escapeHtml(lbl)}</button>`);
+    }
+
+    return links.join('');
+  }
+
   function openModal(payload, triggerEl){
     if (!payload || typeof payload !== 'object') return;
 
@@ -377,48 +487,15 @@
     lastPayload = JSON.parse(JSON.stringify(payload || {}));
     hideAlert();
 
-    const tipo  = payload.tipo || payload.source || 'Detalle';
+    const src   = normalizeSource(payload);
+    const tipo  = payload.tipo || (src === 'sale' ? 'Venta' : (src === 'projection' ? 'Proyección' : 'Estado de cuenta'));
     const per   = payload.period || '—';
     const cli   = payload.client || '—';
 
     if (titleEl) titleEl.textContent = `${tipo} · ${per}`;
     if (subEl)   subEl.textContent   = `${cli} · Cuenta: ${payload.account_id || '—'}`;
 
-    const incVal = (payload.include_in_statement === 1) ? 'Sí'
-                : (payload.include_in_statement === 0) ? 'No'
-                : '—';
-
-    const fields = [
-      ['Fuente', payload.source],
-      ['Periodo', payload.period],
-      ['Cliente', payload.client],
-      ['Cuenta', payload.account_id],
-      ['RFC Emisor', payload.rfc_emisor],
-
-      ['Origen', payload.origin],
-      ['Periodicidad', payload.periodicity],
-      ['Vendedor', payload.vendor || '—'],
-      ['Descripción', payload.description || '—'],
-
-      ['Subtotal', money(payload.subtotal)],
-      ['IVA', money(payload.iva)],
-      ['Total', money(payload.total)],
-      ['Estatus E.Cta', payload.ec_status || '—'],
-
-      ['RFC Receptor', payload.rfc_receptor || '—'],
-      ['Forma de pago', payload.forma_pago || '—'],
-      ['F Cta', fmtDate(payload.f_cta)],
-      ['F Mov', fmtDate(payload.f_mov)],
-      ['F Factura', fmtDate(payload.f_factura)],
-      ['F Pago', fmtDate(payload.f_pago)],
-
-      ['Estatus Factura', payload.invoice_status || '—'],
-      ['UUID', payload.cfdi_uuid || '—'],
-
-      ['Sale ID', payload.sale_id ? String(payload.sale_id) : '—'],
-      ['Incluir en E.Cta', incVal],
-      ['Periodo target (E.Cta)', payload.statement_period_target || '—'],
-    ];
+    const fields = buildDetailFields(payload);
 
     if (gridEl) {
       gridEl.innerHTML = fields.map(([k,v]) => {
@@ -431,20 +508,7 @@
       }).join('');
     }
 
-    // acciones rápidas
-    const links = [];
-    if (CFG.salesCreate) links.push(`<a class="p360-btn p360-btn-primary" href="${CFG.salesCreate}">+ Crear venta</a>`);
-    if (CFG.salesIndex)  links.push(`<a class="p360-btn" href="${CFG.salesIndex}">Ver ventas</a>`);
-    if (CFG.invoicesReq) links.push(`<a class="p360-btn" href="${CFG.invoicesReq}">Solicitud de facturas</a>`);
-    if (CFG.stHub)       links.push(`<a class="p360-btn" href="${CFG.stHub}">Statements HUB</a>`);
-
-    const isSale = payload.source === 'sale' && Number(payload.sale_id || 0) > 0;
-    if (CFG.hasToggleInclude && isSale) {
-      const lbl = payload.include_in_statement ? 'Quitar de Estado de Cuenta' : 'Incluir en Estado de Cuenta';
-      links.push(`<button type="button" class="p360-btn" id="p360IncomeToggleIncludeBtn">${escapeHtml(lbl)}</button>`);
-    }
-
-    if (leftEl) leftEl.innerHTML = links.join('');
+    if (leftEl) leftEl.innerHTML = buildQuickActions(payload);
 
     const tbtn = qs('#p360IncomeToggleIncludeBtn');
     if (tbtn) {
@@ -465,7 +529,6 @@
 
     lockScroll();
 
-    // focus al primer control (close)
     const closeBtn = modal ? modal.querySelector('[data-income-close="1"]') : null;
     if (closeBtn) closeBtn.focus({ preventScroll:true });
 
@@ -489,7 +552,6 @@
 
     document.removeEventListener('keydown', onEsc);
 
-    // restore focus
     if (lastTriggerEl && typeof lastTriggerEl.focus === 'function') {
       try { lastTriggerEl.focus({ preventScroll:true }); } catch(e){}
     }
@@ -500,9 +562,6 @@
     if (e.key === 'Escape') closeModal();
   }
 
-   // =========================
-  // Submit upsert
-  // =========================
   async function submitUpsert(){
     if (!CFG.upsertUrl) {
       showAlert('bad', 'No está configurada la ruta admin.finance.income.row.');
@@ -515,7 +574,6 @@
 
     const fd = new FormData(formEl);
 
-    // DEBUG: inspección clara de lo que realmente se envía
     try {
       const obj = {};
       fd.forEach((v, k) => { obj[k] = v; });
@@ -576,9 +634,6 @@
     }
   }
 
-  // =========================
-  // Delegado: abrir / cerrar
-  // =========================
   document.addEventListener('click', function(e){
     const btn = e.target.closest('[data-income-open="1"]');
     if (btn) {
@@ -601,7 +656,6 @@
     if (backdrop && e.target === backdrop) closeModal();
   });
 
-  // Submit edit
   if (formEl) {
     formEl.addEventListener('submit', function(e){
       e.preventDefault();
@@ -609,7 +663,6 @@
     });
   }
 
-  // Reset UI
   if (resetBtn) {
     resetBtn.addEventListener('click', function(e){
       e.preventDefault();
@@ -622,7 +675,6 @@
     });
   }
 
-  // Delete flow
   if (delBtn) {
     delBtn.addEventListener('click', function(e){
       e.preventDefault();

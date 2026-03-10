@@ -45,6 +45,7 @@ final class AdminIncomeDashboardService
             ->all();
 
         $salesRows = $this->loadSalesRows($filters, $context, $linkedSaleIds);
+        $projectionRows = $this->loadProjectionRows($filters, $context, $statementRows, $salesRows);
 
         $rows = collect();
 
@@ -53,7 +54,10 @@ final class AdminIncomeDashboardService
         } elseif ($filters['source'] === 'sales') {
             $rows = $salesRows;
         } else {
-            $rows = $statementRows->concat($salesRows)->values();
+            $rows = $statementRows
+                ->concat($salesRows)
+                ->concat($projectionRows)
+                ->values();
         }
 
         $rows = $this->applyFilters($rows, $filters);
@@ -80,7 +84,7 @@ final class AdminIncomeDashboardService
                 'counts' => [
                     'statements'  => $statementRows->count(),
                     'sales'       => $salesRows->count(),
-                    'projections' => 0,
+                    'projections' => $projectionRows->count(),
                     'rows'        => $rows->count(),
                 ],
             ],
@@ -189,9 +193,22 @@ final class AdminIncomeDashboardService
 
         $cuentasClienteByAdmin = collect();
         if (Schema::connection($this->cli)->hasTable('cuentas_cliente')) {
-            $select = ['id', 'admin_account_id', 'rfc', 'rfc_padre', 'razon_social', 'nombre_comercial', 'modo_cobro', 'plan_actual'];
-            if ($this->hasCol($this->cli, 'cuentas_cliente', 'empresa')) {
-                $select[] = 'empresa';
+            $select = ['id', 'admin_account_id'];
+
+            foreach ([
+                'rfc',
+                'rfc_padre',
+                'razon_social',
+                'nombre_comercial',
+                'empresa',
+                'modo_cobro',
+                'plan_actual',
+                'email',
+                'codigo_cliente',
+            ] as $col) {
+                if ($this->hasCol($this->cli, 'cuentas_cliente', $col)) {
+                    $select[] = $col;
+                }
             }
 
             $cc = collect(
@@ -301,14 +318,12 @@ final class AdminIncomeDashboardService
             $cargoEdo = round((float) $items->sum(fn ($x) => (float) ($x->cargo ?? 0)), 2);
             $abonoEdo = round((float) $items->sum(fn ($x) => (float) ($x->abono ?? 0)), 2);
 
-            // =========================================================
-            // SOT:
-            // Para fuente "statement" en Ingresos usamos SOLO estados_cuenta.
-            // No metemos payments ni expectedTotal para evitar descuadres
-            // contra el ejercicio manual del mismo mes.
-            // =========================================================
             $totalShown = $cargoEdo;
             $saldoShown = round(max(0.0, $cargoEdo - $abonoEdo), 2);
+
+            if ($totalShown <= 0.00001) {
+                continue;
+            }
 
             $statusPago = $this->computeStatementStatusFromEstadoCuenta(
                 totalCargo: $cargoEdo,
@@ -326,7 +341,11 @@ final class AdminIncomeDashboardService
 
             $company = $this->resolveCompanyName($clientObj, $acc);
             $rfcEmisor = $this->resolveRfcEmisor($clientObj, $acc);
-            [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod((string) $accountId, $period, $context['account_vendor_map']);
+            [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod(
+                (string) $accountId,
+                $period,
+                $context['account_vendor_map']
+            );
 
             $description = $this->buildStatementDescriptionFromItems($items, 0.0, $cargoEdo);
             $origin = $this->resolveStatementOrigin($items, $acc ?: (object) [], []);
@@ -336,17 +355,8 @@ final class AdminIncomeDashboardService
             $cfdiUuid = $this->resolveStatementCfdiFromItemsOrOverride($items, $override);
             $linkedSaleIds = $this->extractLinkedSaleIdsFromItems($items);
 
-            $firstCreated = $items
-                ->pluck('created_at')
-                ->filter()
-                ->sort()
-                ->first();
-
-            $lastUpdated = $items
-                ->pluck('updated_at')
-                ->filter()
-                ->sortDesc()
-                ->first();
+            $firstCreated = $items->pluck('created_at')->filter()->sort()->first();
+            $lastUpdated  = $items->pluck('updated_at')->filter()->sortDesc()->first();
 
             $lastPaidAt = null;
             if ($display['status'] === 'pagado') {
@@ -384,6 +394,11 @@ final class AdminIncomeDashboardService
                 'iva'                     => round($display['total'] - round($display['total'] / 1.16, 2), 2),
                 'total'                   => round($display['total'], 2),
 
+                'facturado'               => round($display['total'], 2),
+                'abono'                   => round($display['abono'], 2),
+                'saldo'                   => round($display['saldo'], 2),
+                'cobrado_real'            => round($display['abono'], 2),
+
                 'ec_status'               => (string) $display['status'],
                 'invoice_status'          => $invoiceStatus,
                 'invoice_status_raw'      => $invoiceStatus,
@@ -414,6 +429,12 @@ final class AdminIncomeDashboardService
                 'notes'                   => $this->extractStatementNotes($items, $override),
                 'audit_key'               => 'statement|' . $accountId . '|' . $period,
                 'linked_sale_ids'         => $linkedSaleIds,
+
+                'expected_total_raw'      => 0.0,
+                'cargo_raw'               => round($cargoEdo, 2),
+                'abono_ec_raw'            => round($abonoEdo, 2),
+                'abono_pay_raw'           => 0.0,
+                'tarifa_label_raw'        => null,
             ]);
         }
 
@@ -444,9 +465,13 @@ final class AdminIncomeDashboardService
             'iva',
             'total',
             'statement_status',
+            'statement_sent_at',
+            'statement_paid_at',
             'invoice_status',
             'invoice_uuid',
             'cfdi_uuid',
+            'payment_id',
+            'invoice_request_id',
             'include_in_statement',
             'target_period',
             'statement_period_target',
@@ -505,7 +530,7 @@ final class AdminIncomeDashboardService
             if ($this->hasCol($this->adm, 'finance_sales', 'include_in_statement')) {
                 $q->where(function ($w) {
                     $w->whereNull('s.include_in_statement')
-                    ->orWhere('s.include_in_statement', 0);
+                      ->orWhere('s.include_in_statement', 0);
                 });
             }
 
@@ -520,7 +545,7 @@ final class AdminIncomeDashboardService
                 ->get()
         );
 
-        return $sales->map(function ($sale) use ($context) {
+        return $sales->map(function ($sale) use ($context, $filters) {
             $period       = (string) ($sale->period ?? '');
             $accountId    = (string) ($sale->account_id ?? '');
             $accountAdmin = $context['accounts']->get($accountId);
@@ -568,12 +593,21 @@ final class AdminIncomeDashboardService
                 $statementPeriodTarget = (string) $sale->target_period;
             }
 
+            $facturado = round((float) ($sale->total ?? 0), 2);
+            $abono     = $ecStatus === 'pagado' ? $facturado : 0.0;
+            $saldo     = round(max(0.0, $facturado - $abono), 2);
+
+            $excludeFromKpi = 0;
+            if ($filters['source'] === 'all' && $includeInStatement !== 1) {
+                $excludeFromKpi = 1;
+            }
+
             return (object) [
                 'source'                  => ($includeInStatement === 1) ? 'sale_linked' : 'sale',
                 'source_label'            => 'Venta',
                 'source_priority'         => ($includeInStatement === 1) ? 30 : 20,
                 'is_projection'           => 0,
-                'exclude_from_kpi'        => 0,
+                'exclude_from_kpi'        => $excludeFromKpi,
                 'has_statement'           => ($includeInStatement === 1 && !empty($statementId)) ? 1 : 0,
 
                 'period'                  => $period,
@@ -597,7 +631,12 @@ final class AdminIncomeDashboardService
 
                 'subtotal'                => round((float) ($sale->subtotal ?? 0), 2),
                 'iva'                     => round((float) ($sale->iva ?? 0), 2),
-                'total'                   => round((float) ($sale->total ?? 0), 2),
+                'total'                   => $facturado,
+
+                'facturado'               => $facturado,
+                'abono'                   => round($abono, 2),
+                'saldo'                   => $saldo,
+                'cobrado_real'            => round($abono, 2),
 
                 'ec_status'               => $ecStatus,
                 'invoice_status'          => $invoiceStatus,
@@ -611,10 +650,10 @@ final class AdminIncomeDashboardService
                 'f_cta'                   => $sale->f_cta ?? null,
                 'f_mov'                   => $sale->f_mov ?? ($sale->sale_date ?? null),
                 'f_factura'               => $sale->invoice_date ?? null,
-                'f_pago'                  => $sale->paid_date ?? null,
+                'f_pago'                  => $sale->paid_date ?? ($sale->statement_paid_at ?? null),
 
-                'sent_at'                 => null,
-                'paid_at'                 => $sale->paid_date ?? null,
+                'sent_at'                 => $sale->statement_sent_at ?? null,
+                'paid_at'                 => $sale->paid_date ?? ($sale->statement_paid_at ?? null),
                 'due_date'                => null,
 
                 'payment_method'          => null,
@@ -633,100 +672,169 @@ final class AdminIncomeDashboardService
         })->values();
     }
 
-    private function computeStatementStatusFromEstadoCuenta(
-    float $totalCargo,
-    float $totalAbono,
-    string $period
-    ): string {
-        $totalCargo = round(max(0.0, $totalCargo), 2);
-        $totalAbono = round(max(0.0, $totalAbono), 2);
-        $saldo      = round(max(0.0, $totalCargo - $totalAbono), 2);
-
-        if ($totalCargo <= 0.00001 && $totalAbono <= 0.00001) {
-            return 'sin_mov';
+    private function loadProjectionRows(
+        array $filters,
+        array $context,
+        Collection $statementRows,
+        Collection $salesRows
+    ): Collection {
+        if ($filters['source'] !== 'all') {
+            return collect();
         }
 
-        if ($saldo <= 0.00001 && $totalCargo > 0.00001) {
-            return 'pagado';
+        $accounts = $context['accounts'] ?? collect();
+        if ($accounts->isEmpty()) {
+            return collect();
         }
 
-        if ($totalAbono > 0.00001 && $saldo > 0.00001) {
-            return 'parcial';
+        $existingStatementKeys = $statementRows
+            ->map(fn ($r) => (string) ($r->account_id ?? '') . '|' . (string) ($r->period ?? ''))
+            ->filter()
+            ->values()
+            ->all();
+
+        $existingRecurringSalesKeys = $salesRows
+            ->filter(function ($r) {
+                $origin = strtolower(trim((string) ($r->origin ?? '')));
+                return str_starts_with((string) ($r->source ?? ''), 'sale')
+                    && $origin === 'recurrente';
+            })
+            ->map(fn ($r) => (string) ($r->account_id ?? '') . '|' . (string) ($r->period ?? ''))
+            ->filter()
+            ->values()
+            ->all();
+
+        $blockedKeys = array_fill_keys(array_merge($existingStatementKeys, $existingRecurringSalesKeys), true);
+
+        $rows = collect();
+
+        foreach ($accounts as $acc) {
+            $accountId = (string) ($acc->id ?? '');
+            if ($accountId === '') {
+                continue;
+            }
+
+            $meta = $this->decodeMeta($acc->meta ?? null);
+
+            $recurrence = $this->resolveRecurringRuleForProjection($acc, $meta, $context['subs_renew_map'] ?? []);
+            if (!$recurrence['is_recurrente']) {
+                continue;
+            }
+
+            $clientObj = $context['cuentas_cliente_by_admin']->get($accountId);
+            $company   = $this->resolveCompanyName($clientObj, $acc);
+            $rfcEmisor = $this->resolveRfcEmisor($clientObj, $acc);
+
+            foreach ($filters['periods'] as $period) {
+                if (!$this->periodMatchesRecurrenceForProjection($period, $recurrence)) {
+                    continue;
+                }
+
+                $auditKey = $accountId . '|' . $period;
+                if (isset($blockedKeys[$auditKey])) {
+                    continue;
+                }
+
+                $custom = $this->extractCustomAmountMxnFromAccountMeta($acc, $meta);
+                if ($custom !== null && $custom > 0.00001) {
+                    $expected = round($custom, 2);
+                    $tarifaLabel = 'PERSONALIZADO';
+                } else {
+                    [$expected, $tarifaLabel] = $this->resolveExpectedAmountForStatement($acc, $meta, $period);
+                    $expected = round((float) $expected, 2);
+                }
+
+                if ($expected <= 0.00001) {
+                    continue;
+                }
+
+                [$vendorId, $vendorName] = $this->resolveVendorForAccountPeriod(
+                    $accountId,
+                    $period,
+                    $context['account_vendor_map']
+                );
+
+                $description = $recurrence['periodicity'] === 'anual'
+                    ? 'Proyección recurrente anual esperada'
+                    : 'Proyección recurrente mensual esperada';
+
+                $rows->push((object) [
+                    'source'                  => 'projection',
+                    'source_label'            => 'Proyección',
+                    'source_priority'         => 40,
+                    'is_projection'           => 1,
+                    'exclude_from_kpi'        => 0,
+                    'has_statement'           => 0,
+
+                    'period'                  => $period,
+                    'year'                    => $this->periodYear($period),
+                    'month_num'               => $this->periodMonth($period),
+                    'month_name'              => $this->monthNameEsFromPeriod($period),
+
+                    'account_id'              => $accountId,
+                    'account_id_raw'          => $accountId,
+                    'client_account_id'       => $clientObj?->id ?? null,
+
+                    'client'                  => $company,
+                    'company'                 => $company,
+                    'description'             => $description,
+
+                    'vendor_id'               => $vendorId,
+                    'vendor'                  => $vendorName,
+
+                    'origin'                  => 'recurrente',
+                    'periodicity'             => $recurrence['periodicity'],
+
+                    'subtotal'                => round($expected / 1.16, 2),
+                    'iva'                     => round($expected - round($expected / 1.16, 2), 2),
+                    'total'                   => $expected,
+
+                    'facturado'               => 0.0,
+                    'abono'                   => 0.0,
+                    'saldo'                   => $expected,
+                    'cobrado_real'            => 0.0,
+
+                    'ec_status'               => 'pending',
+                    'invoice_status'          => 'sin_solicitud',
+                    'invoice_status_raw'      => 'sin_solicitud',
+
+                    'rfc_emisor'              => $rfcEmisor,
+                    'rfc_receptor'            => null,
+                    'forma_pago'              => null,
+                    'invoice_metodo_pago'     => null,
+
+                    'f_cta'                   => null,
+                    'f_mov'                   => null,
+                    'f_factura'               => null,
+                    'f_pago'                  => null,
+
+                    'sent_at'                 => null,
+                    'paid_at'                 => null,
+                    'due_date'                => null,
+
+                    'payment_method'          => null,
+                    'payment_status'          => null,
+
+                    'cfdi_uuid'               => '',
+                    'statement_id'            => null,
+                    'sale_id'                 => 0,
+                    'include_in_statement'    => null,
+                    'statement_period_target' => null,
+
+                    'notes'                   => 'Proyección generada desde configuración recurrente de la cuenta.',
+                    'audit_key'               => 'projection|' . $accountId . '|' . $period,
+                    'linked_sale_ids'         => [],
+
+                    'expected_total_raw'      => $expected,
+                    'cargo_raw'               => 0.0,
+                    'abono_ec_raw'            => 0.0,
+                    'abono_pay_raw'           => 0.0,
+                    'tarifa_label_raw'        => $tarifaLabel,
+                ]);
+            }
         }
 
-        if ($this->isOverdue($period, null)) {
-            return 'vencido';
-        }
-
-        return 'pending';
-    }
-
-    private function applyStatementOverrideDisplayFromEstadoCuenta(
-        float $totalShown,
-        float $abonoEdo,
-        float $saldoShown,
-        string $statusPago,
-        ?array $override
-    ): array {
-        $total  = round(max(0.0, $totalShown), 2);
-        $abono  = round(max(0.0, $abonoEdo), 2);
-        $saldo  = round(max(0.0, $saldoShown), 2);
-        $status = $statusPago;
-
-        if (!$override || empty($override['status'])) {
-            return [
-                'total'  => $total,
-                'abono'  => $abono,
-                'saldo'  => $saldo,
-                'status' => $status,
-            ];
-        }
-
-        $s = strtolower(trim((string) $override['status']));
-        if (!in_array($s, ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
-            return [
-                'total'  => $total,
-                'abono'  => $abono,
-                'saldo'  => $saldo,
-                'status' => $status,
-            ];
-        }
-
-        $status = $s === 'pendiente' ? 'pending' : $s;
-
-        if ($s === 'pagado') {
-            return [
-                'total'  => $total,
-                'abono'  => $total,
-                'saldo'  => 0.0,
-                'status' => 'pagado',
-            ];
-        }
-
-        if ($s === 'sin_mov') {
-            return [
-                'total'  => $total,
-                'abono'  => 0.0,
-                'saldo'  => $total,
-                'status' => 'sin_mov',
-            ];
-        }
-
-        if ($s === 'parcial') {
-            return [
-                'total'  => $total,
-                'abono'  => $abono,
-                'saldo'  => round(max(0.0, $total - $abono), 2),
-                'status' => 'parcial',
-            ];
-        }
-
-        return [
-            'total'  => $total,
-            'abono'  => $abono,
-            'saldo'  => round(max(0.0, $total - $abono), 2),
-            'status' => $status,
-        ];
+        return $rows->values();
     }
 
     private function applyFilters(Collection $rows, array $filters): Collection
@@ -778,12 +886,54 @@ final class AdminIncomeDashboardService
     private function sortRows(Collection $rows): Collection
     {
         return $rows
-            ->sortBy([
-                fn ($r) => (string) ($r->period ?? ''),
-                fn ($r) => (int) ($r->source_priority ?? 999),
-                fn ($r) => -1 * (float) ($r->total ?? 0),
-                fn ($r) => (string) ($r->client ?? ''),
-            ])
+            ->sort(function ($a, $b) {
+                $periodA = (string) ($a->period ?? '');
+                $periodB = (string) ($b->period ?? '');
+
+                if ($periodA !== $periodB) {
+                    return $periodA <=> $periodB;
+                }
+
+                $projA = (int) ($a->is_projection ?? 0);
+                $projB = (int) ($b->is_projection ?? 0);
+
+                // reales primero, proyecciones al final
+                if ($projA !== $projB) {
+                    return $projA <=> $projB;
+                }
+
+                $srcRank = function ($r): int {
+                    $src = (string) ($r->source ?? '');
+
+                    return match ($src) {
+                        'statement'   => 0,
+                        'sale',
+                        'sale_linked' => 1,
+                        'projection'  => 2,
+                        default       => 9,
+                    };
+                };
+
+                $srcA = $srcRank($a);
+                $srcB = $srcRank($b);
+
+                if ($srcA !== $srcB) {
+                    return $srcA <=> $srcB;
+                }
+
+                $totalA = (float) ($a->total ?? 0);
+                $totalB = (float) ($b->total ?? 0);
+
+                // mayor total primero
+                if ($totalA !== $totalB) {
+                    return $totalB <=> $totalA;
+                }
+
+                $clientA = (string) ($a->client ?? '');
+                $clientB = (string) ($b->client ?? '');
+
+                return $clientA <=> $clientB;
+            })
             ->values();
     }
 
@@ -791,66 +941,68 @@ final class AdminIncomeDashboardService
     {
         $realRows = $rows
             ->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)
+            ->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)
             ->values();
 
-        $pending  = $realRows->where('ec_status', 'pending');
-        $emitido  = $realRows->where('ec_status', 'emitido');
-        $parcial  = $realRows->where('ec_status', 'parcial');
-        $pagado   = $realRows->where('ec_status', 'pagado');
-        $vencido  = $realRows->where('ec_status', 'vencido');
+        $projectionRows = $rows
+            ->filter(fn ($r) => (int) ($r->is_projection ?? 0) === 1)
+            ->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)
+            ->values();
 
-        $realTotal  = round((float) $realRows->sum('total'), 2);
-        $collected  = round((float) $pagado->sum('total'), 2);
-        $receivable = round((float) (
-            $pending->sum('total')
-            + $emitido->sum('total')
-            + $parcial->sum('total')
-            + $vencido->sum('total')
-        ), 2);
+        $pending = $realRows->where('ec_status', 'pending');
+        $emitido = $realRows->where('ec_status', 'emitido');
+        $parcial = $realRows->where('ec_status', 'parcial');
+        $pagado  = $realRows->where('ec_status', 'pagado');
+        $vencido = $realRows->where('ec_status', 'vencido');
+
+        $facturado = round((float) $realRows->sum(fn ($r) => (float) ($r->facturado ?? $r->total ?? 0)), 2);
+        $cobrado   = round((float) $realRows->sum(fn ($r) => (float) ($r->abono ?? 0)), 2);
+        $saldo     = round((float) $realRows->sum(fn ($r) => (float) ($r->saldo ?? 0)), 2);
+        $projected = round((float) $projectionRows->sum(fn ($r) => (float) ($r->total ?? 0)), 2);
 
         return [
             'total' => [
                 'count'  => $realRows->count(),
-                'amount' => $realTotal,
+                'amount' => $facturado,
             ],
             'pagado' => [
                 'count'  => $pagado->count(),
-                'amount' => round((float) $pagado->sum('total'), 2),
+                'amount' => round((float) $pagado->sum(fn ($r) => (float) ($r->facturado ?? $r->total ?? 0)), 2),
             ],
             'pending' => [
                 'count'  => $pending->count(),
-                'amount' => round((float) $pending->sum('total'), 2),
+                'amount' => round((float) $pending->sum(fn ($r) => (float) ($r->saldo ?? 0)), 2),
             ],
             'emitido' => [
                 'count'  => $emitido->count(),
-                'amount' => round((float) $emitido->sum('total'), 2),
+                'amount' => round((float) $emitido->sum(fn ($r) => (float) ($r->saldo ?? 0)), 2),
             ],
             'vencido' => [
                 'count'  => $vencido->count(),
-                'amount' => round((float) $vencido->sum('total'), 2),
+                'amount' => round((float) $vencido->sum(fn ($r) => (float) ($r->saldo ?? 0)), 2),
             ],
             'projected' => [
-                'count'  => 0,
-                'amount' => 0.0,
+                'count'  => $projectionRows->count(),
+                'amount' => $projected,
             ],
             'receivable' => [
-                'count'  => $pending->count() + $emitido->count() + $parcial->count() + $vencido->count(),
-                'amount' => $receivable,
+                'count'  => $realRows->filter(fn ($r) => (float) ($r->saldo ?? 0) > 0.00001)->count(),
+                'amount' => $saldo,
             ],
             'goal' => [
-                'amount'   => $realTotal,
-                'progress' => $realTotal > 0 ? 100.0 : 0.0,
+                'amount'   => round($facturado + $projected, 2),
+                'progress' => $facturado > 0 ? round(min(100, ($cobrado / $facturado) * 100), 1) : 0.0,
             ],
             'mix' => [
-                'recurrente' => round((float) $realRows->where('origin', 'recurrente')->sum('total'), 2),
-                'unico'      => round((float) $realRows->where('origin', 'unico')->sum('total'), 2),
+                'recurrente' => round((float) $realRows->where('origin', 'recurrente')->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2),
+                'unico'      => round((float) $realRows->where('origin', 'unico')->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2),
             ],
             'sources' => [
-                'statement' => round((float) $realRows->where('source', 'statement')->sum('total'), 2),
-                'sale'      => round((float) $realRows->filter(fn ($r) => str_starts_with((string) ($r->source ?? ''), 'sale'))->sum('total'), 2),
+                'statement' => round((float) $realRows->where('source', 'statement')->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2),
+                'sale'      => round((float) $realRows->filter(fn ($r) => str_starts_with((string) ($r->source ?? ''), 'sale'))->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2),
             ],
             'cash' => [
-                'amount' => $collected,
+                'amount' => $cobrado,
             ],
         ];
     }
@@ -858,28 +1010,33 @@ final class AdminIncomeDashboardService
     private function buildCharts(Collection $rows, array $filters): array
     {
         $baseRows = $rows
-            ->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)
+            ->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)
             ->values();
+
+        $realRows = $baseRows->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)->values();
+        $projectionRows = $baseRows->filter(fn ($r) => (int) ($r->is_projection ?? 0) === 1)->values();
 
         $monthly = [];
         foreach ($filters['periods'] as $period) {
-            $slice = $baseRows->where('period', $period);
+            $sliceReal = $realRows->where('period', $period);
+            $sliceProj = $projectionRows->where('period', $period);
 
-            $real = round((float) $slice->sum('total'), 2);
-            $collected = round((float) $slice->where('ec_status', 'pagado')->sum('total'), 2);
+            $real = round((float) $sliceReal->sum(fn ($r) => (float) ($r->facturado ?? $r->total ?? 0)), 2);
+            $collected = round((float) $sliceReal->sum(fn ($r) => (float) ($r->abono ?? 0)), 2);
+            $projected = round((float) $sliceProj->sum(fn ($r) => (float) ($r->total ?? 0)), 2);
 
             $monthly[] = [
                 'period'     => $period,
                 'label'      => $this->monthNameEsFromPeriod($period),
                 'real'       => $real,
-                'projected'  => 0.0,
+                'projected'  => $projected,
                 'collected'  => $collected,
             ];
         }
 
         $originMix = [
-            ['label' => 'Recurrente', 'value' => round((float) $baseRows->where('origin', 'recurrente')->sum('total'), 2)],
-            ['label' => 'Único',      'value' => round((float) $baseRows->where('origin', 'unico')->sum('total'), 2)],
+            ['label' => 'Recurrente', 'value' => round((float) $realRows->where('origin', 'recurrente')->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2)],
+            ['label' => 'Único',      'value' => round((float) $realRows->where('origin', 'unico')->sum(fn ($r) => (float) ($r->facturado ?? 0)), 2)],
         ];
 
         $vendorTop = $baseRows
@@ -887,7 +1044,12 @@ final class AdminIncomeDashboardService
             ->map(function ($group, $vendorName) {
                 return [
                     'label' => $vendorName,
-                    'value' => round((float) $group->sum('total'), 2),
+                    'value' => round((float) $group->sum(function ($r) {
+                        if ((int) ($r->is_projection ?? 0) === 1) {
+                            return (float) ($r->total ?? 0);
+                        }
+                        return (float) ($r->facturado ?? 0);
+                    }), 2),
                 ];
             })
             ->sortByDesc('value')
@@ -904,28 +1066,39 @@ final class AdminIncomeDashboardService
 
     private function buildHighlights(Collection $rows): array
     {
-        $bestMonth = $rows
+        $baseRows = $rows
+            ->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)
+            ->filter(fn ($r) => (int) ($r->is_projection ?? 0) !== 1)
+            ->values();
+
+        $bestMonth = $baseRows
             ->groupBy('period')
             ->map(fn ($group, $period) => [
                 'period' => (string) $period,
                 'label'  => $this->monthNameEsFromPeriod((string) $period),
-                'total'  => round((float) $group->sum('total'), 2),
+                'total'  => round((float) $group->sum(fn ($r) => (float) ($r->facturado ?? $r->total ?? 0)), 2),
             ])
             ->sortByDesc('total')
             ->first();
 
         $topVendor = $rows
+            ->filter(fn ($r) => (int) ($r->exclude_from_kpi ?? 0) !== 1)
             ->groupBy(fn ($r) => (string) ($r->vendor ?: 'Sin vendedor'))
             ->map(fn ($group, $vendor) => [
                 'vendor' => $vendor,
-                'total'  => round((float) $group->sum('total'), 2),
+                'total'  => round((float) $group->sum(function ($r) {
+                    if ((int) ($r->is_projection ?? 0) === 1) {
+                        return (float) ($r->total ?? 0);
+                    }
+                    return (float) ($r->facturado ?? $r->total ?? 0);
+                }), 2),
             ])
             ->sortByDesc('total')
             ->first();
 
-        $criticalPending = $rows
-            ->filter(fn ($r) => in_array((string) ($r->ec_status ?? ''), ['pending', 'vencido', 'parcial'], true))
-            ->sortByDesc(fn ($r) => (float) ($r->total ?? 0))
+        $criticalPending = $baseRows
+            ->filter(fn ($r) => (float) ($r->saldo ?? 0) > 0.00001)
+            ->sortByDesc(fn ($r) => (float) ($r->saldo ?? 0))
             ->first();
 
         return [
@@ -941,7 +1114,7 @@ final class AdminIncomeDashboardService
             'critical_pending' => $criticalPending ? [
                 'client' => (string) ($criticalPending->client ?? '—'),
                 'period' => (string) ($criticalPending->period ?? ''),
-                'total'  => round((float) ($criticalPending->total ?? 0), 2),
+                'total'  => round((float) ($criticalPending->saldo ?? 0), 2),
                 'status' => (string) ($criticalPending->ec_status ?? ''),
             ] : [
                 'client' => '—',
@@ -1117,80 +1290,94 @@ final class AdminIncomeDashboardService
     private function resolveExpectedAmountForStatement(
         object $acc,
         array $meta,
-        string $period,
-        ?string $lastPaid,
-        array $subsRenewMap
-    ): float {
-        $modo = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? 'mensual')));
-        $isAnnual = in_array($modo, ['anual', 'annual', 'year', 'yearly', '12m', '12'], true);
+        string $period
+    ): array {
+        $billing = (array) ($meta['billing'] ?? []);
 
-        if ($isAnnual) {
-            $duePeriod = $subsRenewMap[(string) $acc->id] ?? null;
+        $rawBase = $billing['amount_mxn'] ?? ($billing['amount'] ?? null);
+        $base = $this->toFloat($rawBase) ?? 0.0;
 
-            if (!$duePeriod) {
-                try {
-                    if (!empty($acc->created_at)) {
-                        $duePeriod = Carbon::parse((string) $acc->created_at)->format('Y-m');
-                    }
-                } catch (\Throwable $e) {
-                    $duePeriod = null;
-                }
-            }
+        $ov = (array) ($billing['override'] ?? []);
+        $override = $this->toFloat(
+            $ov['amount_mxn'] ?? ($billing['override_amount_mxn'] ?? null)
+        ) ?? 0.0;
 
-            if ($duePeriod !== $period) {
-                return 0.0;
-            }
+        $eff = strtolower(trim((string) ($ov['effective'] ?? ($billing['override_effective'] ?? ''))));
+        if (!in_array($eff, ['now', 'next'], true)) {
+            $eff = '';
         }
 
+        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) ($acc->id ?? ''), $meta);
         $payAllowed = $lastPaid
             ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
             : $period;
 
-        try {
-            if ($this->hub && method_exists($this->hub, 'resolveEffectiveAmountForPeriodFromMeta')) {
-                $res = $this->hub->resolveEffectiveAmountForPeriodFromMeta($meta, $period, $payAllowed);
-
-                if (is_array($res) && isset($res[0]) && is_numeric($res[0])) {
-                    return round((float) $res[0], 2);
-                }
-
-                if (is_numeric($res)) {
-                    return round((float) $res, 2);
-                }
+        $apply = false;
+        if ($override > 0.00001) {
+            if ($eff === 'now') {
+                $apply = true;
+            } elseif ($eff === 'next') {
+                $apply = ($payAllowed && $period >= $payAllowed);
             }
-        } catch (\Throwable $e) {
-            // fallback abajo
+        }
+
+        $effective = $apply ? $override : $base;
+        $label     = $apply ? 'Tarifa ajustada' : 'Tarifa base';
+
+        return [round(max(0.0, (float) $effective), 2), $label];
+    }
+
+    private function extractCustomAmountMxnFromAccountMeta(object $row, array $meta): ?float
+    {
+        $candidates = [
+            data_get($meta, 'billing.override_amount_mxn'),
+            data_get($meta, 'billing.override.amount_mxn'),
+            data_get($meta, 'billing.custom.amount_mxn'),
+            data_get($meta, 'billing.custom_mxn'),
+            data_get($meta, 'custom.amount_mxn'),
+            data_get($meta, 'custom_mxn'),
+        ];
+
+        foreach ($candidates as $v) {
+            $n = $this->toFloat($v);
+            if ($n !== null && $n > 0.00001) {
+                return $n;
+            }
         }
 
         foreach ([
-            data_get($meta, 'billing.override.amount_mxn'),
-            data_get($meta, 'billing.custom.amount_mxn'),
-            data_get($meta, 'license.override.amount_mxn'),
-            data_get($meta, 'pricing.override.amount_mxn'),
-            $acc->override_amount_mxn ?? null,
-            $acc->custom_amount_mxn ?? null,
-            $acc->billing_amount_mxn ?? null,
-            $acc->amount_mxn ?? null,
-            $acc->precio_mxn ?? null,
-            $acc->monto_mxn ?? null,
-            $acc->license_amount_mxn ?? null,
-            $acc->billing_amount ?? null,
-            $acc->amount ?? null,
-            $acc->precio ?? null,
-            $acc->monto ?? null,
-        ] as $v) {
-            $n = $this->toFloat($v);
-            if ($n !== null && $n > 0.00001) {
-                return round($n, 2);
+            'override_amount_mxn',
+            'custom_amount_mxn',
+            'billing_amount_mxn',
+            'amount_mxn',
+            'precio_mxn',
+            'monto_mxn',
+            'license_amount_mxn',
+            'billing_amount',
+            'amount',
+            'precio',
+            'monto',
+        ] as $prop) {
+            if (isset($row->{$prop})) {
+                $n = $this->toFloat($row->{$prop});
+                if ($n !== null && $n > 0.00001) {
+                    return $n;
+                }
             }
         }
 
-        return 0.0;
+        return null;
     }
 
     private function resolveLastPaidPeriodForAccount(string $accountId, array $meta): ?string
     {
         foreach ([
+            data_get($meta, 'stripe.last_paid_period'),
+            data_get($meta, 'stripe.lastPaidPeriod'),
+            data_get($meta, 'billing.last_paid_period'),
+            data_get($meta, 'billing.lastPaidPeriod'),
+            data_get($meta, 'last_paid_period'),
+            data_get($meta, 'lastPaidPeriod'),
             data_get($meta, 'stripe.last_paid_at'),
             data_get($meta, 'stripe.lastPaidAt'),
             data_get($meta, 'billing.last_paid_at'),
@@ -1253,79 +1440,237 @@ final class AdminIncomeDashboardService
         return null;
     }
 
-    private function computeStatementStatus(
-        string $period,
-        float $totalShown,
-        float $abonoTotal,
-        float $saldoShown,
-        mixed $dueDate
+    private function resolveRecurringRuleForProjection(object $acc, array $meta, array $subsRenewMap): array
+    {
+        $billing = (array) ($meta['billing'] ?? []);
+
+        $mode = strtolower(trim((string) (
+            $acc->modo_cobro
+            ?? data_get($meta, 'billing.mode')
+            ?? data_get($meta, 'billing.billing_cycle')
+            ?? data_get($meta, 'billing.cycle')
+            ?? ''
+        )));
+
+        $priceKey = strtolower(trim((string) ($billing['price_key'] ?? '')));
+        $plan = strtolower(trim((string) ($acc->plan_actual ?? $acc->plan ?? '')));
+
+        $periodicity = 'unico';
+
+        if (in_array($mode, ['mensual', 'monthly'], true)) {
+            $periodicity = 'mensual';
+        } elseif (in_array($mode, ['anual', 'annual', 'yearly'], true)) {
+            $periodicity = 'anual';
+        } elseif (str_contains($priceKey, 'anual') || str_contains($priceKey, 'year')) {
+            $periodicity = 'anual';
+        } elseif (str_contains($priceKey, 'mensual') || str_contains($priceKey, 'month')) {
+            $periodicity = 'mensual';
+        } elseif (str_contains($plan, 'anual')) {
+            $periodicity = 'anual';
+        } elseif (
+            str_contains($plan, 'pro')
+            || str_contains($plan, 'mensual')
+            || str_contains($plan, 'monthly')
+        ) {
+            $periodicity = 'mensual';
+        }
+
+        $expected = 0.0;
+        $custom = $this->extractCustomAmountMxnFromAccountMeta($acc, $meta);
+        if ($custom !== null && $custom > 0.00001) {
+            $expected = round($custom, 2);
+        } else {
+            [$baseExpected] = $this->resolveExpectedAmountForStatement($acc, $meta, now()->format('Y-m'));
+            $expected = round((float) $baseExpected, 2);
+        }
+
+        if ($expected <= 0.00001) {
+            return [
+                'is_recurrente' => false,
+                'periodicity'   => 'unico',
+                'anchor_month'  => null,
+            ];
+        }
+
+        if (!in_array($periodicity, ['mensual', 'anual'], true)) {
+            return [
+                'is_recurrente' => false,
+                'periodicity'   => 'unico',
+                'anchor_month'  => null,
+            ];
+        }
+
+        $anchorMonth = null;
+
+        $lastPaidPeriod = $this->resolveLastPaidPeriodForAccount((string) ($acc->id ?? ''), $meta);
+        if ($lastPaidPeriod && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $lastPaidPeriod)) {
+            $anchorMonth = (int) substr($lastPaidPeriod, 5, 2);
+        }
+
+        if ($anchorMonth === null) {
+            $renew = (string) ($subsRenewMap[(string) ($acc->id ?? '')] ?? '');
+            if ($renew !== '' && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $renew)) {
+                $anchorMonth = (int) substr($renew, 5, 2);
+            }
+        }
+
+        if ($anchorMonth === null) {
+            foreach ([
+                data_get($meta, 'billing.assigned_at'),
+                data_get($meta, 'stripe.last_paid_at'),
+                $acc->created_at ?? null,
+            ] as $candidate) {
+                $p = $this->parseToPeriod($candidate);
+                if ($p && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $p)) {
+                    $anchorMonth = (int) substr($p, 5, 2);
+                    break;
+                }
+            }
+        }
+
+        if ($anchorMonth === null || $anchorMonth < 1 || $anchorMonth > 12) {
+            $anchorMonth = 1;
+        }
+
+        return [
+            'is_recurrente' => true,
+            'periodicity'   => $periodicity,
+            'anchor_month'  => $anchorMonth,
+        ];
+    }
+
+    private function periodMatchesRecurrenceForProjection(string $period, array $rule): bool
+    {
+        if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+            return false;
+        }
+
+        $periodicity = (string) ($rule['periodicity'] ?? 'unico');
+        if ($periodicity === 'mensual') {
+            return true;
+        }
+
+        if ($periodicity === 'anual') {
+            $month = (int) substr($period, 5, 2);
+            $anchor = (int) ($rule['anchor_month'] ?? 1);
+            return $month === $anchor;
+        }
+
+        return false;
+    }
+
+    private function computeStatementStatusFromEstadoCuenta(
+        float $totalCargo,
+        float $totalAbono,
+        string $period
     ): string {
-        if ($totalShown <= 0.00001) {
+        $total = round(max(0.0, $totalCargo), 2);
+        $abono = round(max(0.0, $totalAbono), 2);
+        $saldo = round(max(0.0, $total - $abono), 2);
+
+        if ($total <= 0.00001) {
             return 'sin_mov';
         }
 
-        if ($saldoShown <= 0.00001) {
+        if ($saldo <= 0.00001) {
             return 'pagado';
         }
 
-        if ($abonoTotal > 0.00001 && $abonoTotal < ($totalShown - 0.00001)) {
+        if ($abono > 0.00001 && $abono < ($total - 0.00001)) {
             return 'parcial';
         }
 
-        if ($this->isOverdue($period, $dueDate)) {
+        if ($this->isOverdue($period, null)) {
             return 'vencido';
         }
 
         return 'pending';
     }
 
-    private function applyStatementOverrideDisplay(
+    private function applyStatementOverrideDisplayFromEstadoCuenta(
         float $totalShown,
         float $abonoEdo,
-        float $abonoPay,
         float $saldoShown,
         string $statusPago,
         ?array $override
     ): array {
-        $abono = round($abonoEdo + $abonoPay, 2);
-        $saldo = round($saldoShown, 2);
-        $status = $statusPago;
+        $total  = round(max(0.0, $totalShown), 2);
+        $abono  = round(max(0.0, $abonoEdo), 2);
+        $saldo  = round(max(0.0, $saldoShown), 2);
+        $status = strtolower(trim((string) $statusPago));
 
-        if (!$override || empty($override['status'])) {
+        if (!in_array($status, ['pending', 'emitido', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
+            $status = 'pending';
+        }
+
+        $abonoAplicado = round(min($abono, $total), 2);
+        $saldoAplicado = round(max(0.0, $total - $abonoAplicado), 2);
+
+        if (!$override || !isset($override['status']) || trim((string) $override['status']) === '') {
             return [
-                'total'  => round($totalShown, 2),
-                'abono'  => $abono,
-                'saldo'  => $saldo,
+                'total'  => $total,
+                'abono'  => $abonoAplicado,
+                'saldo'  => $saldoAplicado,
                 'status' => $status,
             ];
         }
 
-        $s = strtolower(trim((string) $override['status']));
-        if (!in_array($s, ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
+        $raw = strtolower(trim((string) $override['status']));
+        $raw = str_replace([' ', '-'], '_', $raw);
+
+        if ($raw === 'pendiente') {
+            $raw = 'pending';
+        }
+
+        if (!in_array($raw, ['pending', 'emitido', 'parcial', 'pagado', 'vencido', 'sin_mov'], true)) {
             return [
-                'total'  => round($totalShown, 2),
-                'abono'  => $abono,
-                'saldo'  => $saldo,
+                'total'  => $total,
+                'abono'  => $abonoAplicado,
+                'saldo'  => $saldoAplicado,
                 'status' => $status,
             ];
         }
 
-        $status = $s === 'pendiente' ? 'pending' : $s;
-
-        if ($s === 'pagado') {
+        if ($raw === 'pagado') {
             return [
-                'total'  => round($totalShown, 2),
-                'abono'  => round($totalShown, 2),
+                'total'  => $total,
+                'abono'  => $total,
                 'saldo'  => 0.0,
                 'status' => 'pagado',
             ];
         }
 
+        if ($raw === 'sin_mov') {
+            return [
+                'total'  => $total,
+                'abono'  => 0.0,
+                'saldo'  => $total,
+                'status' => 'sin_mov',
+            ];
+        }
+
+        if ($raw === 'parcial') {
+            if ($abonoAplicado <= 0.00001) {
+                $abonoAplicado = 0.0;
+                $saldoAplicado = $total;
+            } elseif ($abonoAplicado >= $total) {
+                $abonoAplicado = round(max(0.0, $total - 0.01), 2);
+                $saldoAplicado = round(max(0.0, $total - $abonoAplicado), 2);
+            }
+
+            return [
+                'total'  => $total,
+                'abono'  => $abonoAplicado,
+                'saldo'  => $saldoAplicado,
+                'status' => 'parcial',
+            ];
+        }
+
         return [
-            'total'  => round($totalShown, 2),
-            'abono'  => round($abonoEdo, 2),
-            'saldo'  => round(max(0.0, $totalShown - $abonoEdo), 2),
-            'status' => $status,
+            'total'  => $total,
+            'abono'  => $abonoAplicado,
+            'saldo'  => $saldoAplicado,
+            'status' => $raw,
         ];
     }
 
@@ -1337,10 +1682,10 @@ final class AdminIncomeDashboardService
             $clientObj?->empresa ?? null,
             $accountAdmin?->razon_social ?? null,
             $accountAdmin?->name ?? null,
-        ] as $v) {
-            $v = trim((string) ($v ?? ''));
-            if ($v !== '') {
-                return $v;
+        ] as $value) {
+            $value = trim((string) ($value ?? ''));
+            if ($value !== '') {
+                return $value;
             }
         }
 
@@ -1410,14 +1755,24 @@ final class AdminIncomeDashboardService
 
     private function resolveStatementOrigin(Collection $items, object $acc, array $meta): string
     {
-        $mode = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? '')));
-        if (in_array($mode, ['mensual', 'anual'], true)) {
+        $mode = strtolower(trim((string) (
+            $acc->modo_cobro
+            ?? data_get($meta, 'billing.mode')
+            ?? data_get($meta, 'billing.billing_cycle')
+            ?? ''
+        )));
+
+        if (in_array($mode, ['mensual', 'monthly', 'anual', 'annual', 'yearly'], true)) {
             return 'recurrente';
         }
 
         foreach ($items as $item) {
             $concepto = strtolower(trim((string) ($item->concepto ?? '')));
-            if (str_contains($concepto, 'servicio mensual') || str_contains($concepto, 'servicio anual') || str_contains($concepto, 'licencia')) {
+            if (
+                str_contains($concepto, 'servicio mensual')
+                || str_contains($concepto, 'servicio anual')
+                || str_contains($concepto, 'licencia')
+            ) {
                 return 'recurrente';
             }
         }
@@ -1427,12 +1782,18 @@ final class AdminIncomeDashboardService
 
     private function resolveStatementPeriodicity(object $acc, array $meta): string
     {
-        $mode = strtolower(trim((string) ($acc->modo_cobro ?? data_get($meta, 'billing.mode') ?? '')));
-        if (in_array($mode, ['mensual', 'anual'], true)) {
-            return $mode;
-        }
+        $mode = strtolower(trim((string) (
+            $acc->modo_cobro
+            ?? data_get($meta, 'billing.mode')
+            ?? data_get($meta, 'billing.billing_cycle')
+            ?? ''
+        )));
 
-        return 'unico';
+        return match ($mode) {
+            'mensual', 'monthly' => 'mensual',
+            'anual', 'annual', 'yearly' => 'anual',
+            default => 'unico',
+        };
     }
 
     private function resolveStatementInvoiceStatusFromItemsOrOverride(Collection $items, ?array $override): string
@@ -1519,6 +1880,7 @@ final class AdminIncomeDashboardService
             'pagado', 'paid'   => 'pagado',
             'vencido'          => 'vencido',
             'parcial'          => 'parcial',
+            'sin_mov'          => 'sin_mov',
             default            => 'pending',
         };
     }
