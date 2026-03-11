@@ -34,10 +34,6 @@ return [
     ],
 
     // ===== Stripe (pagos / suscripciones) =====
-    // - secret/key: credenciales API
-    // - webhook_secret: firma para validar webhooks
-    // - price_monthly/annual: IDs de precios (price_XXX en Stripe)
-    // - display_price_*: precios de vitrina para mostrar en UI (MXN)
     'stripe' => [
         'secret'                 => env('STRIPE_SECRET'),
         'key'                    => env('STRIPE_KEY'),
@@ -52,15 +48,14 @@ return [
         'display_price_annual'   => (float) env('STRIPE_DISPLAY_PRICE_ANNUAL', 9990.00),
     ],
 
-    // ===== reCAPTCHA (registro/login si se desea) =====
-    // IMPORTANTE: tus vistas renderizan reCAPTCHA v2 (checkbox).
-    // Si RECAPTCHA_ENABLED no está en .env, se mantiene apagado por defecto.
+    // ===== reCAPTCHA =====
     'recaptcha' => [
         'enabled'    => (bool) env('RECAPTCHA_ENABLED', false),
         'site_key'   => (string) env('RECAPTCHA_SITE_KEY', ''),
         'secret_key' => (string) env('RECAPTCHA_SECRET_KEY', ''),
     ],
 
+    // ===== OTP =====
     'otp' => [
         'driver'  => env('OTP_DRIVER', 'whatsapp'),
         'channel' => env('OTP_CHANNEL', 'whatsapp'),
@@ -70,58 +65,70 @@ return [
         ],
     ],
 
-
-
-    // Twilio (SMS y/o WhatsApp vía Twilio)
+    // ===== Twilio =====
     'twilio' => [
-        'sid'            => env('TWILIO_ACCOUNT_SID'),
-        'token'          => env('TWILIO_AUTH_TOKEN'),
-        'from'           => env('TWILIO_SMS_FROM'),        // ej: +12025550123
-        'whatsapp_from'  => env('TWILIO_WHATSAPP_FROM'),   // ej: whatsapp:+14155238886
+        'sid'           => env('TWILIO_ACCOUNT_SID'),
+        'token'         => env('TWILIO_AUTH_TOKEN'),
+        'from'          => env('TWILIO_SMS_FROM'),
+        'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
     ],
 
-    // WhatsApp Cloud (Meta)
+    // ===== WhatsApp Cloud (Meta) =====
     'whatsapp_cloud' => [
-        'token'           => env('WHATSAPP_CLOUD_TOKEN'),        // Bearer
-        'phone_number_id' => env('WHATSAPP_CLOUD_PHONE_ID'),     // ID del nº remitente
+        'token'           => env('WHATSAPP_CLOUD_TOKEN'),
+        'phone_number_id' => env('WHATSAPP_CLOUD_PHONE_ID'),
     ],
 
-    'facturotopia' => [
-        'base'  => env('FT_BASE', 'https://api-demo.facturotopia.com/api'),
-        'token' => env('FT_TOKEN'),
-    ],
-
-    // SAT / servicios relacionados
+    // ===== SAT / servicios relacionados =====
     'sat' => [
         'download' => [
-            // driver: 'satws' directo, 'multi' para balanceador
             'driver'       => env('SAT_DOWNLOAD_DRIVER', 'multi'),
-
-            // orden de proveedores para multi
             'providers'    => array_values(array_filter(array_map('trim', explode(',', env('SAT_DOWNLOAD_PROVIDERS', 'satws'))))),
-
-            // failover activado
             'failover'     => (bool) env('SAT_DOWNLOAD_FAILOVER', true),
-
-            // timeouts
             'http_timeout' => (int) env('SAT_DOWNLOAD_HTTP_TIMEOUT', 60),
-
-            // precios
             'price_per_gb' => (float) env('SAT_PRICE_PER_GB', 100),
-
-            // TTLs
-            'ttl_hours'      => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
+            'ttl_hours'    => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
             'demo_ttl_hours' => (int) env('SAT_DOWNLOAD_DEMO_TTL_HOURS', 24),
         ],
 
-        // ✅ NUEVO: Vault (Bóveda SAT)
         'vault' => [
-            // GB base incluidos si el plan es PRO (si lo quieres habilitar por plan)
             'base_gb_pro'   => (float) env('SAT_VAULT_BASE_GB_PRO', 0),
-
-            // Forzar habilitado SOLO en local/dev/testing (útil para QA)
             'force_enabled' => (bool) env('VAULT_FORCE_ENABLED', false),
         ],
+    ],
+
+    // ===== Facturotopia =====
+    'facturotopia' => [
+        // sandbox | production
+        'mode' => (string) env('FACTUROTOPIA_MODE', 'sandbox'),
+
+        // Entorno sandbox/demo
+        'sandbox' => [
+            'base'  => rtrim((string) env('FT_BASE', 'https://api-demo.facturotopia.com/api'), '/'),
+            'token' => (string) env('FT_TOKEN', env('FACTUROTOPIA_API_KEY_TEST', '')),
+        ],
+
+        // Entorno producción
+        'production' => [
+            'base'  => rtrim((string) env('FACTUROTOPIA_BASE_URL', 'https://api.facturotopia.com'), '/'),
+            'token' => (string) env('FACTUROTOPIA_API_KEY_LIVE', ''),
+        ],
+
+        // Compatibilidad hacia atrás
+        'base_url' => rtrim((string) (
+            env('FACTUROTOPIA_MODE', 'sandbox') === 'production'
+                ? env('FACTUROTOPIA_BASE_URL', 'https://api.facturotopia.com')
+                : env('FT_BASE', 'https://api-demo.facturotopia.com/api')
+        ), '/'),
+
+        'api_key' => (string) (
+            env('FACTUROTOPIA_MODE', 'sandbox') === 'production'
+                ? env('FACTUROTOPIA_API_KEY_LIVE', '')
+                : env('FT_TOKEN', env('FACTUROTOPIA_API_KEY_TEST', ''))
+        ),
+
+        'api_key_test' => (string) env('FACTUROTOPIA_API_KEY_TEST', env('FT_TOKEN', '')),
+        'api_key_live' => (string) env('FACTUROTOPIA_API_KEY_LIVE', ''),
     ],
 
 ];

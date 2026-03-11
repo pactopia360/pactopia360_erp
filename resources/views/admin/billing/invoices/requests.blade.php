@@ -5,20 +5,26 @@
 @section('pageClass', 'p360-invoice-requests')
 
 @php
-  $mode   = $mode ?? 'hub';      // hub|legacy|missing
-  $q      = $q ?? request('q','');
-  $status = $status ?? request('status','');
-  $period = $period ?? request('period','');
+  $mode   = $mode ?? 'hub'; // hub|legacy|missing
+  $q      = (string)($q ?? request('q', ''));
+  $status = (string)($status ?? request('status', ''));
+  $period = (string)($period ?? request('period', ''));
 
   // Status UI por modo:
-  // legacy: requested|in_progress|done|rejected
-  // hub:    requested|in_progress|issued|rejected  (si quieres usar issued)
+  // legacy: requested|in_progress|done|rejected|error
+  // hub:    requested|in_progress|issued|rejected|error
   $statusOptions = $mode === 'legacy'
-      ? ['requested','in_progress','done','rejected']
-      : ['requested','in_progress','issued','rejected'];
+      ? ['requested','in_progress','done','rejected','error']
+      : ['requested','in_progress','issued','rejected','error'];
 
-  // Para filtrar: si viene "invoiced" viejo, lo convertimos a done/issued solo para UI.
-  if ($status === 'invoiced') $status = ($mode === 'legacy') ? 'done' : 'issued';
+  // Compat de filtros viejos
+  $status = strtolower(trim($status));
+  if ($status === 'invoiced') {
+      $status = ($mode === 'legacy') ? 'done' : 'issued';
+  }
+  if ($status === 'completed') {
+      $status = ($mode === 'legacy') ? 'done' : 'issued';
+  }
 @endphp
 
 @push('styles')
@@ -126,12 +132,15 @@
       <div class="cards" style="display:none">
         @foreach($rows as $r)
           @php
-            $stRaw = (string)($r->status ?? '');
-            if ($stRaw === '') $stRaw = 'requested';
+            $stRaw = strtolower(trim((string)($r->status ?? 'requested')));
+            if ($stRaw === 'invoiced' || $stRaw === 'completed') {
+                $stRaw = ($mode === 'legacy') ? 'done' : 'issued';
+            }
+            if (!in_array($stRaw, $statusOptions, true)) {
+                $stRaw = 'requested';
+            }
 
-            $stUi = strtolower(trim($stRaw));
-            if ($stUi === 'invoiced') $stUi = ($mode==='legacy') ? 'done' : 'issued';
-            if (!in_array($stUi, $statusOptions, true)) $stUi = 'requested';
+            $stUi = $stRaw;
 
             $name = trim((string)($r->account_name ?? ''));
             $rfc  = trim((string)($r->account_rfc ?? ''));
@@ -143,12 +152,21 @@
             $per   = (string)($r->period ?? '—');
 
             $zipPath = (string)($r->zip_path ?? '');
+            $zipDisk = (string)($r->zip_disk ?? '');
             $hasZip  = trim($zipPath) !== '';
 
             $zipLabel = $hasZip ? 'ZIP listo' : 'ZIP no adjunto';
             $zipDot   = $hasZip ? 'ok' : 'warn';
 
-            $dotForStatus = ($stUi==='rejected') ? 'bad' : (($stUi==='requested') ? 'warn' : 'ok');
+            if (in_array($stUi, ['rejected','error'], true)) {
+                $dotForStatus = 'bad';
+            } elseif (in_array($stUi, ['requested','in_progress'], true)) {
+                $dotForStatus = 'warn';
+            } else {
+                $dotForStatus = 'ok';
+            }
+
+            $canEmit = in_array($stUi, ['requested','in_progress','error'], true);
           @endphp
 
           <div class="cardRow">
@@ -247,15 +265,15 @@
           <tbody>
           @forelse($rows as $r)
             @php
-              $stRaw = (string)($r->status ?? '');
-              if ($stRaw === '') $stRaw = 'requested';
+              $stRaw = strtolower(trim((string)($r->status ?? 'requested')));
+              if ($stRaw === 'invoiced' || $stRaw === 'completed') {
+                  $stRaw = ($mode === 'legacy') ? 'done' : 'issued';
+              }
+              if (!in_array($stRaw, $statusOptions, true)) {
+                  $stRaw = 'requested';
+              }
 
-              // normalización UI:
-              // legacy: requested|in_progress|done|rejected
-              // hub:    requested|in_progress|issued|rejected
-              $stUi = strtolower(trim($stRaw));
-              if ($stUi === 'invoiced') $stUi = ($mode==='legacy') ? 'done' : 'issued';
-              if (!in_array($stUi, $statusOptions, true)) $stUi = 'requested';
+              $stUi = $stRaw;
 
               $name = trim((string)($r->account_name ?? ''));
               $rfc  = trim((string)($r->account_rfc ?? ''));
@@ -273,7 +291,15 @@
               $zipLabel = $hasZip ? 'ZIP listo' : 'ZIP no adjunto';
               $zipDot   = $hasZip ? 'ok' : 'warn';
 
-              $dotForStatus = ($stUi==='rejected') ? 'bad' : (($stUi==='requested') ? 'warn' : 'ok');
+              if (in_array($stUi, ['rejected','error'], true)) {
+                  $dotForStatus = 'bad';
+              } elseif (in_array($stUi, ['requested','in_progress'], true)) {
+                  $dotForStatus = 'warn';
+              } else {
+                  $dotForStatus = 'ok';
+              }
+
+              $canEmit = in_array($stUi, ['requested','in_progress','error'], true);
             @endphp
 
             <tr>
@@ -334,46 +360,46 @@
                     $rfcUi    = (string) ($r->account_rfc ?? ($r->rfc ?? ''));
                   @endphp
 
-                  <div class="actionBar">
-                    <button
-                      type="button"
-                      class="btn mini info js-open-modal"
+                  <div class="actionBar" style="margin-top:10px">
+                    @if($canEmit)
+                      <form method="POST"
+                            action="{{ route('admin.billing.invoices.requests.approve_generate', ['id' => (int)$r->id]) }}"
+                            onsubmit="return confirm('¿Emitir y timbrar la factura ahora para la solicitud #{{ (int)$r->id }}?');"
+                            style="display:inline-flex">
+                        @csrf
+                        <button type="submit" class="btn mini success">Emitir</button>
+                      </form>
+                    @else
+                      <button type="button" class="btn mini ghost" disabled>
+                        {{ in_array($stUi, ['issued','done'], true) ? 'Ya emitida' : 'No disponible' }}
+                      </button>
+                    @endif
+
+                    <button type="button" class="btn mini info js-open-modal"
                       data-modal="m-edit"
-                      data-id="{{ $rowId }}"
+                      data-id="{{ (int)$r->id }}"
                       data-status="{{ $stUi }}"
-                      data-uuid="{{ e($uuidUi) }}"
-                      data-notes="{{ e($notesUi) }}"
-                      data-period="{{ e($perUi) }}"
-                      data-account="{{ e($accId) }}"
-                      data-email="{{ e($emailUi) }}"
-                      data-name="{{ e($nameUi) }}"
-                      data-rfc="{{ e($rfcUi) }}"
-                    >
-                      Editar solicitud
-                    </button>
+                      data-uuid="{{ e($uuid) }}"
+                      data-notes="{{ e($notes) }}"
+                      data-period="{{ e($per) }}"
+                      data-account="{{ e($acct) }}"
+                      data-email="{{ e($mail) }}"
+                    >Editar</button>
 
-                    <button
-                      type="button"
-                      class="btn mini primary js-open-modal"
+                    <button type="button" class="btn mini primary js-open-modal"
                       data-modal="m-attach"
-                      data-id="{{ $rowId }}"
-                      data-uuid="{{ e($uuidUi) }}"
-                      data-period="{{ e($perUi) }}"
-                      data-account="{{ e($accId) }}"
-                    >
-                      Adjuntar PDF/XML
-                    </button>
+                      data-id="{{ (int)$r->id }}"
+                      data-uuid="{{ e($uuid) }}"
+                      data-period="{{ e($per) }}"
+                      data-account="{{ e($acct) }}"
+                    >PDF/XML</button>
 
-                    <button
-                      type="button"
-                      class="btn mini primary js-open-modal"
+                    <button type="button" class="btn mini primary js-open-modal"
                       data-modal="m-email"
-                      data-id="{{ $rowId }}"
-                      data-period="{{ e($perUi) }}"
-                      data-email="{{ e($emailUi) }}"
-                    >
-                      Enviar “Factura lista”
-                    </button>
+                      data-id="{{ (int)$r->id }}"
+                      data-period="{{ e($per) }}"
+                      data-email="{{ e($mail) }}"
+                    >Enviar</button>
                   </div>
 
                   <div class="mut actionHint">
@@ -735,7 +761,9 @@
         setActionFromTemplate(formEmail, id);
         if(emailRowId) emailRowId.value = id;
 
-        if(emailTo) emailTo.value = '';
+        if(emailTo) {
+          emailTo.value = btn.getAttribute('data-email') || '';
+        }
       }
 
       show(modalId);

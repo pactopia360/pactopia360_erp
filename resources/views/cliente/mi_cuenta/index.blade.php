@@ -1,45 +1,36 @@
-{{-- resources/views/cliente/mi_cuenta/index.blade.php (v4.1 · FIX: Facturas modal abre listado real + define rtInvoicesModal + robust modal/iframe) --}}
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\mi_cuenta\index.blade.php --}}
 @extends('layouts.cliente')
 @section('title','Mi cuenta · Pactopia360')
 @section('pageClass','page-mi-cuenta')
 
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/client/css/mi-cuenta.css') }}?v=4.1">
+  <link rel="stylesheet" href="{{ asset('assets/client/css/mi-cuenta.css') }}?v=4.3">
 
-  {{-- Estilos críticos (solo lo mínimo para overlay + centrado + bloqueo) --}}
   <style>
 /* ===========================================================
    CRÍTICO (LIGHT FIRST): overlay + dialogs centrados
-   - En claro: overlay suave, modal blanco limpio
-   - En oscuro: respeta variables (si existieran)
 =========================================================== */
 
 body.mc-modal-open{ overflow:hidden !important; }
 
-/* Overlay: en claro NO debe verse “night mode” */
 #mcOverlay{
   position: fixed !important;
   inset: 0 !important;
-
-  /* default (claro): más suave */
   background: rgba(15,23,42,.45) !important;
   backdrop-filter: blur(4px) !important;
   -webkit-backdrop-filter: blur(4px) !important;
-
   z-index: 2147483646 !important;
   display: none !important;
   pointer-events: auto !important;
 }
 #mcOverlay.is-on{ display:block !important; }
 
-/* Si el tema real está en dark, hacemos overlay más fuerte */
 html[data-theme="dark"] #mcOverlay{
   background: rgba(2,6,23,.72) !important;
   backdrop-filter: blur(2px) !important;
   -webkit-backdrop-filter: blur(2px) !important;
 }
 
-/* Dialog base */
 #billingModal,
 #configModal,
 #paymentsModal,
@@ -47,21 +38,14 @@ html[data-theme="dark"] #mcOverlay{
   z-index: 2147483647 !important;
   border: 1px solid rgba(15,23,42,.10) !important;
   padding: 0 !important;
-
-  /* Importante: NO transparente */
   background: #ffffff !important;
-
   width: auto !important;
   max-width: none !important;
-
   border-radius: 18px !important;
   overflow: hidden !important;
-
-  /* sombra “clean” en claro */
   box-shadow: 0 22px 70px rgba(15,23,42,.22) !important;
 }
 
-/* En dark, si quieres sombra más intensa */
 html[data-theme="dark"] #billingModal,
 html[data-theme="dark"] #configModal,
 html[data-theme="dark"] #paymentsModal,
@@ -71,7 +55,6 @@ html[data-theme="dark"] #invoicesModal{
   box-shadow: 0 26px 80px rgba(0,0,0,.55) !important;
 }
 
-/* Posicionamiento */
 #billingModal[open],
 #configModal[open],
 #paymentsModal[open],
@@ -83,7 +66,6 @@ html[data-theme="dark"] #invoicesModal{
   max-height: min(88vh, 820px) !important;
 }
 
-/* Backdrop nativo del dialog (por si el overlay no alcanza) */
 #billingModal::backdrop,
 #configModal::backdrop,
 #paymentsModal::backdrop,
@@ -101,7 +83,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   -webkit-backdrop-filter: blur(2px) !important;
 }
 
-/* Scroll body */
 #billingModal .mc-modal-body,
 #configModal .mc-modal-body,
 #paymentsModal .mc-modal-body,
@@ -110,7 +91,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   overflow: auto !important;
 }
 
-/* Tabs (mantener claro) */
 .mc-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
 .mc-tab{
   border: 1px solid rgba(15,23,42,.10);
@@ -139,7 +119,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   .mc-two{grid-template-columns:1fr;}
 }
 </style>
-
 @endpush
 
 @section('content')
@@ -174,18 +153,13 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     ? route('cliente.estado_cuenta')
     : (Route::has('cliente.billing.statement') ? route('cliente.billing.statement') : null);
 
-  // ✅ Endpoint JSON (historial de pagos)
-  $rtMisPagos = Route::has('cliente.mi_cuenta.pagos') ? route('cliente.mi_cuenta.pagos') : null;
+  $rtMisPagos = Route::has('cliente.mi_cuenta.pagos')
+    ? route('cliente.mi_cuenta.pagos')
+    : null;
 
-  // ✅ FIX: URL del listado de facturas para el iframe/modal
-  // IMPORTANTE: debe apuntar a tu controlador real Cliente\MiCuenta\FacturasController@index y abrir "modal" con embed=1
-  $rtInvoicesModal = null;
-  if (Route::has('cliente.mi_cuenta.facturas.index')) {
-      $rtInvoicesModal = route('cliente.mi_cuenta.facturas.index', ['embed' => 1, 'theme' => 'light']);
-  } elseif (Route::has('cliente.facturas.index')) {
-      $rtInvoicesModal = route('cliente.facturas.index', ['embed' => 1, 'theme' => 'light']);
-  }
-
+  $rtInvoicesModal = Route::has('cliente.mi_cuenta.facturas.index')
+      ? route('cliente.mi_cuenta.facturas.index', ['embed' => 1, 'theme' => 'light'])
+      : null;
 
   $canProfileUpdate  = Route::has('cliente.mi_cuenta.profile.update');
   $rtProfileUpdate   = $canProfileUpdate ? route('cliente.mi_cuenta.profile.update') : null;
@@ -227,12 +201,50 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     'pdf_mostrar_nombre_comercial' => (int)($cuenta->pdf_mostrar_nombre_comercial ?? 0),
     'pdf_mostrar_telefono'         => (int)($cuenta->pdf_mostrar_telefono ?? 0),
   ];
+
+  $errorBagKeys = $errors->keys();
+
+  $openModalOnLoad = null;
+  $openConfigTabOnLoad = 'brand';
+
+  $billingKeys = [
+    'razon_social','nombre_comercial','rfc','correo','telefono','pais','calle','no_ext','no_int',
+    'colonia','municipio','estado','cp','regimen_fiscal','uso_cfdi','metodo_pago','forma_pago',
+    'leyenda_pdf','pdf_mostrar_nombre_comercial','pdf_mostrar_telefono',
+  ];
+
+  $profileKeys = ['nombre','email','telefono','puesto'];
+  $securityKeys = ['current_password','password','password_confirmation'];
+  $prefsKeys = ['theme','timezone','language','demo_mode'];
+  $brandKeys = ['brand_name','brand_accent','logo'];
+  $invoiceKeys = ['period','notes'];
+
+  if (!empty($errorBagKeys)) {
+      if (count(array_intersect($errorBagKeys, $billingKeys)) > 0) {
+          $openModalOnLoad = 'billing';
+      } elseif (count(array_intersect($errorBagKeys, $profileKeys)) > 0) {
+          $openModalOnLoad = 'config';
+          $openConfigTabOnLoad = 'profile';
+      } elseif (count(array_intersect($errorBagKeys, $securityKeys)) > 0) {
+          $openModalOnLoad = 'config';
+          $openConfigTabOnLoad = 'security';
+      } elseif (count(array_intersect($errorBagKeys, $prefsKeys)) > 0) {
+          $openModalOnLoad = 'config';
+          $openConfigTabOnLoad = 'prefs';
+      } elseif (count(array_intersect($errorBagKeys, $brandKeys)) > 0) {
+          $openModalOnLoad = 'config';
+          $openConfigTabOnLoad = 'brand';
+      } elseif (count(array_intersect($errorBagKeys, $invoiceKeys)) > 0) {
+          $openModalOnLoad = 'invoices';
+      } else {
+          $openModalOnLoad = 'billing';
+      }
+  }
 @endphp
 
 <div class="mc-wrap">
   <div class="mc-page">
 
-    {{-- Header --}}
     <section class="mc-card mc-header" style="--mc-accent: {{ $brandAccent }};">
       <div class="mc-header-left">
         <div class="mc-title-icon" aria-hidden="true">
@@ -266,7 +278,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- Sección 1 --}}
     <section class="mc-section" data-mc-section="s1" data-open="1">
       <div class="mc-sec-head">
         <div class="mc-sec-ico" aria-hidden="true">
@@ -328,7 +339,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- Sección 2 --}}
     <section class="mc-section" data-mc-section="s2" data-open="1">
       <div class="mc-sec-head">
         <div class="mc-sec-ico" aria-hidden="true">
@@ -373,7 +383,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- Sección 3 --}}
     <section class="mc-section" data-mc-section="s3" data-open="0">
       <div class="mc-sec-head">
         <div class="mc-sec-ico" aria-hidden="true">
@@ -426,7 +435,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
               @endif
             </div>
           </div>
-
         </div>
 
         @if(!$rtInvoicesModal)
@@ -437,7 +445,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- Sección 4 --}}
     <section class="mc-section" data-mc-section="s4" data-open="0">
       <div class="mc-sec-head">
         <div class="mc-sec-ico" aria-hidden="true">
@@ -487,9 +494,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
 
 <div id="mcOverlay" aria-hidden="true"></div>
 
-{{-- ===========================================================
-   MODAL: CONFIGURACIÓN
-=========================================================== --}}
 <dialog class="mc-modal" id="configModal" aria-label="Configuración">
   <div class="mc-modal-top">
     <div>
@@ -507,7 +511,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       <button type="button" class="mc-tab" data-mc-tab="prefs">Preferencias</button>
     </div>
 
-    {{-- PANE: Personalización --}}
     <section class="mc-pane" data-mc-pane="brand">
       <div class="mc-form-head" style="border-radius:14px;border:1px solid var(--mc-line);">
         <h4 class="mc-form-title" style="font-size:.94rem;">
@@ -560,7 +563,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- PANE: Perfil --}}
     <section class="mc-pane" data-mc-pane="profile" hidden>
       <div class="mc-form-head" style="border-radius:14px;border:1px solid var(--mc-line);">
         <h4 class="mc-form-title" style="font-size:.94rem;">
@@ -614,7 +616,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- PANE: Seguridad --}}
     <section class="mc-pane" data-mc-pane="security" hidden>
       <div class="mc-form-head" style="border-radius:14px;border:1px solid var(--mc-line);">
         <h4 class="mc-form-title" style="font-size:.94rem;">
@@ -660,7 +661,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       </div>
     </section>
 
-    {{-- PANE: Preferencias --}}
     <section class="mc-pane" data-mc-pane="prefs" hidden>
       <div class="mc-form-head" style="border-radius:14px;border:1px solid var(--mc-line);">
         <h4 class="mc-form-title" style="font-size:.94rem;">
@@ -712,9 +712,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   </div>
 </dialog>
 
-{{-- ===========================================================
-   MODAL: Datos de facturación
-=========================================================== --}}
 <dialog class="mc-modal" id="billingModal" aria-label="Datos de facturación">
   <div class="mc-modal-top">
     <div>
@@ -860,9 +857,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   </div>
 </dialog>
 
-{{-- ===========================================================
-   MODAL: MIS PAGOS
-=========================================================== --}}
 <dialog class="mc-modal" id="paymentsModal" aria-label="Mis pagos">
   <div class="mc-modal-top">
     <div>
@@ -918,9 +912,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   </div>
 </dialog>
 
-{{-- ===========================================================
-   MODAL: FACTURAS (LISTADO REAL EN IFRAME)
-=========================================================== --}}
 <dialog class="mc-modal" id="invoicesModal" aria-label="Facturas">
   <div class="mc-modal-top">
     <div>
@@ -934,7 +925,7 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     <iframe
       id="mcInvFrame"
       src="about:blank"
-      style="width:100%;height: calc(min(88vh, 820px) - 72px); border:0; display:block;"
+      style="width:100%;height: calc(min(88vh, 820px) - 72px); border:0; display:block; background:#fff;"
       loading="lazy"
     ></iframe>
   </div>
@@ -947,7 +938,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
 @push('scripts')
 <script>
 (function(){
-  // ===== Accordions (+) =====
   function toggle(sectionId){
     const sec = document.querySelector('.mc-section[data-mc-section="'+sectionId+'"]');
     if(!sec) return;
@@ -961,19 +951,18 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     }
   }
 
-  // ===== Overlay =====
   const overlay = document.getElementById('mcOverlay');
 
   function overlayOn(){
     document.body.classList.add('mc-modal-open');
     if (overlay) overlay.classList.add('is-on');
   }
+
   function overlayOff(){
     document.body.classList.remove('mc-modal-open');
     if (overlay) overlay.classList.remove('is-on');
   }
 
-  // ===== Modales =====
   const billingModal  = document.getElementById('billingModal');
   const configModal   = document.getElementById('configModal');
   const paymentsModal = document.getElementById('paymentsModal');
@@ -983,7 +972,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
   function safeShow(dlg){
     if (!dlg) return;
 
-    // cierra otros
     [billingModal, configModal, paymentsModal, invoicesModal].forEach(d => {
       if (!d || d === dlg) return;
       try { d.close?.(); } catch(e) {}
@@ -991,20 +979,26 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     });
 
     overlayOn();
+
     if (typeof dlg.showModal === 'function') {
-      try { dlg.showModal(); return; } catch(e) {}
+      try {
+        dlg.showModal();
+        return;
+      } catch(e) {}
     }
+
     dlg.setAttribute('open','open');
   }
 
   function safeClose(dlg){
     if (!dlg) return;
+
     try { dlg.close?.(); } catch(e) {}
     dlg.removeAttribute('open');
 
     const anyOpen = !!(
       (billingModal?.hasAttribute('open') || billingModal?.open) ||
-      (configModal?.hasAttribute('open')  || configModal?.open)  ||
+      (configModal?.hasAttribute('open') || configModal?.open) ||
       (paymentsModal?.hasAttribute('open') || paymentsModal?.open) ||
       (invoicesModal?.hasAttribute('open') || invoicesModal?.open)
     );
@@ -1014,58 +1008,70 @@ html[data-theme="dark"] #invoicesModal::backdrop{
 
   function openBilling(){ safeShow(billingModal); }
   function closeBilling(){ safeClose(billingModal); }
-  function openConfig(){ safeShow(configModal); }
+
+  function openConfig(tabName){
+    safeShow(configModal);
+    if (tabName) {
+      const tab = configModal?.querySelector('[data-mc-tab="'+tabName+'"]');
+      if (tab) handleConfigTab(tab);
+    }
+  }
   function closeConfig(){ safeClose(configModal); }
+
   function openPayments(){ safeShow(paymentsModal); }
   function closePayments(){ safeClose(paymentsModal); }
 
-  function openInvoices(url){
-    safeShow(invoicesModal);
-    if (!invFrame) return;
+  function buildInvoicesUrl(url){
+    if (!url) return '';
 
-    // ✅ FORZAR SIEMPRE: embed=1 + theme=light + cache-bust
     try{
       const u = new URL(url, window.location.origin);
-      u.searchParams.set('embed','1');
-      u.searchParams.set('theme','light');
+      u.searchParams.set('embed', '1');
+      u.searchParams.set('theme', 'light');
       u.searchParams.set('_t', Date.now().toString());
-      invFrame.src = u.toString();
+      return u.toString();
     }catch(e){
       const glue = url.includes('?') ? '&' : '?';
-      invFrame.src = url + glue + 'embed=1&theme=light&_t=' + Date.now();
+      return url + glue + 'embed=1&theme=light&_t=' + Date.now();
     }
   }
 
+  function openInvoices(url){
+    safeShow(invoicesModal);
+    if (!invFrame || !url) return;
+    invFrame.src = buildInvoicesUrl(url);
+  }
 
   function closeInvoices(){
     if (invFrame) invFrame.src = 'about:blank';
     safeClose(invoicesModal);
   }
 
-  // ===== Tabs (config) =====
   function handleConfigTab(tab){
     const name = tab.getAttribute('data-mc-tab');
-    if(!name) return;
+    if(!name || !configModal) return;
 
     const tabs = Array.from(configModal.querySelectorAll('[data-mc-tab]'));
     const panes = Array.from(configModal.querySelectorAll('[data-mc-pane]'));
 
-    tabs.forEach(t=> t.classList.toggle('is-active', t.getAttribute('data-mc-tab') === name));
-    panes.forEach(p=>{
+    tabs.forEach(t => t.classList.toggle('is-active', t.getAttribute('data-mc-tab') === name));
+    panes.forEach(p => {
       const on = p.getAttribute('data-mc-pane') === name;
-      if(on) p.removeAttribute('hidden'); else p.setAttribute('hidden','hidden');
+      if (on) p.removeAttribute('hidden'); else p.setAttribute('hidden','hidden');
     });
   }
 
-  // ===== Mis Pagos (fetch + render) =====
-  const payState    = document.getElementById('mcPayState');
-  const payEmpty    = payState ? payState.querySelector('.mc-pay-empty') : null;
-  const payError    = payState ? payState.querySelector('.mc-pay-error') : null;
-  const paySkel     = payState ? payState.querySelector('.mc-pay-skel') : null;
-  const payWrap     = document.getElementById('mcPayTableWrap');
-  const payTbody    = document.getElementById('mcPayTbody');
+  const payState = document.getElementById('mcPayState');
+  const payEmpty = payState ? payState.querySelector('.mc-pay-empty') : null;
+  const payError = payState ? payState.querySelector('.mc-pay-error') : null;
+  const paySkel  = payState ? payState.querySelector('.mc-pay-skel') : null;
+  const payWrap  = document.getElementById('mcPayTableWrap');
+  const payTbody = document.getElementById('mcPayTbody');
 
-  const rtMisPagos  = @json($rtMisPagos);
+  const rtMisPagos = @json($rtMisPagos);
+  const rtInvoicesModal = @json($rtInvoicesModal);
+  const openModalOnLoad = @json($openModalOnLoad);
+  const openConfigTabOnLoad = @json($openConfigTabOnLoad);
 
   function setPayState(state){
     if(!payState) return;
@@ -1081,19 +1087,26 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     const c = (currency || 'MXN').toUpperCase();
     let n = 0;
     try { n = parseFloat(String(amount).replace(/[^0-9.\-]/g,'')) || 0; } catch(e) { n = 0; }
+
     try {
-      return new Intl.NumberFormat('es-MX', { style:'currency', currency: c, maximumFractionDigits: 2 }).format(n);
+      return new Intl.NumberFormat('es-MX', {
+        style:'currency',
+        currency:c,
+        maximumFractionDigits:2
+      }).format(n);
     } catch(e){
-      return (c + ' ' + n.toFixed(2));
+      return c + ' ' + n.toFixed(2);
     }
   }
 
   function pillStatus(st){
     const s = String(st || '—').toUpperCase();
     let cls = 'mc-pay-pill neutral';
+
     if (s.includes('PAID') || s.includes('PAGAD') || s.includes('SUCC') || s.includes('COMPLET')) cls = 'mc-pay-pill ok';
     else if (s.includes('PEND') || s.includes('OPEN') || s.includes('DUE')) cls = 'mc-pay-pill neutral';
     else if (s.includes('FAIL') || s.includes('CANC') || s.includes('REFUND') || s.includes('REEMB')) cls = 'mc-pay-pill bad';
+
     return '<span class="'+cls+'">'+s+'</span>';
   }
 
@@ -1117,7 +1130,7 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       proofs: 'Comprobantes'
     };
 
-    rows.forEach(r=>{
+    rows.forEach(r => {
       const date = esc(r.date || '—');
       const concept = esc(r.concept || 'Pago');
       const period = esc(r.period || '—');
@@ -1128,6 +1141,7 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       let proofs = '';
       const inv = (r.invoice || '').trim();
       const rec = (r.receipt || '').trim();
+
       if (inv) proofs += '<a class="mc-pay-link" href="'+esc(inv)+'" target="_blank" rel="noopener">Factura</a>';
       if (rec) proofs += (proofs ? '<span class="mc-pay-dot">•</span>' : '') + '<a class="mc-pay-link" href="'+esc(rec)+'" target="_blank" rel="noopener">Recibo</a>';
       if (!proofs) proofs = '<span class="mc-pay-muted">—</span>';
@@ -1138,22 +1152,16 @@ html[data-theme="dark"] #invoicesModal::backdrop{
           <div class="mc-pay-date">${date}</div>
           <div class="mc-pay-ref">${esc(r.reference || '')}</div>
         </td>
-
         <td data-label="${LABELS.concept}">
           <div class="mc-pay-concept">${concept}</div>
           <div class="mc-pay-source">${esc(r.source || '')}</div>
         </td>
-
         <td data-label="${LABELS.period}">${period}</td>
-
         <td data-label="${LABELS.amount}" style="text-align:right">
           <span class="mc-pay-amt">${esc(amt)}</span>
         </td>
-
         <td data-label="${LABELS.method}">${method}</td>
-
         <td data-label="${LABELS.status}">${status}</td>
-
         <td data-label="${LABELS.proofs}">${proofs}</td>
       `;
       payTbody.appendChild(tr);
@@ -1165,17 +1173,25 @@ html[data-theme="dark"] #invoicesModal::backdrop{
       setPayState('error');
       return;
     }
+
     setPayState('loading');
 
     try{
-      const res = await fetch(rtMisPagos, { headers: { 'Accept':'application/json' } });
-      if(!res.ok) throw new Error('HTTP '+res.status);
+      const res = await fetch(rtMisPagos, {
+        headers: { 'Accept':'application/json' },
+        credentials: 'same-origin'
+      });
+
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+
       const json = await res.json();
       const rows = (json && json.ok && Array.isArray(json.rows)) ? json.rows : [];
+
       if(rows.length <= 0){
         setPayState('empty');
         return;
       }
+
       renderPayments(rows);
       setPayState('ready');
     }catch(e){
@@ -1183,7 +1199,6 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     }
   }
 
-  // ===== Delegación global =====
   document.addEventListener('click', function(e){
     const tog = e.target.closest('[data-mc-toggle]');
     if(tog){
@@ -1193,13 +1208,13 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     }
 
     if (e.target.closest('[data-open-billing-modal]')) { e.preventDefault(); openBilling(); return; }
-    if (e.target.closest('[data-close-billing-modal]')){ e.preventDefault(); closeBilling(); return; }
+    if (e.target.closest('[data-close-billing-modal]')) { e.preventDefault(); closeBilling(); return; }
 
     if (e.target.closest('[data-open-config-modal]')) { e.preventDefault(); openConfig(); return; }
-    if (e.target.closest('[data-close-config-modal]')){ e.preventDefault(); closeConfig(); return; }
+    if (e.target.closest('[data-close-config-modal]')) { e.preventDefault(); closeConfig(); return; }
 
     if (e.target.closest('[data-open-payments-modal]')) { e.preventDefault(); openPayments(); loadPayments(); return; }
-    if (e.target.closest('[data-close-payments-modal]')){ e.preventDefault(); closePayments(); return; }
+    if (e.target.closest('[data-close-payments-modal]')) { e.preventDefault(); closePayments(); return; }
 
     const invOpen = e.target.closest('[data-open-invoices-modal]');
     if (invOpen){
@@ -1216,13 +1231,16 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     }
 
     const refresh = e.target.closest('[data-refresh-payments]');
-    if (refresh){ e.preventDefault(); loadPayments(); return; }
+    if (refresh){
+      e.preventDefault();
+      loadPayments();
+      return;
+    }
 
     const tab = e.target.closest('[data-mc-tab]');
     if(tab && configModal && configModal.contains(tab)){
       e.preventDefault();
       handleConfigTab(tab);
-      return;
     }
   });
 
@@ -1236,12 +1254,14 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     });
   }
 
-  [billingModal, configModal, paymentsModal, invoicesModal].forEach((dlg)=>{
+  [billingModal, configModal, paymentsModal, invoicesModal].forEach((dlg) => {
     if(!dlg) return;
+
     dlg.addEventListener('cancel', function(ev){
       ev.preventDefault();
       safeClose(dlg);
     });
+
     dlg.addEventListener('close', function(){
       const anyOpen = !!(
         billingModal?.open || configModal?.open || paymentsModal?.open || invoicesModal?.open ||
@@ -1251,25 +1271,29 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     });
   });
 
-  // ===== Preview UI mínimo: solo acento =====
   const brandAccentInput = document.getElementById('brandAccentInput');
+
   function applyAccent(hex){
     const v = (hex || '').trim() || '#E11D48';
     document.documentElement.style.setProperty('--mc-accent', v);
     const header = document.querySelector('.mc-card.mc-header');
     if (header) header.style.setProperty('--mc-accent', v);
   }
+
   applyAccent(@json($brandAccent));
+
   if (brandAccentInput){
     brandAccentInput.addEventListener('input', function(){
       applyAccent(brandAccentInput.value);
     });
   }
 
-  // Si vienes con errores de validación del billing modal, abrimos el billing modal automáticamente
-  const hasErrors = @json($errors->any());
-  if (hasErrors){
+  if (openModalOnLoad === 'billing') {
     openBilling();
+  } else if (openModalOnLoad === 'config') {
+    openConfig(openConfigTabOnLoad || 'brand');
+  } else if (openModalOnLoad === 'invoices' && rtInvoicesModal) {
+    openInvoices(rtInvoicesModal);
   }
 })();
 </script>

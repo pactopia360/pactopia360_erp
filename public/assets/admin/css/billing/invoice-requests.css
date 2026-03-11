@@ -412,3 +412,12 @@ html.p360-modal-open, body.p360-modal-open{ overflow:hidden !important; }
   .p360-invoice-requests .cardMeta{ display:grid; gap:6px; margin-top:10px; }
   .p360-invoice-requests .cardMeta .mut{ font-size:12px; }
 }
+
+.p360-invoice-requests .btn.success{
+  background:#16a34a;
+  color:#fff;
+  border-color:#16a34a;
+}
+.p360-invoice-requests .btn.success:hover{
+  filter:brightness(.96);
+}

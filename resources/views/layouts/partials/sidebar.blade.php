@@ -1,5 +1,10 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\layouts\partials\sidebar.blade.php --}}
-{{-- Nebula Sidebar v7.0 · Compatible con admin.blade.php v3.0 · FIX: no auto-referencia vars --}}
+{{-- Nebula Sidebar v7.1 · Compatible con admin.blade.php v3.0 · FIX: no auto-referencia vars --}}
+{{-- UPDATE 2026-03-10:
+   - Se integra módulo Facturación Admin dentro de Billing SaaS
+   - Usa rutas reales admin.billing.invoicing.*
+   - Mantiene Solicitudes de factura legacy + nuevo submódulo operativo
+--}}
 
 @php
   use Illuminate\Support\Facades\Route;
@@ -154,17 +159,37 @@ $menu = [
 
       [
         'text'=>'Billing SaaS','icon'=>'💳','id'=>'billing-saas',
-        'active_when'=>['admin.billing.*','admin.config.param.stripe_prices.*','admin.config.param.licencias.*','admin.sat.*'],
+        'active_when'=>[
+          'admin.billing.*',
+          'admin.config.param.stripe_prices.*',
+          'admin.config.param.licencias.*',
+          'admin.sat.*'
+        ],
         'children'=>[
-          // ✅ (Integración a Admin -> Clientes) Se oculta el módulo "Cuentas (Licencias)" del menú
-          //    SIN eliminar rutas ni lógica (evita "truene" cualquier link directo / controller / jobs).
-          //    La administración de licencias se moverá a "Administración -> Usuarios -> Clientes".
-          //
+          // ✅ Se mantiene oculto el link de cuentas/licencias directo
           // ['text'=>'Cuentas (Licencias)','icon'=>'👤','route'=>'admin.billing.accounts.index','active_when'=>['admin.billing.accounts.*']],
 
           ['text'=>'Estados de cuenta','icon'=>'🧾','route'=>'admin.billing.statements.index','active_when'=>['admin.billing.statements.*']],
           ['text'=>'Pagos','icon'=>'💰','route'=>'admin.billing.payments.index','active_when'=>['admin.billing.payments.*']],
-          ['text'=>'Solicitudes de factura','icon'=>'🧷','route'=>'admin.billing.invoices.requests.index','active_when'=>['admin.billing.invoices.*']],
+
+          // ✅ Legacy / directo
+          ['text'=>'Solicitudes de factura','icon'=>'🧷','route'=>'admin.billing.invoices.requests.index','active_when'=>['admin.billing.invoices.requests.*']],
+
+          // ✅ NUEVO MÓDULO FACTURACIÓN ADMIN
+          [
+            'text'=>'Facturación Admin',
+            'icon'=>'🧾',
+            'id'=>'billing-invoicing-admin',
+            'active_when'=>['admin.billing.invoicing.*'],
+            'children'=>[
+              ['text'=>'Dashboard','icon'=>'📊','route'=>'admin.billing.invoicing.dashboard','active_when'=>['admin.billing.invoicing.dashboard']],
+              ['text'=>'Solicitudes','icon'=>'🧷','route'=>'admin.billing.invoicing.requests.index','active_when'=>['admin.billing.invoicing.requests.*']],
+              ['text'=>'Facturas emitidas','icon'=>'📄','route'=>'admin.billing.invoicing.invoices.index','active_when'=>['admin.billing.invoicing.invoices.*']],
+              ['text'=>'Configuración','icon'=>'⚙️','route'=>'admin.billing.invoicing.settings.index','active_when'=>['admin.billing.invoicing.settings.*']],
+              ['text'=>'Logs','icon'=>'📜','route'=>'admin.billing.invoicing.logs.index','active_when'=>['admin.billing.invoicing.logs.*']],
+            ],
+          ],
+
           ['text'=>'Precios Stripe (catálogo)','icon'=>'🏷️','route'=>'admin.config.param.stripe_prices.index','active_when'=>['admin.config.param.stripe_prices.*']],
           ['text'=>'Licencias por cuenta (meta)','icon'=>'🧩','route'=>'admin.config.param.licencias.index','active_when'=>['admin.config.param.licencias.*']],
 
@@ -172,63 +197,53 @@ $menu = [
           ['text'=>'SAT · Lista de precios','icon'=>'📦','route'=>'admin.sat.prices.index','active_when'=>['admin.sat.prices.*']],
           ['text'=>'SAT · Códigos descuento','icon'=>'🎟️','route'=>'admin.sat.discounts.index','active_when'=>['admin.sat.discounts.*']],
 
-          // ✅ SAT Backoffice (Operación) — nuevo módulo admin.sat.ops.*
+          // ✅ SAT Backoffice
           ['text'=>'SAT · Operación','icon'=>'🛰️','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
         ],
       ],
 
-      // ✅ NUEVO: FINANZAS
       [
         'text'=>'Finanzas',
         'icon'=>'📒',
         'id'=>'finanzas',
         'active_when'=>['admin.finance.*','admin.finanzas.*'],
         'children'=>[
-
-          // Base actual
           [
             'text'=>'Centro de costos',
             'icon'=>'🧩',
             'route'=>'admin.finance.cost_centers.index',
             'active_when'=>['admin.finance.cost_centers.*']
           ],
-
           [
             'text'=>'Ingresos (Resumen)',
             'icon'=>'💹',
             'route'=>'admin.finance.income.index',
             'active_when'=>['admin.finance.income.*']
           ],
-
           [
             'text'=>'Egresos',
             'icon'=>'💸',
             'route'=>'admin.finance.expenses.index',
             'active_when'=>['admin.finance.expenses.*']
           ],
-
-          // 🔥 NUEVOS MÓDULOS
           [
             'text'=>'Ventas (CRUD)',
             'icon'=>'🧾',
             'route'=>'admin.finance.sales.index',
             'active_when'=>['admin.finance.sales.*']
           ],
-
           [
             'text'=>'Vendedores',
             'icon'=>'🧑‍💼',
             'route'=>'admin.finance.vendors.index',
             'active_when'=>['admin.finance.vendors.*']
           ],
-
           [
             'text'=>'Comisiones',
             'icon'=>'🎯',
             'route'=>'admin.finance.commissions.index',
             'active_when'=>['admin.finance.commissions.*']
           ],
-
           [
             'text'=>'Proyecciones',
             'icon'=>'📈',
@@ -237,8 +252,6 @@ $menu = [
           ],
         ],
       ],
-
-
 
       ['text'=>'Soporte','icon'=>'🧰','children'=>[
         ['text'=>'Tickets','route'=>'admin.soporte.tickets.index'],
@@ -475,7 +488,6 @@ $menu = [
 </aside>
 
 <style>
-  /* (ESTILOS SIN CAMBIOS) */
   :root{
     --ns-w:  var(--sidebar-w, {{ (int)$EXPANDED_WIDTH_PX }}px);
     --ns-wc: var(--sidebar-w-collapsed, {{ (int)$COLLAPSED_WIDTH_PX }}px);
@@ -509,7 +521,6 @@ $menu = [
   overflow: hidden;
   z-index: 1100;
 
-  /* ✅ ALINEACIÓN CON HEADER */
   position: fixed;
   left: 0;
   top: var(--header-h, 0px);
@@ -582,7 +593,6 @@ $menu = [
     box-shadow: 0 12px 36px rgba(0,0,0,.22);
     z-index: 1600;
 
-    /* ✅ ALINEADO AL HEADER TAMBIÉN EN MÓVIL */
     position: fixed;
     left: 0;
     top: var(--header-h, 0px);
@@ -606,7 +616,6 @@ $menu = [
 </style>
 
 <script>
-/* (SCRIPT SIN CAMBIOS) */
 (function(w,d){
   'use strict';
 
@@ -618,11 +627,11 @@ $menu = [
   const BCK  = d.getElementById('nsBackdrop');
   if(!SB || !M1 || !M2) return;
 
-  const KEY_MODE   = 'p360.sidebar.mode.v7';         // expanded|collapsed
-  const KEY_OPEN   = 'p360.sidebar.open.v7';         // 1|0 (mobile)
-  const KEY_GROUPS = 'p360.sidebar.groups.v7';       // details open map
-  const KEY_PINS   = 'p360.sidebar.pins.v7';         // favorites list
-  const KEY_TAB    = 'p360.sidebar.tab.v7';          // curated|auto
+  const KEY_MODE   = 'p360.sidebar.mode.v7';
+  const KEY_OPEN   = 'p360.sidebar.open.v7';
+  const KEY_GROUPS = 'p360.sidebar.groups.v7';
+  const KEY_PINS   = 'p360.sidebar.pins.v7';
+  const KEY_TAB    = 'p360.sidebar.tab.v7';
 
   const isDesktop = ()=> w.matchMedia('(min-width:1024px)').matches;
 

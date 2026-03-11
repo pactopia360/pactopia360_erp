@@ -8,17 +8,21 @@ namespace App\Http\Controllers\Cliente\MiCuenta;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 
 final class FacturasController extends Controller
 {
     /**
-     * Lista solicitudes de facturas (SOT: mysql_admin.invoice_requests)
-     * Vista para iframe/modal.
+     * Lista solicitudes de facturas.
+     * SOT preferido:
+     * - billing_invoice_requests
+     * Fallback:
+     * - invoice_requests
      */
     public function index(Request $request)
     {
@@ -54,14 +58,8 @@ final class FacturasController extends Controller
             );
         }
 
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-
-        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-            Log::warning('[FACTURAS] invoice_requests missing in admin', [
-                'account_id' => $adminAccountId,
-                'src'        => $src,
-            ]);
-
+        [$table, $mode, $softError] = $this->resolveInvoiceRequestsTableForAccount((string) $adminAccountId);
+        if ($table === null) {
             $paginator = new LengthAwarePaginator(
                 collect(),
                 0,
@@ -78,63 +76,88 @@ final class FacturasController extends Controller
                 $perPage,
                 $adminAccountId,
                 $src,
-                'No existe la tabla invoice_requests en la base admin.'
+                $softError ?: 'No existe tabla de solicitudes de factura en admin.'
             );
         }
 
-        $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
+        $adm  = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $cols = Schema::connection($adm)->getColumnListing($table);
         $lc   = array_map('strtolower', $cols);
         $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
 
-        $fk = $this->adminFkColumn('invoice_requests');
+        $fk = $this->adminFkColumn($table);
         if (!$fk) {
-            $msg = 'Configuración incompleta: invoice_requests sin columna FK de cuenta.';
+            $msg = "Configuración incompleta: {$table} sin columna FK de cuenta.";
             return $this->renderHardError($request, $msg, $adminAccountId, $src);
         }
 
-        if (!$has('period')) {
-            $msg = 'Configuración incompleta: invoice_requests sin columna period.';
+        $periodCol = $has('period') ? 'period' : ($has('periodo') ? 'periodo' : null);
+        if (!$periodCol) {
+            $msg = "Configuración incompleta: {$table} sin columna period/periodo.";
             return $this->renderHardError($request, $msg, $adminAccountId, $src);
         }
+
+        $statusCol = $has('status') ? 'status' : ($has('estatus') ? 'estatus' : null);
+        $notesCol  = $has('notes') ? 'notes' : null;
+        $metaCol   = $has('meta') ? 'meta' : null;
 
         $orderCol = $has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]);
 
-        $notesCol = $has('notes') ? 'notes' : null;
-        $metaCol  = $has('meta') ? 'meta' : null;
-
         $zipPathCol = null;
-        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip'] as $c) {
-            if ($has($c)) { $zipPathCol = $c; break; }
+        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $c) {
+            if ($has($c)) {
+                $zipPathCol = $c;
+                break;
+            }
         }
-
-        $statusCol = $has('status') ? 'status' : null;
 
         $select = [];
         foreach (array_filter([
             $has('id') ? 'id' : null,
             $fk,
-            'period',
+            $periodCol,
             $statusCol,
             $zipPathCol,
             $notesCol,
             $metaCol,
+            $has('cfdi_uuid') ? 'cfdi_uuid' : null,
             $has('requested_at') ? 'requested_at' : null,
+            $has('zip_ready_at') ? 'zip_ready_at' : null,
+            $has('zip_sent_at') ? 'zip_sent_at' : null,
             $has('created_at') ? 'created_at' : null,
             $has('updated_at') ? 'updated_at' : null,
-        ]) as $c) $select[] = $c;
+        ]) as $c) {
+            $select[] = $c;
+        }
 
-        $query = DB::connection($adm)->table('invoice_requests')
-            ->where($fk, $adminAccountId);
+        $query = DB::connection($adm)->table($table)
+            ->where($fk, (string) $adminAccountId);
 
         if ($q !== '') {
-            $query->where(function ($w) use ($q, $has) {
-                $w->where('period', 'like', "%{$q}%");
-                if ($has('id')) $w->orWhere('id', 'like', "%{$q}%");
+            $query->where(function ($w) use ($q, $periodCol, $statusCol, $notesCol, $has) {
+                $w->where($periodCol, 'like', "%{$q}%");
+
+                if ($has('id')) {
+                    $w->orWhere('id', 'like', "%{$q}%");
+                }
+
+                if ($statusCol) {
+                    $w->orWhere($statusCol, 'like', "%{$q}%");
+                }
+
+                if ($notesCol) {
+                    $w->orWhere($notesCol, 'like', "%{$q}%");
+                }
+
+                if ($has('cfdi_uuid')) {
+                    $w->orWhere('cfdi_uuid', 'like', "%{$q}%");
+                }
             });
         }
 
         if ($status !== '' && $status !== 'all' && $statusCol) {
-            $query->where($statusCol, $status);
+            $wanted = $this->normalizeStatusForDb($status, $mode);
+            $query->where($statusCol, $wanted);
         }
 
         $page = (int) $request->get('page', 1);
@@ -147,34 +170,39 @@ final class FacturasController extends Controller
             ->forPage($page, $perPage)
             ->get($select);
 
-        $rows = $items->map(function ($it) use ($statusCol, $zipPathCol, $notesCol, $metaCol) {
-            $st = $statusCol ? strtolower((string) ($it->{$statusCol} ?? 'requested')) : 'requested';
+        $rows = $items->map(function ($it) use ($statusCol, $zipPathCol, $notesCol, $metaCol, $periodCol, $mode) {
+            $rawStatus = $statusCol ? strtolower(trim((string) ($it->{$statusCol} ?? 'requested'))) : 'requested';
+            $uiStatus  = $this->normalizeStatusForUi($rawStatus, $mode);
 
-            if (in_array($st, ['pending', 'solicitada'], true)) $st = 'requested';
-            if (in_array($st, ['processing', 'facturando', 'en_proceso', 'proceso'], true)) $st = 'in_progress';
-            if (in_array($st, ['done', 'completed', 'facturada', 'invoiced', 'issued', 'emitido', 'emitida'], true)) $st = 'done';
-
-            $zipPath = $zipPathCol ? (string) ($it->{$zipPathCol} ?? '') : '';
-            $hasZip  = trim($zipPath) !== '';
-
-            if ($hasZip && in_array($st, ['requested', 'in_progress'], true)) {
-                $st = 'done';
-            }
+            $zipPath = $zipPathCol ? trim((string) ($it->{$zipPathCol} ?? '')) : '';
+            $hasZip  = $zipPath !== '';
 
             $notes = $notesCol ? (string) ($it->{$notesCol} ?? '') : '';
+
             if ($notes === '' && $metaCol) {
-                $notes = '';
+                try {
+                    $meta = is_string($it->{$metaCol} ?? null)
+                        ? (json_decode((string) $it->{$metaCol}, true) ?: [])
+                        : (array) ($it->{$metaCol} ?? []);
+
+                    $notes = (string) (data_get($meta, 'notes', '') ?: '');
+                } catch (\Throwable $e) {
+                    $notes = '';
+                }
             }
 
             return (object) [
-                'id'         => (int) ($it->id ?? 0),
-                'period'     => (string) ($it->period ?? ''),
-                'status'     => $st,
-                'notes'      => $notes,
-                'has_zip'    => $hasZip,
-                'zip_path'   => $zipPath,
-                'created_at' => $it->created_at ?? ($it->requested_at ?? null),
-                'updated_at' => $it->updated_at ?? null,
+                'id'           => (int) ($it->id ?? 0),
+                'period'       => (string) ($it->{$periodCol} ?? ''),
+                'status'       => $uiStatus,
+                'notes'        => $notes,
+                'cfdi_uuid'    => (string) ($it->cfdi_uuid ?? ''),
+                'has_zip'      => $hasZip,
+                'zip_path'     => $zipPath,
+                'created_at'   => $it->created_at ?? ($it->requested_at ?? null),
+                'updated_at'   => $it->updated_at ?? null,
+                'zip_ready_at' => $it->zip_ready_at ?? null,
+                'zip_sent_at'  => $it->zip_sent_at ?? null,
             ];
         });
 
@@ -186,7 +214,7 @@ final class FacturasController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return $this->render($request, $paginator, $q, $status, $perPage, $adminAccountId, $src);
+        return $this->render($request, $paginator, $q, $status, $perPage, $adminAccountId, $src, $softError);
     }
 
     public function show(Request $request, int $id)
@@ -198,30 +226,68 @@ final class FacturasController extends Controller
             return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
         }
 
+        [$table, $mode, $softError] = $this->resolveInvoiceRequestsTableForAccount((string) $adminAccountId);
+        if ($table === null) {
+            return $this->renderHardError(
+                $request,
+                $softError ?: 'No existe tabla de solicitudes de factura en admin.',
+                $adminAccountId,
+                $src
+            );
+        }
+
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-            return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
-        }
+        $fk  = $this->adminFkColumn($table);
 
-        $fk = $this->adminFkColumn('invoice_requests');
         if (!$fk) {
-            return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
+            return $this->renderHardError($request, "{$table} sin FK de cuenta.", $adminAccountId, $src);
         }
 
-        $row = DB::connection($adm)->table('invoice_requests')
-            ->where($fk, $adminAccountId)
+        $row = DB::connection($adm)->table($table)
+            ->where($fk, (string) $adminAccountId)
             ->where('id', $id)
             ->first();
 
-        if (!$row) abort(404, 'Solicitud no encontrada.');
+        if (!$row) {
+            $other = $table === 'billing_invoice_requests' ? 'invoice_requests' : 'billing_invoice_requests';
+            if (Schema::connection($adm)->hasTable($other)) {
+                $otherFk = $this->adminFkColumn($other);
+                if ($otherFk) {
+                    $row = DB::connection($adm)->table($other)
+                        ->where($otherFk, (string) $adminAccountId)
+                        ->where('id', $id)
+                        ->first();
+
+                    if ($row) {
+                        $table = $other;
+                        $mode  = $table === 'billing_invoice_requests' ? 'hub' : 'legacy';
+                    }
+                }
+            }
+        }
+
+        if (!$row) {
+            abort(404, 'Solicitud no encontrada.');
+        }
 
         if ($request->expectsJson()) {
-            return response()->json(['ok' => true, 'row' => $row]);
+            return response()->json([
+                'ok'    => true,
+                'row'   => $row,
+                'mode'  => $mode,
+                'table' => $table,
+            ]);
         }
 
         $view = 'cliente.mi_cuenta.facturas.show';
         if (view()->exists($view)) {
-            return view($view, ['row' => $row, 'accountId' => $adminAccountId, 'source' => $src]);
+            return view($view, [
+                'row'       => $row,
+                'accountId' => $adminAccountId,
+                'source'    => $src,
+                'mode'      => $mode,
+                'table'     => $table,
+            ]);
         }
 
         return response(
@@ -232,14 +298,17 @@ final class FacturasController extends Controller
     }
 
     /**
-     * ✅ FIX: crear la solicitud en mysql_admin.invoice_requests (lo que index() lista)
-     * y regresar al modal con embed=1 para que se vea la línea inmediatamente.
+     * Crea solicitud en tabla canónica:
+     * - billing_invoice_requests
+     * fallback:
+     * - invoice_requests
+     * y sincroniza espejo si existe.
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'period'   => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
-            'notes'    => ['nullable', 'string', 'max:500'],
+            'notes'    => ['nullable', 'string', 'max:5000'],
             'embed'    => ['nullable'],
             'q'        => ['nullable'],
             'status'   => ['nullable'],
@@ -256,43 +325,43 @@ final class FacturasController extends Controller
             return back()->withErrors(['period' => 'No se pudo resolver la cuenta (admin_account_id).'])->withInput();
         }
 
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-
-        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-            Log::warning('[FACTURAS][STORE] invoice_requests missing', [
-                'account_id' => $adminAccountId,
-                'src'        => $src,
-                'period'     => $period,
-            ]);
-
-            return back()->withErrors(['period' => 'No existe invoice_requests en la base admin.'])->withInput();
+        [$table, $mode, $softError] = $this->resolveInvoiceRequestsTableSmart(true);
+        if ($table === null) {
+            return back()->withErrors([
+                'period' => $softError ?: 'No existe tabla de solicitudes de factura en admin.'
+            ])->withInput();
         }
 
-        $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
+        $adm  = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $cols = Schema::connection($adm)->getColumnListing($table);
         $lc   = array_map('strtolower', $cols);
         $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
 
-        $fk = $this->adminFkColumn('invoice_requests');
+        $fk = $this->adminFkColumn($table);
         if (!$fk) {
-            return back()->withErrors(['period' => 'invoice_requests no tiene FK de cuenta.'])->withInput();
-        }
-        if (!$has('period')) {
-            return back()->withErrors(['period' => 'invoice_requests no tiene columna period.'])->withInput();
+            return back()->withErrors(['period' => "{$table} no tiene FK de cuenta."])->withInput();
         }
 
-        $statusCol = $has('status') ? 'status' : null;
+        $periodCol = $has('period') ? 'period' : ($has('periodo') ? 'periodo' : null);
+        if (!$periodCol) {
+            return back()->withErrors(['period' => "{$table} no tiene columna period/periodo."])->withInput();
+        }
+
+        $statusCol = $has('status') ? 'status' : ($has('estatus') ? 'estatus' : null);
         $notesCol  = $has('notes') ? 'notes' : null;
         $metaCol   = $has('meta') ? 'meta' : null;
 
-        // 🔒 Evitar duplicados por account+period (si ya existe, solo regresamos ok)
-        $existing = DB::connection($adm)->table('invoice_requests')
-            ->where($fk, $adminAccountId)
-            ->where('period', $period)
+        $queryExisting = DB::connection($adm)->table($table)
+            ->where($fk, (string) $adminAccountId)
+            ->where($periodCol, $period);
+
+        $existing = $queryExisting
             ->orderByDesc($has('id') ? 'id' : ($has('created_at') ? 'created_at' : $cols[0]))
-            ->first($has('id') ? ['id', 'period', $statusCol] : ['period', $statusCol]);
+            ->first($has('id') ? ['id', $periodCol] : [$periodCol]);
 
         if ($existing) {
             $id = (int) ($existing->id ?? 0);
+
             return redirect()->route('cliente.mi_cuenta.facturas.index', $this->keepQueryForEmbed($request))
                 ->with('ok', $id > 0
                     ? "Solicitud ya existente (#{$id}) para {$period}."
@@ -301,30 +370,54 @@ final class FacturasController extends Controller
         }
 
         $payload = [
-            $fk     => $adminAccountId,
-            'period'=> $period,
+            $fk        => (string) $adminAccountId,
+            $periodCol => $period,
         ];
 
-        if ($statusCol) $payload[$statusCol] = 'requested';
-        if ($notesCol)  $payload[$notesCol]  = $notesIn;
+        if ($statusCol) {
+            $payload[$statusCol] = 'requested';
+        }
 
-        // Si no hay notes pero sí meta, guardamos notas en meta básico
+        if ($notesCol) {
+            $payload[$notesCol] = $notesIn !== '' ? $notesIn : null;
+        }
+
         if (!$notesCol && $metaCol && $notesIn !== '') {
             $payload[$metaCol] = json_encode(['notes' => $notesIn], JSON_UNESCAPED_UNICODE);
+        }
+
+        if ($table === 'billing_invoice_requests' && $has('statement_id')) {
+            $statementId = $this->resolveStatementIdForInvoice($adminAccountId, $period);
+            if ($statementId <= 0) {
+                return back()->withErrors([
+                    'period' => 'No se pudo resolver billing_statements.id para esta solicitud.'
+                ])->withInput();
+            }
+            $payload['statement_id'] = $statementId;
         }
 
         if ($has('requested_at')) $payload['requested_at'] = now();
         if ($has('created_at'))   $payload['created_at']   = now();
         if ($has('updated_at'))   $payload['updated_at']   = now();
 
-        $newId = (int) DB::connection($adm)->table('invoice_requests')->insertGetId($payload);
+        $newId = (int) DB::connection($adm)->table($table)->insertGetId($payload);
 
-        Log::info('[FACTURAS][STORE] created invoice_request', [
+        Log::info('[FACTURAS][STORE] created invoice request', [
+            'table'      => $table,
+            'mode'       => $mode,
             'id'         => $newId,
             'account_id' => $adminAccountId,
             'src'        => $src,
             'period'     => $period,
         ]);
+
+        $this->syncMirrorTableAfterStore(
+            table: $table,
+            adminAccountId: (string) $adminAccountId,
+            period: $period,
+            notes: $notesIn,
+            requestId: $newId
+        );
 
         return redirect()->route('cliente.mi_cuenta.facturas.index', $this->keepQueryForEmbed($request))
             ->with('ok', $newId > 0
@@ -333,8 +426,7 @@ final class FacturasController extends Controller
             );
     }
 
-    
-     public function downloadZip(Request $request, int $id)
+    public function downloadZip(Request $request, int $id)
     {
         [$adminAccountId, $src] = $this->resolveAdminAccountId($request);
         $adminAccountId = is_numeric($adminAccountId) ? (int) $adminAccountId : 0;
@@ -343,46 +435,33 @@ final class FacturasController extends Controller
             return $this->renderHardError($request, 'Cuenta no encontrada (admin_account_id).', $adminAccountId, $src);
         }
 
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('invoice_requests')) {
-            return $this->renderHardError($request, 'No existe invoice_requests en base admin.', $adminAccountId, $src);
+        [$table, $mode, $softError] = $this->resolveInvoiceRequestsTableForAccount((string) $adminAccountId);
+        if ($table === null) {
+            return $this->renderHardError(
+                $request,
+                $softError ?: 'No existe tabla de solicitudes de factura en admin.',
+                $adminAccountId,
+                $src
+            );
         }
 
-        $fk = $this->adminFkColumn('invoice_requests');
-        if (!$fk) {
-            return $this->renderHardError($request, 'invoice_requests sin FK de cuenta.', $adminAccountId, $src);
+        $resolved = $this->resolveZipSourceRow((string) $adminAccountId, $id, $table);
+
+        if (!$resolved) {
+            $other = $table === 'billing_invoice_requests' ? 'invoice_requests' : 'billing_invoice_requests';
+            $resolved = $this->resolveZipSourceRow((string) $adminAccountId, $id, $other);
         }
 
-        // Columnas dinámicas
-        $cols = Schema::connection($adm)->getColumnListing('invoice_requests');
-        $lc   = array_map('strtolower', $cols);
-        $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
-
-        $zipPathCol = null;
-        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $c) {
-            if ($has($c)) { $zipPathCol = $c; break; }
-        }
-
-        if (!$zipPathCol) {
-            return $this->renderHardError($request, 'invoice_requests no tiene columna de ZIP (zip_path/file_path/factura_path/path/ruta_zip).', $adminAccountId, $src);
-        }
-
-        $diskCol = null;
-        foreach (['zip_disk', 'pdf_disk', 'disk', 'storage_disk'] as $c) {
-            if ($has($c)) { $diskCol = $c; break; }
-        }
-
-        $select = ['id', $fk, 'period', $zipPathCol];
-        if ($diskCol) $select[] = $diskCol;
-
-        $row = DB::connection($adm)->table('invoice_requests')
-            ->where($fk, $adminAccountId)
-            ->where('id', $id)
-            ->first($select);
-
-        if (!$row) {
+        if (!$resolved) {
             abort(404, 'Solicitud no encontrada.');
         }
+
+        $table     = $resolved['table'];
+        $mode      = $table === 'billing_invoice_requests' ? 'hub' : 'legacy';
+        $row       = $resolved['row'];
+        $periodCol = $resolved['period_col'];
+        $zipPathCol= $resolved['zip_path_col'];
+        $diskCol   = $resolved['disk_col'];
 
         $rawPath = trim((string) ($row->{$zipPathCol} ?? ''));
         if ($rawPath === '') {
@@ -392,34 +471,30 @@ final class FacturasController extends Controller
         $disk = $diskCol ? trim((string) ($row->{$diskCol} ?? '')) : '';
         if ($disk === '') $disk = 'public';
 
-        // Normaliza "disk:path" si viene así
         if (preg_match('/^([a-zA-Z0-9_\-]+)\s*:\s*(.+)$/', $rawPath, $m)) {
             $disk    = trim($m[1]) !== '' ? trim($m[1]) : $disk;
             $rawPath = trim($m[2]);
         }
 
-        // Normaliza rutas típicas
         $path = ltrim($rawPath, '/');
 
-        // Si guardaron URL /storage/...
         if (str_starts_with($path, 'storage/')) {
             $path = ltrim(substr($path, strlen('storage/')), '/');
         }
 
-        // Si guardaron "public/..."
         if (str_starts_with($path, 'public/')) {
             $path = ltrim(substr($path, strlen('public/')), '/');
             if ($disk === '') $disk = 'public';
         }
 
-        // Si guardaron "app/public/..."
         if (str_starts_with($path, 'app/public/')) {
             $path = ltrim(substr($path, strlen('app/public/')), '/');
             if ($disk === '') $disk = 'public';
         }
 
-        // Logging de diagnóstico (solo server)
         Log::info('[FACTURAS][ZIP] download attempt', [
+            'table'              => $table,
+            'mode'               => $mode,
             'invoice_request_id' => $id,
             'account_id'         => $adminAccountId,
             'src'                => $src,
@@ -427,12 +502,13 @@ final class FacturasController extends Controller
             'col'                => $zipPathCol,
             'raw'                => $rawPath,
             'path'               => $path,
-            'period'             => (string) ($row->period ?? ''),
+            'period'             => (string) ($row->{$periodCol} ?? ''),
         ]);
 
         try {
-            if (!\Storage::disk($disk)->exists($path)) {
+            if (!Storage::disk($disk)->exists($path)) {
                 Log::warning('[FACTURAS][ZIP] not found on disk', [
+                    'table'              => $table,
                     'invoice_request_id' => $id,
                     'account_id'         => $adminAccountId,
                     'disk'               => $disk,
@@ -441,16 +517,15 @@ final class FacturasController extends Controller
                 abort(404, 'ZIP no encontrado (storage).');
             }
 
-            $period = (string) ($row->period ?? '');
-            $name = 'Factura';
-            if ($period !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)) {
-                $name = 'Factura_' . $period;
-            }
-            $filename = $name . '.zip';
+            $period = (string) ($row->{$periodCol} ?? '');
+            $filename = $period !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)
+                ? 'Factura_' . $period . '.zip'
+                : 'Factura.zip';
 
-            return \Storage::disk($disk)->download($path, $filename);
+            return Storage::disk($disk)->download($path, $filename);
         } catch (\Throwable $e) {
             Log::error('[FACTURAS][ZIP] download failed', [
+                'table'              => $table,
                 'invoice_request_id' => $id,
                 'account_id'         => $adminAccountId,
                 'disk'               => $disk,
@@ -460,9 +535,6 @@ final class FacturasController extends Controller
             abort(500, 'No se pudo descargar el ZIP.');
         }
     }
-    // =========================
-    // Helpers
-    // =========================
 
     private function render(
         Request $request,
@@ -476,11 +548,11 @@ final class FacturasController extends Controller
     ) {
         $embed = ((string) $request->get('embed', '') === '1');
 
-        // ✅ Soporta ambos nombres (tú tienes facturas_modal.blade.php)
         $candidatesEmbed = [
             'cliente.mi_cuenta.facturas.modal',
             'cliente.mi_cuenta.facturas_modal',
         ];
+
         $candidatesFull = [
             'cliente.mi_cuenta.facturas.index',
             'cliente.mi_cuenta.facturas_index',
@@ -490,13 +562,19 @@ final class FacturasController extends Controller
 
         if ($embed) {
             foreach ($candidatesEmbed as $v) {
-                if (view()->exists($v)) { $view = $v; break; }
+                if (view()->exists($v)) {
+                    $view = $v;
+                    break;
+                }
             }
         }
 
         if (!$view) {
             foreach ($candidatesFull as $v) {
-                if (view()->exists($v)) { $view = $v; break; }
+                if (view()->exists($v)) {
+                    $view = $v;
+                    break;
+                }
             }
         }
 
@@ -516,7 +594,6 @@ final class FacturasController extends Controller
             ]);
         }
 
-        // Fallback HTML simple
         $html = '<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px">';
         $html .= '<h3 style="margin:0 0 6px">Facturas</h3>';
         $html .= '<div style="color:#64748b;margin:0 0 12px">Solicitudes de factura y archivos generados.</div>';
@@ -532,6 +609,7 @@ final class FacturasController extends Controller
 
         /** @var Collection $items */
         $items = collect($rows->items());
+
         if ($items->isEmpty()) {
             $html .= '<div style="color:#64748b">Aún no hay solicitudes.</div>';
         } else {
@@ -572,6 +650,139 @@ final class FacturasController extends Controller
         abort(500, $message);
     }
 
+    /**
+     * Tabla canónica:
+     * - billing_invoice_requests
+     * fallback:
+     * - invoice_requests
+     *
+     * @return array{0:?string,1:string,2:?string}
+     */
+    private function resolveInvoiceRequestsTableSmart(bool $preferHub = true): array
+    {
+        $adm       = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $hasHub    = Schema::connection($adm)->hasTable('billing_invoice_requests');
+        $hasLegacy = Schema::connection($adm)->hasTable('invoice_requests');
+
+        if (!$hasHub && !$hasLegacy) {
+            return [null, 'missing', 'No existe billing_invoice_requests ni invoice_requests en la base admin.'];
+        }
+
+        if ($preferHub && $hasHub) {
+            return ['billing_invoice_requests', 'hub', null];
+        }
+
+        if ($hasLegacy) {
+            return ['invoice_requests', 'legacy', $hasHub ? 'Mostrando tabla legacy por compatibilidad.' : null];
+        }
+
+        if ($hasHub) {
+            return ['billing_invoice_requests', 'hub', null];
+        }
+
+        return [null, 'missing', 'No existe tabla de solicitudes de factura.'];
+    }
+
+    /**
+     * Elige tabla por cuenta:
+     * - prioriza la que tenga registros para esa cuenta
+     * - si ambas tienen, prioriza hub
+     *
+     * @return array{0:?string,1:string,2:?string}
+     */
+    private function resolveInvoiceRequestsTableForAccount(string $adminAccountId): array
+    {
+        [$table, $mode, $softError] = $this->resolveInvoiceRequestsTableSmart(true);
+        if ($table === null) {
+            return [$table, $mode, $softError];
+        }
+
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        $hasHub    = Schema::connection($adm)->hasTable('billing_invoice_requests');
+        $hasLegacy = Schema::connection($adm)->hasTable('invoice_requests');
+
+        $hubCount = 0;
+        $legacyCount = 0;
+
+        if ($hasHub) {
+            $fkHub = $this->adminFkColumn('billing_invoice_requests');
+            if ($fkHub) {
+                $hubCount = (int) DB::connection($adm)->table('billing_invoice_requests')
+                    ->where($fkHub, $adminAccountId)
+                    ->count();
+            }
+        }
+
+        if ($hasLegacy) {
+            $fkLegacy = $this->adminFkColumn('invoice_requests');
+            if ($fkLegacy) {
+                $legacyCount = (int) DB::connection($adm)->table('invoice_requests')
+                    ->where($fkLegacy, $adminAccountId)
+                    ->count();
+            }
+        }
+
+        if ($hubCount > 0) {
+            return ['billing_invoice_requests', 'hub', null];
+        }
+
+        if ($legacyCount > 0) {
+            return ['invoice_requests', 'legacy', $hasHub ? 'Mostrando tabla legacy por compatibilidad.' : null];
+        }
+
+        return [$table, $mode, $softError];
+    }
+
+    private function normalizeStatusForDb(string $status, string $mode): string
+    {
+        $s = strtolower(trim($status));
+
+        $map = [
+            'requested'   => 'requested',
+            'solicitada'  => 'requested',
+            'solicitado'  => 'requested',
+            'pending'     => 'requested',
+
+            'in_progress' => 'in_progress',
+            'processing'  => 'in_progress',
+            'proceso'     => 'in_progress',
+            'en_proceso'  => 'in_progress',
+            'en proceso'  => 'in_progress',
+
+            'done'        => $mode === 'hub' ? 'issued' : 'done',
+            'issued'      => $mode === 'hub' ? 'issued' : 'done',
+            'emitida'     => $mode === 'hub' ? 'issued' : 'done',
+            'emitido'     => $mode === 'hub' ? 'issued' : 'done',
+            'facturada'   => $mode === 'hub' ? 'issued' : 'done',
+            'invoiced'    => $mode === 'hub' ? 'issued' : 'done',
+
+            'rejected'    => 'rejected',
+            'rechazada'   => 'rejected',
+            'rechazado'   => 'rejected',
+
+            'error'       => 'error',
+            'failed'      => 'error',
+        ];
+
+        return $map[$s] ?? 'requested';
+    }
+
+    private function normalizeStatusForUi(string $status, string $mode): string
+    {
+        $s = strtolower(trim($status));
+
+        if (in_array($s, ['pending', 'solicitada', 'solicitado'], true)) return 'requested';
+        if (in_array($s, ['processing', 'facturando', 'en_proceso', 'en proceso', 'proceso'], true)) return 'in_progress';
+        if (in_array($s, ['done', 'completed', 'facturada', 'invoiced', 'issued', 'emitido', 'emitida'], true)) return 'done';
+        if (in_array($s, ['rejected', 'rechazada', 'rechazado'], true)) return 'rejected';
+        if (in_array($s, ['error', 'failed'], true)) return 'error';
+
+        if ($mode === 'hub' && $s === 'issued') return 'done';
+
+        return $s !== '' ? $s : 'requested';
+    }
+
     private function resolveAdminAccountId(Request $req): array
     {
         $u = Auth::guard('web')->user();
@@ -608,9 +819,13 @@ final class FacturasController extends Controller
             return [0, ''];
         };
 
-        // 0) Param explícito si llegara (por compat)
         $routeAccountId = null;
-        try { $routeAccountId = $req->route('account_id'); } catch (\Throwable $e) { $routeAccountId = null; }
+        try {
+            $routeAccountId = $req->route('account_id');
+        } catch (\Throwable $e) {
+            $routeAccountId = null;
+        }
+
         $accountIdFromParam =
             $toInt($routeAccountId)
             ?: $toInt($req->query('account_id'))
@@ -622,11 +837,12 @@ final class FacturasController extends Controller
             try {
                 $req->session()->put('billing.admin_account_id', (string) $accountIdFromParam);
                 $req->session()->put('billing.admin_account_src', 'param.account_id');
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
+
             return [(string) $accountIdFromParam, 'param.account_id'];
         }
 
-        // 1) cuenta cliente (UUID) desde sesión o desde usuarios_cuenta por email
         $clientCuentaIdRaw =
             $req->session()->get('client.cuenta_id')
             ?? $req->session()->get('cuenta_id')
@@ -640,6 +856,7 @@ final class FacturasController extends Controller
                 $email = strtolower(trim((string) ($u?->email ?? '')));
                 if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+
                     if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
                         $cols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
                         $lc   = array_map('strtolower', $cols);
@@ -656,25 +873,30 @@ final class FacturasController extends Controller
                             $orderCol = $has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]);
                             $q->orderByDesc($orderCol);
 
-                            $row = $q->first(['cuenta_id','email']);
+                            $row = $q->first(['cuenta_id', 'email']);
                             $cid = $toStr($row?->cuenta_id ?? '');
+
                             if ($cid !== '') {
                                 $clientCuentaId = $cid;
-                                try { $req->session()->put('client.cuenta_id', $clientCuentaId); } catch (\Throwable $e) {}
+                                try {
+                                    $req->session()->put('client.cuenta_id', $clientCuentaId);
+                                } catch (\Throwable $e) {
+                                }
                             }
                         }
                     }
                 }
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
         }
 
-        // 2) resolver admin_account_id desde cuentas_cliente
         $adminFromClientCuenta = 0;
         $adminFromClientSrc    = '';
 
         if ($clientCuentaId !== '') {
             try {
                 $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+
                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
                     $lc   = array_map('strtolower', $cols);
@@ -693,41 +915,59 @@ final class FacturasController extends Controller
                     if ($asInt > 0) $q->orWhere('id', $asInt);
 
                     if ($has('meta')) {
-                        foreach (['$.cuenta_uuid','$.cuenta.id','$.cuenta_id','$.uuid','$.public_id','$.cliente_uuid'] as $path) {
+                        foreach (['$.cuenta_uuid', '$.cuenta.id', '$.cuenta_id', '$.uuid', '$.public_id', '$.cliente_uuid'] as $path) {
                             $q->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(meta, ?)) = ?", [$path, $clientCuentaId]);
                         }
                     }
 
                     $cc = $q->first();
+
                     if ($cc) {
                         if ($has('admin_account_id')) {
                             $aid = $toInt($cc->admin_account_id ?? null);
-                            if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.admin_account_id'; }
+                            if ($aid > 0) {
+                                $adminFromClientCuenta = $aid;
+                                $adminFromClientSrc = 'cuentas_cliente.admin_account_id';
+                            }
                         }
+
                         if ($adminFromClientCuenta <= 0 && $has('account_id')) {
                             $aid = $toInt($cc->account_id ?? null);
-                            if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.account_id'; }
+                            if ($aid > 0) {
+                                $adminFromClientCuenta = $aid;
+                                $adminFromClientSrc = 'cuentas_cliente.account_id';
+                            }
                         }
+
                         if ($adminFromClientCuenta <= 0 && $has('meta') && isset($cc->meta)) {
                             try {
-                                $meta = is_string($cc->meta) ? (json_decode((string)$cc->meta, true) ?: []) : (array)$cc->meta;
+                                $meta = is_string($cc->meta) ? (json_decode((string) $cc->meta, true) ?: []) : (array) $cc->meta;
                                 $aid  = $toInt(data_get($meta, 'admin_account_id'));
-                                if ($aid > 0) { $adminFromClientCuenta = $aid; $adminFromClientSrc = 'cuentas_cliente.meta.admin_account_id'; }
-                            } catch (\Throwable $e) {}
+                                if ($aid > 0) {
+                                    $adminFromClientCuenta = $aid;
+                                    $adminFromClientSrc = 'cuentas_cliente.meta.admin_account_id';
+                                }
+                            } catch (\Throwable $e) {
+                            }
                         }
                     }
                 }
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
         }
 
-        // 3) fallbacks por relación/field/session (namespaced primero)
         $adminFromUserRel = 0;
         try {
             if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-                try { $u->load('cuenta'); } catch (\Throwable $e) {}
+                try {
+                    $u->load('cuenta');
+                } catch (\Throwable $e) {
+                }
             }
             $adminFromUserRel = $toInt($u?->cuenta?->admin_account_id ?? null);
-        } catch (\Throwable $e) { $adminFromUserRel = 0; }
+        } catch (\Throwable $e) {
+            $adminFromUserRel = 0;
+        }
 
         $adminFromUserField = $toInt($u?->admin_account_id ?? null);
 
@@ -736,19 +976,18 @@ final class FacturasController extends Controller
             'verify.account_id',
             'paywall.account_id',
             'client.admin_account_id',
-            // genéricas al final
             'admin_account_id',
             'account_id',
             'client.account_id',
             'client_account_id',
         ]);
 
-        // 4) selección final
         if ($adminFromClientCuenta > 0) {
             try {
                 $req->session()->put('billing.admin_account_id', (string) $adminFromClientCuenta);
                 $req->session()->put('billing.admin_account_src', (string) ($adminFromClientSrc ?: 'cuentas_cliente'));
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
             return [(string) $adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
         }
 
@@ -756,7 +995,8 @@ final class FacturasController extends Controller
             try {
                 $req->session()->put('billing.admin_account_id', (string) $adminFromUserRel);
                 $req->session()->put('billing.admin_account_src', 'user.cuenta.admin_account_id');
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
             return [(string) $adminFromUserRel, 'user.cuenta.admin_account_id'];
         }
 
@@ -764,7 +1004,8 @@ final class FacturasController extends Controller
             try {
                 $req->session()->put('billing.admin_account_id', (string) $adminFromUserField);
                 $req->session()->put('billing.admin_account_src', 'user.admin_account_id');
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
             return [(string) $adminFromUserField, 'user.admin_account_id'];
         }
 
@@ -772,7 +1013,8 @@ final class FacturasController extends Controller
             try {
                 $req->session()->put('billing.admin_account_id', (string) $adminFromSessionDirect);
                 $req->session()->put('billing.admin_account_src', (string) ($sessionDirectSrc ?: 'session.direct'));
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+            }
             return [(string) $adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
         }
 
@@ -801,7 +1043,6 @@ final class FacturasController extends Controller
 
     private function keepQueryForEmbed(Request $request): array
     {
-        // ✅ Asegura que el modal se recargue en embed y conserve filtros
         return [
             'embed'    => '1',
             'q'        => (string) $request->input('q', $request->query('q', '')),
@@ -811,35 +1052,29 @@ final class FacturasController extends Controller
     }
 
     /**
-     * ✅ Resuelve/crea el billing_statements.id para account_id+period (admin).
-     * billing_invoice_requests.statement_id es NOT NULL -> SIEMPRE se debe mandar.
-     * FIX: SIEMPRE usa CANON admin_account_id (int) y evita crear statements con UUID.
+     * Resuelve/crea billing_statements.id para account_id+period.
+     * Solo se usa si la tabla hub tiene statement_id.
      */
     private function resolveStatementIdForInvoice(int $accountId, string $period): int
     {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-        $cli = (string) (config('p360.conn.clientes') ?: 'mysql_clientes');
 
         $period = trim((string) $period);
         if ($accountId <= 0 || $period === '') return 0;
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) return 0;
 
-        // En cliente, el $accountId que llega aquí DEBE ser admin_account_id.
-        // Pero por seguridad intentamos resolver canon si el schema lo permite.
-        $canon = (int) $accountId;
+        if (!Schema::connection($adm)->hasTable('billing_statements')) {
+            return 0;
+        }
 
-        // Si por alguna razón te llegara "cuentas_cliente.id" en vez de admin_account_id,
-        // aquí NO podemos (porque es int). Entonces mantenemos canon = $accountId.
-        // La resolución UUID->canon se hace ANTES, en tu resolver de admin_account_id.
-
-        $canonStr = (string) $canon;
+        $canonStr = (string) $accountId;
 
         $st = DB::connection($adm)->table('billing_statements')
             ->where('account_id', $canonStr)
             ->where('period', $period)
             ->first(['id']);
 
-        if ($st && isset($st->id) && (int)$st->id > 0) {
+        if ($st && isset($st->id) && (int) $st->id > 0) {
             return (int) $st->id;
         }
 
@@ -865,19 +1100,167 @@ final class FacturasController extends Controller
 
             $id = (int) DB::connection($adm)->getPdo()->lastInsertId();
             if ($id > 0) return $id;
-
         } catch (\Throwable $e) {
             $again = DB::connection($adm)->table('billing_statements')
                 ->where('account_id', $canonStr)
                 ->where('period', $period)
                 ->first(['id']);
 
-            if ($again && isset($again->id) && (int)$again->id > 0) {
+            if ($again && isset($again->id) && (int) $again->id > 0) {
                 return (int) $again->id;
             }
         }
 
         return 0;
     }
-    
+
+    /**
+     * Sincroniza la otra tabla si existe.
+     */
+    private function syncMirrorTableAfterStore(string $table, string $adminAccountId, string $period, string $notes, int $requestId): void
+    {
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        $mirror = $table === 'billing_invoice_requests'
+            ? 'invoice_requests'
+            : 'billing_invoice_requests';
+
+        if (!Schema::connection($adm)->hasTable($mirror)) {
+            return;
+        }
+
+        $fk = $this->adminFkColumn($mirror);
+        if (!$fk) {
+            return;
+        }
+
+        $cols = Schema::connection($adm)->getColumnListing($mirror);
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
+
+        $periodCol = $has('period') ? 'period' : ($has('periodo') ? 'periodo' : null);
+        if (!$periodCol) {
+            return;
+        }
+
+        $exists = DB::connection($adm)->table($mirror)
+            ->where($fk, $adminAccountId)
+            ->where($periodCol, $period)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $payload = [
+            $fk        => $adminAccountId,
+            $periodCol => $period,
+        ];
+
+        if ($has('status'))  $payload['status'] = $mirror === 'billing_invoice_requests' ? 'requested' : 'requested';
+        if ($has('estatus')) $payload['estatus'] = 'requested';
+        if ($has('notes'))   $payload['notes'] = $notes !== '' ? $notes : null;
+
+        if ($mirror === 'billing_invoice_requests' && $has('statement_id')) {
+            $statementId = $this->resolveStatementIdForInvoice((int) $adminAccountId, $period);
+            if ($statementId > 0) {
+                $payload['statement_id'] = $statementId;
+            } else {
+                return;
+            }
+        }
+
+        if ($has('requested_at')) $payload['requested_at'] = now();
+        if ($has('created_at'))   $payload['created_at']   = now();
+        if ($has('updated_at'))   $payload['updated_at']   = now();
+
+        try {
+            DB::connection($adm)->table($mirror)->insert($payload);
+
+            Log::info('[FACTURAS][STORE] mirrored invoice request', [
+                'source_table' => $table,
+                'mirror_table' => $mirror,
+                'source_id'    => $requestId,
+                'account_id'   => $adminAccountId,
+                'period'       => $period,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[FACTURAS][STORE] mirror insert failed', [
+                'source_table' => $table,
+                'mirror_table' => $mirror,
+                'source_id'    => $requestId,
+                'account_id'   => $adminAccountId,
+                'period'       => $period,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Busca la fila con ZIP en una tabla dada.
+     *
+     * @return array{table:string,row:object,period_col:string,zip_path_col:string,disk_col:?string}|null
+     */
+    private function resolveZipSourceRow(string $adminAccountId, int $id, string $table): ?array
+    {
+        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+
+        if (!Schema::connection($adm)->hasTable($table)) {
+            return null;
+        }
+
+        $fk = $this->adminFkColumn($table);
+        if (!$fk) {
+            return null;
+        }
+
+        $cols = Schema::connection($adm)->getColumnListing($table);
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c) => in_array(strtolower($c), $lc, true);
+
+        $periodCol = $has('period') ? 'period' : ($has('periodo') ? 'periodo' : null);
+        if (!$periodCol) {
+            return null;
+        }
+
+        $zipPathCol = null;
+        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $c) {
+            if ($has($c)) {
+                $zipPathCol = $c;
+                break;
+            }
+        }
+
+        if (!$zipPathCol) {
+            return null;
+        }
+
+        $diskCol = null;
+        foreach (['zip_disk', 'pdf_disk', 'disk', 'storage_disk'] as $c) {
+            if ($has($c)) {
+                $diskCol = $c;
+                break;
+            }
+        }
+
+        $select = ['id', $fk, $periodCol, $zipPathCol];
+        if ($diskCol) $select[] = $diskCol;
+
+        $row = DB::connection($adm)->table($table)
+            ->where($fk, $adminAccountId)
+            ->where('id', $id)
+            ->first($select);
+
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'table'        => $table,
+            'row'          => $row,
+            'period_col'   => $periodCol,
+            'zip_path_col' => $zipPathCol,
+            'disk_col'     => $diskCol,
+        ];
+    }
 }

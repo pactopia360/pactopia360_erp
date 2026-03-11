@@ -1,16 +1,6 @@
 <?php
 // C:\wamp64\www\pactopia360_erp\routes\admin.php
 // PACTOPIA360 · ADMIN routes (SOT)
-// ✅ Mejoras incluidas (v2026-03-05):
-// - FIX REAL: rutas fijas de /clientes/* antes de rutas dinámicas /clientes/{key}
-// - Mantiene route:cache safe (feature-flags por method_exists)
-// - Tracking billing OPEN/CLICK sin sesión/cookies
-// - PayLink público sin sesión/cookies
-// - Orden consistente
-// - CSRF bypass SOLO en local y SOLO en POST/DELETE sensibles
-// - /admin/clientes/{id} ya no hace loop (GET clientes/{key} → show/edit)
-// - /admin/clientes/sync-to-clientes GET compat nunca responde 404
-// - /admin/_cfg para diagnóstico rápido del contexto admin (cookie/guard/driver)
 
 declare(strict_types=1);
 
@@ -18,9 +8,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | Controladores ADMIN
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 use App\Http\Controllers\Admin\Auth\LoginController;
 use App\Http\Controllers\Admin\Auth\AdminPasswordResetController;
@@ -49,6 +39,12 @@ use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 // HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
 
+// Invoicing admin
+use App\Http\Controllers\Admin\Billing\InvoicingDashboardController;
+use App\Http\Controllers\Admin\Billing\InvoicesController;
+use App\Http\Controllers\Admin\Billing\InvoicingSettingsController;
+use App\Http\Controllers\Admin\Billing\InvoicingLogsController;
+
 // Usuarios admin (módulo)
 use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
 
@@ -76,17 +72,17 @@ use App\Http\Controllers\Admin\Finance\IncomeActionsController;
 use App\Http\Controllers\Admin\Finance\ExpensesActionsController;
 
 /*
-|---------------------------------------------------------------------------
-| CSRF middlewares (para quitar en local en algunos POST/DELETE)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| CSRF middlewares
+|--------------------------------------------------------------------------
 */
 use App\Http\Middleware\VerifyCsrfToken as AppCsrf;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken as FrameworkCsrf;
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | ENV + throttles
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -101,14 +97,13 @@ $thrDevPosts    = $isLocal ? 'throttle:60,1'  : 'throttle:30,1';
 $thrAdminPosts  = $isLocal ? 'throttle:60,1'  : 'throttle:12,1';
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | Helper permisos → middleware 'can:perm,<clave>'
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 if (!function_exists('perm_mw')) {
     function perm_mw(string|array $perm): array
     {
-        // En local: no forzamos permisos para poder trabajar rápido.
         if (app()->environment(['local', 'development', 'testing'])) {
             return [];
         }
@@ -119,9 +114,9 @@ if (!function_exists('perm_mw')) {
 }
 
 /*
-|---------------------------------------------------------------------------
-| Placeholder rápido (si falta una vista admin)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Placeholder rápido
+|--------------------------------------------------------------------------
 */
 if (!function_exists('admin_placeholder_view')) {
     function admin_placeholder_view(string $title, string $company = 'PACTOPIA 360')
@@ -142,9 +137,9 @@ if (!function_exists('admin_placeholder_view')) {
 }
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | Stack de middlewares a remover para endpoints públicos sin cookies/sesión
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 $noCookies = [
     \Illuminate\Cookie\Middleware\EncryptCookies::class,
@@ -156,17 +151,14 @@ $noCookies = [
 ];
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | Tracking público Billing (OPEN/CLICK) — SIN auth y SIN cookies/sesión
-| Ruta final (por prefix global del provider): /admin/t/billing/*
-| Names: admin.billing.hub.*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 Route::prefix('t/billing')
     ->name('billing.hub.')
     ->middleware('throttle:240,1')
     ->group(function () use ($noCookies) {
-
         Route::get('open/{emailId}', [BillingStatementsHubController::class, 'trackOpen'])
             ->where('emailId', '[A-Za-z0-9\-]+')
             ->withoutMiddleware($noCookies)
@@ -184,11 +176,9 @@ Route::prefix('t/billing')
     });
 
 /*
-|---------------------------------------------------------------------------
-| PayLink público (GET) para Estados de Cuenta (HUB)
-| Ruta final: /admin/billing/statements-hub/paylink
-| Name: admin.billing.hub.paylink
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| PayLink público HUB
+|--------------------------------------------------------------------------
 */
 Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::class, 'payLink'])
     ->middleware('throttle:240,1')
@@ -196,9 +186,9 @@ Route::get('billing/statements-hub/paylink', [BillingStatementsHubController::cl
     ->name('billing.hub.paylink');
 
 /*
-|---------------------------------------------------------------------------
-| UI (heartbeat, log)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| UI
+|--------------------------------------------------------------------------
 */
 Route::match(['GET', 'HEAD'], 'ui/heartbeat', [UiController::class, 'heartbeat'])
     ->middleware($thrUiHeartbeat)
@@ -213,9 +203,9 @@ if ($isLocal) {
 }
 
 /*
-|---------------------------------------------------------------------------
-| Diag rápido (admin context): /admin/_cfg
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Diag rápido
+|--------------------------------------------------------------------------
 */
 Route::get('_cfg', function () {
     return response()->json([
@@ -232,12 +222,9 @@ Route::get('_cfg', function () {
   ->name('cfg');
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | COMPAT GET: /admin/clientes/sync-to-clientes
-| - NUNCA debe responder 404.
-| - Si NO hay sesión admin => manda a /admin/login
-| - Si SÍ hay sesión admin => manda a /admin/clientes
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 Route::get('clientes/sync-to-clientes', function () {
     if (!auth('admin')->check()) {
@@ -249,15 +236,14 @@ Route::get('clientes/sync-to-clientes', function () {
   ->name('clientes.sync_to_clientes.get_compat');
 
 /*
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 | Auth admin (guest:admin + sesión aislada)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
 */
 Route::middleware([
     'admin',
     'guest:admin',
 ])->group(function () use ($isLocal, $thrLogin) {
-
     Route::get('login', [LoginController::class, 'showLogin'])->name('login');
 
     $loginPost = Route::post('login', [LoginController::class, 'login'])
@@ -287,18 +273,18 @@ Route::middleware([
 });
 
 /*
-|---------------------------------------------------------------------------
-| Notificaciones públicas (contador)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Notificaciones públicas
+|--------------------------------------------------------------------------
 */
 Route::match(['GET', 'HEAD'], 'notificaciones/count', [NotificationController::class, 'count'])
     ->middleware('throttle:60,1')
     ->name('notificaciones.count');
 
 /*
-|---------------------------------------------------------------------------
-| Área autenticada ADMIN (auth:admin + sesión aislada)
-|---------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+| Área autenticada ADMIN
+|--------------------------------------------------------------------------
 */
 Route::middleware([
     'admin',
@@ -312,12 +298,9 @@ Route::middleware([
     $thrAdminPosts,
     $isLocal
 ) {
-
-    /* ---------- Aliases raíz ---------- */
     Route::get('/', fn () => redirect()->route('admin.home'))->name('root');
     Route::get('dashboard', fn () => redirect()->route('admin.home'))->name('dashboard');
 
-    /* ---------- WhoAmI admin ---------- */
     Route::get('_whoami', function () {
         $u = auth('admin')->user();
 
@@ -342,7 +325,11 @@ Route::middleware([
         ]);
     })->name('whoami');
 
-    /* ---------- Home ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | Home
+    |--------------------------------------------------------------------------
+    */
     Route::get('home', [HomeController::class, 'index'])->name('home');
 
     Route::get('home/stats', [HomeController::class, 'stats'])
@@ -387,7 +374,11 @@ Route::middleware([
         Route::get('home/export', [HomeController::class, 'export'])->name('home.export');
     }
 
-    /* ---------- Utilidades generales admin ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | Utilidades admin
+    |--------------------------------------------------------------------------
+    */
     Route::get('search', [SearchController::class, 'index'])->name('search');
 
     Route::get('notificaciones', [NotificationController::class, 'index'])->name('notificaciones');
@@ -402,38 +393,40 @@ Route::middleware([
         ->middleware($thrUiBotAsk)
         ->name('ui.botAsk');
 
-    /* ---------- Perfil admin ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | Perfil admin
+    |--------------------------------------------------------------------------
+    */
     Route::get('perfil', [ProfileController::class, 'index'])->name('perfil');
     Route::get('perfil/edit', [ProfileController::class, 'edit'])->name('perfil.edit');
     Route::put('perfil', [ProfileController::class, 'update'])->name('perfil.update');
     Route::post('perfil/password', [ProfileController::class, 'password'])->name('perfil.password');
 
-    /* ---------- Config admin ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | Config admin
+    |--------------------------------------------------------------------------
+    */
     Route::get('config', [ConfigController::class, 'index'])
         ->middleware(perm_mw('admin.config'))
         ->name('config.index');
 
-    /* ---------- Reportes raíz ---------- */
+    /*
+    |--------------------------------------------------------------------------
+    | Reportes raíz
+    |--------------------------------------------------------------------------
+    */
     Route::get('reportes', [ReportesController::class, 'index'])
         ->middleware(perm_mw('reportes.ver'))
         ->name('reportes.index');
 
     /*
-    |-----------------------------------------------------------------------
-    | CLIENTES (accounts / soporte)
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | CLIENTES
+    |--------------------------------------------------------------------------
     */
     if (class_exists(ClientesController::class)) {
-
-        /*
-        |-------------------------------------------------------------------
-        | RUTAS FIJAS DE CLIENTES
-        | IMPORTANTE: deben ir ANTES de /clientes/{key} y /clientes/{rfc}
-        | para que NO caigan en save() por coincidencia dinámica.
-        |-------------------------------------------------------------------
-        */
-
-        // Alta
         $clientesCreateCompat = Route::post('clientes/create', [ClientesController::class, 'store'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.create.post_compat');
@@ -442,7 +435,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.store');
 
-        // Bulk / Sync
         $sync = Route::post('clientes/sync-to-clientes', [ClientesController::class, 'syncToClientes'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.syncToClientes');
@@ -451,7 +443,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.bulk');
 
-        // Impersonate stop fijas
         $impStop1 = Route::post('clientes/impersonate-stop', [ClientesController::class, 'impersonateStop'])
             ->middleware($thrAdminPosts)
             ->name('clientes.impersonateStop');
@@ -473,36 +464,21 @@ Route::middleware([
             }
         }
 
-        /*
-        |-------------------------------------------------------------------
-        | INDEX de clientes
-        |-------------------------------------------------------------------
-        */
         Route::get('clientes', [ClientesController::class, 'index'])
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
 
-        /*
-        |-------------------------------------------------------------------
-        | GET /admin/clientes/{key}
-        |-------------------------------------------------------------------
-        */
         if (method_exists(ClientesController::class, 'show')) {
-
             Route::get('clientes/{key}', [ClientesController::class, 'show'])
                 ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware(perm_mw('clientes.ver'))
                 ->name('clientes.show');
-
         } elseif (method_exists(ClientesController::class, 'edit')) {
-
             Route::get('clientes/{key}', [ClientesController::class, 'edit'])
                 ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware(perm_mw('clientes.ver'))
                 ->name('clientes.show');
-
         } else {
-
             Route::get('clientes/{key}', function (string $key) {
                 return admin_placeholder_view('Cliente · Pendiente', 'PACTOPIA 360');
             })->where('key', '[A-Za-z0-9\-]+')
@@ -510,13 +486,7 @@ Route::middleware([
               ->name('clientes.show');
         }
 
-        /*
-        |-------------------------------------------------------------------
-        | SAVE aliases
-        |-------------------------------------------------------------------
-        */
         if (method_exists(ClientesController::class, 'save')) {
-
             $clientesSavePostDirect = Route::post('clientes/{key}', [ClientesController::class, 'save'])
                 ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -547,16 +517,13 @@ Route::middleware([
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
             }
-
         } else {
-
             Route::match(['post', 'put', 'patch'], 'clientes/{key}', function () {
                 abort(404);
             })->where('key', '[A-Za-z0-9\-]+')
               ->name('clientes.save.missing');
         }
 
-        // Panel Billing embebible
         if (method_exists(ClientesController::class, 'billingPanel')) {
             Route::get('clientes/{key}/billing/panel', [ClientesController::class, 'billingPanel'])
                 ->where('key', '[A-Za-z0-9\-]+')
@@ -564,7 +531,6 @@ Route::middleware([
                 ->name('clientes.billing.panel');
         }
 
-        // Acciones CORE
         if (method_exists(ClientesController::class, 'block')) {
             $rt = Route::post('clientes/{rfc}/block', [ClientesController::class, 'block'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -608,7 +574,6 @@ Route::middleware([
             }
         }
 
-        // OTP / Verificaciones
         $resendV = Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmailVerification');
@@ -625,7 +590,6 @@ Route::middleware([
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
-        // Aliases compat
         $resendV2 = Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
@@ -657,7 +621,6 @@ Route::middleware([
             }
         }
 
-        // Reset password + Email credenciales
         $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
@@ -672,7 +635,6 @@ Route::middleware([
             }
         }
 
-        // Impersonate dinámico
         $imp = Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
@@ -681,7 +643,6 @@ Route::middleware([
             $imp->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // Opcional
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
             $r1 = Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -713,21 +674,18 @@ Route::middleware([
 
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
-
     } else {
-
         Route::get('clientes', fn () => response('<h1>Clientes</h1><p>Pendiente de implementar.</p>', 200))
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
     }
 
     /*
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     | Soporte interno admin
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     */
     Route::prefix('soporte')->as('soporte.')->group(function () use ($thrAdminPosts, $isLocal) {
-
         Route::get('reset-pass', [ResetClientePasswordController::class, 'showForm'])->name('reset_pass.show');
         Route::post('reset-pass', [ResetClientePasswordController::class, 'resetByRfc'])->name('reset_pass.do');
 
@@ -741,9 +699,9 @@ Route::middleware([
     });
 
     /*
-    |-----------------------------------------------------------------------
-    | Logout admin (POST real + GET compat)
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | Logout admin
+    |--------------------------------------------------------------------------
     */
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
@@ -752,12 +710,11 @@ Route::middleware([
     })->name('logout.get');
 
     /*
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     | DEV / QA interno
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     */
     Route::prefix('dev')->name('dev.')->group(function () use ($thrDevQa, $thrDevPosts, $isLocal) {
-
         Route::get('qa', [QaController::class, 'index'])
             ->middleware($thrDevQa)
             ->name('qa');
@@ -786,12 +743,11 @@ Route::middleware([
     });
 
     /*
-    |-----------------------------------------------------------------------
-    | BILLING (DEBE IR ANTES DEL FALLBACK)
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | BILLING
+    |--------------------------------------------------------------------------
     */
     Route::prefix('billing')->name('billing.')->group(function () use ($thrAdminPosts, $isLocal) {
-
         // Accounts
         Route::get('accounts', [AccountsController::class, 'index'])->name('accounts.index');
 
@@ -816,7 +772,6 @@ Route::middleware([
             ->whereNumber('id')
             ->name('invoices.requests.email_ready');
 
-        // Facturas – Admin
         Route::post('invoices/requests/{id}/attach', [InvoiceRequestsController::class, 'attachInvoice'])
             ->whereNumber('id')
             ->name('invoices.requests.attach');
@@ -983,17 +938,123 @@ Route::middleware([
 
         // Facturas (requests)
         Route::get('invoices/requests', [InvoiceRequestsController::class, 'index'])->name('invoices.requests.index');
+
+        Route::get('invoices/requests/{id}', [InvoiceRequestsController::class, 'show'])
+            ->whereNumber('id')
+            ->name('invoices.requests.show');
+
         Route::post('invoices/requests/{id}/status', [InvoiceRequestsController::class, 'setStatus'])
             ->whereNumber('id')
             ->name('invoices.requests.status');
 
-        /*
-        |-------------------------------------------------------------------
-        | COMPAT: SAT Admin bajo billing
-        |-------------------------------------------------------------------
-        */
-        Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
+        Route::post('invoices/requests/{id}/approve-generate', [InvoiceRequestsController::class, 'approveAndGenerate'])
+            ->whereNumber('id')
+            ->name('invoices.requests.approve_generate');
 
+        Route::post('invoices/requests/{id}/stamp', [InvoiceRequestsController::class, 'stamp'])
+            ->whereNumber('id')
+            ->name('invoices.requests.stamp');
+
+        Route::post('invoices/requests/{id}/retry-stamp', [InvoiceRequestsController::class, 'retryStamp'])
+            ->whereNumber('id')
+            ->name('invoices.requests.retry_stamp');
+
+        Route::post('invoices/requests/{id}/send', [InvoiceRequestsController::class, 'sendInvoice'])
+            ->whereNumber('id')
+            ->name('invoices.requests.send');
+
+        Route::post('invoices/requests/{id}/resend', [InvoiceRequestsController::class, 'resendInvoice'])
+            ->whereNumber('id')
+            ->name('invoices.requests.resend');
+
+        // Invoicing module
+        Route::prefix('invoicing')->name('invoicing.')->group(function () use ($thrAdminPosts, $isLocal) {
+            Route::get('/', [InvoicingDashboardController::class, 'index'])->name('dashboard');
+
+            Route::get('requests', [InvoiceRequestsController::class, 'index'])->name('requests.index');
+            Route::get('requests/{id}', [InvoiceRequestsController::class, 'show'])
+                ->whereNumber('id')
+                ->name('requests.show');
+
+            Route::post('requests/{id}/approve-generate', [InvoiceRequestsController::class, 'approveAndGenerate'])
+                ->whereNumber('id')
+                ->name('requests.approve_generate');
+
+            Route::post('requests/{id}/retry-stamp', [InvoiceRequestsController::class, 'retryStamp'])
+                ->whereNumber('id')
+                ->name('requests.retry_stamp');
+
+            Route::post('requests/{id}/send', [InvoiceRequestsController::class, 'sendInvoice'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('requests.send');
+
+            Route::post('requests/{id}/resend', [InvoiceRequestsController::class, 'resendInvoice'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('requests.resend');
+
+            Route::get('invoices', [InvoicesController::class, 'index'])->name('invoices.index');
+
+            Route::get('invoices/{id}', [InvoicesController::class, 'show'])
+                ->whereNumber('id')
+                ->name('invoices.show');
+
+            Route::get('invoices/{id}/download/{kind}', [InvoicesController::class, 'download'])
+                ->where([
+                    'id'   => '[0-9]+',
+                    'kind' => '(pdf|xml)',
+                ])
+                ->name('invoices.download');
+
+            $invoiceCancel = Route::post('invoices/{id}/cancel', [InvoicesController::class, 'cancel'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('invoices.cancel');
+
+            $invoiceStoreManual = Route::post('invoices/manual', [InvoicesController::class, 'storeManual'])
+                ->middleware($thrAdminPosts)
+                ->name('invoices.store_manual');
+
+            $invoiceBulkStoreManual = Route::post('invoices/manual/bulk', [InvoicesController::class, 'bulkStoreManual'])
+                ->middleware($thrAdminPosts)
+                ->name('invoices.bulk_store_manual');
+
+            $invoiceSend = Route::post('invoices/{id}/send', [InvoicesController::class, 'send'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('invoices.send');
+
+            $invoiceResend = Route::post('invoices/{id}/resend', [InvoicesController::class, 'resend'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('invoices.resend');
+
+            $invoiceBulkSend = Route::post('invoices/bulk-send', [InvoicesController::class, 'bulkSend'])
+                ->middleware($thrAdminPosts)
+                ->name('invoices.bulk_send');
+
+            Route::get('settings', [InvoicingSettingsController::class, 'index'])->name('settings.index');
+            Route::post('settings', [InvoicingSettingsController::class, 'save'])->name('settings.save');
+
+            Route::get('logs', [InvoicingLogsController::class, 'index'])->name('logs.index');
+
+            if ($isLocal) {
+                foreach ([
+                    $invoiceCancel,
+                    $invoiceStoreManual,
+                    $invoiceBulkStoreManual,
+                    $invoiceSend,
+                    $invoiceResend,
+                    $invoiceBulkSend,
+                ] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
+            }
+        });
+
+        // SAT admin dentro de billing
+        Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
             Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
                 Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
                 Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
@@ -1061,16 +1122,18 @@ Route::middleware([
                     }
                 }
             });
+
+            Route::post('billing/invoicing/invoices/{id}/stamp', [InvoicesController::class, 'stamp'])
+                ->name('admin.billing.invoicing.invoices.stamp');
         });
     });
 
     /*
-    |-----------------------------------------------------------------------
-    | FINANZAS (Admin) — base canónico
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | FINANZAS
+    |--------------------------------------------------------------------------
     */
     Route::prefix('finance')->name('finance.')->group(function () {
-
         Route::get('cost-centers', [CostCentersController::class, 'index'])
             ->name('cost_centers.index');
 
@@ -1124,12 +1187,11 @@ Route::middleware([
     });
 
     /*
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     | USUARIOS (ADMIN)
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
     */
     Route::prefix('usuarios')->name('usuarios.')->group(function () {
-
         Route::get('administrativos', [AdministrativosController::class, 'index'])
             ->name('administrativos.index');
 
@@ -1161,23 +1223,15 @@ Route::middleware([
     });
 
     /*
-    |-----------------------------------------------------------------------
-    | SAT · Lista de precios + Códigos de descuento (Admin) — canónico
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | SAT canónico
+    |--------------------------------------------------------------------------
     */
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
-
-        /*
-        |-------------------------------------------------------------------
-        | SAT · OPERACIÓN (Backoffice)
-        |-------------------------------------------------------------------
-        */
-        Route::prefix('ops')->name('ops.')->group(function () {
-
+        Route::prefix('ops')->name('ops.')->group(function () use ($isLocal) {
             Route::get('/', [SatOpsController::class, 'index'])->name('index');
 
-            Route::prefix('credentials')->name('credentials.')->group(function () {
-
+            Route::prefix('credentials')->name('credentials.')->group(function () use ($isLocal) {
                 Route::get('/', [SatOpsCredentialsController::class, 'index'])->name('index');
 
                 Route::get('{id}/cer', [SatOpsCredentialsController::class, 'cer'])
@@ -1192,7 +1246,7 @@ Route::middleware([
                     ->where('id', '[A-Za-z0-9\-]+')
                     ->name('destroy');
 
-                if (app()->environment(['local', 'development', 'testing'])) {
+                if ($isLocal) {
                     $destroy->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
             });
@@ -1210,9 +1264,7 @@ Route::middleware([
             });
         });
 
-        // SAT · PRICE RULES
         Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
-
             Route::get('/', [AdminSatPriceRulesController::class, 'index'])->name('index');
             Route::get('create', [AdminSatPriceRulesController::class, 'create'])->name('create');
 
@@ -1254,9 +1306,7 @@ Route::middleware([
                 ->name('credentials.key');
         });
 
-        // SAT · DISCOUNT CODES
         Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
-
             Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
             Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
 
@@ -1292,9 +1342,9 @@ Route::middleware([
     });
 
     /*
-    |-----------------------------------------------------------------------
-    | Fallback interno admin (SIEMPRE AL FINAL)
-    |-----------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | Fallback interno admin
+    |--------------------------------------------------------------------------
     */
     Route::fallback(fn () => redirect()->route('admin.home'));
 });
