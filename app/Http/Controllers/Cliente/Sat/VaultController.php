@@ -9,6 +9,7 @@ use App\Models\Cliente\SatDownload;
 use App\Models\Cliente\VaultFile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -40,10 +41,11 @@ class VaultController extends Controller
             $vaultZips = [];
 
             return view('cliente.sat.vault', [
-                'credList'     => [],
-                'bootData'     => [],
-                'vaultFiles'   => [],
-                'vaultZipRows' => $vaultZips,
+                'credList'      => [],
+                'bootData'      => [],
+                'vaultFiles'    => [],
+                'vaultFileRows' => [],
+                'vaultZipRows'  => $vaultZips,
                 'storage'      => [
                     'has_quota'     => false,
                     'quota_gb'      => 0.0,
@@ -142,9 +144,10 @@ class VaultController extends Controller
         }
 
         // ===============================
-        // Vault files (para tabla ZIP y/o debug)
+        // Vault files (tabla de archivos subidos)
         // ===============================
-        $vaultFiles = $this->buildBootDataFromVaultFiles($cuentaId);
+        $vaultFiles    = $this->buildBootDataFromVaultFiles($cuentaId);
+        $vaultFileRows = $this->buildUploadedFileRows($cuentaId);
 
         Log::info('[VAULT:index] bootData desde origen', [
             'cuenta_id'  => $cuentaId,
@@ -166,8 +169,9 @@ class VaultController extends Controller
         return view('cliente.sat.vault', [
             'credList'     => $credNorm,
             'bootData'     => $bootData,
-            'vaultFiles'   => $vaultFiles,
-            'vaultZipRows' => $vaultZipRows,
+            'vaultFiles'    => $vaultFiles,
+            'vaultFileRows' => $vaultFileRows,
+            'vaultZipRows'  => $vaultZipRows,
             'storage'      => $vaultSummary,
 
             'vault'        => [
@@ -322,16 +326,6 @@ class VaultController extends Controller
             abort(404, 'Ruta inválida.');
         }
 
-        $filename = (string)($row->filename ?? basename($path));
-        $mime     = strtolower((string)($row->mime ?? ''));
-
-        $ext   = strtolower(pathinfo($filename !== '' ? $filename : $path, PATHINFO_EXTENSION));
-        $isZip = ($ext === 'zip') || ($mime === 'application/zip') || str_ends_with(strtolower($path), '.zip');
-
-        if (!$isZip) {
-            abort(403, 'Tipo de archivo no permitido.');
-        }
-
         if (!$this->diskConfigured($disk)) {
             $disk = 'private';
         }
@@ -346,8 +340,16 @@ class VaultController extends Controller
             abort(404, 'Archivo no existe en storage.');
         }
 
+        $filename = (string)($row->original_name ?? $row->filename ?? basename($path));
+        $filename = trim($filename) !== '' ? $filename : basename($path);
+
+        $mime = (string)($row->mime ?? '');
+        if ($mime === '') {
+            $mime = $this->guessMimeByExtension($filename);
+        }
+
         return Storage::disk($disk)->download($path, $filename, [
-            'Content-Type' => 'application/zip',
+            'Content-Type' => $mime,
         ]);
     }
 
@@ -1175,7 +1177,7 @@ class VaultController extends Controller
 
         $inserted = 0;
 
-        for ($i = 0; $i < $zip->numFiles; $i++) {
+               for ($i = 0; $i < $zip->numFiles; $i++) {
             $entryName = $zip->getNameIndex($i);
             if (!$entryName) continue;
             if (!str_ends_with(strtolower($entryName), '.xml')) continue;
@@ -1183,130 +1185,21 @@ class VaultController extends Controller
             $xml = $zip->getFromIndex($i);
             if (!$xml) continue;
 
-            $uuid = '';
-            $fecha = '';
-            $subtotal = 0.0;
-            $total = 0.0;
-
-            $emisorRfc = '';
-            $receptorRfc = '';
-            $emisorNombre = '';
-            $receptorNombre = '';
-            $iva = 0.0;
-
-            $tipoDeComprobante = '';
-
             try {
-                $dom = new \DOMDocument();
-                $dom->preserveWhiteSpace = false;
-                $dom->loadXML($xml);
-
-                $xpath = new \DOMXPath($dom);
-                $xpath->registerNamespace('cfdi', 'http://www.sat.gob.mx/cfd/4');
-                $xpath->registerNamespace('tfd',  'http://www.sat.gob.mx/TimbreFiscalDigital');
-                $xpath->registerNamespace('cfdi33', 'http://www.sat.gob.mx/cfd/3');
-
-                $comprobante = $xpath->query('//cfdi:Comprobante')->item(0);
-                if (!$comprobante) $comprobante = $xpath->query('//cfdi33:Comprobante')->item(0);
-
-                if ($comprobante) {
-                    $fecha             = (string)($comprobante->getAttribute('Fecha') ?: $comprobante->getAttribute('fecha'));
-                    $subtotal          = (float)($comprobante->getAttribute('SubTotal') ?: $comprobante->getAttribute('subTotal') ?: 0);
-                    $total             = (float)($comprobante->getAttribute('Total') ?: $comprobante->getAttribute('total') ?: 0);
-                    $tipoDeComprobante = (string)($comprobante->getAttribute('TipoDeComprobante') ?: '');
-                }
-
-                $emisor = $xpath->query('//cfdi:Emisor')->item(0);
-                if (!$emisor) $emisor = $xpath->query('//cfdi33:Emisor')->item(0);
-                if ($emisor) {
-                    $emisorRfc    = (string)($emisor->getAttribute('Rfc') ?: $emisor->getAttribute('rfc'));
-                    $emisorNombre = (string)($emisor->getAttribute('Nombre') ?: $emisor->getAttribute('nombre'));
-                }
-
-                $receptor = $xpath->query('//cfdi:Receptor')->item(0);
-                if (!$receptor) $receptor = $xpath->query('//cfdi33:Receptor')->item(0);
-                if ($receptor) {
-                    $receptorRfc    = (string)($receptor->getAttribute('Rfc') ?: $receptor->getAttribute('rfc'));
-                    $receptorNombre = (string)($receptor->getAttribute('Nombre') ?: $receptor->getAttribute('nombre'));
-                }
-
-                $tfd = $xpath->query('//tfd:TimbreFiscalDigital')->item(0);
-                if ($tfd) {
-                    $uuid = (string)($tfd->getAttribute('UUID') ?: $tfd->getAttribute('Uuid'));
-                }
-
-                if ($subtotal > 0 && $total > $subtotal) {
-                    $iva = round($total - $subtotal, 2);
-                }
+                $inserted += $this->importXmlStringIntoCfdis(
+                    (string) $xml,
+                    $cuentaId,
+                    (string) ($ownerRfc ?? ''),
+                    $vaultFileId,
+                    $path . '#' . $entryName
+                );
             } catch (\Throwable $e) {
                 Log::warning('[VAULT:importZip] XML inválido', [
                     'cuenta_id' => $cuentaId,
                     'entry'     => $entryName,
                     'error'     => $e->getMessage(),
                 ]);
-                continue;
             }
-
-            $uuid = strtoupper(trim((string)$uuid));
-            if ($uuid === '') continue;
-
-            $exists = DB::connection(self::CONN)
-                ->table('sat_vault_cfdis')
-                ->where('cuenta_id', $cuentaId)
-                ->where('uuid', $uuid)
-                ->exists();
-
-            if ($exists) continue;
-
-            $emisorRfcU   = strtoupper(trim((string)$emisorRfc));
-            $receptorRfcU = strtoupper(trim((string)$receptorRfc));
-
-            $tipoVault = null;
-            if ($ownerRfc) {
-                if ($receptorRfcU !== '' && $receptorRfcU === $ownerRfc) $tipoVault = 'recibidos';
-                elseif ($emisorRfcU !== '' && $emisorRfcU === $ownerRfc) $tipoVault = 'emitidos';
-            }
-
-            $payload = [
-                'cuenta_id'  => $cuentaId,
-                'uuid'       => $uuid,
-                'subtotal'   => $subtotal,
-                'iva'        => $iva,
-                'total'      => $total,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-
-            if ($has('fecha_emision')) {
-                $payload['fecha_emision'] = $fecha !== '' ? substr($fecha, 0, 10) : null;
-            } elseif ($has('fecha')) {
-                $payload['fecha'] = $fecha !== '' ? $fecha : null;
-            }
-
-            if ($has('tipo')) {
-                $payload['tipo'] = $tipoVault;
-            }
-
-            if ($has('rfc_emisor'))   $payload['rfc_emisor']   = $emisorRfcU   !== '' ? $emisorRfcU   : null;
-            if ($has('rfc_receptor')) $payload['rfc_receptor'] = $receptorRfcU !== '' ? $receptorRfcU : null;
-
-            if ($has('razon_emisor'))   $payload['razon_emisor']   = $emisorNombre   !== '' ? $emisorNombre   : null;
-            if ($has('razon_receptor')) $payload['razon_receptor'] = $receptorNombre !== '' ? $receptorNombre : null;
-
-            if ($has('vault_file_id') && $vaultFileId > 0) {
-                $payload['vault_file_id'] = $vaultFileId;
-            }
-
-            if ($has('xml_path')) {
-                $payload['xml_path'] = $path . '#' . $entryName;
-            }
-
-            if ($has('tipo_comprobante') && $tipoDeComprobante !== '') {
-                $payload['tipo_comprobante'] = $tipoDeComprobante;
-            }
-
-            DB::connection(self::CONN)->table('sat_vault_cfdis')->insert($payload);
-            $inserted++;
         }
 
         $zip->close();
@@ -2151,6 +2044,926 @@ private function syncSatDownloadMetricsFromZip(string $cuentaId, string $downloa
     return $computedCost;
 }
 
+    /* ==========================================================
+     *   IMPORTACIÓN MANUAL (ZIP / XML / CSV)
+     * ========================================================== */
 
+    public function importForm(Request $request)
+    {
+        return $this->redirectToVault();
+    }
+
+        public function importStore(Request $request)
+    {
+        [$user, , $cuentaId] = $this->currentAccount3();
+
+        if (!$user || $cuentaId === '') {
+            return $this->redirectToVault()->with('error', 'Cuenta inválida.');
+        }
+
+        $request->validate([
+            'archivo'   => ['required_without:archivos', 'nullable', 'file', 'max:512000'],
+            'archivos'  => ['required_without:archivo', 'nullable', 'array', 'min:1'],
+            'archivos.*'=> ['file', 'max:512000'],
+            'rfc'       => ['nullable', 'string', 'max:20'],
+        ], [
+            'archivo.required_without'   => 'Selecciona al menos un archivo ZIP, XML o CSV.',
+            'archivos.required_without'  => 'Selecciona al menos un archivo ZIP, XML o CSV.',
+            'archivos.array'             => 'El lote de archivos no es válido.',
+            'archivos.min'               => 'Selecciona al menos un archivo.',
+            'archivo.file'               => 'El archivo enviado no es válido.',
+            'archivos.*.file'            => 'Uno de los archivos enviados no es válido.',
+            'archivo.max'                => 'Uno de los archivos excede el tamaño permitido (500 MB).',
+            'archivos.*.max'             => 'Uno de los archivos excede el tamaño permitido (500 MB).',
+        ]);
+
+        $files = [];
+
+        if ($request->hasFile('archivos')) {
+            $batch = $request->file('archivos');
+            if (is_array($batch)) {
+                foreach ($batch as $f) {
+                    if ($f instanceof UploadedFile) {
+                        $files[] = $f;
+                    }
+                }
+            }
+        }
+
+        if (empty($files) && $request->hasFile('archivo')) {
+            $single = $request->file('archivo');
+            if ($single instanceof UploadedFile) {
+                $files[] = $single;
+            }
+        }
+
+        if (empty($files)) {
+            return $this->redirectToVault()->with('error', 'No se pudo leer ningún archivo.');
+        }
+
+        $rfc = strtoupper(trim((string) (
+            $request->input('rfc')
+            ?: $request->input('rfc_select')
+            ?: ''
+        )));
+
+        if ($rfc === '') {
+            $rfc = 'XAXX010101000';
+        }
+
+        $disk = $this->resolveVaultDisk();
+        $dir  = 'vault/' . $cuentaId . '/' . $rfc . '/manual/' . now()->format('Y/m');
+
+        try {
+            Storage::disk($disk)->makeDirectory($dir);
+        } catch (\Throwable) {
+            // no-op
+        }
+
+        $processedFiles = 0;
+        $totalInserted  = 0;
+        $detailMessages = [];
+
+        foreach ($files as $file) {
+            if (!$file->isValid()) {
+                $detailMessages[] = 'Un archivo no se pudo leer correctamente.';
+                continue;
+            }
+
+            $ext = strtolower((string) $file->getClientOriginalExtension());
+            if (!in_array($ext, ['zip', 'xml', 'csv'], true)) {
+                $detailMessages[] = 'Archivo omitido por tipo no permitido: ' . $file->getClientOriginalName();
+                continue;
+            }
+
+            $name       = $this->sanitizeUploadFilename((string) $file->getClientOriginalName());
+            $storedName = now()->format('Ymd_His') . '_' . Str::random(8) . '_' . $name;
+            $path       = $file->storeAs($dir, $storedName, $disk);
+
+            if (!$path) {
+                $detailMessages[] = 'No se pudo guardar: ' . $file->getClientOriginalName();
+                continue;
+            }
+
+            $bytes = 0;
+            try {
+                $bytes = (int) Storage::disk($disk)->size($path);
+            } catch (\Throwable) {
+                $bytes = 0;
+            }
+
+            $vaultFileId = $this->createVaultFileRecord(
+                $cuentaId,
+                $rfc,
+                $disk,
+                $path,
+                $file->getClientOriginalName(),
+                (string) ($file->getMimeType() ?: ''),
+                $bytes,
+                'manual_upload'
+            );
+
+            $inserted = 0;
+
+            try {
+                if ($ext === 'zip') {
+                    $inserted = $this->importZipIntoCfdis($disk, $path, $cuentaId, $rfc, $vaultFileId);
+                    $detailMessages[] = $file->getClientOriginalName() . ': ZIP importado, CFDI detectados ' . $inserted . '.';
+                } elseif ($ext === 'xml') {
+                    $xml = (string) Storage::disk($disk)->get($path);
+                    $inserted = $this->importXmlStringIntoCfdis($xml, $cuentaId, $rfc, $vaultFileId, $path);
+                    $detailMessages[] = $file->getClientOriginalName() . ': XML importado, CFDI detectados ' . $inserted . '.';
+                } elseif ($ext === 'csv') {
+                    $inserted = $this->importCsvIntoCfdis($disk, $path, $cuentaId, $rfc, $vaultFileId);
+                    $detailMessages[] = $file->getClientOriginalName() . ': CSV indexado, CFDI detectados ' . $inserted . '.';
+                }
+
+                $processedFiles++;
+                $totalInserted += (int) $inserted;
+            } catch (\Throwable $e) {
+                Log::error('[VAULT:importStore] Error importando archivo', [
+                    'cuenta_id' => $cuentaId,
+                    'disk'      => $disk,
+                    'path'      => $path,
+                    'ext'       => $ext,
+                    'filename'  => $file->getClientOriginalName(),
+                    'error'     => $e->getMessage(),
+                ]);
+
+                $detailMessages[] = $file->getClientOriginalName() . ': se guardó, pero no se pudo procesar (' . $e->getMessage() . ').';
+            }
+        }
+
+        if ($processedFiles <= 0) {
+            return $this->redirectToVault()->with('error', implode(' ', $detailMessages));
+        }
+
+        $message = 'Proceso completado. Archivos cargados: ' . $processedFiles . '. CFDI importados/indexados: ' . $totalInserted . '.';
+
+        if (!empty($detailMessages)) {
+            $message .= ' ' . implode(' ', $detailMessages);
+        }
+
+        return $this->redirectToVault()->with('success', $message);
+    }
+
+    public function downloadXml(Request $request)
+    {
+        [$user, , $cuentaId] = $this->currentAccount3();
+
+        if (!$user || $cuentaId === '') {
+            abort(401);
+        }
+
+        $uuid = strtoupper(trim((string) $request->query('uuid', '')));
+        if ($uuid === '') {
+            abort(422, 'UUID requerido.');
+        }
+
+        $row = DB::connection(self::CONN)
+            ->table('sat_vault_cfdis')
+            ->where('cuenta_id', $cuentaId)
+            ->where('uuid', $uuid)
+            ->first();
+
+        if (!$row) {
+            abort(404, 'CFDI no encontrado.');
+        }
+
+        $xmlPath = (string) ($row->xml_path ?? '');
+        if ($xmlPath === '') {
+            abort(404, 'XML no disponible para este CFDI.');
+        }
+
+        [$disk, $path, $entry] = $this->resolveVaultStoredPathForCfdi($row, $xmlPath);
+
+        if ($entry !== null) {
+            $xml = $this->readZipEntry($disk, $path, $entry);
+            if ($xml === null) {
+                abort(404, 'No se pudo extraer el XML desde el ZIP.');
+            }
+
+            $filename = $uuid . '.xml';
+
+            return response($xml, 200, [
+                'Content-Type'        => 'application/xml; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ]);
+        }
+
+        if (!$this->diskExistsSafe($disk, $path)) {
+            abort(404, 'XML no encontrado en storage.');
+        }
+
+        return Storage::disk($disk)->download($path, $uuid . '.xml', [
+            'Content-Type' => 'application/xml',
+        ]);
+    }
+
+    public function downloadPdf(Request $request)
+    {
+        [$user, , $cuentaId] = $this->currentAccount3();
+
+        if (!$user || $cuentaId === '') {
+            abort(401);
+        }
+
+        $uuid = strtoupper(trim((string) $request->query('uuid', '')));
+        if ($uuid === '') {
+            abort(422, 'UUID requerido.');
+        }
+
+        $schema = Schema::connection(self::CONN);
+        if (!$schema->hasTable('sat_vault_cfdis')) {
+            abort(404, 'Tabla sat_vault_cfdis no existe.');
+        }
+
+        $row = DB::connection(self::CONN)
+            ->table('sat_vault_cfdis')
+            ->where('cuenta_id', $cuentaId)
+            ->where('uuid', $uuid)
+            ->first();
+
+        if (!$row) {
+            abort(404, 'CFDI no encontrado.');
+        }
+
+        $pdfPath = '';
+        if ($schema->hasColumn('sat_vault_cfdis', 'pdf_path')) {
+            $pdfPath = (string) ($row->pdf_path ?? '');
+        }
+
+        if ($pdfPath === '') {
+            abort(404, 'PDF no disponible para este CFDI.');
+        }
+
+        [$disk, $path, $entry] = $this->resolveVaultStoredPathForCfdi($row, $pdfPath);
+
+        if ($entry !== null) {
+            $pdf = $this->readZipEntry($disk, $path, $entry);
+            if ($pdf === null) {
+                abort(404, 'No se pudo extraer el PDF desde el ZIP.');
+            }
+
+            $filename = $uuid . '.pdf';
+
+            return response($pdf, 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ]);
+        }
+
+        if (!$this->diskExistsSafe($disk, $path)) {
+            abort(404, 'PDF no encontrado en storage.');
+        }
+
+        return Storage::disk($disk)->download($path, $uuid . '.pdf', [
+            'Content-Type' => 'application/pdf',
+        ]);
+    }
+
+    public function downloadZip(Request $request)
+    {
+        [$user, , $cuentaId] = $this->currentAccount3();
+
+        if (!$user || $cuentaId === '') {
+            abort(401);
+        }
+
+        $uuid = strtoupper(trim((string) $request->query('uuid', '')));
+        if ($uuid === '') {
+            abort(422, 'UUID requerido.');
+        }
+
+        $schema = Schema::connection(self::CONN);
+        if (!$schema->hasTable('sat_vault_cfdis')) {
+            abort(404, 'Tabla sat_vault_cfdis no existe.');
+        }
+
+        $row = DB::connection(self::CONN)
+            ->table('sat_vault_cfdis')
+            ->where('cuenta_id', $cuentaId)
+            ->where('uuid', $uuid)
+            ->first();
+
+        if (!$row) {
+            abort(404, 'CFDI no encontrado.');
+        }
+
+        $vaultFileId = (int) ($row->vault_file_id ?? 0);
+        if ($vaultFileId <= 0) {
+            abort(404, 'ZIP origen no disponible para este CFDI.');
+        }
+
+        return $this->downloadVaultFile($request, (string) $vaultFileId);
+    }
+
+    private function resolveVaultDisk(): string
+    {
+        if ($this->diskConfigured('sat_vault')) return 'sat_vault';
+        if ($this->diskConfigured('vault')) return 'vault';
+        if ($this->diskConfigured('private')) return 'private';
+        return (string) config('filesystems.default', 'local');
+    }
+
+    private function sanitizeUploadFilename(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return 'archivo.bin';
+        }
+
+        $name = preg_replace('/[^A-Za-z0-9\.\-_]+/', '_', $name) ?: 'archivo.bin';
+        return ltrim($name, '._');
+    }
+
+    private function createVaultFileRecord(
+        string $cuentaId,
+        string $rfc,
+        string $disk,
+        string $path,
+        string $originalName,
+        string $mime,
+        int $bytes,
+        string $source = 'manual_upload'
+    ): int {
+        $schema = Schema::connection(self::CONN);
+
+        if (!$schema->hasTable('sat_vault_files')) {
+            return 0;
+        }
+
+        $safeOriginalName = trim($originalName) !== ''
+            ? $this->sanitizeUploadFilename($originalName)
+            : basename($path);
+
+        $data = [
+            'cuenta_id'  => $cuentaId,
+            'rfc'        => strtoupper(trim($rfc)),
+            'filename'   => $safeOriginalName,
+            'path'       => $path,
+            'disk'       => $disk,
+            'bytes'      => max(0, $bytes),
+            'updated_at' => now(),
+        ];
+
+        if ($schema->hasColumn('sat_vault_files', 'source')) {
+            $data['source'] = $source;
+        }
+
+        if ($schema->hasColumn('sat_vault_files', 'mime')) {
+            $data['mime'] = $mime !== '' ? $mime : $this->guessMimeByExtension($path);
+        }
+
+        if ($schema->hasColumn('sat_vault_files', 'size_bytes')) {
+            $data['size_bytes'] = max(0, $bytes);
+        }
+
+        if ($schema->hasColumn('sat_vault_files', 'original_name')) {
+            $data['original_name'] = $safeOriginalName;
+        }
+
+        $data['created_at'] = now();
+
+        try {
+            return (int) DB::connection(self::CONN)
+                ->table('sat_vault_files')
+                ->insertGetId($data);
+        } catch (\Throwable $e) {
+            Log::warning('[VAULT:createVaultFileRecord] No se pudo insertar sat_vault_files', [
+                'cuenta_id' => $cuentaId,
+                'path'      => $path,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return 0;
+        }
+    }
+
+    private function guessMimeByExtension(string $path): string
+    {
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        return match ($ext) {
+            'zip' => 'application/zip',
+            'xml' => 'application/xml',
+            'csv' => 'text/csv',
+            'pdf' => 'application/pdf',
+            default => 'application/octet-stream',
+        };
+    }
+
+    private function importXmlStringIntoCfdis(
+        string $xml,
+        string $cuentaId,
+        string $ownerRfc = '',
+        int $vaultFileId = 0,
+        ?string $xmlRefPath = null
+    ): int {
+        $schema = Schema::connection(self::CONN);
+
+        if (!$schema->hasTable('sat_vault_cfdis')) {
+            return 0;
+        }
+
+        $has = function (string $col) use ($schema): bool {
+            try {
+                return $schema->hasColumn('sat_vault_cfdis', $col);
+            } catch (\Throwable) {
+                return false;
+            }
+        };
+
+        $dom = new \DOMDocument();
+        $dom->preserveWhiteSpace = false;
+        $dom->loadXML($xml);
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('cfdi', 'http://www.sat.gob.mx/cfd/4');
+        $xpath->registerNamespace('tfd', 'http://www.sat.gob.mx/TimbreFiscalDigital');
+        $xpath->registerNamespace('cfdi33', 'http://www.sat.gob.mx/cfd/3');
+
+        $comprobante = $xpath->query('//cfdi:Comprobante')->item(0);
+        if (!$comprobante) $comprobante = $xpath->query('//cfdi33:Comprobante')->item(0);
+
+        $fecha = '';
+        $subtotal = 0.0;
+        $total = 0.0;
+        $tipoDeComprobante = '';
+        $moneda = '';
+        $formaPago = '';
+        $metodoPago = '';
+
+        if ($comprobante) {
+            $fecha             = (string) ($comprobante->getAttribute('Fecha') ?: $comprobante->getAttribute('fecha'));
+            $subtotal          = (float) ($comprobante->getAttribute('SubTotal') ?: $comprobante->getAttribute('subTotal') ?: 0);
+            $total             = (float) ($comprobante->getAttribute('Total') ?: $comprobante->getAttribute('total') ?: 0);
+            $tipoDeComprobante = (string) ($comprobante->getAttribute('TipoDeComprobante') ?: '');
+            $moneda            = (string) ($comprobante->getAttribute('Moneda') ?: '');
+            $formaPago         = (string) ($comprobante->getAttribute('FormaPago') ?: '');
+            $metodoPago        = (string) ($comprobante->getAttribute('MetodoPago') ?: '');
+        }
+
+        $emisor = $xpath->query('//cfdi:Emisor')->item(0);
+        if (!$emisor) $emisor = $xpath->query('//cfdi33:Emisor')->item(0);
+
+        $receptor = $xpath->query('//cfdi:Receptor')->item(0);
+        if (!$receptor) $receptor = $xpath->query('//cfdi33:Receptor')->item(0);
+
+        $tfd = $xpath->query('//tfd:TimbreFiscalDigital')->item(0);
+
+        $uuid = '';
+        if ($tfd) {
+            $uuid = (string) ($tfd->getAttribute('UUID') ?: $tfd->getAttribute('Uuid'));
+        }
+
+        $uuid = strtoupper(trim($uuid));
+        if ($uuid === '') {
+            return 0;
+        }
+
+        $exists = DB::connection(self::CONN)
+            ->table('sat_vault_cfdis')
+            ->where('cuenta_id', $cuentaId)
+            ->where('uuid', $uuid)
+            ->exists();
+
+        if ($exists) {
+            return 0;
+        }
+
+        $emisorRfc    = strtoupper(trim((string) ($emisor?->getAttribute('Rfc') ?: $emisor?->getAttribute('rfc') ?: '')));
+        $receptorRfc  = strtoupper(trim((string) ($receptor?->getAttribute('Rfc') ?: $receptor?->getAttribute('rfc') ?: '')));
+        $emisorNombre = trim((string) ($emisor?->getAttribute('Nombre') ?: $emisor?->getAttribute('nombre') ?: ''));
+        $receptorNombre = trim((string) ($receptor?->getAttribute('Nombre') ?: $receptor?->getAttribute('nombre') ?: ''));
+
+        $iva = 0.0;
+        if ($subtotal > 0 && $total > $subtotal) {
+            $iva = round($total - $subtotal, 2);
+        }
+
+        $ownerRfc = strtoupper(trim($ownerRfc));
+
+        $tipoVault = null;
+
+        // 1) Caso ideal: inferir por RFC dueño de la cuenta
+        if ($ownerRfc !== '') {
+            if ($receptorRfc !== '' && $receptorRfc === $ownerRfc) {
+                $tipoVault = 'recibidos';
+            } elseif ($emisorRfc !== '' && $emisorRfc === $ownerRfc) {
+                $tipoVault = 'emitidos';
+            }
+        }
+
+        // 2) Fallback por tipo de comprobante / heurística segura
+        //    Nunca dejar tipo null porque la tabla lo exige.
+        if ($tipoVault === null) {
+            $tipoComprobanteUpper = strtoupper(trim($tipoDeComprobante));
+
+            // Ingresos / nómina / traslado suelen ser emitidos desde la cuenta origen
+            if (in_array($tipoComprobanteUpper, ['I', 'N', 'T'], true)) {
+                $tipoVault = 'emitidos';
+            }
+            // Egreso / pago suelen ser recibidos con más frecuencia en análisis de bóveda
+            elseif (in_array($tipoComprobanteUpper, ['E', 'P'], true)) {
+                $tipoVault = 'recibidos';
+            }
+            // Si no hay forma confiable de inferirlo, dejamos un default estable
+            else {
+                $tipoVault = 'emitidos';
+            }
+        }
+
+        $payload = [
+            'cuenta_id'  => $cuentaId,
+            'uuid'       => $uuid,
+            'subtotal'   => $subtotal,
+            'iva'        => $iva,
+            'total'      => $total,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if ($has('fecha_emision')) {
+            $payload['fecha_emision'] = $fecha !== '' ? substr($fecha, 0, 10) : null;
+        } elseif ($has('fecha')) {
+            $payload['fecha'] = $fecha !== '' ? $fecha : null;
+        }
+
+        if ($has('tipo')) $payload['tipo'] = $tipoVault ?: 'emitidos';
+        if ($has('rfc_emisor')) $payload['rfc_emisor'] = $emisorRfc !== '' ? $emisorRfc : null;
+        if ($has('rfc_receptor')) $payload['rfc_receptor'] = $receptorRfc !== '' ? $receptorRfc : null;
+        if ($has('razon_emisor')) $payload['razon_emisor'] = $emisorNombre !== '' ? $emisorNombre : null;
+        if ($has('razon_receptor')) $payload['razon_receptor'] = $receptorNombre !== '' ? $receptorNombre : null;
+        if ($has('tipo_comprobante')) $payload['tipo_comprobante'] = $tipoDeComprobante !== '' ? $tipoDeComprobante : null;
+        if ($has('moneda')) $payload['moneda'] = $moneda !== '' ? $moneda : null;
+        if ($has('forma_pago')) $payload['forma_pago'] = $formaPago !== '' ? $formaPago : null;
+        if ($has('metodo_pago')) $payload['metodo_pago'] = $metodoPago !== '' ? $metodoPago : null;
+        if ($has('vault_file_id') && $vaultFileId > 0) $payload['vault_file_id'] = $vaultFileId;
+        if ($has('xml_path') && $xmlRefPath !== null && $xmlRefPath !== '') $payload['xml_path'] = $xmlRefPath;
+
+        DB::connection(self::CONN)->table('sat_vault_cfdis')->insert($payload);
+
+        return 1;
+    }
+
+    private function importCsvIntoCfdis(
+        string $disk,
+        string $path,
+        string $cuentaId,
+        string $ownerRfc = '',
+        int $vaultFileId = 0
+    ): int {
+        if (!$this->diskExistsSafe($disk, $path)) {
+            return 0;
+        }
+
+        $abs = Storage::disk($disk)->path($path);
+        if (!is_file($abs)) {
+            return 0;
+        }
+
+        $fp = fopen($abs, 'rb');
+        if (!$fp) {
+            return 0;
+        }
+
+        $firstLine = fgets($fp);
+        if ($firstLine === false) {
+            fclose($fp);
+            return 0;
+        }
+
+        $firstLine = preg_replace('/^\xEF\xBB\xBF/', '', (string) $firstLine);
+
+        $delimiter = ',';
+        $commaCount = substr_count($firstLine, ',');
+        $semiCount  = substr_count($firstLine, ';');
+        $tabCount   = substr_count($firstLine, "\t");
+
+        if ($semiCount > $commaCount && $semiCount >= $tabCount) {
+            $delimiter = ';';
+        } elseif ($tabCount > $commaCount && $tabCount > $semiCount) {
+            $delimiter = "\t";
+        }
+
+        rewind($fp);
+
+        $headers = fgetcsv($fp, 0, $delimiter);
+        if (!$headers || !is_array($headers)) {
+            fclose($fp);
+            return 0;
+        }
+
+        $headers = array_map(function ($h) {
+            $h = preg_replace('/^\xEF\xBB\xBF/', '', trim((string) $h));
+            $h = mb_strtolower($h, 'UTF-8');
+            $h = str_replace(['á','é','í','ó','ú','ñ',' '], ['a','e','i','o','u','n','_'], $h);
+            return preg_replace('/[^a-z0-9_\.]/', '', $h);
+        }, $headers);
+
+        $schema = Schema::connection(self::CONN);
+        $has = function (string $col) use ($schema): bool {
+            try {
+                return $schema->hasColumn('sat_vault_cfdis', $col);
+            } catch (\Throwable) {
+                return false;
+            }
+        };
+
+        $ownerRfcU = strtoupper(trim($ownerRfc));
+        $inserted  = 0;
+
+        while (($row = fgetcsv($fp, 0, $delimiter)) !== false) {
+            if (!is_array($row) || count(array_filter($row, fn($v) => trim((string)$v) !== '')) === 0) {
+                continue;
+            }
+
+            $assoc = [];
+            foreach ($headers as $idx => $key) {
+                $assoc[$key] = isset($row[$idx]) ? trim((string) $row[$idx]) : '';
+            }
+
+            $uuid = strtoupper(trim((string) (
+                $assoc['uuid'] ??
+                $assoc['folio_fiscal'] ??
+                $assoc['uuid_cfdi'] ??
+                ''
+            )));
+
+            if ($uuid === '') {
+                continue;
+            }
+
+            $exists = DB::connection(self::CONN)
+                ->table('sat_vault_cfdis')
+                ->where('cuenta_id', $cuentaId)
+                ->where('uuid', $uuid)
+                ->exists();
+
+            if ($exists) {
+                continue;
+            }
+
+            $fecha = (string) (
+                $assoc['fecha'] ??
+                $assoc['fecha_emision'] ??
+                $assoc['timbre_fiscal_digital_fecha_timbrado'] ??
+                $assoc['fechacomprobante'] ??
+                ''
+            );
+
+            $rfcEmisor = strtoupper(trim((string) (
+                $assoc['rfc_emisor'] ??
+                $assoc['emisor_rfc'] ??
+                $assoc['rfcemisor'] ??
+                ''
+            )));
+
+            $rfcReceptor = strtoupper(trim((string) (
+                $assoc['rfc_receptor'] ??
+                $assoc['receptor_rfc'] ??
+                $assoc['rfcreceptor'] ??
+                ''
+            )));
+
+            $razonEmisor = trim((string) (
+                $assoc['razon_emisor'] ??
+                $assoc['nombre_emisor'] ??
+                $assoc['emisor_nombre'] ??
+                $assoc['razon_social_emisor'] ??
+                ''
+            ));
+
+            $razonReceptor = trim((string) (
+                $assoc['razon_receptor'] ??
+                $assoc['nombre_receptor'] ??
+                $assoc['receptor_nombre'] ??
+                $assoc['razon_social_receptor'] ??
+                ''
+            ));
+
+            $subtotal = (float) (
+                $assoc['subtotal'] ??
+                $assoc['sub_total'] ??
+                0
+            );
+
+            $traslados = (float) (
+                $assoc['iva'] ??
+                $assoc['total_traslados'] ??
+                $assoc['impuestos_trasladados'] ??
+                0
+            );
+
+            $retenidos = (float) (
+                $assoc['total_retenidos'] ??
+                0
+            );
+
+            $total = (float) (
+                $assoc['total'] ??
+                $assoc['monto_total'] ??
+                0
+            );
+
+            if ($total <= 0) {
+                $total = round($subtotal + $traslados - $retenidos, 2);
+            }
+
+            $iva = $traslados;
+            if ($iva <= 0 && $subtotal > 0 && $total > $subtotal) {
+                $iva = round($total - $subtotal, 2);
+            }
+
+            $tipoComprobante = strtoupper(trim((string) (
+                $assoc['tipo'] ??
+                $assoc['tipo_de_comprobante'] ??
+                $assoc['tipodecomprobante'] ??
+                ''
+            )));
+
+            $tipoVault = null;
+
+            if ($ownerRfcU !== '') {
+                if ($rfcReceptor !== '' && $rfcReceptor === $ownerRfcU) {
+                    $tipoVault = 'recibidos';
+                } elseif ($rfcEmisor !== '' && $rfcEmisor === $ownerRfcU) {
+                    $tipoVault = 'emitidos';
+                }
+            }
+
+            if ($tipoVault === null) {
+                if (in_array($tipoComprobante, ['I', 'N', 'T'], true)) {
+                    $tipoVault = 'emitidos';
+                } elseif (in_array($tipoComprobante, ['E', 'P'], true)) {
+                    $tipoVault = 'recibidos';
+                } else {
+                    $tipoVault = 'emitidos';
+                }
+            }
+
+            $payload = [
+                'cuenta_id'  => $cuentaId,
+                'uuid'       => $uuid,
+                'subtotal'   => $subtotal,
+                'iva'        => $iva,
+                'total'      => $total,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if ($has('fecha_emision')) {
+                $payload['fecha_emision'] = $fecha !== '' ? substr($fecha, 0, 10) : null;
+            } elseif ($has('fecha')) {
+                $payload['fecha'] = $fecha !== '' ? substr($fecha, 0, 19) : null;
+            }
+
+            if ($has('tipo')) $payload['tipo'] = $tipoVault ?: 'emitidos';
+            if ($has('rfc_emisor')) $payload['rfc_emisor'] = $rfcEmisor !== '' ? $rfcEmisor : null;
+            if ($has('rfc_receptor')) $payload['rfc_receptor'] = $rfcReceptor !== '' ? $rfcReceptor : null;
+            if ($has('razon_emisor')) $payload['razon_emisor'] = $razonEmisor !== '' ? $razonEmisor : null;
+            if ($has('razon_receptor')) $payload['razon_receptor'] = $razonReceptor !== '' ? $razonReceptor : null;
+            if ($has('tipo_comprobante')) $payload['tipo_comprobante'] = $tipoComprobante !== '' ? $tipoComprobante : null;
+            if ($has('vault_file_id') && $vaultFileId > 0) $payload['vault_file_id'] = $vaultFileId;
+            if ($has('xml_path')) $payload['xml_path'] = $path;
+
+            DB::connection(self::CONN)->table('sat_vault_cfdis')->insert($payload);
+            $inserted++;
+        }
+
+        fclose($fp);
+
+        return $inserted;
+    }
+
+    private function resolveVaultStoredPathForCfdi(object $row, string $stored): array
+    {
+        $disk = 'private';
+        $path = ltrim($stored, '/');
+        $entry = null;
+
+        $vaultFileId = (int) ($row->vault_file_id ?? 0);
+
+        if (str_contains($path, '#')) {
+            [$path, $entry] = explode('#', $path, 2);
+        }
+
+        if ($vaultFileId > 0 && Schema::connection(self::CONN)->hasTable('sat_vault_files')) {
+            $vf = DB::connection(self::CONN)
+                ->table('sat_vault_files')
+                ->where('id', $vaultFileId)
+                ->first();
+
+            if ($vf) {
+                $disk = (string) ($vf->disk ?? 'private');
+                if (str_contains($stored, '#')) {
+                    $path = ltrim((string) ($vf->path ?? ''), '/');
+                } elseif ($path === '') {
+                    $path = ltrim((string) ($vf->path ?? ''), '/');
+                }
+            }
+        }
+
+        return [$disk, $path, $entry];
+    }
+
+    private function readZipEntry(string $disk, string $path, string $entry): ?string
+    {
+        if ($path === '' || $entry === '' || !$this->diskExistsSafe($disk, $path)) {
+            return null;
+        }
+
+        try {
+            $abs = Storage::disk($disk)->path($path);
+            $zip = new \ZipArchive();
+            $ok = $zip->open($abs);
+
+            if ($ok !== true) {
+                return null;
+            }
+
+            $content = $zip->getFromName($entry);
+            $zip->close();
+
+            return $content !== false ? (string) $content : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function buildUploadedFileRows(string $cuentaId): array
+    {
+        try {
+            $conn  = self::CONN;
+            $table = (new VaultFile())->getTable() ?: 'sat_vault_files';
+
+            if (!Schema::connection($conn)->hasTable($table)) {
+                $table = 'sat_vault_files';
+            }
+
+            if (!Schema::connection($conn)->hasTable($table)) {
+                return [];
+            }
+
+            $rows = DB::connection($conn)->table($table)
+                ->where('cuenta_id', $cuentaId)
+                ->orderByDesc('id')
+                ->limit(500)
+                ->get();
+
+            $out = [];
+
+            foreach ($rows as $r) {
+                $path         = (string)($r->path ?? '');
+                $storedName   = (string)($r->filename ?? basename($path));
+                $originalName = (string)($r->original_name ?? '');
+                $filename     = trim($originalName) !== '' ? $originalName : $storedName;
+                $mime         = strtolower((string)($r->mime ?? ''));
+
+                $ext = strtolower(pathinfo($filename !== '' ? $filename : $path, PATHINFO_EXTENSION));
+
+                if ($ext === '' && $mime !== '') {
+                    $ext = match ($mime) {
+                        'application/zip' => 'zip',
+                        'application/xml', 'text/xml' => 'xml',
+                        'text/csv', 'application/csv', 'application/vnd.ms-excel' => 'csv',
+                        default => '',
+                    };
+                }
+
+                $tipo = match ($ext) {
+                    'zip' => 'ZIP',
+                    'xml' => 'XML',
+                    'csv' => 'CSV',
+                    default => strtoupper($ext ?: 'ARCHIVO'),
+                };
+
+                $out[] = [
+                    'id'            => (string)($r->id ?? ''),
+                    'fecha'         => (string)substr((string)($r->created_at ?? ''), 0, 10),
+                    'rfc'           => strtoupper((string)($r->rfc ?? '')),
+                    'tipo_archivo'  => $tipo,
+                    'extension'     => $ext,
+                    'filename'      => $filename !== '' ? $filename : 'Archivo',
+                    'stored_name'   => $storedName,
+                    'bytes'         => (int)($r->bytes ?? $r->size_bytes ?? 0),
+                    'mime'          => $mime,
+                    'disk'          => (string)($r->disk ?? ''),
+                    'path'          => $path,
+                    'source'        => (string)($r->source ?? ''),
+                ];
+            }
+
+            return $out;
+        } catch (\Throwable $e) {
+            Log::warning('[VAULT] Error listando archivos subidos de bóveda', [
+                'cuenta_id' => $cuentaId,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
 
 }
