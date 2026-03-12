@@ -263,13 +263,7 @@ final class InvoiceRequestsController extends Controller
                 ->first();
         }
 
-        $invoice = null;
-        if (Schema::connection($this->adm)->hasTable('billing_invoices')) {
-            $invoice = DB::connection($this->adm)->table('billing_invoices')
-                ->where('request_id', $id)
-                ->orderByDesc('id')
-                ->first();
-        }
+        $invoice = $this->findInvoiceForRequest($row);
 
         return view('admin.billing.invoices.show', [
             'row'     => $row,
@@ -609,30 +603,7 @@ final class InvoiceRequestsController extends Controller
             $payload['xml_sha1'] = @sha1_file($xmlFull) ?: null;
         }
 
-        $existing = null;
-        if (($payload['cfdi_uuid'] ?? null) !== null) {
-            $existing = DB::connection($this->adm)->table('billing_invoices')
-                ->where('account_id', $accountId)
-                ->where('period', $period)
-                ->where('cfdi_uuid', $payload['cfdi_uuid'])
-                ->first();
-        }
-
-        if (!$existing) {
-            $existing = DB::connection($this->adm)->table('billing_invoices')
-                ->where('request_id', $id)
-                ->orderByDesc('id')
-                ->first();
-        }
-
-        if ($existing) {
-            unset($payload['created_at']);
-            DB::connection($this->adm)->table('billing_invoices')
-                ->where('id', (int) $existing->id)
-                ->update($payload);
-        } else {
-            DB::connection($this->adm)->table('billing_invoices')->insert($payload);
-        }
+        $this->upsertBillingInvoice($payload, $row, $uuid !== '' ? $uuid : null);
 
         $cols = Schema::connection($this->adm)->getColumnListing($table);
         $lc   = array_map('strtolower', $cols);
@@ -718,13 +689,7 @@ final class InvoiceRequestsController extends Controller
         $row = DB::connection($this->adm)->table($table)->where('id', $id)->first();
         abort_unless($row, 404);
 
-        $invoice = null;
-        if (Schema::connection($this->adm)->hasTable('billing_invoices')) {
-            $invoice = DB::connection($this->adm)->table('billing_invoices')
-                ->where('request_id', $id)
-                ->orderByDesc('id')
-                ->first();
-        }
+        $invoice = $this->findInvoiceForRequest($row);
 
         if (!$invoice) {
             return back()->withErrors([
@@ -838,6 +803,128 @@ final class InvoiceRequestsController extends Controller
 
             return back()->withErrors(['mail' => 'Falló el envío: ' . $e->getMessage()]);
         }
+    }
+
+        private function findInvoiceForRequest(object $row): ?object
+    {
+        if (!Schema::connection($this->adm)->hasTable('billing_invoices')) {
+            return null;
+        }
+
+        $cols = Schema::connection($this->adm)->getColumnListing('billing_invoices');
+        $lc   = array_map('strtolower', $cols);
+        $has  = fn(string $c): bool => in_array(strtolower($c), $lc, true);
+
+        $requestId = (int) ($row->id ?? 0);
+        $accountId = trim((string) ($row->account_id ?? ''));
+        $period    = trim((string) ($row->period ?? ($row->periodo ?? '')));
+        $uuid      = trim((string) ($row->cfdi_uuid ?? ''));
+
+        if ($requestId > 0 && $has('request_id')) {
+            $inv = DB::connection($this->adm)->table('billing_invoices')
+                ->where('request_id', $requestId)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($inv) {
+                return $inv;
+            }
+        }
+
+        if ($uuid !== '' && $has('cfdi_uuid')) {
+            $q = DB::connection($this->adm)->table('billing_invoices');
+
+            if ($accountId !== '' && $has('account_id')) {
+                $q->where('account_id', $accountId);
+            }
+
+            if ($period !== '' && $has('period')) {
+                $q->where('period', $period);
+            }
+
+            $inv = $q->where('cfdi_uuid', $uuid)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($inv) {
+                return $inv;
+            }
+        }
+
+        if ($accountId !== '' && $period !== '' && $has('account_id') && $has('period')) {
+            $inv = DB::connection($this->adm)->table('billing_invoices')
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($inv) {
+                return $inv;
+            }
+        }
+
+        if ($accountId !== '' && $has('account_id')) {
+            $q = DB::connection($this->adm)->table('billing_invoices')
+                ->where('account_id', $accountId);
+
+            if ($period !== '' && $has('period')) {
+                $q->where('period', $period);
+            }
+
+            return $q->orderByDesc('id')->first();
+        }
+
+        return null;
+    }
+
+    private function upsertBillingInvoice(array $payload, object $row, ?string $uuid = null): object
+    {
+        $cols = Schema::connection($this->adm)->getColumnListing('billing_invoices');
+        $lc   = array_map('strtolower', $cols);
+        $has  = fn(string $c): bool => in_array(strtolower($c), $lc, true);
+
+        $filtered = [];
+        foreach ($payload as $key => $value) {
+            if ($has($key)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        $existing = $this->findInvoiceForRequest($row);
+
+        if (!$existing && $uuid !== '' && $has('cfdi_uuid')) {
+            $q = DB::connection($this->adm)->table('billing_invoices')->where('cfdi_uuid', $uuid);
+
+            if (!empty($row->account_id) && $has('account_id')) {
+                $q->where('account_id', (string) $row->account_id);
+            }
+
+            if (!empty($row->period) && $has('period')) {
+                $q->where('period', (string) $row->period);
+            } elseif (!empty($row->periodo) && $has('period')) {
+                $q->where('period', (string) $row->periodo);
+            }
+
+            $existing = $q->orderByDesc('id')->first();
+        }
+
+        if ($existing) {
+            unset($filtered['created_at']);
+
+            DB::connection($this->adm)->table('billing_invoices')
+                ->where('id', (int) $existing->id)
+                ->update($filtered);
+
+            return (object) DB::connection($this->adm)->table('billing_invoices')
+                ->where('id', (int) $existing->id)
+                ->first();
+        }
+
+        $newId = DB::connection($this->adm)->table('billing_invoices')->insertGetId($filtered);
+
+        return (object) DB::connection($this->adm)->table('billing_invoices')
+            ->where('id', (int) $newId)
+            ->first();
     }
 
     /**
@@ -2004,37 +2091,7 @@ final class InvoiceRequestsController extends Controller
             $payload['emailed_to'] = json_encode($billingData['emails'] ?? [], JSON_UNESCAPED_UNICODE);
         }
 
-        $existing = null;
-        if ($uuid !== '') {
-            $existing = DB::connection($this->adm)->table('billing_invoices')
-                ->where('account_id', $accountId)
-                ->where('period', $period)
-                ->where('cfdi_uuid', $uuid)
-                ->first();
-        }
-
-        if (!$existing) {
-            $existing = DB::connection($this->adm)->table('billing_invoices')
-                ->where('request_id', $requestId)
-                ->orderByDesc('id')
-                ->first();
-        }
-
-        if ($existing) {
-            unset($payload['created_at']);
-            DB::connection($this->adm)->table('billing_invoices')
-                ->where('id', (int) $existing->id)
-                ->update($payload);
-
-            $saved = DB::connection($this->adm)->table('billing_invoices')
-                ->where('id', (int) $existing->id)
-                ->first();
-        } else {
-            $newId = DB::connection($this->adm)->table('billing_invoices')->insertGetId($payload);
-            $saved = DB::connection($this->adm)->table('billing_invoices')
-                ->where('id', (int) $newId)
-                ->first();
-        }
+        $saved = $this->upsertBillingInvoice($payload, $requestRow, $uuid !== '' ? $uuid : null);
 
         return (array) $saved;
     }
@@ -2208,13 +2265,7 @@ final class InvoiceRequestsController extends Controller
             }
         }
 
-        $invoice = null;
-        if (Schema::connection($this->adm)->hasTable('billing_invoices')) {
-            $invoice = DB::connection($this->adm)->table('billing_invoices')
-                ->where('request_id', (int) ($row->id ?? 0))
-                ->orderByDesc('id')
-                ->first();
-        }
+        $invoice = $this->findInvoiceForRequest($row);
 
         if ($invoice && Schema::connection($this->adm)->hasColumn('billing_invoices', 'emailed_to')) {
             $metaEmails = $invoice->emailed_to ?? null;
