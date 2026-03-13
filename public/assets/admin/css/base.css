@@ -112,8 +112,10 @@ html.sidebar-collapsed{
   box-shadow:var(--shadow-1);
 }
 
-/* Evita “brincos” visuales al cambiar tema/densidad */
-*{ scrollbar-gutter: stable both-edges }
+/* Evita “brincos” visuales del scroll SIN meter separación a la izquierda */
+html{
+  scrollbar-gutter: stable;
+}
 
 /* Blindaje: no empujar .admin-app (offset lo hace .admin-content) */
 .admin-app{

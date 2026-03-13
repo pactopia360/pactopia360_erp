@@ -360,6 +360,17 @@
                     $rfcUi    = (string) ($r->account_rfc ?? ($r->rfc ?? ''));
                   @endphp
 
+                                    @php
+                    $invoiceSaved   = (bool) ($r->invoice_is_saved ?? false);
+                    $invoiceHasPdf  = (bool) ($r->invoice_has_pdf ?? false);
+                    $invoiceHasXml  = (bool) ($r->invoice_has_xml ?? false);
+                    $invoiceCanMail = (bool) ($r->invoice_can_re_send ?? false);
+                    $invoiceMail    = (string) ($r->invoice_primary_mail ?? ($mail ?? ''));
+                    $invoiceUuidUi  = (string) ($r->invoice_uuid ?? ($uuid ?? ''));
+                    $invoiceNotesUi = (string) ($r->invoice_notes ?? ($notes ?? ''));
+                    $invoiceSentAt  = (string) ($r->invoice_sent_at ?? '');
+                  @endphp
+
                   <div class="actionBar" style="margin-top:10px">
                     @if($canEmit)
                       <form method="POST"
@@ -387,23 +398,26 @@
                     >Editar</button>
 
                     <button type="button" class="btn mini primary js-open-modal"
-                      data-modal="m-attach"
+                      data-modal="m-invoice"
                       data-id="{{ (int)$r->id }}"
-                      data-uuid="{{ e($uuid) }}"
+                      data-status="{{ $stUi }}"
+                      data-uuid="{{ e($invoiceUuidUi) }}"
+                      data-notes="{{ e($invoiceNotesUi) }}"
                       data-period="{{ e($per) }}"
                       data-account="{{ e($acct) }}"
-                    >PDF/XML</button>
-
-                    <button type="button" class="btn mini primary js-open-modal"
-                      data-modal="m-email"
-                      data-id="{{ (int)$r->id }}"
-                      data-period="{{ e($per) }}"
-                      data-email="{{ e($mail) }}"
-                    >Enviar</button>
+                      data-email="{{ e($invoiceMail) }}"
+                      data-has-invoice="{{ $invoiceSaved ? '1' : '0' }}"
+                      data-has-pdf="{{ $invoiceHasPdf ? '1' : '0' }}"
+                      data-has-xml="{{ $invoiceHasXml ? '1' : '0' }}"
+                      data-can-mail="{{ $invoiceCanMail ? '1' : '0' }}"
+                      data-sent-at="{{ e($invoiceSentAt) }}"
+                    >{{ $invoiceCanMail ? 'Reenviar' : 'Factura / Enviar' }}</button>
                   </div>
 
                   <div class="mut actionHint">
-                    Flujo recomendado: 1) Editar/Guardar (estatus/UUID/notas/ZIP) · 2) Adjuntar PDF/XML (opcional) · 3) Enviar correo.
+                    {{ $invoiceSaved
+                        ? 'Factura detectada. Puedes actualizar archivos o reenviarla sin volver a subirlos.'
+                        : 'Aquí puedes adjuntar PDF/XML y enviarla en un solo paso.' }}
                   </div>
                 </td>
             </tr>

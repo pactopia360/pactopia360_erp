@@ -241,6 +241,8 @@ final class InvoiceRequestsController extends Controller
             }
         }
 
+        $this->enrichRowsWithInvoiceState($rows);
+
         return view('admin.billing.invoices.requests', [
             'rows'  => $rows,
             'error' => $error,
@@ -925,6 +927,117 @@ final class InvoiceRequestsController extends Controller
         return (object) DB::connection($this->adm)->table('billing_invoices')
             ->where('id', (int) $newId)
             ->first();
+    }
+
+        private function enrichRowsWithInvoiceState($rows): void
+    {
+        if (!Schema::connection($this->adm)->hasTable('billing_invoices')) {
+            return;
+        }
+
+        $collection = method_exists($rows, 'getCollection')
+            ? $rows->getCollection()
+            : collect($rows);
+
+        if ($collection->isEmpty()) {
+            return;
+        }
+
+        $accountIds = $collection->pluck('account_id')->filter()->map(fn ($v) => (string) $v)->unique()->values()->all();
+        $periods    = $collection->map(fn ($r) => (string) ($r->period ?? ($r->periodo ?? '')))->filter()->unique()->values()->all();
+
+        if (empty($accountIds) || empty($periods)) {
+            return;
+        }
+
+        $invoiceCols = Schema::connection($this->adm)->getColumnListing('billing_invoices');
+        $invoiceLc   = array_map('strtolower', $invoiceCols);
+        $invHas      = fn(string $c): bool => in_array(strtolower($c), $invoiceLc, true);
+
+        $invoiceRows = DB::connection($this->adm)->table('billing_invoices')
+            ->whereIn('account_id', $accountIds)
+            ->whereIn('period', $periods)
+            ->orderByDesc('id')
+            ->get();
+
+        $indexed = [];
+        foreach ($invoiceRows as $inv) {
+            $key = (string) ($inv->account_id ?? '') . '|' . (string) ($inv->period ?? '');
+            if ($key === '|') {
+                continue;
+            }
+
+            if (!isset($indexed[$key])) {
+                $indexed[$key] = $inv;
+            }
+        }
+
+        $collection->transform(function ($r) use ($indexed, $invHas) {
+            $key = (string) ($r->account_id ?? '') . '|' . (string) ($r->period ?? ($r->periodo ?? ''));
+            $inv = $indexed[$key] ?? null;
+
+            $r->invoice_id           = $inv->id ?? null;
+            $r->invoice_uuid         = $inv->cfdi_uuid ?? ($r->cfdi_uuid ?? null);
+            $r->invoice_notes        = $inv->notes ?? null;
+            $r->invoice_emailed_to   = $invHas('emailed_to') ? ($inv->emailed_to ?? null) : null;
+            $r->invoice_sent_at      = $invHas('sent_at') ? ($inv->sent_at ?? null) : null;
+            $r->invoice_pdf_path     = $inv->pdf_path ?? null;
+            $r->invoice_pdf_name     = $inv->pdf_name ?? null;
+            $r->invoice_xml_path     = $inv->xml_path ?? null;
+            $r->invoice_xml_name     = $inv->xml_name ?? null;
+            $r->invoice_disk         = $inv->disk ?? 'local';
+
+            $pdfPath = trim((string) ($r->invoice_pdf_path ?? ''));
+            $xmlPath = trim((string) ($r->invoice_xml_path ?? ''));
+            $disk    = (string) ($r->invoice_disk ?? 'local');
+
+            $hasPdf = false;
+            $hasXml = false;
+
+            try {
+                $hasPdf = $pdfPath !== '' && Storage::disk($disk)->exists($pdfPath);
+            } catch (Throwable $e) {
+                $hasPdf = $pdfPath !== '';
+            }
+
+            try {
+                $hasXml = $xmlPath !== '' && Storage::disk($disk)->exists($xmlPath);
+            } catch (Throwable $e) {
+                $hasXml = $xmlPath !== '';
+            }
+
+            $r->invoice_has_pdf      = $hasPdf;
+            $r->invoice_has_xml      = $hasXml;
+            $r->invoice_has_files    = $hasPdf || $hasXml;
+            $r->invoice_is_saved     = !empty($r->invoice_id) || !empty($r->invoice_uuid) || $r->invoice_has_files;
+            $r->invoice_can_re_send  = $r->invoice_is_saved;
+            $r->invoice_primary_mail = '';
+
+            $emailed = [];
+            $raw = $r->invoice_emailed_to ?? null;
+
+            if (is_string($raw) && trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    foreach ($decoded as $mail) {
+                        $mail = strtolower(trim((string) $mail));
+                        if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                            $emailed[] = $mail;
+                        }
+                    }
+                } elseif (filter_var(trim($raw), FILTER_VALIDATE_EMAIL)) {
+                    $emailed[] = strtolower(trim($raw));
+                }
+            }
+
+            $r->invoice_primary_mail = $emailed[0] ?? (string) ($r->account_email ?? ($r->email ?? ''));
+
+            return $r;
+        });
+
+        if (method_exists($rows, 'setCollection')) {
+            $rows->setCollection($collection);
+        }
     }
 
     /**

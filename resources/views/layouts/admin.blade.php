@@ -67,8 +67,8 @@
       --header-h:56px;
 
       /* Sidebar widths (source of truth) */
-      --sidebar-w:260px;
-      --sidebar-w-collapsed:72px;
+      --sidebar-w:304px;
+      --sidebar-w-collapsed:64px;
 
       /* offset efectivo para el main */
       --sidebar-offset: var(--sidebar-w);
@@ -175,16 +175,12 @@
     }
 
     /* MAIN */
-    .admin-content{
+        .admin-content{
       position:relative;
-
-      /* ✅ SINGLE SCROLL:
-        - ya NO limitamos a viewport ni hacemos overflow:auto
-        - dejamos que el documento (body) haga scroll
-      */
       height:auto;
       min-height: calc(100dvh - var(--header-h));
-      overflow:visible;
+      overflow-x:hidden;
+      overflow-y:visible;
 
       display:flex;
       flex-direction:column;
@@ -192,7 +188,42 @@
 
       /* desktop: se recorre por el sidebar */
       margin-left: var(--sidebar-offset);
-      width: calc(100% - var(--sidebar-offset));
+      width: calc(100vw - var(--sidebar-offset));
+      max-width: calc(100vw - var(--sidebar-offset));
+    }
+
+    /* Page wrapper */
+    .page-container{
+      width:100%;
+      min-width:0;
+      max-width:100%;
+      padding: 12px 14px 16px;
+      flex:1 1 auto;
+      overflow-x:hidden;
+    }
+
+    .page-shell{
+      width:100%;
+      min-width:0;
+      max-width:100%;
+      margin:0;
+      overflow-x:hidden;
+    }
+
+    .page-shell > *{
+      max-width:100%;
+    }
+
+    .page-shell .container,
+    .page-shell .container-sm,
+    .page-shell .container-md,
+    .page-shell .container-lg,
+    .page-shell .container-xl,
+    .page-shell .container-xxl{
+      width:100% !important;
+      max-width:100% !important;
+      margin-left:0 !important;
+      margin-right:0 !important;
     }
 
     /* Page wrapper */
@@ -282,10 +313,11 @@
       .admin-content{
         margin-left: 0 !important;
         width: 100% !important;
+        max-width: 100% !important;
       }
       #nebula-sidebar{
-        width: min(86vw, var(--sidebar-w)) !important;
-        max-width: 360px !important;
+        width: min(86vw, 320px) !important;
+        max-width: 320px !important;
       }
     }
 

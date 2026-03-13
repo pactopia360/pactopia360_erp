@@ -3020,6 +3020,24 @@ class ClientesController extends \App\Http\Controllers\Controller
         // Curar winner (admin_account_id / rfc / rfc_padre)
         $this->healMirrorWinner($winner, $accountId, $rfcReal);
 
+        // Reasociar usuarios de cuentas duplicadas al winner
+        if ($schemaCli->hasTable('usuarios_cuenta')) {
+            foreach ($rows as $r) {
+                if ((string) $r->id === (string) $winner->id) continue;
+
+                try {
+                    $conn->table('usuarios_cuenta')
+                        ->where('cuenta_id', (string) $r->id)
+                        ->update([
+                            'cuenta_id'   => (string) $winner->id,
+                            'updated_at'  => now(),
+                        ]);
+                } catch (\Throwable $e) {
+                    // no-op
+                }
+            }
+        }
+
         // Desasociar duplicados (muy importante para que ya no “agarre cualquiera”)
         foreach ($rows as $r) {
             if ((string)$r->id === (string)$winner->id) continue;
@@ -3804,6 +3822,24 @@ class ClientesController extends \App\Http\Controllers\Controller
             $updW['rfc_padre'] = $rfcReal;
         }
         $connCli->table('cuentas_cliente')->where('id', $winner->id)->update($updW);
+
+        // Reasociar usuarios al winner antes de desasociar duplicados
+        if ($schemaCli->hasTable('usuarios_cuenta')) {
+            foreach ($rows as $r) {
+                if ((string) $r->id === (string) $winner->id) continue;
+
+                try {
+                    $connCli->table('usuarios_cuenta')
+                        ->where('cuenta_id', (string) $r->id)
+                        ->update([
+                            'cuenta_id'  => (string) $winner->id,
+                            'updated_at' => now(),
+                        ]);
+                } catch (\Throwable $e) {
+                    // no-op
+                }
+            }
+        }
 
         // Desasociar losers
         foreach ($rows as $r) {

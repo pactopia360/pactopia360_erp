@@ -127,27 +127,7 @@ final class ClientSessionHydrate
             $request->session()->forget('client_account_id');
         }
 
-        $cuentaId = null;
-
-        try {
-            if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
-                $cuentaId = trim((string) $user->cuenta_id);
-            }
-        } catch (\Throwable $e) { $cuentaId = null; }
-
-        try {
-            if (!$cuentaId && isset($user->account_id) && is_string($user->account_id) && trim($user->account_id) !== '') {
-                $maybe = trim((string) $user->account_id);
-                if (ctype_digit($maybe)) {
-                    try {
-                        $exists = CuentaCliente::on('mysql_clientes')->where('id', (int)$maybe)->exists();
-                        if ($exists) $cuentaId = $maybe;
-                    } catch (\Throwable $e) {}
-                } else {
-                    $cuentaId = $maybe;
-                }
-            }
-        } catch (\Throwable $e) {}
+        $cuentaId = $this->resolveCanonicalCuentaId($user, $accountId);
 
         if ($cuentaId) {
             $request->session()->put('cuenta_id', $cuentaId);
@@ -159,7 +139,7 @@ final class ClientSessionHydrate
             $request->session()->forget('client_cuenta_id');
         }
 
-        $request->session()->put('p360.account_id', (int)$accountId);
+        $request->session()->put('p360.account_id', (int) $accountId);
     }
 
     private function resolveAccountId(object $user): int
@@ -167,7 +147,9 @@ final class ClientSessionHydrate
         try {
             if (isset($user->cuenta) && is_object($user->cuenta)) {
                 $adm = $user->cuenta->admin_account_id ?? null;
-                if (is_numeric($adm) && (int)$adm > 0) return (int)$adm;
+                if (is_numeric($adm) && (int) $adm > 0) {
+                    return (int) $adm;
+                }
             }
         } catch (\Throwable $e) {}
 
@@ -175,36 +157,60 @@ final class ClientSessionHydrate
             $cuentaId = null;
 
             if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
-                $cuentaId = trim((string)$user->cuenta_id);
-            } elseif (isset($user->account_id) && is_string($user->account_id) && trim($user->account_id) !== '') {
-                $cuentaId = trim((string)$user->account_id);
+                $cuentaId = trim((string) $user->cuenta_id);
             }
 
-            if ($cuentaId && ctype_digit($cuentaId)) {
-                $row = CuentaCliente::on('mysql_clientes')->find((int)$cuentaId);
+            if ($cuentaId) {
+                $row = CuentaCliente::on('mysql_clientes')->where('id', $cuentaId)->first();
                 $adm = $row?->admin_account_id ?? null;
-                if (is_numeric($adm) && (int)$adm > 0) return (int)$adm;
+                if (is_numeric($adm) && (int) $adm > 0) {
+                    return (int) $adm;
+                }
             }
 
             $email = '';
             $rfc   = '';
 
-            if (isset($user->email)) $email = strtolower(trim((string)$user->email));
-            if (isset($user->rfc))   $rfc   = strtoupper(trim((string)$user->rfc));
+            if (isset($user->email)) {
+                $email = strtolower(trim((string) $user->email));
+            }
+            if (isset($user->rfc)) {
+                $rfc = strtoupper(trim((string) $user->rfc));
+            }
 
             if ($rfc !== '') {
-                $adm = (int)(CuentaCliente::on('mysql_clientes')->whereRaw('UPPER(rfc)=?', [$rfc])->value('admin_account_id') ?? 0);
-                if ($adm > 0) return $adm;
+                $row = CuentaCliente::on('mysql_clientes')
+                    ->whereRaw('UPPER(rfc)=?', [$rfc])
+                    ->orderByDesc('activo')
+                    ->orderBy('is_blocked')
+                    ->orderByDesc('vault_active')
+                    ->orderByDesc('updated_at')
+                    ->first();
+
+                $adm = $row?->admin_account_id ?? null;
+                if (is_numeric($adm) && (int) $adm > 0) {
+                    return (int) $adm;
+                }
             }
 
             if ($email !== '') {
-                $adm = (int)(CuentaCliente::on('mysql_clientes')->whereRaw('LOWER(email)=?', [$email])->value('admin_account_id') ?? 0);
-                if ($adm > 0) return $adm;
+                $row = CuentaCliente::on('mysql_clientes')
+                    ->whereRaw('LOWER(email)=?', [$email])
+                    ->orderByDesc('activo')
+                    ->orderBy('is_blocked')
+                    ->orderByDesc('vault_active')
+                    ->orderByDesc('updated_at')
+                    ->first();
+
+                $adm = $row?->admin_account_id ?? null;
+                if (is_numeric($adm) && (int) $adm > 0) {
+                    return (int) $adm;
+                }
             }
         } catch (\Throwable $e) {}
 
-        if (isset($user->admin_account_id) && is_numeric($user->admin_account_id) && (int)$user->admin_account_id > 0) {
-            return (int)$user->admin_account_id;
+        if (isset($user->admin_account_id) && is_numeric($user->admin_account_id) && (int) $user->admin_account_id > 0) {
+            return (int) $user->admin_account_id;
         }
 
         return 0;
@@ -336,5 +342,89 @@ final class ClientSessionHydrate
 
         $d = json_decode($value, true);
         return is_array($d) ? $d : [];
+    }
+
+    private function resolveCanonicalCuentaId(object $user, int $accountId = 0): ?string
+    {
+        try {
+            if (isset($user->cuenta_id) && is_string($user->cuenta_id) && trim($user->cuenta_id) !== '') {
+                $currentId = trim((string) $user->cuenta_id);
+
+                $current = CuentaCliente::on('mysql_clientes')->where('id', $currentId)->first();
+                if ($current) {
+                    $adm = (int) ($current->admin_account_id ?? 0);
+                    if ($adm > 0) {
+                        $canonical = $this->findCanonicalCuentaByAdminAccountId($adm);
+                        return $canonical?->id ? (string) $canonical->id : $currentId;
+                    }
+
+                    return $currentId;
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        if ($accountId > 0) {
+            try {
+                $canonical = $this->findCanonicalCuentaByAdminAccountId($accountId);
+                if ($canonical?->id) {
+                    return (string) $canonical->id;
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        try {
+            $rfc = isset($user->rfc) ? strtoupper(trim((string) $user->rfc)) : '';
+            if ($rfc !== '') {
+                $row = CuentaCliente::on('mysql_clientes')
+                    ->whereRaw('UPPER(rfc)=?', [$rfc])
+                    ->orderByDesc('activo')
+                    ->orderBy('is_blocked')
+                    ->orderByDesc('vault_active')
+                    ->orderByDesc('updated_at')
+                    ->first();
+
+                if ($row?->id) {
+                    return (string) $row->id;
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        try {
+            $email = isset($user->email) ? strtolower(trim((string) $user->email)) : '';
+            if ($email !== '') {
+                $row = CuentaCliente::on('mysql_clientes')
+                    ->whereRaw('LOWER(email)=?', [$email])
+                    ->orderByDesc('activo')
+                    ->orderBy('is_blocked')
+                    ->orderByDesc('vault_active')
+                    ->orderByDesc('updated_at')
+                    ->first();
+
+                if ($row?->id) {
+                    return (string) $row->id;
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        return null;
+    }
+
+    private function findCanonicalCuentaByAdminAccountId(int $accountId): ?CuentaCliente
+    {
+        if ($accountId <= 0) {
+            return null;
+        }
+
+        try {
+            return CuentaCliente::on('mysql_clientes')
+                ->where('admin_account_id', $accountId)
+                ->orderByDesc('activo')
+                ->orderBy('is_blocked')
+                ->orderByDesc('vault_active')
+                ->orderByDesc('updated_at')
+                ->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }
