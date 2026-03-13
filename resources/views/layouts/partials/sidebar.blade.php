@@ -507,16 +507,16 @@
 </aside>
 
 <style>
-  :root{
+   :root{
     --ns-rail-w: 64px;
-    --ns-panel-w: 240px;
-    --ns-w: var(--sidebar-w, 304px);
+    --ns-panel-w: 320px;
+    --ns-w: calc(var(--ns-rail-w) + var(--ns-panel-w));
     --ns-wc: var(--sidebar-w-collapsed, 64px);
 
     --ns-app: #f3f4f6;
     --ns-rail: #fcfcfd;
-    --ns-panel: #ffffff;
-    --ns-panel-2: #f8fafc;
+    --ns-panel: rgba(255,255,255,.38);
+    --ns-panel-2: rgba(248,250,252,.28);
 
     --ns-text: #111827;
     --ns-muted: #6b7280;
@@ -524,10 +524,10 @@
     --ns-border: rgba(15,23,42,.08);
     --ns-border-soft: rgba(15,23,42,.05);
     --ns-hover: rgba(15,23,42,.05);
-    --ns-active: #f3efff;
+    --ns-active: rgba(109,78,255,.10);
     --ns-active-border: rgba(109,78,255,.20);
     --ns-active-text: #5b3df0;
-    --ns-pill: #f3f4f6;
+    --ns-pill: rgba(243,244,246,.88);
     --ns-focus: 0 0 0 3px rgba(99,102,241,.20);
 
     --ns-brand-1: #6d4eff;
@@ -543,8 +543,8 @@
   html.theme-dark{
     --ns-app: #0b1220;
     --ns-rail: #0d1628;
-    --ns-panel: #10192b;
-    --ns-panel-2: #0d1728;
+    --ns-panel: rgba(16,25,43,.42);
+    --ns-panel-2: rgba(13,23,40,.34);
 
     --ns-text: #e8edf5;
     --ns-muted: #94a3b8;
@@ -559,37 +559,46 @@
   }
 
   #nebula-sidebar.ns-wrap{
-    width: var(--ns-w);
-    min-width: var(--ns-w);
-    max-width: var(--ns-w);
-    background: var(--ns-app);
+    width: var(--ns-wc) !important;
+    min-width: var(--ns-wc) !important;
+    max-width: var(--ns-wc) !important;
+    background: transparent;
     color: var(--ns-text);
-    overflow: hidden;
+    overflow: visible !important;
     border-right: 0;
     box-sizing: border-box;
+    isolation: isolate;
   }
 
   .ns-shell{
+    position: relative;
     display:flex;
-    width:100%;
+    width: var(--ns-wc);
+    min-width: var(--ns-wc);
+    max-width: var(--ns-wc);
     height:100%;
     min-height:100%;
-    background: var(--ns-app);
-    border-right:1px solid var(--ns-border-soft);
-    overflow:hidden;
+    background: transparent;
+    overflow: visible !important;
+    border-right: 0;
   }
 
   .ns-rail{
+    position: relative;
+    z-index: 3;
     width:var(--ns-rail-w);
     min-width:var(--ns-rail-w);
     max-width:var(--ns-rail-w);
-    background:var(--ns-rail);
+    background: color-mix(in oklab, var(--ns-rail) 94%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
     border-right:1px solid var(--ns-border-soft);
     display:flex;
     flex-direction:column;
     justify-content:space-between;
     padding:10px 8px;
     flex:0 0 var(--ns-rail-w);
+    box-shadow: 0 10px 28px rgba(15,23,42,.08);
   }
 
   .ns-rail-top,
@@ -671,20 +680,40 @@
     font:800 12px/1 system-ui, sans-serif;
   }
 
-  .ns-panel{
-    width:calc(var(--ns-w) - var(--ns-rail-w));
-    min-width:calc(var(--ns-w) - var(--ns-rail-w));
-    max-width:calc(var(--ns-w) - var(--ns-rail-w));
-    background:linear-gradient(180deg, var(--ns-panel) 0%, var(--ns-panel-2) 100%);
+   .ns-panel{
+    position: absolute;
+    top: 0;
+    left: var(--ns-rail-w);
+    z-index: 20;
+    width: var(--ns-panel-w);
+    min-width: var(--ns-panel-w);
+    max-width: var(--ns-panel-w);
+    height: 100%;
+    background:
+      linear-gradient(180deg, var(--ns-panel) 0%, var(--ns-panel-2) 100%);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
     display:flex;
     flex-direction:column;
-    min-height:100%;
     overflow:hidden;
-    flex:0 0 calc(var(--ns-w) - var(--ns-rail-w));
+    border:1px solid rgba(255,255,255,.20);
+    border-left:0;
+    box-shadow:
+      0 24px 54px rgba(15,23,42,.22),
+      0 10px 24px rgba(15,23,42,.12);
+    opacity: 1;
+    visibility: visible;
+    transform: translate3d(0,0,0);
+    pointer-events: auto;
+    transition:
+      opacity .20s ease,
+      transform .22s ease,
+      visibility .22s ease,
+      box-shadow .22s ease;
   }
 
   .ns-panel-head{
-    padding:14px 12px 12px;
+    padding:14px 14px 12px;
     border-bottom:1px solid var(--ns-border-soft);
     background:color-mix(in oklab, var(--ns-panel) 96%, transparent);
     backdrop-filter:blur(10px) saturate(140%);
@@ -757,7 +786,7 @@
     flex:1 1 auto;
     min-height:0;
     overflow:auto;
-    padding:10px 8px 12px;
+    padding:10px 10px 12px;
   }
 
   .ns-module{
@@ -837,6 +866,7 @@
 
   .ns-txt{
     min-width:0;
+    flex: 1 1 auto;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
@@ -986,7 +1016,18 @@
     }
 
     html.sidebar-collapsed #nebula-sidebar .ns-panel{
-      display:none;
+      opacity: 0;
+      visibility: hidden;
+      transform: translate3d(-18px,0,0);
+      pointer-events: none;
+      box-shadow: none;
+    }
+
+    html:not(.sidebar-collapsed) #nebula-sidebar .ns-panel{
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(0);
+      pointer-events: auto;
     }
 
     html.sidebar-collapsed #nebula-sidebar .ns-rail-btn,
@@ -1020,6 +1061,22 @@
       background:#0b1220;
       border:1px solid rgba(255,255,255,.08);
     }
+
+    html:not(.sidebar-collapsed) #nebula-sidebar{
+      overflow: visible !important;
+    }
+
+    html:not(.sidebar-collapsed) #nebula-sidebar .ns-shell{
+      overflow: visible !important;
+    }
+
+    html:not(.sidebar-collapsed) #nebula-sidebar .ns-panel{
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+
+    html.theme-dark:not(.sidebar-collapsed) #nebula-sidebar .ns-panel{
+      outline: 1px solid rgba(255,255,255,.06);
+    }
   }
 
   @media (max-width:1023.98px){
@@ -1037,11 +1094,28 @@
       transform:translateX(0);
     }
 
+    .ns-shell{
+      overflow:hidden;
+      background: color-mix(in oklab, var(--ns-app) 90%, transparent);
+    }
+
     .ns-panel{
+      position: relative;
+      left: 0;
       width:calc(100% - var(--ns-rail-w));
       min-width:calc(100% - var(--ns-rail-w));
       max-width:calc(100% - var(--ns-rail-w));
+      height: auto;
       flex:1 1 auto;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform:none !important;
+      pointer-events:auto !important;
+      box-shadow:none;
+      border-left:0;
+      border-top:0;
+      border-bottom:0;
+      border-right:0;
     }
 
     .ns-backdrop{
@@ -1109,11 +1183,6 @@
     try { return JSON.parse(value); } catch (_) { return fallback; }
   }
 
-  function currentExpandedWidth() {
-    const v = getComputedStyle(root).getPropertyValue('--sidebar-w').trim();
-    return v || '304px';
-  }
-
   function currentCollapsedWidth() {
     const v = getComputedStyle(root).getPropertyValue('--sidebar-w-collapsed').trim();
     return v || '64px';
@@ -1125,10 +1194,11 @@
       return;
     }
 
-    root.style.setProperty(
-      '--sidebar-offset',
-      root.classList.contains('sidebar-collapsed') ? currentCollapsedWidth() : currentExpandedWidth()
-    );
+    /* Desktop:
+       el contenido siempre reserva SOLO el rail compacto.
+       el panel expandido flota encima del contenido.
+    */
+    root.style.setProperty('--sidebar-offset', currentCollapsedWidth());
   }
 
   function reflectShell() {
@@ -1138,8 +1208,10 @@
     if (isDesktop()) {
       body.classList.remove('sidebar-open');
       root.classList.toggle('sidebar-collapsed', mode === 'collapsed');
+      root.setAttribute('data-sidebar', mode === 'collapsed' ? 'collapsed' : 'expanded');
     } else {
       root.classList.remove('sidebar-collapsed');
+      root.setAttribute('data-sidebar', open ? 'expanded' : 'collapsed');
       body.classList.toggle('sidebar-open', open);
     }
 

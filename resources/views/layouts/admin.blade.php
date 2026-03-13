@@ -102,7 +102,15 @@
       --accent:#7ba1ff;
     }
 
-    /* Flags colapso (Nebula usa html.sidebar-collapsed) */
+    /* Flags sidebar
+    Desktop: el contenido SIEMPRE reserva solo el rail colapsado.
+    El panel expandido flotará encima del contenido.
+    */
+    html,
+    html[data-sidebar="expanded"]{
+      --sidebar-offset: var(--sidebar-w-collapsed);
+    }
+
     html.sidebar-collapsed,
     html[data-sidebar="collapsed"]{
       --sidebar-offset: var(--sidebar-w-collapsed);
@@ -162,12 +170,11 @@
       padding-top: var(--header-h);
     }
 
-    /* Sidebar anchor (solo posición/medidas; el look vive en el partial) */
+    /* Sidebar anchor (solo posición/medidas globales; look fino vive en el partial) */
     #nebula-sidebar{
       position:fixed !important;
       top: var(--header-h) !important;
       left: 0 !important;
-      width: var(--sidebar-offset) !important;
       height: calc(100dvh - var(--header-h)) !important;
       margin:0 !important;
       border-radius:0 !important;
@@ -175,8 +182,9 @@
     }
 
     /* MAIN */
-        .admin-content{
+    .admin-content{
       position:relative;
+      z-index: 1;
       height:auto;
       min-height: calc(100dvh - var(--header-h));
       overflow-x:hidden;
@@ -186,10 +194,10 @@
       flex-direction:column;
       min-width:0;
 
-      /* desktop: se recorre por el sidebar */
-      margin-left: var(--sidebar-offset);
-      width: calc(100vw - var(--sidebar-offset));
-      max-width: calc(100vw - var(--sidebar-offset));
+      /* Desktop: el main SOLO reserva el rail compacto */
+      margin-left: var(--sidebar-w-collapsed);
+      width: calc(100vw - var(--sidebar-w-collapsed));
+      max-width: calc(100vw - var(--sidebar-w-collapsed));
     }
 
     /* Page wrapper */
@@ -308,13 +316,18 @@
     #p360-cmd .cmd-card{ width:min(720px, 92vw); background:var(--card-bg); color:var(--text); border:1px solid var(--card-border); border-radius:14px; box-shadow:var(--shadow-2); padding:12px }
     #p360-cmd input{ width:100%; border:1px solid var(--card-border); border-radius:10px; padding:10px 12px; outline:0; background:var(--panel-bg); color:var(--text) }
 
-    /* MOBILE: sidebar overlay -> main full width */
+    /* MOBILE/TABLET: sidebar overlay -> main full width */
     @media (max-width: 1099.98px){
+      :root{
+        --sidebar-offset: 0px;
+      }
+
       .admin-content{
         margin-left: 0 !important;
         width: 100% !important;
         max-width: 100% !important;
       }
+
       #nebula-sidebar{
         width: min(86vw, 320px) !important;
         max-width: 320px !important;
