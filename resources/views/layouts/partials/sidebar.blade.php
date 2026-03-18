@@ -228,6 +228,8 @@
                     ['text'=>'Dashboard','route'=>'admin.billing.invoicing.dashboard','active_when'=>['admin.billing.invoicing.dashboard']],
                     ['text'=>'Solicitudes','route'=>'admin.billing.invoicing.requests.index','active_when'=>['admin.billing.invoicing.requests.*']],
                     ['text'=>'Facturas emitidas','route'=>'admin.billing.invoicing.invoices.index','active_when'=>['admin.billing.invoicing.invoices.*']],
+                    ['text'=>'Emisores','route'=>'admin.billing.invoicing.emisores.index','active_when'=>['admin.billing.invoicing.emisores.*']],
+                    ['text'=>'Receptores','route'=>'admin.billing.invoicing.receptores.index','active_when'=>['admin.billing.invoicing.receptores.*']],
                     ['text'=>'Configuración','route'=>'admin.billing.invoicing.settings.index','active_when'=>['admin.billing.invoicing.settings.*']],
                     ['text'=>'Logs','route'=>'admin.billing.invoicing.logs.index','active_when'=>['admin.billing.invoicing.logs.*']],
                   ],

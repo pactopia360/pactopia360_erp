@@ -36,7 +36,7 @@ final class InvoicingSettingsController extends Controller
                 }
             }
         } catch (Throwable $e) {
-            // no romper la pantalla por errores de lectura
+            // no romper pantalla
         }
 
         $resolved = $this->resolveEffectiveConfig($settings);
@@ -50,16 +50,20 @@ final class InvoicingSettingsController extends Controller
     public function save(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'facturotopia_mode'         => 'required|string|in:sandbox,production',
-            'facturotopia_flow'         => 'required|string|in:api_comprobantes,xml_timbrado',
-            'facturotopia_base'         => 'nullable|string|max:255',
-            'facturotopia_api_key_test' => 'nullable|string|max:500',
-            'facturotopia_api_key_live' => 'nullable|string|max:500',
-            'facturotopia_emisor_id'    => 'nullable|string|max:120',
-            'email_from'                => 'nullable|email:rfc,dns|max:255',
+            'facturotopia_mode'           => 'required|string|in:sandbox,production',
+            'facturotopia_flow'           => 'required|string|in:api_comprobantes',
+            'facturotopia_auth_scheme'    => 'required|string|in:bearer,apikey',
+            'facturotopia_base'           => 'nullable|string|max:255',
+            'facturotopia_api_key_test'   => 'nullable|string|max:500',
+            'facturotopia_api_key_live'   => 'nullable|string|max:500',
+            'facturotopia_emisor_id'      => 'nullable|string|max:120',
+            'facturotopia_tenancy'        => 'nullable|string|max:190',
+            'facturotopia_tenancy_header' => 'nullable|string|max:100',
+            'email_from'                  => 'nullable|email:rfc,dns|max:255',
         ], [
-            'facturotopia_mode.in' => 'El modo debe ser sandbox o production.',
-            'facturotopia_flow.in' => 'El flujo debe ser api_comprobantes o xml_timbrado.',
+            'facturotopia_mode.in'        => 'El modo debe ser sandbox o production.',
+            'facturotopia_flow.in'        => 'Actualmente el único flujo habilitado es api_comprobantes.',
+            'facturotopia_auth_scheme.in' => 'El esquema de autenticación debe ser bearer o apikey.',
         ]);
 
         if (!Schema::connection($this->adm)->hasTable('billing_settings')) {
@@ -69,13 +73,16 @@ final class InvoicingSettingsController extends Controller
         }
 
         $payload = [
-            'facturotopia_mode'         => trim((string) ($data['facturotopia_mode'] ?? 'sandbox')),
-            'facturotopia_flow'         => trim((string) ($data['facturotopia_flow'] ?? 'api_comprobantes')),
-            'facturotopia_base'         => $this->normalizeBaseUrl((string) ($data['facturotopia_base'] ?? '')),
-            'facturotopia_api_key_test' => trim((string) ($data['facturotopia_api_key_test'] ?? '')),
-            'facturotopia_api_key_live' => trim((string) ($data['facturotopia_api_key_live'] ?? '')),
-            'facturotopia_emisor_id'    => trim((string) ($data['facturotopia_emisor_id'] ?? '')),
-            'email_from'                => trim((string) ($data['email_from'] ?? '')),
+            'facturotopia_mode'           => trim((string) ($data['facturotopia_mode'] ?? 'sandbox')),
+            'facturotopia_flow'           => trim((string) ($data['facturotopia_flow'] ?? 'api_comprobantes')),
+            'facturotopia_auth_scheme'    => strtolower(trim((string) ($data['facturotopia_auth_scheme'] ?? 'bearer'))),
+            'facturotopia_base'           => $this->normalizeBaseUrl((string) ($data['facturotopia_base'] ?? '')),
+            'facturotopia_api_key_test'   => trim((string) ($data['facturotopia_api_key_test'] ?? '')),
+            'facturotopia_api_key_live'   => trim((string) ($data['facturotopia_api_key_live'] ?? '')),
+            'facturotopia_emisor_id'      => trim((string) ($data['facturotopia_emisor_id'] ?? '')),
+            'facturotopia_tenancy'        => trim((string) ($data['facturotopia_tenancy'] ?? '')),
+            'facturotopia_tenancy_header' => trim((string) ($data['facturotopia_tenancy_header'] ?? '')) ?: 'X-Tenancy',
+            'email_from'                  => trim((string) ($data['email_from'] ?? '')),
         ];
 
         try {
@@ -109,21 +116,24 @@ final class InvoicingSettingsController extends Controller
         $prodBase    = rtrim((string) data_get(config('services.facturotopia'), 'production.base', 'https://api.facturotopia.com'), '/');
 
         return [
-            'facturotopia_mode'         => (string) config('services.facturotopia.mode', 'sandbox'),
-            'facturotopia_flow'         => 'api_comprobantes',
-            'facturotopia_base'         => '',
-            'facturotopia_api_key_test' => (string) (
+            'facturotopia_mode'           => (string) config('services.facturotopia.mode', 'sandbox'),
+            'facturotopia_flow'           => (string) config('services.facturotopia.flow', 'api_comprobantes'),
+            'facturotopia_auth_scheme'    => strtolower((string) config('services.facturotopia.auth_scheme', 'bearer')),
+            'facturotopia_base'           => '',
+            'facturotopia_tenancy'        => (string) config('services.facturotopia.tenancy', ''),
+            'facturotopia_tenancy_header' => (string) config('services.facturotopia.tenancy_header', 'X-Tenancy'),
+            'facturotopia_api_key_test'   => (string) (
                 data_get(config('services.facturotopia'), 'sandbox.token')
                 ?: config('services.facturotopia.api_key_test', '')
             ),
-            'facturotopia_api_key_live' => (string) (
+            'facturotopia_api_key_live'   => (string) (
                 data_get(config('services.facturotopia'), 'production.token')
                 ?: config('services.facturotopia.api_key_live', '')
             ),
-            'facturotopia_emisor_id'    => '',
-            'email_from'                => (string) config('mail.from.address', ''),
-            '__sandbox_base_default'    => $sandboxBase !== '' ? $sandboxBase : 'https://api-demo.facturotopia.com',
-            '__production_base_default' => $prodBase !== '' ? $prodBase : 'https://api.facturotopia.com',
+            'facturotopia_emisor_id'      => (string) config('services.facturotopia.emisor_id', ''),
+            'email_from'                  => (string) config('mail.from.address', ''),
+            '__sandbox_base_default'      => $sandboxBase !== '' ? $sandboxBase : 'https://api-demo.facturotopia.com',
+            '__production_base_default'   => $prodBase !== '' ? $prodBase : 'https://api.facturotopia.com',
         ];
     }
 
@@ -136,6 +146,16 @@ final class InvoicingSettingsController extends Controller
         $mode = trim((string) ($settings['facturotopia_mode'] ?? 'sandbox'));
         if (!in_array($mode, ['sandbox', 'production'], true)) {
             $mode = 'sandbox';
+        }
+
+        $flow = trim((string) ($settings['facturotopia_flow'] ?? 'api_comprobantes'));
+        if ($flow !== 'api_comprobantes') {
+            $flow = 'api_comprobantes';
+        }
+
+        $authScheme = strtolower(trim((string) ($settings['facturotopia_auth_scheme'] ?? 'bearer')));
+        if (!in_array($authScheme, ['bearer', 'apikey'], true)) {
+            $authScheme = 'bearer';
         }
 
         $base = trim((string) ($settings['facturotopia_base'] ?? ''));
@@ -152,12 +172,15 @@ final class InvoicingSettingsController extends Controller
             : trim((string) ($settings['facturotopia_api_key_test'] ?? ''));
 
         return [
-            'mode'      => $mode,
-            'flow'      => trim((string) ($settings['facturotopia_flow'] ?? 'api_comprobantes')),
-            'base'      => $base,
-            'api_key'   => $apiKey,
-            'emisor_id' => trim((string) ($settings['facturotopia_emisor_id'] ?? '')),
-            'email_from'=> trim((string) ($settings['email_from'] ?? '')),
+            'mode'           => $mode,
+            'flow'           => $flow,
+            'auth_scheme'    => $authScheme,
+            'base'           => $base,
+            'api_key'        => $apiKey,
+            'emisor_id'      => trim((string) ($settings['facturotopia_emisor_id'] ?? '')),
+            'tenancy'        => trim((string) ($settings['facturotopia_tenancy'] ?? '')),
+            'tenancy_header' => trim((string) ($settings['facturotopia_tenancy_header'] ?? '')) ?: 'X-Tenancy',
+            'email_from'     => trim((string) ($settings['email_from'] ?? '')),
         ];
     }
 

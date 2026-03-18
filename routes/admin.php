@@ -53,6 +53,10 @@ use App\Http\Controllers\Admin\Billing\Sat\SatDiscountCodesController as AdminSa
 use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
 use App\Http\Controllers\Admin\Sat\SatCredentialsController;
 
+//Facturacion
+use App\Http\Controllers\Admin\Billing\EmisoresController;
+use App\Http\Controllers\Admin\Billing\ReceptoresController;
+
 // SAT Ops (Backoffice)
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsCredentialsController;
@@ -624,6 +628,29 @@ Route::middleware([
         $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
+        
+        // ✅ COMPAT GET: evita pantalla 419/expirada cuando alguien abre
+        // /admin/clientes/{rfc|id}/email-credentials directo en navegador.
+        Route::get('clientes/{rfc}/email-credentials', function (string $rfc) {
+            if (!auth('admin')->check()) {
+                return redirect()->route('admin.login');
+            }
+
+            $target = \Illuminate\Support\Facades\Route::has('admin.clientes.show')
+                ? route('admin.clientes.show', ['key' => $rfc])
+                : route('admin.clientes.index', ['q' => $rfc]);
+
+            return redirect($target)->with(
+                'info',
+                'La URL de envío de credenciales no es una pantalla. Ya te redirigimos al cliente para que envíes las credenciales desde ahí.'
+            );
+        })->where('rfc', '[A-Za-z0-9\-]+')
+          ->middleware(perm_mw('clientes.ver'))
+          ->name('clientes.emailCredentials.get_compat');
+
+        $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
+            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+            ->name('clientes.emailCredentials');
 
         $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
@@ -968,7 +995,7 @@ Route::middleware([
             ->name('invoices.requests.resend');
 
         // Invoicing module
-        Route::prefix('invoicing')->name('invoicing.')->group(function () use ($thrAdminPosts, $isLocal) {
+       Route::prefix('invoicing')->name('invoicing.')->group(function () use ($thrAdminPosts, $isLocal) {
             Route::get('/', [InvoicingDashboardController::class, 'index'])->name('dashboard');
 
             Route::get('requests', [InvoiceRequestsController::class, 'index'])->name('requests.index');
@@ -995,6 +1022,18 @@ Route::middleware([
                 ->name('requests.resend');
 
             Route::get('invoices', [InvoicesController::class, 'index'])->name('invoices.index');
+
+            Route::get('invoices/form-seed', [InvoicesController::class, 'formSeed'])
+                ->name('invoices.form_seed');
+
+            Route::get('invoices/search-emisores', [InvoicesController::class, 'searchEmisores'])
+                ->name('invoices.search_emisores');
+
+            Route::get('invoices/search-receptores', [InvoicesController::class, 'searchReceptores'])
+                ->name('invoices.search_receptores');
+
+            Route::get('invoices/create', [InvoicesController::class, 'create'])
+                ->name('invoices.create');
 
             Route::get('invoices/{id}', [InvoicesController::class, 'show'])
                 ->whereNumber('id')
@@ -1037,6 +1076,56 @@ Route::middleware([
             Route::get('settings', [InvoicingSettingsController::class, 'index'])->name('settings.index');
             Route::post('settings', [InvoicingSettingsController::class, 'save'])->name('settings.save');
 
+            Route::get('emisores', [EmisoresController::class, 'index'])->name('emisores.index');
+            Route::get('emisores/create', [EmisoresController::class, 'create'])->name('emisores.create');
+
+            $emisoresSync = Route::post('emisores/sync-facturotopia', [EmisoresController::class, 'syncFacturotopia'])
+                ->middleware($thrAdminPosts)
+                ->name('emisores.sync_facturotopia');
+
+            $emisoresStore = Route::post('emisores', [EmisoresController::class, 'store'])
+                ->middleware($thrAdminPosts)
+                ->name('emisores.store');
+
+            Route::get('emisores/{id}/edit', [EmisoresController::class, 'edit'])
+                ->whereNumber('id')
+                ->name('emisores.edit');
+
+            $emisoresUpdate = Route::put('emisores/{id}', [EmisoresController::class, 'update'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('emisores.update');
+
+            $emisoresDestroy = Route::delete('emisores/{id}', [EmisoresController::class, 'destroy'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('emisores.destroy');
+
+            Route::get('receptores', [ReceptoresController::class, 'index'])->name('receptores.index');
+            Route::get('receptores/create', [ReceptoresController::class, 'create'])->name('receptores.create');
+
+            $receptoresSync = Route::post('receptores/sync-facturotopia', [ReceptoresController::class, 'syncFacturotopia'])
+                ->middleware($thrAdminPosts)
+                ->name('receptores.sync_facturotopia');
+
+            $receptoresStore = Route::post('receptores', [ReceptoresController::class, 'store'])
+                ->middleware($thrAdminPosts)
+                ->name('receptores.store');
+
+            Route::get('receptores/{id}/edit', [ReceptoresController::class, 'edit'])
+                ->whereNumber('id')
+                ->name('receptores.edit');
+
+            $receptoresUpdate = Route::put('receptores/{id}', [ReceptoresController::class, 'update'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('receptores.update');
+
+            $receptoresDestroy = Route::delete('receptores/{id}', [ReceptoresController::class, 'destroy'])
+                ->whereNumber('id')
+                ->middleware($thrAdminPosts)
+                ->name('receptores.destroy');
+
             Route::get('logs', [InvoicingLogsController::class, 'index'])->name('logs.index');
 
             if ($isLocal) {
@@ -1047,6 +1136,14 @@ Route::middleware([
                     $invoiceSend,
                     $invoiceResend,
                     $invoiceBulkSend,
+                    $emisoresSync,
+                    $emisoresStore,
+                    $emisoresUpdate,
+                    $emisoresDestroy,
+                    $receptoresSync,
+                    $receptoresStore,
+                    $receptoresUpdate,
+                    $receptoresDestroy,
                 ] as $rt) {
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }

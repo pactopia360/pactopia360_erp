@@ -82,12 +82,12 @@ return [
     // ===== SAT / servicios relacionados =====
     'sat' => [
         'download' => [
-            'driver'       => env('SAT_DOWNLOAD_DRIVER', 'multi'),
-            'providers'    => array_values(array_filter(array_map('trim', explode(',', env('SAT_DOWNLOAD_PROVIDERS', 'satws'))))),
-            'failover'     => (bool) env('SAT_DOWNLOAD_FAILOVER', true),
-            'http_timeout' => (int) env('SAT_DOWNLOAD_HTTP_TIMEOUT', 60),
-            'price_per_gb' => (float) env('SAT_PRICE_PER_GB', 100),
-            'ttl_hours'    => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
+            'driver'         => env('SAT_DOWNLOAD_DRIVER', 'multi'),
+            'providers'      => array_values(array_filter(array_map('trim', explode(',', env('SAT_DOWNLOAD_PROVIDERS', 'satws'))))),
+            'failover'       => (bool) env('SAT_DOWNLOAD_FAILOVER', true),
+            'http_timeout'   => (int) env('SAT_DOWNLOAD_HTTP_TIMEOUT', 60),
+            'price_per_gb'   => (float) env('SAT_PRICE_PER_GB', 100),
+            'ttl_hours'      => (int) env('SAT_DOWNLOAD_TTL_HOURS', 72),
             'demo_ttl_hours' => (int) env('SAT_DOWNLOAD_DEMO_TTL_HOURS', 24),
         ],
 
@@ -102,9 +102,22 @@ return [
         // sandbox | production
         'mode' => (string) env('FACTUROTOPIA_MODE', 'sandbox'),
 
+        // api_comprobantes
+        'flow' => (string) env('FACTUROTOPIA_FLOW', 'api_comprobantes'),
+
+        // bearer | apikey
+        'auth_scheme' => strtolower((string) env('FACTUROTOPIA_AUTH_SCHEME', 'bearer')),
+
+        // multi-tenant
+        'tenancy'        => (string) env('FACTUROTOPIA_TENANCY', ''),
+        'tenancy_header' => (string) env('FACTUROTOPIA_TENANCY_HEADER', 'X-Tenancy'),
+
+        // emisor por defecto para comprobantes
+        'emisor_id' => (string) env('FACTUROTOPIA_EMISOR_ID', ''),
+
         // Entorno sandbox/demo
         'sandbox' => [
-            'base'  => rtrim((string) env('FT_BASE', 'https://api-demo.facturotopia.com/api'), '/'),
+            'base'  => rtrim((string) env('FT_BASE', env('FACTUROTOPIA_BASE_URL_TEST', 'https://api-demo.facturotopia.com/api')), '/'),
             'token' => (string) env('FT_TOKEN', env('FACTUROTOPIA_API_KEY_TEST', '')),
         ],
 
@@ -118,7 +131,7 @@ return [
         'base_url' => rtrim((string) (
             env('FACTUROTOPIA_MODE', 'sandbox') === 'production'
                 ? env('FACTUROTOPIA_BASE_URL', 'https://api.facturotopia.com')
-                : env('FT_BASE', 'https://api-demo.facturotopia.com/api')
+                : env('FT_BASE', env('FACTUROTOPIA_BASE_URL_TEST', 'https://api-demo.facturotopia.com/api'))
         ), '/'),
 
         'api_key' => (string) (

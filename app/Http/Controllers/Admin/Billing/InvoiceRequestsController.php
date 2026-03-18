@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin\Billing;
 
 use App\Http\Controllers\Controller;
+use App\Services\Billing\Facturotopia\FacturotopiaClient;
+
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -29,6 +32,7 @@ final class InvoiceRequestsController extends Controller
     private string $ftToken;
     private string $ftFlow;
     private string $ftEmisorId;
+    private string $ftTenancy;
 
     public function __construct()
     {
@@ -40,6 +44,7 @@ final class InvoiceRequestsController extends Controller
         $this->ftToken    = '';
         $this->ftFlow     = 'api_comprobantes';
         $this->ftEmisorId = '';
+        $this->ftTenancy  = '';
 
         $this->bootFacturotopiaConfig();
     }
@@ -82,6 +87,10 @@ final class InvoiceRequestsController extends Controller
         $this->ftBase     = $this->normalizeFacturotopiaBase($base);
         $this->ftToken    = $mode === 'production' ? $prodToken : $sandboxToken;
         $this->ftEmisorId = trim((string) ($settings['facturotopia_emisor_id'] ?? ''));
+        $this->ftTenancy  = trim((string) (
+            $settings['facturotopia_tenancy']
+            ?? data_get(config('services.facturotopia'), 'tenancy', '')
+        ));
     }
 
     /**
@@ -386,19 +395,53 @@ final class InvoiceRequestsController extends Controller
         [$table, $mode] = $this->resolveInvoiceRequestsTableSmart($req);
         abort_unless($table !== null, 404);
 
-        if (!$this->facturotopiaConfigured()) {
+        Log::info('[BILLING][INVOICE_REQ] approveAndGenerate START', [
+            'request_id' => $id,
+            'table'      => $table,
+            'mode'       => $mode,
+        ]);
+
+        $facturotopia = app(FacturotopiaClient::class);
+
+        Log::info('[BILLING][INVOICE_REQ] Facturotopia resolved config', [
+            'request_id' => $id,
+            'config'     => $facturotopia->resolvedConfig(),
+        ]);
+
+        if (!$facturotopia->isConfigured()) {
+            Log::warning('[BILLING][INVOICE_REQ] Facturotopia NOT configured', [
+                'request_id' => $id,
+            ]);
+
             return back()->withErrors([
-                'facturotopia' => 'Facturotopia no está configurado. Revisa billing_settings: modo, flow, API key y emisor_id.',
+                'facturotopia' => 'Facturotopia no está configurado. Revisa billing_settings: modo, flow, API key, tenancy y emisor_id.',
             ]);
         }
 
         if (!Schema::connection($this->adm)->hasTable('billing_invoices')) {
+            Log::error('[BILLING][INVOICE_REQ] billing_invoices table missing', [
+                'request_id' => $id,
+            ]);
+
             return back()->withErrors([
                 'invoice' => 'Falta tabla billing_invoices. Corre migraciones antes de generar facturas.',
             ]);
         }
 
         $row = DB::connection($this->adm)->table($table)->where('id', $id)->first();
+
+        Log::info('[BILLING][INVOICE_REQ] Request row loaded', [
+            'request_id' => $id,
+            'row_found'  => (bool) $row,
+            'row'        => $row ? [
+                'id'         => $row->id ?? null,
+                'account_id' => $row->account_id ?? null,
+                'period'     => $row->period ?? ($row->periodo ?? null),
+                'status'     => $row->status ?? ($row->estatus ?? null),
+                'cfdi_uuid'  => $row->cfdi_uuid ?? null,
+            ] : null,
+        ]);
+
         if (!$row) {
             return back()->withErrors(['invoice' => 'Solicitud no encontrada.']);
         }
@@ -407,25 +450,56 @@ final class InvoiceRequestsController extends Controller
         $period    = (string) ($row->period ?? ($row->periodo ?? ''));
 
         if ($accountId === '' || $period === '') {
+            Log::warning('[BILLING][INVOICE_REQ] Missing account_id or period', [
+                'request_id' => $id,
+                'account_id' => $accountId,
+                'period'     => $period,
+            ]);
+
             return back()->withErrors(['invoice' => 'La solicitud no tiene account_id o period válidos.']);
         }
 
         try {
             $account = $this->loadAccountForInvoice($accountId);
+
+            Log::info('[BILLING][INVOICE_REQ] Account loaded', [
+                'request_id'   => $id,
+                'account_id'   => $accountId,
+                'account_found'=> (bool) $account,
+            ]);
+
             if (!$account) {
                 return back()->withErrors(['invoice' => 'No se encontró la cuenta admin para generar la factura.']);
             }
 
             $billingData = $this->resolveBillingDataForAccount($account, $accountId);
+
+            Log::info('[BILLING][INVOICE_REQ] Billing data resolved', [
+                'request_id'   => $id,
+                'billing_data' => $billingData,
+            ]);
+
             $validation  = $this->validateBillingData($billingData);
 
             if (!empty($validation)) {
+                Log::warning('[BILLING][INVOICE_REQ] Billing validation failed', [
+                    'request_id' => $id,
+                    'missing'    => $validation,
+                ]);
+
                 return back()->withErrors([
                     'invoice' => 'Faltan datos fiscales: ' . implode(', ', $validation) . '.',
                 ]);
             }
 
             $statement = $this->loadStatementForInvoice($accountId, $period);
+
+            Log::info('[BILLING][INVOICE_REQ] Statement loaded', [
+                'request_id'      => $id,
+                'statement_found' => (bool) $statement,
+                'statement_id'    => $statement->id ?? null,
+            ]);
+
             if (!$statement) {
                 return back()->withErrors([
                     'invoice' => 'No existe estado de cuenta para ese periodo. Primero genera o sincroniza billing_statements.',
@@ -433,25 +507,34 @@ final class InvoiceRequestsController extends Controller
             }
 
             $items = $this->loadStatementItemsForInvoice((int) $statement->id, $period, $statement);
+
+            Log::info('[BILLING][INVOICE_REQ] Statement items loaded', [
+                'request_id' => $id,
+                'items_count' => count($items),
+                'items'       => $items,
+            ]);
+
             if (empty($items)) {
                 return back()->withErrors([
                     'invoice' => 'No hay conceptos para facturar en el estado de cuenta.',
                 ]);
             }
 
-             $externalPayload = $this->buildFacturotopiaPayload($row, $account, $statement, $billingData, $items);
+            $externalPayload = $this->buildFacturotopiaPayload($row, $account, $statement, $billingData, $items);
 
-            $attempts = $this->facturotopiaRequestAttempts();
-            $response = null;
+            Log::info('[BILLING][INVOICE_REQ] Payload built for Facturotopia', [
+                'request_id' => $id,
+                'payload'    => $externalPayload,
+            ]);
 
-            foreach ($attempts as $uri) {
-                $response = $this->facturotopiaPost($uri, $externalPayload);
-                if (($response['ok'] ?? false) === true) {
-                    break;
-                }
-            }
+            $response = $facturotopia->createComprobante($externalPayload);
 
-            if (!$response || !$response['ok']) {
+            Log::info('[BILLING][INVOICE_REQ] Facturotopia response', [
+                'request_id' => $id,
+                'response'   => $response,
+            ]);
+
+            if (!$response || !($response['ok'] ?? false)) {
                 $message = (string) ($response['message'] ?? 'Error desconocido al generar CFDI.');
                 $this->markRequestAsError($table, $id, $mode, $message);
 
@@ -460,7 +543,13 @@ final class InvoiceRequestsController extends Controller
                 ]);
             }
 
-            $parsed = $this->extractFacturotopiaInvoiceData($response['json']);
+            $parsed = (array) ($response['data'] ?? []);
+
+            Log::info('[BILLING][INVOICE_REQ] Parsed invoice data', [
+                'request_id' => $id,
+                'parsed'     => $parsed,
+            ]);
+
             if (($parsed['uuid'] ?? '') === '') {
                 $this->markRequestAsError($table, $id, $mode, 'Facturotopia respondió sin UUID.');
 
@@ -479,6 +568,11 @@ final class InvoiceRequestsController extends Controller
                 sourcePayload: $externalPayload
             );
 
+            Log::info('[BILLING][INVOICE_REQ] Invoice persisted', [
+                'request_id' => $id,
+                'saved'      => $saved,
+            ]);
+
             $this->markRequestAsIssued(
                 table: $table,
                 id: $id,
@@ -487,12 +581,18 @@ final class InvoiceRequestsController extends Controller
                 notes: 'Factura generada automáticamente por admin (' . $this->ftMode . ').'
             );
 
+            Log::info('[BILLING][INVOICE_REQ] approveAndGenerate OK', [
+                'request_id' => $id,
+                'uuid'       => (string) ($saved['cfdi_uuid'] ?? $parsed['uuid']),
+            ]);
+
             return back()->with('ok', 'Factura generada y timbrada correctamente.');
         } catch (Throwable $e) {
-            Log::error('[BILLING][INVOICE_REQ] approveAndGenerate failed', [
-                'id'    => $id,
-                'mode'  => $mode,
-                'error' => $e->getMessage(),
+            Log::error('[BILLING][INVOICE_REQ] approveAndGenerate FAILED', [
+                'request_id' => $id,
+                'mode'       => $mode,
+                'error'      => $e->getMessage(),
+                'trace'      => $e->getTraceAsString(),
             ]);
 
             $this->markRequestAsError($table, $id, $mode, $e->getMessage());
@@ -502,7 +602,6 @@ final class InvoiceRequestsController extends Controller
             ]);
         }
     }
-
     public function stamp(Request $req, int $id): RedirectResponse
     {
         return $this->approveAndGenerate($req, $id);
@@ -1530,9 +1629,13 @@ final class InvoiceRequestsController extends Controller
         }
     }
 
-        private function facturotopiaConfigured(): bool
+    private function facturotopiaConfigured(): bool
     {
         if ($this->ftBase === '' || $this->ftToken === '') {
+            return false;
+        }
+
+        if ($this->ftTenancy === '') {
             return false;
         }
 
@@ -1545,19 +1648,36 @@ final class InvoiceRequestsController extends Controller
 
     private function facturotopiaClient(): PendingRequest
     {
-        return Http::withHeaders([
-                'Authorization' => 'ApiKey ' . $this->ftToken,
-                'Accept'        => 'application/json',
-                'Content-Type'  => 'application/json',
-            ])
+        $headers = [
+            'Authorization' => 'ApiKey ' . $this->ftToken,
+            'Accept'        => 'application/json',
+            'Content-Type'  => 'application/json',
+        ];
+
+        if ($this->ftTenancy !== '') {
+            // Se mandan varias variantes por compatibilidad mientras confirmas
+            // cuál espera exactamente la cuenta/tenant de Facturotopia.
+            $headers['X-Tenancy']   = $this->ftTenancy;
+            $headers['X-Tenant']    = $this->ftTenancy;
+            $headers['X-Tenant-Key']= $this->ftTenancy;
+        }
+
+        return Http::withHeaders($headers)
             ->asJson()
             ->timeout(90)
             ->connectTimeout(20);
     }
 
-    private function facturotopiaPost(string $uri, array $payload): array
+        private function facturotopiaPost(string $uri, array $payload): array
     {
         $url = $this->ftBase . '/' . ltrim($uri, '/');
+
+        if ($this->ftTenancy !== '') {
+            $sep = str_contains($url, '?') ? '&' : '?';
+            $url .= $sep . http_build_query([
+                'tenancy' => $this->ftTenancy,
+            ]);
+        }
 
         try {
             $res = $this->facturotopiaClient()->post($url, $payload);
@@ -1570,6 +1690,13 @@ final class InvoiceRequestsController extends Controller
             }
 
             if ($res->successful()) {
+                Log::info('[FACTUROTOPIA] POST ok', [
+                    'url'              => $url,
+                    'status'           => $res->status(),
+                    'tenancy_present'  => $this->ftTenancy !== '',
+                    'emisor_id_present'=> $this->ftEmisorId !== '',
+                ]);
+
                 return [
                     'ok'      => true,
                     'status'  => $res->status(),
@@ -1586,10 +1713,13 @@ final class InvoiceRequestsController extends Controller
             );
 
             Log::warning('[FACTUROTOPIA] POST failed', [
-                'url'     => $url,
-                'status'  => $res->status(),
-                'payload' => $payload,
-                'body'    => $json,
+                'url'               => $url,
+                'status'            => $res->status(),
+                'tenancy_present'   => $this->ftTenancy !== '',
+                'tenancy_value'     => $this->ftTenancy !== '' ? $this->ftTenancy : null,
+                'emisor_id_present' => $this->ftEmisorId !== '',
+                'payload'           => $payload,
+                'body'              => $json,
             ]);
 
             return [
@@ -1600,8 +1730,9 @@ final class InvoiceRequestsController extends Controller
             ];
         } catch (Throwable $e) {
             Log::error('[FACTUROTOPIA] POST exception', [
-                'url'   => $url,
-                'error' => $e->getMessage(),
+                'url'             => $url,
+                'tenancy_present' => $this->ftTenancy !== '',
+                'error'           => $e->getMessage(),
             ]);
 
             return [
@@ -1616,6 +1747,13 @@ final class InvoiceRequestsController extends Controller
     private function facturotopiaGetBinary(string $uri): array
     {
         $url = $this->ftBase . '/' . ltrim($uri, '/');
+
+        if ($this->ftTenancy !== '') {
+            $sep = str_contains($url, '?') ? '&' : '?';
+            $url .= $sep . http_build_query([
+                'tenancy' => $this->ftTenancy,
+            ]);
+        }
 
         try {
             $res = $this->facturotopiaClient()->get($url);
@@ -2211,45 +2349,15 @@ final class InvoiceRequestsController extends Controller
 
     private function downloadGeneratedFile(string $url, string $uuid, string $kind): ?string
     {
-        $kind = strtolower($kind);
-        if (!in_array($kind, ['pdf', 'xml'], true)) {
-            return null;
+        /** @var FacturotopiaClient $facturotopia */
+        $facturotopia = app(FacturotopiaClient::class);
+
+        if (strtolower($kind) === 'pdf') {
+            return $facturotopia->downloadPdf($url, $uuid);
         }
 
-        if ($url !== '') {
-            try {
-                $res = Http::timeout(90)->connectTimeout(20)->get($url);
-                if ($res->successful() && trim($res->body()) !== '') {
-                    return $res->body();
-                }
-            } catch (Throwable $e) {
-                Log::warning('[FACTUROTOPIA] direct file download failed', [
-                    'kind'  => $kind,
-                    'url'   => $url,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        if ($uuid === '') {
-            return null;
-        }
-
-        $endpoints = $kind === 'pdf'
-            ? [
-                '/api/comprobantes/' . $uuid . '/pdf',
-                '/api/comprobantes/' . $uuid . '/archivo/pdf',
-            ]
-            : [
-                '/api/comprobantes/' . $uuid . '/xml',
-                '/api/comprobantes/' . $uuid . '/archivo/xml',
-            ];
-
-        foreach ($endpoints as $uri) {
-            $file = $this->facturotopiaGetBinary($uri);
-            if (($file['ok'] ?? false) === true && trim((string) ($file['body'] ?? '')) !== '') {
-                return (string) $file['body'];
-            }
+        if (strtolower($kind) === 'xml') {
+            return $facturotopia->downloadXml($url, $uuid);
         }
 
         return null;

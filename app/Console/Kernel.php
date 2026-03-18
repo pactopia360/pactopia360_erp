@@ -46,6 +46,9 @@ class Kernel extends ConsoleKernel
 
         // ✅ Billing HUB scheduled emails
         BillingProcessScheduledEmails::class,
+
+        //Facturotopia
+        \App\Console\Commands\Billing\FacturotopiaAutoSyncCommand::class,
     ];
 
     protected function schedule(Schedule $schedule): void
@@ -98,6 +101,12 @@ class Kernel extends ConsoleKernel
         $schedule->command('p360:billing:process-scheduled-emails --limit=50')
             ->everyMinute()
             ->withoutOverlapping(5)
+            ->runInBackground();
+
+        // --- Facturotopía auto-sync (pull automático emisores/receptores) ---
+        $schedule->command('p360:facturotopia:auto-sync')
+            ->everyTenMinutes()
+            ->withoutOverlapping()
             ->runInBackground();
 
         /**

@@ -6,9 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Receptor extends Model
 {
-    /** Usamos la conexión principal por defecto. */
-    protected $connection = 'mysql';
-
+    protected $connection = 'mysql_clientes';
     protected $table = 'receptores';
 
     protected $fillable = [
