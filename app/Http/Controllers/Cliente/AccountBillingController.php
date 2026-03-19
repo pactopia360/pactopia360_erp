@@ -886,6 +886,33 @@ final class AccountBillingController extends Controller
         }
         unset($row);
 
+        // ==========================================================
+        // ✅ HISTORIAL COMPLETO DEL AÑO
+        // - muestra todos los meses del año de trabajo
+        // - conserva montos reales pagados
+        // - para el mes permitido pendiente usa la mensualidad configurada
+        // ==========================================================
+        if (!empty($rowsFromStatementsAll)) {
+            $historyRows = $this->applyAdminPaidAmountOverrides($accountId, $rowsFromStatementsAll);
+
+            foreach ($historyRows as &$hrow) {
+                $hp = (string) ($hrow['period'] ?? '');
+                $hrow['can_pay'] = ($payAllowedUi && $hp === $payAllowedUi);
+            }
+            unset($hrow);
+
+            $normalizedHistory = $this->normalizeRowsForStatementHistory(
+                $historyRows,
+                $payAllowedUi,
+                $lastPaid,
+                $chargesByPeriod
+            );
+
+            if (!empty($normalizedHistory)) {
+                $rows = $normalizedHistory;
+            }
+        }
+
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
         // ✅ Si no hay periodo habilitado para pago (anual fuera de ventana y sin pendientes)
@@ -1840,6 +1867,114 @@ final class AccountBillingController extends Controller
         ]);
 
         return array_values($rows);
+    }
+
+    private function normalizeRowsForStatementHistory(
+    array $rows,
+    ?string $payAllowedUi,
+    ?string $lastPaid,
+    array $chargesByPeriod
+    ): array {
+        $basePeriod = $this->normalizePeriodOrNow($payAllowedUi, $lastPaid);
+        $displayYear = substr($basePeriod, 0, 4);
+
+        $byPeriod = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+
+            $p = trim((string) ($row['period'] ?? ''));
+            if (!$this->isValidPeriod($p)) continue;
+
+            // mostrar solo el año actual de trabajo
+            if (substr($p, 0, 4) !== $displayYear) continue;
+
+            $status = strtolower(trim((string) ($row['status'] ?? 'pending')));
+            $isPaid = ($status === 'paid');
+
+            $charge = 0.0;
+            foreach (['charge', 'total_cargo', 'cargo', 'total'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $charge = (float) $row[$k];
+                    break;
+                }
+            }
+
+            $paidAmount = 0.0;
+            foreach (['paid_amount', 'total_abono', 'abono', 'paid'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $paidAmount = (float) $row[$k];
+                    break;
+                }
+            }
+
+            $saldo = isset($row['saldo']) && is_numeric($row['saldo'])
+                ? (float) $row['saldo']
+                : max(0.0, $charge - $paidAmount);
+
+            // ✅ FIX CLAVE:
+            // Para el periodo permitido de pago, si NO está pagado,
+            // fuerza el monto visual a la mensualidad configurada.
+            if (
+                $payAllowedUi &&
+                $p === $payAllowedUi &&
+                !$isPaid &&
+                isset($chargesByPeriod[$p]) &&
+                is_numeric($chargesByPeriod[$p]) &&
+                (float) $chargesByPeriod[$p] > 0
+            ) {
+                $configured = round((float) $chargesByPeriod[$p], 2);
+
+                $charge = $configured;
+                $row['charge'] = $configured;
+                $row['total_cargo'] = $configured;
+
+                // si hay pago parcial real, lo respeta
+                $saldo = round(max(0.0, $configured - $paidAmount), 2);
+                $row['saldo'] = $saldo;
+
+                if ($saldo <= 0.0001) {
+                    $row['status'] = 'paid';
+                    $isPaid = true;
+                } else {
+                    $row['status'] = 'pending';
+                }
+            } else {
+                $row['charge'] = round($charge, 2);
+                $row['saldo']  = round($saldo, 2);
+            }
+
+            if (!isset($row['paid_amount']) || !is_numeric($row['paid_amount'])) {
+                $row['paid_amount'] = round($paidAmount, 2);
+            } else {
+                $row['paid_amount'] = round((float) $row['paid_amount'], 2);
+            }
+
+            $row['can_pay'] = (
+                !$isPaid &&
+                $payAllowedUi &&
+                $p === $payAllowedUi
+            );
+
+            // score para dedup por periodo
+            $score = 0;
+            if (($row['can_pay'] ?? false) === true) $score += 1000000;
+            if (strtolower((string) ($row['status'] ?? 'pending')) === 'paid') $score += 500000;
+            $score += (int) round(((float) ($row['paid_amount'] ?? 0)) * 100);
+            $score += (int) round(((float) ($row['charge'] ?? 0)) * 100);
+
+            if (!isset($byPeriod[$p]) || $score > ($byPeriod[$p]['__score'] ?? -1)) {
+                $row['__score'] = $score;
+                $byPeriod[$p] = $row;
+            }
+        }
+
+        ksort($byPeriod);
+
+        return array_values(array_map(function (array $r) {
+            unset($r['__score']);
+            return $r;
+        }, $byPeriod));
     }
 
     /**

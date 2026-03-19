@@ -14,7 +14,7 @@
 @php
   $mxn = fn($n) => '$' . number_format((float)$n, 2);
 
-  // ==========================================================
+    // ==========================================================
   // 1) Normaliza rows: array + period válido (YYYY-MM)
   // ==========================================================
   $rawRows = (isset($rows) && is_array($rows)) ? $rows : [];
@@ -25,22 +25,33 @@
     return $p !== '' && (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
   }));
 
+  $paidStatuses = ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'];
+
   // ==========================================================
-  // 2) Dedup por period (toma el "mejor" registro si hay duplicados)
-  //    Prioridad: can_pay=true > mayor saldo > mayor charge > más reciente
+  // 2) Dedup por period
+  // Prioridad:
+  // - can_pay=true
+  // - status paid
+  // - mayor paid_amount
+  // - mayor charge
   // ==========================================================
   $byPeriod = [];
   foreach ($safe as $r) {
-    $p = (string)$r['period'];
+    $p = (string)($r['period'] ?? '');
+    if ($p === '') continue;
 
     $canPay = (bool)($r['can_pay'] ?? false);
-    $saldo  = (float)($r['saldo'] ?? 0);
-    $charge = (float)($r['charge'] ?? 0);
+    $status = strtolower(trim((string)($r['status'] ?? 'pending')));
+    $isPaid = in_array($status, $paidStatuses, true);
+
+    $paidAmount = (float)($r['paid_amount'] ?? 0);
+    $charge     = (float)($r['charge'] ?? 0);
 
     $score = 0;
     if ($canPay) $score += 1000000;
-    $score += (int)round($saldo * 100);   // centavos
-    $score += (int)round($charge * 10);   // peso relativo
+    if ($isPaid) $score += 500000;
+    $score += (int)round($paidAmount * 100);
+    $score += (int)round($charge * 100);
 
     if (!isset($byPeriod[$p]) || $score > ($byPeriod[$p]['__score'] ?? -INF)) {
       $r['__score'] = $score;
@@ -48,105 +59,44 @@
     }
   }
 
-  $safe = array_values($byPeriod);
+  $safe = array_values(array_map(function ($r) {
+    unset($r['__score']);
+    return $r;
+  }, $byPeriod));
 
-  // Orden por period DESC (más reciente primero)
-  usort($safe, function ($a, $b) {
-    return strcmp((string)($b['period'] ?? ''), (string)($a['period'] ?? ''));
+  // ==========================================================
+  // 3) Mostrar todo el año de trabajo
+  // - año del payAllowed
+  // - si no, año del lastPaid
+  // - si no, año actual
+  // ==========================================================
+  $displayBase = '';
+  if (!empty($payAllowed) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$payAllowed)) {
+    $displayBase = (string)$payAllowed;
+  } elseif (!empty($lastPaid) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$lastPaid)) {
+    $displayBase = (string)$lastPaid;
+  } else {
+    $displayBase = now()->format('Y-m');
+  }
+
+  $displayYear = substr($displayBase, 0, 4);
+
+  $rows = array_values(array_filter($safe, function ($r) use ($displayYear) {
+    $p = (string)($r['period'] ?? '');
+    return $p !== '' && substr($p, 0, 4) === $displayYear;
+  }));
+
+  usort($rows, function ($a, $b) {
+    return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
   });
 
-    // ==========================================================
-  // 3) ✅ ARMADO FINAL UI: máximo 2 cards
-  // - último pagado
-  // - periodo permitido para pagar
-  // Si solo existe uno, se muestra solo uno.
-  // ==========================================================
-  $paidStatuses = ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'];
-
-  $rowsByPeriod = [];
-  foreach ($safe as $r) {
-    $p = (string)($r['period'] ?? '');
-    if ($p === '') continue;
-    $rowsByPeriod[$p] = $r;
-  }
-
-  $finalRows = [];
-
-  // 1) Último pagado
-  if (!empty($lastPaid) && isset($rowsByPeriod[$lastPaid])) {
-    $paidRow = $rowsByPeriod[$lastPaid];
-    $paidRow['status'] = 'paid';
-    $paidRow['can_pay'] = false;
-    $finalRows[$lastPaid] = $paidRow;
-  }
-
-  // 2) Periodo permitido para pagar
-  if (!empty($payAllowed) && isset($rowsByPeriod[$payAllowed])) {
-    $allowedRow = $rowsByPeriod[$payAllowed];
-
-    $allowedStatus = strtolower(trim((string)($allowedRow['status'] ?? 'pending')));
-    $allowedIsPaid = in_array($allowedStatus, $paidStatuses, true);
-
-    if (!$allowedIsPaid) {
-      $allowedRow['status'] = 'pending';
-      $allowedRow['can_pay'] = (bool)($allowedRow['can_pay'] ?? true);
-    }
-
-    $finalRows[$payAllowed] = $allowedRow;
-  }
-
-  // 3) Fallbacks por si no vino alguno de backend
-  if (empty($finalRows)) {
-    // primero intenta un pendiente pagable
-    $pending = array_values(array_filter($safe, function ($r) use ($paidStatuses) {
-      $status = strtolower(trim((string)($r['status'] ?? 'pending')));
-      $isPaid = in_array($status, $paidStatuses, true);
-      if ($isPaid) return false;
-
-      $saldo  = (float)($r['saldo'] ?? 0);
-      $charge = (float)($r['charge'] ?? 0);
-
-      return ($saldo > 0 || $charge > 0 || isset($r['can_pay']));
-    }));
-
-    usort($pending, function ($a, $b) {
-      $aCan = (bool)($a['can_pay'] ?? false);
-      $bCan = (bool)($b['can_pay'] ?? false);
-      if ($aCan !== $bCan) return $aCan ? -1 : 1;
-
-      $aSaldo = (float)($a['saldo'] ?? 0);
-      $bSaldo = (float)($b['saldo'] ?? 0);
-      if ($aSaldo !== $bSaldo) return ($aSaldo > $bSaldo) ? -1 : 1;
-
-      $aCh = (float)($a['charge'] ?? 0);
-      $bCh = (float)($b['charge'] ?? 0);
-      if ($aCh !== $bCh) return ($aCh > $bCh) ? -1 : 1;
-
+  // fallback: si por alguna razón no quedó nada del año, deja lo que venga
+  if (empty($rows)) {
+    $rows = $safe;
+    usort($rows, function ($a, $b) {
       return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
     });
-
-    if (!empty($pending[0])) {
-      $finalRows[(string)$pending[0]['period']] = $pending[0];
-    }
   }
-
-  // 4) Orden final: último pagado primero, luego permitido
-  $rows = array_values($finalRows);
-
-  usort($rows, function ($a, $b) use ($lastPaid, $payAllowed) {
-    $pa = (string)($a['period'] ?? '');
-    $pb = (string)($b['period'] ?? '');
-
-    if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
-    if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
-
-    if ($payAllowed && $pa === $payAllowed && $pb !== $payAllowed) return 1;
-    if ($payAllowed && $pb === $payAllowed && $pa !== $payAllowed) return -1;
-
-    return strcmp($pa, $pb);
-  });
-
-  $rows = array_slice($rows, 0, 2);
 
   // ==========================================================
   // 4) Rutas (route:cache safe)
