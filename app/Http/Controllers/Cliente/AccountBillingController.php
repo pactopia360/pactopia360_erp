@@ -2075,8 +2075,7 @@ final class AccountBillingController extends Controller
     string $period,
     ?string $lastPaid,
     ?string $payAllowed
-    ): int
-    {
+    ): int {
         $period = trim($period);
         if (!$this->isValidPeriod($period)) {
             $period = now()->format('Y-m');
@@ -2088,7 +2087,28 @@ final class AccountBillingController extends Controller
         }
 
         try {
-            $adm = (string) config('p360.conn.admin', 'mysql_admin');
+            // ✅ SOT: usar la misma lógica del HUB admin
+            $cents = (int) $this->hub->resolveMonthlyCentsForPeriodFromAdminAccount(
+                $accountId,
+                $period,
+                $lastPaid,
+                $payAllowedUi
+            );
+
+            if ($cents > 0) {
+                Log::info('[BILLING] price from HUB admin resolver', [
+                    'account_id'     => $accountId,
+                    'period'         => $period,
+                    'last_paid'      => $lastPaid,
+                    'pay_allowed'    => $payAllowedUi,
+                    'cents'          => $cents,
+                    'source'         => 'hub.resolveMonthlyCentsForPeriodFromAdminAccount',
+                ]);
+
+                return $cents;
+            }
+
+            $adm = config('p360.conn.admin', 'mysql_admin');
 
             if (!Schema::connection($adm)->hasTable('accounts')) {
                 return 0;
@@ -2099,10 +2119,8 @@ final class AccountBillingController extends Controller
             $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
             $select = ['id'];
-            foreach (['meta', 'plan', 'plan_actual', 'modo_cobro', 'email', 'rfc', 'razon_social', 'name'] as $c) {
-                if ($has($c)) $select[] = $c;
-            }
             foreach ([
+                'meta',
                 'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
                 'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
                 'billing_amount', 'amount', 'precio', 'monto',
@@ -2110,135 +2128,70 @@ final class AccountBillingController extends Controller
                 if ($has($c)) $select[] = $c;
             }
 
-            $row = DB::connection($adm)->table('accounts')
+            $acc = DB::connection($adm)->table('accounts')
                 ->where('id', $accountId)
                 ->first(array_values(array_unique($select)));
 
-            if (!$row) {
+            if (!$acc) {
                 return 0;
             }
 
             $meta = [];
-            if (isset($row->meta)) {
-                if (is_array($row->meta)) {
-                    $meta = $row->meta;
-                } elseif (is_string($row->meta) && trim($row->meta) !== '') {
-                    $tmp = json_decode($row->meta, true);
+            if (isset($acc->meta)) {
+                if (is_array($acc->meta)) {
+                    $meta = $acc->meta;
+                } elseif (is_string($acc->meta) && trim($acc->meta) !== '') {
+                    $tmp = json_decode($acc->meta, true);
                     if (is_array($tmp)) $meta = $tmp;
                 }
             }
 
             $toFloat = static function ($v): ?float {
                 if ($v === null) return null;
-                if (is_float($v) || is_int($v)) return (float) $v;
-                if (is_numeric($v)) return (float) $v;
-
+                if (is_int($v) || is_float($v)) return (float) $v;
                 if (is_string($v)) {
                     $s = trim($v);
                     if ($s === '') return null;
                     $s = str_replace(['$', ',', 'MXN', 'mxn', ' '], '', $s);
                     return is_numeric($s) ? (float) $s : null;
                 }
-
-                return null;
+                return is_numeric($v) ? (float) $v : null;
             };
 
-            // =========================================================
-            // 1) PERSONALIZADO / OVERRIDE directo (prioridad máxima)
-            // =========================================================
             $candidates = [
-                data_get($meta, 'billing.override.amount_mxn'),
                 data_get($meta, 'billing.override_amount_mxn'),
+                data_get($meta, 'billing.override.amount_mxn'),
                 data_get($meta, 'billing.custom.amount_mxn'),
-                data_get($meta, 'billing.custom_mxn'),
-                data_get($meta, 'custom.amount_mxn'),
-                data_get($meta, 'custom_mxn'),
-
-                $row->override_amount_mxn ?? null,
-                $row->custom_amount_mxn ?? null,
-                $row->billing_amount_mxn ?? null,
-                $row->amount_mxn ?? null,
-                $row->precio_mxn ?? null,
-                $row->monto_mxn ?? null,
-                $row->license_amount_mxn ?? null,
+                data_get($meta, 'billing.amount_mxn'),
+                data_get($meta, 'billing.amount'),
+                $acc->override_amount_mxn ?? null,
+                $acc->custom_amount_mxn ?? null,
+                $acc->billing_amount_mxn ?? null,
+                $acc->amount_mxn ?? null,
+                $acc->precio_mxn ?? null,
+                $acc->monto_mxn ?? null,
+                $acc->license_amount_mxn ?? null,
             ];
 
-            foreach ($candidates as $v) {
-                $mxn = $toFloat($v);
+            foreach ($candidates as $candidate) {
+                $mxn = $toFloat($candidate);
                 if ($mxn !== null && $mxn > 0.00001) {
-                    return (int) round($mxn * 100);
+                    $resolved = (int) round($mxn * 100);
+
+                    Log::info('[BILLING] price from fallback account fields/meta', [
+                        'account_id'  => $accountId,
+                        'period'      => $period,
+                        'pay_allowed' => $payAllowedUi,
+                        'mxn'         => $mxn,
+                        'cents'       => $resolved,
+                        'source'      => 'cliente.fallback.account_meta_fields',
+                    ]);
+
+                    return $resolved;
                 }
             }
 
-            // =========================================================
-            // 2) BASE DESDE META BILLING
-            // =========================================================
-            $billing = is_array($meta['billing'] ?? null) ? $meta['billing'] : [];
-
-            $baseMxn =
-                $toFloat($billing['amount_mxn'] ?? null)
-                ?? $toFloat($billing['amount'] ?? null)
-                ?? 0.0;
-
-            $overrideMxn =
-                $toFloat(data_get($billing, 'override.amount_mxn'))
-                ?? $toFloat($billing['override_amount_mxn'] ?? null)
-                ?? 0.0;
-
-            $overrideEffective = strtolower(trim((string) (
-                data_get($billing, 'override.effective')
-                ?? ($billing['override_effective'] ?? '')
-            )));
-
-            if (!in_array($overrideEffective, ['now', 'next'], true)) {
-                $overrideEffective = '';
-            }
-
-            $applyOverride = false;
-            if ($overrideMxn > 0.00001) {
-                if ($overrideEffective === 'now') {
-                    $applyOverride = true;
-                } elseif ($overrideEffective === 'next') {
-                    $applyOverride = ($payAllowedUi !== '' && $period >= $payAllowedUi);
-                }
-            }
-
-            $resolvedMxn = $applyOverride ? $overrideMxn : $baseMxn;
-
-            // =========================================================
-            // 3) FALLBACK LEGACY EN CENTS
-            // =========================================================
-            if ($resolvedMxn <= 0.00001) {
-                $legacyCents =
-                    (int) ($billing['cents'] ?? 0)
-                    ?: (int) ($billing['price_cents'] ?? 0)
-                    ?: (int) ($billing['monthly_cents'] ?? 0);
-
-                if ($legacyCents > 0) {
-                    return $legacyCents;
-                }
-            }
-
-            if ($resolvedMxn <= 0.00001) {
-                return 0;
-            }
-
-            $cents = (int) round($resolvedMxn * 100);
-
-            Log::info('[BILLING] price from admin.accounts.meta.billing (resolved)', [
-                'account_id'      => $accountId,
-                'period'          => $period,
-                'last_paid'       => $lastPaid,
-                'pay_allowed'     => $payAllowed,
-                'pay_allowed_ui'  => $payAllowedUi,
-                'base_mxn'        => $baseMxn,
-                'override_mxn'    => $overrideMxn,
-                'override_apply'  => $applyOverride,
-                'resolved_mxn'    => $resolvedMxn,
-                'cents'           => $cents,
-            ]);
-
-            return max(0, $cents);
+            return 0;
         } catch (\Throwable $e) {
             Log::warning('[BILLING] resolveMonthlyCentsForPeriodFromAdminAccount failed', [
                 'account_id' => $accountId,
