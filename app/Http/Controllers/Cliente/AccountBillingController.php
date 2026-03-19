@@ -186,12 +186,12 @@ final class AccountBillingController extends Controller
      * ✅ Determina "pendiente real" desde row de admin.billing_statements
      * sin depender solo de `saldo`.
      * Regla:
-     * - status != paid
+     * - status canónico != paid
      * - y saldoEfectivo > 0.0001
      */
     private function statementIsPending(array $rr): bool
     {
-        $st = strtolower((string)($rr['status'] ?? 'pending'));
+        $st = $this->normalizeStatementStatus((string)($rr['status'] ?? 'pending'));
         if ($st === 'paid') return false;
 
         // 1) saldo directo
@@ -208,10 +208,17 @@ final class AccountBillingController extends Controller
             $abono = null;
 
             foreach (['total_cargo','charge','cargo','total'] as $k) {
-                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $cargo = (float)$rr[$k]; break; }
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) {
+                    $cargo = (float)$rr[$k];
+                    break;
+                }
             }
+
             foreach (['total_abono','paid_amount','abono','paid'] as $k) {
-                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $abono = (float)$rr[$k]; break; }
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) {
+                    $abono = (float)$rr[$k];
+                    break;
+                }
             }
 
             if ($cargo !== null) {
@@ -222,13 +229,23 @@ final class AccountBillingController extends Controller
 
         // 3) fallback cents: total_cents - paid_cents
         if ($saldo === null || $saldo <= 0.0001) {
-            $tc = null; $pc = null;
+            $tc = null;
+            $pc = null;
+
             foreach (['total_cents','total_amount_cents','amount_cents'] as $k) {
-                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $tc = (int)$rr[$k]; break; }
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) {
+                    $tc = (int)$rr[$k];
+                    break;
+                }
             }
+
             foreach (['paid_cents','paid_amount_cents'] as $k) {
-                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) { $pc = (int)$rr[$k]; break; }
+                if (array_key_exists($k, $rr) && is_numeric($rr[$k])) {
+                    $pc = (int)$rr[$k];
+                    break;
+                }
             }
+
             if ($tc !== null) {
                 $pc = $pc ?? 0;
                 $saldo = max(0.0, ((int)$tc - (int)$pc) / 100.0);
@@ -240,6 +257,169 @@ final class AccountBillingController extends Controller
         return $saldo > 0.0001;
     }
 
+        /**
+     * SOT compartido con Admin.
+     */
+    private function overrideTable(): string
+    {
+        return 'billing_statement_status_overrides';
+    }
+
+    /**
+     * @param array<int,string> $periods
+     * @return array<string,array{status:string}>
+     */
+    private function fetchStatementOverrideMapForPeriods(int $adminAccountId, array $periods): array
+    {
+        $out = [];
+
+        if ($adminAccountId <= 0 || empty($periods)) {
+            return $out;
+        }
+
+        $adm = (string) config('p360.conn.admin', 'mysql_admin');
+
+        try {
+            if (!Schema::connection($adm)->hasTable($this->overrideTable())) {
+                return $out;
+            }
+
+            $rows = DB::connection($adm)->table($this->overrideTable())
+                ->select(['period', 'status_override'])
+                ->where('account_id', $adminAccountId)
+                ->whereIn('period', $periods)
+                ->orderByDesc('period')
+                ->get();
+
+            foreach ($rows as $row) {
+                $p = trim((string) ($row->period ?? ''));
+                $s = strtolower(trim((string) ($row->status_override ?? '')));
+
+                if ($p === '' || !$this->isValidPeriod($p) || $s === '') {
+                    continue;
+                }
+
+                if (!isset($out[$p])) {
+                    $out[$p] = ['status' => $s];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] fetchStatementOverrideMapForPeriods failed', [
+                'account_id' => $adminAccountId,
+                'periods'    => $periods,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Aplica overrides admin al dataset que cliente lee desde billing_statements.
+     * Regla crítica:
+     * - pagado => status=paid, saldo=0, paid_amount=total_cargo
+     * - parcial/pendiente/vencido => status pending y saldo recalculado
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array<string,mixed>>
+     */
+    private function applyStatementOverridesForAdminAccount(int $adminAccountId, array $rows): array
+    {
+        if ($adminAccountId <= 0 || empty($rows)) {
+            return $rows;
+        }
+
+        $periods = [];
+        foreach ($rows as $row) {
+            $p = trim((string) ($row['period'] ?? ''));
+            if ($p !== '' && $this->isValidPeriod($p)) {
+                $periods[] = $p;
+            }
+        }
+
+        $periods = array_values(array_unique($periods));
+        if (empty($periods)) {
+            return $rows;
+        }
+
+        $ovMap = $this->fetchStatementOverrideMapForPeriods($adminAccountId, $periods);
+        if (empty($ovMap)) {
+            return $rows;
+        }
+
+        foreach ($rows as &$row) {
+            $period = trim((string) ($row['period'] ?? ''));
+            if ($period === '' || !isset($ovMap[$period])) {
+                continue;
+            }
+
+            $ovStatus = strtolower(trim((string) ($ovMap[$period]['status'] ?? '')));
+            if ($ovStatus === '') {
+                continue;
+            }
+
+            $cargo = 0.0;
+            if (isset($row['total_cargo']) && is_numeric($row['total_cargo'])) {
+                $cargo = (float) $row['total_cargo'];
+            } elseif (isset($row['charge']) && is_numeric($row['charge'])) {
+                $cargo = (float) $row['charge'];
+            }
+
+            $abono = 0.0;
+            if (isset($row['total_abono']) && is_numeric($row['total_abono'])) {
+                $abono = (float) $row['total_abono'];
+            } elseif (isset($row['paid_amount']) && is_numeric($row['paid_amount'])) {
+                $abono = (float) $row['paid_amount'];
+            }
+
+            if ($ovStatus === 'pagado') {
+                $row['status']      = 'paid';
+                $row['saldo']       = 0.0;
+                $row['total_abono'] = round(max($abono, $cargo), 2);
+                $row['paid_amount'] = round(max($abono, $cargo), 2);
+                $row['charge']      = round($cargo, 2);
+                continue;
+            }
+
+            // pendiente / parcial / vencido / sin_mov -> cliente lo trata como no pagado
+            $saldo = max(0.0, $cargo - $abono);
+
+            $row['status']      = 'pending';
+            $row['saldo']       = round($saldo, 2);
+            $row['total_abono'] = round($abono, 2);
+            $row['paid_amount'] = round($abono, 2);
+            $row['charge']      = round($cargo, 2);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
+     * Normaliza status de billing statements a canónico:
+     * paid | pending | partial | overdue | no_movement
+     */
+    private function normalizeStatementStatus(?string $status): string
+    {
+        $s = strtolower(trim((string) $status));
+
+        return match ($s) {
+            'paid', 'pagado', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'
+                => 'paid',
+
+            'partial', 'parcial'
+                => 'partial',
+
+            'overdue', 'vencido', 'past_due', 'unpaid'
+                => 'overdue',
+
+            'sin_mov', 'sin mov', 'sin_movimiento', 'sin movimiento', 'no_movement', 'no movement'
+                => 'no_movement',
+
+            default
+                => 'pending',
+        };
+    }
 
     /**
      * ============================================
@@ -327,6 +507,7 @@ final class AccountBillingController extends Controller
         $rowsFromStatementsAll = [];
         try {
             $rowsFromStatementsAll = (array) $this->loadRowsFromAdminBillingStatements($statementRefs, 60);
+            $rowsFromStatementsAll = $this->applyStatementOverridesForAdminAccount($accountId, $rowsFromStatementsAll);
         } catch (\Throwable $e) {
             $rowsFromStatementsAll = [];
         }
@@ -335,7 +516,7 @@ final class AccountBillingController extends Controller
         $lastPaidFromStatements = null;
         $lastChargeMxnFromStatements = 0.0;
 
-        try {
+                try {
             $paidPeriods = [];
             $paidRowsByPeriod = [];
 
@@ -345,7 +526,7 @@ final class AccountBillingController extends Controller
                 $pp = (string) ($a['period'] ?? '');
                 if (!$this->isValidPeriod($pp)) continue;
 
-                $st = strtolower((string) ($a['status'] ?? ''));
+                $st = $this->normalizeStatementStatus((string) ($a['status'] ?? 'pending'));
                 if ($st !== 'paid') continue;
 
                 $paidPeriods[] = $pp;
@@ -359,13 +540,13 @@ final class AccountBillingController extends Controller
                 if ($lastPaidFromStatements && isset($paidRowsByPeriod[$lastPaidFromStatements])) {
                     $rowLP = $paidRowsByPeriod[$lastPaidFromStatements];
 
-                    // Admin billing_statements real fields:
-                    // total_cargo / total_abono / saldo
                     $c = 0.0;
                     if (isset($rowLP['total_cargo']) && is_numeric($rowLP['total_cargo'])) {
                         $c = (float) $rowLP['total_cargo'];
                     } elseif (isset($rowLP['charge']) && is_numeric($rowLP['charge'])) {
                         $c = (float) $rowLP['charge'];
+                    } elseif (isset($rowLP['cargo']) && is_numeric($rowLP['cargo'])) {
+                        $c = (float) $rowLP['cargo'];
                     } elseif (isset($rowLP['total']) && is_numeric($rowLP['total'])) {
                         $c = (float) $rowLP['total'];
                     }
@@ -711,6 +892,7 @@ final class AccountBillingController extends Controller
             'alias'                => $alias,
         ]);
     }
+
     /**
      * ✅ Construye refs válidos para consultar admin.billing_statements:
      * - admin account id (string/int)
@@ -874,7 +1056,6 @@ final class AccountBillingController extends Controller
 
         return $this->renderStatementPdf($r, $accountId, $period, false);
     }
-
 
     // ✅ Public PDF inline (para links públicos / iframe / modal)
     public function publicPdfInline(\Illuminate\Http\Request $request, $accountId, string $period)
@@ -1616,7 +1797,6 @@ final class AccountBillingController extends Controller
         return array_values($rows);
     }
 
-
     /**
      * Resuelve el costo mensual (en cents) para un periodo, desde admin.accounts.meta.billing si existe.
      * ✅ Defensivo: $payAllowed puede venir null (por request/middlewares), nunca debe explotar.
@@ -2036,12 +2216,12 @@ final class AccountBillingController extends Controller
                 $pp = (string) ($rr['period'] ?? '');
                 if (!$this->isValidPeriod($pp)) continue;
 
-                $st = strtolower((string) ($rr['status'] ?? 'pending'));
+                $st = $this->normalizeStatementStatus((string) ($rr['status'] ?? 'pending'));
                 $saldo = (float) ($rr['saldo'] ?? 0);
 
                 if ($st !== 'paid' && $saldo > 0.0001) {
                     $pendPeriods[$pp] = true;
-                    if ($minPending === null || $pp < $minPending) $minPending = $pp; // ✅ min period pendiente
+                    if ($minPending === null || $pp < $minPending) $minPending = $pp;
                 }
             }
 
@@ -2527,7 +2707,7 @@ final class AccountBillingController extends Controller
 
             $statementId = (int)($a['id'] ?? 0);
             $period      = (string)($a['period'] ?? '');
-            $statusRaw   = strtolower((string)($a['status'] ?? 'pending'));
+            $statusRaw   = $this->normalizeStatementStatus((string)($a['status'] ?? 'pending'));
 
             // Normaliza montos desde admin (SOT)
             $totalCargo = (float)($a['total_cargo'] ?? 0);
@@ -2676,7 +2856,6 @@ final class AccountBillingController extends Controller
         }
     }
 
-
     private function adminLastPaidPeriod(int $accountId): ?string
     {
         if ($accountId <= 0) return null;
@@ -2770,7 +2949,7 @@ final class AccountBillingController extends Controller
                         $p = trim((string) ($it->period ?? ''));
                         if (!$this->isValidPeriod($p)) continue;
 
-                        $st     = strtolower(trim((string) ($it->status ?? '')));
+                        $st     = $this->normalizeStatementStatus((string) ($it->status ?? 'pending'));
                         $paidAt = $it->paid_at ?? null;
                         $saldo  = is_numeric($it->saldo ?? null) ? (float) $it->saldo : null;
                         $cargo  = is_numeric($it->total_cargo ?? null) ? (float) $it->total_cargo : 0.0;
@@ -2778,7 +2957,7 @@ final class AccountBillingController extends Controller
 
                         $paid = false;
                         if ($paidAt) $paid = true;
-                        if (in_array($st, ['paid','succeeded','success','complete','completed','captured','confirmed'], true)) $paid = true;
+                        if ($st === 'paid') $paid = true;
                         if ($saldo !== null && $saldo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) $paid = true;
 
                         if ($paid) return $p; // ya viene orderByDesc(period)
@@ -2793,7 +2972,33 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 2) admin.accounts.meta.stripe (compat)
+        // 2) SOT: overrides "pagado" también cierran el periodo
+        // =========================================================
+        try {
+            if (Schema::connection($adm)->hasTable($this->overrideTable())) {
+                $ov = DB::connection($adm)->table($this->overrideTable())
+                    ->select(['period'])
+                    ->where('account_id', $accountId)
+                    ->where('status_override', 'pagado')
+                    ->orderByDesc('period')
+                    ->first();
+
+                if ($ov && !empty($ov->period)) {
+                    $p = trim((string) $ov->period);
+                    if ($this->isValidPeriod($p)) {
+                        return $p;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING] adminLastPaidPeriod overrides failed', [
+                'account_id' => $accountId,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        // =========================================================
+        // 3) admin.accounts.meta.stripe (compat)
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('accounts')) {
@@ -3129,11 +3334,9 @@ final class AccountBillingController extends Controller
         }
     }
 
-
     // =========================
     // (resto de helpers)
     // =========================
-
     private function billingStatementRefsForAdminAccount(int $adminAccountId): array
     {
         $refs = [];
@@ -3495,7 +3698,7 @@ final class AccountBillingController extends Controller
             try {
                 $email = strtolower(trim((string) ($u?->email ?? '')));
                 if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+                    $cli = $this->connClientes();
 
                     if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
                         $cols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
@@ -3543,7 +3746,7 @@ final class AccountBillingController extends Controller
 
         if ($clientCuentaId !== '') {
             try {
-                $cli = (string) config('p360.conn.clients', 'mysql_clientes');
+                $cli = $this->connClientes();
 
                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
@@ -3721,7 +3924,7 @@ final class AccountBillingController extends Controller
             return 0;
         }
 
-        $cli = config('p360.conn.clients', 'mysql_clientes');
+        $cli = $this->connClientes();
         $adm = config('p360.conn.admin', 'mysql_admin');
 
         try {
@@ -3820,7 +4023,6 @@ final class AccountBillingController extends Controller
 
         return now()->format('Y-m');
     }
-
 
     private function isValidPeriod(string $period): bool
     {
@@ -4176,7 +4378,6 @@ final class AccountBillingController extends Controller
     {
         return $this->isAnnualBillingCycle($accountId);
     }
-
 
     /**
      * Ventana para mostrar renovación anual (días antes).

@@ -55,48 +55,98 @@
     return strcmp((string)($b['period'] ?? ''), (string)($a['period'] ?? ''));
   });
 
+    // ==========================================================
+  // 3) ✅ ARMADO FINAL UI: máximo 2 cards
+  // - último pagado
+  // - periodo permitido para pagar
+  // Si solo existe uno, se muestra solo uno.
   // ==========================================================
-  // 3) ✅ FILTRO: SOLO PERIODOS PENDIENTES (NO pagados)
-  //    + elegimos 1 fila final: primero el "pagable" (can_pay),
-  //      si no hay, el que tenga saldo/cargo.
-  // ==========================================================
-  $pending = array_values(array_filter($safe, function ($r) {
-    $status = strtolower(trim((string)($r['status'] ?? 'pending')));
+  $paidStatuses = ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'];
 
-    // Interpretación robusta de pagado
-    $isPaid = in_array($status, ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'], true);
-    if ($isPaid) return false;
+  $rowsByPeriod = [];
+  foreach ($safe as $r) {
+    $p = (string)($r['period'] ?? '');
+    if ($p === '') continue;
+    $rowsByPeriod[$p] = $r;
+  }
 
-    // Si viene un flag explícito de "can_pay", se respeta más adelante.
-    // Aquí solo exigimos que sea realmente "un adeudo" si existe info.
-    $saldo  = (float)($r['saldo'] ?? 0);
-    $charge = (float)($r['charge'] ?? 0);
+  $finalRows = [];
 
-    // Si no hay montos, aún lo dejamos pasar (por si el backend define can_pay)
-    if ($saldo <= 0 && $charge <= 0 && !isset($r['can_pay'])) return false;
+  // 1) Último pagado
+  if (!empty($lastPaid) && isset($rowsByPeriod[$lastPaid])) {
+    $paidRow = $rowsByPeriod[$lastPaid];
+    $paidRow['status'] = 'paid';
+    $paidRow['can_pay'] = false;
+    $finalRows[$lastPaid] = $paidRow;
+  }
 
-    return true;
-  }));
+  // 2) Periodo permitido para pagar
+  if (!empty($payAllowed) && isset($rowsByPeriod[$payAllowed])) {
+    $allowedRow = $rowsByPeriod[$payAllowed];
 
-  // Prioriza can_pay=true, luego mayor saldo, luego mayor charge, luego period DESC
-  usort($pending, function ($a, $b) {
-    $aCan = (bool)($a['can_pay'] ?? false);
-    $bCan = (bool)($b['can_pay'] ?? false);
-    if ($aCan !== $bCan) return $aCan ? -1 : 1;
+    $allowedStatus = strtolower(trim((string)($allowedRow['status'] ?? 'pending')));
+    $allowedIsPaid = in_array($allowedStatus, $paidStatuses, true);
 
-    $aSaldo = (float)($a['saldo'] ?? 0);
-    $bSaldo = (float)($b['saldo'] ?? 0);
-    if ($aSaldo !== $bSaldo) return ($aSaldo > $bSaldo) ? -1 : 1;
+    if (!$allowedIsPaid) {
+      $allowedRow['status'] = 'pending';
+      $allowedRow['can_pay'] = (bool)($allowedRow['can_pay'] ?? true);
+    }
 
-    $aCh = (float)($a['charge'] ?? 0);
-    $bCh = (float)($b['charge'] ?? 0);
-    if ($aCh !== $bCh) return ($aCh > $bCh) ? -1 : 1;
+    $finalRows[$payAllowed] = $allowedRow;
+  }
 
-    return strcmp((string)($b['period'] ?? ''), (string)($a['period'] ?? ''));
+  // 3) Fallbacks por si no vino alguno de backend
+  if (empty($finalRows)) {
+    // primero intenta un pendiente pagable
+    $pending = array_values(array_filter($safe, function ($r) use ($paidStatuses) {
+      $status = strtolower(trim((string)($r['status'] ?? 'pending')));
+      $isPaid = in_array($status, $paidStatuses, true);
+      if ($isPaid) return false;
+
+      $saldo  = (float)($r['saldo'] ?? 0);
+      $charge = (float)($r['charge'] ?? 0);
+
+      return ($saldo > 0 || $charge > 0 || isset($r['can_pay']));
+    }));
+
+    usort($pending, function ($a, $b) {
+      $aCan = (bool)($a['can_pay'] ?? false);
+      $bCan = (bool)($b['can_pay'] ?? false);
+      if ($aCan !== $bCan) return $aCan ? -1 : 1;
+
+      $aSaldo = (float)($a['saldo'] ?? 0);
+      $bSaldo = (float)($b['saldo'] ?? 0);
+      if ($aSaldo !== $bSaldo) return ($aSaldo > $bSaldo) ? -1 : 1;
+
+      $aCh = (float)($a['charge'] ?? 0);
+      $bCh = (float)($b['charge'] ?? 0);
+      if ($aCh !== $bCh) return ($aCh > $bCh) ? -1 : 1;
+
+      return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
+    });
+
+    if (!empty($pending[0])) {
+      $finalRows[(string)$pending[0]['period']] = $pending[0];
+    }
+  }
+
+  // 4) Orden final: último pagado primero, luego permitido
+  $rows = array_values($finalRows);
+
+  usort($rows, function ($a, $b) use ($lastPaid, $payAllowed) {
+    $pa = (string)($a['period'] ?? '');
+    $pb = (string)($b['period'] ?? '');
+
+    if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
+    if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
+
+    if ($payAllowed && $pa === $payAllowed && $pb !== $payAllowed) return 1;
+    if ($payAllowed && $pb === $payAllowed && $pa !== $payAllowed) return -1;
+
+    return strcmp($pa, $pb);
   });
 
-  // ✅ Resultado final: SOLO 1 periodo pendiente
-  $rows = array_slice($pending, 0, 1);
+  $rows = array_slice($rows, 0, 2);
 
   // ==========================================================
   // 4) Rutas (route:cache safe)
@@ -112,58 +162,64 @@
     ? route('cliente.mi_cuenta.index')
     : url('/cliente/mi-cuenta');
 
-  /**
-   * ✅ Mensualidad en header (SIEMPRE mensual)
-   * - Si llega anual (ej. ID_ANUAL) normaliza a mensual (ID_MENSUAL)
-   * - Si no viene, la deriva del cargo/saldo del periodo mostrado
+    /**
+   * ✅ Mensualidad en header
+   * Prioridad:
+   * 1) row visible real (charge / saldo / paid_amount)
+   * 2) mensualidadAdmin del controller
+   * 3) fallback 0
    */
-  $mensualidadHeader = (float)($mensualidadAdmin ?? 0);
-
-  // Detecta anualidad por campos si existen
   $isAnnual = false;
   foreach ($rows as $rr) {
     $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? ($billing_cycle ?? '')));
     $modo  = strtolower((string)($rr['modo_cobro'] ?? ($modo_cobro ?? '')));
 
-    if (in_array($cycle, ['annual','year','yearly','anual','anualidad'], true) ||
-        in_array($modo,  ['annual','year','yearly','anual','anualidad'], true)) {
+    if (
+      in_array($cycle, ['annual','year','yearly','anual','anualidad'], true) ||
+      in_array($modo,  ['annual','year','yearly','anual','anualidad'], true)
+    ) {
       $isAnnual = true;
       break;
     }
   }
 
-  // Cargos del set mostrado (ahora normalmente 1 fila)
-  $charges = [];
-  foreach ($rows as $rr) {
-    $c = (float)($rr['charge'] ?? 0);
-    if ($c > 0) $charges[] = $c;
+  $visibleAmount = 0.0;
+  if (!empty($rows)) {
+    $firstRow = $rows[0];
+
+    $rowStatus = strtolower(trim((string)($firstRow['status'] ?? 'pending')));
+    $rowPaid   = in_array($rowStatus, ['paid','pagado','pago','paid_ok','activa_ok'], true);
+
+    $rowCharge = (float)($firstRow['charge'] ?? 0);
+    $rowSaldo  = (float)($firstRow['saldo'] ?? 0);
+    $rowPaidMx = (float)($firstRow['paid_amount'] ?? 0);
+
+    if ($rowPaid) {
+      $visibleAmount = $rowPaidMx > 0 ? $rowPaidMx : $rowCharge;
+    } else {
+      $visibleAmount = $rowSaldo > 0 ? $rowSaldo : $rowCharge;
+    }
   }
 
-  // Heurística 12x (por si no vienen campos)
-  if (!$isAnnual && count($charges) >= 2) {
-    $minC = min($charges);
-    $maxC = max($charges);
-    if ($minC > 0) {
-      $ratio = $maxC / $minC;
-      if (abs($ratio - 12.0) <= 0.35 || abs(($maxC / 12.0) - $minC) <= 1.00) {
-        $isAnnual = true;
-      }
-    }
+  $mensualidadHeader = 0.0;
+
+  // 1) primero usa el row visible real
+  if ($visibleAmount > 0) {
+    $mensualidadHeader = $visibleAmount;
+  }
+  // 2) si no hay row útil, usa lo que mandó el controller
+  elseif ((float)($mensualidadAdmin ?? 0) > 0) {
+    $mensualidadHeader = (float)$mensualidadAdmin;
   }
 
   $ANNUAL_HINT_MIN = 6000.0;
 
   if ($mensualidadHeader > 0) {
-    $mensualidadHeader = ($mensualidadHeader >= $ANNUAL_HINT_MIN)
+    $mensualidadHeader = ($isAnnual && $mensualidadHeader >= $ANNUAL_HINT_MIN)
       ? round($mensualidadHeader / 12.0, 2)
       : round($mensualidadHeader, 2);
   } else {
-    if (!empty($charges)) {
-      $c = (float)max($charges);
-      $mensualidadHeader = round(($isAnnual && $c >= $ANNUAL_HINT_MIN) ? ($c / 12.0) : $c, 2);
-    } else {
-      $mensualidadHeader = 0.0;
-    }
+    $mensualidadHeader = 0.0;
   }
 @endphp
 
