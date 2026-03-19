@@ -922,6 +922,14 @@ final class AccountBillingController extends Controller
             }
         }
 
+        $rows = $this->normalizePortalRowsForDisplay(
+            $accountId,
+            $rows,
+            $chargesByPeriod,
+            $lastPaid,
+            $payAllowedUi
+        );
+
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
         // ✅ Si no hay periodo habilitado para pago (anual fuera de ventana y sin pendientes)
@@ -952,10 +960,12 @@ final class AccountBillingController extends Controller
             'ui_alias'       => $alias,
         ]);
 
-        $mensualidadAdmin = (float) (
-            $chargesByPeriod[$payAllowedUi]
-            ?? ($lastPaid ? ($chargesByPeriod[$lastPaid] ?? 0.0) : 0.0)
-            ?? 0.0
+        $mensualidadAdmin = $this->resolvePortalMonthlyMxnForPeriod(
+            $accountId,
+            $payAllowedUi,
+            $lastPaid,
+            $payAllowedUi,
+            $chargesByPeriod
         );
 
         return view('cliente.billing.statement', [
@@ -1633,48 +1643,159 @@ final class AccountBillingController extends Controller
     }
 
     /**
-     * ✅ Normaliza pagos usando admin.payments como fuente (sin “borrar” pendientes).
-     * - NO fuerza paid si el pago es parcial.
-     * - NO sobreescribe charge con paid.
-     * - Recalcula saldo = cargo - paid.
+     * Monto mensual portal por periodo.
+     * Para pendientes SIEMPRE preferimos la mensualidad del periodo
+     * y evitamos mostrar cargos acumulados heredados del statement.
      */
-    private function applyAdminPaidAmountOverrides(int $accountId, array $rows): array
-    {
-        foreach ($rows as &$r) {
-            $p = (string) ($r['period'] ?? '');
-            if (!$this->isValidPeriod($p)) continue;
+    private function resolvePortalMonthlyMxnForPeriod(
+        int $accountId,
+        string $period,
+        ?string $lastPaid,
+        ?string $payAllowed,
+        array $chargesByPeriod = []
+    ): float {
+        if (!$this->isValidPeriod($period)) {
+            return 0.0;
+        }
 
-            $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $p);
-            if ($paidCents <= 0) continue;
-
-            $paidMxn = round($paidCents / 100, 2);
-
-            // cargo real del row (admin.billing_statements o fallback)
-            $cargo = null;
-            foreach (['total_cargo','charge','cargo','total'] as $k) {
-                if (array_key_exists($k, $r) && is_numeric($r[$k])) { $cargo = (float) $r[$k]; break; }
-            }
-            $cargo = is_numeric($cargo) ? (float) $cargo : 0.0;
-            $cargo = round(max(0.0, $cargo), 2);
-
-            // saldo real
-            $saldo = round(max(0.0, $cargo - $paidMxn), 2);
-
-            // aplica override sin destruir el statement
-            $r['paid_amount'] = $paidMxn;
-
-            if (!isset($r['charge']) || !is_numeric($r['charge']) || (float)$r['charge'] <= 0) {
-                $r['charge'] = $cargo;
-            }
-
-            $r['saldo']  = $saldo;
-            $r['status'] = ($saldo <= 0.0001) ? 'paid' : 'pending';
-
-            if (($r['status'] ?? '') === 'paid') {
-                $r['can_pay'] = false;
+        if (isset($chargesByPeriod[$period]) && is_numeric($chargesByPeriod[$period])) {
+            $mxn = round((float) $chargesByPeriod[$period], 2);
+            if ($mxn > 0.0001) {
+                return $mxn;
             }
         }
-        unset($r);
+
+        $cents = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $period, $lastPaid, $payAllowed);
+        if ($cents <= 0) {
+            $cents = (int) $this->resolveMonthlyCentsFromPlanesCatalog($accountId);
+        }
+        if ($cents <= 0) {
+            $cents = (int) $this->resolveMonthlyCentsFromEstadosCuenta($accountId, $lastPaid, $payAllowed);
+        }
+        if ($cents <= 0) {
+            $cents = (int) $this->resolveMonthlyCentsFromClientesEstadosCuenta($accountId, $lastPaid, $payAllowed);
+        }
+
+        return $cents > 0 ? round($cents / 100, 2) : 0.0;
+    }
+
+    /**
+     * Normaliza rows para PORTAL:
+     * - paid    => conserva monto realmente pagado
+     * - pending => muestra mensualidad real del periodo (no total acumulado)
+     * - partial => saldo sobre la mensualidad del periodo
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param array<string,float> $chargesByPeriod
+     * @return array<int,array<string,mixed>>
+     */
+    private function normalizePortalRowsForDisplay(
+        int $accountId,
+        array $rows,
+        array $chargesByPeriod,
+        ?string $lastPaid,
+        ?string $payAllowed
+    ): array {
+        foreach ($rows as &$row) {
+            $period = trim((string) ($row['period'] ?? ''));
+            if (!$this->isValidPeriod($period)) {
+                continue;
+            }
+
+            $status = $this->normalizeStatementStatus((string) ($row['status'] ?? 'pending'));
+
+            $statementCharge = 0.0;
+            foreach (['charge', 'total_cargo', 'cargo', 'total'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $statementCharge = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $paidAmount = 0.0;
+            foreach (['paid_amount', 'total_abono', 'abono', 'paid'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $paidAmount = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            if ($paidAmount <= 0.0001) {
+                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
+                if ($paidCents > 0) {
+                    $paidAmount = round($paidCents / 100, 2);
+                }
+            }
+
+            $portalMonthly = $this->resolvePortalMonthlyMxnForPeriod(
+                $accountId,
+                $period,
+                $lastPaid,
+                $payAllowed,
+                $chargesByPeriod
+            );
+
+            // fallback por si no resolvió mensualidad
+            if ($portalMonthly <= 0.0001) {
+                $portalMonthly = $statementCharge;
+            }
+
+            // ============================
+            // PAGADO
+            // ============================
+            if ($status === 'paid') {
+                $shownPaid = $paidAmount > 0.0001
+                    ? $paidAmount
+                    : ($statementCharge > 0.0001 ? $statementCharge : $portalMonthly);
+
+                $row['status']      = 'paid';
+                $row['charge']      = round($shownPaid, 2);
+                $row['paid_amount'] = round($shownPaid, 2);
+                $row['saldo']       = 0.0;
+                $row['can_pay']     = false;
+
+                continue;
+            }
+
+            // ============================
+            // PARCIAL
+            // ============================
+            if ($status === 'partial') {
+                $base = $portalMonthly > 0.0001 ? $portalMonthly : $statementCharge;
+                $saldo = max(0.0, $base - $paidAmount);
+
+                $row['status']      = $saldo <= 0.0001 ? 'paid' : 'partial';
+                $row['charge']      = round($base, 2);
+                $row['paid_amount'] = round($paidAmount, 2);
+                $row['saldo']       = round($saldo, 2);
+                $row['can_pay']     = $saldo > 0.0001;
+
+                continue;
+            }
+
+            // ============================
+            // PENDIENTE / OVERDUE / NO_MOVEMENT
+            // Para portal mostramos la mensualidad real del periodo,
+            // no un acumulado arrastrado.
+            // ============================
+            $base = $portalMonthly > 0.0001 ? $portalMonthly : $statementCharge;
+
+            if ($paidAmount > 0.0001) {
+                $saldo = max(0.0, $base - $paidAmount);
+                $row['status'] = $saldo <= 0.0001 ? 'paid' : 'partial';
+                $row['paid_amount'] = round($paidAmount, 2);
+                $row['saldo'] = round($saldo, 2);
+                $row['charge'] = round($base, 2);
+                $row['can_pay'] = $saldo > 0.0001;
+            } else {
+                $row['status'] = ($base <= 0.0001) ? 'no_movement' : 'pending';
+                $row['paid_amount'] = 0.0;
+                $row['saldo'] = round(max(0.0, $base), 2);
+                $row['charge'] = round(max(0.0, $base), 2);
+                $row['can_pay'] = $base > 0.0001;
+            }
+        }
+        unset($row);
 
         return $rows;
     }
