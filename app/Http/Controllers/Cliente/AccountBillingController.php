@@ -763,8 +763,8 @@ final class AccountBillingController extends Controller
             'lastPaid_from_statements'    => $lastPaidFromStatements,
         ]);
 
-        if (!empty($rowsFromStatementsPending)) {
-            // ✅ SOT: hay pendientes reales => mostrar esos
+                if (!empty($rowsFromStatementsPending)) {
+            // ✅ SOT: hay pendientes reales => mostrar pendiente + último pagado
             $rows = $rowsFromStatementsPending;
 
             // Override por payments (si aplica)
@@ -774,9 +774,32 @@ final class AccountBillingController extends Controller
                 return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
             });
 
-            // payAllowed = primer pendiente
+            // payAllowed = primer pendiente real
             $payAllowedUi = (string) ($rows[0]['period'] ?? $payAllowedUi);
             $payAllowed   = $this->isValidPeriod($payAllowedUi) ? $payAllowedUi : $payAllowed;
+
+            // ✅ Agregar también el último pagado si existe y no vino en pending
+            if ($lastPaid && $this->isValidPeriod($lastPaid)) {
+                $hasLastPaid = false;
+
+                foreach ($rows as $tmpRow) {
+                    if ((string) ($tmpRow['period'] ?? '') === $lastPaid) {
+                        $hasLastPaid = true;
+                        break;
+                    }
+                }
+
+                if (!$hasLastPaid) {
+                    foreach ($rowsFromStatementsAll as $tmpRow) {
+                        if ((string) ($tmpRow['period'] ?? '') === $lastPaid) {
+                            $tmpRow['status']  = 'paid';
+                            $tmpRow['can_pay'] = false;
+                            $rows[] = $tmpRow;
+                            break;
+                        }
+                    }
+                }
+            }
 
         } else {
             // ✅ NO hay pendientes en statements:
@@ -799,24 +822,46 @@ final class AccountBillingController extends Controller
                         $sourcesByPeriod[$payAllowedUi] = 'admin.billing_statements.last_paid_total_cargo';
                     }
                 }
-
-                // Reconstruye SOLO el payAllowed como pendiente
-                $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
-                    $accountId,
-                    [$payAllowedUi],
-                    $payAllowedUi,
-                    [$payAllowedUi => (float) ($chargesByPeriod[$payAllowedUi] ?? 0.0)],
-                    $lastPaid
-                );
-
-                $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowedUi);
-
-            } else {
-                // fallback anterior
-                $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
-                $rows = $this->keepOnlyPayAllowedPeriod($rows, $payAllowedUi);
             }
+
+            // ✅ SIEMPRE construir los dos periodos para UI:
+            // último pagado + permitido
+            $uiPeriods = array_values(array_unique(array_filter([
+                $lastPaid && $this->isValidPeriod($lastPaid) ? $lastPaid : null,
+                $payAllowedUi && $this->isValidPeriod($payAllowedUi) ? $payAllowedUi : null,
+            ])));
+
+            $uiCharges = [];
+            foreach ($uiPeriods as $uiPeriod) {
+                $uiCharges[$uiPeriod] = (float) ($chargesByPeriod[$uiPeriod] ?? 0.0);
+            }
+
+            $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
+                $accountId,
+                $uiPeriods,
+                $payAllowedUi,
+                $uiCharges,
+                $lastPaid
+            );
+
+            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
         }
+
+        // ✅ Orden final estable para UI:
+        // 1) último pagado
+        // 2) permitido para pagar
+        usort($rows, function ($a, $b) use ($lastPaid, $payAllowedUi) {
+            $pa = (string) ($a['period'] ?? '');
+            $pb = (string) ($b['period'] ?? '');
+
+            if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
+            if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
+
+            if ($payAllowedUi && $pa === $payAllowedUi && $pb !== $payAllowedUi) return 1;
+            if ($payAllowedUi && $pb === $payAllowedUi && $pa !== $payAllowedUi) return -1;
+
+            return strcmp($pa, $pb);
+        });
 
         // Enriquecimiento UI + ✅ CANONICALIZACIÓN de account_id
         foreach ($rows as &$row) {
