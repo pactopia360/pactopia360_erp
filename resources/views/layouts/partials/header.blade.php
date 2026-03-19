@@ -9,8 +9,8 @@
   $userEmail  = $user?->email ?? '';
   $brandUrl   = Route::has('admin.home') ? route('admin.home') : url('/');
 
-  $logoLight  = asset('assets/admin/img/logo-pactopia360-dark.png');
-  $logoDark   = asset('assets/admin/img/logo-pactopia360-white.png');
+  $logoLight  = asset('assets/admin/img/Pactopia - Letra AZUL.png');
+  $logoDark   = asset('assets/admin/img/Pactopia - Letra Blanca.png');
 
   $urlPerfil   = Route::has('admin.perfil') ? route('admin.perfil')
                 : (Route::has('admin.profile') ? route('admin.profile') : '#');
