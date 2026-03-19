@@ -1572,6 +1572,130 @@ final class AccountBillingController extends Controller
         }
     }
 
+        /**
+     * ✅ Ajusta montos pagados reales desde admin.payments sobre rows del portal.
+     *
+     * Objetivo:
+     * - evitar "pagado = 0"
+     * - reflejar pagos reales aunque billing_statements no traiga total_abono correcto
+     * - no romper pending / partial / paid
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array<string,mixed>>
+     */
+    private function applyAdminPaidAmountOverrides(int $accountId, array $rows): array
+    {
+        if ($accountId <= 0 || empty($rows)) {
+            return $rows;
+        }
+
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $period = trim((string) ($row['period'] ?? ''));
+            if (!$this->isValidPeriod($period)) {
+                continue;
+            }
+
+            $status = $this->normalizeStatementStatus((string) ($row['status'] ?? 'pending'));
+
+            $charge = 0.0;
+            foreach (['charge', 'total_cargo', 'cargo', 'total'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $charge = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $paidAmount = 0.0;
+            foreach (['paid_amount', 'total_abono', 'abono', 'paid'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $paidAmount = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $saldo = isset($row['saldo']) && is_numeric($row['saldo'])
+                ? round(max(0.0, (float) $row['saldo']), 2)
+                : round(max(0.0, $charge - $paidAmount), 2);
+
+            // ✅ Fuente primaria de pago real
+            $paidCents = 0;
+            try {
+                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
+            } catch (\Throwable $e) {
+                $paidCents = 0;
+            }
+
+            if ($paidCents > 0) {
+                $realPaid = round($paidCents / 100, 2);
+
+                // usa el mayor para no perder info previa
+                $paidAmount = max($paidAmount, $realPaid);
+
+                // si el cargo viene vacío pero sí hubo pago, al menos refleja lo pagado
+                if ($charge <= 0.0001) {
+                    $charge = $paidAmount;
+                }
+
+                $saldo = round(max(0.0, $charge - $paidAmount), 2);
+
+                if ($saldo <= 0.0001) {
+                    $status = 'paid';
+                } else {
+                    $status = 'partial';
+                }
+            }
+
+            // ✅ Canonicalización final
+            if ($status === 'paid') {
+                $shownPaid = $paidAmount > 0.0001
+                    ? $paidAmount
+                    : ($charge > 0.0001 ? $charge : 0.0);
+
+                $row['status']      = 'paid';
+                $row['charge']      = round($shownPaid, 2);
+                $row['total_cargo'] = round($shownPaid, 2);
+                $row['paid_amount'] = round($shownPaid, 2);
+                $row['total_abono'] = round($shownPaid, 2);
+                $row['saldo']       = 0.0;
+                $row['can_pay']     = false;
+
+                continue;
+            }
+
+            if ($paidAmount > 0.0001) {
+                $base = $charge > 0.0001 ? $charge : $paidAmount;
+                $saldo = round(max(0.0, $base - $paidAmount), 2);
+
+                $row['status']      = $saldo <= 0.0001 ? 'paid' : 'partial';
+                $row['charge']      = round($base, 2);
+                $row['total_cargo'] = round($base, 2);
+                $row['paid_amount'] = round($paidAmount, 2);
+                $row['total_abono'] = round($paidAmount, 2);
+                $row['saldo']       = $saldo;
+                $row['can_pay']     = $saldo > 0.0001;
+
+                continue;
+            }
+
+            // sin pago real encontrado: conserva charge/saldo coherentes
+            $base = $charge > 0.0001 ? $charge : $saldo;
+
+            $row['status']      = in_array($status, ['partial', 'overdue', 'no_movement'], true) ? $status : 'pending';
+            $row['charge']      = round(max(0.0, $base), 2);
+            $row['total_cargo'] = round(max(0.0, $base), 2);
+            $row['paid_amount'] = 0.0;
+            $row['total_abono'] = 0.0;
+            $row['saldo']       = round(max(0.0, $saldo > 0 ? $saldo : $base), 2);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
     private function resolveStatementTotalsCents(int $accountId, string $period): array
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
@@ -2204,7 +2328,7 @@ final class AccountBillingController extends Controller
         return $rows;
     }
 
-        /**
+     /**
      * Resuelve la mensualidad REAL del periodo para portal cliente.
      *
      * Prioridad:
