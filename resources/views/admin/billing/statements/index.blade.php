@@ -5,6 +5,7 @@
 @section('title','Facturación · Estados de cuenta')
 @section('layout','full')
 @section('contentLayout','full')
+@section('pageClass','billing-statements-index-page')
 
 @php
   use Illuminate\Support\Facades\Route;
@@ -293,6 +294,14 @@
         </div>
 
         <div class="sx-kpi">
+          <div class="sx-k">Pendiente anterior</div>
+          <div class="sx-v">{{ $fmtMoney($kpis['prev_pending'] ?? 0) }}</div>
+          <div class="sx-mini" title="Suma de adeudos de meses anteriores todavía abiertos.">
+            Suma de adeudos de meses anteriores todavía abiertos.
+          </div>
+        </div>
+
+        <div class="sx-kpi">
           <div class="sx-k">Cuentas</div>
           <div class="sx-v">{{ (int)($kpis['accounts'] ?? 0) }}</div>
           <div class="sx-mini" title="Total de cuentas en el resultado.">Total de cuentas en el resultado.</div>
@@ -352,15 +361,16 @@
       <div class="sx-table-wrap">
           <table class="sx-table">
             <colgroup>
-              <col style="width:44px">   {{-- checkbox --}}
-              <col style="width:120px">  {{-- Cuenta --}}
-              <col style="width:30%">    {{-- Cliente --}}
-              <col style="width:32%">    {{-- Email/Meta --}}
-              <col style="width:130px">  {{-- Total --}}
-              <col style="width:150px">  {{-- Pagado --}}
-              <col style="width:140px">  {{-- Saldo --}}
-              <col style="width:130px">  {{-- Estatus --}}
-              <col style="width:160px">  {{-- Acciones --}}
+              <col style="width:44px">    {{-- checkbox --}}
+              <col style="width:120px">   {{-- Cuenta --}}
+              <col style="width:270px">   {{-- Cliente --}}
+              <col style="width:250px">   {{-- Contacto / Meta --}}
+              <col style="width:120px">   {{-- Total periodo --}}
+              <col style="width:130px">   {{-- Pagado --}}
+              <col style="width:150px">   {{-- Pendiente anterior --}}
+              <col style="width:140px">   {{-- Saldo total --}}
+              <col style="width:120px">   {{-- Estatus --}}
+              <col style="width:130px">   {{-- Acciones --}}
             </colgroup>
 
             <thead>
@@ -371,9 +381,10 @@
                 <th>Cuenta</th>
                 <th>Cliente</th>
                 <th>Contacto / Meta</th>
-                <th class="sx-right">Total</th>
+                <th class="sx-right">Total periodo</th>
                 <th class="sx-right">Pagado</th>
-                <th>Saldo</th>
+                <th class="sx-right">Pendiente anterior</th>
+                <th class="sx-right">Saldo total</th>
                 <th>Estatus</th>
                 <th>Acciones</th>
               </tr>
@@ -405,12 +416,11 @@
 
                 $isBlocked = (int)($r->is_blocked ?? 0) === 1;
 
-                $cargo    = (float)($r->cargo ?? 0);
-                $expected = (float)($r->expected_total ?? 0);
-                $total    = $cargo > 0 ? $cargo : $expected;
-
-                $abono    = (float)($r->abono ?? 0);
-                $saldo    = max(0, $total - $abono);
+                $total       = (float)($r->total_shown ?? 0);
+                $abono       = (float)($r->abono ?? 0);
+                $saldoPeriodo= (float)($r->saldo_current ?? $r->saldo_shown ?? 0);
+                $prevBalance = (float)($r->prev_balance ?? 0);
+                $saldoTotal  = (float)($r->total_due ?? ($saldoPeriodo + $prevBalance));
 
                 $abonoEdo = (float)($r->abono_edo ?? 0);
                 $abonoPay = (float)($r->abono_pay ?? 0);
@@ -516,9 +526,20 @@
                 </td>
 
                 <td class="sx-right">
-                  <span class="sx-pill {{ $saldo > 0 ? 'sx-warn' : 'sx-ok' }}">
-                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldo) }}</span>
+                  <span class="sx-pill {{ $prevBalance > 0 ? 'sx-bad' : 'sx-ok' }}">
+                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($prevBalance) }}</span>
                   </span>
+                </td>
+
+                <td class="sx-right">
+                  <span class="sx-pill {{ $saldoTotal > 0 ? 'sx-warn' : 'sx-ok' }}">
+                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldoTotal) }}</span>
+                  </span>
+                  @if($saldoPeriodo > 0 && $prevBalance > 0)
+                    <div class="sx-subrow">
+                      Periodo: <span class="sx-mono">{{ $fmtMoney($saldoPeriodo) }}</span>
+                    </div>
+                  @endif
                 </td>
 
                 <td>
@@ -543,7 +564,7 @@
               </tr>
             @empty
               <tr>
-                <td colspan="9" style="padding:16px; color:var(--sx-mut); font-weight:900;">
+                <td colspan="10" style="padding:16px; color:var(--sx-mut); font-weight:900;">
                   Sin resultados para el filtro actual.
                 </td>
               </tr>

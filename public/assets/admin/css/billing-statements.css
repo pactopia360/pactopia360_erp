@@ -1,5 +1,5 @@
-/* public/assets/admin/css/billing-statements.css */
-/* Vault Premium · limpio · responsive · dark-friendly · v6.9 (consolidado, sin overrides conflictivos) */
+/* C:\wamp64\www\pactopia360_erp\public\assets\admin\css\billing-statements.css */
+/* P360 · Billing Statements · responsive real · full width safe · v7.2 */
 
 :root{
   --sx-ink: var(--text, #0f172a);
@@ -27,13 +27,9 @@
   --sx-radius: 18px;
   --sx-shadow: var(--shadow-1, 0 10px 30px rgba(15,23,42,.08));
 
-  /* sticky offset (ajusta si tu topbar es más alta) */
   --sx-sticky-top: 8px;
 }
 
-/* ==========================================================
-   DARK overrides
-   ========================================================== */
 body.theme-dark,
 html.theme-dark,
 body.dark,
@@ -63,8 +59,10 @@ html[data-theme="dark"]{
   --sx-bad-t:#ef4444;
 }
 
-/* light mode fallback */
-body.theme-light{
+body.theme-light,
+html.theme-light,
+body[data-theme="light"],
+html[data-theme="light"]{
   --sx-bg:#f6f7fb;
   --sx-card:#ffffff;
   --sx-stroke: rgba(15,23,42,.12);
@@ -76,56 +74,69 @@ body.theme-light{
   --sx-shadow: 0 10px 30px rgba(15,23,42,.08);
 }
 
-/* ==========================================================
-   LAYOUT
-   ========================================================== */
+/* =========================================================
+   FULL WIDTH SAFE
+   ========================================================= */
+.page-container,
+.page-shell{
+  min-width: 0 !important;
+}
+
 .sx-wrap{
-  padding: 12px;
-  background: var(--sx-bg);
-  min-height: calc(100vh - 12px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px;
+  background: transparent;
 }
 
 .sx-card{
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   background: var(--sx-card);
   border: 1px solid var(--sx-stroke);
-  border-radius: var(--sx-radius);
+  border-radius: 16px;
   box-shadow: var(--sx-shadow);
   overflow: hidden;
-  width: 100%;
-  max-width: none;
 }
 
 .sx-topSticky{
   position: sticky;
   top: var(--sx-sticky-top);
-  z-index: 50;
+  z-index: 30;
   background: var(--sx-card);
   border-bottom: 1px solid var(--sx-stroke);
-  box-shadow: 0 14px 26px rgba(0,0,0,.05);
+  box-shadow: 0 12px 24px rgba(0,0,0,.04);
 }
 
-/* ==========================================================
+.sx-mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+.sx-right{ text-align:right; }
+
+/* =========================================================
    HEAD
-   ========================================================== */
+   ========================================================= */
 .sx-head{
-  padding: 14px 16px 10px;
+  padding: 12px 14px 8px;
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap: 12px;
+  gap: 10px;
   background: linear-gradient(180deg, var(--sx-soft), transparent);
 }
 
 .sx-title{
   margin:0;
-  font: 900 18px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  font: 900 16px/1.15 system-ui, -apple-system, Segoe UI, Roboto, Arial;
   color: var(--sx-text);
 }
 
 .sx-sub{
-  margin-top:6px;
+  margin-top: 4px;
   color: var(--sx-mut);
-  font: 600 12px/1.35 system-ui;
+  font: 600 11px/1.35 system-ui;
 }
 
 .sx-head-actions{
@@ -133,49 +144,56 @@ body.theme-light{
   gap:8px;
   flex-wrap:wrap;
   align-items:center;
+  justify-content:flex-end;
 }
 
-.sx-mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-.sx-right{ text-align:right; }
-
-/* ==========================================================
+/* =========================================================
    FILTERS
-   ========================================================== */
+   ========================================================= */
 .sx-filters{
-  padding: 12px 16px 12px;
+  padding: 10px 14px;
   border-top: 1px solid color-mix(in oklab, var(--sx-stroke) 70%, transparent);
   background: color-mix(in oklab, var(--sx-card) 96%, transparent);
 }
 
 .sx-grid{
   display:grid;
-  grid-template-columns: 2.2fr 1fr 1fr 1fr 140px 140px;
-  gap: 10px;
+  grid-template-columns: minmax(220px, 2.15fr) repeat(4, minmax(120px, 1fr)) 100px;
+  gap: 8px;
   align-items:end;
+}
+
+.sx-ctl{
+  min-width: 0;
 }
 
 .sx-ctl label{
   display:block;
-  margin-bottom:6px;
+  margin-bottom:5px;
   color: var(--sx-mut);
-  font: 800 11px/1.2 system-ui;
+  font: 800 10px/1.2 system-ui;
 }
 
-.sx-in, .sx-sel{
+.sx-in,
+.sx-sel{
   width:100%;
+  min-width:0;
+  min-height:38px;
   background: transparent;
   border: 1px solid var(--sx-stroke);
   color: var(--sx-text);
-  border-radius: 12px;
-  padding: 10px 10px;
+  border-radius: 10px;
+  padding: 8px 10px;
   outline:none;
+  font: 600 12px/1.2 system-ui;
 }
+
 .sx-in::placeholder{ color: rgba(148,163,184,.65); }
 
 .sx-chips{
-  margin-top: 10px;
+  margin-top: 8px;
   display:flex;
-  gap:8px;
+  gap:6px;
   flex-wrap:wrap;
   align-items:center;
 }
@@ -183,33 +201,43 @@ body.theme-light{
 .sx-chip{
   display:inline-flex;
   align-items:center;
-  gap:8px;
-  padding: 8px 10px;
+  gap:7px;
+  padding: 6px 9px;
   border-radius: 999px;
   border:1px solid var(--sx-stroke);
   background: var(--sx-soft2);
   color: var(--sx-text);
-  font: 900 12px/1 system-ui;
+  font: 900 11px/1 system-ui;
   text-decoration:none;
   transition: transform .08s ease, background .12s ease, border-color .12s ease;
 }
-.sx-chip:hover{ background: var(--sx-soft); transform: translateY(-1px); }
-.sx-chip .dot{ width:8px; height:8px; border-radius:999px; background: rgba(148,163,184,.75); }
+
+.sx-chip:hover{
+  background: var(--sx-soft);
+  transform: translateY(-1px);
+}
+
+.sx-chip .dot{
+  width:7px;
+  height:7px;
+  border-radius:999px;
+  background: rgba(148,163,184,.75);
+}
+
 .sx-chip.on{
   background: color-mix(in oklab, rgba(99,102,241,.18) 45%, var(--sx-soft2));
   border-color: color-mix(in oklab, rgba(99,102,241,.45) 40%, var(--sx-stroke));
 }
 
-/* ==========================================================
-   KPIs
-   ========================================================== */
+/* =========================================================
+   KPIS
+   ========================================================= */
 .sx-kpis{
-  padding: 12px 16px;
+  padding: 10px 14px;
   display:grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
   background: color-mix(in oklab, var(--sx-card) 98%, transparent);
-  grid-auto-flow: row dense;
   align-items: stretch;
 }
 
@@ -217,159 +245,179 @@ body.theme-light{
   position: relative;
   background: var(--sx-soft2);
   border: 1px solid var(--sx-stroke);
-  border-radius: 16px;
-  padding: 18px 12px 12px;
-  min-height: 74px;
+  border-radius: 14px;
+  padding: 12px 10px 10px;
+  min-height: 58px;
+  min-width: 0;
 }
 
 .sx-kpi .sx-k{
   position: absolute;
-  top: 10px;
-  left: 12px;
+  top: 8px;
+  left: 10px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
+  gap: 7px;
+  padding: 4px 8px;
   border-radius: 999px;
   background: color-mix(in oklab, var(--sx-card) 88%, var(--sx-soft));
   border: 1px solid var(--sx-stroke);
   color: var(--sx-mut);
-  font: 950 11px/1 system-ui;
+  font: 950 10px/1 system-ui;
   letter-spacing: .01em;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .sx-kpi .sx-k::before{
   content:"";
-  width:8px;
-  height:8px;
+  width:7px;
+  height:7px;
   border-radius:999px;
   background: rgba(99,102,241,.55);
   box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+  flex: 0 0 auto;
 }
 
 .sx-kpi .sx-v{
-  margin-top: 18px;
+  margin-top: 14px;
   color: var(--sx-text);
-  font: 980 20px/1.05 system-ui;
+  font: 980 14px/1.05 system-ui;
+  word-break: break-word;
 }
 
-/* oculto mini por diseño (si quieres activarlo, quita esta regla) */
-.sx-kpi .sx-mini{ display:none !important; }
+.sx-kpi .sx-mini{
+  display:none !important;
+}
 
 .sx-kpis > .sx-kpi-ops{
   grid-column: 1 / -1;
   min-height: auto;
-  padding: 10px 12px !important;
+  padding: 8px 10px !important;
 }
 
-/* Toolbar Operación */
+/* Toolbar */
 .sx-toolbar{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--sx-stroke);
-  border-radius: 16px;
+  border-radius: 14px;
   background: color-mix(in oklab, var(--sx-card) 92%, var(--sx-soft2));
 }
 
 .sx-toolbarLeft{
-  min-width: 240px;
+  min-width: 0;
   display:flex;
   flex-direction:column;
-  gap: 8px;
+  gap: 6px;
 }
+
 .sx-toolbarTitle{
   display:flex;
   align-items:center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap:wrap;
 }
+
 .sx-chipLabel{
   display:inline-flex;
   align-items:center;
-  gap:8px;
-  padding: 7px 10px;
+  gap:7px;
+  padding: 6px 9px;
   border-radius: 999px;
   border: 1px solid var(--sx-stroke);
   background: color-mix(in oklab, var(--sx-card) 88%, var(--sx-soft));
   color: var(--sx-text);
-  font: 950 12px/1 system-ui;
+  font: 950 11px/1 system-ui;
 }
+
 .sx-chipLabel .dot{
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: rgba(99,102,241,.55);
   box-shadow: 0 0 0 3px rgba(99,102,241,.12);
 }
+
 .sx-toolbarHint{
   color: var(--sx-mut);
-  font: 800 12px/1.2 system-ui;
+  font: 800 11px/1.2 system-ui;
 }
+
 .sx-toolbarMeta{
   display:flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap:wrap;
   align-items:center;
 }
+
 .sx-miniPill{
   display:inline-flex;
   align-items:center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 7px;
+  padding: 5px 8px;
   border-radius: 999px;
   border: 1px solid var(--sx-stroke);
   background: var(--sx-soft2);
   color: var(--sx-text);
-  font: 850 12px/1 system-ui;
+  font: 850 11px/1 system-ui;
 }
+
 .sx-miniPill.sx-muted{ color: var(--sx-mut); }
 
 .sx-toolbarRight{
   display:flex;
   align-items:center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap:wrap;
   justify-content:flex-end;
 }
+
 .sx-btnGroup{
   display:inline-flex;
-  gap: 6px;
+  gap: 4px;
   align-items:center;
-  padding: 6px;
+  padding: 4px;
   border-radius: 999px;
   border: 1px solid var(--sx-stroke);
   background: color-mix(in oklab, var(--sx-card) 92%, var(--sx-soft2));
+  max-width: 100%;
+  flex-wrap: wrap;
 }
+
 .sx-toolbar .sx-btn{
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 999px;
   line-height: 1;
 }
 
-/* ==========================================================
+/* =========================================================
    PANEL
-   ========================================================== */
+   ========================================================= */
 .sx-panel{
-  border: 1px solid var(--sx-stroke);
-  border-radius: 16px;
-  overflow: hidden;
+  border-top: 1px solid var(--sx-stroke);
   background: color-mix(in oklab, var(--sx-card) 94%, transparent);
-  padding-bottom: 72px; /* espacio para bulkbar fixed */
+  padding-bottom: 64px;
+  min-width: 0;
 }
 
-/* ==========================================================
-   BULKBAR (fixed bottom)
-   ========================================================== */
+/* =========================================================
+   BULKBAR
+   ========================================================= */
 .sx-bulkbar{
   display:none;
   align-items:center;
   justify-content:space-between;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--sx-stroke);
   background: linear-gradient(180deg, var(--sx-soft), var(--sx-card));
+  flex-wrap: wrap;
 }
 
 .sx-bulkbar.on{
@@ -380,7 +428,7 @@ body.theme-light{
   bottom: 12px;
   z-index: 9998;
   border: 1px solid var(--sx-stroke);
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0,0,0,.22);
 }
 
@@ -388,6 +436,14 @@ body.theme-light{
   display:flex;
   align-items:center;
   gap:10px;
+  flex-wrap:wrap;
+  min-width: 0;
+}
+
+.sx-actionsRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
   flex-wrap:wrap;
 }
 
@@ -398,44 +454,37 @@ body.theme-light{
   border:1px solid var(--sx-stroke);
   background: var(--sx-soft2);
   color: var(--sx-text);
-  font: 900 12px/1 system-ui;
+  font: 900 11px/1 system-ui;
   border-radius: 999px;
-  padding: 8px 10px;
+  padding: 6px 9px;
 }
 
 .sx-bulk-note{
   color: var(--sx-mut);
-  font: 800 12px/1 system-ui;
+  font: 800 11px/1 system-ui;
 }
 
-
-/* ==========================================================
-   TABLE WRAP (SIN DOBLE SCROLL: usa solo scroll del body)
-   ========================================================== */
+/* =========================================================
+   TABLE
+   ========================================================= */
 .sx-table-wrap{
-  width:100%;
-
-  /* ✅ quita el scroll interno vertical */
-  overflow-y: visible;
-  max-height: none;
-
-  /* ✅ conserva comportamiento horizontal cuando haga falta */
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
-
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: auto; /* ya no hay “scroll container” interno */
   scrollbar-gutter: stable both-edges;
 }
 
-/* Desktop: si quieres evitar horizontal cuando normalmente cabe */
-@media (min-width: 901px){
-  .sx-table-wrap{ overflow-x: hidden; }
+.sx-table-wrap > .sx-table{
+  width: max(100%, 1454px);
 }
 
 .sx-table{
-  width:100%;
+  width: 100%;
+  min-width: 1454px;
   border-collapse: separate;
-  border-spacing: 0 12px; /* gap vertical entre rows */
+  border-spacing: 0 8px;
   table-layout: fixed;
 }
 
@@ -443,70 +492,70 @@ body.theme-light{
   position: sticky;
   top: 0;
   z-index: 5;
-
   background: color-mix(in oklab, var(--sx-card) 94%, transparent);
   backdrop-filter: blur(8px);
-
   border-bottom: 1px solid color-mix(in oklab, var(--sx-stroke) 75%, transparent);
   color: var(--sx-mut);
-
-  font: 980 12px/1 system-ui;
-  padding: 12px 12px;
-  text-align:left;
+  font: 980 11px/1 system-ui;
+  padding: 10px 10px;
+  text-align: left;
   white-space: nowrap;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sx-table td{
   border: none;
   background: color-mix(in oklab, var(--sx-card) 98%, transparent);
   color: var(--sx-text);
-  padding: 12px 12px;
-  font: 650 13px/1.25 system-ui;
+  padding: 10px 10px;
+  font: 650 12px/1.25 system-ui;
   vertical-align: top;
-  overflow: visible; /* ✅ no recortes */
+  overflow: hidden;
 }
 
-/* “Card border” por fila */
 .sx-table tbody tr td{
   border-top: 1px solid color-mix(in oklab, var(--sx-stroke) 72%, transparent);
   border-bottom: 1px solid color-mix(in oklab, var(--sx-stroke) 72%, transparent);
 }
+
 .sx-table tbody tr td:first-child{
   border-left: 1px solid color-mix(in oklab, var(--sx-stroke) 72%, transparent);
-  border-top-left-radius: 16px;
-  border-bottom-left-radius: 16px;
-}
-.sx-table tbody tr td:last-child{
-  border-right: 1px solid color-mix(in oklab, var(--sx-stroke) 72%, transparent);
-  border-top-right-radius: 16px;
-  border-bottom-right-radius: 16px;
+  border-top-left-radius: 14px;
+  border-bottom-left-radius: 14px;
 }
 
-/* Hover premium */
+.sx-table tbody tr td:last-child{
+  border-right: 1px solid color-mix(in oklab, var(--sx-stroke) 72%, transparent);
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+
 .sx-table tbody tr{
   transition: transform .12s ease, filter .12s ease, background .12s ease;
 }
+
 .sx-table tbody tr:hover{
   transform: translateY(-1px);
-  filter: drop-shadow(0 14px 22px rgba(15,23,42,.10));
+  filter: drop-shadow(0 12px 18px rgba(15,23,42,.08));
 }
+
 body.theme-dark .sx-table tbody tr:hover,
 html.theme-dark .sx-table tbody tr:hover,
 body.dark .sx-table tbody tr:hover,
 html.dark .sx-table tbody tr:hover{
-  filter: drop-shadow(0 18px 28px rgba(0,0,0,.30));
+  filter: drop-shadow(0 16px 24px rgba(0,0,0,.26));
 }
 
-/* Fila seleccionada (muy visible) */
 .sx-table tbody tr.is-selected td{
   border-color: color-mix(in oklab, rgba(99,102,241,.55) 55%, var(--sx-stroke));
   background: color-mix(in oklab, rgba(99,102,241,.12) 35%, var(--sx-card));
 }
 
-/* Checkbox */
 .sx-selcol{ width: 44px; }
 .sx-ck{ width:16px; height:16px; accent-color: rgba(99,102,241,.85); }
+
 .sx-table th.sx-selcol,
 .sx-table td:nth-child(1){
   text-align: center;
@@ -515,7 +564,6 @@ html.dark .sx-table tbody tr:hover{
   padding-right: 10px;
 }
 
-/* Ellipsis controlado */
 .sx-ellipsis{
   max-width: 100%;
   display:block;
@@ -524,155 +572,279 @@ html.dark .sx-table tbody tr:hover{
   white-space:nowrap;
 }
 
-/* Subrow */
 .sx-subrow{
-  margin-top: 6px;
+  margin-top: 4px;
   color: var(--sx-mut);
-  font: 650 12px/1.25 system-ui;
-}
-.sx-table td:nth-child(4) .sx-subrow{
-  margin-top: 6px;
-  font-size: 11.5px;
-  line-height: 1.25;
-  white-space: normal;    /* ✅ deja crecer */
-  overflow: visible;
+  font: 650 11px/1.25 system-ui;
+  white-space: normal;
 }
 
-/* Cliente: nombre dominante */
 .sx-table td:nth-child(3) .sx-ellipsis{
   font-weight: 980;
-  font-size: 13.5px;
+  font-size: 12.5px;
   line-height: 1.15;
 }
 
-/* Pills */
+.sx-table td:nth-child(2),
+.sx-table td:nth-child(3),
+.sx-table td:nth-child(4){
+  text-align: left;
+}
+
+.sx-table td:nth-child(5),
+.sx-table td:nth-child(6){
+  text-align: right;
+}
+
 .sx-meta{
-  margin-top: 8px;
+  margin-top: 7px;
   display:flex;
   gap:6px;
   flex-wrap:wrap;
   align-items:center;
 }
+
 .sx-pill{
   display:inline-flex;
   align-items:center;
-  gap:8px;
+  gap:7px;
   border-radius: 999px;
-  padding: 5px 9px;
+  padding: 4px 8px;
   border:1px solid var(--sx-stroke);
-  font: 980 10.5px/1 system-ui;
+  font: 980 10px/1 system-ui;
   white-space: nowrap;
   letter-spacing: .01em;
   max-width: 100%;
 }
-.sx-pill .dot{ width:7px; height:7px; border-radius:999px; background: rgba(148,163,184,.75); }
+
+.sx-pill .dot{
+  width:7px;
+  height:7px;
+  border-radius:999px;
+  background: rgba(148,163,184,.75);
+}
 
 .sx-ok{ background: var(--sx-ok); color: var(--sx-ok-t); border-color: rgba(34,197,94,.35); }
 .sx-warn{ background: var(--sx-warn); color: var(--sx-warn-t); border-color: rgba(245,158,11,.35); }
 .sx-bad{ background: var(--sx-bad); color: var(--sx-bad-t); border-color: rgba(239,68,68,.35); }
 .sx-dim{ background: var(--sx-soft2); color: var(--sx-text); }
 
-/* Numéricas: right, compactas */
 .sx-table td.sx-right{ text-align:right; }
 .sx-table td.sx-right .sx-mono{ font-weight: 980; }
 
-/* Estatus/Saldos centrados con pills */
+/* col 7 = Pendiente anterior | col 8 = Saldo total | col 9 = Estatus | col 10 = Acciones */
 .sx-table td:nth-child(7),
 .sx-table td:nth-child(8),
-.sx-table td:nth-child(9){
+.sx-table td:nth-child(9),
+.sx-table td:nth-child(10){
   vertical-align: middle;
 }
+
 .sx-table td:nth-child(7),
 .sx-table td:nth-child(8),
 .sx-table td:nth-child(9){
   text-align: center;
 }
+
 .sx-table td:nth-child(7) .sx-pill,
-.sx-table td:nth-child(8) .sx-pill{
-  display:inline-flex;
-  padding: 7px 11px;
+.sx-table td:nth-child(8) .sx-pill,
+.sx-table td:nth-child(9) .sx-pill{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 9px;
+  min-width: 74px;
 }
 
-/* Acciones: botón pill pro */
-.sx-actionsTd{ white-space: nowrap; }
-.sx-table td:nth-child(9) .sx-btn{
+.sx-table td:nth-child(10){
+  text-align: right;
+}
+
+.sx-actionsTd{
+  white-space: nowrap;
+}
+
+.sx-table td:nth-child(10) .sx-btn{
   border-radius: 999px;
-  padding: 9px 14px;
+  padding: 8px 12px;
   font-weight: 980;
   background: color-mix(in oklab, var(--sx-card) 70%, var(--sx-soft2));
 }
-.sx-table td:nth-child(9) .sx-btn:hover{
+
+.sx-table td:nth-child(10) .sx-btn:hover{
   background: var(--sx-soft);
 }
 
-/* Mobile: vuelve a tabla normal + scroll horizontal */
-@media (max-width: 900px){
-  .sx-table-wrap{ overflow-x: auto; max-height: none; overflow-y: visible; }
-
-  .sx-table{
-    border-collapse: collapse;
-    border-spacing: 0;
-    table-layout: auto;
-    min-width: 980px;
-  }
-
-  .sx-table tbody tr td{
-    border-top: 1px solid color-mix(in oklab, var(--sx-stroke) 75%, transparent);
-    border-bottom: 1px solid color-mix(in oklab, var(--sx-stroke) 75%, transparent);
-  }
-  .sx-table tbody tr td:first-child,
-  .sx-table tbody tr td:last-child{
-    border-radius: 0;
-  }
-}
-
-/* ==========================================================
+/* =========================================================
    BUTTONS
-   ========================================================== */
+   ========================================================= */
 .sx-btn{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  padding: 9px 12px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
   border: 1px solid var(--sx-stroke);
   background: transparent;
   color: var(--sx-text);
-  font: 950 12px/1 system-ui;
+  font: 950 11px/1 system-ui;
   text-decoration:none;
   white-space: nowrap;
+  cursor: pointer;
 }
+
 .sx-btn:hover{ background: var(--sx-soft); }
 
 .sx-btn-primary{
   background: rgba(99,102,241,.22);
   border-color: rgba(99,102,241,.32);
 }
+
 .sx-btn-soft{ background: var(--sx-soft2); }
 .sx-btn-ghost{ background: transparent; }
 
-/* ==========================================================
-   Toast
-   ========================================================== */
+/* =========================================================
+   TOAST
+   ========================================================= */
 .sx-toast{
-  position:fixed;
-  right:18px;
-  bottom:18px;
-  z-index:9999;
-  background:#111827;
-  color:#fff;
-  border:1px solid rgba(255,255,255,.14);
-  padding:10px 12px;
-  border-radius:14px;
-  font-weight:900;
-  display:none;
-  max-width: 420px;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 12050;
+  width: min(440px, calc(100vw - 24px));
+  border-radius: 16px;
+  display: none;
+  overflow: hidden;
+  background: color-mix(in oklab, #111827 86%, #0b1220);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  transform: translateY(10px);
+  opacity: 0;
+  filter: blur(0px);
 }
+
 .sx-toast.on{ display:block; }
 
-/* ==========================================================
-   PDF Preview Modal
-   ========================================================== */
+.sx-toast.show{
+  opacity: 1;
+  transform: translateY(0);
+  transition: transform .18s ease, opacity .18s ease;
+}
+
+.sx-toast.hide{
+  opacity: 0;
+  transform: translateY(10px);
+  transition: transform .14s ease, opacity .14s ease;
+}
+
+.sx-toast-inner{
+  display:flex;
+  gap: 10px;
+  align-items:flex-start;
+  padding: 12px 12px 10px;
+}
+
+.sx-toast-ic{
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex: 0 0 auto;
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.10);
+  font-weight: 950;
+  color: #fff;
+}
+
+.sx-toast-body{
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sx-toast-title{
+  font: 980 12px/1.2 system-ui;
+  color: rgba(255,255,255,.92);
+  margin-bottom: 4px;
+  letter-spacing: .01em;
+}
+
+.sx-toast-msg{
+  font: 800 12.5px/1.3 system-ui;
+  color: rgba(255,255,255,.88);
+  word-break: break-word;
+}
+
+.sx-toast-actions{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+  margin-top: 8px;
+  flex-wrap:wrap;
+}
+
+.sx-toast-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.10);
+  color: rgba(255,255,255,.92);
+  font: 950 11px/1 system-ui;
+  cursor:pointer;
+  text-decoration:none;
+}
+
+.sx-toast-btn:hover{ background: rgba(255,255,255,.14); }
+
+.sx-toast-x{
+  appearance:none;
+  border:0;
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  cursor:pointer;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font: 950 14px/1 system-ui;
+  line-height: 1;
+}
+
+.sx-toast-x:hover{ background: rgba(255,255,255,.10); }
+
+.sx-toast-bar{
+  height: 3px;
+  width: 100%;
+  background: rgba(255,255,255,.10);
+}
+
+.sx-toast-bar > i{
+  display:block;
+  height:100%;
+  width: 100%;
+  transform-origin: left center;
+  background: rgba(255,255,255,.55);
+  transform: scaleX(1);
+}
+
+.sx-toast[data-type="ok"]{
+  background: color-mix(in oklab, #065f46 62%, #0b1220);
+}
+.sx-toast[data-type="warn"]{
+  background: color-mix(in oklab, #92400e 64%, #0b1220);
+}
+.sx-toast[data-type="bad"]{
+  background: color-mix(in oklab, #991b1b 64%, #0b1220);
+}
+.sx-toast[data-type="info"]{
+  background: color-mix(in oklab, #111827 86%, #0b1220);
+}
+
+/* =========================================================
+   MODAL
+   ========================================================= */
 .sx-modal{
   position:fixed;
   inset:0;
@@ -683,8 +855,16 @@ html.dark .sx-table tbody tr:hover{
   padding:18px;
   z-index:10000;
   backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .16s ease, transform .16s ease;
 }
-.sx-modal.on{ display:flex; }
+
+.sx-modal.on{
+  display:flex;
+  opacity: 1;
+  transform: translateY(0);
+}
 
 .sx-modal-card{
   width:min(1180px, 98vw);
@@ -696,6 +876,12 @@ html.dark .sx-table tbody tr:hover{
   overflow:hidden;
   display:flex;
   flex-direction:column;
+  transform: scale(.985);
+  transition: transform .16s ease;
+}
+
+.sx-modal.on .sx-modal-card{
+  transform: scale(1);
 }
 
 .sx-modal-head{
@@ -706,6 +892,7 @@ html.dark .sx-table tbody tr:hover{
   align-items:center;
   justify-content:space-between;
   background: linear-gradient(180deg, var(--sx-soft), transparent);
+  flex-wrap: wrap;
 }
 
 .sx-modal-title{
@@ -717,6 +904,7 @@ html.dark .sx-table tbody tr:hover{
   align-items:center;
   flex-wrap:wrap;
 }
+
 .sx-modal-sub{
   color: var(--sx-mut);
   font: 800 12px/1.2 system-ui;
@@ -730,6 +918,7 @@ html.dark .sx-table tbody tr:hover{
 }
 
 .sx-modal-body{ flex:1; background: #0b1220; }
+
 .sx-modal-iframe{
   width:100%;
   height:100%;
@@ -737,16 +926,22 @@ html.dark .sx-table tbody tr:hover{
   background:#fff;
 }
 
-/* ==========================================================
+/* =========================================================
    DRAWER
-   ========================================================== */
+   ========================================================= */
 .sx-drawer{
   position: fixed;
   inset: 0;
   z-index: 10030;
   display: none;
+  opacity: 0;
+  transition: opacity .16s ease;
 }
-.sx-drawer.on{ display:block; }
+
+.sx-drawer.on{
+  display:block;
+  opacity: 1;
+}
 
 .sx-drawer-backdrop{
   position:absolute;
@@ -761,15 +956,21 @@ html.dark .sx-table tbody tr:hover{
   bottom: 12px;
   right: 12px;
   width: min(420px, 94vw);
-
   background: var(--sx-card);
   border: 1px solid var(--sx-stroke);
   border-radius: 18px;
   box-shadow: 0 30px 70px rgba(0,0,0,.35);
-
   display:flex;
   flex-direction:column;
   overflow:hidden;
+  transform: translateX(14px);
+  opacity: .98;
+  transition: transform .18s ease, opacity .18s ease;
+}
+
+.sx-drawer.on .sx-drawer-panel{
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .sx-drawer-head{
@@ -800,6 +1001,7 @@ html.dark .sx-table tbody tr:hover{
   color: var(--sx-text);
   font: 950 13px/1.25 system-ui;
 }
+
 .sx-drawer-sub.sx-mono{
   font-weight: 900;
   color: var(--sx-mut);
@@ -853,328 +1055,137 @@ body.sx-drawer-open{
   overflow: hidden !important;
 }
 
-/* ==========================================================
-   Responsive
-   ========================================================== */
-@media (max-width: 1200px){
-  .sx-grid{ grid-template-columns: 1.8fr 1fr 1fr 1fr 1fr 1fr; }
-}
-
-@media (max-width: 1100px){
-  .sx-kpis{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sx-kpis > .sx-kpi-ops{ grid-column: 1 / -1; }
-}
-
-@media (max-width: 900px){
-  .sx-grid{ grid-template-columns: 1fr 1fr; }
-  .sx-kpis{ grid-template-columns: 1fr; }
-
-  .sx-toolbar{ flex-direction:column; align-items:stretch; }
-  .sx-toolbarRight{ justify-content:space-between; }
-  .sx-btnGroup{ width: 100%; justify-content:space-between; }
-  .sx-btnGroup .sx-btn{ flex: 1 1 auto; }
-}
-
-@media (max-width: 520px){
-  .sx-wrap{ padding: 10px; }
-  .sx-head{ padding: 12px 12px 10px; }
-  .sx-filters{ padding: 10px 12px; }
-  .sx-kpis{ padding: 10px 12px; }
-  .sx-bulkbar.on{ left: 10px; right: 10px; bottom: 10px; }
-  .sx-drawer-panel{ top: 10px; bottom: 10px; right: 10px; }
-}
-
-/* compat */
-.p360-page{ padding:0 !important; }
-
-/* ==========================================================
-   v6.9 · EMERGENTES PRO (toast + modal + drawer)
-   👉 Pegar AL FINAL del CSS
-   ========================================================== */
-
-/* ---------- Toast (stack + anim + progress + close) ---------- */
-.sx-toast{
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 12050;
-
-  width: min(440px, calc(100vw - 24px));
-  border-radius: 16px;
-
-  display: none;
-  overflow: hidden;
-
-  background: color-mix(in oklab, #111827 86%, #0b1220);
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: 0 18px 50px rgba(0,0,0,.35);
-
-  transform: translateY(10px);
-  opacity: 0;
-  filter: blur(0px);
-}
-
-.sx-toast.on{ display:block; }
-
-.sx-toast.show{
-  opacity: 1;
-  transform: translateY(0);
-  transition: transform .18s ease, opacity .18s ease;
-}
-
-.sx-toast.hide{
-  opacity: 0;
-  transform: translateY(10px);
-  transition: transform .14s ease, opacity .14s ease;
-}
-
-/* layout interno */
-.sx-toast-inner{
-  display:flex;
-  gap: 10px;
-  align-items:flex-start;
-  padding: 12px 12px 10px;
-}
-
-.sx-toast-ic{
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex: 0 0 auto;
-  background: rgba(255,255,255,.10);
-  border: 1px solid rgba(255,255,255,.10);
-  font-weight: 950;
-  color: #fff;
-}
-
-.sx-toast-body{
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.sx-toast-title{
-  font: 980 12px/1.2 system-ui;
-  color: rgba(255,255,255,.92);
-  margin-bottom: 4px;
-  letter-spacing: .01em;
-}
-.sx-toast-msg{
-  font: 800 12.5px/1.3 system-ui;
-  color: rgba(255,255,255,.88);
-  word-break: break-word;
-}
-
-.sx-toast-actions{
-  display:flex;
-  gap: 8px;
-  align-items:center;
-  margin-top: 8px;
-  flex-wrap:wrap;
-}
-
-.sx-toast-btn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.16);
-  background: rgba(255,255,255,.10);
-  color: rgba(255,255,255,.92);
-  font: 950 11px/1 system-ui;
-  cursor:pointer;
-  text-decoration:none;
-}
-.sx-toast-btn:hover{ background: rgba(255,255,255,.14); }
-
-/* close */
-.sx-toast-x{
-  appearance:none;
-  border:0;
-  background: transparent;
-  color: rgba(255,255,255,.85);
-  cursor:pointer;
-  padding: 6px 8px;
-  border-radius: 10px;
-  font: 950 14px/1 system-ui;
-  line-height: 1;
-}
-.sx-toast-x:hover{ background: rgba(255,255,255,.10); }
-
-/* progress bar */
-.sx-toast-bar{
-  height: 3px;
-  width: 100%;
-  background: rgba(255,255,255,.10);
-}
-.sx-toast-bar > i{
-  display:block;
-  height:100%;
-  width: 100%;
-  transform-origin: left center;
-  background: rgba(255,255,255,.55);
-  transform: scaleX(1);
-}
-
-/* types */
-.sx-toast[data-type="ok"]{
-  background: color-mix(in oklab, #065f46 62%, #0b1220);
-}
-.sx-toast[data-type="warn"]{
-  background: color-mix(in oklab, #92400e 64%, #0b1220);
-}
-.sx-toast[data-type="bad"]{
-  background: color-mix(in oklab, #991b1b 64%, #0b1220);
-}
-.sx-toast[data-type="info"]{
-  background: color-mix(in oklab, #111827 86%, #0b1220);
-}
-
-/* ---------- Modal (anim + click outside + smooth) ---------- */
-.sx-modal{
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity .16s ease, transform .16s ease;
-}
-.sx-modal.on{
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.sx-modal-card{
-  transform: scale(.985);
-  transition: transform .16s ease;
-}
-.sx-modal.on .sx-modal-card{
-  transform: scale(1);
-}
-
-/* ---------- Drawer (slide + focus ring) ---------- */
-.sx-drawer{
-  opacity: 0;
-  transition: opacity .16s ease;
-}
-.sx-drawer.on{ opacity: 1; }
-
-.sx-drawer-panel{
-  transform: translateX(14px);
-  opacity: .98;
-  transition: transform .18s ease, opacity .18s ease;
-}
-.sx-drawer.on .sx-drawer-panel{
-  transform: translateX(0);
-  opacity: 1;
-}
-
 .sx-drawer-panel :is(button, a, select):focus{
   outline: none;
   box-shadow: 0 0 0 3px rgba(99,102,241,.22);
   border-color: rgba(99,102,241,.45);
 }
 
-/* resp */
-@media (max-width: 520px){
-  .sx-toast{ right: 10px; bottom: 10px; }
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+@media (max-width: 1280px){
+  .sx-kpis{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
-/* ==========================================================
-   P360 · FIX FINAL: quitar doble scroll (layout + contenido)
-   Dejar SOLO scroll del body en Statements
-   ========================================================== */
+@media (max-width: 1120px){
+  .sx-grid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 
-/* 1) Fuerza que el scroll principal sea del documento */
-html, body{
-  height: auto !important;
-  min-height: 100% !important;
-  overflow-y: auto !important;
+  .sx-head{
+    flex-wrap: wrap;
+  }
+
+  .sx-head-actions{
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
-/* 2) Si el layout usa contenedores “app shell” con overflow, los apagamos SOLO aquí
-      (este CSS solo se carga en statements, así que es seguro) */
-.p360-page,
-#app,
-#app > main,
-main,
-.content,
-.content-body,
-.content-wrapper,
-.app-main,
-.admin-content,
-.layout-content,
-.page-content{
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  overflow: visible !important;
+@media (max-width: 980px){
+  .sx-grid{
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sx-kpis{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sx-toolbar{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .sx-toolbarRight{
+    justify-content:space-between;
+  }
+
+  .sx-btnGroup{
+    width: 100%;
+    justify-content:flex-start;
+  }
 }
 
-/* 3) Mantén el sticky funcionando con scroll del body */
-.sx-topSticky{
-  position: sticky;
-  top: var(--sx-sticky-top);
-  z-index: 50;
+@media (max-width: 640px){
+  .sx-wrap{
+    padding: 6px;
+  }
+
+  .sx-head,
+  .sx-filters,
+  .sx-kpis{
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .sx-kpis{
+    grid-template-columns: 1fr;
+  }
+
+  .sx-grid{
+    grid-template-columns: 1fr;
+  }
+
+  .sx-bulkbar.on{
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .sx-modal{
+    padding: 10px;
+  }
+
+  .sx-drawer-panel{
+    top: 8px;
+    bottom: 8px;
+    right: 8px;
+    width: min(420px, calc(100vw - 16px));
+  }
+
+  .sx-toast{
+    right: 10px;
+    bottom: 10px;
+  }
 }
 
-/* 4) Asegura que no se recree un scroller interno por accidente */
-.sx-wrap,
-.sx-card,
-.sx-panel{
-  height: auto !important;
-  max-height: none !important;
-  overflow: visible !important;
+/* compat */
+.p360-page{
+  padding:0 !important;
 }
 
-/* 5) La tabla puede scrollear horizontal (vertical NO) */
-.sx-table-wrap{
-  overflow-x: auto !important;
-  overflow-y: visible !important;
-  max-height: none !important;
-  height: auto !important;
-}
+/* =========================================================
+   FIX ALIGN TABLE HEAD/BODY
+   ========================================================= */
+.sx-table thead th:nth-child(1),
+.sx-table tbody td:nth-child(1){ width:44px; }
 
-/* ==========================================================
-   P360 · STATEMENTS: 1 SOLO SCROLL (body)
-   Layout admin trae body overflow:hidden + main overflow:auto.
-   Aquí lo invertimos SOLO para esta pantalla.
-   ========================================================== */
+.sx-table thead th:nth-child(2),
+.sx-table tbody td:nth-child(2){ width:120px; }
 
-/* 1) Rehabilita scroll global */
-html, body{
-  height: auto !important;
-  min-height: 100% !important;
-  overflow-y: auto !important;
-}
+.sx-table thead th:nth-child(3),
+.sx-table tbody td:nth-child(3){ width:270px; }
 
-/* 2) El layout bloquea el body: lo revertimos aquí */
-body{
-  overflow: auto !important;
-}
+.sx-table thead th:nth-child(4),
+.sx-table tbody td:nth-child(4){ width:250px; }
 
-/* 3) Mata el scroll interno del main (admin-content) */
-.admin-content{
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  overflow: visible !important;
-  -webkit-overflow-scrolling: auto !important;
-}
+.sx-table thead th:nth-child(5),
+.sx-table tbody td:nth-child(5){ width:120px; }
 
-/* 4) Compensa el header fijo (para que no “se meta” bajo topbar) */
-.admin-app{
-  padding-top: var(--header-h) !important;
-}
+.sx-table thead th:nth-child(6),
+.sx-table tbody td:nth-child(6){ width:130px; }
 
-/* 5) Como ya no hay scroll interno, el shadow del page-header se debe basar en window.
-      (No es obligatorio, pero evita “parpadeos” visuales) */
-#page-header{
-  top: 0 !important;
-}
+.sx-table thead th:nth-child(7),
+.sx-table tbody td:nth-child(7){ width:150px; }
 
-/* 6) Asegura que tu tabla NO cree scroll vertical interno */
-.sx-table-wrap{
-  overflow-y: visible !important;
-  max-height: none !important;
-}
+.sx-table thead th:nth-child(8),
+.sx-table tbody td:nth-child(8){ width:140px; }
+
+.sx-table thead th:nth-child(9),
+.sx-table tbody td:nth-child(9){ width:120px; }
+
+.sx-table thead th:nth-child(10),
+.sx-table tbody td:nth-child(10){ width:130px; }

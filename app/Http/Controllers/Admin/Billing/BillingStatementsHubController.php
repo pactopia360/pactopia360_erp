@@ -33,470 +33,377 @@ final class BillingStatementsHubController extends Controller
         $this->stripe = new StripeClient($secret ?: '');
     }
 
-    public function index(Request $req): View|Response
+    public function index(Request $req): View
     {
-        $tab = (string) $req->get('tab', 'statements'); // statements|emails|payments|invoice_requests|invoices
-
         $q = trim((string) $req->get('q', ''));
 
         $period = (string) $req->get('period', now()->format('Y-m'));
-        if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+        if (!$this->isValidPeriod($period)) {
             $period = now()->format('Y-m');
         }
 
         $accountId = trim((string) $req->get('accountId', ''));
+        $accountId = $accountId !== '' ? $accountId : null;
 
-        // filtros PRO (UI)
-        $status = strtolower(trim((string) $req->get('status', '')));
-        $status = str_replace([' ', '-'], '_', $status);
-
-        // normalizar "all" / "todos" para NO filtrar
-        if (in_array($status, ['', 'all', 'todos', 'todas'], true)) {
-            $status = '';
-        } elseif ($status === 'pendiente') {
-            $status = 'pending';
+        $perPage = (int) $req->get('perPage', 25);
+        $allowedPerPage = [25, 50, 100, 250, 500, 1000];
+        if (!in_array($perPage, $allowedPerPage, true)) {
+            $perPage = 25;
         }
 
-        $saldoMin = $this->toFloat($req->get('saldo_min', null));
-        $saldoMax = $this->toFloat($req->get('saldo_max', null));
-
-        $plan = strtolower(trim((string) $req->get('plan', '')));
-        if (in_array($plan, ['', 'all', 'todos', 'todas'], true)) {
-            $plan = '';
+        $status = strtolower(trim((string) $req->get('status', 'all')));
+        $allowedStatus = ['all', 'pendiente', 'pagado', 'parcial', 'vencido', 'sin_mov'];
+        if (!in_array($status, $allowedStatus, true)) {
+            $status = 'all';
         }
 
-        $modo = strtolower(trim((string) $req->get('modo', '')));
-        $modo = str_replace([' ', '-'], '_', $modo);
-        if (in_array($modo, ['', 'all', 'todos', 'todas'], true)) {
-            $modo = '';
+        $includeAnnual = $req->boolean('includeAnnual')
+            || $req->boolean('include_annual')
+            || ((string)$req->get('includeAnnual', '') === '1')
+            || ((string)$req->get('include_annual', '') === '1');
+
+        $onlySelected = $req->boolean('only_selected')
+            || $req->boolean('onlySelected')
+            || ((string)$req->get('only_selected', '') === '1');
+
+        $selectedIds = [];
+        $idsRaw = $req->get('ids', null);
+
+        if (is_array($idsRaw)) {
+            $selectedIds = array_values(array_filter(array_map(static function ($v) {
+                $s = trim((string)$v);
+                if ($s === '') return null;
+                if (preg_match('/^\d+$/', $s)) return $s;
+                if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
+                return null;
+            }, $idsRaw)));
+        } elseif (is_string($idsRaw)) {
+            $parts = array_values(array_filter(array_map('trim', explode(',', $idsRaw))));
+            $selectedIds = array_values(array_filter(array_map(static function ($s) {
+                $s = trim((string)$s);
+                if ($s === '') return null;
+                if (preg_match('/^\d+$/', $s)) return $s;
+                if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
+                return null;
+            }, $parts)));
         }
 
-        $sent = strtolower(trim((string) $req->get('sent', '')));
-        $sent = str_replace([' ', '-'], '_', $sent);
-        if (in_array($sent, ['', 'all', 'todos', 'todas'], true)) {
-            $sent = '';
+        if (count($selectedIds) > 500) {
+            $selectedIds = array_slice($selectedIds, 0, 500);
         }
 
-        $perPage  = (int) $req->get('per_page', 25);
-        if ($perPage <= 0) $perPage = 25;
-        if ($perPage > 250) $perPage = 250;
+        if ($onlySelected && empty($selectedIds)) {
+            return view('admin.billing.statements.index', [
+                'rows'      => collect(),
+                'q'         => $q,
+                'period'    => $period,
+                'accountId' => $accountId,
+                'status'    => $status,
+                'perPage'   => $perPage,
+                'onlySelected' => true,
+                'idsCsv'       => '',
+                'error'     => 'Filtro "solo seleccionadas" activo, pero no recibí IDs (ids).',
+                'kpis'      => [
+                    'cargo'         => 0,
+                    'abono'         => 0,
+                    'saldo'         => 0,
+                    'prev_pending'  => 0,
+                    'accounts'      => 0,
+                    'paid_edo'      => 0,
+                    'paid_pay'      => 0,
+                ],
+            ]);
+        }
 
-        // rango (placeholder, aún no se usa)
-        $from = trim((string) $req->get('from', ''));
-        $to   = trim((string) $req->get('to', ''));
+        if (
+            !Schema::connection($this->adm)->hasTable('accounts') ||
+            !Schema::connection($this->adm)->hasTable('estados_cuenta')
+        ) {
+            return view('admin.billing.statements.index', [
+                'rows'      => collect(),
+                'q'         => $q,
+                'period'    => $period,
+                'accountId' => $accountId,
+                'status'    => $status,
+                'perPage'   => $perPage,
+                'error'     => 'Faltan tablas accounts y/o estados_cuenta en p360v1_admin.',
+                'kpis'      => [
+                    'cargo'         => 0,
+                    'abono'         => 0,
+                    'saldo'         => 0,
+                    'prev_pending'  => 0,
+                    'accounts'      => 0,
+                    'paid_edo'      => 0,
+                    'paid_pay'      => 0,
+                ],
+            ]);
+        }
 
-        // tablas
-        $hasAccounts     = Schema::connection($this->adm)->hasTable('accounts');
-        $hasStatements   = Schema::connection($this->adm)->hasTable('estados_cuenta');
-        $hasEmailLogs    = Schema::connection($this->adm)->hasTable('billing_email_logs');
-        $hasInvoiceReq   = Schema::connection($this->adm)->hasTable('billing_invoice_requests');
-        $hasInvoices     = Schema::connection($this->adm)->hasTable('billing_invoices');
-        $hasPayments     = Schema::connection($this->adm)->hasTable('payments');
+        $cols = Schema::connection($this->adm)->getColumnListing('accounts');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-        // ==========================
-        // 1) Estados de cuenta (HUB)
-        // ==========================
-        $rows = collect();
-        $kpis = ['cargo' => 0, 'abono' => 0, 'saldo' => 0, 'accounts' => 0];
+        $select = ['accounts.id', 'accounts.email'];
 
-        if ($hasAccounts && $hasStatements) {
-            $accCols = Schema::connection($this->adm)->getColumnListing('accounts');
-            $alc = array_map('strtolower', $accCols);
-            $ahas = static fn(string $c) => in_array(strtolower($c), $alc, true);
-
-            $select = ['accounts.id as admin_account_id', 'accounts.id', 'accounts.email'];
-
-            foreach (['name', 'razon_social', 'rfc', 'plan', 'plan_actual', 'meta', 'created_at'] as $c) {
-                if ($ahas($c)) $select[] = "accounts.$c";
+        foreach ([
+            'name', 'razon_social', 'rfc',
+            'plan', 'plan_actual', 'modo_cobro', 'billing_cycle',
+            'is_blocked', 'estado_cuenta',
+            'meta',
+            'created_at',
+        ] as $c) {
+            if ($has($c)) {
+                $select[] = "accounts.$c";
             }
-            foreach ([
-                'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
-                'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
-                'billing_amount', 'amount', 'precio', 'monto',
-            ] as $c) {
-                if ($ahas($c)) $select[] = "accounts.$c";
+        }
+
+        foreach ([
+            'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
+            'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
+            'billing_amount', 'amount', 'precio', 'monto',
+        ] as $c) {
+            if ($has($c)) {
+                $select[] = "accounts.$c";
             }
+        }
 
-            $qb = DB::connection($this->adm)->table('accounts')->select($select);
+        $hasSubs = Schema::connection($this->adm)->hasTable('subscriptions');
 
-            if ($accountId !== '') {
+        $qb = DB::connection($this->adm)->table('accounts');
+
+        if ($hasSubs) {
+            $subMax = DB::connection($this->adm)->table('subscriptions')
+                ->selectRaw('account_id, MAX(id) as max_id')
+                ->groupBy('account_id');
+
+            $qb->leftJoinSub($subMax, 'sx_submax', function ($j) {
+                $j->on('sx_submax.account_id', '=', 'accounts.id');
+            });
+
+            $qb->leftJoin('subscriptions as sx_sub', 'sx_sub.id', '=', 'sx_submax.max_id');
+
+            $select[] = DB::raw('sx_sub.started_at as sub_started_at');
+            $select[] = DB::raw('sx_sub.current_period_end as sub_current_period_end');
+            $select[] = DB::raw('sx_sub.status as sub_status');
+        }
+
+        $qb->select($select)
+            ->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id');
+
+        if ($onlySelected) {
+            $qb->whereIn('accounts.id', $selectedIds);
+            $accountId = null;
+            $q = '';
+        } else {
+            if ($accountId) {
                 $qb->where('accounts.id', $accountId);
             }
 
             if ($q !== '') {
-                $qb->where(function ($w) use ($q, $ahas) {
-                    $w->where('accounts.id', 'like', "%{$q}%")
-                      ->orWhere('accounts.email', 'like', "%{$q}%");
-
-                    if ($ahas('name'))         $w->orWhere('accounts.name', 'like', "%{$q}%");
-                    if ($ahas('razon_social')) $w->orWhere('accounts.razon_social', 'like', "%{$q}%");
-                    if ($ahas('rfc'))          $w->orWhere('accounts.rfc', 'like', "%{$q}%");
+                $qb->where(function ($w) use ($q, $has) {
+                    $w->where('accounts.id', 'like', "%{$q}%");
+                    if ($has('name')) {
+                        $w->orWhere('accounts.name', 'like', "%{$q}%");
+                    }
+                    if ($has('razon_social')) {
+                        $w->orWhere('accounts.razon_social', 'like', "%{$q}%");
+                    }
+                    if ($has('rfc')) {
+                        $w->orWhere('accounts.rfc', 'like', "%{$q}%");
+                    }
+                    $w->orWhere('accounts.email', 'like', "%{$q}%");
                 });
             }
-
-            $qb->orderByDesc($ahas('created_at') ? 'accounts.created_at' : 'accounts.id');
-
-            // base list (limit duro para evitar cargas gigantes)
-            $rows = collect($qb->limit(250)->get());
-            $ids  = $rows->pluck('admin_account_id')->filter()->values()->all();
-
-            // 1) agregados desde estados_cuenta
-            $agg = DB::connection($this->adm)->table('estados_cuenta')
-                ->selectRaw('account_id as aid, SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
-                ->whereIn('account_id', !empty($ids) ? $ids : ['__none__'])
-                ->where('periodo', '=', $period)
-                ->groupBy('account_id')
-                ->get()
-                ->keyBy('aid');
-
-            // 2) pagos pagados por cuenta
-            $paidByAcc = $this->sumPaymentsPaidByAccountForPeriod($ids, $period);
-
-            // 3) último enviado por cuenta/periodo
-            $sentMap = $this->lastSentAtByAccountForPeriod($ids, $period);
-
-            // 4) tracking open/click por cuenta/periodo (incluye first/last + last_sent_at)
-            $trkMap = $this->trackingByAccountForPeriod($ids, $period);
-
-            $rows = $rows->map(function ($r) use ($agg, $paidByAcc, $sentMap, $trkMap, $period) {
-
-                $aid = (string) ((int) ($r->admin_account_id ?? $r->id ?? 0));
-                if ($aid !== '') {
-                    // normaliza: en el HUB "id" siempre se tratará como account_id
-                    $r->id = (int) $aid;
-                }
-
-                $a = $agg[$r->id] ?? null;
-
-                $cargoReal = (float) ($a->cargo ?? 0);
-                $paidEc    = (float) ($a->abono ?? 0);
-
-                // FIX: SIEMPRE sumar EC + PAYMENTS
-                $paidPay = (float) ($paidByAcc[(string) $r->id] ?? 0);
-                $paid    = $paidEc + $paidPay;
-
-                $meta = $this->decodeMeta($r->meta ?? null);
-
-                // tracking
-                $t = $trkMap[(string) $r->id] ?? [];
-                $r->open_count      = (int) ($t['open_count'] ?? 0);
-                $r->click_count     = (int) ($t['click_count'] ?? 0);
-                $r->first_open_at   = $t['first_open_at'] ?? null;
-                $r->last_open_at    = $t['last_open_at'] ?? null;
-                $r->first_click_at  = $t['first_click_at'] ?? null;
-                $r->last_click_at   = $t['last_click_at'] ?? null;
-
-                // monto esperado (licencia / personalizado)
-                $custom = $this->extractCustomAmountMxn($r, $meta);
-
-                if ($custom !== null && $custom > 0.00001) {
-                    $expected    = $custom;
-                    $tarifaLabel = 'PERSONALIZADO';
-                    $tarifaPill  = 'pill-info';
-                } else {
-                    [$expected, $tarifaLabel, $tarifaPill] = $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
-                    $tarifaPill = $this->mapTarifaPillToCss($tarifaPill);
-                }
-
-                $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expected;
-                $saldo      = max(0.0, $totalShown - $paid);
-
-                $r->cargo = round($cargoReal, 2);
-                $r->abono = round($paid, 2);
-                $r->abono_ec  = round($paidEc, 2);
-                $r->abono_pay = round($paidPay, 2);
-
-                $r->expected_total = round((float) $expected, 2);
-                $r->tarifa_label   = (string) $tarifaLabel;
-                $r->tarifa_pill    = (string) $tarifaPill;
-
-                // status base
-                $r->status_pago = ($totalShown <= 0.00001) ? 'sin_mov'
-                    : (($saldo <= 0.00001) ? 'pagado'
-                    : (($paid > 0.00001) ? 'parcial' : 'pendiente'));
-
-                // vencido
-                $r->is_overdue = false;
-                try {
-                    $cur = now()->format('Y-m');
-                    if (in_array($r->status_pago, ['pendiente', 'parcial'], true) && $period < $cur) {
-                        $r->is_overdue = true;
-                        $r->status_pago = 'vencido';
-                    }
-                } catch (\Throwable $e) {
-                    // ignore
-                }
-
-                // para filtros de envío
-                $r->last_sent_at = $sentMap[(string) $r->id] ?? null;
-                if (empty($r->last_sent_at) && !empty($t['last_sent_at'])) {
-                    $r->last_sent_at = (string) $t['last_sent_at'];
-                }
-
-                // modo cobro desde meta.billing.mode
-                $mode = strtolower(trim((string) (data_get($meta, 'billing.mode') ?? data_get($meta, 'billing.modo') ?? '')));
-                $r->billing_mode = $mode;
-
-                // plan normalized
-                $r->plan_norm = strtolower(trim((string) ($r->plan_actual ?? $r->plan ?? '')));
-
-                return $r;
-            });
-
-            // ==========================
-            // APLICAR FILTROS PRO (collection)
-            // ==========================
-            if ($status !== '') {
-                $rows = $rows->filter(function ($r) use ($status) {
-                    $rowStatus = strtolower(trim((string) ($r->status_pago ?? '')));
-                    $rowStatus = str_replace([' ', '-'], '_', $rowStatus);
-
-                    if ($rowStatus === 'pendiente') {
-                        $rowStatus = 'pending';
-                    }
-
-                    return $rowStatus === $status;
-                })->values();
-            }
-
-            if ($saldoMin !== null) {
-                $rows = $rows->filter(function ($r) use ($saldoMin) {
-                    $totalShown = (float) (((float) ($r->cargo ?? 0) > 0) ? ($r->cargo ?? 0) : ($r->expected_total ?? 0));
-                    $paid = (float) ($r->abono ?? 0);
-                    $saldo = max(0.0, $totalShown - $paid);
-                    return $saldo >= (float) $saldoMin;
-                })->values();
-            }
-
-            if ($saldoMax !== null) {
-                $rows = $rows->filter(function ($r) use ($saldoMax) {
-                    $totalShown = (float) (((float) ($r->cargo ?? 0) > 0) ? ($r->cargo ?? 0) : ($r->expected_total ?? 0));
-                    $paid = (float) ($r->abono ?? 0);
-                    $saldo = max(0.0, $totalShown - $paid);
-                    return $saldo <= (float) $saldoMax;
-                })->values();
-            }
-
-            if ($plan !== '') {
-                $rows = $rows->filter(function ($r) use ($plan) {
-                    $p = (string) ($r->plan_norm ?? '');
-                    if ($p === '') return false;
-                    return str_contains($p, $plan);
-                })->values();
-            }
-
-            if ($modo !== '') {
-                $rows = $rows->filter(fn($r) => strtolower((string) ($r->billing_mode ?? '')) === $modo)->values();
-            }
-
-            if ($sent !== '') {
-                $now = now();
-                $rows = $rows->filter(function ($r) use ($sent, $now) {
-                    $ts = $r->last_sent_at ?? null;
-
-                    if ($sent === 'never') return empty($ts);
-                    if (empty($ts)) return false;
-
-                    try {
-                        $dt = Carbon::parse((string) $ts);
-                    } catch (\Throwable $e) {
-                        return false;
-                    }
-
-                    if ($sent === 'today') return $dt->toDateString() === $now->toDateString();
-                    if ($sent === '7d')    return $dt->greaterThanOrEqualTo($now->copy()->subDays(7));
-                    if ($sent === '30d')   return $dt->greaterThanOrEqualTo($now->copy()->subDays(30));
-
-                    return true;
-                })->values();
-            }
-
-            // paginación simple (UI per_page)
-            $rows = $rows->slice(0, $perPage)->values();
-
-            // KPIs con lo mostrado
-            $kCargo = 0.0; $kAbono = 0.0; $kSaldo = 0.0; $kAcc = 0;
-            foreach ($rows as $r) {
-                $totalShown = (float) (((float) ($r->cargo ?? 0) > 0) ? ($r->cargo ?? 0) : ($r->expected_total ?? 0));
-                $paid = (float) ($r->abono ?? 0);
-                $saldo = max(0.0, $totalShown - $paid);
-
-                $kCargo += $totalShown;
-                $kAbono += $paid;
-                $kSaldo += $saldo;
-                $kAcc++;
-            }
-
-            $kpis = [
-                'cargo'    => round($kCargo, 2),
-                'abono'    => round($kAbono, 2),
-                'saldo'    => round($kSaldo, 2),
-                'accounts' => (int) $kAcc,
-            ];
         }
 
-        // ==========================
-        // 2) Emails
-        // ==========================
-        $emails = collect();
-        if ($hasEmailLogs) {
-            $emailsQ = DB::connection($this->adm)->table('billing_email_logs')->orderByDesc('id');
+        if (!$includeAnnual && $hasSubs) {
+            $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
+            $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
+            $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$period]);
+        } elseif (!$includeAnnual && !$hasSubs) {
+            $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
+        }
 
-            $cols = Schema::connection($this->adm)->getColumnListing('billing_email_logs');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
+        // =========================================================
+        // IMPORTANTE:
+        // Para que no se oculten cuentas por filtrar después de paginar,
+        // primero cargamos el universo filtrado base y luego paginamos manual.
+        // =========================================================
+        $baseRows = collect($qb->get());
 
-            if ($accountId !== '' && $has('account_id')) $emailsQ->where('account_id', $accountId);
-            if ($period !== '' && $has('period')) $emailsQ->where('period', $period);
+        $ids = $baseRows->pluck('id')->filter()->values()->all();
 
-            if ($q !== '') {
-                $emailsQ->where(function ($w) use ($q, $has) {
-                    $started = false;
+        $agg = DB::connection($this->adm)->table('estados_cuenta')
+            ->selectRaw('account_id as aid, SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
+            ->whereIn('account_id', !empty($ids) ? $ids : ['__none__'])
+            ->where('periodo', '=', $period)
+            ->groupBy('account_id')
+            ->get()
+            ->keyBy('aid');
 
-                    if ($has('email')) {
-                        $w->where('email', 'like', "%{$q}%"); $started = true;
-                    }
-                    if ($has('to_list')) {
-                        $started ? $w->orWhere('to_list', 'like', "%{$q}%") : $w->where('to_list', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('subject')) {
-                        $started ? $w->orWhere('subject', 'like', "%{$q}%") : $w->where('subject', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('template')) {
-                        $started ? $w->orWhere('template', 'like', "%{$q}%") : $w->where('template', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('status')) {
-                        $started ? $w->orWhere('status', 'like', "%{$q}%") : $w->where('status', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('account_id')) {
-                        $started ? $w->orWhere('account_id', 'like', "%{$q}%") : $w->where('account_id', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('period')) {
-                        $started ? $w->orWhere('period', 'like', "%{$q}%") : $w->where('period', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('email_id')) {
-                        $started ? $w->orWhere('email_id', 'like', "%{$q}%") : $w->where('email_id', 'like', "%{$q}%");
-                    }
-                });
+        $payAgg  = $this->sumPaymentsForAccountsPeriod($ids, $period);
+        $payMeta = $this->fetchPaymentsMetaForAccountsPeriod($ids, $period);
+        $ovMap   = $this->fetchStatusOverridesForAccountsPeriod($ids, $period);
+
+        $now = Carbon::now();
+
+        $rowsCollection = $baseRows->map(function ($r) use ($agg, $payAgg, $payMeta, $ovMap, $period, $now) {
+            $a = $agg[$r->id] ?? null;
+
+            $cargoEdo = (float) ($a->cargo ?? 0);
+            $abonoEdo = (float) ($a->abono ?? 0);
+
+            $paidPayments = (float) ($payAgg[(string) $r->id] ?? 0);
+            $abonoTotal   = $abonoEdo + $paidPayments;
+
+            $meta = $this->hub->decodeMeta($r->meta ?? null);
+            if (!is_array($meta)) {
+                $meta = [];
             }
 
-            $emails = collect($emailsQ->limit(200)->get());
-        }
+            $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $r->id, $meta);
 
-        // ==========================
-        // 3) Pagos
-        // ==========================
-        $payments = collect();
-        if ($hasPayments) {
-            $payQ = DB::connection($this->adm)->table('payments')->orderByDesc('id');
+            $payAllowed = $lastPaid
+                ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+                : $period;
 
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn(string $c) => in_array(strtolower($c), $lc, true);
+            $customMxn = $this->extractCustomAmountMxn($r, $meta);
 
-            if ($accountId !== '' && $has('account_id')) $payQ->where('account_id', $accountId);
-            if ($period !== '' && $has('period')) $payQ->where('period', $period);
-
-            if ($q !== '') {
-                $payQ->where(function ($w) use ($q, $has) {
-                    $started = false;
-
-                    if ($has('status')) {
-                        $w->where('status', 'like', "%{$q}%"); $started = true;
-                    }
-                    if ($has('provider')) {
-                        $started ? $w->orWhere('provider', 'like', "%{$q}%") : $w->where('provider', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('reference')) {
-                        $started ? $w->orWhere('reference', 'like', "%{$q}%") : $w->where('reference', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('stripe_session_id')) {
-                        $started ? $w->orWhere('stripe_session_id', 'like', "%{$q}%") : $w->where('stripe_session_id', 'like', "%{$q}%");
-                        $started = true;
-                    }
-                    if ($has('account_id')) {
-                        $started ? $w->orWhere('account_id', 'like', "%{$q}%") : $w->where('account_id', 'like', "%{$q}%");
-                    }
-                });
+            if ($customMxn !== null && $customMxn > 0.00001) {
+                $effectiveMxn = $customMxn;
+                $tarifaLabel  = 'PERSONALIZADO';
+                $tarifaPill   = 'info';
+            } else {
+                [$effectiveMxn, $tarifaLabel, $tarifaPill] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
             }
 
-            $payments = collect($payQ->limit(200)->get());
-        }
+            $totalCurrent = $cargoEdo > 0.00001 ? $cargoEdo : (float) $effectiveMxn;
+            $saldoCurrent = (float) max(0.0, $totalCurrent - $abonoTotal);
 
-        // ==========================
-        // 4) Solicitudes de factura
-        // ==========================
-        $invoiceRequests = collect();
-        if ($hasInvoiceReq) {
-            $irQ = DB::connection($this->adm)->table('billing_invoice_requests')->orderByDesc('id');
-            if ($accountId !== '') $irQ->where('account_id', $accountId);
-            if ($period !== '') $irQ->where('period', $period);
+            $pm  = $payMeta[(string) $r->id] ?? [];
+            $due = $pm['due_date'] ?? null;
 
-            if ($q !== '') {
-                $irQ->where(function ($w) use ($q) {
-                    $w->where('account_id', 'like', "%{$q}%")
-                      ->orWhere('period', 'like', "%{$q}%")
-                      ->orWhere('status', 'like', "%{$q}%")
-                      ->orWhere('cfdi_uuid', 'like', "%{$q}%")
-                      ->orWhere('notes', 'like', "%{$q}%");
-                });
+            // saldo pendiente anterior real
+            $prevInfo = $this->computePrevOpenBalance((string) $r->id, $period, $lastPaid);
+            $prevBalance = (float) ($prevInfo['prev_balance'] ?? 0.0);
+            $prevPeriod  = $prevInfo['prev_period'] ?? null;
+
+            $totalDue = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+
+            $statusPago = 'pendiente';
+            if ($totalCurrent <= 0.00001 && $prevBalance <= 0.00001) {
+                $statusPago = 'sin_mov';
+            } elseif ($totalDue <= 0.00001) {
+                $statusPago = 'pagado';
+            } elseif ($prevBalance > 0.00001) {
+                $statusPago = 'vencido';
+            } elseif ($saldoCurrent > 0.00001 && $this->isOverdue($period, $due, $now)) {
+                $statusPago = 'vencido';
+            } elseif ($abonoTotal > 0.00001 && $abonoTotal < ($totalCurrent - 0.00001)) {
+                $statusPago = 'parcial';
+            } else {
+                $statusPago = 'pendiente';
             }
 
-            $invoiceRequests = collect($irQ->limit(200)->get());
-        }
+            $r->cargo            = round($cargoEdo, 2);
+            $r->expected_total   = round((float) $effectiveMxn, 2);
+            $r->total_shown      = round($totalCurrent, 2);
 
-        // ==========================
-        // 5) Facturas emitidas (admin)
-        // ==========================
-        $invoices = collect();
-        if ($hasInvoices) {
-            $invQ = DB::connection($this->adm)->table('billing_invoices')->orderByDesc('id');
-            if ($accountId !== '') $invQ->where('account_id', $accountId);
-            if ($period !== '') $invQ->where('period', $period);
+            $r->abono            = round($abonoTotal, 2);
+            $r->abono_edo        = round($abonoEdo, 2);
+            $r->abono_pay        = round($paidPayments, 2);
 
-            if ($q !== '') {
-                $invQ->where(function ($w) use ($q) {
-                    $w->where('account_id', 'like', "%{$q}%")
-                      ->orWhere('period', 'like', "%{$q}%")
-                      ->orWhere('cfdi_uuid', 'like', "%{$q}%")
-                      ->orWhere('folio', 'like', "%{$q}%")
-                      ->orWhere('serie', 'like', "%{$q}%")
-                      ->orWhere('notes', 'like', "%{$q}%");
-                });
+            $r->saldo_current    = round($saldoCurrent, 2);
+            $r->saldo_shown      = round($saldoCurrent, 2); // compat legacy
+            $r->saldo            = round($saldoCurrent, 2); // compat legacy
+
+            $r->prev_balance     = round($prevBalance, 2);
+            $r->prev_period      = $prevPeriod;
+            $r->total_due        = round($totalDue, 2);
+
+            $r->tarifa_label     = (string) $tarifaLabel;
+            $r->tarifa_pill      = (string) $tarifaPill;
+
+            $r->status_pago      = $statusPago;
+            $r->status_auto      = $statusPago;
+
+            $r->last_paid        = $lastPaid;
+            $r->pay_allowed      = $payAllowed;
+
+            $r->pay_last_paid_at = $pm['last_paid_at'] ?? null;
+            $r->pay_due_date     = $due;
+            $r->pay_method       = $pm['method'] ?? null;
+            $r->pay_provider     = $pm['provider'] ?? null;
+            $r->pay_status       = $pm['status'] ?? null;
+
+            $ov = $ovMap[(string) $r->id] ?? null;
+            $r  = $this->applyStatusOverride($r, $ov);
+
+            // Si el override es pagado, el total_due visual debe ir a cero
+            if ((string) ($r->status_pago ?? '') === 'pagado') {
+                $r->saldo_current = 0.0;
+                $r->saldo_shown   = 0.0;
+                $r->saldo         = 0.0;
+                $r->prev_balance  = 0.0;
+                $r->total_due     = 0.0;
             }
 
-            $invoices = collect($invQ->limit(200)->get());
+            return $r;
+        });
+
+        if ($status !== 'all') {
+            $rowsCollection = $rowsCollection
+                ->filter(static fn ($x) => (string) ($x->status_pago ?? '') === $status)
+                ->values();
         }
 
-        $isModal = (string) $req->query('modal', '') === '1';
+        $currentPage = (int) $req->get('page', LengthAwarePaginator::resolveCurrentPage());
+        $currentPage = max(1, $currentPage);
 
-        $view = view('admin.billing.statements.hub', compact(
-            'tab', 'q', 'period', 'accountId',
-            'status', 'saldoMin', 'saldoMax', 'plan', 'modo', 'sent', 'from', 'to', 'perPage',
-            'rows', 'kpis',
-            'emails', 'payments', 'invoiceRequests', 'invoices',
-            'hasAccounts', 'hasStatements', 'hasEmailLogs', 'hasPayments', 'hasInvoiceReq', 'hasInvoices',
-            'isModal'
-        ));
+        $rows = $this->repaginateCollection(
+            $rowsCollection,
+            $perPage,
+            $currentPage,
+            $req->url(),
+            $req->query()
+        );
 
-        if ($isModal) {
-            return response($view->render(), 200, [
-                'Content-Type'    => 'text/html; charset=UTF-8',
-                'Cache-Control'   => 'no-store, no-cache, must-revalidate, max-age=0',
-                'Pragma'          => 'no-cache',
-                'X-Frame-Options' => 'SAMEORIGIN',
-            ]);
+        $kCargo = 0.0;
+        $kAbono = 0.0;
+        $kSaldo = 0.0;
+        $kPrev  = 0.0;
+        $kEdo   = 0.0;
+        $kPay   = 0.0;
+
+        foreach ($rows->getCollection() as $r) {
+            $kCargo += (float) ($r->total_shown ?? 0);
+            $kAbono += (float) ($r->abono ?? 0);
+            $kSaldo += (float) ($r->total_due ?? 0);
+            $kPrev  += (float) ($r->prev_balance ?? 0);
+            $kEdo   += (float) ($r->abono_edo ?? 0);
+            $kPay   += (float) ($r->abono_pay ?? 0);
         }
 
-        return $view;
+        return view('admin.billing.statements.index', [
+            'rows'      => $rows,
+            'q'         => $q,
+            'period'    => $period,
+            'accountId' => $accountId,
+            'status'    => $status,
+            'perPage'   => $perPage,
+            'onlySelected' => $onlySelected,
+            'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
+            'error'     => null,
+            'kpis'      => [
+                'cargo'         => round($kCargo, 2),
+                'abono'         => round($kAbono, 2),
+                'saldo'         => round($kSaldo, 2),
+                'prev_pending'  => round($kPrev, 2),
+                'accounts'      => (int) $rows->getCollection()->count(),
+                'paid_edo'      => round($kEdo, 2),
+                'paid_pay'      => round($kPay, 2),
+            ],
+        ]);
     }
 
     // =========================================================
