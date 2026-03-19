@@ -908,6 +908,15 @@ final class AccountBillingController extends Controller
                 $chargesByPeriod
             );
 
+            $normalizedHistory = $this->ensurePayAllowedRowExists(
+                $normalizedHistory,
+                $accountId,
+                $payAllowedUi,
+                $chargesByPeriod,
+                $rfc,
+                $alias
+            );
+
             if (!empty($normalizedHistory)) {
                 $rows = $normalizedHistory;
             }
@@ -1975,6 +1984,86 @@ final class AccountBillingController extends Controller
             unset($r['__score']);
             return $r;
         }, $byPeriod));
+    }
+
+    private function ensurePayAllowedRowExists(
+    array $rows,
+    int $accountId,
+    ?string $payAllowedUi,
+    array $chargesByPeriod,
+    string $rfc,
+    string $alias
+    ): array {
+        $payAllowedUi = trim((string) $payAllowedUi);
+        if (!$this->isValidPeriod($payAllowedUi)) {
+            return $rows;
+        }
+
+        foreach ($rows as $row) {
+            if ((string) ($row['period'] ?? '') === $payAllowedUi) {
+                return $rows;
+            }
+        }
+
+        $charge = 0.0;
+        if (isset($chargesByPeriod[$payAllowedUi]) && is_numeric($chargesByPeriod[$payAllowedUi])) {
+            $charge = round((float) $chargesByPeriod[$payAllowedUi], 2);
+        }
+
+        if ($charge <= 0.0001) {
+            $chargeCents = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $payAllowedUi, null, $payAllowedUi);
+            if ($chargeCents <= 0) $chargeCents = (int) $this->resolveMonthlyCentsFromPlanesCatalog($accountId);
+            if ($chargeCents <= 0) $chargeCents = (int) $this->resolveMonthlyCentsFromEstadosCuenta($accountId, null, $payAllowedUi);
+            if ($chargeCents <= 0) $chargeCents = (int) $this->resolveMonthlyCentsFromClientesEstadosCuenta($accountId, null, $payAllowedUi);
+
+            $charge = $chargeCents > 0 ? round($chargeCents / 100, 2) : 0.0;
+        }
+
+        if ($charge <= 0.0001) {
+            return $rows;
+        }
+
+        $range = '';
+        try {
+            $c = Carbon::createFromFormat('Y-m', $payAllowedUi);
+            $range = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+        } catch (\Throwable $e) {
+            $range = $payAllowedUi;
+        }
+
+        $rows[] = [
+            'id'                     => null,
+            'account_id'             => (string) $accountId,
+            'admin_account_id'       => (int) $accountId,
+            'statement_account_ref'  => (string) $accountId,
+            'period'                 => $payAllowedUi,
+            'status'                 => 'pending',
+            'total_cargo'            => $charge,
+            'total_abono'            => 0.0,
+            'saldo'                  => $charge,
+            'charge'                 => $charge,
+            'paid_amount'            => 0.0,
+            'can_pay'                => true,
+            'period_range'           => $range,
+            'rfc'                    => $rfc,
+            'alias'                  => $alias,
+            'price_source'           => 'synthetic.pay_allowed',
+            'invoice_request_status' => null,
+            'invoice_has_zip'        => false,
+            'service_items'          => [],
+            'meta'                   => null,
+            'snapshot'               => null,
+            'due_date'               => null,
+            'paid_at'                => null,
+            'created_at'             => null,
+            'updated_at'             => null,
+        ];
+
+        usort($rows, function ($a, $b) {
+            return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+        });
+
+        return $rows;
     }
 
     /**
