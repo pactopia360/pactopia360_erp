@@ -939,6 +939,21 @@ final class AccountBillingController extends Controller
             }
         }
 
+        // ✅ Si lastPaid real avanzó más que payAllowed visual, corre payAllowed al siguiente periodo lógico
+        try {
+            if ($lastPaid && $this->isValidPeriod($lastPaid)) {
+                $nextAllowed = $isAnnual
+                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
+                    : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
+
+                if (!$payAllowedUi || !$this->isValidPeriod($payAllowedUi) || strcmp($payAllowedUi, $lastPaid) <= 0) {
+                    $payAllowedUi = $nextAllowed;
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         $rows = $this->normalizePortalRowsForDisplay(
             $accountId,
             $rows,
@@ -3515,7 +3530,7 @@ final class AccountBillingController extends Controller
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
 
         // =========================================================
-        // 1) ✅ SOT: admin.payments
+        // 1) ✅ SOT: admin.payments (SIN restringir provider)
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('payments')) {
@@ -3530,24 +3545,47 @@ final class AccountBillingController extends Controller
                     if ($has('status')) {
                         $q->where(function ($w) {
                             $w->whereNull('status')
-                            ->orWhereIn('status', ['paid', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'])
-                            ->orWhereRaw('LOWER(TRIM(status)) IN ("paid","succeeded","success","complete","completed","captured","confirmed")');
+                                ->orWhere('status', '')
+                                ->orWhereRaw('LOWER(TRIM(status)) IN ("paid","succeeded","success","complete","completed","captured","confirmed","pagado","ok","paid_ok")');
                         });
                     }
 
+                    // ✅ IMPORTANTE:
+                    // NO filtrar provider a stripe solamente.
+                    // Debe contar manual / checkout / stripe / stripe_checkout / null / vacío.
                     if ($has('provider')) {
                         $q->where(function ($w) {
                             $w->whereNull('provider')
-                            ->orWhere('provider', '')
-                            ->orWhereRaw('LOWER(TRIM(provider)) = "stripe"');
+                                ->orWhere('provider', '')
+                                ->orWhereRaw('LOWER(TRIM(provider)) IN ("stripe","stripe_checkout","manual","checkout")');
                         });
                     }
 
-                    if ($has('amount')) {
-                        $q->where(function ($w) {
-                            $w->whereNull('amount')->orWhere('amount', '>', 0);
-                        });
-                    }
+                    // alguna columna de monto > 0
+                    $q->where(function ($w) use ($has) {
+                        $applied = false;
+
+                        if ($has('amount_mxn')) {
+                            $w->orWhere('amount_mxn', '>', 0);
+                            $applied = true;
+                        }
+                        if ($has('monto_mxn')) {
+                            $w->orWhere('monto_mxn', '>', 0);
+                            $applied = true;
+                        }
+                        if ($has('amount')) {
+                            $w->orWhere('amount', '>', 0);
+                            $applied = true;
+                        }
+                        if ($has('amount_cents')) {
+                            $w->orWhere('amount_cents', '>', 0);
+                            $applied = true;
+                        }
+
+                        if (!$applied) {
+                            $w->orWhereRaw('1=1');
+                        }
+                    });
 
                     $orderCol = $has('paid_at') ? 'paid_at'
                         : ($has('confirmed_at') ? 'confirmed_at'
@@ -3557,13 +3595,16 @@ final class AccountBillingController extends Controller
                                         : ($has('created_at') ? 'created_at'
                                             : ($has('id') ? 'id' : 'period'))))));
 
-                    $row = $q->orderByDesc('period')
+                    $items = $q->orderByDesc('period')
                         ->orderByDesc($orderCol)
-                        ->first(['period', 'status', 'provider']);
+                        ->limit(60)
+                        ->get(['period']);
 
-                    if ($row) {
+                    foreach ($items as $row) {
                         $p = trim((string) ($row->period ?? ''));
-                        if ($p !== '' && $this->isValidPeriod($p)) return $p;
+                        if ($p !== '' && $this->isValidPeriod($p)) {
+                            return $p;
+                        }
                     }
                 }
             }
@@ -3575,7 +3616,7 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 1.5) ✅ FALLBACK SOT: admin.billing_statements (INT o UUID)
+        // 2) ✅ FALLBACK SOT: admin.billing_statements (INT o UUID)
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('billing_statements')) {
@@ -3612,7 +3653,7 @@ final class AccountBillingController extends Controller
                         if ($st === 'paid') $paid = true;
                         if ($saldo !== null && $saldo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) $paid = true;
 
-                        if ($paid) return $p; // ya viene orderByDesc(period)
+                        if ($paid) return $p;
                     }
                 }
             }
@@ -3624,7 +3665,7 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 2) SOT: overrides "pagado" también cierran el periodo
+        // 3) SOT: overrides "pagado"
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable($this->overrideTable())) {
@@ -3650,7 +3691,7 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 3) admin.accounts.meta.stripe (compat)
+        // 4) compat meta
         // =========================================================
         try {
             if (Schema::connection($adm)->hasTable('accounts')) {
@@ -3680,7 +3721,7 @@ final class AccountBillingController extends Controller
         }
 
         // =========================================================
-        // 3) mysql_clientes.estados_cuenta (último recurso)
+        // 5) mysql_clientes.estados_cuenta (último recurso)
         // =========================================================
         try {
             $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
