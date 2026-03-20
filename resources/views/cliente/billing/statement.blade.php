@@ -163,13 +163,28 @@
   | - si no, usa el menor charge positivo visible (más real para portal)
   |--------------------------------------------------------------------------
   */
-  $mensualidadHeader = (float) ($mensualidadAdmin ?? 0);
+    $mensualidadHeader = (float) ($mensualidadAdmin ?? 0);
+
   if ($mensualidadHeader <= 0) {
     $chargesVisible = [];
+
     foreach ($rows as $tmpRow) {
+      $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
       $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
-      if ($tmpCharge > 0) $chargesVisible[] = $tmpCharge;
+
+      // ✅ Preferir meses NO pagados; si no hay, usar cualquier cargo positivo real
+      if (!in_array($tmpStatus, $paidStatuses, true) && $tmpCharge > 0) {
+        $chargesVisible[] = $tmpCharge;
+      }
     }
+
+    if (empty($chargesVisible)) {
+      foreach ($rows as $tmpRow) {
+        $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+        if ($tmpCharge > 0) $chargesVisible[] = $tmpCharge;
+      }
+    }
+
     if (!empty($chargesVisible)) {
       sort($chargesVisible, SORT_NUMERIC);
       $mensualidadHeader = (float) $chargesVisible[0];
