@@ -30,6 +30,7 @@ class AuthServiceProvider extends ServiceProvider
         'usuarios_admin.impersonar',
         'perfiles.ver','perfiles.crear','perfiles.editar','perfiles.eliminar',
         'clientes.ver','clientes.crear','clientes.editar','clientes.eliminar',
+        'clientes.impersonate',
         'planes.ver','planes.crear','planes.editar','planes.eliminar',
         'pagos.ver','pagos.crear','pagos.editar','pagos.eliminar',
         'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
@@ -59,19 +60,16 @@ class AuthServiceProvider extends ServiceProvider
 
             $get = fn ($k) => method_exists($user, 'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
 
-            // Flag directo en modelo
             $sa = (bool) ($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
             if ($sa) {
                 return true;
             }
 
-            // Rol por texto
             $rol = strtolower((string) ($get('rol') ?? $get('role') ?? ''));
             if ($rol === 'superadmin') {
                 return true;
             }
 
-            // Lista desde config('app.superadmins') o APP_SUPERADMINS coma-separado
             $list = config('app.superadmins', []);
             if (empty($list)) {
                 $envList = array_filter(array_map('trim', explode(',', (string) env('APP_SUPERADMINS', ''))));
@@ -109,13 +107,6 @@ class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Extrae permisos desde usuarios_admin.permisos (JSON)
-     *
-     * Soporta:
-     * - array
-     * - string JSON
-     * - null
-     *
      * @return array<int,string>
      */
     private function extractUserPerms($user): array
@@ -149,7 +140,6 @@ class AuthServiceProvider extends ServiceProvider
                     )));
                 }
 
-                // si guardaste "a,b,c" por error, también lo toleramos
                 $parts = preg_split('/[\n,]+/', $raw) ?: [];
                 $out = [];
 
@@ -169,12 +159,6 @@ class AuthServiceProvider extends ServiceProvider
         }
     }
 
-    /**
-     * Match de permisos con wildcards:
-     * - '*' => todo
-     * - 'billing.*' => prefijo
-     * - exact match
-     */
     private function permMatches(string $need, array $granted): bool
     {
         $need = strtolower(trim($need));
@@ -194,7 +178,6 @@ class AuthServiceProvider extends ServiceProvider
             return true;
         }
 
-        // si necesito "billing.ver", acepta "billing.*"
         $parts = explode('.', $need);
         while (count($parts) > 1) {
             array_pop($parts);
@@ -204,7 +187,6 @@ class AuthServiceProvider extends ServiceProvider
             }
         }
 
-        // si me dieron un wildcard tipo "admin.*" (o cualquiera), también permite por prefijo
         foreach ($granted as $g) {
             $g = strtolower(trim((string) $g));
             if ($g === '*' || $g === '') {
@@ -222,6 +204,108 @@ class AuthServiceProvider extends ServiceProvider
         return false;
     }
 
+    private function resolvePermissionByKey($user, ?string $perm, bool $isProd, bool $strictProd): bool
+    {
+        $u = $this->currentUser($user);
+
+        if (!$u) {
+            return false;
+        }
+
+        if (!is_string($perm)) {
+            return false;
+        }
+
+        $key = strtolower(trim($perm));
+        if ($key === '') {
+            return false;
+        }
+
+        try {
+            $list = $this->extractUserPerms($u);
+            if (!empty($list)) {
+                return $this->permMatches($key, $list);
+            }
+        } catch (Throwable $e) {
+        }
+
+        try {
+            if (method_exists($u, 'hasPerm')) {
+                $res = $u->hasPerm($key);
+                if ($res !== null) {
+                    return (bool) $res;
+                }
+            }
+        } catch (Throwable $e) {
+        }
+
+        try {
+            $hasPermTable = Schema::hasTable('permisos');
+        } catch (Throwable $e) {
+            $hasPermTable = false;
+        }
+
+        if (!$hasPermTable) {
+            return ($isProd && $strictProd)
+                ? false
+                : in_array($key, self::COMMON_ABILITIES, true);
+        }
+
+        $ttl = (int) env('PERM_CACHE_TTL', 30);
+
+        try {
+            $permId = Cache::remember("perm:id:{$key}", $ttl, function () use ($key) {
+                return DB::table('permisos')->where('clave', $key)->value('id');
+            });
+
+            if (!$permId) {
+                if ($isProd && $strictProd) {
+                    return false;
+                }
+
+                return in_array($key, self::COMMON_ABILITIES, true);
+            }
+
+            $perfilId = Cache::remember("user:perfil:{$u->id}", $ttl, function () use ($u) {
+                if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
+                    return (int) DB::table('usuario_administrativos')->where('id', $u->id)->value('perfil_id');
+                }
+
+                return 0;
+            });
+
+            if ($perfilId) {
+                $has = Cache::remember("perm:perfil:{$perfilId}:{$permId}", $ttl, function () use ($perfilId, $permId) {
+                    return DB::table('perfil_permiso')
+                        ->where('perfil_id', $perfilId)
+                        ->where('permiso_id', $permId)
+                        ->exists();
+                });
+
+                if ($has) {
+                    return true;
+                }
+            }
+
+            if (Schema::hasTable('usuario_permiso')) {
+                $has = Cache::remember("perm:user:{$u->id}:{$permId}", $ttl, function () use ($u, $permId) {
+                    return DB::table('usuario_permiso')
+                        ->where('usuario_id', $u->id)
+                        ->where('permiso_id', $permId)
+                        ->exists();
+                });
+
+                if ($has) {
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (Throwable $e) {
+            return ($isProd && $strictProd) ? false : true;
+        }
+    }
+
     public function boot(): void
     {
         $this->registerPolicies();
@@ -231,162 +315,40 @@ class AuthServiceProvider extends ServiceProvider
         $auditGates     = filter_var(env('AUDIT_GATES', true), FILTER_VALIDATE_BOOL);
         $bypassDevLocal = filter_var(env('ADMIN_BYPASS_DEV', true), FILTER_VALIDATE_BOOL);
 
-        /**
-         * BEFORE global:
-         * - Si es superadmin → acceso total.
-         * - En local/testing, puedes permitir admin en rutas /admin/* con ADMIN_BYPASS_DEV=true.
-         *   (EN PRODUCCIÓN, NUNCA HAY BYPASS.)
-         */
-        Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) use ($bypassDevLocal) {
+        Gate::before(function ($user = null, ?string $ability = null, ?array $arguments = []) use ($bypassDevLocal, $isProd, $strictProd) {
             $u = $this->currentUser($user);
 
-            // Superadmin siempre pasa
             if ($this->isSuper($u)) {
                 return true;
             }
 
-            // Bypass opcional SOLO en local/testing (nunca en producción)
             if (app()->environment(['local', 'development', 'testing']) && $bypassDevLocal) {
                 if ($this->isAdminRequest()) {
                     return true;
                 }
             }
 
+            // ✅ Soporte directo para middleware tipo can:clientes.ver
+            if (is_string($ability) && $ability !== '' && str_contains($ability, '.')) {
+                return $this->resolvePermissionByKey($u, $ability, $isProd, $strictProd);
+            }
+
             return null;
         });
 
-        /**
-         * Gate genérico "perm" (punto único de verdad).
-         * PRIORIDAD #1: usuarios_admin.permisos (JSON) con wildcards.
-         * PRIORIDAD #2: método hasPerm() en el modelo (si existe).
-         * PRIORIDAD #3: infra legacy de tablas (si existe).
-         *
-         * IMPORTANTE:
-         * Laravel puede invocar este gate con ability/argumento nulo
-         * desde middleware can mal parametrizado o llamadas dinámicas.
-         * Por eso NO tipamos $perm como string aquí.
-         */
+        // ✅ Mantener compatibilidad para Gate::authorize('perm', 'clientes.ver')
         Gate::define('perm', function ($user = null, $perm = null) use ($isProd, $strictProd) {
-            $u = $this->currentUser($user);
-
-            if (!$u) {
-                return false;
-            }
-
-            if (!is_string($perm)) {
-                return false;
-            }
-
-            $key = strtolower(trim($perm));
-            if ($key === '') {
-                return false;
-            }
-
-            // 1) JSON en usuarios_admin.permisos
-            try {
-                $list = $this->extractUserPerms($u);
-                if (!empty($list)) {
-                    return $this->permMatches($key, $list);
-                }
-            } catch (Throwable $e) {
-                // sigue
-            }
-
-            // 2) Método en modelo tiene prioridad (si lo usas en el futuro)
-            try {
-                if (method_exists($u, 'hasPerm')) {
-                    $res = $u->hasPerm($key);
-                    if ($res !== null) {
-                        return (bool) $res;
-                    }
-                }
-            } catch (Throwable $e) {
-                // continúa al flujo por tablas
-            }
-
-            // 3) Infra legacy por tablas (si existe)
-            try {
-                $hasPermTable = Schema::hasTable('permisos');
-            } catch (Throwable $e) {
-                $hasPermTable = false;
-            }
-
-            if (!$hasPermTable) {
-                // Producción estricta -> deniega; en otros entornos -> permite solo abilities comunes
-                return ($isProd && $strictProd)
-                    ? false
-                    : in_array($key, self::COMMON_ABILITIES, true);
-            }
-
-            $ttl = (int) env('PERM_CACHE_TTL', 30);
-
-            try {
-                $permId = Cache::remember("perm:id:{$key}", $ttl, function () use ($key) {
-                    return DB::table('permisos')->where('clave', $key)->value('id');
-                });
-
-                if (!$permId) {
-                    if ($isProd && $strictProd) {
-                        return false;
-                    }
-
-                    return in_array($key, self::COMMON_ABILITIES, true);
-                }
-
-                $perfilId = Cache::remember("user:perfil:{$u->id}", $ttl, function () use ($u) {
-                    if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
-                        return (int) DB::table('usuario_administrativos')->where('id', $u->id)->value('perfil_id');
-                    }
-
-                    return 0;
-                });
-
-                if ($perfilId) {
-                    $has = Cache::remember("perm:perfil:{$perfilId}:{$permId}", $ttl, function () use ($perfilId, $permId) {
-                        return DB::table('perfil_permiso')
-                            ->where('perfil_id', $perfilId)
-                            ->where('permiso_id', $permId)
-                            ->exists();
-                    });
-
-                    if ($has) {
-                        return true;
-                    }
-                }
-
-                if (Schema::hasTable('usuario_permiso')) {
-                    $has = Cache::remember("perm:user:{$u->id}:{$permId}", $ttl, function () use ($u, $permId) {
-                        return DB::table('usuario_permiso')
-                            ->where('usuario_id', $u->id)
-                            ->where('permiso_id', $permId)
-                            ->exists();
-                    });
-
-                    if ($has) {
-                        return true;
-                    }
-                }
-
-                return false;
-            } catch (Throwable $e) {
-                return ($isProd && $strictProd) ? false : true;
-            }
+            return $this->resolvePermissionByKey($user, is_string($perm) ? $perm : null, $isProd, $strictProd);
         });
 
-        /**
-         * ALIAS automáticos a "perm".
-         */
         foreach (self::COMMON_ABILITIES as $ab) {
             if (!Gate::has($ab)) {
-                Gate::define($ab, function ($user) use ($ab) {
-                    return Gate::forUser($user)->allows('perm', $ab);
+                Gate::define($ab, function ($user) use ($ab, $isProd, $strictProd) {
+                    return $this->resolvePermissionByKey($user, $ab, $isProd, $strictProd);
                 });
             }
         }
 
-        /**
-         * AFTER (log de denegación en /admin/* si AUDIT_GATES=true).
-         */
         Gate::after(function ($user = null, $ability = null, ?bool $result = null, array $arguments = []) use ($auditGates) {
             if (!$auditGates) {
                 return;

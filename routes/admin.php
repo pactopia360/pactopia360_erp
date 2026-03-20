@@ -113,7 +113,7 @@ if (!function_exists('perm_mw')) {
         }
 
         $perms = is_array($perm) ? $perm : [$perm];
-        return array_map(static fn ($p) => 'can:perm,' . $p, $perms);
+        return array_map(static fn ($p) => 'can:' . $p, $perms);
     }
 }
 
