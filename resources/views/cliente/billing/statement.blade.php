@@ -22,6 +22,15 @@
 
   $paidStatuses = ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'];
 
+  /*
+  |--------------------------------------------------------------------------
+  | Canonicalización por periodo
+  |--------------------------------------------------------------------------
+  | Regla:
+  | - Si hay varias filas del mismo periodo, conservar la más confiable
+  | - Para filas pagadas, el monto visual SIEMPRE debe preferir `charge`
+  |   (monto del periodo) y NO `paid_amount` si este viene acumulado.
+  */
   $byPeriod = [];
   foreach ($safe as $r) {
     $p = (string) ($r['period'] ?? '');
@@ -32,13 +41,27 @@
     $isPaid = in_array($status, $paidStatuses, true);
 
     $paidAmount = (float) ($r['paid_amount'] ?? 0);
-    $charge     = (float) ($r['charge'] ?? 0);
+    $charge     = (float) ($r['charge'] ?? ($r['total_cargo'] ?? 0));
+    $saldo      = (float) ($r['saldo'] ?? 0);
 
+    /*
+    | Score:
+    | - prioriza can_pay
+    | - luego paid
+    | - luego presencia de charge real
+    | - penaliza filas con paid_amount inflado frente a charge
+    */
     $score = 0;
     if ($canPay) $score += 1000000;
     if ($isPaid) $score += 500000;
-    $score += (int) round($paidAmount * 100);
+    if ($charge > 0) $score += 100000;
+    if ($saldo > 0) $score += 10000;
+
+    // Preferir charge como monto base del periodo
     $score += (int) round($charge * 100);
+
+    // Solo suma paid_amount moderadamente, para no ganar por acumulado inflado
+    $score += (int) round(min($paidAmount, $charge > 0 ? $charge : $paidAmount) * 10);
 
     if (!isset($byPeriod[$p]) || $score > ($byPeriod[$p]['__score'] ?? -INF)) {
       $r['__score'] = $score;
@@ -88,39 +111,72 @@
     ? route('cliente.mi_cuenta.index')
     : url('/cliente/mi-cuenta');
 
-  $visibleAmount = 0.0;
-  if (!empty($rows)) {
-    $firstRow = $rows[0];
-    $rowStatus = strtolower(trim((string) ($firstRow['status'] ?? 'pending')));
-    $rowPaid   = in_array($rowStatus, $paidStatuses, true);
-
-    $rowCharge = (float) ($firstRow['charge'] ?? 0);
-    $rowSaldo  = (float) ($firstRow['saldo'] ?? 0);
-    $rowPaidMx = (float) ($firstRow['paid_amount'] ?? 0);
-
-    if ($rowPaid) {
-      $visibleAmount = $rowPaidMx > 0 ? $rowPaidMx : $rowCharge;
-    } else {
-      $visibleAmount = $rowSaldo > 0 ? $rowSaldo : $rowCharge;
-    }
-  }
-
-  $mensualidadHeader = 0.0;
-  if ($visibleAmount > 0) {
-    $mensualidadHeader = $visibleAmount;
-  } elseif ((float) ($mensualidadAdmin ?? 0) > 0) {
-    $mensualidadHeader = (float) $mensualidadAdmin;
-  }
-
-  $rowsCount = count($rows);
+  /*
+  |--------------------------------------------------------------------------
+  | Header sincronizado con filas visibles
+  |--------------------------------------------------------------------------
+  */
+  $paidPeriods = [];
+  $pendingPeriods = [];
   $paidCount = 0;
   $pendingCount = 0;
 
   foreach ($rows as $tmpRow) {
+    $tmpPeriod = (string) ($tmpRow['period'] ?? '');
     $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
     $tmpIsPaid = in_array($tmpStatus, $paidStatuses, true);
-    if ($tmpIsPaid) $paidCount++; else $pendingCount++;
+
+    if ($tmpIsPaid) {
+      $paidCount++;
+      if ($tmpPeriod !== '') $paidPeriods[] = $tmpPeriod;
+    } else {
+      $pendingCount++;
+      if ($tmpPeriod !== '') $pendingPeriods[] = $tmpPeriod;
+    }
   }
+
+  sort($paidPeriods);
+  sort($pendingPeriods);
+
+  $headerLastPaid = !empty($paidPeriods)
+    ? end($paidPeriods)
+    : (!empty($lastPaid) ? (string) $lastPaid : '—');
+
+  $headerPayAllowed = '—';
+  foreach ($rows as $tmpRow) {
+    if (!empty($tmpRow['can_pay'])) {
+      $headerPayAllowed = (string) ($tmpRow['period'] ?? '—');
+      break;
+    }
+  }
+  if ($headerPayAllowed === '—' && !empty($pendingPeriods)) {
+    $headerPayAllowed = (string) $pendingPeriods[0];
+  }
+  if ($headerPayAllowed === '—' && !empty($payAllowed)) {
+    $headerPayAllowed = (string) $payAllowed;
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Mensualidad header:
+  | - usa mensualidadAdmin si viene
+  | - si no, usa el menor charge positivo visible (más real para portal)
+  |--------------------------------------------------------------------------
+  */
+  $mensualidadHeader = (float) ($mensualidadAdmin ?? 0);
+  if ($mensualidadHeader <= 0) {
+    $chargesVisible = [];
+    foreach ($rows as $tmpRow) {
+      $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+      if ($tmpCharge > 0) $chargesVisible[] = $tmpCharge;
+    }
+    if (!empty($chargesVisible)) {
+      sort($chargesVisible, SORT_NUMERIC);
+      $mensualidadHeader = (float) $chargesVisible[0];
+    }
+  }
+
+  $rowsCount = count($rows);
 @endphp
 
 <div class="p360-page">
@@ -138,8 +194,8 @@
         <h1 class="p360-title">Estado de cuenta</h1>
         <div class="p360-sub">
           Mensualidad: <strong>{{ $mxn($mensualidadHeader) }}</strong>
-          &nbsp;·&nbsp; Último pagado: <strong>{{ $lastPaid ?? '—' }}</strong>
-          &nbsp;·&nbsp; Permitido: <strong>{{ $payAllowed ?? '—' }}</strong>
+          &nbsp;·&nbsp; Último pagado: <strong>{{ $headerLastPaid ?? '—' }}</strong>
+          &nbsp;·&nbsp; Permitido: <strong>{{ $headerPayAllowed ?? '—' }}</strong>
           &nbsp;·&nbsp; Pagados: <strong>{{ $paidCount }}</strong>
           &nbsp;·&nbsp; Pendientes: <strong>{{ $pendingCount }}</strong>
         </div>
@@ -185,7 +241,7 @@
 
       <div class="p360-list">
         @forelse($rows as $row)
-          @php
+         @php
             $period = (string) ($row['period'] ?? '');
 
             $statusRaw = strtolower(trim((string) ($row['status'] ?? 'pending')));
@@ -203,11 +259,20 @@
 
             $paidAmount = (float) ($row['paid_amount'] ?? 0);
             $saldo      = (float) ($row['saldo'] ?? 0);
-            $charge     = (float) ($row['charge'] ?? 0);
+            $charge     = (float) ($row['charge'] ?? ($row['total_cargo'] ?? 0));
 
-            $amount = $isPaid
-              ? ($paidAmount > 0 ? $paidAmount : $charge)
-              : ($saldo > 0 ? $saldo : $charge);
+            /*
+            |--------------------------------------------------------------------------
+            | Monto visual correcto:
+            | - Pagado   => mostrar charge del periodo
+            | - Pendiente=> mostrar saldo si existe; si no, charge
+            |--------------------------------------------------------------------------
+            */
+            if ($isPaid) {
+              $amount = $charge > 0 ? $charge : $paidAmount;
+            } else {
+              $amount = $saldo > 0 ? $saldo : $charge;
+            }
 
             $statusText  = $isPaid ? 'Pagado' : 'Pendiente';
             $statusClass = $isPaid ? 'paid' : 'pending';
