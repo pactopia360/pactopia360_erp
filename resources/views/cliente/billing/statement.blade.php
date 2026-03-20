@@ -1,5 +1,4 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\billing\statement.blade.php --}}
-{{-- resources/views/cliente/billing/statement.blade.php (UI: v18.3 · paid robusto + factura fuera de mes modal + requestInvoice UX + loader modal) --}}
 @extends('layouts.cliente')
 
 @section('title', 'Estado de cuenta · Pactopia360')
@@ -10,48 +9,36 @@
 @endpush
 
 @section('content')
-
 @php
-  $mxn = fn($n) => '$' . number_format((float)$n, 2);
+  $mxn = fn($n) => '$' . number_format((float) $n, 2);
 
-    // ==========================================================
-  // 1) Normaliza rows: array + period válido (YYYY-MM)
-  // ==========================================================
   $rawRows = (isset($rows) && is_array($rows)) ? $rows : [];
 
   $safe = array_values(array_filter($rawRows, function ($r) {
     if (!is_array($r)) return false;
-    $p = (string)($r['period'] ?? '');
-    return $p !== '' && (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
+    $p = (string) ($r['period'] ?? '');
+    return $p !== '' && (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $p);
   }));
 
   $paidStatuses = ['paid', 'pagado', 'pago', 'paid_ok', 'activa_ok'];
 
-  // ==========================================================
-  // 2) Dedup por period
-  // Prioridad:
-  // - can_pay=true
-  // - status paid
-  // - mayor paid_amount
-  // - mayor charge
-  // ==========================================================
   $byPeriod = [];
   foreach ($safe as $r) {
-    $p = (string)($r['period'] ?? '');
+    $p = (string) ($r['period'] ?? '');
     if ($p === '') continue;
 
-    $canPay = (bool)($r['can_pay'] ?? false);
-    $status = strtolower(trim((string)($r['status'] ?? 'pending')));
+    $canPay = (bool) ($r['can_pay'] ?? false);
+    $status = strtolower(trim((string) ($r['status'] ?? 'pending')));
     $isPaid = in_array($status, $paidStatuses, true);
 
-    $paidAmount = (float)($r['paid_amount'] ?? 0);
-    $charge     = (float)($r['charge'] ?? 0);
+    $paidAmount = (float) ($r['paid_amount'] ?? 0);
+    $charge     = (float) ($r['charge'] ?? 0);
 
     $score = 0;
     if ($canPay) $score += 1000000;
     if ($isPaid) $score += 500000;
-    $score += (int)round($paidAmount * 100);
-    $score += (int)round($charge * 100);
+    $score += (int) round($paidAmount * 100);
+    $score += (int) round($charge * 100);
 
     if (!isset($byPeriod[$p]) || $score > ($byPeriod[$p]['__score'] ?? -INF)) {
       $r['__score'] = $score;
@@ -64,17 +51,11 @@
     return $r;
   }, $byPeriod));
 
-  // ==========================================================
-  // 3) Mostrar todo el año de trabajo
-  // - año del payAllowed
-  // - si no, año del lastPaid
-  // - si no, año actual
-  // ==========================================================
   $displayBase = '';
-  if (!empty($payAllowed) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$payAllowed)) {
-    $displayBase = (string)$payAllowed;
-  } elseif (!empty($lastPaid) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$lastPaid)) {
-    $displayBase = (string)$lastPaid;
+  if (!empty($payAllowed) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) $payAllowed)) {
+    $displayBase = (string) $payAllowed;
+  } elseif (!empty($lastPaid) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) $lastPaid)) {
+    $displayBase = (string) $lastPaid;
   } else {
     $displayBase = now()->format('Y-m');
   }
@@ -82,29 +63,24 @@
   $displayYear = substr($displayBase, 0, 4);
 
   $rows = array_values(array_filter($safe, function ($r) use ($displayYear) {
-    $p = (string)($r['period'] ?? '');
+    $p = (string) ($r['period'] ?? '');
     return $p !== '' && substr($p, 0, 4) === $displayYear;
   }));
 
   usort($rows, function ($a, $b) {
-    return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
+    return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
   });
 
-  // fallback: si por alguna razón no quedó nada del año, deja lo que venga
   if (empty($rows)) {
     $rows = $safe;
     usort($rows, function ($a, $b) {
-      return strcmp((string)($a['period'] ?? ''), (string)($b['period'] ?? ''));
+      return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
     });
   }
 
-  // ==========================================================
-  // 4) Rutas (route:cache safe)
-  // ==========================================================
   $pdfInlineRouteExists   = \Illuminate\Support\Facades\Route::has('cliente.billing.pdfInline');
   $pdfDownloadRouteExists = \Illuminate\Support\Facades\Route::has('cliente.billing.pdf');
   $payRouteExists         = \Illuminate\Support\Facades\Route::has('cliente.billing.pay');
-
   $invoiceRequestRoute    = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.request');
   $invoiceDownloadRoute   = \Illuminate\Support\Facades\Route::has('cliente.billing.factura.download');
 
@@ -112,37 +88,15 @@
     ? route('cliente.mi_cuenta.index')
     : url('/cliente/mi-cuenta');
 
-    /**
-   * ✅ Mensualidad en header
-   * Prioridad:
-   * 1) row visible real (charge / saldo / paid_amount)
-   * 2) mensualidadAdmin del controller
-   * 3) fallback 0
-   */
-  $isAnnual = false;
-  foreach ($rows as $rr) {
-    $cycle = strtolower((string)($rr['billing_cycle'] ?? $rr['cycle'] ?? ($billing_cycle ?? '')));
-    $modo  = strtolower((string)($rr['modo_cobro'] ?? ($modo_cobro ?? '')));
-
-    if (
-      in_array($cycle, ['annual','year','yearly','anual','anualidad'], true) ||
-      in_array($modo,  ['annual','year','yearly','anual','anualidad'], true)
-    ) {
-      $isAnnual = true;
-      break;
-    }
-  }
-
   $visibleAmount = 0.0;
   if (!empty($rows)) {
     $firstRow = $rows[0];
+    $rowStatus = strtolower(trim((string) ($firstRow['status'] ?? 'pending')));
+    $rowPaid   = in_array($rowStatus, $paidStatuses, true);
 
-    $rowStatus = strtolower(trim((string)($firstRow['status'] ?? 'pending')));
-    $rowPaid   = in_array($rowStatus, ['paid','pagado','pago','paid_ok','activa_ok'], true);
-
-    $rowCharge = (float)($firstRow['charge'] ?? 0);
-    $rowSaldo  = (float)($firstRow['saldo'] ?? 0);
-    $rowPaidMx = (float)($firstRow['paid_amount'] ?? 0);
+    $rowCharge = (float) ($firstRow['charge'] ?? 0);
+    $rowSaldo  = (float) ($firstRow['saldo'] ?? 0);
+    $rowPaidMx = (float) ($firstRow['paid_amount'] ?? 0);
 
     if ($rowPaid) {
       $visibleAmount = $rowPaidMx > 0 ? $rowPaidMx : $rowCharge;
@@ -152,27 +106,22 @@
   }
 
   $mensualidadHeader = 0.0;
-
-  // 1) primero usa el row visible real
   if ($visibleAmount > 0) {
     $mensualidadHeader = $visibleAmount;
-  }
-  // 2) si no hay row útil, usa lo que mandó el controller
-  elseif ((float)($mensualidadAdmin ?? 0) > 0) {
-    $mensualidadHeader = (float)$mensualidadAdmin;
+  } elseif ((float) ($mensualidadAdmin ?? 0) > 0) {
+    $mensualidadHeader = (float) $mensualidadAdmin;
   }
 
-  $ANNUAL_HINT_MIN = 6000.0;
+  $rowsCount = count($rows);
+  $paidCount = 0;
+  $pendingCount = 0;
 
-  if ($mensualidadHeader > 0) {
-    $mensualidadHeader = ($isAnnual && $mensualidadHeader >= $ANNUAL_HINT_MIN)
-      ? round($mensualidadHeader / 12.0, 2)
-      : round($mensualidadHeader, 2);
-  } else {
-    $mensualidadHeader = 0.0;
+  foreach ($rows as $tmpRow) {
+    $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
+    $tmpIsPaid = in_array($tmpStatus, $paidStatuses, true);
+    if ($tmpIsPaid) $paidCount++; else $pendingCount++;
   }
 @endphp
-
 
 <div class="p360-page">
   <div class="p360-topcard">
@@ -186,9 +135,13 @@
       </div>
 
       <div class="p360-toptext">
-        <h1 class="p360-title">Estados de cuenta</h1>
+        <h1 class="p360-title">Estado de cuenta</h1>
         <div class="p360-sub">
-          Se muestra el último mes pagado y el mes permitido para pagar. Si un mes está pagado, la acción principal es facturar.
+          Mensualidad: <strong>{{ $mxn($mensualidadHeader) }}</strong>
+          &nbsp;·&nbsp; Último pagado: <strong>{{ $lastPaid ?? '—' }}</strong>
+          &nbsp;·&nbsp; Permitido: <strong>{{ $payAllowed ?? '—' }}</strong>
+          &nbsp;·&nbsp; Pagados: <strong>{{ $paidCount }}</strong>
+          &nbsp;·&nbsp; Pendientes: <strong>{{ $pendingCount }}</strong>
         </div>
       </div>
     </div>
@@ -203,54 +156,60 @@
       <div class="p360-section-left">
         <div class="p360-icon" style="background:linear-gradient(180deg,rgba(37,99,235,.14),rgba(37,99,235,.08));border-color:rgba(37,99,235,.18);color:#1d4ed8;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M8 6h13M8 12h13M8 18h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+            <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </div>
 
         <div style="min-width:0">
-          <div class="p360-section-badge">SECCIÓN</div>
-          <h2 class="p360-section-h2">Estado de suscripción</h2>
+          <div class="p360-section-badge">HISTORIAL</div>
+          <h2 class="p360-section-h2">Movimientos del año {{ $displayYear }}</h2>
           <div class="p360-section-p">
-            Mensualidad: <strong>{{ $mxn($mensualidadHeader) }}</strong>
-            &nbsp;·&nbsp; Último pagado: <strong>{{ $lastPaid ?? '—' }}</strong>
-            &nbsp;·&nbsp; Permitido: <strong>{{ $payAllowed ?? '—' }}</strong>
+            Se muestran periodos pagados y pendientes, incluyendo pagos anteriores.
           </div>
         </div>
       </div>
 
-      <span class="p360-chip">P360 Billing</span>
+      <span class="p360-chip">{{ $rowsCount }} registros</span>
     </div>
 
     <div class="p360-section-body">
+      <div class="p360-table-head" aria-hidden="true">
+        <div>Mes</div>
+        <div>Periodo</div>
+        <div>RFC</div>
+        <div>Alias</div>
+        <div>Estatus</div>
+        <div>Monto</div>
+        <div>Acciones</div>
+      </div>
+
       <div class="p360-list">
         @forelse($rows as $row)
           @php
-            $period = (string)($row['period'] ?? '');
+            $period = (string) ($row['period'] ?? '');
 
-            $statusRaw = strtolower(trim((string)($row['status'] ?? 'pending')));
-            $isPaid = in_array($statusRaw, ['paid','pagado','pago','paid_ok','activa_ok'], true);
-
-            $canPay = (bool)($row['can_pay'] ?? false);
+            $statusRaw = strtolower(trim((string) ($row['status'] ?? 'pending')));
+            $isPaid    = in_array($statusRaw, $paidStatuses, true);
+            $canPay    = (bool) ($row['can_pay'] ?? false);
 
             $monthName = $period
               ? \Illuminate\Support\Carbon::createFromFormat('Y-m', $period)->translatedFormat('F')
               : '—';
             $monthName = \Illuminate\Support\Str::ucfirst($monthName);
 
-            $range  = (string)($row['period_range'] ?? '');
-            $rfcV   = (string)($row['rfc'] ?? ($rfc ?? '—'));
-            $aliasV = (string)($row['alias'] ?? ($alias ?? '—'));
+            $range  = (string) ($row['period_range'] ?? '');
+            $rfcV   = (string) ($row['rfc'] ?? ($rfc ?? '—'));
+            $aliasV = (string) ($row['alias'] ?? ($alias ?? '—'));
 
-            $paidAmount = (float)($row['paid_amount'] ?? 0);
-            $saldo      = (float)($row['saldo'] ?? 0);
-            $charge     = (float)($row['charge'] ?? 0);
+            $paidAmount = (float) ($row['paid_amount'] ?? 0);
+            $saldo      = (float) ($row['saldo'] ?? 0);
+            $charge     = (float) ($row['charge'] ?? 0);
 
             $amount = $isPaid
               ? ($paidAmount > 0 ? $paidAmount : $charge)
               : ($saldo > 0 ? $saldo : $charge);
 
-            $statusText  = $isPaid ? 'PAGADO' : 'PENDIENTE';
+            $statusText  = $isPaid ? 'Pagado' : 'Pendiente';
             $statusClass = $isPaid ? 'paid' : 'pending';
 
             $pdfEnabled  = $pdfInlineRouteExists && $period !== '';
@@ -258,8 +217,8 @@
 
             $isLastPaid = ($lastPaid && $period === $lastPaid);
 
-            $invStatus = strtolower((string)($row['invoice_request_status'] ?? ''));
-            $invHasZip = (bool)($row['invoice_has_zip'] ?? false);
+            $invStatus = strtolower((string) ($row['invoice_request_status'] ?? ''));
+            $invHasZip = (bool) ($row['invoice_has_zip'] ?? false);
 
             $invProcessing = in_array($invStatus, [
               'requested','pending','facturando','processing','in_progress','queued','generating'
@@ -279,132 +238,199 @@
             $pdfDownloadUrl = ($pdfDownloadRouteExists && $period !== '')
               ? route('cliente.billing.pdf', ['period' => $period])
               : '#';
+
+            $rowClass = $isPaid ? 'is-paid' : 'is-pending';
           @endphp
 
-          <div class="p360-row" data-period="{{ $period }}">
-            <div class="p360-monthbox p360-ga-month">
+          <div class="p360-row p360-row--flat {{ $rowClass }}" data-period="{{ $period }}">
+            <div class="p360-cell p360-cell--month">
               <div class="p360-month">{{ $monthName }}</div>
               <div class="p360-monthsub">{{ $period }}</div>
             </div>
 
-            <div class="p360-details p360-ga-details">
-              <div class="p360-col">
-                <div class="k">Periodo</div>
-                <div class="v">{{ $range !== '' ? $range : $period }}</div>
-              </div>
-
-              <div class="p360-col">
-                <div class="k">RFC</div>
-                <div class="v">{{ $rfcV }}</div>
-              </div>
-
-              <div class="p360-col">
-                <div class="k">Alias</div>
-                <div class="v">{{ $aliasV }}</div>
-              </div>
+            <div class="p360-cell p360-cell--period">
+              <div class="p360-cell__value">{{ $range !== '' ? $range : $period }}</div>
             </div>
 
-            <div class="p360-paybox p360-ga-pay" aria-label="Estatus y monto del periodo">
-              <div class="top">
-                <div class="p360-status {{ $statusClass }}">
-                  <span class="p360-dot"></span> {{ $statusText }}
-                </div>
-
-                {{-- ✅ Indicador mini de factura (solo aplica al último pagado) --}}
-                @if($isPaid && $isLastPaid)
-                  @if($invProcessing)
-                    <span class="p360-chip-mini warn">Factura: Facturando</span>
-                  @elseif($invDone || $invHasZip)
-                    <span class="p360-chip-mini ok">Factura: Lista</span>
-                  @else
-                    <span class="p360-chip-mini">Factura: No solicitada</span>
-                  @endif
-                @endif
-
-                <div class="k">{{ $isPaid ? 'Monto pagado' : 'Por pagar' }}</div>
-              </div>
-
-              <div class="amt">{{ $mxn($amount) }}</div>
+            <div class="p360-cell p360-cell--rfc">
+              <div class="p360-cell__value">{{ $rfcV }}</div>
             </div>
 
-            <div class="p360-actions-right p360-ga-actions">
-              <div class="p360-actions-grid">
-                {{-- PDF --}}
+            <div class="p360-cell p360-cell--alias">
+              <div class="p360-cell__value">{{ $aliasV }}</div>
+            </div>
+
+            <div class="p360-cell p360-cell--status">
+              <span class="p360-status {{ $statusClass }}">
+                <span class="p360-dot"></span> {{ $statusText }}
+              </span>
+            </div>
+
+            <div class="p360-cell p360-cell--amount">
+              <div class="p360-amount {{ $statusClass }}">{{ $mxn($amount) }}</div>
+            </div>
+
+            <div class="p360-cell p360-cell--actions">
+              <div class="p360-icon-actions">
                 @if($pdfEnabled)
                   <button type="button"
-                          class="p360-btn green js-p360-open-pdf"
+                          class="p360-iconbtn p360-iconbtn--green js-p360-open-pdf"
                           data-pdf-view="{{ $pdfViewUrl }}"
-                          data-pdf-download="{{ $pdfDownloadUrl }}">
-                    Visualizar
+                          data-pdf-download="{{ $pdfDownloadUrl }}"
+                          data-tooltip="Visualizar estado de cuenta"
+                          aria-label="Visualizar estado de cuenta">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" stroke="currentColor" stroke-width="2"/>
+                      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                    </svg>
                   </button>
-
-                  @if($pdfDownloadUrl !== '#')
-                    <a class="p360-btn green"
-                       href="{{ $pdfDownloadUrl }}"
-                       target="_blank"
-                       rel="noopener">
-                      Descargar
-                    </a>
-                  @else
-                    <button type="button" class="p360-btn green" disabled>Descargar</button>
-                  @endif
                 @else
-                  <button type="button" class="p360-btn green" disabled>Visualizar</button>
-                  <button type="button" class="p360-btn green" disabled>Descargar</button>
+                  <button type="button"
+                          class="p360-iconbtn p360-iconbtn--green"
+                          disabled
+                          data-tooltip="Visualizar no disponible"
+                          aria-label="Visualizar no disponible">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" stroke="currentColor" stroke-width="2"/>
+                      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                  </button>
                 @endif
 
-                {{-- Factura / Pago --}}
+                @if($pdfDownloadUrl !== '#')
+                  <a class="p360-iconbtn p360-iconbtn--green"
+                     href="{{ $pdfDownloadUrl }}"
+                     target="_blank"
+                     rel="noopener"
+                     data-tooltip="Descargar PDF"
+                     aria-label="Descargar PDF">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M12 3v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                  </a>
+                @else
+                  <button type="button"
+                          class="p360-iconbtn p360-iconbtn--green"
+                          disabled
+                          data-tooltip="Descarga no disponible"
+                          aria-label="Descarga no disponible">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M12 3v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                @endif
+
                 @if($isPaid)
                   @if($isLastPaid)
-
-                    {{-- 1) ZIP listo => link directo --}}
                     @if($invoiceZipEnabled)
-                      <a class="p360-btn blue"
+                      <a class="p360-iconbtn p360-iconbtn--blue"
                          href="{{ route('cliente.billing.factura.download', ['period' => $period]) }}"
                          target="_blank"
-                         rel="noopener">
-                        Factura
+                         rel="noopener"
+                         data-tooltip="Descargar factura"
+                         aria-label="Descargar factura">
+                        <svg viewBox="0 0 24 24" fill="none">
+                          <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2"/>
+                          <path d="M14 3v4a2 2 0 0 0 2 2h4" stroke="currentColor" stroke-width="2"/>
+                          <path d="M12 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                          <path d="M9.5 14.5 12 17l2.5-2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                       </a>
-
-                    {{-- 2) En proceso => disabled --}}
                     @elseif($invoiceEnabled && $invProcessing)
-                      <button type="button" class="p360-btn blue" disabled>Facturando</button>
-
-                    {{-- 3) Done pero sin ZIP => espera --}}
+                      <button type="button"
+                              class="p360-iconbtn p360-iconbtn--blue"
+                              disabled
+                              data-tooltip="Factura en proceso"
+                              aria-label="Factura en proceso">
+                        <svg viewBox="0 0 24 24" fill="none">
+                          <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                          <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                      </button>
                     @elseif($invoiceEnabled && $invDone && !$invHasZip)
-                      <button type="button" class="p360-btn blue" disabled>Preparando ZIP</button>
-
-                    {{-- 4) Solicitar factura (POST real) --}}
+                      <button type="button"
+                              class="p360-iconbtn p360-iconbtn--blue"
+                              disabled
+                              data-tooltip="Preparando ZIP"
+                              aria-label="Preparando ZIP">
+                        <svg viewBox="0 0 24 24" fill="none">
+                          <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2"/>
+                          <path d="M14 3v4a2 2 0 0 0 2 2h4" stroke="currentColor" stroke-width="2"/>
+                          <path d="M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                      </button>
                     @elseif($invoiceEnabled)
                       <form method="POST"
                             action="{{ route('cliente.billing.factura.request', ['period' => $period]) }}"
                             class="p360-inlineform"
                             style="margin:0">
                         @csrf
-                        <button type="submit" class="p360-btn blue">Solicitar factura</button>
+                        <button type="submit"
+                                class="p360-iconbtn p360-iconbtn--blue"
+                                data-tooltip="Solicitar factura"
+                                aria-label="Solicitar factura">
+                          <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2"/>
+                            <path d="M14 3v4a2 2 0 0 0 2 2h4" stroke="currentColor" stroke-width="2"/>
+                            <path d="M12 9v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path d="M9 12h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                          </svg>
+                        </button>
                       </form>
-
                     @else
-                      <button type="button" class="p360-btn blue" disabled>Factura</button>
+                      <button type="button"
+                              class="p360-iconbtn p360-iconbtn--blue"
+                              disabled
+                              data-tooltip="Factura no disponible"
+                              aria-label="Factura no disponible">
+                        <svg viewBox="0 0 24 24" fill="none">
+                          <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2"/>
+                          <path d="M14 3v4a2 2 0 0 0 2 2h4" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                      </button>
                     @endif
-
                   @else
-                    {{-- Pagado pero NO es el último pagado => modal fuera de mes --}}
                     <button type="button"
-                            class="p360-btn blue js-p360-inv-window"
-                            data-inv-msg="Lo sentimos, la solicitud de la factura está fuera del mes de pago.">
-                      Factura
+                            class="p360-iconbtn p360-iconbtn--blue js-p360-inv-window"
+                            data-inv-msg="Lo sentimos, la solicitud de la factura está fuera del mes de pago."
+                            data-tooltip="Factura fuera de ventana"
+                            aria-label="Factura fuera de ventana">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2"/>
+                        <path d="M14 3v4a2 2 0 0 0 2 2h4" stroke="currentColor" stroke-width="2"/>
+                        <path d="M12 9v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M12 17h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                      </svg>
                     </button>
                   @endif
-
                 @else
-                  {{-- No pagado => pago --}}
                   @if($payEnabled)
-                    <a class="p360-btn orange" href="{{ route('cliente.billing.pay', ['period' => $period]) }}">
-                      Pagar ahora
+                    <a class="p360-iconbtn p360-iconbtn--orange"
+                       href="{{ route('cliente.billing.pay', ['period' => $period]) }}"
+                       data-tooltip="Pagar ahora"
+                       aria-label="Pagar ahora">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M3 10h18" stroke="currentColor" stroke-width="2"/>
+                        <path d="M16 14h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
                     </a>
                   @else
-                    <button type="button" class="p360-btn orange" disabled>Pagar ahora</button>
+                    <button type="button"
+                            class="p360-iconbtn p360-iconbtn--orange"
+                            disabled
+                            data-tooltip="Pago no disponible"
+                            aria-label="Pago no disponible">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M3 10h18" stroke="currentColor" stroke-width="2"/>
+                        <path d="M16 14h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
+                    </button>
                   @endif
                 @endif
               </div>
@@ -514,16 +540,11 @@
     </div>
   </div>
 </div>
+
 <script>
 (function(){
-  // =======================
-  // P360 · Helpers
-  // =======================
   const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts || false);
 
-  // =======================
-  // PDF MODAL (loader visible SIEMPRE)
-  // =======================
   const modal      = document.getElementById('p360PdfModal');
   const frame      = document.getElementById('p360PdfFrame');
   const loader     = document.getElementById('p360PdfLoader');
@@ -582,32 +603,24 @@
       titleEl.textContent = 'Estado de cuenta';
       metaEl.textContent  = metaText || '—';
 
-      // hrefs
       const safeView = withPdfViewerPrefs(viewUrl);
       openTab.href = safeView;
-
-      // descarga: preferimos downloadUrl si existe; si no, al view
       download.href = (downloadUrl && downloadUrl !== '#') ? downloadUrl : viewUrl;
 
-      // abrir modal
       modal.classList.add('is-open');
       modal.setAttribute('aria-hidden','false');
       document.documentElement.classList.add('p360-modal-open');
       document.body.classList.add('p360-modal-open');
 
-      // estado inicial
       showLoader('Cargando estado de cuenta…');
 
-      // reset frame
       frame.onload = null;
       frame.src = 'about:blank';
 
-      // loader "lento"
       slowTimer = window.setTimeout(function(){
         showLoader('Cargando estado de cuenta… (puede tardar algunos segundos)');
       }, 1800);
 
-      // hard timeout
       hardTimer = window.setTimeout(function(){
         showLoader('No se pudo cargar el PDF. Intenta “Abrir en pestaña” o “Descargar”.');
       }, 25000);
@@ -617,7 +630,6 @@
         hideLoader();
       };
 
-      // set src en doble RAF para evitar flicker / race
       window.requestAnimationFrame(function(){
         window.requestAnimationFrame(function(){
           frame.src = safeView;
@@ -643,7 +655,6 @@
       }
     }
 
-    // Delegación: abrir PDF desde cualquier botón
     document.addEventListener('click', function(e){
       const btn = e.target.closest('.js-p360-open-pdf');
       if (!btn) return;
@@ -660,21 +671,16 @@
       openModal(viewUrl, dlUrl, metaText);
     });
 
-    // click cerrar
     on(modal, 'click', function(e){
       const close = e.target.closest('[data-close="1"]');
       if (close) closeModal();
     });
 
-    // escape
     document.addEventListener('keydown', function(e){
       if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
     });
   }
 
-  // =======================
-  // INVOICE WINDOW MODAL (fuera de mes)
-  // =======================
   const invModal = document.getElementById('p360InvoiceWindowModal');
   const invMsg   = document.getElementById('p360InvoiceWindowMsg');
 
@@ -693,7 +699,6 @@
     invModal.setAttribute('aria-hidden','true');
   }
 
-  // 1) Delegación: botón "Factura" fuera de mes (clase del bloque 1)
   document.addEventListener('click', function(e){
     const btn = e.target.closest('.js-p360-inv-window');
     if (!btn) return;
@@ -702,7 +707,6 @@
     openInvModal(msg);
   });
 
-  // 2) Cerrar por backdrop/botón
   if (invModal) {
     on(invModal, 'click', function(e){
       const close = e.target.closest('[data-close-inv="1"]');
@@ -714,7 +718,6 @@
     });
   }
 
-  // 3) Flash server-side (redirect con warning)
   const flashInv    = @json(session('invoice_window_error'));
   const flashInvMsg = @json(session('invoice_window_error_msg'));
 
@@ -724,4 +727,3 @@
 })();
 </script>
 @endsection
-
