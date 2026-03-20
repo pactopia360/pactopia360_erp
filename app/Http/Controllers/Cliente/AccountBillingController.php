@@ -1086,6 +1086,144 @@ final class AccountBillingController extends Controller
         return $rows;
     }
 
+        /**
+     * ✅ ESPEJO ADMIN -> CLIENTE
+     * Usa SOLO admin.billing_statements como fuente visual.
+     *
+     * Reglas:
+     * - un row por periodo
+     * - paid => monto visual = total_cargo; si viene vacío, usar paid_amount
+     * - pending/partial => monto visual = saldo si existe; si no, total_cargo
+     * - NO recalcula con payments ni con clientes.estados_cuenta
+     *
+     * @param array<int,array<string,mixed>> $rowsFromStatementsAll
+     * @return array<int,array<string,mixed>>
+     */
+    private function buildMirrorRowsFromAdminStatements(
+        int $accountId,
+        array $rowsFromStatementsAll,
+        string $rfc,
+        string $alias
+    ): array {
+        $byPeriod = [];
+
+        foreach ($rowsFromStatementsAll as $rr) {
+            $row = is_array($rr) ? $rr : (array) $rr;
+
+            $period = trim((string) ($row['period'] ?? ''));
+            if (!$this->isValidPeriod($period)) {
+                continue;
+            }
+
+            $status = $this->normalizeStatementStatus((string) ($row['status'] ?? 'pending'));
+
+            $totalCargo = 0.0;
+            foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $totalCargo = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $totalAbono = 0.0;
+            foreach (['total_abono', 'paid_amount', 'abono', 'paid'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $totalAbono = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $saldo = isset($row['saldo']) && is_numeric($row['saldo'])
+                ? round(max(0.0, (float) $row['saldo']), 2)
+                : round(max(0.0, $totalCargo - $totalAbono), 2);
+
+            // ✅ Canonicalización espejo
+            if ($status === 'paid') {
+                $visualCharge = $totalCargo > 0.0001 ? $totalCargo : $totalAbono;
+
+                $row['status']      = 'paid';
+                $row['charge']      = round(max(0.0, $visualCharge), 2);
+                $row['total_cargo'] = round(max(0.0, $visualCharge), 2);
+                $row['paid_amount'] = round(max(0.0, $totalAbono > 0.0001 ? $totalAbono : $visualCharge), 2);
+                $row['total_abono'] = round(max(0.0, $totalAbono > 0.0001 ? $totalAbono : $visualCharge), 2);
+                $row['saldo']       = 0.0;
+                $row['can_pay']     = false;
+            } elseif ($status === 'partial') {
+                $visualCharge = $totalCargo > 0.0001 ? $totalCargo : ($totalAbono + $saldo);
+
+                $row['status']      = 'partial';
+                $row['charge']      = round(max(0.0, $visualCharge), 2);
+                $row['total_cargo'] = round(max(0.0, $visualCharge), 2);
+                $row['paid_amount'] = round(max(0.0, $totalAbono), 2);
+                $row['total_abono'] = round(max(0.0, $totalAbono), 2);
+                $row['saldo']       = round(max(0.0, $saldo), 2);
+                $row['can_pay']     = $saldo > 0.0001;
+            } else {
+                $visualCharge = $totalCargo > 0.0001 ? $totalCargo : $saldo;
+
+                $row['status']      = $status;
+                $row['charge']      = round(max(0.0, $visualCharge), 2);
+                $row['total_cargo'] = round(max(0.0, $visualCharge), 2);
+                $row['paid_amount'] = round(max(0.0, $totalAbono), 2);
+                $row['total_abono'] = round(max(0.0, $totalAbono), 2);
+                $row['saldo']       = round(max(0.0, $saldo > 0.0001 ? $saldo : $visualCharge), 2);
+                $row['can_pay']     = false;
+            }
+
+            $row['account_id']            = (int) $accountId;
+            $row['admin_account_id']      = (int) $accountId;
+            $row['statement_account_ref'] = $row['statement_account_ref'] ?? $row['account_id'] ?? (string) $accountId;
+            $row['rfc']                   = (string) ($row['rfc'] ?? $rfc ?: '—');
+            $row['alias']                 = (string) ($row['alias'] ?? $alias ?: '—');
+
+            try {
+                $c = Carbon::createFromFormat('Y-m', $period);
+                $row['period_range'] = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+            } catch (\Throwable $e) {
+                $row['period_range'] = $period;
+            }
+
+            // dedupe por periodo: conservar la fila más fuerte
+            $score = 0;
+            if (($row['status'] ?? '') === 'paid') $score += 1000000;
+            if (($row['status'] ?? '') === 'partial') $score += 500000;
+            $score += (int) round(((float) ($row['total_cargo'] ?? 0)) * 100);
+            $score += (int) round(((float) ($row['total_abono'] ?? 0)) * 100);
+            $score += (int) round(((float) ($row['saldo'] ?? 0)) * 100);
+
+            if (!isset($byPeriod[$period]) || $score > ($byPeriod[$period]['__score'] ?? -1)) {
+                $row['__score'] = $score;
+                $byPeriod[$period] = $row;
+            }
+        }
+
+        ksort($byPeriod);
+
+        $out = array_values(array_map(function (array $r) {
+            unset($r['__score']);
+            return $r;
+        }, $byPeriod));
+
+        // ✅ definir SOLO 1 periodo pagable: el primer no pagado
+        $firstPending = null;
+        foreach ($out as $r) {
+            $st = $this->normalizeStatementStatus((string) ($r['status'] ?? 'pending'));
+            $saldo = (float) ($r['saldo'] ?? 0);
+
+            if ($st !== 'paid' && $saldo > 0.0001) {
+                $firstPending = (string) ($r['period'] ?? '');
+                break;
+            }
+        }
+
+        foreach ($out as &$r) {
+            $r['can_pay'] = ($firstPending !== null && (string) ($r['period'] ?? '') === $firstPending);
+        }
+        unset($r);
+
+        return $out;
+    }
+
     /**
      * ✅ Construye refs válidos para consultar admin.billing_statements:
      * - admin account id (string/int)
