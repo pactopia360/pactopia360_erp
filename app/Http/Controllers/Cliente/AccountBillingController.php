@@ -559,7 +559,7 @@ final class AccountBillingController extends Controller
             $lastChargeMxnFromStatements = 0.0;
         }
 
-        // Pendientes reales desde statements (SOT)
+                // Pendientes reales desde statements (SOT)
         $rowsFromStatementsPending = [];
         try {
             $rowsFromStatementsPending = array_values(array_filter($rowsFromStatementsAll, function ($rr) {
@@ -574,7 +574,7 @@ final class AccountBillingController extends Controller
         $payAllowed = $this->computePayAllowed($accountId, $isAnnual, $basePeriod, $lastPaid, $statementRefs);
 
         // ==========================================================
-        // ✅ Periodos base para cálculo de precio (NO UI final)
+        // ✅ Periodos base para cálculo de precio auxiliar
         // ==========================================================
         $periods = [];
 
@@ -590,7 +590,6 @@ final class AccountBillingController extends Controller
 
         $periods = array_values(array_unique(array_filter($periods, fn ($x) => is_string($x) && $this->isValidPeriod($x))));
 
-        // ✅ Hard fallback si no quedó ningún periodo
         if (!$periods) {
             if (is_string($payAllowed) && $this->isValidPeriod($payAllowed)) {
                 $periods = [$payAllowed];
@@ -602,15 +601,14 @@ final class AccountBillingController extends Controller
         }
 
         // ==========================================================
-        // ✅ PRECIO por periodo (Admin meta.billing + fallbacks)
-        // + ✅ fallback final: lastChargeMxnFromStatements (Admin manda)
+        // ✅ PRECIO auxiliar por periodo
+        // Solo para fallback visual del periodo permitido, NO para rehacer statements.
         // ==========================================================
         $priceInfo = ['per_period' => []];
         foreach ($periods as $p) {
             $priceInfo['per_period'][$p] = ['cents' => 0, 'mxn' => 0.0, 'source' => 'none'];
         }
 
-        // 1) admin.accounts.meta.billing (por periodo)
         foreach ($periods as $p) {
             $cents = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $p, $lastPaid, (string) ($payAllowed ?? $p));
             if ($cents > 0) {
@@ -620,7 +618,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 2) admin.planes
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -632,7 +629,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 3) admin.estados_cuenta
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -644,7 +640,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 4) clientes.estados_cuenta
         foreach ($periods as $p) {
             if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
 
@@ -656,26 +651,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // 5) ✅ Fallback FINAL:
-        // SOLO aplicar el cargo del último pagado al propio último pagado.
-        // NO contaminar el periodo permitido con ese cargo histórico.
-        foreach ($periods as $p) {
-            if (($priceInfo['per_period'][$p]['cents'] ?? 0) > 0) continue;
-
-            if (
-                $lastPaid &&
-                $p === $lastPaid &&
-                $lastChargeMxnFromStatements > 0
-            ) {
-                $priceInfo['per_period'][$p]['mxn']    = round($lastChargeMxnFromStatements, 2);
-                $priceInfo['per_period'][$p]['cents']  = (int) round($lastChargeMxnFromStatements * 100);
-                $priceInfo['per_period'][$p]['source'] = 'admin.billing_statements.last_paid_total_cargo';
-            }
-        }
-
-        // ==========================================================
-        // ✅ ANUAL: forzar monto ANUAL
-        // ==========================================================
         $annualTotalMxn   = 0.0;
         $annualCentsFinal = 0;
 
@@ -708,7 +683,6 @@ final class AccountBillingController extends Controller
             }
         }
 
-        // chargesByPeriod + sourcesByPeriod
         $chargesByPeriod = [];
         $sourcesByPeriod = [];
         foreach ($periods as $p) {
@@ -716,26 +690,11 @@ final class AccountBillingController extends Controller
             $sourcesByPeriod[$p] = (string) ($priceInfo['per_period'][$p]['source'] ?? 'none');
         }
 
-        // ==========================================================
-        // ✅ Normalización de payAllowed (string usable en UI) SIN romper caso null
-        // ==========================================================
         $payAllowedUi = is_string($payAllowed) ? trim($payAllowed) : '';
-
         if ($payAllowed === null) {
             $payAllowedUi = $periodReq !== '' ? $periodReq : $basePeriod;
-        } else {
-            if ($payAllowedUi === '') {
-                $payAllowedUi = $periodReq !== '' ? $periodReq : $basePeriod;
-            }
-
-            if ($payAllowedUi !== '' && !in_array($payAllowedUi, $periods, true)) {
-                if ($periodReq !== '' && in_array($periodReq, $periods, true)) {
-                    $payAllowedUi = $periodReq;
-                } else {
-                    $last = $periods ? end($periods) : null;
-                    $payAllowedUi = ($last && $this->isValidPeriod($last)) ? $last : $basePeriod;
-                }
-            }
+        } elseif ($payAllowedUi === '') {
+            $payAllowedUi = $periodReq !== '' ? $periodReq : $basePeriod;
         }
 
         Log::info('[BILLING][DEBUG] periods/payAllowed checkpoint', [
@@ -750,217 +709,56 @@ final class AccountBillingController extends Controller
             'last_charge_from_statements' => $lastChargeMxnFromStatements,
         ]);
 
-        // Fallback base (clientes.estados_cuenta)
-        $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
-            $accountId,
-            $periods,
-            $payAllowedUi,
-            $chargesByPeriod,
-            $lastPaid
-        );
-
-        Log::info('[BILLING][DEBUG] statements probe', [
-            'account_id'                  => $accountId,
-            'statement_refs'              => $statementRefs,
-            'rows_all_count'              => is_array($rowsFromStatementsAll) ? count($rowsFromStatementsAll) : 0,
-            'rows_pending_count'          => is_array($rowsFromStatementsPending) ? count($rowsFromStatementsPending) : 0,
-            'lastPaid_from_payments_meta' => $lastPaid,
-            'lastPaid_from_statements'    => $lastPaidFromStatements,
-        ]);
-
-                if (!empty($rowsFromStatementsPending)) {
-            // ✅ SOT: hay pendientes reales => mostrar pendiente + último pagado
-            $rows = $rowsFromStatementsPending;
-
-            // Override por payments (si aplica)
-            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
-
-            usort($rows, function ($a, $b) {
-                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
-            });
-
-            // payAllowed = primer pendiente real
-            $payAllowedUi = (string) ($rows[0]['period'] ?? $payAllowedUi);
-            $payAllowed   = $this->isValidPeriod($payAllowedUi) ? $payAllowedUi : $payAllowed;
-
-            // ✅ Agregar también el último pagado si existe y no vino en pending
-            if ($lastPaid && $this->isValidPeriod($lastPaid)) {
-                $hasLastPaid = false;
-
-                foreach ($rows as $tmpRow) {
-                    if ((string) ($tmpRow['period'] ?? '') === $lastPaid) {
-                        $hasLastPaid = true;
-                        break;
-                    }
-                }
-
-                if (!$hasLastPaid) {
-                    foreach ($rowsFromStatementsAll as $tmpRow) {
-                        if ((string) ($tmpRow['period'] ?? '') === $lastPaid) {
-                            $tmpRow['status']  = 'paid';
-                            $tmpRow['can_pay'] = false;
-                            $rows[] = $tmpRow;
-                            break;
-                        }
-                    }
-                }
-            }
-
-        } else {
-            // ✅ NO hay pendientes en statements:
-            // si hay paid en statements, el permitido es el siguiente periodo (y debe traer monto real)
-            if ($lastPaidFromStatements && (!$lastPaid || $lastPaidFromStatements > $lastPaid)) {
-                $lastPaid = $lastPaidFromStatements;
-
-                try {
-                    $payAllowedUi = $isAnnual
-                        ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
-                        : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
-                } catch (\Throwable $e) {
-                    // deja payAllowedUi como venía
-                }
-
-                // ✅ GARANTÍA CORRECTA:
-                // Para payAllowed primero intenta resolver la mensualidad propia del periodo.
-                if (!isset($chargesByPeriod[$payAllowedUi]) || (float) $chargesByPeriod[$payAllowedUi] <= 0) {
-                    $resolvedPendingMxn = $this->resolvePortalMonthlyMxnForPeriod(
-                        $accountId,
-                        $payAllowedUi,
-                        $lastPaid,
-                        $payAllowedUi,
-                        $chargesByPeriod
-                    );
-
-                    if ($resolvedPendingMxn > 0) {
-                        $chargesByPeriod[$payAllowedUi] = round($resolvedPendingMxn, 2);
-                        $sourcesByPeriod[$payAllowedUi] = 'portal.monthly.period_resolver';
-                    } elseif ($lastChargeMxnFromStatements > 0 && $payAllowedUi === $lastPaid) {
-                        $chargesByPeriod[$payAllowedUi] = round($lastChargeMxnFromStatements, 2);
-                        $sourcesByPeriod[$payAllowedUi] = 'admin.billing_statements.last_paid_total_cargo';
-                    }
-                }
-            }
-
-            // ✅ SIEMPRE construir los dos periodos para UI:
-            // último pagado + permitido
-            $uiPeriods = array_values(array_unique(array_filter([
-                $lastPaid && $this->isValidPeriod($lastPaid) ? $lastPaid : null,
-                $payAllowedUi && $this->isValidPeriod($payAllowedUi) ? $payAllowedUi : null,
-            ])));
-
-            $uiCharges = [];
-            foreach ($uiPeriods as $uiPeriod) {
-                $uiCharges[$uiPeriod] = (float) ($chargesByPeriod[$uiPeriod] ?? 0.0);
-            }
-
-            $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
-                $accountId,
-                $uiPeriods,
-                $payAllowedUi,
-                $uiCharges,
-                $lastPaid
-            );
-
-            $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
-        }
-
-        // ✅ Orden final estable para UI:
-        // 1) último pagado
-        // 2) permitido para pagar
-        usort($rows, function ($a, $b) use ($lastPaid, $payAllowedUi) {
-            $pa = (string) ($a['period'] ?? '');
-            $pb = (string) ($b['period'] ?? '');
-
-            if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
-            if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
-
-            if ($payAllowedUi && $pa === $payAllowedUi && $pb !== $payAllowedUi) return 1;
-            if ($payAllowedUi && $pb === $payAllowedUi && $pa !== $payAllowedUi) return -1;
-
-            return strcmp($pa, $pb);
-        });
-
-        // Enriquecimiento UI + ✅ CANONICALIZACIÓN de account_id
-        foreach ($rows as &$row) {
-            if (!isset($row['statement_account_ref'])) {
-                $row['statement_account_ref'] = $row['account_id'] ?? null;
-            }
-
-            $row['admin_account_id'] = (int) $accountId;
-            $row['account_id']       = (int) $accountId;
-
-            $p = (string) ($row['period'] ?? '');
-            if ($p !== '' && $this->isValidPeriod($p)) {
-                $c = Carbon::createFromFormat('Y-m', $p);
-                $row['period_range'] = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
-            } else {
-                $row['period_range'] = '';
-            }
-
-            $row['rfc']          = (string) ($row['rfc'] ?? $rfc);
-            $row['alias']        = (string) ($row['alias'] ?? $alias);
-            $row['price_source'] = $sourcesByPeriod[$p] ?? ($row['price_source'] ?? 'none');
-        }
-        unset($row);
-
         // ==========================================================
-        // ✅ HISTORIAL COMPLETO DEL AÑO
-        // - muestra todos los meses del año de trabajo
-        // - conserva montos reales pagados
-        // - para el mes permitido pendiente usa la mensualidad configurada
+        // ✅ SOT FINAL DEL PORTAL:
+        // Cliente refleja admin.billing_statements y SOLO normaliza para Blade.
+        // NO recalcula negocio, NO inventa periodos, NO reconstruye cargos.
         // ==========================================================
         if (!empty($rowsFromStatementsAll)) {
-            $historyRows = $this->applyAdminPaidAmountOverrides($accountId, $rowsFromStatementsAll);
-
-            foreach ($historyRows as &$hrow) {
-                $hp = (string) ($hrow['period'] ?? '');
-                $hrow['can_pay'] = ($payAllowedUi && $hp === $payAllowedUi);
-            }
-            unset($hrow);
-
-            $normalizedHistory = $this->normalizeRowsForStatementHistory(
-                $historyRows,
-                $payAllowedUi,
+            $rows = $this->mapAdminStatementRowsForPortal(
+                $accountId,
+                $rowsFromStatementsAll,
                 $lastPaid,
+                $payAllowedUi,
+                $rfc,
+                $alias,
                 $chargesByPeriod
             );
 
-            $normalizedHistory = $this->ensurePayAllowedRowExists(
-                $normalizedHistory,
+            // ✅ Mantener meses pagados reales + agregar último mes permitido a pagar si falta
+            $rows = $this->ensurePortalPayAllowedRow(
                 $accountId,
+                $rows,
                 $payAllowedUi,
                 $chargesByPeriod,
                 $rfc,
                 $alias
             );
+        } else {
+            // Fallback duro si aún no existe billing_statements
+            $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
+                $accountId,
+                $periods,
+                $payAllowedUi,
+                $chargesByPeriod,
+                $lastPaid
+            );
 
-            if (!empty($normalizedHistory)) {
-                $rows = $normalizedHistory;
+            foreach ($rows as &$row) {
+                $row['admin_account_id'] = (int) $accountId;
+                $row['account_id']       = (int) $accountId;
+                $row['rfc']              = (string) ($row['rfc'] ?? $rfc);
+                $row['alias']            = (string) ($row['alias'] ?? $alias);
+                $row['price_source']     = $sourcesByPeriod[(string) ($row['period'] ?? '')] ?? ($row['price_source'] ?? 'fallback.clientes');
             }
+            unset($row);
         }
 
-        // ✅ Si lastPaid real avanzó más que payAllowed visual, corre payAllowed al siguiente periodo lógico
-        try {
-            if ($lastPaid && $this->isValidPeriod($lastPaid)) {
-                $nextAllowed = $isAnnual
-                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
-                    : Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m');
-
-                if (!$payAllowedUi || !$this->isValidPeriod($payAllowedUi) || strcmp($payAllowedUi, $lastPaid) <= 0) {
-                    $payAllowedUi = $nextAllowed;
-                }
-            }
-        } catch (\Throwable $e) {
-            // ignore
+        // ✅ Si no hay periodo habilitado para pago (anual fuera de ventana y sin pendientes)
+        if ($payAllowed === null) {
+            $rows = [];
+            $payAllowedUi = $periodReq !== '' ? $periodReq : $basePeriod;
         }
-
-        $rows = $this->normalizePortalRowsForDisplay(
-            $accountId,
-            $rows,
-            $chargesByPeriod,
-            $lastPaid,
-            $payAllowedUi
-        );
 
         $rows = $this->attachInvoiceRequestStatus($accountId, $rows);
 
@@ -1014,6 +812,278 @@ final class AccountBillingController extends Controller
             'rfc'                  => $rfc,
             'alias'                => $alias,
         ]);
+    }
+
+        /**
+     * ==========================================================
+     * ✅ SOT PORTAL: normaliza rows de admin.billing_statements
+     * SIN reinventar cargos / saldos / periodos.
+     *
+     * La vista cliente espera:
+     * - period
+     * - status
+     * - charge
+     * - paid_amount
+     * - saldo
+     * - can_pay
+     * - period_range
+     * - rfc
+     * - alias
+     * - invoice_request_status
+     * - invoice_has_zip
+     * ==========================================================
+     *
+     * @param array<int,array<string,mixed>> $rowsFromStatementsAll
+     * @param array<string,float> $chargesByPeriod
+     * @return array<int,array<string,mixed>>
+     */
+    private function mapAdminStatementRowsForPortal(
+        int $accountId,
+        array $rowsFromStatementsAll,
+        ?string $lastPaid,
+        ?string $payAllowedUi,
+        string $rfc,
+        string $alias,
+        array $chargesByPeriod = []
+    ): array {
+        $out = [];
+
+        foreach ($rowsFromStatementsAll as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $period = trim((string) ($row['period'] ?? ''));
+            if (!$this->isValidPeriod($period)) {
+                continue;
+            }
+
+            $status = $this->normalizeStatementStatus((string) ($row['status'] ?? 'pending'));
+
+            $charge = 0.0;
+            foreach (['charge', 'total_cargo', 'cargo', 'total'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $charge = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $paidAmount = 0.0;
+            foreach (['paid_amount', 'total_abono', 'abono', 'paid'] as $k) {
+                if (isset($row[$k]) && is_numeric($row[$k])) {
+                    $paidAmount = round(max(0.0, (float) $row[$k]), 2);
+                    break;
+                }
+            }
+
+            $saldo = isset($row['saldo']) && is_numeric($row['saldo'])
+                ? round(max(0.0, (float) $row['saldo']), 2)
+                : round(max(0.0, $charge - $paidAmount), 2);
+
+            // ✅ Si admin dice pagado pero abono viene en 0, intenta tomar pago real
+            if ($status === 'paid' && $paidAmount <= 0.0001) {
+                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
+                if ($paidCents > 0) {
+                    $paidAmount = round($paidCents / 100, 2);
+                }
+            }
+
+            // ✅ Para pagado, el monto visual correcto es el cargo del periodo
+            if ($status === 'paid') {
+                $shown = max($charge, $paidAmount);
+
+                $charge     = round($shown, 2);
+                $paidAmount = round($shown, 2);
+                $saldo      = 0.0;
+            } else {
+                // ✅ Si falta cargo en admin pero este es el periodo habilitado, usa mensualidad resuelta
+                if (
+                    $charge <= 0.0001 &&
+                    $payAllowedUi &&
+                    $period === $payAllowedUi &&
+                    isset($chargesByPeriod[$period]) &&
+                    is_numeric($chargesByPeriod[$period]) &&
+                    (float) $chargesByPeriod[$period] > 0
+                ) {
+                    $charge = round((float) $chargesByPeriod[$period], 2);
+                }
+
+                if ($saldo <= 0.0001 && $charge > 0.0001) {
+                    $saldo = round(max(0.0, $charge - $paidAmount), 2);
+                }
+            }
+
+            $periodRange = '';
+            try {
+                $c = Carbon::createFromFormat('Y-m', $period);
+                $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+            } catch (\Throwable $e) {
+                $periodRange = $period;
+            }
+
+            $canPay = false;
+            if (
+                $payAllowedUi &&
+                $period === $payAllowedUi &&
+                $status !== 'paid' &&
+                $saldo > 0.0001
+            ) {
+                $canPay = true;
+            }
+
+            $out[] = [
+                'id'                     => $row['id'] ?? null,
+                'account_id'             => (int) $accountId,
+                'admin_account_id'       => (int) $accountId,
+                'statement_account_ref'  => $row['account_id'] ?? (string) $accountId,
+
+                'period'                 => $period,
+                'status'                 => $status,
+
+                'charge'                 => round($charge, 2),
+                'total_cargo'            => round($charge, 2),
+
+                'paid_amount'            => round($paidAmount, 2),
+                'total_abono'            => round($paidAmount, 2),
+
+                'saldo'                  => round($saldo, 2),
+                'can_pay'                => $canPay,
+
+                'period_range'           => $periodRange,
+                'rfc'                    => $rfc !== '' ? $rfc : '—',
+                'alias'                  => $alias !== '' ? $alias : '—',
+
+                'invoice_request_status' => null,
+                'invoice_has_zip'        => false,
+
+                'price_source'           => $row['price_source'] ?? 'admin.billing_statements',
+                'service_items'          => is_array($row['service_items'] ?? null) ? $row['service_items'] : [],
+                'meta'                   => $row['meta'] ?? null,
+                'snapshot'               => $row['snapshot'] ?? null,
+                'due_date'               => $row['due_date'] ?? null,
+                'paid_at'                => $row['paid_at'] ?? null,
+                'created_at'             => $row['created_at'] ?? null,
+                'updated_at'             => $row['updated_at'] ?? null,
+            ];
+        }
+
+        usort($out, function ($a, $b) use ($lastPaid, $payAllowedUi) {
+            $pa = (string) ($a['period'] ?? '');
+            $pb = (string) ($b['period'] ?? '');
+
+            if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
+            if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
+
+            if ($payAllowedUi && $pa === $payAllowedUi && $pb !== $payAllowedUi) return 1;
+            if ($payAllowedUi && $pb === $payAllowedUi && $pa !== $payAllowedUi) return -1;
+
+            return strcmp($pa, $pb);
+        });
+
+        return $out;
+    }
+
+        /**
+     * ✅ Si el periodo permitido para pagar NO existe aún en billing_statements,
+     * crea una fila sintética SOLO para UI del portal cliente.
+     *
+     * Regla:
+     * - mantener todos los meses pagados reales
+     * - agregar el último mes a pagar si falta
+     * - no duplicar si ya existe
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param array<string,float> $chargesByPeriod
+     * @return array<int,array<string,mixed>>
+     */
+    private function ensurePortalPayAllowedRow(
+        int $accountId,
+        array $rows,
+        ?string $payAllowedUi,
+        array $chargesByPeriod,
+        string $rfc,
+        string $alias
+    ): array {
+        $payAllowedUi = trim((string) $payAllowedUi);
+
+        if (!$this->isValidPeriod($payAllowedUi)) {
+            return $rows;
+        }
+
+        foreach ($rows as $row) {
+            if ((string) ($row['period'] ?? '') === $payAllowedUi) {
+                return $rows;
+            }
+        }
+
+        $charge = 0.0;
+
+        if (isset($chargesByPeriod[$payAllowedUi]) && is_numeric($chargesByPeriod[$payAllowedUi])) {
+            $charge = round((float) $chargesByPeriod[$payAllowedUi], 2);
+        }
+
+        if ($charge <= 0.0001) {
+            $charge = $this->resolvePortalMonthlyMxnForPeriod(
+                $accountId,
+                $payAllowedUi,
+                null,
+                $payAllowedUi,
+                $chargesByPeriod
+            );
+        }
+
+        if ($charge <= 0.0001) {
+            return $rows;
+        }
+
+        $periodRange = '';
+        try {
+            $c = Carbon::createFromFormat('Y-m', $payAllowedUi);
+            $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+        } catch (\Throwable $e) {
+            $periodRange = $payAllowedUi;
+        }
+
+        $rows[] = [
+            'id'                     => null,
+            'account_id'             => (int) $accountId,
+            'admin_account_id'       => (int) $accountId,
+            'statement_account_ref'  => (string) $accountId,
+
+            'period'                 => $payAllowedUi,
+            'status'                 => 'pending',
+
+            'charge'                 => round($charge, 2),
+            'total_cargo'            => round($charge, 2),
+
+            'paid_amount'            => 0.0,
+            'total_abono'            => 0.0,
+
+            'saldo'                  => round($charge, 2),
+            'can_pay'                => true,
+
+            'period_range'           => $periodRange,
+            'rfc'                    => $rfc !== '' ? $rfc : '—',
+            'alias'                  => $alias !== '' ? $alias : '—',
+
+            'invoice_request_status' => null,
+            'invoice_has_zip'        => false,
+
+            'price_source'           => 'synthetic.pay_allowed',
+            'service_items'          => [],
+            'meta'                   => null,
+            'snapshot'               => null,
+            'due_date'               => null,
+            'paid_at'                => null,
+            'created_at'             => null,
+            'updated_at'             => null,
+        ];
+
+        usort($rows, function ($a, $b) {
+            return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+        });
+
+        return $rows;
     }
 
     /**
