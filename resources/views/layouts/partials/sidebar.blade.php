@@ -1196,11 +1196,15 @@
       return;
     }
 
-    /* Desktop:
-       el contenido siempre reserva SOLO el rail compacto.
-       el panel expandido flota encima del contenido.
-    */
     root.style.setProperty('--sidebar-offset', currentCollapsedWidth());
+  }
+
+  function isDesktopCollapsed() {
+    return root.classList.contains('sidebar-collapsed');
+  }
+
+  function isMobileOpen() {
+    return body.classList.contains('sidebar-open');
   }
 
   function reflectShell() {
@@ -1222,6 +1226,18 @@
     if (HBTN) {
       HBTN.setAttribute('aria-expanded', body.classList.contains('sidebar-open') ? 'true' : 'false');
     }
+  }
+
+  function expandDesktop() {
+    if (!isDesktop()) return;
+    save(KEY_MODE, 'expanded');
+    reflectShell();
+  }
+
+  function collapseDesktop() {
+    if (!isDesktop()) return;
+    save(KEY_MODE, 'collapsed');
+    reflectShell();
   }
 
   function getActiveModuleFromRoute() {
@@ -1342,7 +1358,7 @@
 
   w.P360.sidebar = {
     isCollapsed() {
-      return isDesktop() ? root.classList.contains('sidebar-collapsed') : false;
+      return isDesktop() ? isDesktopCollapsed() : false;
     },
     setCollapsed(flag) {
       if (isDesktop()) {
@@ -1368,7 +1384,9 @@
     },
     closeMobile() {
       this.openMobile(false);
-    }
+    },
+    expandDesktop,
+    collapseDesktop
   };
 
   railButtons.forEach((btn) => {
@@ -1383,19 +1401,26 @@
         applyFilter('');
       }
 
-      if (!isDesktop()) {
-        save(KEY_OPEN, '0');
+      if (isDesktop()) {
+        expandDesktop();
+      } else {
+        save(KEY_OPEN, '1');
         reflectShell();
       }
     });
   });
 
-  TOGGLE?.addEventListener('click', () => {
+  TOGGLE?.addEventListener('click', (e) => {
+    e.stopPropagation();
     w.P360.sidebar.toggle();
   });
 
   SEARCH?.addEventListener('input', (e) => {
     applyFilter(e.target.value || '');
+  });
+
+  SEARCH?.addEventListener('click', (e) => {
+    e.stopPropagation();
   });
 
   BCK?.addEventListener('click', () => {
@@ -1411,6 +1436,32 @@
     });
   }
 
+  d.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+
+    if (isDesktop()) {
+      if (isDesktopCollapsed()) return;
+
+      const clickedInsideSidebar = !!target.closest('#nebula-sidebar');
+      const clickedToggleButton  = !!target.closest('#btnSidebar');
+
+      if (!clickedInsideSidebar && !clickedToggleButton) {
+        collapseDesktop();
+      }
+    } else {
+      if (!isMobileOpen()) return;
+
+      const clickedInsideSidebar = !!target.closest('#nebula-sidebar');
+      const clickedToggleButton  = !!target.closest('#btnSidebar');
+
+      if (!clickedInsideSidebar && !clickedToggleButton) {
+        save(KEY_OPEN, '0');
+        reflectShell();
+      }
+    }
+  });
+
   const mq = w.matchMedia('(min-width:1024px)');
   mq.addEventListener?.('change', reflectShell);
   w.addEventListener('resize', reflectShell);
@@ -1420,13 +1471,20 @@
 
     if (ctrl && e.key.toLowerCase() === 'k') {
       e.preventDefault();
+      if (isDesktop() && isDesktopCollapsed()) {
+        expandDesktop();
+      }
       SEARCH?.focus();
       SEARCH?.select?.();
     }
 
-    if (e.key === 'Escape' && !isDesktop()) {
-      save(KEY_OPEN, '0');
-      reflectShell();
+    if (e.key === 'Escape') {
+      if (isDesktop()) {
+        collapseDesktop();
+      } else {
+        save(KEY_OPEN, '0');
+        reflectShell();
+      }
     }
   });
 
