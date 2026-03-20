@@ -2000,4 +2000,237 @@ final class BillingStatementsHubController extends Controller
         }
     }
 
+        private function connClientes(): string
+    {
+        return (string) (
+            config('p360.conn.clientes')
+            ?: config('p360.conn.clients')
+            ?: 'mysql_clientes'
+        );
+    }
+
+    /**
+     * Soporta account_id en billing_statements tanto por ID admin como por UUID de cliente.
+     *
+     * @param  string|int  $adminAccountId
+     * @return array<int,string>
+     */
+    private function billingStatementRefsForAdminAccount(string|int $adminAccountId): array
+    {
+        $aid = trim((string) $adminAccountId);
+        if ($aid === '') return [];
+
+        $refs = [$aid];
+
+        if (ctype_digit($aid)) {
+            $refs[] = (string) ((int) $aid);
+        }
+
+        try {
+            $cli = $this->connClientes();
+
+            if (
+                Schema::connection($cli)->hasTable('cuentas_cliente') &&
+                Schema::connection($cli)->hasColumn('cuentas_cliente', 'admin_account_id')
+            ) {
+                $uuids = DB::connection($cli)->table('cuentas_cliente')
+                    ->where('admin_account_id', (int) $aid)
+                    ->limit(500)
+                    ->pluck('id')
+                    ->map(fn ($x) => trim((string) $x))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                foreach ($uuids as $uuid) {
+                    $refs[] = $uuid;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING_HUB] billingStatementRefsForAdminAccount failed', [
+                'account_id' => $aid,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($x) => trim((string) $x),
+            $refs
+        ))));
+    }
+
+    /**
+     * Carga billing_statements del periodo y los mapea al account_id admin.
+     * PRIORIDAD SOT: si existe statement, se usa en lugar de recalcular con estados_cuenta/payments.
+     *
+     * @param  array<int|string>  $accountIds
+     * @return array<string, array<string,mixed>>
+     */
+    private function loadBillingStatementsMirrorMap(array $accountIds, string $period): array
+    {
+        $out = [];
+
+        if (empty($accountIds)) return $out;
+        if (!Schema::connection($this->adm)->hasTable('billing_statements')) return $out;
+
+        $refToAdmin = [];
+        $allRefs    = [];
+
+        foreach ($accountIds as $aid) {
+            $aidStr = trim((string) $aid);
+            if ($aidStr === '') continue;
+
+            $refs = $this->billingStatementRefsForAdminAccount($aidStr);
+            foreach ($refs as $ref) {
+                $refToAdmin[(string) $ref] = $aidStr;
+                $allRefs[] = (string) $ref;
+            }
+        }
+
+        $allRefs = array_values(array_unique(array_filter($allRefs)));
+        if (!$allRefs) return $out;
+
+        $rows = DB::connection($this->adm)->table('billing_statements')
+            ->whereIn('account_id', $allRefs)
+            ->where('period', $period)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'account_id',
+                'period',
+                'status',
+                'total_cargo',
+                'total_abono',
+                'saldo',
+                'paid_at',
+                'created_at',
+                'updated_at',
+            ]);
+
+        foreach ($rows as $row) {
+            $ref = trim((string) ($row->account_id ?? ''));
+            if ($ref === '' || !isset($refToAdmin[$ref])) continue;
+
+            $adminId = $refToAdmin[$ref];
+
+            if (!isset($out[$adminId])) {
+                $out[$adminId] = [
+                    'id'          => (int) ($row->id ?? 0),
+                    'account_ref' => $ref,
+                    'period'      => (string) ($row->period ?? ''),
+                    'status'      => strtolower(trim((string) ($row->status ?? 'pending'))),
+                    'total_cargo' => round((float) ($row->total_cargo ?? 0), 2),
+                    'total_abono' => round((float) ($row->total_abono ?? 0), 2),
+                    'saldo'       => round((float) ($row->saldo ?? 0), 2),
+                    'paid_at'     => $row->paid_at ?? null,
+                    'updated_at'  => $row->updated_at ?? null,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Suma saldos abiertos de periodos anteriores desde billing_statements.
+     * Esto evita que el HUB invente/deforme adeudos previos.
+     *
+     * @param  array<int|string>  $accountIds
+     * @return array<string, array{prev_balance: float, prev_period: ?string}>
+     */
+    private function loadPreviousOpenStatementsMap(array $accountIds, string $period): array
+    {
+        $out = [];
+
+        if (empty($accountIds)) return $out;
+        if (!Schema::connection($this->adm)->hasTable('billing_statements')) return $out;
+
+        $refToAdmin = [];
+        $allRefs    = [];
+
+        foreach ($accountIds as $aid) {
+            $aidStr = trim((string) $aid);
+            if ($aidStr === '') continue;
+
+            $refs = $this->billingStatementRefsForAdminAccount($aidStr);
+            foreach ($refs as $ref) {
+                $refToAdmin[(string) $ref] = $aidStr;
+                $allRefs[] = (string) $ref;
+            }
+        }
+
+        $allRefs = array_values(array_unique(array_filter($allRefs)));
+        if (!$allRefs) return $out;
+
+        $rows = DB::connection($this->adm)->table('billing_statements')
+            ->whereIn('account_id', $allRefs)
+            ->where('period', '<', $period)
+            ->orderByDesc('period')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'account_id',
+                'period',
+                'status',
+                'total_cargo',
+                'total_abono',
+                'saldo',
+                'paid_at',
+                'updated_at',
+            ]);
+
+        $seen = [];
+
+        foreach ($rows as $row) {
+            $ref = trim((string) ($row->account_id ?? ''));
+            if ($ref === '' || !isset($refToAdmin[$ref])) continue;
+
+            $adminId = $refToAdmin[$ref];
+            $p       = trim((string) ($row->period ?? ''));
+
+            if ($p === '') continue;
+
+            $key = $adminId . '|' . $p;
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+
+            $saldo   = round((float) ($row->saldo ?? 0), 2);
+            $status  = strtolower(trim((string) ($row->status ?? 'pending')));
+            $paidAt  = $row->paid_at ?? null;
+            $cargo   = round((float) ($row->total_cargo ?? 0), 2);
+            $abono   = round((float) ($row->total_abono ?? 0), 2);
+
+            $isPaid = false;
+            if ($paidAt) $isPaid = true;
+            if ($status === 'paid' || $status === 'pagado') $isPaid = true;
+            if ($saldo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) $isPaid = true;
+
+            if ($isPaid) {
+                continue;
+            }
+
+            if (!isset($out[$adminId])) {
+                $out[$adminId] = [
+                    'prev_balance' => 0.0,
+                    'prev_period'  => null,
+                ];
+            }
+
+            $out[$adminId]['prev_balance'] += max(0.0, $saldo);
+
+            if (empty($out[$adminId]['prev_period'])) {
+                $out[$adminId]['prev_period'] = $p;
+            }
+        }
+
+        foreach ($out as $aid => $vals) {
+            $out[$aid]['prev_balance'] = round((float) ($vals['prev_balance'] ?? 0), 2);
+        }
+
+        return $out;
+    }
+
 }
