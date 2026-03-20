@@ -35,7 +35,7 @@ class AuthServiceProvider extends ServiceProvider
         'facturacion.ver','facturacion.crear','facturacion.editar','facturacion.eliminar',
         'auditoria.ver','reportes.ver','configuracion.ver',
 
-        // ✅ módulos por prefijo (para sidebar)
+        // módulos por prefijo (para sidebar)
         'billing.*','sat.*','soporte.*','empresas.*',
         'crm.*','cxp.*','cxc.*','conta.*','nomina.*','facturacion.*','docs.*','pv.*','bancos.*',
     ];
@@ -43,24 +43,33 @@ class AuthServiceProvider extends ServiceProvider
     /** -------- Helpers internos -------- */
     private function currentUser($passedUser)
     {
-        if (is_object($passedUser)) return $passedUser;
+        if (is_object($passedUser)) {
+            return $passedUser;
+        }
+
         return auth('admin')->user() ?: auth()->user();
     }
 
     private function isSuper($user): bool
     {
         try {
-            if (!$user) return false;
+            if (!$user) {
+                return false;
+            }
 
-            $get = fn($k) => method_exists($user, 'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
+            $get = fn ($k) => method_exists($user, 'getAttribute') ? $user->getAttribute($k) : ($user->$k ?? null);
 
             // Flag directo en modelo
-            $sa  = (bool)($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
-            if ($sa) return true;
+            $sa = (bool) ($get('es_superadmin') ?? $get('is_superadmin') ?? $get('superadmin') ?? false);
+            if ($sa) {
+                return true;
+            }
 
             // Rol por texto
-            $rol = strtolower((string)($get('rol') ?? $get('role') ?? ''));
-            if ($rol === 'superadmin') return true;
+            $rol = strtolower((string) ($get('rol') ?? $get('role') ?? ''));
+            if ($rol === 'superadmin') {
+                return true;
+            }
 
             // Lista desde config('app.superadmins') o APP_SUPERADMINS coma-separado
             $list = config('app.superadmins', []);
@@ -68,9 +77,12 @@ class AuthServiceProvider extends ServiceProvider
                 $envList = array_filter(array_map('trim', explode(',', (string) env('APP_SUPERADMINS', ''))));
                 $list = array_map('strtolower', $envList);
             }
+
             $email = Str::lower((string) ($get('email') ?? ''));
-            foreach ((array)$list as $allowed) {
-                if ($email !== '' && Str::lower(trim($allowed)) === $email) return true;
+            foreach ((array) $list as $allowed) {
+                if ($email !== '' && Str::lower(trim((string) $allowed)) === $email) {
+                    return true;
+                }
             }
 
             return false;
@@ -86,16 +98,19 @@ class AuthServiceProvider extends ServiceProvider
             if (!app()->runningInConsole() && function_exists('request')) {
                 $req = request();
                 if ($req) {
-                    $path = ltrim((string)$req->path(), '/');
+                    $path = ltrim((string) $req->path(), '/');
                     return Str::startsWith($path, 'admin/');
                 }
             }
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+        }
+
         return false;
     }
 
     /**
-     * ✅ Extrae permisos desde usuarios_admin.permisos (JSON)
+     * Extrae permisos desde usuarios_admin.permisos (JSON)
+     *
      * Soporta:
      * - array
      * - string JSON
@@ -106,7 +121,9 @@ class AuthServiceProvider extends ServiceProvider
     private function extractUserPerms($user): array
     {
         try {
-            if (!$user) return [];
+            if (!$user) {
+                return [];
+            }
 
             $raw = null;
             if (method_exists($user, 'getAttribute')) {
@@ -116,21 +133,33 @@ class AuthServiceProvider extends ServiceProvider
             }
 
             if (is_array($raw)) {
-                return array_values(array_unique(array_map(fn($x)=>strtolower(trim((string)$x)), array_filter($raw))));
+                return array_values(array_unique(array_map(
+                    fn ($x) => strtolower(trim((string) $x)),
+                    array_filter($raw)
+                )));
             }
 
             if (is_string($raw) && trim($raw) !== '') {
                 $j = json_decode($raw, true);
+
                 if (is_array($j)) {
-                    return array_values(array_unique(array_map(fn($x)=>strtolower(trim((string)$x)), array_filter($j))));
+                    return array_values(array_unique(array_map(
+                        fn ($x) => strtolower(trim((string) $x)),
+                        array_filter($j)
+                    )));
                 }
+
                 // si guardaste "a,b,c" por error, también lo toleramos
                 $parts = preg_split('/[\n,]+/', $raw) ?: [];
                 $out = [];
+
                 foreach ($parts as $p) {
-                    $p = strtolower(trim((string)$p));
-                    if ($p !== '') $out[] = $p;
+                    $p = strtolower(trim((string) $p));
+                    if ($p !== '') {
+                        $out[] = $p;
+                    }
                 }
+
                 return array_values(array_unique($out));
             }
 
@@ -141,7 +170,7 @@ class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * ✅ Match de permisos con wildcards:
+     * Match de permisos con wildcards:
      * - '*' => todo
      * - 'billing.*' => prefijo
      * - exact match
@@ -149,27 +178,44 @@ class AuthServiceProvider extends ServiceProvider
     private function permMatches(string $need, array $granted): bool
     {
         $need = strtolower(trim($need));
-        if ($need === '') return false;
-        if (!$granted) return false;
+        if ($need === '') {
+            return false;
+        }
 
-        if (in_array('*', $granted, true)) return true;
-        if (in_array($need, $granted, true)) return true;
+        if (!$granted) {
+            return false;
+        }
+
+        if (in_array('*', $granted, true)) {
+            return true;
+        }
+
+        if (in_array($need, $granted, true)) {
+            return true;
+        }
 
         // si necesito "billing.ver", acepta "billing.*"
         $parts = explode('.', $need);
         while (count($parts) > 1) {
             array_pop($parts);
             $prefix = implode('.', $parts) . '.*';
-            if (in_array($prefix, $granted, true)) return true;
+            if (in_array($prefix, $granted, true)) {
+                return true;
+            }
         }
 
         // si me dieron un wildcard tipo "admin.*" (o cualquiera), también permite por prefijo
         foreach ($granted as $g) {
-            $g = strtolower(trim((string)$g));
-            if ($g === '*' || $g === '') continue;
+            $g = strtolower(trim((string) $g));
+            if ($g === '*' || $g === '') {
+                continue;
+            }
+
             if (Str::endsWith($g, '.*')) {
                 $pref = substr($g, 0, -2);
-                if ($pref !== '' && Str::startsWith($need, $pref . '.')) return true;
+                if ($pref !== '' && Str::startsWith($need, $pref . '.')) {
+                    return true;
+                }
             }
         }
 
@@ -195,11 +241,15 @@ class AuthServiceProvider extends ServiceProvider
             $u = $this->currentUser($user);
 
             // Superadmin siempre pasa
-            if ($this->isSuper($u)) return true;
+            if ($this->isSuper($u)) {
+                return true;
+            }
 
             // Bypass opcional SOLO en local/testing (nunca en producción)
             if (app()->environment(['local', 'development', 'testing']) && $bypassDevLocal) {
-                if ($this->isAdminRequest()) return true;
+                if ($this->isAdminRequest()) {
+                    return true;
+                }
             }
 
             return null;
@@ -207,18 +257,32 @@ class AuthServiceProvider extends ServiceProvider
 
         /**
          * Gate genérico "perm" (punto único de verdad).
-         * ✅ PRIORIDAD #1: usuarios_admin.permisos (JSON) con wildcards.
-         * ✅ PRIORIDAD #2: método hasPerm() en el modelo (si existe).
-         * ✅ PRIORIDAD #3: infra legacy de tablas (si existe).
+         * PRIORIDAD #1: usuarios_admin.permisos (JSON) con wildcards.
+         * PRIORIDAD #2: método hasPerm() en el modelo (si existe).
+         * PRIORIDAD #3: infra legacy de tablas (si existe).
+         *
+         * IMPORTANTE:
+         * Laravel puede invocar este gate con ability/argumento nulo
+         * desde middleware can mal parametrizado o llamadas dinámicas.
+         * Por eso NO tipamos $perm como string aquí.
          */
-        Gate::define('perm', function ($user, string $perm) use ($isProd, $strictProd) {
+        Gate::define('perm', function ($user = null, $perm = null) use ($isProd, $strictProd) {
             $u = $this->currentUser($user);
-            if (!$u) return false;
+
+            if (!$u) {
+                return false;
+            }
+
+            if (!is_string($perm)) {
+                return false;
+            }
 
             $key = strtolower(trim($perm));
-            if ($key === '') return false;
+            if ($key === '') {
+                return false;
+            }
 
-            // ✅ 1) JSON en usuarios_admin.permisos
+            // 1) JSON en usuarios_admin.permisos
             try {
                 $list = $this->extractUserPerms($u);
                 if (!empty($list)) {
@@ -228,17 +292,19 @@ class AuthServiceProvider extends ServiceProvider
                 // sigue
             }
 
-            // ✅ 2) Método en modelo tiene prioridad (si lo usas en el futuro)
+            // 2) Método en modelo tiene prioridad (si lo usas en el futuro)
             try {
                 if (method_exists($u, 'hasPerm')) {
                     $res = $u->hasPerm($key);
-                    if ($res !== null) return (bool)$res;
+                    if ($res !== null) {
+                        return (bool) $res;
+                    }
                 }
             } catch (Throwable $e) {
                 // continúa al flujo por tablas
             }
 
-            // ✅ 3) Infra legacy por tablas (si existe)
+            // 3) Infra legacy por tablas (si existe)
             try {
                 $hasPermTable = Schema::hasTable('permisos');
             } catch (Throwable $e) {
@@ -247,7 +313,9 @@ class AuthServiceProvider extends ServiceProvider
 
             if (!$hasPermTable) {
                 // Producción estricta -> deniega; en otros entornos -> permite solo abilities comunes
-                return ($isProd && $strictProd) ? false : in_array($key, self::COMMON_ABILITIES, true);
+                return ($isProd && $strictProd)
+                    ? false
+                    : in_array($key, self::COMMON_ABILITIES, true);
             }
 
             $ttl = (int) env('PERM_CACHE_TTL', 30);
@@ -258,7 +326,10 @@ class AuthServiceProvider extends ServiceProvider
                 });
 
                 if (!$permId) {
-                    if ($isProd && $strictProd) return false;
+                    if ($isProd && $strictProd) {
+                        return false;
+                    }
+
                     return in_array($key, self::COMMON_ABILITIES, true);
                 }
 
@@ -266,6 +337,7 @@ class AuthServiceProvider extends ServiceProvider
                     if (Schema::hasColumn('usuario_administrativos', 'perfil_id')) {
                         return (int) DB::table('usuario_administrativos')->where('id', $u->id)->value('perfil_id');
                     }
+
                     return 0;
                 });
 
@@ -276,7 +348,10 @@ class AuthServiceProvider extends ServiceProvider
                             ->where('permiso_id', $permId)
                             ->exists();
                     });
-                    if ($has) return true;
+
+                    if ($has) {
+                        return true;
+                    }
                 }
 
                 if (Schema::hasTable('usuario_permiso')) {
@@ -286,7 +361,10 @@ class AuthServiceProvider extends ServiceProvider
                             ->where('permiso_id', $permId)
                             ->exists();
                     });
-                    if ($has) return true;
+
+                    if ($has) {
+                        return true;
+                    }
                 }
 
                 return false;
@@ -309,22 +387,25 @@ class AuthServiceProvider extends ServiceProvider
         /**
          * AFTER (log de denegación en /admin/* si AUDIT_GATES=true).
          */
-        Gate::after(function ($user, string $ability, bool $result, array $arguments = []) use ($auditGates) {
-            if (!$auditGates) return;
+        Gate::after(function ($user = null, $ability = null, ?bool $result = null, array $arguments = []) use ($auditGates) {
+            if (!$auditGates) {
+                return;
+            }
 
             $isAdminReq = $this->isAdminRequest();
 
             if ($result === false && $isAdminReq) {
                 try {
                     Log::warning('[Gate deny]', [
-                        'ability' => $ability,
+                        'ability' => is_string($ability) ? $ability : null,
                         'user_id' => $user?->id,
                         'email'   => $user?->email,
                         'args'    => $arguments,
                         'path'    => (!app()->runningInConsole() && function_exists('request') && request()) ? request()->path() : 'cli/job',
                         'env'     => app()->environment(),
                     ]);
-                } catch (Throwable $e) {}
+                } catch (Throwable $e) {
+                }
             }
         });
     }
