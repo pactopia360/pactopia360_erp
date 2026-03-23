@@ -441,21 +441,6 @@ final class PortalStatementMirrorService
                 $charge     = round($shown, 2);
                 $paidAmount = round($shown, 2);
                 $saldo      = 0.0;
-            } else {
-                if (
-                    $charge <= 0.0001 &&
-                    $payAllowedUi &&
-                    $period === $payAllowedUi &&
-                    isset($chargesByPeriod[$period]) &&
-                    is_numeric($chargesByPeriod[$period]) &&
-                    (float) $chargesByPeriod[$period] > 0
-                ) {
-                    $charge = round((float) $chargesByPeriod[$period], 2);
-                }
-
-                if ($saldo <= 0.0001 && $charge > 0.0001) {
-                    $saldo = round(max(0.0, $charge - $paidAmount), 2);
-                }
             }
 
             $periodRange = $period;
@@ -525,64 +510,9 @@ final class PortalStatementMirrorService
         string $rfc,
         string $alias
     ): array {
-        $payAllowedUi = trim((string) $payAllowedUi);
-
-        if (!$this->isValidPeriod($payAllowedUi)) {
-            return $rows;
-        }
-
-        foreach ($rows as $row) {
-            if ((string) ($row['period'] ?? '') === $payAllowedUi) {
-                return $rows;
-            }
-        }
-
-        $charge = 0.0;
-        if (isset($chargesByPeriod[$payAllowedUi]) && is_numeric($chargesByPeriod[$payAllowedUi])) {
-            $charge = round((float) $chargesByPeriod[$payAllowedUi], 2);
-        }
-
-        if ($charge <= 0.0001) {
-            return $rows;
-        }
-
-        $periodRange = $payAllowedUi;
-        try {
-            $c = Carbon::createFromFormat('Y-m', $payAllowedUi);
-            $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
-        } catch (\Throwable $e) {
-        }
-
-        $rows[] = [
-            'id'                     => null,
-            'account_id'             => $accountId,
-            'admin_account_id'       => $accountId,
-            'statement_account_ref'  => (string) $accountId,
-            'period'                 => $payAllowedUi,
-            'status'                 => 'pending',
-            'charge'                 => round($charge, 2),
-            'total_cargo'            => round($charge, 2),
-            'paid_amount'            => 0.0,
-            'total_abono'            => 0.0,
-            'saldo'                  => round($charge, 2),
-            'can_pay'                => true,
-            'period_range'           => $periodRange,
-            'rfc'                    => $rfc !== '' ? $rfc : '—',
-            'alias'                  => $alias !== '' ? $alias : '—',
-            'invoice_request_status' => null,
-            'invoice_has_zip'        => false,
-            'price_source'           => 'synthetic.pay_allowed',
-            'service_items'          => [],
-            'meta'                   => null,
-            'snapshot'               => null,
-            'due_date'               => null,
-            'paid_at'                => null,
-            'created_at'             => null,
-            'updated_at'             => null,
-        ];
-
-        usort($rows, fn ($a, $b) => strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? '')));
-
+        // ✅ ESPEJO PURO:
+        // si el periodo permitido no existe en admin.billing_statements,
+        // NO inventamos fila sintética en cliente.
         return $rows;
     }
 }

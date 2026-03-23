@@ -156,38 +156,53 @@
     $headerPayAllowed = (string) $payAllowed;
   }
 
-  /*
+    /*
   |--------------------------------------------------------------------------
-  | Mensualidad header:
-  | - usa mensualidadAdmin si viene
-  | - si no, usa el menor charge positivo visible (más real para portal)
+  | Mensualidad header (ESPEJO REAL ADMIN)
+  |--------------------------------------------------------------------------
+  | REGLA:
+  | - NO usar $mensualidadAdmin porque puede venir contaminado por resolvers legacy
+  | - Preferir el monto del periodo con can_pay=true
+  | - Si no existe, usar el primer pendiente visible
+  | - Si no hay pendientes, usar el último pagado visible
   |--------------------------------------------------------------------------
   */
-    $mensualidadHeader = (float) ($mensualidadAdmin ?? 0);
+  $mensualidadHeader = 0.0;
 
+  // 1) periodo habilitado para pago
+  foreach ($rows as $tmpRow) {
+    $tmpCanPay = (bool) ($tmpRow['can_pay'] ?? false);
+    $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+    $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0);
+
+    if ($tmpCanPay) {
+      $mensualidadHeader = $tmpSaldo > 0 ? $tmpSaldo : $tmpCharge;
+      break;
+    }
+  }
+
+  // 2) primer pendiente visible
   if ($mensualidadHeader <= 0) {
-    $chargesVisible = [];
-
     foreach ($rows as $tmpRow) {
       $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
       $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+      $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0));
 
-      // ✅ Preferir meses NO pagados; si no hay, usar cualquier cargo positivo real
-      if (!in_array($tmpStatus, $paidStatuses, true) && $tmpCharge > 0) {
-        $chargesVisible[] = $tmpCharge;
+      if (!in_array($tmpStatus, $paidStatuses, true)) {
+        $mensualidadHeader = $tmpSaldo > 0 ? $tmpSaldo : $tmpCharge;
+        if ($mensualidadHeader > 0) break;
       }
     }
+  }
 
-    if (empty($chargesVisible)) {
-      foreach ($rows as $tmpRow) {
-        $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
-        if ($tmpCharge > 0) $chargesVisible[] = $tmpCharge;
+  // 3) último fallback: cualquier charge visible real
+  if ($mensualidadHeader <= 0) {
+    foreach ($rows as $tmpRow) {
+      $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+      if ($tmpCharge > 0) {
+        $mensualidadHeader = $tmpCharge;
+        break;
       }
-    }
-
-    if (!empty($chargesVisible)) {
-      sort($chargesVisible, SORT_NUMERIC);
-      $mensualidadHeader = (float) $chargesVisible[0];
     }
   }
 

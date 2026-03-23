@@ -265,11 +265,20 @@ final class BillingStatementsController extends Controller
         $rows->getCollection()->transform(function ($r) use ($agg, $payAgg, $payMeta, $ovMap, $period, $now) {
             $a = $agg[$r->id] ?? null;
 
+            $stmt = $this->getBillingStatementSnapshot((string) $r->id, $period);
+
             $cargoEdo = (float) ($a->cargo ?? 0);
             $abonoEdo = (float) ($a->abono ?? 0);
 
             $paidPayments = (float) ($payAgg[(string) $r->id] ?? 0);
-            $abonoTotal   = $abonoEdo + $paidPayments;
+
+            // ✅ SOT primero: billing_statements
+            if ($stmt) {
+                $cargoEdo   = (float) ($stmt['cargo'] ?? 0.0);
+                $abonoTotal = (float) ($stmt['abono'] ?? 0.0);
+            } else {
+                $abonoTotal = $abonoEdo + $paidPayments;
+            }
 
             $meta = $this->hub->decodeMeta($r->meta ?? null);
             if (!is_array($meta)) {
@@ -292,22 +301,32 @@ final class BillingStatementsController extends Controller
                 [$effectiveMxn, $tarifaLabel, $tarifaPill] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
             }
 
-            $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : (float) $effectiveMxn;
-            $saldoShown = (float) max(0.0, $totalShown - $abonoTotal);
+            if ($stmt) {
+                $totalShown = (float) ($stmt['cargo'] ?? 0.0);
+                $saldoShown = (float) ($stmt['saldo'] ?? 0.0);
+                $statusPago = (string) ($stmt['status'] ?? 'pendiente');
+            } else {
+                $totalShown = $cargoEdo > 0.00001 ? $cargoEdo : (float) $effectiveMxn;
+                $saldoShown = (float) max(0.0, $totalShown - $abonoTotal);
 
-            $statusPago = 'pendiente';
-            if ($totalShown <= 0.00001) {
-                $statusPago = 'sin_mov';
-            } elseif ($saldoShown <= 0.00001) {
-                $statusPago = 'pagado';
-            } elseif ($abonoTotal > 0.00001 && $abonoTotal < ($totalShown - 0.00001)) {
-                $statusPago = 'parcial';
+                $statusPago = 'pendiente';
+                if ($totalShown <= 0.00001) {
+                    $statusPago = 'sin_mov';
+                } elseif ($saldoShown <= 0.00001) {
+                    $statusPago = 'pagado';
+                } elseif ($abonoTotal > 0.00001 && $abonoTotal < ($totalShown - 0.00001)) {
+                    $statusPago = 'parcial';
+                }
             }
 
             $pm  = $payMeta[(string) $r->id] ?? [];
-            $due = $pm['due_date'] ?? null;
+            $due = $stmt['due_date'] ?? ($pm['due_date'] ?? null);
 
-            if ($saldoShown > 0.00001 && $this->isOverdue($period, $due, $now)) {
+            if (
+                !$stmt &&
+                $saldoShown > 0.00001 &&
+                $this->isOverdue($period, $due, $now)
+            ) {
                 $statusPago = 'vencido';
             }
 
@@ -432,10 +451,15 @@ final class BillingStatementsController extends Controller
             ->orderBy('id')
             ->get();
 
+        $stmt = $this->getBillingStatementSnapshot((string) $accountId, $period);
+
         $cargoEdo = (float) $items->sum('cargo');
         $abonoEdo = (float) $items->sum('abono');
         $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
-        $abonoTot = $abonoEdo + $abonoPay;
+
+        $abonoTot = $stmt
+            ? (float) ($stmt['abono'] ?? 0.0)
+            : ($abonoEdo + $abonoPay);
 
         $meta = $this->hub->decodeMeta($acc->meta ?? null);
         if (!is_array($meta)) {
@@ -486,16 +510,23 @@ final class BillingStatementsController extends Controller
             $itemsUi = collect([$serviceLine])->merge($items)->values();
         }
 
-        $totalShown = $cargoEdo + ($serviceLine ? (float) $serviceLine->cargo : 0.0);
-        $saldoShown = max(0.0, $totalShown - $abonoTot);
+        if ($stmt) {
+            $totalShown = (float) ($stmt['cargo'] ?? 0.0);
+            $saldoShown = (float) ($stmt['saldo'] ?? 0.0);
+            $statusPago = (string) ($stmt['status'] ?? 'pendiente');
+            $serviceLine = null; // ✅ si hay SOT real, no inventar línea synthetic
+        } else {
+            $totalShown = $cargoEdo + ($serviceLine ? (float) $serviceLine->cargo : 0.0);
+            $saldoShown = max(0.0, $totalShown - $abonoTot);
 
-        $statusPago = 'pendiente';
-        if ($totalShown <= 0.00001) {
-            $statusPago = 'sin_mov';
-        } elseif ($saldoShown <= 0.00001) {
-            $statusPago = 'pagado';
-        } elseif ($abonoTot > 0.00001 && $abonoTot < ($totalShown - 0.00001)) {
-            $statusPago = 'parcial';
+            $statusPago = 'pendiente';
+            if ($totalShown <= 0.00001) {
+                $statusPago = 'sin_mov';
+            } elseif ($saldoShown <= 0.00001) {
+                $statusPago = 'pagado';
+            } elseif ($abonoTot > 0.00001 && $abonoTot < ($totalShown - 0.00001)) {
+                $statusPago = 'parcial';
+            }
         }
 
         $row = (object) [
@@ -570,10 +601,15 @@ final class BillingStatementsController extends Controller
             ->orderBy('id')
             ->get();
 
+        $stmt = $this->getBillingStatementSnapshot($accountId, $period);
+
         $cargoEdo = (float) $items->sum('cargo');
         $abonoEdo = (float) $items->sum('abono');
         $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
-        $abonoTot = $abonoEdo + $abonoPay;
+
+        $abonoTot = $stmt
+            ? (float) ($stmt['abono'] ?? 0.0)
+            : ($abonoEdo + $abonoPay);
 
         $meta = $this->hub->decodeMeta($acc->meta ?? null);
         if (!is_array($meta)) {
@@ -598,7 +634,7 @@ final class BillingStatementsController extends Controller
 
         $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
 
-        $hasEvidence = $items->count() > 0;
+       $hasEvidence = $items->count() > 0 || $stmt !== null;
 
         if (!$hasEvidence && $this->hasPaymentsForAccountPeriod($accountId, $period)) {
             $hasEvidence = true;
@@ -608,7 +644,9 @@ final class BillingStatementsController extends Controller
             $hasEvidence = true;
         }
 
-        if ($forPrevScan && !$hasEvidence) {
+        if ($stmt) {
+            $inject = false; // ✅ si existe billing_statements, no inventar línea base
+        } elseif ($forPrevScan && !$hasEvidence) {
             $inject = false;
         } else {
             $inject = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
@@ -652,8 +690,13 @@ final class BillingStatementsController extends Controller
             $totalConsumos += (float) ($c['subtotal'] ?? 0);
         }
 
-        $cargoShown = round($totalConsumos, 2);
-        $saldo      = round(max(0.0, $cargoShown - $abonoTot), 2);
+        if ($stmt) {
+            $cargoShown = round((float) ($stmt['cargo'] ?? 0.0), 2);
+            $saldo      = round((float) ($stmt['saldo'] ?? 0.0), 2);
+        } else {
+            $cargoShown = round($totalConsumos, 2);
+            $saldo      = round(max(0.0, $cargoShown - $abonoTot), 2);
+        }
 
         return [
             'account'        => $acc,
@@ -2356,7 +2399,109 @@ final class BillingStatementsController extends Controller
         return 'data:image/png;base64,' . base64_encode($out);
     }
 
-        private function isOverdue(string $period, mixed $dueDate, Carbon $now): bool
+        /**
+     * =========================================================
+     * SOT: billing_statements por account + period
+     * =========================================================
+     * Retorna null si no existe statement real.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function getBillingStatementSnapshot(string $accountId, string $period): ?array
+    {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
+            return null;
+        }
+
+        try {
+            if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+                return null;
+            }
+
+            $row = DB::connection($this->adm)->table('billing_statements')
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->first([
+                    'id',
+                    'account_id',
+                    'period',
+                    'status',
+                    'total_cargo',
+                    'total_abono',
+                    'saldo',
+                    'due_date',
+                    'paid_at',
+                    'snapshot',
+                    'meta',
+                    'created_at',
+                    'updated_at',
+                ]);
+
+            if (!$row) {
+                return null;
+            }
+
+            $status = strtolower(trim((string) ($row->status ?? 'pending')));
+            $status = match ($status) {
+                'paid', 'pagado', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed' => 'pagado',
+                'partial', 'parcial' => 'parcial',
+                'overdue', 'vencido', 'past_due', 'unpaid' => 'vencido',
+                'sin_mov', 'sin mov', 'sin_movimiento', 'sin movimiento', 'no_movement', 'no movement' => 'sin_mov',
+                default => 'pendiente',
+            };
+
+            $cargo = is_numeric($row->total_cargo ?? null) ? (float) $row->total_cargo : 0.0;
+            $abono = is_numeric($row->total_abono ?? null) ? (float) $row->total_abono : 0.0;
+            $saldo = is_numeric($row->saldo ?? null) ? (float) $row->saldo : max(0.0, $cargo - $abono);
+
+            if ($status === 'pagado') {
+                $abono = max($abono, $cargo);
+                $saldo = 0.0;
+            }
+
+            if ($status === 'parcial' && $saldo <= 0.00001 && $cargo > $abono) {
+                $saldo = max(0.0, $cargo - $abono);
+            }
+
+            if ($status === 'pendiente' && $saldo <= 0.00001 && $cargo > 0.00001) {
+                $saldo = max(0.0, $cargo - $abono);
+            }
+
+            return [
+                'id'         => (int) ($row->id ?? 0),
+                'account_id' => (string) ($row->account_id ?? ''),
+                'period'     => (string) ($row->period ?? ''),
+                'status'     => $status,
+                'cargo'      => round(max(0.0, $cargo), 2),
+                'abono'      => round(max(0.0, $abono), 2),
+                'saldo'      => round(max(0.0, $saldo), 2),
+                'due_date'   => $row->due_date ?? null,
+                'paid_at'    => $row->paid_at ?? null,
+                'snapshot'   => $row->snapshot ?? null,
+                'meta'       => $row->meta ?? null,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] getBillingStatementSnapshot failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function hasBillingStatementSnapshot(string $accountId, string $period): bool
+    {
+        return $this->getBillingStatementSnapshot($accountId, $period) !== null;
+    }
+    
+    private function isOverdue(string $period, mixed $dueDate, Carbon $now): bool
     {
         // =========================================================
         // Regla GLOBAL (SOT):
