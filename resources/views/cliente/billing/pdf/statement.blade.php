@@ -720,51 +720,45 @@
             }
           @endphp
 
-          @if($qrImg)
+                    @if($qrImg)
             @php
-              // ✅ Si Admin ya inyectó QR con logo embebido (backend),
-              // NO hagas overlay HTML (DomPDF lo hace inestable y mueve layout).
+              // ======================================================
+              // ✅ SOT NUEVO:
+              // - Si backend ya mandó qr_embedded=true, SOLO pinta la imagen
+              // - NO fuerces overlay por request()->is('admin/*')
+              // - NO reinyectes logo en Blade para Admin
+              // ======================================================
               $qrEmbedded = (bool)($qr_embedded ?? false);
-
-              // ✅ Si viene desde Admin, NO uses embebido: fuerza overlay con logo correcto
-              if (request()->is('admin/*')) {
-                $qrEmbedded = false;
-                $forceOverlay = true;
-              }
-
-              // Mantén overlay SOLO si NO está embebido (caso Cliente legacy)
               $forceOverlay = (bool)($qr_force_overlay ?? false);
 
               $logoPx = (int)($qr_logo_px ?? 38);
               if ($logoPx < 18) $logoPx = 18;
               if ($logoPx > 64) $logoPx = 64;
 
-              // ✅ Logo para overlay (QR): usar logo especial
               $qrOverlayLogo = null;
 
-              $qrLogoFile = public_path('assets/client/qr/pactopia-qr-logo.png');
-              if (is_file($qrLogoFile) && is_readable($qrLogoFile)) {
-                try {
-                  $bin = file_get_contents($qrLogoFile);
-                  if ($bin !== false && strlen($bin) > 10) {
-                    $qrOverlayLogo = 'data:image/png;base64,' . base64_encode($bin);
+              if (!$qrEmbedded && $forceOverlay) {
+                $qrLogoFile = public_path('assets/client/qr/pactopia-qr-logo.png');
+                if (is_file($qrLogoFile) && is_readable($qrLogoFile)) {
+                  try {
+                    $bin = file_get_contents($qrLogoFile);
+                    if ($bin !== false && strlen($bin) > 10) {
+                      $qrOverlayLogo = 'data:image/png;base64,' . base64_encode($bin);
+                    }
+                  } catch (\Throwable $e) {
+                    $qrOverlayLogo = null;
                   }
-                } catch (\Throwable $e) {
-                  $qrOverlayLogo = null;
                 }
-              }
 
-              // fallback (por si falta el archivo)
-              if (!$qrOverlayLogo) {
-                $qrOverlayLogo = $logoDataUri ?? null;
+                if (!$qrOverlayLogo) {
+                  $qrOverlayLogo = $logoDataUri ?? null;
+                }
               }
             @endphp
 
             @if($qrEmbedded)
-              {{-- ✅ Admin: QR ya trae logo dentro --}}
               <img src="{{ $qrImg }}" alt="QR" class="qrImg">
             @elseif($forceOverlay && $qrOverlayLogo)
-              {{-- Cliente legacy: overlay (si lo sigues usando) --}}
               <div style="position:relative; display:inline-block; line-height:0;">
                 <img src="{{ $qrImg }}" alt="QR" class="qrImg" style="display:block;">
                 <img

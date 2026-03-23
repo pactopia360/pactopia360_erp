@@ -1,10 +1,46 @@
 {{-- resources/views/emails/admin/billing/statement_account_period.blade.php (v1.0 · Diseño + Tracking) --}}
 @php
   $acc = $account ?? null;
+
   $accName = trim((string)(($acc->razon_social ?? '') ?: ($acc->name ?? '') ?: ($acc->email ?? 'Cliente')));
   $periodTxt = (string)($period_label ?? $period ?? '');
-  $saldo = (float)($total ?? 0);
-  $hasSaldo = $saldo > 0.00001;
+
+  $cargoPeriodo = (float)($cargo ?? 0);
+  $abonoTotal   = (float)($abono ?? 0);
+  $abonoEdo     = (float)($abono_edo ?? 0);
+  $abonoPay     = (float)($abono_pay ?? 0);
+
+  $saldoPeriodo = (float)($current_period_due ?? $saldo ?? 0);
+  $saldoAnterior = (float)($prev_balance ?? 0);
+  $saldoTotal = (float)($total_due ?? $total ?? max(0, $saldoPeriodo + $saldoAnterior));
+
+  $expectedTotal = (float)($expected_total ?? 0);
+  $consumosTotal = (float)($consumos_total ?? $cargoPeriodo);
+
+  $hasSaldo = $saldoTotal > 0.00001;
+
+  $statusRaw = strtolower((string)($status_pago ?? ($hasSaldo ? 'pendiente' : 'pagado')));
+  if (in_array($statusRaw, ['paid','succeeded','success','completed'], true)) {
+      $statusRaw = 'pagado';
+  }
+
+  $statusOverride = strtolower((string)($status_override ?? ''));
+  $isOverride = $statusOverride !== '';
+
+  $statusLbl = $statusRaw === 'pagado' ? 'PAGADO'
+            : ($statusRaw === 'parcial' ? 'PARCIAL'
+            : ($statusRaw === 'vencido' ? 'VENCIDO'
+            : ($statusRaw === 'sin_mov' ? 'SIN MOV' : 'PENDIENTE')));
+
+  $tarifaLabel = (string)($tarifa_label ?? '—');
+
+  $payMethodUi   = (string)($pay_method ?? '');
+  $payProviderUi = (string)($pay_provider ?? '');
+  $payStatusUi   = (string)($pay_status ?? '');
+  $lastPaidUi    = (string)($last_paid ?? '');
+  $payAllowedUi  = (string)($pay_allowed ?? '');
+
+  $fmtMoney = fn($n) => '$' . number_format((float)$n, 2) . ' MXN';
 @endphp
 <!doctype html>
 <html lang="es">
@@ -27,20 +63,65 @@
     </div>
 
     <div style="background:#fff;border-radius:18px;margin-top:14px;border:1px solid #e7e9f2;overflow:hidden;">
-      <div style="padding:16px;border-bottom:1px solid #eef0f6;">
+            <div style="padding:16px;border-bottom:1px solid #eef0f6;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;">
           <div>
             <div style="font-size:12px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.04em;">Resumen</div>
             <div style="margin-top:6px;font-size:14px;color:#0f172a;font-weight:900;">
-              Periodo: {{ (string)($period ?? '') }} · Tarifa: {{ (string)($tarifa_label ?? '—') }}
+              Periodo: {{ (string)($period ?? '') }} · Tarifa: {{ $tarifaLabel }} · Estado: {{ $statusLbl }}
             </div>
+            @if($isOverride)
+              <div style="margin-top:6px;font-size:12px;color:#9a3412;font-weight:900;">
+                Estado ajustado manualmente por override.
+              </div>
+            @endif
           </div>
+
           <div style="text-align:right;">
-            <div style="font-size:12px;color:#64748b;font-weight:800;">Saldo pendiente</div>
+            <div style="font-size:12px;color:#64748b;font-weight:800;">Total a pagar</div>
             <div style="margin-top:6px;font-size:18px;font-weight:950;color:#0f172a;">
-              ${{ number_format($saldo,2) }} MXN
+              {{ $fmtMoney($saldoTotal) }}
             </div>
           </div>
+        </div>
+
+        <div style="margin-top:14px;border:1px solid #eef0f6;border-radius:14px;overflow:hidden;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tbody>
+              <tr>
+                <td style="padding:10px 12px;border-top:1px solid #eef0f6;color:#64748b;font-weight:800;">Cargo del periodo</td>
+                <td align="right" style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:900;">{{ $fmtMoney($cargoPeriodo) }}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 12px;border-top:1px solid #eef0f6;color:#64748b;font-weight:800;">Abonos aplicados</td>
+                <td align="right" style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:900;">{{ $fmtMoney($abonoTotal) }}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 12px;border-top:1px solid #eef0f6;color:#64748b;font-weight:800;">Saldo del periodo</td>
+                <td align="right" style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:900;">{{ $fmtMoney($saldoPeriodo) }}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 12px;border-top:1px solid #eef0f6;color:#64748b;font-weight:800;">Saldo anterior</td>
+                <td align="right" style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:900;">{{ $fmtMoney($saldoAnterior) }}</td>
+              </tr>
+              <tr style="background:#f8fafc;">
+                <td style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:900;">Total a pagar</td>
+                <td align="right" style="padding:10px 12px;border-top:1px solid #eef0f6;color:#0f172a;font-weight:950;">{{ $fmtMoney($saldoTotal) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:12px;font-size:12px;color:#64748b;font-weight:700;line-height:1.6;">
+          @if($lastPaidUi !== '')
+            Último periodo pagado: <b>{{ $lastPaidUi }}</b><br>
+          @endif
+          @if($payAllowedUi !== '')
+            Siguiente periodo permitido: <b>{{ $payAllowedUi }}</b><br>
+          @endif
+          @if($payMethodUi !== '' || $payProviderUi !== '' || $payStatusUi !== '')
+            Método: <b>{{ $payMethodUi ?: '—' }}</b> · Proveedor: <b>{{ $payProviderUi ?: '—' }}</b> · Estado UI: <b>{{ $payStatusUi ?: '—' }}</b>
+          @endif
         </div>
 
         @if($hasSaldo)
@@ -61,6 +142,9 @@
         @else
           <div style="margin-top:12px;padding:12px;border-radius:14px;background:#ecfeff;border:1px solid #a5f3fc;">
             <div style="font-weight:900;color:#155e75;">Tu estado de cuenta está al corriente.</div>
+            <div style="margin-top:6px;color:#0f766e;font-weight:700;font-size:13px;">
+              No hay saldo pendiente por pagar en este momento.
+            </div>
           </div>
         @endif
       </div>
@@ -78,7 +162,7 @@
               </tr>
             </thead>
             <tbody>
-              @forelse(($items ?? []) as $it)
+              @forelse((is_iterable($items ?? null) ? $items : []) as $it)
                 <tr>
                   <td style="padding:10px 12px;border-top:1px solid #eef0f6;font-weight:900;color:#0f172a;">
                     {{ $it->concepto ?? '—' }}
@@ -117,8 +201,13 @@
           @endif
         </div>
 
-        <div style="margin-top:14px;color:#64748b;font-size:12px;font-weight:700;">
-          Generado: {{ (string)($generated_at ?? now()) }} · ID tracking: {{ (string)($email_id ?? '') }}
+        <div style="margin-top:14px;color:#64748b;font-size:12px;font-weight:700;line-height:1.6;">
+          Generado: {{ (string)($generated_at ?? now()) }}
+          @if(!empty($email_id))
+            · ID tracking: {{ (string)($email_id ?? '') }}
+          @endif
+          <br>
+          Cargo periodo: {{ $fmtMoney($cargoPeriodo) }} · Abonos: {{ $fmtMoney($abonoTotal) }} · Total final: {{ $fmtMoney($saldoTotal) }}
         </div>
       </div>
     </div>

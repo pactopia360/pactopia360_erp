@@ -18,7 +18,7 @@
   // ========= DATA =========
   $account   = $account ?? null;
   $rows      = $rows ?? ($items ?? collect());
-  $summary   = $summary ?? null;
+  $summary   = is_array($summary ?? null) ? $summary : [];
 
   $statementCfg = $statement_cfg ?? null;
   $recips       = $recipients ?? [];
@@ -26,7 +26,7 @@
   // ========= FORMATTERS =========
   $fmtMoney  = fn($n) => '$' . number_format((float)$n, 2);
 
-  // ========= TOTALS (fallback) =========
+  // ========= TOTALS / SOURCE OF TRUTH =========
   $sumCargo = 0.0;
   $sumAbono = 0.0;
   foreach($rows as $r){
@@ -34,23 +34,31 @@
     $sumAbono += (float)($r->abono ?? 0);
   }
 
-  if(!is_array($summary)){
-    $summary = [
-      'cargo'  => $sumCargo,
-      'abono'  => $sumAbono,
-      'saldo'  => max(0, $sumCargo - $sumAbono),
-      'status' => (max(0, $sumCargo - $sumAbono) <= 0.00001 && $sumCargo > 0.00001) ? 'pagado' : 'pendiente',
-      'mode'   => null,
-    ];
-  }
+  $cargo = (float)($cargo_real ?? $summary['cargo'] ?? $sumCargo);
+  $abono = (float)($abono ?? $summary['abono'] ?? $sumAbono);
+  $saldo = (float)($saldo ?? $summary['saldo'] ?? max(0, $cargo - $abono));
 
-  $cargo = (float)($summary['cargo'] ?? $sumCargo);
-  $abono = (float)($summary['abono'] ?? $sumAbono);
-  $saldo = (float)($summary['saldo'] ?? max(0, $cargo - $abono));
+  $abonoEdo = (float)($abono_edo ?? 0);
+  $abonoPay = (float)($abono_pay ?? 0);
+
+  $expectedTotal = (float)($expected_total ?? 0);
+  $totalShown    = (float)($total ?? $cargo);
+  $prevBalance   = (float)($prev_balance ?? 0);
+  $totalDue      = (float)($total_due ?? max(0, $saldo + $prevBalance));
+  $currentDue    = (float)($current_period_due ?? $saldo);
+
+  $lastPaidUi    = (string)($last_paid ?? '');
+  $payAllowedUi  = (string)($pay_allowed ?? '');
+
+  $tarifaLabel   = (string)($tarifa_label ?? '');
+  $tarifaPill    = (string)($tarifa_pill ?? 'dim');
 
   // ========= STATUS UI =========
-  $statusRaw = strtolower((string)($summary['status'] ?? ($saldo<=0 && $cargo>0 ? 'pagado' : 'pendiente')));
+  $statusRaw = strtolower((string)($status_pago ?? $summary['status'] ?? ($saldo<=0 && $cargo>0 ? 'pagado' : 'pendiente')));
   if(in_array($statusRaw, ['paid','succeeded','success','completed'], true)) $statusRaw = 'pagado';
+
+  $statusOverride = strtolower((string)($status_override ?? ''));
+  $isOverride = $statusOverride !== '';
 
   $statusLbl = $statusRaw==='pagado' ? 'PAGADO'
             : ($statusRaw==='parcial' ? 'PARCIAL'
@@ -68,6 +76,15 @@
   $email = (string)(data_get($account,'email') ?? data_get($account,'correo') ?? '');
   $plan  = (string)(data_get($account,'plan') ?? data_get($account,'plan_name') ?? data_get($account,'license_plan') ?? '');
   $modo  = (string)(data_get($account,'modo_cobro') ?? data_get($account,'billing_mode') ?? '');
+
+  // ========= PAYMENT / OVERRIDE DISPLAY =========
+  $payMethodUi   = (string)($pay_method ?? '');
+  $payProviderUi = (string)($pay_provider ?? '');
+  $payStatusUi   = (string)($pay_status ?? '');
+  $payLastPaidAtUi = (string)($pay_last_paid_at ?? '');
+
+  $overrideReasonUi = (string)($status_override_reason ?? '');
+  $overrideUpdatedAtUi = (string)($status_override_updated_at ?? '');
 
   // ========= PERIOD LABEL =========
   $periodLabel = $period;
@@ -153,19 +170,33 @@
     {{-- KPIs --}}
     <div class="sx-kpis">
       <div class="sx-kpi">
-        <div class="k">Total cargos</div>
-        <div class="v">{{ $fmtMoney($cargo) }}</div>
-        <div class="s">Suma de cargos del periodo.</div>
+        <div class="k">Cargo del periodo</div>
+        <div class="v">{{ $fmtMoney($totalShown) }}</div>
+        <div class="s">Incluye servicio base y cargos del periodo.</div>
       </div>
+
       <div class="sx-kpi">
-        <div class="k">Total abonos</div>
+        <div class="k">Abonos aplicados</div>
         <div class="v">{{ $fmtMoney($abono) }}</div>
-        <div class="s">Pagos registrados (Stripe / EdoCta).</div>
+        <div class="s">EdoCta: {{ $fmtMoney($abonoEdo) }} · Payments: {{ $fmtMoney($abonoPay) }}</div>
       </div>
+
       <div class="sx-kpi">
-        <div class="k">Saldo</div>
-        <div class="v">{{ $fmtMoney($saldo) }}</div>
-        <div class="s">Si saldo = 0, se considera pagado.</div>
+        <div class="k">Saldo periodo actual</div>
+        <div class="v">{{ $fmtMoney($currentDue) }}</div>
+        <div class="s">Pendiente solo del periodo actual.</div>
+      </div>
+
+      <div class="sx-kpi">
+        <div class="k">Saldo anterior</div>
+        <div class="v">{{ $fmtMoney($prevBalance) }}</div>
+        <div class="s">Arrastre real de periodos abiertos anteriores.</div>
+      </div>
+
+      <div class="sx-kpi">
+        <div class="k">Total a pagar</div>
+        <div class="v">{{ $fmtMoney($totalDue) }}</div>
+        <div class="s">Saldo actual + arrastre anterior.</div>
       </div>
     </div>
 
@@ -473,6 +504,46 @@
                   @if($email) <div class="sx-kv__row"><span class="k">Correo</span><span class="v sx-mono sx-break">{{ $email }}</span></div>@endif
                   @if($plan)  <div class="sx-kv__row"><span class="k">Plan</span><span class="v">{{ strtoupper($plan) }}</span></div>@endif
                   @if($modo)  <div class="sx-kv__row"><span class="k">Cobro</span><span class="v">{{ $modo }}</span></div>@endif
+
+                  @if($tarifaLabel)
+                    <div class="sx-kv__row"><span class="k">Tarifa</span><span class="v">{{ $tarifaLabel }}</span></div>
+                  @endif
+
+                  @if($lastPaidUi)
+                    <div class="sx-kv__row"><span class="k">Último periodo pagado</span><span class="v sx-mono">{{ $lastPaidUi }}</span></div>
+                  @endif
+
+                  @if($payAllowedUi)
+                    <div class="sx-kv__row"><span class="k">Siguiente pago permitido</span><span class="v sx-mono">{{ $payAllowedUi }}</span></div>
+                  @endif
+
+                  @if($payMethodUi)
+                    <div class="sx-kv__row"><span class="k">Método</span><span class="v">{{ $payMethodUi }}</span></div>
+                  @endif
+
+                  @if($payProviderUi)
+                    <div class="sx-kv__row"><span class="k">Proveedor</span><span class="v">{{ $payProviderUi }}</span></div>
+                  @endif
+
+                  @if($payStatusUi)
+                    <div class="sx-kv__row"><span class="k">Estado pago UI</span><span class="v">{{ $payStatusUi }}</span></div>
+                  @endif
+
+                  @if($payLastPaidAtUi)
+                    <div class="sx-kv__row"><span class="k">Fecha pago UI</span><span class="v sx-mono sx-break">{{ $payLastPaidAtUi }}</span></div>
+                  @endif
+
+                  @if($isOverride)
+                    <div class="sx-kv__row"><span class="k">Override</span><span class="v">{{ strtoupper($statusOverride) }}</span></div>
+                  @endif
+
+                  @if($overrideReasonUi)
+                    <div class="sx-kv__row"><span class="k">Motivo override</span><span class="v sx-break">{{ $overrideReasonUi }}</span></div>
+                  @endif
+
+                  @if($overrideUpdatedAtUi)
+                    <div class="sx-kv__row"><span class="k">Override actualizado</span><span class="v sx-mono sx-break">{{ $overrideUpdatedAtUi }}</span></div>
+                  @endif
                 </div>
               </div>
             </div>

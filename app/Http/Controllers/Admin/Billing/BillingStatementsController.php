@@ -6,6 +6,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin\Billing;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Admin\Billing\Concerns\HandlesStatementOverridesAndPeriods;
+use App\Http\Controllers\Admin\Billing\Concerns\HandlesStatementPayments;
+use App\Http\Controllers\Admin\Billing\Concerns\PaymentHelper;
 use App\Mail\Admin\Billing\StatementAccountPeriodMail;
 use BaconQrCode\Renderer\Image\GdImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
@@ -28,6 +31,10 @@ use Stripe\StripeClient;
 
 final class BillingStatementsController extends Controller
 {
+    use HandlesStatementOverridesAndPeriods;
+    use HandlesStatementPayments;
+    use PaymentHelper;
+
     private string $adm;
     private StripeClient $stripe;
     private BillingStatementsHubController $hub;
@@ -43,43 +50,6 @@ final class BillingStatementsController extends Controller
         $this->stripe = new StripeClient($secret ?: '');
 
         $this->hub = $hub;
-    }
-
-    // =========================================================
-    // Annual billing helpers (admin.accounts.modo_cobro)
-    // =========================================================
-
-    private function isAnnualMode(?string $modo): bool
-    {
-        $m = strtolower(trim((string) $modo));
-        return in_array($m, ['anual', 'annual', 'year', 'yearly', '12m', '12'], true);
-    }
-
-    /**
-     * Decide si una cuenta anual "toca" en el periodo YYYY-MM.
-     * Fuente: admin.subscriptions (current_period_end -> started_at) fallback accounts.created_at.
-     *
-     * @param array<string, string|null> $renewMap account_id => YYYY-MM
-     */
-    private function annualIsDueForPeriod(string $accountId, string $period, array $renewMap, ?string $createdAt): bool
-    {
-        $p = trim($period);
-        if ($p === '') return false;
-
-        $due = $renewMap[$accountId] ?? null;
-
-        if (!$due) {
-            // Fallback final: created_at de accounts (primer alta)
-            try {
-                if ($createdAt) {
-                    $due = Carbon::parse($createdAt)->format('Y-m');
-                }
-            } catch (\Throwable $e) {
-                $due = null;
-            }
-        }
-
-        return $due === $p;
     }
 
     // =========================================================
@@ -110,72 +80,53 @@ final class BillingStatementsController extends Controller
             $status = 'all';
         }
 
-        // =========================================================
-        // ✅ OPCIÓN: incluir anuales aunque NO "toquen" en el periodo
-        // - includeAnnual=1  (o include_annual=1)
-        // Por defecto: NO se incluyen (fix del bug)
-        // =========================================================
         $includeAnnual = $req->boolean('includeAnnual')
             || $req->boolean('include_annual')
-            || ((string)$req->get('includeAnnual', '') === '1')
-            || ((string)$req->get('include_annual', '') === '1');
+            || ((string) $req->get('includeAnnual', '') === '1')
+            || ((string) $req->get('include_annual', '') === '1');
 
-        // =========================================================
-        // ✅ FILTRO: SOLO SELECCIONADAS (UI)
-        // - only_selected=1
-        // - ids=1,2,3 (CSV)  ó ids[]=1&ids[]=2
-        // =========================================================
         $onlySelected = $req->boolean('only_selected')
             || $req->boolean('onlySelected')
-            || ((string)$req->get('only_selected', '') === '1');
+            || ((string) $req->get('only_selected', '') === '1');
 
         $selectedIds = [];
         $idsRaw = $req->get('ids', null);
 
         if (is_array($idsRaw)) {
             $selectedIds = array_values(array_filter(array_map(static function ($v) {
-                $s = trim((string)$v);
+                $s = trim((string) $v);
                 if ($s === '') return null;
-
-                // account_id en admin suele ser numérico
                 if (preg_match('/^\d+$/', $s)) return $s;
-
-                // fallback ultra permisivo por si algún día no es int
                 if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
-
                 return null;
             }, $idsRaw)));
         } elseif (is_string($idsRaw)) {
             $parts = array_values(array_filter(array_map('trim', explode(',', $idsRaw))));
             $selectedIds = array_values(array_filter(array_map(static function ($s) {
-                $s = trim((string)$s);
+                $s = trim((string) $s);
                 if ($s === '') return null;
-
                 if (preg_match('/^\d+$/', $s)) return $s;
                 if (preg_match('/^[a-zA-Z0-9\-_]+$/', $s)) return $s;
-
                 return null;
             }, $parts)));
         }
 
-        // límite defensivo (evita URLs enormes)
         if (count($selectedIds) > 500) {
             $selectedIds = array_slice($selectedIds, 0, 500);
         }
 
-        // Si only_selected=1 pero no viene ids, mostramos vacío (sin romper)
         if ($onlySelected && empty($selectedIds)) {
             return view('admin.billing.statements.index', [
-                'rows'      => collect(),
-                'q'         => $q,
-                'period'    => $period,
-                'accountId' => $accountId,
-                'status'    => $status,
-                'perPage'   => $perPage,
+                'rows'         => collect(),
+                'q'            => $q,
+                'period'       => $period,
+                'accountId'    => $accountId,
+                'status'       => $status,
+                'perPage'      => $perPage,
                 'onlySelected' => true,
                 'idsCsv'       => '',
-                'error'     => 'Filtro "solo seleccionadas" activo, pero no recibí IDs (ids).',
-                'kpis'      => [
+                'error'        => 'Filtro "solo seleccionadas" activo, pero no recibí IDs (ids).',
+                'kpis'         => [
                     'cargo'    => 0,
                     'abono'    => 0,
                     'saldo'    => 0,
@@ -191,14 +142,16 @@ final class BillingStatementsController extends Controller
             !Schema::connection($this->adm)->hasTable('estados_cuenta')
         ) {
             return view('admin.billing.statements.index', [
-                'rows'      => collect(),
-                'q'         => $q,
-                'period'    => $period,
-                'accountId' => $accountId,
-                'status'    => $status,
-                'perPage'   => $perPage,
-                'error'     => 'Faltan tablas accounts y/o estados_cuenta en p360v1_admin.',
-                'kpis'      => [
+                'rows'         => collect(),
+                'q'            => $q,
+                'period'       => $period,
+                'accountId'    => $accountId,
+                'status'       => $status,
+                'perPage'      => $perPage,
+                'onlySelected' => $onlySelected,
+                'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
+                'error'        => 'Faltan tablas accounts y/o estados_cuenta en p360v1_admin.',
+                'kpis'         => [
                     'cargo'    => 0,
                     'abono'    => 0,
                     'saldo'    => 0,
@@ -219,8 +172,7 @@ final class BillingStatementsController extends Controller
             'name', 'razon_social', 'rfc',
             'plan', 'plan_actual', 'modo_cobro', 'billing_cycle',
             'is_blocked', 'estado_cuenta',
-            'meta',
-            'created_at',
+            'meta', 'created_at',
         ] as $c) {
             if ($has($c)) {
                 $select[] = "accounts.$c";
@@ -237,12 +189,7 @@ final class BillingStatementsController extends Controller
             }
         }
 
-        // =========================================================
-        // ✅ JOIN a última subscription por account_id (si existe)
-        // - para decidir si cuenta ANUAL "toca" en el periodo YYYY-MM
-        // =========================================================
         $hasSubs = Schema::connection($this->adm)->hasTable('subscriptions');
-
         $qb = DB::connection($this->adm)->table('accounts');
 
         if ($hasSubs) {
@@ -256,7 +203,6 @@ final class BillingStatementsController extends Controller
 
             $qb->leftJoin('subscriptions as sx_sub', 'sx_sub.id', '=', 'sx_submax.max_id');
 
-            // opcional: exponer estos campos si un día los quieres mostrar/debug
             $select[] = DB::raw('sx_sub.started_at as sub_started_at');
             $select[] = DB::raw('sx_sub.current_period_end as sub_current_period_end');
             $select[] = DB::raw('sx_sub.status as sub_status');
@@ -265,11 +211,8 @@ final class BillingStatementsController extends Controller
         $qb->select($select)
             ->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id');
 
-        // ✅ Prioridad: si viene only_selected, filtramos SOLO esos IDs
         if ($onlySelected) {
             $qb->whereIn('accounts.id', $selectedIds);
-
-            // En modo "solo seleccionadas" ignoramos los filtros de cuenta exacta y búsqueda
             $accountId = null;
             $q = '';
         } else {
@@ -294,19 +237,11 @@ final class BillingStatementsController extends Controller
             }
         }
 
-        // =========================================================
-        // ✅ FIX: NO mostrar anuales mes a mes
-        // Regla:
-        // - Si accounts.modo_cobro es anual => SOLO si su "renew YYYY-MM" == $period
-        // - renew = DATE_FORMAT(COALESCE(sub.current_period_end, sub.started_at, accounts.created_at), '%Y-%m')
-        // =========================================================
         if (!$includeAnnual && $hasSubs) {
             $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
             $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
-
             $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$period]);
         } elseif (!$includeAnnual && !$hasSubs) {
-            // Si no hay subscriptions, al menos excluye anuales por completo (safe default)
             $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
         }
 
@@ -367,8 +302,6 @@ final class BillingStatementsController extends Controller
                 $statusPago = 'pagado';
             } elseif ($abonoTotal > 0.00001 && $abonoTotal < ($totalShown - 0.00001)) {
                 $statusPago = 'parcial';
-            } else {
-                $statusPago = 'pendiente';
             }
 
             $pm  = $payMeta[(string) $r->id] ?? [];
@@ -378,15 +311,13 @@ final class BillingStatementsController extends Controller
                 $statusPago = 'vencido';
             }
 
-            // ---- Normalización para Blade ----
             $r->cargo          = round($cargoEdo, 2);
             $r->expected_total = round((float) $effectiveMxn, 2);
 
             $r->total_shown = round($totalShown, 2);
             $r->abono       = round($abonoTotal, 2);
             $r->saldo_shown = round($saldoShown, 2);
-
-            $r->saldo = round($saldoShown, 2);
+            $r->saldo       = round($saldoShown, 2);
 
             $r->abono_edo = round($abonoEdo, 2);
             $r->abono_pay = round($paidPayments, 2);
@@ -407,12 +338,9 @@ final class BillingStatementsController extends Controller
             $r->pay_status       = $pm['status'] ?? null;
 
             $ov = $ovMap[(string) $r->id] ?? null;
-            $r  = $this->applyStatusOverride($r, $ov);
-
-            return $r;
+            return $this->applyStatusOverride($r, $ov);
         });
 
-        // Nota: este filtro aplica sobre la colección ya paginada (página actual).
         if ($status !== 'all') {
             $filtered = $rows->getCollection()
                 ->filter(static fn ($x) => (string) ($x->status_pago ?? '') === $status)
@@ -427,7 +355,6 @@ final class BillingStatementsController extends Controller
             );
         }
 
-        // KPIs basados en la colección mostrada
         $kCargo = 0.0;
         $kAbono = 0.0;
         $kSaldo = 0.0;
@@ -442,22 +369,21 @@ final class BillingStatementsController extends Controller
             $kCargo += $totalShown;
             $kAbono += $paid;
             $kSaldo += $saldoShown;
-
-            $kEdo += (float) ($r->abono_edo ?? 0);
-            $kPay += (float) ($r->abono_pay ?? 0);
+            $kEdo   += (float) ($r->abono_edo ?? 0);
+            $kPay   += (float) ($r->abono_pay ?? 0);
         }
 
         return view('admin.billing.statements.index', [
-            'rows'      => $rows,
-            'q'         => $q,
-            'period'    => $period,
-            'accountId' => $accountId,
-            'status'    => $status,
-            'perPage'   => $perPage,
+            'rows'         => $rows,
+            'q'            => $q,
+            'period'       => $period,
+            'accountId'    => $accountId,
+            'status'       => $status,
+            'perPage'      => $perPage,
             'onlySelected' => $onlySelected,
             'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
-            'error'     => null,
-            'kpis'      => [
+            'error'        => null,
+            'kpis'         => [
                 'cargo'    => round($kCargo, 2),
                 'abono'    => round($kAbono, 2),
                 'saldo'    => round($kSaldo, 2),
@@ -475,8 +401,7 @@ final class BillingStatementsController extends Controller
     {
         $page   = max(1, $page);
         $offset = ($page - 1) * $perPage;
-
-        $slice = $items->slice($offset, $perPage)->values();
+        $slice  = $items->slice($offset, $perPage)->values();
 
         return new LengthAwarePaginator(
             $slice,
@@ -488,7 +413,7 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
-    // SHOW (DETALLE)
+    // SHOW
     // =========================================================
 
     public function show(Request $req, string $accountId, string $period): View
@@ -509,7 +434,6 @@ final class BillingStatementsController extends Controller
 
         $cargoEdo = (float) $items->sum('cargo');
         $abonoEdo = (float) $items->sum('abono');
-
         $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
         $abonoTot = $abonoEdo + $abonoPay;
 
@@ -572,49 +496,67 @@ final class BillingStatementsController extends Controller
             $statusPago = 'pagado';
         } elseif ($abonoTot > 0.00001 && $abonoTot < ($totalShown - 0.00001)) {
             $statusPago = 'parcial';
-        } else {
-            $statusPago = 'pendiente';
         }
+
+        $row = (object) [
+            'cargo'            => round($cargoEdo, 2),
+            'expected_total'   => round((float) $expected, 2),
+            'total_shown'      => round((float) $totalShown, 2),
+            'abono'            => round((float) $abonoTot, 2),
+            'abono_edo'        => round((float) $abonoEdo, 2),
+            'abono_pay'        => round((float) $abonoPay, 2),
+            'saldo'            => round((float) $saldoShown, 2),
+            'saldo_shown'      => round((float) $saldoShown, 2),
+            'saldo_current'    => round((float) $saldoShown, 2),
+            'prev_balance'     => 0.0,
+            'total_due'        => round((float) $saldoShown, 2),
+            'tarifa_label'     => (string) $tarifaLabel,
+            'tarifa_pill'      => (string) $tarifaPill,
+            'status_pago'      => $statusPago,
+            'status_auto'      => $statusPago,
+            'last_paid'        => $lastPaid,
+            'pay_allowed'      => $payAllowed,
+            'pay_last_paid_at' => null,
+            'pay_due_date'     => null,
+            'pay_method'       => null,
+            'pay_provider'     => null,
+            'pay_status'       => null,
+        ];
+
+        $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
+        $row = $this->applyStatusOverride($row, $ov[(string) $accountId] ?? null);
 
         $recipients = $this->resolveRecipientsForAccount((string) $accountId, (string) ($acc->email ?? ''));
 
         return view('admin.billing.statements.show', [
-            'account'        => $acc,
-            'period'         => $period,
-            'period_label'   => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
-
-            'items'          => $itemsUi,
-
-            'cargo_real'     => round($cargoEdo, 2),
-            'expected_total' => round((float) $expected, 2),
-            'tarifa_label'   => (string) $tarifaLabel,
-            'tarifa_pill'    => (string) $tarifaPill,
-
-            'abono'          => round((float) $abonoTot, 2),
-            'abono_edo'      => round((float) $abonoEdo, 2),
-            'abono_pay'      => round((float) $abonoPay, 2),
-
-            'total'          => round((float) $totalShown, 2),
-            'saldo'          => round((float) $saldoShown, 2),
-
-            'last_paid'      => $lastPaid,
-            'pay_allowed'    => $payAllowed,
-
-            'status_pago'    => $statusPago,
-
-            'statement_cfg'  => $stmtCfg,
-            'recipients'     => $recipients,
-
-            'meta'           => $meta,
-
-            'isModal'        => $req->boolean('modal'),
+            'account'          => $acc,
+            'period'           => $period,
+            'period_label'     => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
+            'items'            => $itemsUi,
+            'cargo_real'       => round($cargoEdo, 2),
+            'expected_total'   => round((float) ($row->expected_total ?? $expected), 2),
+            'tarifa_label'     => (string) ($row->tarifa_label ?? $tarifaLabel),
+            'tarifa_pill'      => (string) ($row->tarifa_pill ?? $tarifaPill),
+            'abono'            => round((float) ($row->abono ?? $abonoTot), 2),
+            'abono_edo'        => round((float) ($row->abono_edo ?? $abonoEdo), 2),
+            'abono_pay'        => round((float) ($row->abono_pay ?? $abonoPay), 2),
+            'total'            => round((float) ($row->total_shown ?? $totalShown), 2),
+            'saldo'            => round((float) ($row->saldo ?? $saldoShown), 2),
+            'last_paid'        => $lastPaid,
+            'pay_allowed'      => $payAllowed,
+            'status_pago'      => (string) ($row->status_pago ?? $statusPago),
+            'pay_method'       => $row->pay_method ?? null,
+            'pay_provider'     => $row->pay_provider ?? null,
+            'pay_status'       => $row->pay_status ?? null,
+            'pay_last_paid_at' => $row->pay_last_paid_at ?? null,
+            'statement_cfg'    => $stmtCfg,
+            'recipients'       => $recipients,
+            'meta'             => $meta,
+            'isModal'          => $req->boolean('modal'),
         ]);
     }
 
     /**
-     * Calcula consumos/abonos/saldo para un periodo (misma lógica del PDF),
-     * pero sin QR ni view. Se usa para sumar "periodo anterior pendiente".
-     *
      * @return array<string,mixed>
      */
     private function computeStatementTotalsForPeriod(string $accountId, string $period, bool $forPrevScan = false): array
@@ -630,7 +572,6 @@ final class BillingStatementsController extends Controller
 
         $cargoEdo = (float) $items->sum('cargo');
         $abonoEdo = (float) $items->sum('abono');
-
         $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
         $abonoTot = $abonoEdo + $abonoPay;
 
@@ -657,29 +598,18 @@ final class BillingStatementsController extends Controller
 
         $stmtCfg = $this->getStatementConfigFromMeta($meta, $period);
 
-        // =========================================================
-        // ✅ Evidence gating para "prev_balance":
-        // Si estamos escaneando periodos anteriores, NO inyectar servicio
-        // cuando NO existe evidencia real en ese mes.
-        // =========================================================
         $hasEvidence = $items->count() > 0;
 
-        if (!$hasEvidence) {
-            // payments por periodo (cualquier status) cuentan como evidencia
-            if ($this->hasPaymentsForAccountPeriod($accountId, $period)) {
-                $hasEvidence = true;
-            }
+        if (!$hasEvidence && $this->hasPaymentsForAccountPeriod($accountId, $period)) {
+            $hasEvidence = true;
         }
 
-        if (!$hasEvidence) {
-            // override manual también es evidencia
-            if ($this->hasOverrideForAccountPeriod($accountId, $period)) {
-                $hasEvidence = true;
-            }
+        if (!$hasEvidence && $this->hasOverrideForAccountPeriod($accountId, $period)) {
+            $hasEvidence = true;
         }
 
         if ($forPrevScan && !$hasEvidence) {
-            $inject = false; // evita meses fantasma
+            $inject = false;
         } else {
             $inject = $this->shouldInjectServiceLine($items, (float) $expectedTotal, $stmtCfg['mode'] ?? 'monthly');
         }
@@ -728,79 +658,66 @@ final class BillingStatementsController extends Controller
         return [
             'account'        => $acc,
             'items'          => $items,
-
             'consumos'       => $consumos,
             'consumos_total' => round($totalConsumos, 2),
-
             'cargo_real'     => round($cargoEdo, 2),
             'expected_total' => round((float) $expectedTotal, 2),
             'tarifa_label'   => (string) $tarifaLabel,
             'tarifa_pill'    => (string) $tarifaPill,
-
             'cargo'          => $cargoShown,
             'abono'          => round((float) $abonoTot, 2),
             'abono_edo'      => round((float) $abonoEdo, 2),
             'abono_pay'      => round((float) $abonoPay, 2),
             'saldo'          => $saldo,
-
             'last_paid'      => $lastPaid,
             'pay_allowed'    => $payAllowed,
-
             'statement_cfg'  => $stmtCfg,
         ];
     }
 
-    /**
-     * Un periodo solo debe considerarse con "evidencia real" para prev_balance si hay:
-     * - movimientos en estados_cuenta, o
-     * - pagos REALES en payments (solo PAID/succeeded/etc; pending NO cuenta para evitar meses fantasma), o
-     * - override en billing_statement_status_overrides
-     */
     private function hasStatementEvidence(string $accountId, string $period): bool
     {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
+            return false;
+        }
+
         try {
-            // 1) estados_cuenta
             if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-                $cnt = (int) DB::connection($this->adm)->table('estados_cuenta')
+                $existsEstado = DB::connection($this->adm)->table('estados_cuenta')
                     ->where('account_id', $accountId)
                     ->where('periodo', $period)
-                    ->count();
+                    ->limit(1)
+                    ->exists();
 
-                if ($cnt > 0) return true;
-            }
-
-            // 2) payments (SOT: evidencia solo si está PAGADO)
-            if (Schema::connection($this->adm)->hasTable('payments')) {
-                $cols = Schema::connection($this->adm)->getColumnListing('payments');
-                $lc   = array_map('strtolower', $cols);
-                $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-                if ($has('account_id') && $has('status')) {
-                    $q = DB::connection($this->adm)->table('payments')
-                        ->where('account_id', $accountId);
-
-                    $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-                    $q->whereIn('status', [
-                        'paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized',
-                    ]);
-
-                    if ($q->limit(1)->exists()) return true;
+                if ($existsEstado) {
+                    return true;
                 }
             }
 
-            // 3) overrides
+            if ($this->hasPaymentsForAccountPeriod($accountId, $period)) {
+                return true;
+            }
+
             if (Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                if (DB::connection($this->adm)->table($this->overrideTable())
+                $existsOverride = DB::connection($this->adm)->table($this->overrideTable())
                     ->where('account_id', $accountId)
                     ->where('period', $period)
                     ->limit(1)
-                    ->exists()) {
+                    ->exists();
+
+                if ($existsOverride) {
                     return true;
                 }
             }
         } catch (\Throwable $e) {
-            // en caso de error, mejor NO sumar prev para no inflar
+            Log::warning('[ADMIN][STATEMENTS] hasStatementEvidence failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
             return false;
         }
 
@@ -808,60 +725,73 @@ final class BillingStatementsController extends Controller
     }
 
     /**
-     * Saldo anterior real = suma de saldos pendientes de periodos anteriores.
-     * - Si hay lastPaid, NO consideramos periodos <= lastPaid (ya quedaron “cerrados”).
-     * - Escanea hacia atrás hasta $maxMonths (seguridad).
-     *
      * @return array{prev_period:?string, prev_balance:float}
      */
     private function computePrevOpenBalance(string $accountId, string $period, ?string $lastPaid, int $maxMonths = 24): array
     {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+        $lastPaid  = $lastPaid !== null ? trim($lastPaid) : null;
+
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
+            return ['prev_period' => null, 'prev_balance' => 0.0];
+        }
+
+        $maxMonths = max(1, min(60, $maxMonths));
         $prevBalance = 0.0;
         $prevPeriodMostRecent = null;
 
         try {
-            $cur = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+            $current = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
 
             for ($i = 1; $i <= $maxMonths; $i++) {
-                $p = $cur->copy()->subMonthsNoOverflow($i)->format('Y-m');
-                if (!$this->isValidPeriod($p)) continue;
+                $scanPeriod = $current->copy()->subMonthsNoOverflow($i)->format('Y-m');
 
-                if ($lastPaid && $this->isValidPeriod($lastPaid) && $p <= $lastPaid) {
-                    break; // todo lo anterior ya no cuenta
-                }
-
-                // ✅ FIX: no sumar meses "fantasma" sin evidencia real de statement
-                if (!$this->hasStatementEvidence($accountId, $p)) {
+                if (!$this->isValidPeriod($scanPeriod)) {
                     continue;
                 }
 
-                // ✅ SOT: si el mes está marcado "pagado" por override, no se suma a prev_balance.
-                if ($this->isPeriodPaidByOverride($accountId, $p)) {
+                if ($lastPaid && $this->isValidPeriod($lastPaid) && $scanPeriod <= $lastPaid) {
+                    break;
+                }
+
+                if (!$this->hasStatementEvidence($accountId, $scanPeriod)) {
                     continue;
                 }
 
-                $tot = $this->computeStatementTotalsForPeriod($accountId, $p, true);
-
-                $saldo = (float) ($tot['saldo'] ?? 0);
-
-                if ($saldo > 0.00001) {
-                    $prevBalance += $saldo;
-                    if ($prevPeriodMostRecent === null) $prevPeriodMostRecent = $p;
+                if ($this->isPeriodPaidByOverride($accountId, $scanPeriod)) {
+                    continue;
                 }
 
+                $totals = $this->computeStatementTotalsForPeriod($accountId, $scanPeriod, true);
+                $saldo  = round((float) ($totals['saldo'] ?? 0.0), 2);
+
+                if ($saldo <= 0.00001) {
+                    continue;
+                }
+
+                $prevBalance += $saldo;
+
+                if ($prevPeriodMostRecent === null) {
+                    $prevPeriodMostRecent = $scanPeriod;
+                }
             }
         } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] computePrevOpenBalance failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'last_paid'  => $lastPaid,
+                'err'        => $e->getMessage(),
+            ]);
+
             return ['prev_period' => null, 'prev_balance' => 0.0];
         }
 
-        $prevBalance = round(max(0.0, $prevBalance), 2);
-
         return [
             'prev_period'  => $prevPeriodMostRecent,
-            'prev_balance' => $prevBalance,
+            'prev_balance' => round(max(0.0, $prevBalance), 2),
         ];
     }
-
 
     // =========================================================
     // PDF / EMAIL DATA
@@ -876,58 +806,98 @@ final class BillingStatementsController extends Controller
         $acc   = $cur['account'];
         $items = $cur['items'];
 
-        $cargoShown = (float) ($cur['cargo'] ?? 0);
-        $abonoTot   = (float) ($cur['abono'] ?? 0);
-        $saldoCur   = (float) ($cur['saldo'] ?? 0);
+        $cargoShown = (float) ($cur['cargo'] ?? 0.0);
+        $abonoTot   = (float) ($cur['abono'] ?? 0.0);
+        $saldoCur   = (float) ($cur['saldo'] ?? 0.0);
 
-        $prevInfo   = $this->computePrevOpenBalance((string)$accountId, (string)$period, $cur['last_paid'] ?? null);
+        $prevInfo   = $this->computePrevOpenBalance((string) $accountId, (string) $period, $cur['last_paid'] ?? null);
         $prevPeriod = $prevInfo['prev_period'] ?? null;
-        $prevSaldo  = (float) ($prevInfo['prev_balance'] ?? 0.0);
-        $prevSaldo  = round(max(0.0, $prevSaldo), 2);
-
+        $prevSaldo  = round(max(0.0, (float) ($prevInfo['prev_balance'] ?? 0.0)), 2);
 
         $totalDue = round(max(0.0, $saldoCur + $prevSaldo), 2);
+
+        $row = (object) [
+            'cargo'            => round((float) ($cur['cargo_real'] ?? 0.0), 2),
+            'expected_total'   => round((float) ($cur['expected_total'] ?? 0.0), 2),
+            'total_shown'      => round($cargoShown, 2),
+            'abono'            => round($abonoTot, 2),
+            'abono_edo'        => round((float) ($cur['abono_edo'] ?? 0.0), 2),
+            'abono_pay'        => round((float) ($cur['abono_pay'] ?? 0.0), 2),
+            'saldo'            => round(max(0.0, $saldoCur), 2),
+            'saldo_shown'      => round(max(0.0, $saldoCur), 2),
+            'saldo_current'    => round(max(0.0, $saldoCur), 2),
+            'prev_balance'     => $prevSaldo,
+            'total_due'        => $totalDue,
+            'tarifa_label'     => (string) ($cur['tarifa_label'] ?? '-'),
+            'tarifa_pill'      => (string) ($cur['tarifa_pill'] ?? 'dim'),
+            'status_pago'      => (
+                $cargoShown <= 0.00001
+                    ? 'sin_mov'
+                    : ($saldoCur <= 0.00001
+                        ? 'pagado'
+                        : ($abonoTot > 0.00001 && $saldoCur > 0.00001 ? 'parcial' : 'pendiente'))
+            ),
+            'status_auto'      => (
+                $cargoShown <= 0.00001
+                    ? 'sin_mov'
+                    : ($saldoCur <= 0.00001
+                        ? 'pagado'
+                        : ($abonoTot > 0.00001 && $saldoCur > 0.00001 ? 'parcial' : 'pendiente'))
+            ),
+            'last_paid'        => $cur['last_paid'] ?? null,
+            'pay_allowed'      => $cur['pay_allowed'] ?? null,
+            'pay_last_paid_at' => null,
+            'pay_due_date'     => null,
+            'pay_method'       => null,
+            'pay_provider'     => null,
+            'pay_status'       => null,
+        ];
+
+        $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
+        $row = $this->applyStatusOverride($row, $ov[(string) $accountId] ?? null);
+
+        $finalSaldoCurrent = round(max(0.0, (float) ($row->saldo_current ?? $saldoCur)), 2);
+        $finalPrevBalance  = round(max(0.0, (float) ($row->prev_balance ?? $prevSaldo)), 2);
+        $finalTotalDue     = round(max(0.0, (float) ($row->total_due ?? ($finalSaldoCurrent + $finalPrevBalance))), 2);
+
+        $effectivePrevPeriod = $finalPrevBalance > 0.00001 ? $prevPeriod : null;
 
         $qrText = $this->resolveQrTextForStatement($accountId, $period, null);
         [$qrDataUri, $qrUrl] = $this->makeQrDataForText((string) ($qrText ?? ''));
 
         return [
-            'account'        => $acc,
-            'account_id'     => $accountId,
-            'period'         => $period,
-            'period_label'   => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
-
-            'items'          => $items,
-
-            'consumos'       => $cur['consumos'] ?? [],
-            'service_items'  => $cur['consumos'] ?? [],
-            'consumos_total' => round((float) ($cur['consumos_total'] ?? 0), 2),
-
-            'cargo_real'     => round((float) ($cur['cargo_real'] ?? 0), 2),
-            'expected_total' => round((float) ($cur['expected_total'] ?? 0), 2),
-            'tarifa_label'   => (string) ($cur['tarifa_label'] ?? '-'),
-            'tarifa_pill'    => (string) ($cur['tarifa_pill'] ?? 'dim'),
-
-            'cargo'              => round($cargoShown, 2),
-            'abono'              => round($abonoTot, 2),
-            'abono_edo'          => round((float) ($cur['abono_edo'] ?? 0), 2),
-            'abono_pay'          => round((float) ($cur['abono_pay'] ?? 0), 2),
-            'saldo'              => round(max(0.0, $saldoCur), 2),
-
-            'prev_period'        => $prevPeriod,
-            'prev_period_label'  => $prevPeriod ? Str::title(Carbon::parse($prevPeriod . '-01')->translatedFormat('F Y')) : null,
-            'prev_balance'       => $prevPeriod ? $prevSaldo : 0.0,
-
-            'current_period_due' => round(max(0.0, $saldoCur), 2),
-            'total_due'          => $totalDue,
-
-            'total'              => $totalDue,
-
+            'account'            => $acc,
+            'account_id'         => $accountId,
+            'period'             => $period,
+            'period_label'       => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
+            'items'              => $items,
+            'consumos'           => $cur['consumos'] ?? [],
+            'service_items'      => $cur['consumos'] ?? [],
+            'consumos_total'     => round((float) ($cur['consumos_total'] ?? 0), 2),
+            'cargo_real'         => round((float) ($cur['cargo_real'] ?? 0), 2),
+            'expected_total'     => round((float) ($row->expected_total ?? $cur['expected_total'] ?? 0), 2),
+            'tarifa_label'       => (string) ($row->tarifa_label ?? $cur['tarifa_label'] ?? '-'),
+            'tarifa_pill'        => (string) ($row->tarifa_pill ?? $cur['tarifa_pill'] ?? 'dim'),
+            'cargo'              => round((float) ($row->total_shown ?? $cargoShown), 2),
+            'abono'              => round((float) ($row->abono ?? $abonoTot), 2),
+            'abono_edo'          => round((float) ($row->abono_edo ?? $cur['abono_edo'] ?? 0), 2),
+            'abono_pay'          => round((float) ($row->abono_pay ?? $cur['abono_pay'] ?? 0), 2),
+            'saldo'              => round((float) ($row->saldo ?? $saldoCur), 2),
+            'prev_period'        => $effectivePrevPeriod,
+            'prev_period_label'  => $effectivePrevPeriod ? Str::title(Carbon::parse($effectivePrevPeriod . '-01')->translatedFormat('F Y')) : null,
+            'prev_balance'       => $finalPrevBalance,
+            'current_period_due' => $finalSaldoCurrent,
+            'total_due'          => $finalTotalDue,
+            'total'              => $finalTotalDue,
             'generated_at'       => now(),
-
             'last_paid'          => $cur['last_paid'] ?? null,
             'pay_allowed'        => $cur['pay_allowed'] ?? null,
-
+            'status_pago'        => (string) ($row->status_pago ?? 'pendiente'),
+            'status_auto'        => (string) ($row->status_auto ?? 'pendiente'),
+            'pay_method'         => $row->pay_method ?? null,
+            'pay_provider'       => $row->pay_provider ?? null,
+            'pay_status'         => $row->pay_status ?? null,
+            'pay_last_paid_at'   => $row->pay_last_paid_at ?? null,
             'pay_url'            => $qrText,
             'qr_data_uri'        => $qrDataUri,
             'qr_url'             => $qrUrl,
@@ -943,17 +913,14 @@ final class BillingStatementsController extends Controller
         abort_if(!$this->isValidPeriod($period), 422);
 
         $data = $req->validate([
-            'concepto'    => 'required|string|max:255',
-            'detalle'     => 'nullable|string|max:2000',
-
-            'cargo'       => 'nullable|numeric|min:0|max:99999999',
-            'abono'       => 'nullable|numeric|min:0|max:99999999',
-
-            'tipo'        => 'nullable|string|in:cargo,abono',
-            'monto'       => 'nullable|numeric|min:0|max:99999999',
-
-            'send_email'  => 'nullable|boolean',
-            'to'          => 'nullable|string|max:2000',
+            'concepto'   => 'required|string|max:255',
+            'detalle'    => 'nullable|string|max:2000',
+            'cargo'      => 'nullable|numeric|min:0|max:99999999',
+            'abono'      => 'nullable|numeric|min:0|max:99999999',
+            'tipo'       => 'nullable|string|in:cargo,abono',
+            'monto'      => 'nullable|numeric|min:0|max:99999999',
+            'send_email' => 'nullable|boolean',
+            'to'         => 'nullable|string|max:2000',
         ]);
 
         [$cargo, $abono] = $this->resolveCargoAbonoFromRequest($data);
@@ -986,9 +953,6 @@ final class BillingStatementsController extends Controller
         return back()->with('ok', 'Movimiento agregado.');
     }
 
-    /**
-     * POST /admin/billing/statements/lines
-     */
     public function lineStore(Request $req): RedirectResponse
     {
         $data = $req->validate([
@@ -996,10 +960,8 @@ final class BillingStatementsController extends Controller
             'period'     => 'required|string',
             'concepto'   => 'required|string|max:255',
             'detalle'    => 'nullable|string|max:2000',
-
             'cargo'      => 'nullable|numeric|min:0|max:99999999',
             'abono'      => 'nullable|numeric|min:0|max:99999999',
-
             'tipo'       => 'nullable|string|in:cargo,abono',
             'monto'      => 'nullable|numeric|min:0|max:99999999',
         ]);
@@ -1034,9 +996,6 @@ final class BillingStatementsController extends Controller
         return back()->with('ok', 'Línea agregada.');
     }
 
-    /**
-     * PUT /admin/billing/statements/lines
-     */
     public function lineUpdate(Request $req): RedirectResponse
     {
         $data = $req->validate([
@@ -1045,10 +1004,8 @@ final class BillingStatementsController extends Controller
             'period'     => 'required|string',
             'concepto'   => 'required|string|max:255',
             'detalle'    => 'nullable|string|max:2000',
-
             'cargo'      => 'nullable|numeric|min:0|max:99999999',
             'abono'      => 'nullable|numeric|min:0|max:99999999',
-
             'tipo'       => 'nullable|string|in:cargo,abono',
             'monto'      => 'nullable|numeric|min:0|max:99999999',
         ]);
@@ -1087,9 +1044,6 @@ final class BillingStatementsController extends Controller
         return back()->with('ok', 'Línea actualizada.');
     }
 
-    /**
-     * DELETE /admin/billing/statements/lines
-     */
     public function lineDelete(Request $req): RedirectResponse
     {
         $data = $req->validate([
@@ -1129,10 +1083,8 @@ final class BillingStatementsController extends Controller
         $data = $req->validate([
             'account_id' => 'required|string|max:64',
             'period'     => 'required|string',
-
             'mode'       => 'nullable|string|in:unique,monthly,unica,mensual,única',
             'notes'      => 'nullable|string|max:4000',
-
             'recipients' => 'nullable|string|max:8000',
             'to'         => 'nullable|string|max:8000',
         ]);
@@ -1154,8 +1106,7 @@ final class BillingStatementsController extends Controller
 
         $modeRaw = (string) ($data['mode'] ?? 'monthly');
         $mode    = $this->normalizeStatementMode($modeRaw);
-
-        $notes = trim((string) ($data['notes'] ?? ''));
+        $notes   = trim((string) ($data['notes'] ?? ''));
 
         if ($has('meta')) {
             $meta = $this->hub->decodeMeta($acc->meta ?? null);
@@ -1190,53 +1141,50 @@ final class BillingStatementsController extends Controller
             $rawRecipients = trim((string) ($data['to'] ?? ''));
         }
 
-        if (Schema::connection($this->adm)->hasTable('account_recipients')) {
-            // Si viene vacío, NO tocamos recipients (para no desactivar todo por accidente)
-            if ($rawRecipients !== '') {
-                $emails = $this->normalizeRecipientList($rawRecipients);
+        if (Schema::connection($this->adm)->hasTable('account_recipients') && $rawRecipients !== '') {
+            $emails = $this->normalizeRecipientList($rawRecipients);
 
-                DB::connection($this->adm)->transaction(function () use ($accountId, $emails) {
-                    DB::connection($this->adm)->table('account_recipients')
+            DB::connection($this->adm)->transaction(function () use ($accountId, $emails) {
+                DB::connection($this->adm)->table('account_recipients')
+                    ->where('account_id', $accountId)
+                    ->update([
+                        'is_active'  => 0,
+                        'updated_at' => now(),
+                    ]);
+
+                foreach ($emails as $i => $email) {
+                    $existing = DB::connection($this->adm)->table('account_recipients')
                         ->where('account_id', $accountId)
-                        ->update([
-                            'is_active'  => 0,
-                            'updated_at' => now(),
-                        ]);
+                        ->where('email', $email)
+                        ->first();
 
-                    foreach ($emails as $i => $email) {
-                        $existing = DB::connection($this->adm)->table('account_recipients')
-                            ->where('account_id', $accountId)
-                            ->where('email', $email)
-                            ->first();
+                    $payload = [
+                        'account_id' => $accountId,
+                        'email'      => $email,
+                        'is_active'  => 1,
+                        'is_primary' => $i === 0 ? 1 : 0,
+                        'updated_at' => now(),
+                    ];
 
-                        $payload = [
-                            'account_id' => $accountId,
-                            'email'      => $email,
-                            'is_active'  => 1,
-                            'is_primary' => $i === 0 ? 1 : 0,
-                            'updated_at' => now(),
-                        ];
-
-                        if ($existing) {
-                            DB::connection($this->adm)->table('account_recipients')
-                                ->where('id', (int) $existing->id)
-                                ->update($payload);
-                        } else {
-                            $payload['created_at'] = now();
-                            DB::connection($this->adm)->table('account_recipients')->insert($payload);
-                        }
+                    if ($existing) {
+                        DB::connection($this->adm)->table('account_recipients')
+                            ->where('id', (int) $existing->id)
+                            ->update($payload);
+                    } else {
+                        $payload['created_at'] = now();
+                        DB::connection($this->adm)->table('account_recipients')->insert($payload);
                     }
-                });
-            }
+                }
+            });
         }
 
         return back()->with('ok', 'Estado de cuenta guardado (config + destinatarios).');
-    } 
+    }
 
     // =========================================================
-    // ✅ AJAX: actualizar estatus override + pay_method + paid_at
-    // Route: POST admin.billing.statements.status -> statusAjax()
+    // STATUS AJAX
     // =========================================================
+
     public function statusAjax(Request $req): JsonResponse
     {
         $data = $req->validate([
@@ -1244,206 +1192,134 @@ final class BillingStatementsController extends Controller
             'period'     => 'required|string',
             'status'     => 'required|string|in:pendiente,parcial,pagado,vencido,sin_mov',
             'pay_method' => 'nullable|string|max:30',
-            'paid_at'    => 'nullable|string', // opcional (datetime-local o datetime)
+            'paid_at'    => 'nullable|string',
         ]);
 
-        $accountId = (string) $data['account_id'];
-        $period    = (string) $data['period'];
-        $status    = strtolower(trim((string) $data['status']));
-
-        $payMethod = strtolower(trim((string) ($data['pay_method'] ?? '')));
-        $payMethod = $payMethod !== '' ? $payMethod : 'manual';
+        $accountId   = trim((string) $data['account_id']);
+        $period      = trim((string) $data['period']);
+        $status      = strtolower(trim((string) $data['status']));
+        $payMethod   = trim((string) ($data['pay_method'] ?? '')) ?: 'manual';
+        $payProvider = in_array($payMethod, ['stripe', 'card'], true) ? 'stripe' : 'manual';
 
         if (!$this->isValidPeriod($period)) {
-            return response()->json(['ok' => false, 'message' => 'Periodo inválido.'], 422);
+            return response()->json(['ok' => false, 'message' => 'Periodo inválido'], 422);
         }
 
         if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'No existe la tabla billing_statement_status_overrides (corre migraciones).',
-            ], 422);
+            return response()->json(['ok' => false, 'message' => 'Tabla overrides no existe'], 422);
         }
 
-        abort_unless(Schema::connection($this->adm)->hasTable('accounts'), 404);
-        abort_unless(Schema::connection($this->adm)->hasTable('estados_cuenta'), 404);
-
-        // columnas override (para guardar pay_method/provider/status/paid_at si existen)
-        $ovCols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-        $ovLc   = array_map('strtolower', $ovCols);
-        $ovHas  = static fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
+        $paidAt = null;
+        if ($status === 'pagado') {
+            $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? '')) ?: now();
+        }
 
         $by = auth('admin')->id();
 
-        // paid_at SOLO si pagado
-        $paidAt = null;
-        if ($status === 'pagado') {
-            $raw = trim((string)($data['paid_at'] ?? ''));
-            if ($raw !== '') {
+        DB::connection($this->adm)->transaction(function () use (
+            $accountId, $period, $status, $by, $payMethod, $payProvider, $paidAt
+        ) {
+            $table = $this->overrideTable();
+
+            $row = DB::connection($this->adm)->table($table)
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->first(['id', 'meta']);
+
+            $meta = [];
+            if ($row && !empty($row->meta)) {
                 try {
-                    // soporta "2026-02-16T13:45"
-                    if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/', $raw)) {
-                        $paidAt = Carbon::createFromFormat('Y-m-d\TH:i', $raw);
-                    } else {
-                        $paidAt = Carbon::parse($raw);
-                    }
+                    $meta = json_decode((string) $row->meta, true);
+                    if (!is_array($meta)) $meta = [];
                 } catch (\Throwable $e) {
-                    $paidAt = null;
+                    $meta = [];
                 }
             }
-            if (!$paidAt) $paidAt = now();
-        }
 
-        // 1) Guardar override (y método/proveedor si aplica) — ✅ NO TOCA payments
-        DB::connection($this->adm)->transaction(function () use ($accountId, $period, $status, $by, $payMethod, $ovHas, $paidAt) {
-
-            $q = DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('period', $period);
-
-            $exists = $q->first(['id']);
+            $meta['pay_method']   = $payMethod;
+            $meta['pay_provider'] = $payProvider;
+            $meta['pay_status']   = $status;
+            $meta['paid_at']      = $status === 'pagado' ? $paidAt?->toDateTimeString() : null;
 
             $payload = [
                 'account_id'      => $accountId,
                 'period'          => $period,
                 'status_override' => $status,
-                'reason'          => null,
-                'updated_by'      => $by ? (int) $by : null,
                 'updated_at'      => now(),
             ];
 
-            // UI info en overrides
-            // =========================================================
-            // ✅ UI info en overrides (SOT + compat)
-            // - pay_status puede vivir en: pay_status (nuevo) o status (legacy)
-            // - SIEMPRE guardamos meta con pay_* como fallback universal
-            // =========================================================
-
-            // provider “visual” para UI (no payments):
-            // - stripe/card => provider stripe
-            // - transferencia/manual => provider manual
-            $payProvider = in_array($payMethod, ['stripe','card'], true) ? 'stripe' : 'manual';
-
-            // columns direct
-            if ($ovHas('pay_method'))   $payload['pay_method']   = $payMethod;
-            if ($ovHas('pay_provider')) $payload['pay_provider'] = $payProvider;
-
-            // ✅ pay_status en columna preferida
-            if ($ovHas('pay_status'))   $payload['pay_status']   = $status;   // nuevo (preferido)
-            if ($ovHas('status'))       $payload['status']       = $status;   // legacy compat
-
-            if ($ovHas('paid_at'))      $payload['paid_at']      = ($status === 'pagado') ? $paidAt : null;
-
-            // ✅ meta fallback (siempre)
-            if ($ovHas('meta')) {
-                // merge con meta existente (si hay)
-                $oldMeta = [];
-                try {
-                    if ($exists && isset($exists->id)) {
-                        $prev = DB::connection($this->adm)->table($this->overrideTable())
-                            ->where('id', (int) $exists->id)
-                            ->first(['meta']);
-                        if ($prev && isset($prev->meta) && $prev->meta !== null && $prev->meta !== '') {
-                            $oldMeta = json_decode((string)$prev->meta, true);
-                            if (!is_array($oldMeta)) $oldMeta = [];
-                        }
-                    }
-                } catch (\Throwable $e) {
-                    $oldMeta = [];
-                }
-
-                $oldMeta['pay_method']   = $payMethod;
-                $oldMeta['pay_provider'] = $payProvider;
-                $oldMeta['pay_status']   = $status;
-
-                if ($status === 'pagado') {
-                    $oldMeta['paid_at'] = ($paidAt instanceof \DateTimeInterface)
-                        ? Carbon::instance($paidAt)->toDateTimeString()
-                        : (string) $paidAt;
-                } else {
-                    // si ya no es pagado, limpiamos paid_at para evitar confusión visual
-                    $oldMeta['paid_at'] = null;
-                }
-
-                $payload['meta'] = json_encode($oldMeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($this->overrideTableHas('updated_by')) {
+                $payload['updated_by'] = $by ? (int) $by : null;
             }
 
-            if ($exists && isset($exists->id)) {
-                DB::connection($this->adm)->table($this->overrideTable())
-                    ->where('id', (int) $exists->id)
+            if ($this->overrideTableHas('meta')) {
+                $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            if ($row && isset($row->id)) {
+                DB::connection($this->adm)->table($table)
+                    ->where('id', (int) $row->id)
                     ->update($payload);
             } else {
-                $payload['created_at'] = now();
-                DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
+                if ($this->overrideTableHas('created_at')) {
+                    $payload['created_at'] = now();
+                }
+                DB::connection($this->adm)->table($table)->insert($payload);
             }
         });
 
-        // 2) Calcular respuesta UI SIN crear pagos
         $agg = DB::connection($this->adm)->table('estados_cuenta')
             ->selectRaw('SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
             ->where('account_id', $accountId)
             ->where('periodo', $period)
             ->first();
 
-        $cargoEdo = (float) ($agg->cargo ?? 0);
-        $abonoEdo = (float) ($agg->abono ?? 0);
+        $cargo = (float) ($agg->cargo ?? 0);
+        $abono = (float) ($agg->abono ?? 0);
 
-        // total mostrado: edo si existe, si no usa expected meta
-        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        $meta = $this->hub->decodeMeta($acc->meta ?? null);
-        if (!is_array($meta)) $meta = [];
+        $acc  = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        $meta = $this->hub->decodeMeta($acc->meta ?? null) ?: [];
 
-        $lastPaid = $this->resolveLastPaidPeriodForAccount((string) $accountId, $meta);
+        $lastPaid = $this->resolveLastPaidPeriodForAccount($accountId, $meta);
+
         $payAllowed = $lastPaid
             ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
             : $period;
 
-        $customMxn = $this->extractCustomAmountMxn($acc, $meta);
-        if ($customMxn !== null && $customMxn > 0.00001) {
-            $expected = (float) $customMxn;
+        $custom = $this->extractCustomAmountMxn($acc, $meta);
+
+        if ($custom !== null && $custom > 0.00001) {
+            $expected = (float) $custom;
         } else {
             [$expected] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
             $expected = (float) $expected;
         }
 
-        $total = $cargoEdo > 0.00001 ? $cargoEdo : $expected;
+        $total = $cargo > 0.00001 ? $cargo : $expected;
 
-        // ✅ UI override-aware (sin payments)
-        $abonoUi = $abonoEdo;
+        $abonoUi = min($abono, $total);
         $saldoUi = max(0.0, $total - $abonoUi);
 
         if ($status === 'pagado') {
             $abonoUi = $total;
             $saldoUi = 0.0;
-        } elseif (in_array($status, ['pendiente', 'vencido', 'sin_mov'], true)) {
-            $abonoUi = max(0.0, min($abonoEdo, $total));
-            $saldoUi = max(0.0, $total - $abonoUi);
-        } elseif ($status === 'parcial') {
-            $abonoUi = max(0.0, min($abonoEdo, $total));
-            $saldoUi = max(0.0, $total - $abonoUi);
         }
 
         return response()->json([
-            'ok'         => true,
-            'message'    => 'Guardado.',
-            'account_id' => $accountId,
-            'period'     => $period,
-            'status'     => $status,
-            'pay_method' => $payMethod,
-            'pay_provider' => in_array($payMethod, ['stripe','card'], true) ? 'stripe' : 'manual',
+            'ok'           => true,
+            'account_id'   => $accountId,
+            'period'       => $period,
+            'status'       => $status,
+            'pay_method'   => $payMethod,
+            'pay_provider' => $payProvider,
             'pay_status'   => $status,
-            'paid_at'    => ($status === 'pagado' ? ($paidAt?->toDateTimeString()) : null),
-
-            'total'      => round((float) $total, 2),
-            'abono'      => round((float) $abonoUi, 2),
-            'saldo'      => round((float) $saldoUi, 2),
+            'paid_at'      => $status === 'pagado' ? $paidAt?->toDateTimeString() : null,
+            'total'        => round($total, 2),
+            'abono'        => round($abonoUi, 2),
+            'saldo'        => round($saldoUi, 2),
         ]);
     }
 
-    /**
-     * Convierte paid_at recibido por datetime-local ("2026-02-16T13:45")
-     * o datetime ("2026-02-16 13:45:00") a Carbon.
-     */
     private function parsePaidAtFromRequest(string $raw): ?Carbon
     {
         $raw = trim($raw);
@@ -1459,14 +1335,8 @@ final class BillingStatementsController extends Controller
         }
     }
 
-     // =========================================================
-    // ✅ AJAX: UPDATE STATUS / PAY METHOD / PAID_AT (Drawer)
-    // POST /admin/billing/statements/status
-    // =========================================================
     public function status(Request $req): JsonResponse
     {
-        // ✅ Compat: algunas UIs antiguas llaman "status()"
-        // La única fuente de verdad (SOT) es statusAjax().
         return $this->statusAjax($req);
     }
 
@@ -1479,74 +1349,49 @@ final class BillingStatementsController extends Controller
         abort_if(!$this->isValidPeriod($period), 422);
 
         $data = $this->buildStatementData($accountId, $period);
-
-        // ✅ Admin PDF debe verse igual que Cliente (NO permitir que "modal" altere layout)
         $data['isModal'] = false;
 
-        // =========================================================
-        // ✅ ADMIN: Forzar QR con logo (SIN overlay HTML)
-        // - Toma primero el QR ya generado por buildStatementData (qr_data_uri / qr_url / qr_path)
-        // - Si no existe, genera QR desde pay_url (fallback)
-        // - Luego "planchamos" el logo al centro con GD y lo devolvemos como qr_data_uri
-        // =========================================================
-        $logoPx = (int)($req->get('qr_logo_px', 38));
-        if ($logoPx < 18) $logoPx = 18;
-        if ($logoPx > 64) $logoPx = 64;
+        $logoPx = (int) $req->get('qr_logo_px', 38);
+        $logoPx = max(18, min(64, $logoPx));
 
-        // banderas para la vista (evitar overlay HTML)
         $data['qr_force_overlay'] = false;
-        $data['qr_embedded'] = true;
-        $data['qr_logo_px'] = $logoPx;
+        $data['qr_embedded']      = true;
+        $data['qr_logo_px']       = $logoPx;
 
         try {
-            // ✅ Logo correcto para QR (Admin embebido con GD)
             $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
-
-            // fallback por si falta el archivo
-            if (!is_string($logoPath) || $logoPath === '' || !is_file($logoPath) || !is_readable($logoPath)) {
-                $logoPath = public_path('assets/client/qr/pactopia-qr-logo.png');
-                if (!is_file($logoPath) || !is_readable($logoPath)) {
-                    $logoPath = public_path('assets/client/Logo1Pactopia.png');
-                }
+            if (!is_file($logoPath) || !is_readable($logoPath)) {
+                $logoPath = public_path('assets/client/Logo1Pactopia.png');
             }
 
-            // 1) Obtener QR base (prioridad: data_uri, luego url/path)
             $basePng = $this->resolveQrPngBinaryFromData($data);
 
-            // 2) Si no hay QR base, generarlo desde pay_url
             if (!$basePng) {
-                $payUrl = (string)(
+                $payUrl = trim((string) (
                     $data['pay_url']
                     ?? $data['checkout_url']
                     ?? $data['payment_url']
                     ?? $data['url_pago']
                     ?? ''
-                );
+                ));
 
-                if (trim($payUrl) !== '') {
+                if ($payUrl !== '') {
                     $basePng = $this->makeQrPngBinary($payUrl, 320);
                 }
             }
 
-            // 3) Si tenemos QR base, embebemos logo y lo forzamos como qr_data_uri
             if ($basePng) {
-                $qrDataUri = $this->embedCenterLogoIntoQrPngDataUri($basePng, $logoPath, $logoPx);
-
-                if (is_string($qrDataUri) && str_starts_with($qrDataUri, 'data:image/png;base64,')) {
-                    $data['qr_data_uri'] = $qrDataUri;
-
-                    // 🔒 importante: para que la vista NO agarre el QR plano por url/path
-                    $data['qr_url'] = null;
-                    $data['qr_path'] = null;
-                }
+                $data['qr_data_uri'] = $this->embedCenterLogoIntoQrPngDataUri($basePng, $logoPath, $logoPx);
+                $data['qr_url']  = null;
+                $data['qr_path'] = null;
             } else {
-                \Illuminate\Support\Facades\Log::warning('[STATEMENT_PDF][ADMIN_QR] No base QR found (no qr_data_uri/qr_url and no pay_url)', [
+                Log::warning('[STATEMENT_PDF][ADMIN_QR] No base QR found', [
                     'account_id' => $accountId,
                     'period'     => $period,
                 ]);
             }
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('[STATEMENT_PDF][ADMIN_QR] Failed to force QR with logo', [
+            Log::warning('[STATEMENT_PDF][ADMIN_QR] Failed to force QR with logo', [
                 'account_id' => $accountId,
                 'period'     => $period,
                 'err'        => $e->getMessage(),
@@ -1554,11 +1399,10 @@ final class BillingStatementsController extends Controller
         }
 
         $viewName = 'cliente.billing.pdf.statement';
-
-        $inline = $req->boolean('inline') || $req->boolean('preview');
+        $inline   = $req->boolean('inline') || $req->boolean('preview');
 
         if ($req->boolean('html')) {
-            \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF] debug html', [
+            Log::info('[STATEMENT_PDF] debug html', [
                 'view'       => $viewName,
                 'account_id' => $accountId,
                 'period'     => $period,
@@ -1568,7 +1412,7 @@ final class BillingStatementsController extends Controller
             return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
         }
 
-        \Illuminate\Support\Facades\Log::info('[STATEMENT_PDF] rendering', [
+        Log::info('[STATEMENT_PDF] rendering', [
             'view'       => $viewName,
             'account_id' => $accountId,
             'period'     => $period,
@@ -1593,294 +1437,6 @@ final class BillingStatementsController extends Controller
         return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
     }
 
-    /**
-     * Genera un QR PNG (data URI) con logo centrado (embebido en la imagen).
-     * Esto es lo único 100% estable en DomPDF (evita overlays CSS).
-     */
-    private function makeQrDataUriWithCenterLogo(string $payload, int $logoPx = 38): ?string
-    {
-        $payload = trim($payload);
-        if ($payload === '') return null;
-
-        try {
-            // 1) QR base (PNG binario) usando BaconQrCode
-            $size = 260; // tamaño del QR (px). Ajusta 240–300 si quieres.
-            $renderer = new ImageRenderer(
-                new RendererStyle($size),
-                new GdImageBackEnd()
-            );
-
-            $writer = new Writer($renderer);
-            $qrBin = $writer->writeString($payload);
-
-            if (!is_string($qrBin) || strlen($qrBin) < 50) {
-                return null;
-            }
-
-            // 2) Cargar QR a GD
-            $qrImg = @imagecreatefromstring($qrBin);
-            if (!$qrImg) return null;
-
-            imagesavealpha($qrImg, true);
-            imagealphablending($qrImg, true);
-
-            $qrW = imagesx($qrImg);
-            $qrH = imagesy($qrImg);
-
-            // 3) Cargar logo (mismo logo del cliente)
-            $logoPath = public_path('assets/client/Logo1Pactopia.png');
-            if (!is_file($logoPath) || !is_readable($logoPath)) {
-                // sin logo: regresamos QR simple (pero estable)
-                $out = $this->gdPngToDataUri($qrImg);
-                imagedestroy($qrImg);
-                return $out;
-            }
-
-            $logoBin = @file_get_contents($logoPath);
-            if ($logoBin === false || strlen($logoBin) < 50) {
-                $out = $this->gdPngToDataUri($qrImg);
-                imagedestroy($qrImg);
-                return $out;
-            }
-
-            $logoImg = @imagecreatefromstring($logoBin);
-            if (!$logoImg) {
-                $out = $this->gdPngToDataUri($qrImg);
-                imagedestroy($qrImg);
-                return $out;
-            }
-
-            imagesavealpha($logoImg, true);
-            imagealphablending($logoImg, true);
-
-            // 4) Normalizar logoPx
-            $logoPx = (int)$logoPx;
-            if ($logoPx < 18) $logoPx = 18;
-            if ($logoPx > 64) $logoPx = 64;
-
-            // 5) Crear “placa” blanca detrás del logo (mejora lectura del QR)
-            $pad = 6; // padding alrededor del logo
-            $plate = $logoPx + ($pad * 2);
-
-            $plateImg = imagecreatetruecolor($plate, $plate);
-            imagesavealpha($plateImg, true);
-            imagealphablending($plateImg, false);
-
-            $transparent = imagecolorallocatealpha($plateImg, 0, 0, 0, 127);
-            imagefill($plateImg, 0, 0, $transparent);
-
-            // Fondo blanco sólido (cuadro). DomPDF se ve bien.
-            $white = imagecolorallocatealpha($plateImg, 255, 255, 255, 0);
-            imagefilledrectangle($plateImg, 0, 0, $plate, $plate, $white);
-
-            // 6) Redimensionar logo a logoPx y pegarlo centrado en la placa
-            $dstX = (int)floor(($plate - $logoPx) / 2);
-            $dstY = (int)floor(($plate - $logoPx) / 2);
-
-            $logoW = imagesx($logoImg);
-            $logoH = imagesy($logoImg);
-
-            imagecopyresampled(
-                $plateImg,
-                $logoImg,
-                $dstX, $dstY,
-                0, 0,
-                $logoPx, $logoPx,
-                $logoW, $logoH
-            );
-
-            // 7) Pegar la placa centrada en el QR
-            $centerX = (int)floor(($qrW - $plate) / 2);
-            $centerY = (int)floor(($qrH - $plate) / 2);
-
-            imagecopy(
-                $qrImg,
-                $plateImg,
-                $centerX, $centerY,
-                0, 0,
-                $plate, $plate
-            );
-
-            // 8) Exportar data URI
-            $out = $this->gdPngToDataUri($qrImg);
-
-            // cleanup
-            imagedestroy($logoImg);
-            imagedestroy($plateImg);
-            imagedestroy($qrImg);
-
-            return $out;
-        } catch (\Throwable $e) {
-            Log::warning('[STATEMENT_PDF] QR embed logo failed', [
-                'err' => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Convierte un recurso GD a PNG data URI.
-     */
-    private function gdPngToDataUri($gdImg): ?string
-    {
-        if (!$gdImg) return null;
-
-        ob_start();
-        imagepng($gdImg);
-        $bin = ob_get_clean();
-
-        if (!is_string($bin) || strlen($bin) < 50) return null;
-
-        return 'data:image/png;base64,' . base64_encode($bin);
-    }
-
-    /**
-     * ✅ Admin: “hornea” el logo dentro del QR para DomPDF
-     * - Si ya viene QR sin logo, lo modifica.
-     * - Si no hay QR o no hay logo, no hace nada.
-     *
-     * @param array<string,mixed> $data
-     * @return array<string,mixed>
-     */
-    private function adminBakeLogoIntoQr(array $data): array
-    {
-        $force = (bool)($data['qr_force_overlay'] ?? false);
-        if (!$force) return $data;
-
-        $logoPx = (int)($data['qr_logo_px'] ?? 38);
-        if ($logoPx < 18) $logoPx = 18;
-        if ($logoPx > 64) $logoPx = 64;
-
-        // QR candidates (por compat entre builds)
-        $qrDataUri = (string)(
-            $data['qr_data_uri'] ?? $data['qrDataUri'] ?? $data['qr_data'] ?? ''
-        );
-
-        if ($qrDataUri === '' || !str_starts_with($qrDataUri, 'data:image/')) {
-            return $data;
-        }
-
-        // Logo candidates (ideal: mismo del header)
-        $logoDataUri = (string)(
-            $data['logo_data_uri'] ?? $data['logoDataUri'] ?? ''
-        );
-
-        // fallback: el mismo archivo que usa la vista del cliente
-        if ($logoDataUri === '') {
-            $logoFile = public_path('assets/client/Logo1Pactopia.png');
-            if (is_file($logoFile) && is_readable($logoFile)) {
-                try {
-                    $bin = file_get_contents($logoFile);
-                    if ($bin !== false && strlen($bin) > 10) {
-                        $logoDataUri = 'data:image/png;base64,' . base64_encode($bin);
-                    }
-                } catch (\Throwable $e) {
-                    // noop
-                }
-            }
-        }
-
-        if ($logoDataUri === '' || !str_starts_with($logoDataUri, 'data:image/')) {
-            return $data;
-        }
-
-        $baked = $this->embedLogoIntoQrDataUri($qrDataUri, $logoDataUri, $logoPx);
-
-        if ($baked !== '' && $baked !== $qrDataUri) {
-            // normaliza: usa el key que consume tu blade
-            $data['qr_data_uri'] = $baked;
-            $data['qrDataUri']   = $baked;
-            $data['qr_data']     = $baked;
-        }
-
-        return $data;
-    }
-
-    /**
-     * Inserta un logo al centro del QR (data URI) y retorna un data URI PNG final.
-     * Requisitos: extensión GD habilitada.
-     */
-    private function embedLogoIntoQrDataUri(string $qrDataUri, string $logoDataUri, int $logoPx = 38): string
-    {
-        if ($qrDataUri === '' || $logoDataUri === '') return $qrDataUri;
-
-        // Extrae base64
-        $qrBase64 = preg_replace('#^data:image/\w+;base64,#i', '', $qrDataUri);
-        $lgBase64 = preg_replace('#^data:image/\w+;base64,#i', '', $logoDataUri);
-
-        if (!is_string($qrBase64) || !is_string($lgBase64)) return $qrDataUri;
-
-        $qrBin = base64_decode($qrBase64, true);
-        $lgBin = base64_decode($lgBase64, true);
-
-        if ($qrBin === false || $lgBin === false) return $qrDataUri;
-
-        if (!function_exists('imagecreatefromstring')) return $qrDataUri;
-
-        $qrImg = @imagecreatefromstring($qrBin);
-        $lgImg = @imagecreatefromstring($lgBin);
-
-        if (!$qrImg || !$lgImg) return $qrDataUri;
-
-        $qrW = imagesx($qrImg);
-        $qrH = imagesy($qrImg);
-
-        if ($qrW <= 0 || $qrH <= 0) return $qrDataUri;
-
-        // Logo size (cuadrado)
-        $logoPx = max(18, min(64, (int)$logoPx));
-
-        // Centro
-        $dstX = (int)round(($qrW - $logoPx) / 2);
-        $dstY = (int)round(($qrH - $logoPx) / 2);
-
-        // “Fondo blanco” detrás del logo (para que se lea mejor)
-        if (function_exists('imagecolorallocate')) {
-            $white = imagecolorallocate($qrImg, 255, 255, 255);
-
-            // padding blanco
-            $pad = 5;
-            imagefilledrectangle(
-                $qrImg,
-                max(0, $dstX - $pad),
-                max(0, $dstY - $pad),
-                min($qrW - 1, $dstX + $logoPx + $pad),
-                min($qrH - 1, $dstY + $logoPx + $pad),
-                $white
-            );
-        }
-
-        // Resample logo al tamaño deseado
-        $lgW = imagesx($lgImg);
-        $lgH = imagesy($lgImg);
-
-        // Mantener proporción: recorta a cuadrado “centrado”
-        $srcSize = min($lgW, $lgH);
-        $srcX = (int)round(($lgW - $srcSize) / 2);
-        $srcY = (int)round(($lgH - $srcSize) / 2);
-
-        imagecopyresampled(
-            $qrImg,
-            $lgImg,
-            $dstX, $dstY,
-            $srcX, $srcY,
-            $logoPx, $logoPx,
-            $srcSize, $srcSize
-        );
-
-        // Exporta PNG a memoria
-        ob_start();
-        imagepng($qrImg);
-        $out = ob_get_clean();
-
-        imagedestroy($qrImg);
-        imagedestroy($lgImg);
-
-        if (!is_string($out) || strlen($out) < 10) return $qrDataUri;
-
-        return 'data:image/png;base64,' . base64_encode($out);
-    }
-
     public function email(Request $req, string $accountId, string $period): RedirectResponse
     {
         abort_if(!$this->isValidPeriod($period), 422);
@@ -1901,9 +1457,6 @@ final class BillingStatementsController extends Controller
         return back()->with('ok', 'Estado de cuenta enviado por correo (a destinatarios configurados).');
     }
 
-    /**
-     * Envío masivo por periodo
-     */
     public function bulkEmail(Request $req)
     {
         $data = $req->validate([
@@ -1953,8 +1506,6 @@ final class BillingStatementsController extends Controller
                         $computed = 'pagado';
                     } elseif ($abono > 0.00001 && $saldo > 0.00001) {
                         $computed = 'parcial';
-                    } else {
-                        $computed = 'pendiente';
                     }
 
                     if ($computed !== $status) {
@@ -1983,9 +1534,6 @@ final class BillingStatementsController extends Controller
         return back()->with('ok', "Envío masivo disparado. Enviados: {$ok}. Fallidos: {$fail}.");
     }
 
-    /**
-     * Envío con PayLink/QR
-     */
     private function sendStatementEmailWithPayLink(string $accountId, string $period, ?string $to = null): void
     {
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
@@ -2037,7 +1585,6 @@ final class BillingStatementsController extends Controller
 
         if (is_string($payUrl) && $payUrl !== '') {
             $data['pay_url'] = $payUrl;
-
             [$qrDataUri, $qrUrl] = $this->makeQrDataForText($payUrl);
             $data['qr_data_uri'] = $qrDataUri;
             $data['qr_url']      = $qrUrl;
@@ -2073,181 +1620,11 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
-    // STRIPE (CHECKOUT) + PAYMENTS UPSERT
-    // =========================================================
-
-    /**
-     * @return array{0:string,1:string} [checkout_url, session_id]
-     */
-    private function createStripeCheckoutForStatement(object $acc, string $period, float $totalPesos): array
-    {
-        $secret = (string) config('services.stripe.secret');
-        if (trim($secret) === '') {
-            throw new \RuntimeException('Stripe secret vacío en config(services.stripe.secret).');
-        }
-
-        $unitAmountCents = (int) round($totalPesos * 100);
-        $accountId = (string) ($acc->id ?? '');
-        $email     = (string) ($acc->email ?? '');
-
-        $successUrl = Route::has('cliente.checkout.success')
-            ? route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}'
-            : url('/cliente/checkout/success') . '?session_id={CHECKOUT_SESSION_ID}';
-
-        $cancelUrl = Route::has('cliente.estado_cuenta')
-            ? route('cliente.estado_cuenta') . '?period=' . urlencode($period)
-            : url('/cliente/estado-de-cuenta') . '?period=' . urlencode($period);
-
-        $idempotencyKey = 'admin_stmt:' . $accountId . ':' . $period . ':' . $unitAmountCents;
-
-        $session = $this->stripe->checkout->sessions->create([
-            'mode'                 => 'payment',
-            'payment_method_types' => ['card'],
-            'line_items'           => [[
-                'price_data' => [
-                    'currency'     => 'mxn',
-                    'unit_amount'  => $unitAmountCents,
-                    'product_data' => [
-                        'name' => 'Pactopia360 · Estado de cuenta ' . $period,
-                    ],
-                ],
-                'quantity' => 1,
-            ]],
-            'customer_email'      => $email !== '' ? $email : null,
-            'client_reference_id' => $accountId,
-            'success_url'         => $successUrl,
-            'cancel_url'          => $cancelUrl,
-            'metadata'            => [
-                'type'      => 'billing_statement',
-                'account_id' => $accountId,
-                'period'     => $period,
-                'source'     => 'admin_email',
-                'amount_mxn' => round($totalPesos, 2),
-            ],
-        ], [
-            'idempotency_key' => $idempotencyKey,
-        ]);
-
-        $sessionId  = (string) ($session->id ?? '');
-        $sessionUrl = (string) ($session->url ?? '');
-
-        $this->upsertPendingPaymentForStatement($accountId, $period, $unitAmountCents, $sessionId, $totalPesos);
-
-        return [$sessionUrl, $sessionId];
-    }
-
-    private function upsertPendingPaymentForStatement(string $accountId, string $period, int $amountCents, string $sessionId, float $uiTotalPesos): void
-    {
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return;
-        }
-
-        $cols = Schema::connection($this->adm)->getColumnListing('payments');
-        $lc   = array_map('strtolower', $cols);
-        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-        $existing = null;
-
-        if ($has('stripe_session_id') && $sessionId !== '') {
-            $existing = DB::connection($this->adm)->table('payments')
-                ->where('account_id', $accountId)
-                ->where('stripe_session_id', $sessionId)
-                ->first();
-        }
-
-        if (!$existing && $has('period') && $has('status')) {
-            $q = DB::connection($this->adm)->table('payments')
-                ->where('account_id', $accountId)
-                ->where('status', 'pending')
-                ->where('period', $period);
-
-            if ($has('provider')) {
-                $q->where('provider', 'stripe');
-            }
-
-            $existing = $q->orderByDesc($has('id') ? 'id' : $cols[0])->first();
-        }
-
-        $row = [];
-
-        if ($has('account_id')) {
-            $row['account_id'] = $accountId;
-        }
-        if ($has('amount')) {
-            $row['amount'] = $amountCents;
-        }
-        if ($has('amount_mxn')) {
-            $row['amount_mxn'] = round($uiTotalPesos, 2);
-        }
-
-        if ($has('currency')) {
-            $row['currency'] = 'MXN';
-        }
-        if ($has('status')) {
-            $row['status'] = 'pending';
-        }
-        if ($has('due_date')) {
-            $row['due_date'] = now()->addDays(4);
-        }
-
-        if ($has('period')) {
-            $row['period'] = $period;
-        }
-        if ($has('method')) {
-            $row['method'] = 'card';
-        }
-        if ($has('provider')) {
-            $row['provider'] = 'stripe';
-        }
-        if ($has('concept')) {
-            $row['concept'] = 'Pactopia360 · Estado de cuenta ' . $period;
-        }
-        if ($has('reference')) {
-            $row['reference'] = $sessionId ?: ('admin_stmt:' . $accountId . ':' . $period);
-        }
-
-        if ($has('stripe_session_id')) {
-            $row['stripe_session_id'] = $sessionId;
-        }
-
-        if ($has('meta')) {
-            $row['meta'] = json_encode([
-                'type'           => 'billing_statement',
-                'period'         => $period,
-                'ui_total_pesos' => round($uiTotalPesos, 2),
-                'source'         => 'admin_email',
-            ], JSON_UNESCAPED_UNICODE);
-        }
-
-        $row['updated_at'] = now();
-        if (!$existing) {
-            $row['created_at'] = now();
-        }
-
-        if ($existing && $has('id')) {
-            DB::connection($this->adm)->table('payments')->where('id', (int) $existing->id)->update($row);
-        } else {
-
-            // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
-            $aid = (int)($row['account_id'] ?? 0);
-            if ($aid <= 0 && isset($accountId)) {
-                $aid = (int)$accountId;
-            }
-            if ($aid <= 0) {
-                throw new \RuntimeException('payments insert blocked: missing account_id');
-            }
-            $row['account_id'] = $aid;
-
-            DB::connection($this->adm)->table('payments')->insert($row);
-        }
-    }
-
-    // =========================================================
     // RECIPIENTS
     // =========================================================
 
     /**
-     * @return array<int, string>
+     * @return array<int,string>
      */
     private function resolveRecipientsForAccount(string $accountId, string $fallbackEmail): array
     {
@@ -2309,7 +1686,7 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
-    // HELPERS: SERVICE INJECTION / MODE
+    // HELPERS: SERVICE / MODE / CONFIG
     // =========================================================
 
     private function shouldInjectServiceLine($items, float $expectedTotal, string $statementMode): bool
@@ -2339,23 +1716,18 @@ final class BillingStatementsController extends Controller
         }
 
         if ($mode === 'unique') {
-            $hasAnyCargo = false;
             foreach ($items as $it) {
                 $cargoIt = is_numeric($it->cargo ?? null) ? (float) $it->cargo : 0.0;
                 if ($cargoIt > 0.00001) {
-                    $hasAnyCargo = true;
-                    break;
+                    return true;
                 }
             }
-            return $hasAnyCargo;
+            return false;
         }
 
         return true;
     }
 
-    /**
-     * Devuelve 'mensual' o 'anual'
-     */
     private function resolveBillingModeFromMetaOrPlan(array $meta, object $acc): string
     {
         $mode = strtolower(trim((string) (
@@ -2375,16 +1747,8 @@ final class BillingStatementsController extends Controller
             }
         }
 
-        if (!in_array($mode, ['mensual', 'anual'], true)) {
-            $mode = 'mensual';
-        }
-
-        return $mode;
+        return in_array($mode, ['mensual', 'anual'], true) ? $mode : 'mensual';
     }
-
-    // =========================================================
-    // HELPERS internos para líneas/config
-    // =========================================================
 
     private function normalizeStatementMode(string $modeRaw): string
     {
@@ -2493,412 +1857,7 @@ final class BillingStatementsController extends Controller
     }
 
     // =========================================================
-    // QR (dompdf-safe)
-    // =========================================================
-
-    /**
-     * @return array{0:?string,1:?string} [data_uri_png, remote_url]
-     */
-    private function makeQrDataForText(string $text): array
-    {
-        $text = trim($text);
-        if ($text === '') {
-            return [null, null];
-        }
-
-        $size = 170;
-
-        try {
-            if (class_exists(Writer::class) && class_exists(GdImageBackEnd::class)) {
-                $renderer = new ImageRenderer(new RendererStyle($size), new GdImageBackEnd());
-                $writer   = new Writer($renderer);
-                $png      = $writer->writeString($text);
-
-                if (is_string($png) && $png !== '') {
-                    return ['data:image/png;base64,' . base64_encode($png), null];
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] QR local failed (bacon)', ['err' => $e->getMessage()]);
-        }
-
-        $qrUrl = 'https://quickchart.io/qr?text=' . urlencode($text)
-            . '&size=' . $size
-            . '&margin=1&format=png';
-
-        return [null, $qrUrl];
-    }
-
-    private function resolveQrTextForStatement(string $accountId, string $period, ?string $payUrl = null): ?string
-    {
-        if (is_string($payUrl) && trim($payUrl) !== '') {
-            return trim($payUrl);
-        }
-
-        try {
-            if (Route::has('cliente.billing.publicPay')) {
-                return URL::signedRoute('cliente.billing.publicPay', [
-                    'accountId' => $accountId,
-                    'period'    => $period,
-                ]);
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        try {
-            if (Route::has('cliente.estado_cuenta')) {
-                return route('cliente.estado_cuenta') . '?period=' . urlencode($period);
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        return null;
-    }
-
-    // =========================================================
-    // EVIDENCE GATING (prev_balance)
-    // =========================================================
-
-    private function hasPaymentsForAccountPeriod(string $accountId, string $period): bool
-    {
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return false;
-        }
-
-        try {
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id') || !$has('period')) {
-                return false;
-            }
-
-            $q = DB::connection($this->adm)->table('payments')
-                ->where('account_id', $accountId);
-
-            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-
-            // =========================================================
-            // ✅ SOT (prev_balance):
-            // Payments cuentan como evidencia SOLO si están PAGADOS.
-            // Pending/open/incomplete NO deben crear "meses fantasma".
-            // =========================================================
-            if ($has('status')) {
-                $q->whereIn('status', [
-                    'paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized',
-                ]);
-            } else {
-                // Si no hay columna status, mejor NO contar payments como evidencia (evita falsos positivos)
-                return false;
-            }
-
-            return $q->limit(1)->exists();
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] hasPaymentsForAccountPeriod failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-            return false;
-        }
-    }
-
-    private function hasOverrideForAccountPeriod(string $accountId, string $period): bool
-    {
-        try {
-            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                return false;
-            }
-
-            return DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('period', $period)
-                ->limit(1)
-                ->exists();
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] hasOverrideForAccountPeriod failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-            return false;
-        }
-    }
-
-    // =========================================================
-    // PAYMENTS PERIOD FILTER (robusto: YYYY-MM ó YYYY-MM-DD)
-    // =========================================================
-    private function applyPaymentsPeriodFilter($q, string $period, bool $hasPeriodCol): void
-    {
-        if (!$hasPeriodCol) return;
-
-        // Acepta:
-        // - "2026-02"
-        // - "2026-02-01"
-        // - "2026-02-01 10:22:33"
-        // - date/datetime column (MySQL lo castea a string en LIKE)
-        $p = trim($period);
-        if (!$this->isValidPeriod($p)) {
-            // si viene raro, intenta normalizar y si no, no filtra
-            $pp = $this->parseToPeriod($p);
-            if (!$pp) return;
-            $p = $pp;
-        }
-
-        $q->where(function ($w) use ($p) {
-            $w->where('period', $p)
-            ->orWhere('period', 'like', $p . '%'); // cubre YYYY-MM-DD y datetime
-        });
-    }
-
-    private function sumPaymentsForAccountPeriod(string $accountId, string $period): float
-    {
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return 0.0;
-        }
-
-        try {
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id')) {
-                return 0.0;
-            }
-
-            $amountMxnCol = $has('amount_mxn') ? 'amount_mxn' : null;
-            $amountCol    = $has('amount') ? 'amount' : null;
-
-            if (!$amountMxnCol && !$amountCol) {
-                return 0.0;
-            }
-
-            $q = DB::connection($this->adm)->table('payments')
-                ->where('account_id', $accountId);
-
-            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-            if ($has('status')) {
-                $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
-            }
-
-            if ($amountMxnCol) {
-                return round((float) ($q->sum($amountMxnCol) ?? 0), 2);
-            }
-
-            $cents = (float) ($q->sum($amountCol) ?? 0);
-            if ($cents <= 0) {
-                return 0.0;
-            }
-
-            return round($cents / 100.0, 2);
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] sumPaymentsForAccountPeriod failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-            return 0.0;
-        }
-    }
-
-    /**
-     * @param array<int,string|int> $accountIds
-     * @return array<string,float>
-     */
-    private function sumPaymentsForAccountsPeriod(array $accountIds, string $period): array
-    {
-        $out = [];
-        if (empty($accountIds)) {
-            return $out;
-        }
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return $out;
-        }
-
-        try {
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id')) {
-                return $out;
-            }
-
-            $amountMxnCol = $has('amount_mxn') ? 'amount_mxn' : null;
-            $amountCol    = $has('amount') ? 'amount' : null;
-
-            if (!$amountMxnCol && !$amountCol) {
-                return $out;
-            }
-
-            $q = DB::connection($this->adm)->table('payments')
-                ->whereIn('account_id', $accountIds);
-
-            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-            if ($has('status')) {
-                $q->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
-            }
-
-            if ($amountMxnCol) {
-                $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(' . $amountMxnCol . ',0)) as s')
-                    ->groupBy('account_id')
-                    ->get();
-
-                foreach ($rows as $r) {
-                    $out[(string) $r->aid] = round((float) ($r->s ?? 0), 2);
-                }
-                return $out;
-            }
-
-            $rows = $q->selectRaw('account_id as aid, SUM(COALESCE(' . $amountCol . ',0)) as s')
-                ->groupBy('account_id')
-                ->get();
-
-            foreach ($rows as $r) {
-                $cents = (float) ($r->s ?? 0);
-                $out[(string) $r->aid] = round($cents / 100.0, 2);
-            }
-
-            return $out;
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] sumPaymentsForAccountsPeriod failed', [
-                'period' => $period,
-                'err'    => $e->getMessage(),
-            ]);
-            return $out;
-        }
-    }
-
-    /**
-     * @param array<int,string|int> $accountIds
-     * @return array<string,array{status:?string,method:?string,provider:?string,due_date:mixed,last_paid_at:mixed}>
-     */
-    private function fetchPaymentsMetaForAccountsPeriod(array $accountIds, string $period): array
-    {
-        $out = [];
-        if (empty($accountIds)) {
-            return $out;
-        }
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return $out;
-        }
-
-        try {
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id')) {
-                return $out;
-            }
-
-            $q = DB::connection($this->adm)->table('payments')
-                ->whereIn('account_id', $accountIds);
-
-            $this->applyPaymentsPeriodFilter($q, $period, $has('period'));
-
-            $select = ['account_id'];
-            foreach (['status', 'method', 'provider', 'due_date', 'paid_at', 'created_at', 'updated_at'] as $c) {
-                if ($has($c)) {
-                    $select[] = $c;
-                }
-            }
-
-            $orderCol = $has('paid_at') ? 'paid_at'
-                : ($has('updated_at') ? 'updated_at'
-                : ($has('created_at') ? 'created_at'
-                : ($has('id') ? 'id' : $cols[0])));
-
-            $rows = $q->select($select)
-                ->orderByDesc($orderCol)
-                ->get();
-
-            foreach ($rows as $r) {
-                $aid = (string) ($r->account_id ?? '');
-                if ($aid === '' || isset($out[$aid])) {
-                    continue;
-                }
-
-                $lastPaidAt = null;
-                if ($has('paid_at') && !empty($r->paid_at)) {
-                    $lastPaidAt = $r->paid_at;
-                } elseif ($has('updated_at') && !empty($r->updated_at)) {
-                    $lastPaidAt = $r->updated_at;
-                } elseif ($has('created_at') && !empty($r->created_at)) {
-                    $lastPaidAt = $r->created_at;
-                }
-
-                $out[$aid] = [
-                    'status'       => $has('status') ? (string) ($r->status ?? '') : null,
-                    'method'       => $has('method') ? (string) ($r->method ?? '') : null,
-                    'provider'     => $has('provider') ? (string) ($r->provider ?? '') : null,
-                    'due_date'     => $has('due_date') ? ($r->due_date ?? null) : null,
-                    'last_paid_at' => $lastPaidAt,
-                ];
-            }
-
-            return $out;
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] fetchPaymentsMetaForAccountsPeriod failed', [
-                'period' => $period,
-                'err'    => $e->getMessage(),
-            ]);
-            return $out;
-        }
-    }
-
-    private function isOverdue(string $period, mixed $dueDate, Carbon $now): bool
-    {
-        // =========================================================
-        // Regla GLOBAL (SOT):
-        // - El periodo ACTUAL (YYYY-MM) NUNCA se marca como vencido.
-        // - Solo periodos ANTERIORES pueden ser vencidos.
-        // =========================================================
-        $p = trim((string) $period);
-        if (!preg_match('/^\d{4}-\d{2}$/', $p)) {
-            return false;
-        }
-
-        $currentPeriod = $now->format('Y-m');
-        if ($p >= $currentPeriod) {
-            // Mes actual o futuro => NO vencido
-            return false;
-        }
-
-        // =========================================================
-        // 1) Si tenemos due_date válido, úsalo como fuente primaria
-        // =========================================================
-        try {
-            if ($dueDate !== null && $dueDate !== '') {
-                $due = $dueDate instanceof Carbon ? $dueDate : Carbon::parse((string) $dueDate);
-                return $due->lt($now);
-            }
-        } catch (\Throwable $e) {
-            // Si dueDate es basura / parse falla, caer al fallback por periodo
-        }
-
-        // =========================================================
-        // 2) Fallback robusto por periodo (sin depender de payments):
-        //    - Se considera vencido si ya pasó el fin del mes + 4 días.
-        // =========================================================
-        try {
-            $start = Carbon::createFromFormat('Y-m-d', $p . '-01')->startOfMonth();
-            $cut   = $start->copy()->endOfMonth()->addDays(4)->endOfDay();
-            return $now->gt($cut);
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
-
-    // =========================================================
-    // META / PRICING helpers
+    // META / PRICE HELPERS
     // =========================================================
 
     private function extractCustomAmountMxn(object $row, array $meta): ?float
@@ -2912,19 +1871,16 @@ final class BillingStatementsController extends Controller
             data_get($meta, 'billing.custom_mxn'),
             data_get($meta, 'billing.amount_override_mxn'),
             data_get($meta, 'billing.amount_mxn_override'),
-
             data_get($meta, 'license.override.amount_mxn'),
             data_get($meta, 'license.override.amount'),
             data_get($meta, 'license.custom.amount_mxn'),
             data_get($meta, 'license.custom.amount'),
             data_get($meta, 'license.custom_mxn'),
-
             data_get($meta, 'pricing.override.amount_mxn'),
             data_get($meta, 'pricing.override.amount'),
             data_get($meta, 'pricing.custom.amount_mxn'),
             data_get($meta, 'pricing.custom.amount'),
             data_get($meta, 'pricing.custom_mxn'),
-
             data_get($meta, 'override.amount_mxn'),
             data_get($meta, 'override.amount'),
             data_get($meta, 'custom.amount_mxn'),
@@ -2965,29 +1921,15 @@ final class BillingStatementsController extends Controller
 
     private function toFloat(mixed $v): ?float
     {
-        if ($v === null) {
-            return null;
-        }
-        if (is_float($v) || is_int($v)) {
-            return (float) $v;
-        }
+        if ($v === null) return null;
+        if (is_float($v) || is_int($v)) return (float) $v;
+        if (is_numeric($v)) return (float) $v;
 
         if (is_string($v)) {
             $s = trim($v);
-            if ($s === '') {
-                return null;
-            }
-
+            if ($s === '') return null;
             $s = str_replace(['$', ',', ' '], '', $s);
-            if (!is_numeric($s)) {
-                return null;
-            }
-
-            return (float) $s;
-        }
-
-        if (is_numeric($v)) {
-            return (float) $v;
+            return is_numeric($s) ? (float) $s : null;
         }
 
         return null;
@@ -3030,733 +1972,79 @@ final class BillingStatementsController extends Controller
         }
     }
 
-    private function resolveLastPaidPeriodForAccount(string $accountId, array $meta): ?string
+    // =========================================================
+    // OVERRIDE TABLE HELPERS
+    // =========================================================
+
+    /**
+     * @return array{cols:array<int,string>,lc:array<int,string>}
+     */
+    private function getOverrideTableColumns(): array
     {
-        $key = trim((string)$accountId);
-        if ($key === '') return null;
+        static $cache = null;
 
-        if (array_key_exists($key, $this->cacheLastPaid)) {
-            return $this->cacheLastPaid[$key];
+        if ($cache !== null) {
+            return $cache;
         }
 
-        $lastPaid = null;
-
-        try {
-            foreach ([
-                data_get($meta, 'stripe.last_paid_at'),
-                data_get($meta, 'stripe.lastPaidAt'),
-                data_get($meta, 'billing.last_paid_at'),
-                data_get($meta, 'billing.lastPaidAt'),
-                data_get($meta, 'last_paid_at'),
-                data_get($meta, 'lastPaidAt'),
-            ] as $v) {
-                $p = $this->parseToPeriod($v);
-                if ($p) { $lastPaid = $p; break; }
-            }
-        } catch (\Throwable $e) {
-            // ignore
+        if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+            $cache = ['cols' => [], 'lc' => []];
+            return $cache;
         }
 
-        if (!$lastPaid && Schema::connection($this->adm)->hasTable('payments')) {
+        $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
+        $lc   = array_map('strtolower', $cols);
+
+        $cache = ['cols' => $cols, 'lc' => $lc];
+        return $cache;
+    }
+
+    private function overrideTableHas(string $column): bool
+    {
+        $meta = $this->getOverrideTableColumns();
+        return in_array(strtolower($column), $meta['lc'], true);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function decodeOverrideMeta(mixed $raw): array
+    {
+        if (is_array($raw)) return $raw;
+        if (is_object($raw)) return (array) $raw;
+
+        if (is_string($raw) && trim($raw) !== '') {
             try {
-                $cols = Schema::connection($this->adm)->getColumnListing('payments');
-                $lc   = array_map('strtolower', $cols);
-                $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-                if ($has('account_id') && $has('status') && $has('period')) {
-                    $q = DB::connection($this->adm)->table('payments')
-                        ->where('account_id', $key)
-                        ->whereIn('status', ['paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized']);
-
-                    $row = $q->orderByDesc(
-                        $has('paid_at') ? 'paid_at'
-                        : ($has('created_at') ? 'created_at'
-                        : ($has('id') ? 'id' : $cols[0]))
-                    )->first(['period']);
-
-                    if ($row && !empty($row->period)) {
-                        $p = $this->parseToPeriod($row->period);
-                        if ($p && $this->isValidPeriod($p)) {
-                            $lastPaid = $p;
-                        }
-                    }
-
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    return $decoded;
                 }
             } catch (\Throwable $e) {
-                // ignore
             }
         }
 
-        // =========================================================
-        // ✅ SOT: overrides "pagado" también cierran el mes.
-        // Si el admin marcó pagado, lo tratamos como last_paid para corte de arrastre.
-        // =========================================================
-        try {
-            $ovPaid = $this->resolveLastPaidPeriodFromOverrides($key);
-            if ($ovPaid && $this->isValidPeriod($ovPaid)) {
-                if (!$lastPaid || ($lastPaid < $ovPaid)) {
-                    $lastPaid = $ovPaid;
-                }
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        $this->cacheLastPaid[$key] = $lastPaid;
-        return $lastPaid;
+        return [];
     }
 
-    // =========================================================
-    // PERIOD helpers
-    // =========================================================
-
-    private function isValidPeriod(string $period): bool
+    private function normalizeOverrideStatus(?string $status): ?string
     {
-        return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period);
-    }
+        $s = strtolower(trim((string) $status));
 
-    private function parseToPeriod(mixed $value): ?string
-    {
-        try {
-            if ($value instanceof \DateTimeInterface) {
-                return Carbon::instance($value)->format('Y-m');
-            }
-
-            if (is_numeric($value)) {
-                $ts = (int) $value;
-                if ($ts > 0) {
-                    return Carbon::createFromTimestamp($ts)->format('Y-m');
-                }
-            }
-
-            if (is_string($value)) {
-                $v = trim($value);
-                if ($v === '') {
-                    return null;
-                }
-
-                $v = str_replace('/', '-', $v);
-                if ($this->isValidPeriod($v)) {
-                    return $v;
-                }
-
-                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/', $v)) {
-                    return Carbon::parse($v)->format('Y-m');
-                }
-
-                return Carbon::parse($v)->format('Y-m');
-            }
-        } catch (\Throwable $e) {
+        if ($s === '') {
             return null;
         }
 
-        return null;
+        return match ($s) {
+            'paid', 'succeeded', 'success', 'completed', 'complete' => 'pagado',
+            'pending' => 'pendiente',
+            'partial' => 'parcial',
+            'overdue', 'past_due', 'unpaid' => 'vencido',
+            'sin_mov', 'sin-mov', 'no_mov', 'no-mov' => 'sin_mov',
+            'pendiente', 'parcial', 'pagado', 'vencido' => $s,
+            default => null,
+        };
     }
 
-    /**
-     * ✅ Precompone QR + logo al centro (PNG) y regresa data:image/png;base64,...
-     * Esto evita position/absolute/transform en DomPDF (que te mueve el layout en Admin).
-     */
-    private function overlayLogoOnQrDataUri(string $qrDataUri, string $logoPath, int $logoPx = 38, int $paddingPx = 4): ?string
-    {
-        try {
-            $logoPx = max(18, min(80, (int)$logoPx));
-            $paddingPx = max(0, min(12, (int)$paddingPx));
-
-            // Extrae base64 del data uri
-            if (!preg_match('#^data:image/[^;]+;base64,#i', $qrDataUri)) {
-                return null;
-            }
-            $b64 = preg_replace('#^data:image/[^;]+;base64,#i', '', $qrDataUri);
-            $qrBin = base64_decode((string)$b64, true);
-            if (!$qrBin || strlen($qrBin) < 20) return null;
-
-            // Crea imágenes
-            $qrImg = @imagecreatefromstring($qrBin);
-            if (!$qrImg) return null;
-
-            $logoBin = @file_get_contents($logoPath);
-            if (!$logoBin || strlen($logoBin) < 20) return null;
-
-            $logoImg = @imagecreatefromstring($logoBin);
-            if (!$logoImg) return null;
-
-            // Asegura alpha
-            imagealphablending($qrImg, true);
-            imagesavealpha($qrImg, true);
-
-            imagealphablending($logoImg, true);
-            imagesavealpha($logoImg, true);
-
-            // Redimensiona logo a logoPx x logoPx
-            $logoScaled = imagescale($logoImg, $logoPx, $logoPx, IMG_BILINEAR_FIXED);
-            if (!$logoScaled) $logoScaled = $logoImg;
-
-            // Caja blanca detrás (cuadrado) para "limpiar" el QR
-            $bgSize = $logoPx + ($paddingPx * 2);
-
-            $bg = imagecreatetruecolor($bgSize, $bgSize);
-            imagesavealpha($bg, true);
-            $transparent = imagecolorallocatealpha($bg, 0, 0, 0, 127);
-            imagefill($bg, 0, 0, $transparent);
-
-            // blanco
-            $white = imagecolorallocate($bg, 255, 255, 255);
-            imagefilledrectangle($bg, 0, 0, $bgSize, $bgSize, $white);
-
-            // Pega logo centrado en el fondo blanco
-            $dstX = (int)(($bgSize - imagesx($logoScaled)) / 2);
-            $dstY = (int)(($bgSize - imagesy($logoScaled)) / 2);
-            imagecopy($bg, $logoScaled, $dstX, $dstY, 0, 0, imagesx($logoScaled), imagesy($logoScaled));
-
-            // Pega "bg" centrado sobre el QR
-            $qrW = imagesx($qrImg);
-            $qrH = imagesy($qrImg);
-
-            $cx = (int)(($qrW - $bgSize) / 2);
-            $cy = (int)(($qrH - $bgSize) / 2);
-
-            imagecopy($qrImg, $bg, $cx, $cy, 0, 0, $bgSize, $bgSize);
-
-            // Exporta a PNG base64
-            ob_start();
-            imagepng($qrImg);
-            $out = ob_get_clean();
-
-            // Limpieza
-            @imagedestroy($bg);
-            @imagedestroy($logoScaled);
-            @imagedestroy($logoImg);
-            @imagedestroy($qrImg);
-
-            if (!$out || strlen($out) < 50) return null;
-
-            return 'data:image/png;base64,' . base64_encode($out);
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
-
-    // =========================================================
-    // STATUS OVERRIDE (cuenta+periodo)
-    // =========================================================
-
-    private function overrideTable(): string
-    {
-        return 'billing_statement_status_overrides';
-    }
-
-    /**
-     * ✅ SOT: si un periodo está marcado "pagado" por override,
-     * ese mes debe considerarse "cerrado" para:
-     * - last_paid (corte de arrastre)
-     * - prev_balance (no sumar deuda ya cerrada por admin)
-     */
-    private function isPeriodPaidByOverride(string $accountId, string $period): bool
-    {
-        try {
-            if (!$this->isValidPeriod($period)) return false;
-
-            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                return false;
-            }
-
-            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            // columna oficial: status_override
-            if (!$has('status_override')) return false;
-
-            return DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('period', $period)
-                ->where('status_override', 'pagado')
-                ->limit(1)
-                ->exists();
-
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
-    /**
-     * Devuelve el periodo más reciente marcado como pagado en overrides.
-     * @return ?string YYYY-MM
-     */
-    private function resolveLastPaidPeriodFromOverrides(string $accountId): ?string
-    {
-        try {
-            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                return null;
-            }
-
-            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id') || !$has('period') || !$has('status_override')) {
-                return null;
-            }
-
-            $row = DB::connection($this->adm)->table($this->overrideTable())
-                ->where('account_id', $accountId)
-                ->where('status_override', 'pagado')
-                ->orderByDesc('period')
-                ->first(['period']);
-
-            if ($row && !empty($row->period)) {
-                $p = $this->parseToPeriod($row->period);
-                return ($p && $this->isValidPeriod($p)) ? $p : null;
-            }
-
-            return null;
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
-
-    /**
-     * @param array<int,string|int> $accountIds
-     * @return array<string, array{
-     *   status:string,
-     *   reason:?string,
-     *   updated_by:?int,
-     *   updated_at:?string,
-     *   pay_method:?string,
-     *   pay_provider:?string,
-     *   pay_status:?string,
-     *   paid_at:mixed
-     * }>
-     */
-    private function fetchStatusOverridesForAccountsPeriod(array $accountIds, string $period): array
-    {
-        $out = [];
-        if (empty($accountIds)) return $out;
-
-        try {
-            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-                return $out;
-            }
-
-            $cols = Schema::connection($this->adm)->getColumnListing($this->overrideTable());
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            $select = ['account_id', 'period', 'status_override', 'reason', 'updated_by', 'updated_at'];
-
-            // soportar variantes de columnas
-            foreach (['pay_method','pay_provider','pay_status','status','paid_at','meta'] as $c) {
-                if ($has($c)) $select[] = $c;
-            }
-
-            $rows = DB::connection($this->adm)->table($this->overrideTable())
-                ->select($select)
-                ->where('period', $period)
-                ->whereIn('account_id', $accountIds)
-                ->get();
-
-            foreach ($rows as $r) {
-                $aid = (string) ($r->account_id ?? '');
-                if ($aid === '') continue;
-
-                // meta fallback
-                $metaOv = [];
-                if ($has('meta') && isset($r->meta) && $r->meta !== null && $r->meta !== '') {
-                    try {
-                        $metaOv = is_array($r->meta) ? $r->meta : json_decode((string) $r->meta, true);
-                        if (!is_array($metaOv)) $metaOv = [];
-                    } catch (\Throwable $e) {
-                        $metaOv = [];
-                    }
-                }
-
-                // method/provider desde columnas si existen
-                $pm = $has('pay_method')   ? (string) ($r->pay_method ?? '')   : '';
-                $pp = $has('pay_provider') ? (string) ($r->pay_provider ?? '') : '';
-
-                // pay_status: primero columna pay_status, luego status (legacy)
-                $ps = '';
-                if ($has('pay_status')) {
-                    $ps = (string) ($r->pay_status ?? '');
-                } elseif ($has('status')) {
-                    $ps = (string) ($r->status ?? '');
-                }
-
-                // paid_at desde columna si existe
-                $paidAt = $has('paid_at') ? ($r->paid_at ?? null) : null;
-
-                // fallback desde meta si vienen vacíos o no hay columnas
-                if (trim($pm) === '') $pm = (string) data_get($metaOv, 'pay_method', data_get($metaOv, 'method', ''));
-                if (trim($pp) === '') $pp = (string) data_get($metaOv, 'pay_provider', data_get($metaOv, 'provider', ''));
-                if (trim($ps) === '') $ps = (string) data_get($metaOv, 'pay_status', data_get($metaOv, 'status', ''));
-                if ($paidAt === null)  $paidAt = data_get($metaOv, 'paid_at');
-
-                // normaliza a null si queda vacío
-                $pm = trim($pm) !== '' ? trim($pm) : null;
-                $pp = trim($pp) !== '' ? trim($pp) : null;
-                $ps = trim($ps) !== '' ? trim($ps) : null;
-
-                $out[$aid] = [
-                    'status'       => (string) ($r->status_override ?? ''),
-                    'reason'       => isset($r->reason) ? (string) $r->reason : null,
-                    'updated_by'   => isset($r->updated_by) ? (int) $r->updated_by : null,
-                    'updated_at'   => isset($r->updated_at) ? (string) $r->updated_at : null,
-
-                    // 👇 “fuente UI” (no payments)
-                    'pay_method'   => $pm,
-                    'pay_provider' => $pp,
-                    'pay_status'   => $ps,
-                    'paid_at'      => $paidAt,
-                ];
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] fetchStatusOverridesForAccountsPeriod failed', [
-                'period' => $period,
-                'err'    => $e->getMessage(),
-            ]);
-        }
-
-        return $out;
-    }
-
-    private function applyStatusOverride(object $row, ?array $ov): object
-    {
-        $row->status_auto = (string) ($row->status_pago ?? 'sin_mov');
-
-        // Valores default (lo que ya traías por payments)
-        $row->ov_pay_method   = null;
-        $row->ov_pay_provider = null;
-        $row->ov_pay_status   = null;
-        $row->ov_paid_at      = null;
-
-        $allowed = ['pendiente', 'parcial', 'pagado', 'vencido', 'sin_mov'];
-
-        if ($ov && isset($ov['status'])) {
-            $s = strtolower(trim((string) $ov['status']));
-            if ($s !== '' && in_array($s, $allowed, true)) {
-                $row->status_override            = $s;
-                $row->status_pago                = $s;
-
-                $row->status_override_reason     = $ov['reason'] ?? null;
-                $row->status_override_updated_at = $ov['updated_at'] ?? null;
-                $row->status_override_updated_by = $ov['updated_by'] ?? null;
-
-                // 👇 Si hay datos UI en overrides, úsalo para mostrar “Método/Prov/St”
-                $pm = isset($ov['pay_method']) && trim((string)$ov['pay_method']) !== '' ? (string)$ov['pay_method'] : null;
-                $pp = isset($ov['pay_provider']) && trim((string)$ov['pay_provider']) !== '' ? (string)$ov['pay_provider'] : null;
-                $ps = isset($ov['pay_status']) && trim((string)$ov['pay_status']) !== '' ? (string)$ov['pay_status'] : null;
-
-                $row->ov_pay_method   = $pm;
-                $row->ov_pay_provider = $pp;
-                $row->ov_pay_status   = $ps;
-                $row->ov_paid_at      = $ov['paid_at'] ?? null;
-
-                // ✅ FIX LISTADO (SOT):
-                // El Blade pinta pay_* (no ov_*). Si hay override, el “display” debe venir del override.
-                if ($pm !== null) $row->pay_method = $pm;
-                if ($pp !== null) $row->pay_provider = $pp;
-                if ($ps !== null) $row->pay_status = $ps;
-
-                // paid_at visible (si tu UI lo usa como last_paid_at)
-                if ($row->ov_paid_at !== null) {
-                    $row->pay_last_paid_at = $row->ov_paid_at;
-                }
-
-                // ✅ FIX LISTADO (SOT):
-                // Si hay override, el “display” debe reflejar ese override.
-                // - pagado => saldo 0 y pagado = total
-                // - no pagado => ignorar payments y recalcular saldo con edo_cta
-                if ($s === 'pagado') {
-
-                    // total mostrado: usa total_shown si existe, si no, cargo o expected_total
-                    $total = (float) ($row->total_shown ?? 0.0);
-                    if ($total <= 0.00001) {
-                        $c = (float) ($row->cargo ?? 0.0);
-                        $e = (float) ($row->expected_total ?? 0.0);
-                        $total = $c > 0.00001 ? $c : $e;
-                    }
-
-                    // ✅ PAGADO: saldo en cero y abono igual al total
-                    $row->abono_pay   = round($total, 2); // para que la columna “Pagado” se vea completa
-                    $row->abono       = round($total, 2);
-                    $row->saldo_shown = 0.0;
-                    $row->saldo       = 0.0;
-
-                    // ayuda a UI si pinta verde por pay_status
-                    if (empty($row->pay_status)) {
-                        $row->pay_status = 'paid';
-                    }
-
-                } else {
-
-                    // Ignorar payments en UI
-                    $row->abono_pay = 0.0;
-
-                    $abEdo = (float) ($row->abono_edo ?? 0.0);
-
-                    // total mostrado: usa total_shown si existe, si no, cargo o expected_total
-                    $total = (float) ($row->total_shown ?? 0.0);
-                    if ($total <= 0.00001) {
-                        $c = (float) ($row->cargo ?? 0.0);
-                        $e = (float) ($row->expected_total ?? 0.0);
-                        $total = $c > 0.00001 ? $c : $e;
-                    }
-
-                    // En override NO pagado: abono = solo edo cta, saldo = total - abono_edo
-                    $row->abono = round($abEdo, 2);
-
-                    $saldo = (float) max(0.0, $total - $abEdo);
-                    $row->saldo_shown = round($saldo, 2);
-                    $row->saldo       = round($saldo, 2);
-                }
-
-
-                return $row;
-
-            }
-        }
-
-        $row->status_override            = null;
-        $row->status_override_reason     = null;
-        $row->status_override_updated_at = null;
-        $row->status_override_updated_by = null;
-
-        return $row;
-    }
-
-    /**
-     * ✅ Upsert de pago "PAID" para un estado de cuenta (admin override pagado).
-     * - Guarda/actualiza payments (paid) para (account_id, period).
-     * - amount: guarda tanto amount_mxn (si existe) como amount en centavos.
-     * - method: manual | transfer | card | etc
-     * - provider: manual (default)
-     */
-private function upsertPaidPaymentForStatement(
-    string $accountId,
-    string $period,
-    float $amountMxn,
-    string $method = 'manual',
-    string $provider = 'manual'
-    ): void {
-        // =========================================================
-        // ✅ FIX GLOBAL (SOT):
-        // Un "override pagado" NO debe crear payments automáticamente.
-        // Se deja el método disponible solo si se habilita explícitamente por ENV.
-        // =========================================================
-        $enabled = (bool) env('BILLING_AUTO_CREATE_PAYMENT_ON_OVERRIDE', false);
-        if (!$enabled) {
-            return;
-        }
-
-        if (!Schema::connection($this->adm)->hasTable('payments')) return;
-
-        $amountMxn = round(max(0.0, $amountMxn), 2);
-        if ($amountMxn <= 0.00001) return;
-
-        try {
-            $cols = Schema::connection($this->adm)->getColumnListing('payments');
-            $lc   = array_map('strtolower', $cols);
-            $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-            if (!$has('account_id')) return;
-
-            $ref = 'admin_paid:' . $accountId . ':' . $period;
-
-            // ✅ solo buscamos/actualizamos el payment MANUAL que nosotros creamos (por reference)
-            $existing = null;
-            if ($has('reference')) {
-                $q = DB::connection($this->adm)->table('payments')
-                    ->where('account_id', $accountId)
-                    ->where('reference', $ref);
-
-                if ($has('period')) {
-                    $this->applyPaymentsPeriodFilter($q, $period, true);
-                }
-
-                $idCol = $has('id') ? 'id' : $cols[0];
-                $existing = $q->orderByDesc($idCol)->first([$idCol]);
-            }
-
-            // ✅ Arma row una sola vez (y NO lo pises después)
-            $row = [
-                'updated_at' => now(),
-            ];
-
-            // ✅ Siempre incluir account_id en el row (insert/update consistentes)
-            // OJO: si payments.account_id es INT, casteamos; si es VARCHAR, se queda string (pero aquí lo forzamos a int porque tu tabla parece NOT NULL y numérica).
-            $row['account_id'] = (int) $accountId;
-
-            if ($has('period'))   $row['period']   = $period;
-            if ($has('status'))   $row['status']   = 'paid';
-            if ($has('provider')) $row['provider'] = $provider !== '' ? $provider : 'manual';
-            if ($has('method'))   $row['method']   = $method !== '' ? $method : 'manual';
-
-            if ($has('currency')) $row['currency'] = 'MXN';
-            if ($has('paid_at'))  $row['paid_at']  = now();
-
-            if ($has('amount_mxn')) $row['amount_mxn'] = $amountMxn;
-            if ($has('amount'))     $row['amount']     = (int) round($amountMxn * 100);
-
-            if ($has('concept')) {
-                $row['concept'] = 'billing_statement';
-            }
-
-            if ($has('reference')) {
-                $row['reference'] = $ref;
-            }
-
-            if ($has('meta')) {
-                $row['meta'] = json_encode([
-                    'type'   => 'billing_statement',
-                    'period' => $period,
-                    'source' => 'admin_statusAjax',
-                    'note'   => 'Pago manual PAID por override pagado (SOT). No toca Stripe pending.',
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            }
-
-            $idCol = $has('id') ? 'id' : $cols[0];
-
-            DB::connection($this->adm)->transaction(function () use ($existing, $idCol, $row, $accountId) {
-
-                if ($existing && isset($existing->{$idCol})) {
-                    DB::connection($this->adm)
-                        ->table('payments')
-                        ->where($idCol, (int) $existing->{$idCol})
-                        ->update($row);
-                } else {
-                    $row2 = $row;
-                    $row2['created_at'] = now();
-
-                    // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
-                    $aid2 = (int)($row2['account_id'] ?? 0);
-                    if ($aid2 <= 0) {
-                        $aid2 = (int)$accountId;
-                    }
-                    if ($aid2 <= 0) {
-                        throw new \RuntimeException('payments insert blocked: missing account_id (row2)');
-                    }
-                    $row2['account_id'] = $aid2;
-
-                    DB::connection($this->adm)->table('payments')->insert($row2);
-                }
-            });
-        } catch (\Throwable $e) {
-            Log::warning('[ADMIN][STATEMENTS] upsertPaidPaymentForStatement failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-        }
-    }
-
-  private function insertManualPaidPaymentForStatement(string $accountId, string $period, float $amountMxn, string $method): void
-    {
-        // =========================================================
-        // ✅ FIX GLOBAL (SOT):
-        // Un "override pagado" NO debe crear movimientos financieros.
-        // Eso genera "abonos fantasma" y rompe totales (PDF/UI).
-        //
-        // Los pagos reales deben registrarse SOLO en el flujo explícito
-        // (p.ej. Hub manualPayment / conciliación / Stripe webhook).
-        //
-        // Si alguna vez se requiere reactivar el comportamiento,
-        // se puede habilitar por ENV.
-        // =========================================================
-        $enabled = (bool) env('BILLING_AUTO_CREATE_PAYMENT_ON_OVERRIDE', false);
-        if (!$enabled) {
-            return;
-        }
-
-        // ---- (comportamiento legacy opcional) ----
-        if (!Schema::connection($this->adm)->hasTable('payments')) {
-            return;
-        }
-
-        $amountMxn = round(max(0.0, $amountMxn), 2);
-        if ($amountMxn <= 0.00001) {
-            return;
-        }
-
-        $cols = Schema::connection($this->adm)->getColumnListing('payments');
-        $lc   = array_map('strtolower', $cols);
-        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
-
-        if (!$has('account_id')) {
-            return;
-        }
-
-        $payload = [];
-        $payload['account_id'] = $accountId;
-
-        if ($has('period')) {
-            $payload['period'] = $period;
-        }
-        if ($has('status')) {
-            $payload['status'] = 'paid';
-        }
-        if ($has('provider')) {
-            $payload['provider'] = 'manual';
-        }
-        if ($has('method')) {
-            $payload['method'] = $method !== '' ? $method : 'manual';
-        }
-
-        if ($has('amount_mxn')) {
-            $payload['amount_mxn'] = $amountMxn;
-        }
-        if ($has('amount')) {
-            $payload['amount'] = (int) round($amountMxn * 100);
-        }
-
-        if ($has('currency')) {
-            $payload['currency'] = 'MXN';
-        }
-        if ($has('paid_at')) {
-            $payload['paid_at'] = now();
-        }
-        if ($has('due_date')) {
-            // SOT: due_date debe ser "límite de pago", no "ahorita"
-            $payload['due_date'] = now()->addDays(4);
-        }
-
-        if ($has('concept')) {
-            $payload['concept'] = 'Pago manual (admin) · Estado de cuenta ' . $period;
-        }
-
-        if ($has('reference')) {
-            $payload['reference'] = 'admin_mark_paid:' . $accountId . ':' . $period . ':' . now()->format('YmdHis');
-        }
-
-        if ($has('meta')) {
-            $payload['meta'] = json_encode([
-                'type'   => 'billing_statement',
-                'period' => $period,
-                'source' => 'admin_statusAjax',
-                'note'   => 'Pago manual para cerrar saldo por override pagado (LEGACY)',
-            ], JSON_UNESCAPED_UNICODE);
-        }
-
-        $payload['updated_at'] = now();
-        $payload['created_at'] = now();
-
-         // ✅ payments.account_id es NOT NULL en mysql_admin: siempre forzar account_id
-        $aid3 = (int)($payload['account_id'] ?? 0);
-        if ($aid3 <= 0 && isset($accountId)) {
-            $aid3 = (int)$accountId;
-       }
-        if ($aid3 <= 0) {
-            throw new \RuntimeException('payments insert blocked: missing account_id (payload)');
-        }
-        $payload['account_id'] = $aid3;
-
-        DB::connection($this->adm)->table('payments')->insert($payload);
-    }
-
-    /**
-     * POST admin/billing/statements/status
-     * status_override vacío => borra override (regresa a AUTO)
-     */
     public function setStatusOverrideForm(Request $req): RedirectResponse
     {
         $data = $req->validate([
@@ -3766,13 +2054,25 @@ private function upsertPaidPaymentForStatement(
             'reason'          => 'nullable|string|max:255',
         ]);
 
-        $accountId = (string) $data['account_id'];
-        $period    = (string) $data['period'];
+        $accountId = trim((string) $data['account_id']);
+        $period    = trim((string) $data['period']);
 
         abort_if(!$this->isValidPeriod($period), 422);
 
         if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-            return back()->withErrors(['status' => 'No existe la tabla billing_statement_status_overrides (corre migraciones).']);
+            return back()->withErrors([
+                'status' => 'No existe la tabla billing_statement_status_overrides (corre migraciones).',
+            ]);
+        }
+
+        if (
+            !$this->overrideTableHas('account_id') ||
+            !$this->overrideTableHas('period') ||
+            !$this->overrideTableHas('status_override')
+        ) {
+            return back()->withErrors([
+                'status' => 'La tabla billing_statement_status_overrides no tiene la estructura esperada.',
+            ]);
         }
 
         $status = strtolower(trim((string) ($data['status_override'] ?? '')));
@@ -3780,163 +2080,132 @@ private function upsertPaidPaymentForStatement(
         $by     = auth('admin')->id();
 
         DB::connection($this->adm)->transaction(function () use ($accountId, $period, $status, $reason, $by) {
-            $q = DB::connection($this->adm)->table($this->overrideTable())
+            $baseQuery = DB::connection($this->adm)->table($this->overrideTable())
                 ->where('account_id', $accountId)
                 ->where('period', $period);
 
             if ($status === '') {
-                $q->delete();
+                $baseQuery->delete();
                 return;
             }
 
-            $exists = $q->first(['id']);
+            $existing = $baseQuery->first(['id']);
 
             $payload = [
                 'account_id'      => $accountId,
                 'period'          => $period,
                 'status_override' => $status,
-                'reason'          => ($reason !== '' ? $reason : null),
-                'updated_by'      => $by ? (int) $by : null,
                 'updated_at'      => now(),
             ];
 
-            if ($exists && isset($exists->id)) {
+            if ($this->overrideTableHas('reason')) {
+                $payload['reason'] = $reason !== '' ? $reason : null;
+            }
+
+            if ($this->overrideTableHas('updated_by')) {
+                $payload['updated_by'] = $by ? (int) $by : null;
+            }
+
+            if ($existing && isset($existing->id)) {
                 DB::connection($this->adm)->table($this->overrideTable())
-                    ->where('id', (int) $exists->id)
+                    ->where('id', (int) $existing->id)
                     ->update($payload);
             } else {
-                $payload['created_at'] = now();
+                if ($this->overrideTableHas('created_at')) {
+                    $payload['created_at'] = now();
+                }
+
                 DB::connection($this->adm)->table($this->overrideTable())->insert($payload);
             }
         });
 
-        return back()->with('ok', $status === '' ? 'Override eliminado (AUTO).' : 'Estatus actualizado (override).');
+        return back()->with(
+            'ok',
+            $status === '' ? 'Override eliminado (AUTO).' : 'Estatus actualizado (override).'
+        );
     }
 
+    // =========================================================
+    // QR HELPERS
+    // =========================================================
+
     /**
-     * Genera QR PNG como data-uri y le pega el logo al centro (GD).
-     * Esto es mucho más estable que overlay HTML en DomPDF.
+     * @return array{0:?string,1:?string}
      */
-    private function makeQrWithCenterLogoDataUri(string $text, string $logoPath, int $logoPx = 38): string
+    private function makeQrDataForText(string $text): array
     {
         $text = trim($text);
-        if ($text === '') return '';
-
-        // 1) Generar QR PNG con BaconQrCode
-        $size = 320; // resolución interna del QR (más grande = más nitidez)
-        $renderer = new ImageRenderer(
-            new RendererStyle($size, 2),
-            new GdImageBackEnd()
-        );
-
-        $writer = new Writer($renderer);
-        $png = $writer->writeString($text);
-
-        if (!is_string($png) || strlen($png) < 20) {
-            return '';
+        if ($text === '') {
+            return [null, null];
         }
 
-        // Si no hay GD o no hay logo, regresamos QR normal
-        if (!function_exists('imagecreatefromstring')) {
-            return 'data:image/png;base64,' . base64_encode($png);
+        $size = 170;
+
+        try {
+            if (class_exists(Writer::class) && class_exists(GdImageBackEnd::class)) {
+                $renderer = new ImageRenderer(new RendererStyle($size), new GdImageBackEnd());
+                $writer   = new Writer($renderer);
+                $png      = $writer->writeString($text);
+
+                if (is_string($png) && $png !== '') {
+                    return ['data:image/png;base64,' . base64_encode($png), null];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] QR local failed (bacon)', ['err' => $e->getMessage()]);
         }
 
-        $qrImg = @imagecreatefromstring($png);
-        if (!$qrImg) {
-            return 'data:image/png;base64,' . base64_encode($png);
+        $qrUrl = 'https://quickchart.io/qr?text=' . urlencode($text) . '&size=' . $size . '&margin=1&format=png';
+        return [null, $qrUrl];
+    }
+
+    private function resolveQrTextForStatement(string $accountId, string $period, ?string $payUrl = null): ?string
+    {
+        if (is_string($payUrl) && trim($payUrl) !== '') {
+            return trim($payUrl);
         }
 
-        // 2) Logo
-        $logoBin = null;
-        if ($logoPath !== '' && is_file($logoPath) && is_readable($logoPath)) {
-            $logoBin = @file_get_contents($logoPath);
+        try {
+            if (Route::has('cliente.billing.publicPay')) {
+                return URL::signedRoute('cliente.billing.publicPay', [
+                    'accountId' => $accountId,
+                    'period'    => $period,
+                ]);
+            }
+        } catch (\Throwable $e) {
         }
 
-        if (!$logoBin || strlen($logoBin) < 20) {
-            // sin logo: QR normal
-            imagedestroy($qrImg);
-            return 'data:image/png;base64,' . base64_encode($png);
+        try {
+            if (Route::has('cliente.estado_cuenta')) {
+                return route('cliente.estado_cuenta') . '?period=' . urlencode($period);
+            }
+        } catch (\Throwable $e) {
         }
 
-        $logoImg = @imagecreatefromstring($logoBin);
-        if (!$logoImg) {
-            imagedestroy($qrImg);
-            return 'data:image/png;base64,' . base64_encode($png);
-        }
-
-        // 3) Resize logo (mantener proporción)
-        $logoPx = max(18, min(64, (int)$logoPx));
-        $lw = imagesx($logoImg);
-        $lh = imagesy($logoImg);
-        if ($lw <= 0 || $lh <= 0) {
-            imagedestroy($logoImg);
-            imagedestroy($qrImg);
-            return 'data:image/png;base64,' . base64_encode($png);
-        }
-
-        $dst = imagecreatetruecolor($logoPx, $logoPx);
-        imagealphablending($dst, false);
-        imagesavealpha($dst, true);
-        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
-        imagefilledrectangle($dst, 0, 0, $logoPx, $logoPx, $transparent);
-
-        imagecopyresampled($dst, $logoImg, 0, 0, 0, 0, $logoPx, $logoPx, $lw, $lh);
-
-        // 4) Pegar logo al centro con “fondo blanco” (quiet zone) para que el QR siga escaneable
-        $qrW = imagesx($qrImg);
-        $qrH = imagesy($qrImg);
-
-        $pad = 6; // margen blanco alrededor del logo
-        $box = $logoPx + ($pad * 2);
-
-        $x = (int)(($qrW - $box) / 2);
-        $y = (int)(($qrH - $box) / 2);
-
-        $white = imagecolorallocate($qrImg, 255, 255, 255);
-        imagefilledrectangle($qrImg, $x, $y, $x + $box, $y + $box, $white);
-
-        // pegar logo dentro de la caja blanca
-        imagecopy($qrImg, $dst, $x + $pad, $y + $pad, 0, 0, $logoPx, $logoPx);
-
-        // 5) Export PNG
-        ob_start();
-        imagepng($qrImg);
-        $out = (string)ob_get_clean();
-
-        imagedestroy($dst);
-        imagedestroy($logoImg);
-        imagedestroy($qrImg);
-
-        if (strlen($out) < 20) {
-            return 'data:image/png;base64,' . base64_encode($png);
-        }
-
-        return 'data:image/png;base64,' . base64_encode($out);
+        return null;
     }
 
     /**
-     * Intenta resolver el PNG del QR desde $data:
-     * - qr_data_uri (data:image/png;base64,....)
-     * - qr_url / qr_path (local dentro de public_path)
-     * - qr_data (si lo manejas)
+     * @param array<string,mixed> $data
      */
     private function resolveQrPngBinaryFromData(array $data): ?string
     {
-        // 1) data uri directo
-        $qrDataUri = (string)($data['qr_data_uri'] ?? $data['qr_data'] ?? '');
+        $qrDataUri = trim((string) ($data['qr_data_uri'] ?? $data['qr_data'] ?? ''));
         if ($qrDataUri !== '' && str_starts_with($qrDataUri, 'data:image')) {
             $pos = strpos($qrDataUri, 'base64,');
             if ($pos !== false) {
                 $b64 = substr($qrDataUri, $pos + 7);
                 $bin = base64_decode($b64, true);
-                if (is_string($bin) && strlen($bin) > 50) return $bin;
+                if (is_string($bin) && strlen($bin) > 50) {
+                    return $bin;
+                }
             }
         }
 
-        // 2) url/path (intentamos local en public/)
-        $qrUrl = (string)($data['qr_url'] ?? $data['qr_path'] ?? '');
-        $qrUrl = trim($qrUrl);
-        if ($qrUrl === '') return null;
+        $qrUrl = trim((string) ($data['qr_url'] ?? $data['qr_path'] ?? ''));
+        if ($qrUrl === '') {
+            return null;
+        }
 
         $tryLocal = null;
 
@@ -3948,63 +2217,80 @@ private function upsertPaidPaymentForStatement(
 
         if ($tryLocal && is_file($tryLocal) && is_readable($tryLocal)) {
             $bin = @file_get_contents($tryLocal);
-            if (is_string($bin) && strlen($bin) > 50) return $bin;
+            if (is_string($bin) && strlen($bin) > 50) {
+                return $bin;
+            }
         }
 
-        // 3) remoto (solo si es http/https)
         if (preg_match('#^https?://#i', $qrUrl)) {
             $ctx = stream_context_create([
                 'http' => ['timeout' => 3],
                 'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
             ]);
+
             $bin = @file_get_contents($qrUrl, false, $ctx);
-            if (is_string($bin) && strlen($bin) > 50) return $bin;
+            if (is_string($bin) && strlen($bin) > 50) {
+                return $bin;
+            }
         }
 
         return null;
     }
 
-    /**
-     * Genera un QR PNG binario usando BaconQrCode (sin logo).
-     */
     private function makeQrPngBinary(string $text, int $size = 320): ?string
     {
         $text = trim($text);
-        if ($text === '') return null;
+        if ($text === '') {
+            return null;
+        }
 
-        // Si no existe BaconQrCode, no podemos generar
-        if (!class_exists(\BaconQrCode\Writer::class)) return null;
+        if (
+            !class_exists(Writer::class) ||
+            !class_exists(ImageRenderer::class) ||
+            !class_exists(RendererStyle::class) ||
+            !class_exists(GdImageBackEnd::class)
+        ) {
+            return null;
+        }
 
-        $size = max(160, min(520, (int)$size));
+        $size = max(160, min(520, (int) $size));
 
-        $renderer = new \BaconQrCode\Renderer\ImageRenderer(
-            new \BaconQrCode\Renderer\RendererStyle\RendererStyle($size, 2),
-            new \BaconQrCode\Renderer\Image\GdImageBackEnd()
-        );
+        try {
+            $renderer = new ImageRenderer(
+                new RendererStyle($size, 2),
+                new GdImageBackEnd()
+            );
 
-        $writer = new \BaconQrCode\Writer($renderer);
-        $png = $writer->writeString($text);
+            $writer = new Writer($renderer);
+            $png = $writer->writeString($text);
 
-        if (is_string($png) && strlen($png) > 50) return $png;
+            if (is_string($png) && strlen($png) > 50) {
+                return $png;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] makeQrPngBinary failed', [
+                'err'  => $e->getMessage(),
+                'size' => $size,
+            ]);
+        }
 
         return null;
     }
 
-    /**
-     * Recibe PNG binario de QR y le embebe el logo al centro (GD), retorna data-uri PNG.
-     * Si GD o logo falla, regresa el QR original como data-uri.
-     */
     private function embedCenterLogoIntoQrPngDataUri(string $qrPngBin, string $logoPath, int $logoPx = 38): string
     {
-        // fallback: QR original
         $fallback = 'data:image/png;base64,' . base64_encode($qrPngBin);
 
-        if (!function_exists('imagecreatefromstring')) return $fallback;
+        if (!function_exists('imagecreatefromstring')) {
+            return $fallback;
+        }
 
         $qrImg = @imagecreatefromstring($qrPngBin);
-        if (!$qrImg) return $fallback;
+        if (!$qrImg) {
+            return $fallback;
+        }
 
-        $logoPx = max(18, min(64, (int)$logoPx));
+        $logoPx = max(18, min(64, (int) $logoPx));
 
         if ($logoPath === '' || !is_file($logoPath) || !is_readable($logoPath)) {
             imagedestroy($qrImg);
@@ -4023,9 +2309,9 @@ private function upsertPaidPaymentForStatement(
             return $fallback;
         }
 
-        // resize logo a cuadrado logoPx x logoPx
         $lw = imagesx($logoImg);
         $lh = imagesy($logoImg);
+
         if ($lw <= 0 || $lh <= 0) {
             imagedestroy($logoImg);
             imagedestroy($qrImg);
@@ -4035,38 +2321,117 @@ private function upsertPaidPaymentForStatement(
         $dst = imagecreatetruecolor($logoPx, $logoPx);
         imagealphablending($dst, false);
         imagesavealpha($dst, true);
+
         $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
         imagefilledrectangle($dst, 0, 0, $logoPx, $logoPx, $transparent);
 
         imagecopyresampled($dst, $logoImg, 0, 0, 0, 0, $logoPx, $logoPx, $lw, $lh);
 
-        // pegar al centro con "caja blanca" para que siga escaneable
         $qrW = imagesx($qrImg);
         $qrH = imagesy($qrImg);
 
-        $pad = 6;                 // borde blanco alrededor del logo
-        $box = $logoPx + ($pad*2);
+        $pad = 6;
+        $box = $logoPx + ($pad * 2);
 
-        $x = (int)(($qrW - $box) / 2);
-        $y = (int)(($qrH - $box) / 2);
+        $x = (int) (($qrW - $box) / 2);
+        $y = (int) (($qrH - $box) / 2);
 
         $white = imagecolorallocate($qrImg, 255, 255, 255);
         imagefilledrectangle($qrImg, $x, $y, $x + $box, $y + $box, $white);
 
         imagecopy($qrImg, $dst, $x + $pad, $y + $pad, 0, 0, $logoPx, $logoPx);
 
-        // export
         ob_start();
         imagepng($qrImg);
-        $out = (string)ob_get_clean();
+        $out = (string) ob_get_clean();
 
         imagedestroy($dst);
         imagedestroy($logoImg);
         imagedestroy($qrImg);
 
-        if (strlen($out) < 50) return $fallback;
+        if (strlen($out) < 50) {
+            return $fallback;
+        }
 
         return 'data:image/png;base64,' . base64_encode($out);
     }
-    
+
+        private function isOverdue(string $period, mixed $dueDate, Carbon $now): bool
+    {
+        // =========================================================
+        // Regla GLOBAL (SOT):
+        // - El periodo ACTUAL (YYYY-MM) NUNCA se marca como vencido.
+        // - Solo periodos ANTERIORES pueden ser vencidos.
+        // =========================================================
+        $p = trim((string) $period);
+        if (!preg_match('/^\d{4}-\d{2}$/', $p)) {
+            return false;
+        }
+
+        $currentPeriod = $now->format('Y-m');
+        if ($p >= $currentPeriod) {
+            return false;
+        }
+
+        // =========================================================
+        // 1) Si tenemos due_date válido, úsalo como fuente primaria
+        // =========================================================
+        try {
+            if ($dueDate !== null && $dueDate !== '') {
+                $due = $dueDate instanceof Carbon ? $dueDate : Carbon::parse((string) $dueDate);
+                return $due->lt($now);
+            }
+        } catch (\Throwable $e) {
+            // Si dueDate falla, caer al fallback
+        }
+
+        // =========================================================
+        // 2) Fallback robusto por periodo:
+        //    vencido si ya pasó fin de mes + 4 días
+        // =========================================================
+        try {
+            $start = Carbon::createFromFormat('Y-m-d', $p . '-01')->startOfMonth();
+            $cut   = $start->copy()->endOfMonth()->addDays(4)->endOfDay();
+            return $now->gt($cut);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+        private function hasOverrideForAccountPeriod(string $accountId, string $period): bool
+    {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
+            return false;
+        }
+
+        try {
+            if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
+                return false;
+            }
+
+            if (
+                !$this->overrideTableHas('account_id') ||
+                !$this->overrideTableHas('period')
+            ) {
+                return false;
+            }
+
+            return DB::connection($this->adm)->table($this->overrideTable())
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->limit(1)
+                ->exists();
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] hasOverrideForAccountPeriod failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
 }
