@@ -738,14 +738,11 @@ final class AccountBillingController extends Controller
      * - admin.payments
      * - admin.estados_cuenta
      *
-     * Objetivo:
-     * - que cliente refleje inmediatamente lo que admin ya muestra
-     * - aunque billing_statements aún no esté sincronizada
-     *
      * Regla visual:
-     * - el cargo del mes debe reflejar el cargo REAL del statement
-     * - si hubo compra extra, debe verse en ese mismo mes
-     * - si hubo pago parcial, debe verse pagado/parcial/saldo correctos
+     * - charge = cargo real del periodo
+     * - paid_amount NO puede inflar el cargo del mes
+     * - si hubo compra extra en ese periodo, sí se refleja
+     * - si hubo pago parcial, se refleja parcial real
      *
      * @param array<int,array<string,mixed>> $rowsFromStatementsAll
      * @param array<string,float> $chargesByPeriod
@@ -959,7 +956,7 @@ final class AccountBillingController extends Controller
             }
 
             // ======================================================
-            // 5) service_items reales para reflejar compras extra
+            // 5) service_items reales para compras extra del periodo
             // ======================================================
             $serviceItems = is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [];
             $itemsTotal   = 0.0;
@@ -984,7 +981,7 @@ final class AccountBillingController extends Controller
             $itemsTotal = round($itemsTotal, 2);
 
             // ======================================================
-            // 6) montos auxiliares
+            // 6) Fuentes auxiliares
             // ======================================================
             $monthlyCharge = round(max(0.0, $this->resolvePortalMonthlyMxnForPeriod(
                 $accountId,
@@ -997,10 +994,7 @@ final class AccountBillingController extends Controller
             $edoCharge = round((float) ($edoAgg[$period]['cargo'] ?? 0.0), 2);
             $edoPaid   = round((float) ($edoAgg[$period]['abono'] ?? 0.0), 2);
 
-            // ✅ Cargo REAL del periodo:
-            // 1) billing_statements / items reales
-            // 2) estados_cuenta
-            // 3) mensualidad resuelta (solo fallback)
+            // ✅ CARGO REAL DEL PERIODO
             $visualCharge = max($statementCharge, $itemsTotal);
 
             if ($visualCharge <= 0.0001 && $edoCharge > 0.0001) {
@@ -1013,14 +1007,13 @@ final class AccountBillingController extends Controller
 
             $visualCharge = round(max(0.0, $visualCharge), 2);
 
-            // ✅ pagado real más confiable
-            $realPaid = max($statementPaid, $edoPaid);
-            $realPaid = round(max(0.0, $realPaid), 2);
+            // ✅ ABONO REAL detectado
+            $realPaid = round(max(0.0, max($statementPaid, $edoPaid)), 2);
 
             $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
 
             // ======================================================
-            // Override manda en el status
+            // Override solo manda en STATUS
             // ======================================================
             if ($ov && !empty($ov['status_override'])) {
                 $ovStatus = strtolower((string) $ov['status_override']);
@@ -1045,15 +1038,12 @@ final class AccountBillingController extends Controller
             $saldo      = 0.0;
 
             if ($status === 'paid') {
-                if ($visualCharge > 0.0001) {
-                    $paidAmount = max($realPaid, $visualCharge);
-                    $visualCharge = max($visualCharge, $paidAmount);
-                    $saldo = 0.0;
-                } else {
-                    $paidAmount   = round(max(0.0, $realPaid), 2);
-                    $visualCharge = $paidAmount;
-                    $saldo        = 0.0;
-                }
+                // ✅ NO inflar mes pagado con abono acumulado
+                $base = $visualCharge > 0.0001 ? $visualCharge : $realPaid;
+
+                $visualCharge = round(max(0.0, $base), 2);
+                $paidAmount   = round(max(0.0, $base), 2);
+                $saldo        = 0.0;
             } elseif ($status === 'partial') {
                 $base = $visualCharge;
 
@@ -1065,14 +1055,17 @@ final class AccountBillingController extends Controller
                     $base = $monthlyCharge;
                 }
 
-                $paidAmount = round(min(max(0.0, $realPaid), max(0.0, $base)), 2);
-                $saldo      = round(max(0.0, $base - $paidAmount), 2);
+                $base = round(max(0.0, $base), 2);
 
-                if ($saldo <= 0.0001 && $statementSaldo > 0.0001) {
-                    $saldo = $statementSaldo;
+                if ($statementSaldo > 0.0001 && $base > 0.0001) {
+                    $saldo      = round(min($statementSaldo, $base), 2);
+                    $paidAmount = round(max(0.0, $base - $saldo), 2);
+                } else {
+                    $paidAmount = round(min(max(0.0, $realPaid), $base), 2);
+                    $saldo      = round(max(0.0, $base - $paidAmount), 2);
                 }
 
-                $visualCharge = round(max($base, $paidAmount + $saldo), 2);
+                $visualCharge = $base;
             } elseif (in_array($status, ['pending', 'overdue'], true)) {
                 $base = $visualCharge;
 
@@ -1080,9 +1073,9 @@ final class AccountBillingController extends Controller
                     $base = $statementSaldo;
                 }
 
-                $paidAmount = 0.0;
-                $saldo      = round(max(0.0, $base), 2);
                 $visualCharge = round(max(0.0, $base), 2);
+                $paidAmount   = 0.0;
+                $saldo        = round(max(0.0, $visualCharge), 2);
             } else {
                 $visualCharge = 0.0;
                 $paidAmount   = 0.0;
