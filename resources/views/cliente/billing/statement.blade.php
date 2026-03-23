@@ -85,7 +85,7 @@
 
   $displayYear = substr($displayBase, 0, 4);
 
-  $rows = array_values(array_filter($safe, function ($r) use ($displayYear) {
+    $rows = array_values(array_filter($safe, function ($r) use ($displayYear) {
     $p = (string) ($r['period'] ?? '');
     return $p !== '' && substr($p, 0, 4) === $displayYear;
   }));
@@ -96,6 +96,110 @@
 
   if (empty($rows)) {
     $rows = $safe;
+    usort($rows, function ($a, $b) {
+      return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+    });
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Vista previa del siguiente mes
+  |--------------------------------------------------------------------------
+  | Regla UI:
+  | - Siempre mostrar hasta el siguiente mes después del último visible
+  | - Sirve para validar visualmente la mensualidad que sigue
+  | - NO altera negocio, NO crea statement real, NO habilita pago por sí mismo
+  */
+  $existingPeriods = [];
+  foreach ($rows as $tmpRow) {
+    $tmpPeriod = (string) ($tmpRow['period'] ?? '');
+    if ($tmpPeriod !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $tmpPeriod)) {
+      $existingPeriods[$tmpPeriod] = true;
+    }
+  }
+
+  $nextPreviewPeriod = null;
+  if (!empty($existingPeriods)) {
+    $lastVisiblePeriod = array_key_last($existingPeriods);
+
+    try {
+      $nextPreviewPeriod = \Illuminate\Support\Carbon::createFromFormat('Y-m', $lastVisiblePeriod)
+        ->addMonthNoOverflow()
+        ->format('Y-m');
+    } catch (\Throwable $e) {
+      $nextPreviewPeriod = null;
+    }
+  } else {
+    try {
+      $nextPreviewPeriod = \Illuminate\Support\Carbon::createFromFormat('Y-m', $displayBase)
+        ->addMonthNoOverflow()
+        ->format('Y-m');
+    } catch (\Throwable $e) {
+      $nextPreviewPeriod = null;
+    }
+  }
+
+  // Solo agregar si no existe ya en rows
+  if (
+    $nextPreviewPeriod &&
+    preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $nextPreviewPeriod) &&
+    !isset($existingPeriods[$nextPreviewPeriod])
+  ) {
+    $previewCharge = 0.0;
+
+    // 1) Preferir mensualidad del header si ya resolvió bien
+    if (isset($mensualidadAdmin) && is_numeric($mensualidadAdmin) && (float) $mensualidadAdmin > 0) {
+      $previewCharge = round((float) $mensualidadAdmin, 2);
+    }
+
+    // 2) Si no, usar el último charge positivo visible
+    if ($previewCharge <= 0) {
+      foreach (array_reverse($rows) as $tmpRow) {
+        $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+        if ($tmpCharge > 0) {
+          $previewCharge = round($tmpCharge, 2);
+          break;
+        }
+      }
+    }
+
+    // 3) Fallback final: usar el mayor monto visible
+    if ($previewCharge <= 0) {
+      foreach ($rows as $tmpRow) {
+        $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
+        $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0);
+        $tmpBase   = max($tmpCharge, $tmpSaldo);
+        if ($tmpBase > $previewCharge) {
+          $previewCharge = round($tmpBase, 2);
+        }
+      }
+    }
+
+    try {
+      $cPrev = \Illuminate\Support\Carbon::createFromFormat('Y-m', $nextPreviewPeriod);
+      $previewRange = $cPrev->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $cPrev->copy()->endOfMonth()->format('d/m/Y');
+    } catch (\Throwable $e) {
+      $previewRange = $nextPreviewPeriod;
+    }
+
+    $rows[] = [
+      'id'                     => null,
+      'period'                 => $nextPreviewPeriod,
+      'period_range'           => $previewRange,
+      'status'                 => 'pending',
+      'charge'                 => round(max(0, $previewCharge), 2),
+      'total_cargo'            => round(max(0, $previewCharge), 2),
+      'paid_amount'            => 0.0,
+      'total_abono'            => 0.0,
+      'saldo'                  => round(max(0, $previewCharge), 2),
+      'can_pay'                => false,
+      'rfc'                    => (string) ($rfc ?? '—'),
+      'alias'                  => (string) ($alias ?? '—'),
+      'invoice_request_status' => null,
+      'invoice_has_zip'        => false,
+      '__preview_next'         => true,
+    ];
+
     usort($rows, function ($a, $b) {
       return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
     });
@@ -156,48 +260,30 @@
     $headerPayAllowed = (string) $payAllowed;
   }
 
-    /*
+      /*
   |--------------------------------------------------------------------------
-  | Mensualidad header (ESPEJO REAL ADMIN)
+  | Mensualidad header
   |--------------------------------------------------------------------------
-  | REGLA:
-  | - NO usar $mensualidadAdmin porque puede venir contaminado por resolvers legacy
-  | - Preferir el monto del periodo con can_pay=true
-  | - Si no existe, usar el primer pendiente visible
-  | - Si no hay pendientes, usar el último pagado visible
+  | Regla UI:
+  | - Preferir el primer pendiente visible REAL o de vista previa
+  | - Si no existe, usar el último monto visible positivo
   |--------------------------------------------------------------------------
   */
   $mensualidadHeader = 0.0;
 
-  // 1) periodo habilitado para pago
   foreach ($rows as $tmpRow) {
-    $tmpCanPay = (bool) ($tmpRow['can_pay'] ?? false);
+    $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
     $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
     $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0);
 
-    if ($tmpCanPay) {
+    if (!in_array($tmpStatus, $paidStatuses, true)) {
       $mensualidadHeader = $tmpSaldo > 0 ? $tmpSaldo : $tmpCharge;
-      break;
+      if ($mensualidadHeader > 0) break;
     }
   }
 
-    // 2) primer pendiente visible
   if ($mensualidadHeader <= 0) {
-    foreach ($rows as $tmpRow) {
-      $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
-      $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
-      $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0);
-
-      if (!in_array($tmpStatus, $paidStatuses, true)) {
-        $mensualidadHeader = $tmpSaldo > 0 ? $tmpSaldo : $tmpCharge;
-        if ($mensualidadHeader > 0) break;
-      }
-    }
-  }
-
-  // 3) último fallback: cualquier charge visible real
-  if ($mensualidadHeader <= 0) {
-    foreach ($rows as $tmpRow) {
+    foreach (array_reverse($rows) as $tmpRow) {
       $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
       if ($tmpCharge > 0) {
         $mensualidadHeader = $tmpCharge;
@@ -250,7 +336,7 @@
           <div class="p360-section-badge">HISTORIAL</div>
           <h2 class="p360-section-h2">Movimientos del año {{ $displayYear }}</h2>
           <div class="p360-section-p">
-            Se muestran periodos pagados y pendientes, incluyendo pagos anteriores.
+            Se muestran periodos pagados, pendientes y el siguiente mes de referencia para validar la mensualidad.
           </div>
         </div>
       </div>
@@ -304,7 +390,7 @@
               $amount = $saldo > 0 ? $saldo : $charge;
             }
 
-            $statusText  = $isPaid ? 'Pagado' : 'Pendiente';
+            $statusText  = $isPaid ? 'Pagado' : ((bool) ($row['__preview_next'] ?? false) ? 'Próximo' : 'Pendiente');
             $statusClass = $isPaid ? 'paid' : 'pending';
 
             $pdfEnabled  = $pdfInlineRouteExists && $period !== '';
@@ -335,6 +421,13 @@
               : '#';
 
             $rowClass = $isPaid ? 'is-paid' : 'is-pending';
+
+            $isPreviewNext = (bool) ($row['__preview_next'] ?? false);
+            if ($isPreviewNext) {
+              $rowClass .= ' is-preview-next';
+            }
+
+
           @endphp
 
           <div class="p360-row p360-row--flat {{ $rowClass }}" data-period="{{ $period }}">
