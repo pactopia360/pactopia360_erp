@@ -20,6 +20,10 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
+use App\Services\Cliente\Billing\PortalStatementMirrorService;
+use App\Services\Cliente\Billing\PortalAmountResolverService;
+use App\Services\Cliente\Billing\PortalBillingContextService;
+
 final class AccountBillingController extends Controller
 {
     /**
@@ -29,14 +33,18 @@ final class AccountBillingController extends Controller
     private $stripe = null;
 
     private BillingStatementsHubController $hub;
+    private PortalStatementMirrorService $portalMirror;
+    private PortalAmountResolverService $portalAmounts;
+    private PortalBillingContextService $portalContext;
 
     public function __construct()
     {
-        // ✅ publicPdf/publicPdfInline/publicPay sin sesión (firma)
         $this->middleware(['auth:web'])->except(['publicPdf', 'publicPdfInline', 'publicPay']);
 
-        // ✅ HUB (misma lógica que Admin)
         $this->hub = App::make(BillingStatementsHubController::class);
+        $this->portalMirror = App::make(PortalStatementMirrorService::class);
+        $this->portalAmounts = App::make(PortalAmountResolverService::class);
+        $this->portalContext = App::make(PortalBillingContextService::class);
     }
 
     /**
@@ -265,160 +273,19 @@ final class AccountBillingController extends Controller
         return 'billing_statement_status_overrides';
     }
 
-    /**
-     * @param array<int,string> $periods
-     * @return array<string,array{status:string}>
-     */
     private function fetchStatementOverrideMapForPeriods(int $adminAccountId, array $periods): array
     {
-        $out = [];
-
-        if ($adminAccountId <= 0 || empty($periods)) {
-            return $out;
-        }
-
-        $adm = (string) config('p360.conn.admin', 'mysql_admin');
-
-        try {
-            if (!Schema::connection($adm)->hasTable($this->overrideTable())) {
-                return $out;
-            }
-
-            $rows = DB::connection($adm)->table($this->overrideTable())
-                ->select(['period', 'status_override'])
-                ->where('account_id', $adminAccountId)
-                ->whereIn('period', $periods)
-                ->orderByDesc('period')
-                ->get();
-
-            foreach ($rows as $row) {
-                $p = trim((string) ($row->period ?? ''));
-                $s = strtolower(trim((string) ($row->status_override ?? '')));
-
-                if ($p === '' || !$this->isValidPeriod($p) || $s === '') {
-                    continue;
-                }
-
-                if (!isset($out[$p])) {
-                    $out[$p] = ['status' => $s];
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] fetchStatementOverrideMapForPeriods failed', [
-                'account_id' => $adminAccountId,
-                'periods'    => $periods,
-                'err'        => $e->getMessage(),
-            ]);
-        }
-
-        return $out;
+        return $this->portalMirror->fetchStatementOverrideMapForPeriods($adminAccountId, $periods);
     }
 
-    /**
-     * Aplica overrides admin al dataset que cliente lee desde billing_statements.
-     * Regla crítica:
-     * - pagado => status=paid, saldo=0, paid_amount=total_cargo
-     * - parcial/pendiente/vencido => status pending y saldo recalculado
-     *
-     * @param array<int,array<string,mixed>> $rows
-     * @return array<int,array<string,mixed>>
-     */
     private function applyStatementOverridesForAdminAccount(int $adminAccountId, array $rows): array
     {
-        if ($adminAccountId <= 0 || empty($rows)) {
-            return $rows;
-        }
-
-        $periods = [];
-        foreach ($rows as $row) {
-            $p = trim((string) ($row['period'] ?? ''));
-            if ($p !== '' && $this->isValidPeriod($p)) {
-                $periods[] = $p;
-            }
-        }
-
-        $periods = array_values(array_unique($periods));
-        if (empty($periods)) {
-            return $rows;
-        }
-
-        $ovMap = $this->fetchStatementOverrideMapForPeriods($adminAccountId, $periods);
-        if (empty($ovMap)) {
-            return $rows;
-        }
-
-        foreach ($rows as &$row) {
-            $period = trim((string) ($row['period'] ?? ''));
-            if ($period === '' || !isset($ovMap[$period])) {
-                continue;
-            }
-
-            $ovStatus = strtolower(trim((string) ($ovMap[$period]['status'] ?? '')));
-            if ($ovStatus === '') {
-                continue;
-            }
-
-            $cargo = 0.0;
-            if (isset($row['total_cargo']) && is_numeric($row['total_cargo'])) {
-                $cargo = (float) $row['total_cargo'];
-            } elseif (isset($row['charge']) && is_numeric($row['charge'])) {
-                $cargo = (float) $row['charge'];
-            }
-
-            $abono = 0.0;
-            if (isset($row['total_abono']) && is_numeric($row['total_abono'])) {
-                $abono = (float) $row['total_abono'];
-            } elseif (isset($row['paid_amount']) && is_numeric($row['paid_amount'])) {
-                $abono = (float) $row['paid_amount'];
-            }
-
-            if ($ovStatus === 'pagado') {
-                $row['status']      = 'paid';
-                $row['saldo']       = 0.0;
-                $row['total_abono'] = round(max($abono, $cargo), 2);
-                $row['paid_amount'] = round(max($abono, $cargo), 2);
-                $row['charge']      = round($cargo, 2);
-                continue;
-            }
-
-            // pendiente / parcial / vencido / sin_mov -> cliente lo trata como no pagado
-            $saldo = max(0.0, $cargo - $abono);
-
-            $row['status']      = 'pending';
-            $row['saldo']       = round($saldo, 2);
-            $row['total_abono'] = round($abono, 2);
-            $row['paid_amount'] = round($abono, 2);
-            $row['charge']      = round($cargo, 2);
-        }
-        unset($row);
-
-        return $rows;
+        return $this->portalMirror->applyStatementOverridesForAdminAccount($adminAccountId, $rows);
     }
 
-    /**
-     * Normaliza status de billing statements a canónico:
-     * paid | pending | partial | overdue | no_movement
-     */
     private function normalizeStatementStatus(?string $status): string
     {
-        $s = strtolower(trim((string) $status));
-
-        return match ($s) {
-            'paid', 'pagado', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed'
-                => 'paid',
-
-            'partial', 'parcial'
-                => 'partial',
-
-            'overdue', 'vencido', 'past_due', 'unpaid'
-                => 'overdue',
-
-            'sin_mov', 'sin mov', 'sin_movimiento', 'sin movimiento', 'no_movement', 'no movement'
-                => 'no_movement',
-
-            default
-                => 'pending',
-        };
+        return $this->portalMirror->normalizeStatementStatus($status);
     }
 
     /**
@@ -610,11 +477,25 @@ final class AccountBillingController extends Controller
         }
 
         foreach ($periods as $p) {
-            $cents = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $p, $lastPaid, (string) ($payAllowed ?? $p));
+            $cents = 0;
+
+            // ✅ SOLO resolver mensualidad desde meta billing explícita del periodo
+            // NO desde campos legacy globales (fuente del 1209.30)
+            try {
+                $cents = (int) $this->portalAmounts->resolveMonthlyCentsForPeriodFromAdminAccount(
+                    $accountId,
+                    $p,
+                    $lastPaid,
+                    (string) ($payAllowed ?? $p)
+                );
+            } catch (\Throwable $e) {
+                $cents = 0;
+            }
+
             if ($cents > 0) {
                 $priceInfo['per_period'][$p]['cents']  = $cents;
                 $priceInfo['per_period'][$p]['mxn']    = round($cents / 100, 2);
-                $priceInfo['per_period'][$p]['source'] = 'admin.accounts.meta.billing';
+                $priceInfo['per_period'][$p]['source'] = 'admin.accounts.meta.billing.strict';
             }
         }
 
@@ -814,188 +695,6 @@ final class AccountBillingController extends Controller
         ]);
     }
 
-        /**
-     * ==========================================================
-     * ✅ SOT PORTAL: normaliza rows de admin.billing_statements
-     * SIN reinventar cargos / saldos / periodos.
-     *
-     * La vista cliente espera:
-     * - period
-     * - status
-     * - charge
-     * - paid_amount
-     * - saldo
-     * - can_pay
-     * - period_range
-     * - rfc
-     * - alias
-     * - invoice_request_status
-     * - invoice_has_zip
-     * ==========================================================
-     *
-     * @param array<int,array<string,mixed>> $rowsFromStatementsAll
-     * @param array<string,float> $chargesByPeriod
-     * @return array<int,array<string,mixed>>
-     */
-    private function mapAdminStatementRowsForPortal(
-        int $accountId,
-        array $rowsFromStatementsAll,
-        ?string $lastPaid,
-        ?string $payAllowedUi,
-        string $rfc,
-        string $alias,
-        array $chargesByPeriod = []
-    ): array {
-        $out = [];
-
-        foreach ($rowsFromStatementsAll as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $period = trim((string) ($row['period'] ?? ''));
-            if (!$this->isValidPeriod($period)) {
-                continue;
-            }
-
-            $status = $this->normalizeStatementStatus((string) ($row['status'] ?? 'pending'));
-
-            $charge = 0.0;
-            foreach (['charge', 'total_cargo', 'cargo', 'total'] as $k) {
-                if (isset($row[$k]) && is_numeric($row[$k])) {
-                    $charge = round(max(0.0, (float) $row[$k]), 2);
-                    break;
-                }
-            }
-
-            $paidAmount = 0.0;
-            foreach (['paid_amount', 'total_abono', 'abono', 'paid'] as $k) {
-                if (isset($row[$k]) && is_numeric($row[$k])) {
-                    $paidAmount = round(max(0.0, (float) $row[$k]), 2);
-                    break;
-                }
-            }
-
-            $saldo = isset($row['saldo']) && is_numeric($row['saldo'])
-                ? round(max(0.0, (float) $row['saldo']), 2)
-                : round(max(0.0, $charge - $paidAmount), 2);
-
-            // ✅ Si admin dice pagado pero abono viene en 0, intenta tomar pago real
-            if ($status === 'paid' && $paidAmount <= 0.0001) {
-                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
-                if ($paidCents > 0) {
-                    $paidAmount = round($paidCents / 100, 2);
-                }
-            }
-
-            // ✅ Para pagado, el monto visual correcto es el cargo del periodo
-            if ($status === 'paid') {
-                $shown = max($charge, $paidAmount);
-
-                $charge     = round($shown, 2);
-                $paidAmount = round($shown, 2);
-                $saldo      = 0.0;
-            } else {
-                // ✅ Si falta cargo en admin pero este es el periodo habilitado, usa mensualidad resuelta
-                if (
-                    $charge <= 0.0001 &&
-                    $payAllowedUi &&
-                    $period === $payAllowedUi &&
-                    isset($chargesByPeriod[$period]) &&
-                    is_numeric($chargesByPeriod[$period]) &&
-                    (float) $chargesByPeriod[$period] > 0
-                ) {
-                    $charge = round((float) $chargesByPeriod[$period], 2);
-                }
-
-                if ($saldo <= 0.0001 && $charge > 0.0001) {
-                    $saldo = round(max(0.0, $charge - $paidAmount), 2);
-                }
-            }
-
-            $periodRange = '';
-            try {
-                $c = Carbon::createFromFormat('Y-m', $period);
-                $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
-            } catch (\Throwable $e) {
-                $periodRange = $period;
-            }
-
-            $canPay = false;
-            if (
-                $payAllowedUi &&
-                $period === $payAllowedUi &&
-                $status !== 'paid' &&
-                $saldo > 0.0001
-            ) {
-                $canPay = true;
-            }
-
-            $out[] = [
-                'id'                     => $row['id'] ?? null,
-                'account_id'             => (int) $accountId,
-                'admin_account_id'       => (int) $accountId,
-                'statement_account_ref'  => $row['account_id'] ?? (string) $accountId,
-
-                'period'                 => $period,
-                'status'                 => $status,
-
-                'charge'                 => round($charge, 2),
-                'total_cargo'            => round($charge, 2),
-
-                'paid_amount'            => round($paidAmount, 2),
-                'total_abono'            => round($paidAmount, 2),
-
-                'saldo'                  => round($saldo, 2),
-                'can_pay'                => $canPay,
-
-                'period_range'           => $periodRange,
-                'rfc'                    => $rfc !== '' ? $rfc : '—',
-                'alias'                  => $alias !== '' ? $alias : '—',
-
-                'invoice_request_status' => null,
-                'invoice_has_zip'        => false,
-
-                'price_source'           => $row['price_source'] ?? 'admin.billing_statements',
-                'service_items'          => is_array($row['service_items'] ?? null) ? $row['service_items'] : [],
-                'meta'                   => $row['meta'] ?? null,
-                'snapshot'               => $row['snapshot'] ?? null,
-                'due_date'               => $row['due_date'] ?? null,
-                'paid_at'                => $row['paid_at'] ?? null,
-                'created_at'             => $row['created_at'] ?? null,
-                'updated_at'             => $row['updated_at'] ?? null,
-            ];
-        }
-
-        usort($out, function ($a, $b) use ($lastPaid, $payAllowedUi) {
-            $pa = (string) ($a['period'] ?? '');
-            $pb = (string) ($b['period'] ?? '');
-
-            if ($lastPaid && $pa === $lastPaid && $pb !== $lastPaid) return -1;
-            if ($lastPaid && $pb === $lastPaid && $pa !== $lastPaid) return 1;
-
-            if ($payAllowedUi && $pa === $payAllowedUi && $pb !== $payAllowedUi) return 1;
-            if ($payAllowedUi && $pb === $payAllowedUi && $pa !== $payAllowedUi) return -1;
-
-            return strcmp($pa, $pb);
-        });
-
-        return $out;
-    }
-
-        /**
-     * ✅ Si el periodo permitido para pagar NO existe aún en billing_statements,
-     * crea una fila sintética SOLO para UI del portal cliente.
-     *
-     * Regla:
-     * - mantener todos los meses pagados reales
-     * - agregar el último mes a pagar si falta
-     * - no duplicar si ya existe
-     *
-     * @param array<int,array<string,mixed>> $rows
-     * @param array<string,float> $chargesByPeriod
-     * @return array<int,array<string,mixed>>
-     */
     private function ensurePortalPayAllowedRow(
         int $accountId,
         array $rows,
@@ -1004,86 +703,41 @@ final class AccountBillingController extends Controller
         string $rfc,
         string $alias
     ): array {
-        $payAllowedUi = trim((string) $payAllowedUi);
+        $resolvedRows = $this->portalMirror->ensurePortalPayAllowedRow(
+            $accountId,
+            $rows,
+            $payAllowedUi,
+            $chargesByPeriod,
+            $rfc,
+            $alias
+        );
 
-        if (!$this->isValidPeriod($payAllowedUi)) {
-            return $rows;
+        if ($resolvedRows !== $rows) {
+            return $resolvedRows;
         }
 
-        foreach ($rows as $row) {
-            if ((string) ($row['period'] ?? '') === $payAllowedUi) {
-                return $rows;
-            }
-        }
-
-        $charge = 0.0;
-
-        if (isset($chargesByPeriod[$payAllowedUi]) && is_numeric($chargesByPeriod[$payAllowedUi])) {
-            $charge = round((float) $chargesByPeriod[$payAllowedUi], 2);
-        }
-
-        if ($charge <= 0.0001) {
-            $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                $accountId,
-                $payAllowedUi,
-                null,
-                $payAllowedUi,
-                $chargesByPeriod
-            );
-        }
+        $charge = $this->portalAmounts->resolvePortalMonthlyMxnForPeriod(
+            $accountId,
+            (string) $payAllowedUi,
+            null,
+            (string) $payAllowedUi,
+            $chargesByPeriod
+        );
 
         if ($charge <= 0.0001) {
             return $rows;
         }
 
-        $periodRange = '';
-        try {
-            $c = Carbon::createFromFormat('Y-m', $payAllowedUi);
-            $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
-        } catch (\Throwable $e) {
-            $periodRange = $payAllowedUi;
-        }
+        $chargesByPeriod[(string) $payAllowedUi] = $charge;
 
-        $rows[] = [
-            'id'                     => null,
-            'account_id'             => (int) $accountId,
-            'admin_account_id'       => (int) $accountId,
-            'statement_account_ref'  => (string) $accountId,
-
-            'period'                 => $payAllowedUi,
-            'status'                 => 'pending',
-
-            'charge'                 => round($charge, 2),
-            'total_cargo'            => round($charge, 2),
-
-            'paid_amount'            => 0.0,
-            'total_abono'            => 0.0,
-
-            'saldo'                  => round($charge, 2),
-            'can_pay'                => true,
-
-            'period_range'           => $periodRange,
-            'rfc'                    => $rfc !== '' ? $rfc : '—',
-            'alias'                  => $alias !== '' ? $alias : '—',
-
-            'invoice_request_status' => null,
-            'invoice_has_zip'        => false,
-
-            'price_source'           => 'synthetic.pay_allowed',
-            'service_items'          => [],
-            'meta'                   => null,
-            'snapshot'               => null,
-            'due_date'               => null,
-            'paid_at'                => null,
-            'created_at'             => null,
-            'updated_at'             => null,
-        ];
-
-        usort($rows, function ($a, $b) {
-            return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
-        });
-
-        return $rows;
+        return $this->portalMirror->ensurePortalPayAllowedRow(
+            $accountId,
+            $rows,
+            $payAllowedUi,
+            $chargesByPeriod,
+            $rfc,
+            $alias
+        );
     }
 
         /**
@@ -1224,49 +878,31 @@ final class AccountBillingController extends Controller
         return $out;
     }
 
-    /**
-     * ✅ Construye refs válidos para consultar admin.billing_statements:
-     * - admin account id (string/int)
-     * - UUIDs de cuentas_cliente relacionadas (si existen)
-     */
-    private function buildStatementRefs(int $adminAccountId): array
-    {
-        $refs = [];
-
-        try {
-            $refs[] = (string) $adminAccountId;
-            $refs[] = (int) $adminAccountId;
-
-            $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-            if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                $uuids = DB::connection($cli)->table('cuentas_cliente')
-                    ->where('admin_account_id', $adminAccountId)
-                    ->limit(200)
-                    ->pluck('id')
-                    ->map(fn ($x) => trim((string) $x))
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->all();
-
-                foreach ($uuids as $u) $refs[] = $u;
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        // unique + filter
-        $refs = array_values(array_unique(array_filter($refs, fn ($x) => trim((string)$x) !== '')));
-        return $refs;
+    private function mapAdminStatementRowsForPortal(
+        int $accountId,
+        array $rowsFromStatementsAll,
+        ?string $lastPaid,
+        ?string $payAllowedUi,
+        string $rfc,
+        string $alias,
+        array $chargesByPeriod = []
+    ): array {
+        return $this->portalMirror->mapAdminStatementRowsForPortal(
+            $accountId,
+            $rowsFromStatementsAll,
+            $lastPaid,
+            $payAllowedUi,
+            $rfc,
+            $alias,
+            $chargesByPeriod
+        );
     }
 
-    /**
-     * ✅ Calcula payAllowed de forma canónica:
-     * 1) Si hay pending real en admin.billing_statements => primer periodo pendiente (asc)
-     * 2) Si no hay pending:
-     *    - Mensual: lastPaid+1 mes (o basePeriod si no hay lastPaid)
-     *    - Anual: lastPaid+1 año (o basePeriod) SOLO si está dentro de ventana; si no, null
-     */
+    private function buildStatementRefs(int $adminAccountId): array
+    {
+        return $this->portalMirror->buildStatementRefs($adminAccountId);
+    }
+
     private function computePayAllowed(
         int $adminAccountId,
         bool $isAnnual,
@@ -1274,64 +910,15 @@ final class AccountBillingController extends Controller
         ?string $lastPaid,
         array $statementRefs
     ): ?string {
-        // 1) pending real desde statements
-        try {
-            $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 60);
+        $rowsAll = $this->portalMirror->loadRowsFromAdminBillingStatements($statementRefs, 60);
+        $rowsAll = $this->portalMirror->applyStatementOverridesForAdminAccount($adminAccountId, $rowsAll);
 
-            $pendingPeriods = [];
-            foreach ((array) $rowsAll as $rr) {
-                $pp = (string) ($rr['period'] ?? '');
-                if (!$this->isValidPeriod($pp)) continue;
-
-                $st = strtolower((string) ($rr['status'] ?? 'pending'));
-                $saldo = (float) ($rr['saldo'] ?? 0);
-
-                $a = is_array($rr) ? $rr : (array)$rr;
-                if ($this->statementIsPending($a)) {
-                    $pendingPeriods[] = $pp;
-                }
-
-            }
-
-            if (!empty($pendingPeriods)) {
-                sort($pendingPeriods); // asc
-                return (string) $pendingPeriods[0];
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        // 2) fallback sin statements pendientes
-        try {
-            if ($isAnnual) {
-                // next renewal
-                $next = $lastPaid
-                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addYearNoOverflow()->format('Y-m')
-                    : $basePeriod;
-
-                // ventana anual
-                $winDays = (int) $this->annualRenewalWindowDays();
-                $renewAt = Carbon::createFromFormat('Y-m', $next)->startOfMonth();
-                $openAt  = $renewAt->copy()->subDays(max(0, $winDays));
-
-                // si aún no abre ventana => no hay pago habilitado
-                if (now()->lessThan($openAt)) {
-                    return null;
-                }
-
-                return $next;
-            }
-
-            // mensual
-            $next = $lastPaid
-                ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-                : $basePeriod;
-
-            return $next;
-        } catch (\Throwable $e) {
-            // en caso raro, cae a base
-            return $basePeriod;
-        }
+        return $this->portalMirror->computePayAllowed(
+            $isAnnual,
+            $basePeriod,
+            $lastPaid,
+            $rowsAll
+        );
     }
 
     /**
@@ -2006,41 +1593,20 @@ final class AccountBillingController extends Controller
         }
     }
 
-    /**
-     * Monto mensual portal por periodo.
-     * Para pendientes SIEMPRE preferimos la mensualidad del periodo
-     * y evitamos mostrar cargos acumulados heredados del statement.
-     */
     private function resolvePortalMonthlyMxnForPeriod(
-        int $accountId,
-        string $period,
-        ?string $lastPaid,
-        ?string $payAllowed,
-        array $chargesByPeriod = []
+    int $accountId,
+    string $period,
+    ?string $lastPaid,
+    ?string $payAllowed,
+    array $chargesByPeriod = []
     ): float {
-        if (!$this->isValidPeriod($period)) {
-            return 0.0;
-        }
-
-        if (isset($chargesByPeriod[$period]) && is_numeric($chargesByPeriod[$period])) {
-            $mxn = round((float) $chargesByPeriod[$period], 2);
-            if ($mxn > 0.0001) {
-                return $mxn;
-            }
-        }
-
-        $cents = (int) $this->resolveMonthlyCentsForPeriodFromAdminAccount($accountId, $period, $lastPaid, $payAllowed);
-        if ($cents <= 0) {
-            $cents = (int) $this->resolveMonthlyCentsFromPlanesCatalog($accountId);
-        }
-        if ($cents <= 0) {
-            $cents = (int) $this->resolveMonthlyCentsFromEstadosCuenta($accountId, $lastPaid, $payAllowed);
-        }
-        if ($cents <= 0) {
-            $cents = (int) $this->resolveMonthlyCentsFromClientesEstadosCuenta($accountId, $lastPaid, $payAllowed);
-        }
-
-        return $cents > 0 ? round($cents / 100, 2) : 0.0;
+        return $this->portalAmounts->resolvePortalMonthlyMxnForPeriod(
+            $accountId,
+            $period,
+            $lastPaid,
+            $payAllowed,
+            $chargesByPeriod
+        );
     }
 
     /**
@@ -2551,247 +2117,23 @@ final class AccountBillingController extends Controller
         return $rows;
     }
 
-     /**
-     * Resuelve la mensualidad REAL del periodo para portal cliente.
-     *
-     * Prioridad:
-     * 1) accounts.meta.billing.amount_mxn / monthly_amount_mxn / price_mxn
-     * 2) accounts.meta.billing.override.amount_mxn
-     *    - effective=now  => aplica a todos
-     *    - effective=next => aplica solo desde payAllowed en adelante
-     * 3) fallbacks explícitos custom/override
-     * 4) NO usar campos legacy/globales si ya tenemos un monto más específico
-     *
-     * Regresa CENTS.
-     */
-    private function resolveMonthlyCentsForPeriodFromAdminAccount(
-        int $accountId,
-        string $period,
-        ?string $lastPaid,
-        ?string $payAllowed
+     private function resolveMonthlyCentsForPeriodFromAdminAccount(
+    int $accountId,
+    string $period,
+    ?string $lastPaid,
+    ?string $payAllowed
     ): int {
-        $period = trim($period);
-        if (!$this->isValidPeriod($period)) {
-            $period = now()->format('Y-m');
-        }
-
-        $payAllowedUi = trim((string) $payAllowed);
-        if ($payAllowedUi === '' || !$this->isValidPeriod($payAllowedUi)) {
-            $payAllowedUi = $period;
-        }
-
-        try {
-            $adm = (string) config('p360.conn.admin', 'mysql_admin');
-
-            if (!Schema::connection($adm)->hasTable('accounts')) {
-                return 0;
-            }
-
-            $cols = Schema::connection($adm)->getColumnListing('accounts');
-            $lc   = array_map('strtolower', $cols);
-            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-            $select = ['id'];
-            foreach ([
-                'meta',
-                'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
-                'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
-                'billing_amount', 'amount', 'precio', 'monto',
-            ] as $c) {
-                if ($has($c)) $select[] = $c;
-            }
-
-            $acc = DB::connection($adm)->table('accounts')
-                ->where('id', $accountId)
-                ->first(array_values(array_unique($select)));
-
-            if (!$acc) {
-                return 0;
-            }
-
-            $meta = [];
-            if (isset($acc->meta)) {
-                if (is_array($acc->meta)) {
-                    $meta = $acc->meta;
-                } elseif (is_string($acc->meta) && trim($acc->meta) !== '') {
-                    $tmp = json_decode($acc->meta, true);
-                    if (is_array($tmp)) {
-                        $meta = $tmp;
-                    }
-                }
-            }
-
-            $toFloat = static function ($v): ?float {
-                if ($v === null) return null;
-                if (is_int($v) || is_float($v)) return (float) $v;
-
-                if (is_string($v)) {
-                    $s = trim($v);
-                    if ($s === '') return null;
-                    $s = str_replace(['$', ',', 'MXN', 'mxn', ' '], '', $s);
-                    return is_numeric($s) ? (float) $s : null;
-                }
-
-                return is_numeric($v) ? (float) $v : null;
-            };
-
-            $billing  = is_array($meta['billing'] ?? null) ? $meta['billing'] : [];
-            $override = is_array($billing['override'] ?? null) ? $billing['override'] : [];
-
-            // =========================================================
-            // 1) Base mensual desde meta.billing
-            // =========================================================
-            $baseMxn = $toFloat(
-                $billing['amount_mxn']
-                ?? $billing['monthly_amount_mxn']
-                ?? $billing['price_mxn']
-                ?? $billing['mensualidad_mxn']
-                ?? null
-            );
-
-            // =========================================================
-            // 2) Override mensual explícito
-            // =========================================================
-            $overrideMxn = $toFloat(
-                $override['amount_mxn']
-                ?? $billing['override_amount_mxn']
-                ?? null
-            );
-
-            $overrideEffective = strtolower(trim((string) (
-                $override['effective']
-                ?? $billing['override_effective']
-                ?? ''
-            )));
-
-            if (!in_array($overrideEffective, ['now', 'next'], true)) {
-                $overrideEffective = '';
-            }
-
-            $resolvedMetaMxn = null;
-
-            if ($overrideMxn !== null && $overrideMxn > 0.00001) {
-                if ($overrideEffective === 'now') {
-                    $resolvedMetaMxn = $overrideMxn;
-                } elseif ($overrideEffective === 'next') {
-                    $resolvedMetaMxn = ($period >= $payAllowedUi)
-                        ? $overrideMxn
-                        : ($baseMxn ?? null);
-                } else {
-                    $resolvedMetaMxn = $overrideMxn;
-                }
-            } elseif ($baseMxn !== null && $baseMxn > 0.00001) {
-                $resolvedMetaMxn = $baseMxn;
-            }
-
-            if ($resolvedMetaMxn !== null && $resolvedMetaMxn > 0.00001) {
-                return max(0, (int) round($resolvedMetaMxn * 100));
-            }
-
-            // =========================================================
-            // 3) Fallbacks explícitos de custom/override
-            // =========================================================
-            $explicitFallbacks = [
-                data_get($meta, 'billing.custom.amount_mxn'),
-                data_get($meta, 'billing.custom_mxn'),
-                data_get($meta, 'custom.amount_mxn'),
-                data_get($meta, 'custom_mxn'),
-                $acc->custom_amount_mxn ?? null,
-                $acc->override_amount_mxn ?? null,
-                $acc->license_amount_mxn ?? null,
-            ];
-
-            foreach ($explicitFallbacks as $v) {
-                $mxn = $toFloat($v);
-                if ($mxn !== null && $mxn > 0.00001) {
-                    return max(0, (int) round($mxn * 100));
-                }
-            }
-
-            // =========================================================
-            // 4) Último recurso: campos legacy/globales
-            //    OJO: estos son los que contaminan con 1209.30
-            // =========================================================
-            $legacyFallbacks = [
-                $acc->billing_amount_mxn ?? null,
-                $acc->amount_mxn ?? null,
-                $acc->precio_mxn ?? null,
-                $acc->monto_mxn ?? null,
-            ];
-
-            foreach ($legacyFallbacks as $v) {
-                $mxn = $toFloat($v);
-                if ($mxn !== null && $mxn > 0.00001) {
-                    Log::warning('[BILLING] resolveMonthlyCentsForPeriodFromAdminAccount using legacy fallback', [
-                        'account_id' => $accountId,
-                        'period'     => $period,
-                        'mxn'        => $mxn,
-                    ]);
-
-                    return max(0, (int) round($mxn * 100));
-                }
-            }
-
-            return 0;
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] resolveMonthlyCentsForPeriodFromAdminAccount failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-
-            return 0;
-        }
+        return $this->portalAmounts->resolveMonthlyCentsForPeriodFromAdminAccount(
+            $accountId,
+            $period,
+            $lastPaid,
+            $payAllowed
+        );
     }
 
-    // =========================================================
-    // Fallback (catálogo planes)
-    // =========================================================
     private function resolveMonthlyCentsFromPlanesCatalog(int $accountId): int
     {
-        $adm = config('p360.conn.admin', 'mysql_admin');
-        if (!Schema::connection($adm)->hasTable('accounts')) return 0;
-        if (!Schema::connection($adm)->hasTable('planes')) return 0;
-
-        try {
-            $acc = DB::connection($adm)->table('accounts')
-                ->select(['id', 'plan', 'plan_actual', 'modo_cobro'])
-                ->where('id', $accountId)
-                ->first();
-
-            if (!$acc) return 0;
-
-            $planKey = trim((string) ($acc->plan_actual ?: $acc->plan));
-            if ($planKey === '') return 0;
-
-            $cycle = strtolower(trim((string) ($acc->modo_cobro ?: 'mensual')));
-            $cycle = in_array($cycle, ['anual', 'annual', 'year', 'yearly'], true) ? 'anual' : 'mensual';
-
-            $plan = DB::connection($adm)->table('planes')
-                ->select(['clave', 'precio_mensual', 'precio_anual', 'activo'])
-                ->where('clave', $planKey)
-                ->first();
-
-            if (!$plan) return 0;
-            if (isset($plan->activo) && (int) $plan->activo !== 1) return 0;
-
-            $monthly = (float) ($plan->precio_mensual ?? 0);
-            $annual  = (float) ($plan->precio_anual ?? 0);
-
-            if ($cycle === 'anual') {
-                if ($annual > 0) $monthly = round($annual / 12.0, 2);
-            }
-
-            if ($monthly <= 0) return 0;
-
-            return (int) round($monthly * 100);
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] resolveMonthlyCentsFromPlanesCatalog failed', [
-                'account_id' => $accountId,
-                'err'        => $e->getMessage(),
-            ]);
-            return 0;
-        }
+        return $this->portalAmounts->resolveMonthlyCentsFromPlanesCatalog($accountId);
     }
 
         /**
@@ -4283,651 +3625,42 @@ final class AccountBillingController extends Controller
 
     private function resolveRfcAliasForUi(Request $req, int $adminAccountId): array
     {
-        $u = Auth::guard('web')->user();
-
-        $rfc = '';
-        $alias = '';
-
-        foreach (['rfc', 'tax_id', 'taxid', 'taxId', 'rfc_fiscal'] as $k) {
-            if (!empty($u?->{$k})) { $rfc = (string) $u->{$k}; break; }
-        }
-        foreach (['alias', 'name', 'nombre', 'nombre_comercial', 'razon_social', 'empresa'] as $k) {
-            if (!empty($u?->{$k})) { $alias = (string) $u->{$k}; break; }
-        }
-
-        $clientAccountId = $req->session()->get('client.cuenta_id')
-            ?? $req->session()->get('cuenta_id')
-            ?? $req->session()->get('client.account_id')
-            ?? $req->session()->get('account_id')
-            ?? $req->session()->get('client_account_id');
-
-        try {
-            if ($clientAccountId) {
-                // ✅ FIX: key correcta
-                $cli = (string) config('p360.conn.clientes', 'mysql_clientes');
-                 if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                     $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                     $lc = array_map('strtolower', $cols);
-                     $has = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                    $sel = ['id'];
-                    foreach (['rfc', 'rfc_fiscal', 'razon_social', 'nombre_comercial', 'alias', 'email'] as $c) {
-                        if ($has($c)) $sel[] = $c;
-                    }
-
-                    $tbl = DB::connection($cli)->table('cuentas_cliente')
-                        ->select(array_values(array_unique($sel)));
-
-                    // 1) intento por PK
-                    $cc = $tbl->where('id', $clientAccountId)->first();
-
-                    // 2) fallback UUID/public_id si existe
-                    if (!$cc) {
-                        $altCols = [];
-                        foreach (['uuid', 'public_id', 'cuenta_uuid', 'uid'] as $c) {
-                            if ($has($c)) $altCols[] = $c;
-                        }
-
-                        foreach ($altCols as $col) {
-                            $cc = DB::connection($cli)->table('cuentas_cliente')
-                                ->select(array_values(array_unique($sel)))
-                                ->where($col, $clientAccountId)
-                                ->first();
-                            if ($cc) break;
-                        }
-                    }
-
-                    if ($cc) {
-                        if ($rfc === '') {
-                            foreach (['rfc', 'rfc_fiscal'] as $k) {
-                                if ($has($k) && !empty($cc->{$k})) { $rfc = (string) $cc->{$k}; break; }
-                            }
-                        }
-
-                        if ($alias === '') {
-                            if ($has('alias') && !empty($cc->alias)) $alias = (string) $cc->alias;
-                            elseif ($has('nombre_comercial') && !empty($cc->nombre_comercial)) $alias = (string) $cc->nombre_comercial;
-                            elseif ($has('razon_social') && !empty($cc->razon_social)) $alias = (string) $cc->razon_social;
-                        }
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] resolveRfcAliasForUi cuentas_cliente failed', [
-                'admin_account_id' => $adminAccountId,
-                'clientAccountId'  => $clientAccountId,
-                'err'              => $e->getMessage(),
-            ]);
-        }
-
-        try {
-            $adm = config('p360.conn.admin', 'mysql_admin');
-            if (Schema::connection($adm)->hasTable('accounts')) {
-                $cols = Schema::connection($adm)->getColumnListing('accounts');
-                $lc = array_map('strtolower', $cols);
-                $has = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                $select = ['id'];
-                foreach (['rfc', 'razon_social', 'nombre_comercial', 'alias', 'meta'] as $c) {
-                    if ($has($c)) $select[] = $c;
-                }
-
-                $acc = DB::connection($adm)->table('accounts')
-                    ->select(array_values(array_unique($select)))
-                    ->where('id', $adminAccountId)
-                    ->first();
-
-                if ($acc) {
-                    if ($rfc === '' && $has('rfc') && !empty($acc->rfc)) $rfc = (string) $acc->rfc;
-
-                    if ($alias === '') {
-                        if ($has('alias') && !empty($acc->alias)) $alias = (string) $acc->alias;
-                        elseif ($has('nombre_comercial') && !empty($acc->nombre_comercial)) $alias = (string) $acc->nombre_comercial;
-                        elseif ($has('razon_social') && !empty($acc->razon_social)) $alias = (string) $acc->razon_social;
-                    }
-
-                    if ($has('meta') && isset($acc->meta)) {
-                        $meta = [];
-                        try {
-                            $meta = is_string($acc->meta) ? (json_decode((string) $acc->meta, true) ?: []) : (array) $acc->meta;
-                        } catch (\Throwable $e) { $meta = []; }
-
-                        $billing = (array) ($meta['billing'] ?? []);
-                        $company = (array) ($meta['company'] ?? []);
-
-                        if ($rfc === '') {
-                            foreach ([
-                                $billing['rfc'] ?? null,
-                                $billing['rfc_fiscal'] ?? null,
-                                $company['rfc'] ?? null,
-                                data_get($meta, 'rfc'),
-                                data_get($meta, 'company.rfc'),
-                            ] as $v) {
-                                $v = is_string($v) ? trim($v) : '';
-                                if ($v !== '') { $rfc = $v; break; }
-                            }
-                        }
-
-                        if ($alias === '') {
-                            foreach ([
-                                $billing['alias'] ?? null,
-                                $billing['nombre_comercial'] ?? null,
-                                $company['nombre_comercial'] ?? null,
-                                $company['razon_social'] ?? null,
-                                data_get($meta, 'alias'),
-                                data_get($meta, 'company.razon_social'),
-                            ] as $v) {
-                                $v = is_string($v) ? trim($v) : '';
-                                if ($v !== '') { $alias = $v; break; }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] resolveRfcAliasForUi accounts failed', [
-                'admin_account_id' => $adminAccountId,
-                'err'              => $e->getMessage(),
-            ]);
-        }
-
-        if ($rfc === '') $rfc = '—';
-        if ($alias === '') $alias = '—';
-
-        return [$rfc, $alias];
+        return $this->portalContext->resolveRfcAliasForUi($req, $adminAccountId);
     }
 
     private function resolveContractStartPeriod(int $accountId): string
     {
-        $adm = config('p360.conn.admin', 'mysql_admin');
-        $fallback = now()->format('Y-m');
-
-        if (!Schema::connection($adm)->hasTable('accounts')) return $fallback;
-
-        try {
-            $cols = Schema::connection($adm)->getColumnListing('accounts');
-            $lc   = array_map('strtolower', $cols);
-            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-            $select = ['id'];
-            foreach (['meta', 'created_at', 'activated_at', 'starts_at', 'start_date', 'subscription_started_at', 'contracted_at'] as $c) {
-                if ($has($c)) $select[] = $c;
-            }
-
-            $acc = DB::connection($adm)->table('accounts')
-                ->select(array_values(array_unique($select)))
-                ->where('id', $accountId)
-                ->first();
-
-            if (!$acc) return $fallback;
-
-            $meta = [];
-            if ($has('meta') && isset($acc->meta)) {
-                try {
-                    $meta = is_string($acc->meta) ? (json_decode((string) $acc->meta, true) ?: []) : (array) $acc->meta;
-                } catch (\Throwable $e) { $meta = []; }
-            }
-
-            foreach ([
-                data_get($meta, 'billing.start_period'),
-                data_get($meta, 'subscription.start_period'),
-                data_get($meta, 'plan.start_period'),
-                data_get($meta, 'start_period'),
-            ] as $v) {
-                $v = is_string($v) ? trim($v) : '';
-                if ($v !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $v)) return $v;
-            }
-
-            foreach (['start_date', 'starts_at', 'subscription_started_at', 'contracted_at', 'activated_at', 'created_at'] as $c) {
-                if (!$has($c)) continue;
-                $p = $this->parseToPeriod($acc->{$c} ?? null);
-                if ($p) return $p;
-            }
-
-            return $fallback;
-        } catch (\Throwable $e) {
-            return $fallback;
-        }
+        return $this->portalContext->resolveContractStartPeriod($accountId);
     }
 
     private function parseToPeriod(mixed $value): ?string
     {
-        try {
-            if ($value instanceof \DateTimeInterface) return Carbon::instance($value)->format('Y-m');
-
-            if (is_numeric($value)) {
-                $ts = (int) $value;
-                if ($ts > 0) return Carbon::createFromTimestamp($ts)->format('Y-m');
-            }
-
-            if (is_string($value)) {
-                $v = trim($value);
-                if ($v === '') return null;
-
-                $v = str_replace('/', '-', $v);
-                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $v)) return $v;
-
-                if (preg_match('/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/', $v)) {
-                    return Carbon::parse($v)->format('Y-m');
-                }
-
-                return Carbon::parse($v)->format('Y-m');
-            }
-        } catch (\Throwable $e) {
-            return null;
-        }
-
-        return null;
+        return $this->portalContext->parseToPeriod($value);
     }
 
     private function resolveAdminAccountId(Request $req): array
     {
-        $u = Auth::guard('web')->user();
-
-        // =========================================================
-        // Helpers
-        // =========================================================
-        $toInt = static function ($v): int {
-            if ($v === null) return 0;
-            if (is_int($v)) return $v > 0 ? $v : 0;
-            if (is_numeric($v)) {
-                $i = (int) $v;
-                return $i > 0 ? $i : 0;
-            }
-            if (is_string($v)) {
-                $v = trim($v);
-                if ($v !== '' && is_numeric($v)) {
-                    $i = (int) $v;
-                    return $i > 0 ? $i : 0;
-                }
-            }
-            return 0;
-        };
-
-        $toStr = static function ($v): string {
-            if ($v === null) return '';
-            if (is_string($v)) return trim($v);
-            return trim((string) $v);
-        };
-
-        $pickSessionId = function (Request $req, array $keys) use ($toInt): array {
-            foreach ($keys as $k) {
-                $v  = $req->session()->get($k);
-                $id = $toInt($v);
-                if ($id > 0) return [$id, 'session.' . $k];
-            }
-            return [0, ''];
-        };
-
-        // =========================================================
-        // 0) Param/route explícito (si llega)
-        // =========================================================
-        $routeAccountId = null;
-        try { $routeAccountId = $req->route('account_id'); } catch (\Throwable $e) { $routeAccountId = null; }
-
-        $accountIdFromParam =
-            $toInt($routeAccountId)
-            ?: $toInt($req->query('account_id'))
-            ?: $toInt($req->input('account_id'))
-            ?: $toInt($req->query('aid'))
-            ?: $toInt($req->input('aid'));
-
-        if ($accountIdFromParam > 0) {
-            try {
-                // ✅ guarda consistente (int)
-                $req->session()->put('billing.admin_account_id', $accountIdFromParam);
-                $req->session()->put('billing.admin_account_src', 'param.account_id');
-            } catch (\Throwable $e) {}
-            return [$accountIdFromParam, 'param.account_id'];
-        }
-
-        // =========================================================
-        // 1) Resolver "cuenta cliente" (UUID) — PRIORIDAD:
-        //    A) sesión (si existe)
-        //    B) usuarios_cuenta por email del user (PROD-friendly)
-        // =========================================================
-        $clientCuentaIdRaw =
-            $req->session()->get('client.cuenta_id')
-            ?? $req->session()->get('cuenta_id')
-            ?? $req->session()->get('client_cuenta_id')
-            ?? null;
-
-        $clientCuentaId = $toStr($clientCuentaIdRaw);
-
-        // B) Si la sesión no trae cuenta_id, intenta desde mysql_clientes.usuarios_cuenta por email
-        if ($clientCuentaId === '') {
-            try {
-                $email = strtolower(trim((string) ($u?->email ?? '')));
-                if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $cli = $this->connClientes();
-
-                    if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
-                        $cols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
-                        $lc   = array_map('strtolower', $cols);
-                        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                        // columnas mínimas
-                        if ($has('email') && $has('cuenta_id')) {
-                            $q = DB::connection($cli)->table('usuarios_cuenta')
-                                ->whereRaw('LOWER(TRIM(email)) = ?', [$email]);
-
-                            if ($has('activo')) $q->where('activo', 1);
-
-                            // prioridad owner si existe
-                            if ($has('rol'))  $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
-                            if ($has('tipo')) $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
-
-                            $orderCol = $has('created_at') ? 'created_at' : ($has('id') ? 'id' : $cols[0]);
-                            $q->orderByDesc($orderCol);
-
-                            $row = $q->first(['cuenta_id','email']);
-
-                            $cid = $toStr($row?->cuenta_id ?? '');
-                            if ($cid !== '') {
-                                $clientCuentaId = $cid;
-
-                                // cachea en sesión para la siguiente request
-                                try {
-                                    $req->session()->put('client.cuenta_id', $clientCuentaId);
-                                } catch (\Throwable $e) {}
-                            }
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                // ignora
-            }
-        }
-
-        // =========================================================
-        // 2) Resolver admin_account_id desde mysql_clientes.cuentas_cliente
-        // =========================================================
-        $adminFromClientCuenta = 0;
-        $adminFromClientSrc    = '';
-
-        if ($clientCuentaId !== '') {
-            try {
-                $cli = $this->connClientes();
-
-                if (Schema::connection($cli)->hasTable('cuentas_cliente')) {
-                    $cols = Schema::connection($cli)->getColumnListing('cuentas_cliente');
-                    $lc   = array_map('strtolower', $cols);
-                    $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-                    $sel = ['id'];
-                    foreach (['admin_account_id', 'account_id', 'meta', 'rfc', 'rfc_padre', 'razon_social'] as $c) {
-                        if ($has($c)) $sel[] = $c;
-                    }
-                    $sel = array_values(array_unique($sel));
-
-                    $q = DB::connection($cli)->table('cuentas_cliente')->select($sel);
-
-                    // id es UUID char(36) en PROD, pero puede venir numérico en local: soporta ambos
-                    $q->where('id', $clientCuentaId);
-
-                    $asInt = $toInt($clientCuentaId);
-                    if ($asInt > 0) $q->orWhere('id', $asInt);
-
-                    // meta JSON (por si algún día guardas uuid alterno)
-                    if ($has('meta')) {
-                        foreach ([
-                            '$.cuenta_uuid',
-                            '$.cuenta.id',
-                            '$.cuenta_id',
-                            '$.uuid',
-                            '$.public_id',
-                            '$.cliente_uuid',
-                        ] as $path) {
-                            $q->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(meta, ?)) = ?", [$path, $clientCuentaId]);
-                        }
-                    }
-
-                    $cc = $q->first();
-
-                    if ($cc) {
-                        if ($has('admin_account_id')) {
-                            $aid = $toInt($cc->admin_account_id ?? null);
-                            if ($aid > 0) {
-                                $adminFromClientCuenta = $aid;
-                                $adminFromClientSrc    = 'cuentas_cliente.admin_account_id';
-                            }
-                        }
-
-                        if ($adminFromClientCuenta <= 0 && $has('account_id')) {
-                            $aid = $toInt($cc->account_id ?? null);
-                            if ($aid > 0) {
-                                $adminFromClientCuenta = $aid;
-                                $adminFromClientSrc    = 'cuentas_cliente.account_id';
-                            }
-                        }
-
-                        if ($adminFromClientCuenta <= 0 && $has('meta') && isset($cc->meta)) {
-                            try {
-                                $meta = is_string($cc->meta) ? (json_decode((string)$cc->meta, true) ?: []) : (array)$cc->meta;
-                                $aid  = $toInt(data_get($meta, 'admin_account_id'));
-                                if ($aid > 0) {
-                                    $adminFromClientCuenta = $aid;
-                                    $adminFromClientSrc    = 'cuentas_cliente.meta.admin_account_id';
-                                }
-                            } catch (\Throwable $e) {}
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                $adminFromClientCuenta = 0;
-                $adminFromClientSrc    = '';
-            }
-        }
-
-        // =========================================================
-        // 3) Fallbacks (solo si lo anterior no resolvió)
-        // =========================================================
-        $adminFromUserRel = 0;
-        try {
-            if ($u && method_exists($u, 'relationLoaded') && !$u->relationLoaded('cuenta')) {
-                try { $u->load('cuenta'); } catch (\Throwable $e) {}
-            }
-            $relAdmin = null;
-            try { $relAdmin = $u?->cuenta?->admin_account_id ?? null; } catch (\Throwable $e) { $relAdmin = null; }
-            $adminFromUserRel = $toInt($relAdmin);
-        } catch (\Throwable $e) {
-            $adminFromUserRel = 0;
-        }
-
-        $adminFromUserField = $toInt($u?->admin_account_id ?? null);
-
-        // ✅ MUY IMPORTANTE: NO uses llaves genéricas primero (account_id) porque en PROD puede contaminar.
-        [$adminFromSessionDirect, $sessionDirectSrc] = $pickSessionId($req, [
-            'billing.admin_account_id',
-            'verify.account_id',
-            'paywall.account_id',
-            'client.admin_account_id',
-
-            // ⚠️ genéricas al final
-            'admin_account_id',
-            'account_id',
-            'client.account_id',
-            'client_account_id',
-        ]);
-
-        // =========================================================
-        // 4) Selección final + persistencia namespaced
-        // =========================================================
-        if ($adminFromClientCuenta > 0) {
-            try {
-                $req->session()->put('billing.admin_account_id', $adminFromClientCuenta);
-                $req->session()->put('billing.admin_account_src', (string) ($adminFromClientSrc ?: 'cuentas_cliente'));
-            } catch (\Throwable $e) {}
-            return [$adminFromClientCuenta, $adminFromClientSrc ?: 'cuentas_cliente'];
-        }
-
-        if ($adminFromUserRel > 0) {
-            try {
-                $req->session()->put('billing.admin_account_id', $adminFromUserRel);
-                $req->session()->put('billing.admin_account_src', 'user.cuenta.admin_account_id');
-            } catch (\Throwable $e) {}
-            return [$adminFromUserRel, 'user.cuenta.admin_account_id'];
-        }
-
-        if ($adminFromUserField > 0) {
-            try {
-                $req->session()->put('billing.admin_account_id', $adminFromUserField);
-                $req->session()->put('billing.admin_account_src', 'user.admin_account_id');
-            } catch (\Throwable $e) {}
-            return [$adminFromUserField, 'user.admin_account_id'];
-        }
-
-        if ($adminFromSessionDirect > 0) {
-            try {
-                $req->session()->put('billing.admin_account_id', $adminFromSessionDirect);
-                $req->session()->put('billing.admin_account_src', (string) ($sessionDirectSrc ?: 'session.direct'));
-            } catch (\Throwable $e) {}
-            return [$adminFromSessionDirect, $sessionDirectSrc ?: 'session.direct'];
-        }
-
-        return [0, 'unresolved'];
+        return $this->portalContext->resolveAdminAccountId($req);
     }
 
     private function resolveAdminAccountIdFromClientAccount(object $clientAccount): int
     {
-        if (isset($clientAccount->admin_account_id) && is_numeric($clientAccount->admin_account_id)) {
-            $id = (int) $clientAccount->admin_account_id;
-            if ($id > 0) return $id;
-        }
-
-        if (isset($clientAccount->account_id) && is_numeric($clientAccount->account_id)) {
-            $id = (int) $clientAccount->account_id;
-            if ($id > 0) return $id;
-        }
-
-        $meta = [];
-        try {
-            if (isset($clientAccount->meta)) {
-                $meta = is_string($clientAccount->meta)
-                    ? (json_decode((string)$clientAccount->meta, true) ?: [])
-                    : (array) $clientAccount->meta;
-            }
-        } catch (\Throwable $e) {
-            $meta = [];
-        }
-
-        $id = (int) (data_get($meta, 'admin_account_id') ?? 0);
-        return $id > 0 ? $id : 0;
+        return $this->portalContext->resolveAdminAccountIdFromClientAccount($clientAccount);
     }
 
     protected function resolveAdminAccountIdFromClientUuid(string $uuid): int
     {
-        $uuid = trim($uuid);
-        if ($uuid === '') return 0;
-
-        // Solo UUID válido (evita queries raros)
-        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid)) {
-            return 0;
-        }
-
-        $cli = $this->connClientes();
-        $adm = config('p360.conn.admin', 'mysql_admin');
-
-        try {
-            // ==========================================================
-            // 1) Buscar usuario owner/activo por cuenta_id (UUID) en clientes
-            // ==========================================================
-            if (Schema::connection($cli)->hasTable('usuarios_cuenta')) {
-                $uqCols = Schema::connection($cli)->getColumnListing('usuarios_cuenta');
-                $uqLC   = array_map('strtolower', $uqCols);
-                $hasUq  = fn (string $c) => in_array(strtolower($c), $uqLC, true);
-
-                $sel = [];
-                foreach (['id', 'cuenta_id', 'email', 'rol', 'tipo', 'activo', 'created_at'] as $c) {
-                    if ($hasUq($c)) $sel[] = $c;
-                }
-                if (!$sel) $sel = ['id'];
-
-                $q = DB::connection($cli)->table('usuarios_cuenta')->select($sel);
-
-                // match principal
-                if ($hasUq('cuenta_id')) {
-                    $q->where('cuenta_id', $uuid);
-                } else {
-                    // si no hay cuenta_id, no hay forma
-                    return 0;
-                }
-
-                // prioriza owner/activo si existen columnas
-                if ($hasUq('activo')) $q->where('activo', 1);
-
-                // algunos esquemas usan "rol" y/o "tipo"
-                if ($hasUq('rol'))  $q->orderByRaw("CASE WHEN rol='owner' THEN 0 ELSE 1 END");
-                if ($hasUq('tipo')) $q->orderByRaw("CASE WHEN tipo='owner' THEN 0 ELSE 1 END");
-
-                if ($hasUq('created_at')) $q->orderByDesc('created_at');
-
-                $urow = $q->first();
-
-                if ($urow) {
-                    $email = strtolower(trim((string)($urow->email ?? '')));
-
-                    // ==========================================================
-                    // 2) Resolver admin account por email en mysql_admin.accounts
-                    // ==========================================================
-                    if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        if (Schema::connection($adm)->hasTable('accounts')) {
-                            $aCols = Schema::connection($adm)->getColumnListing('accounts');
-                            $aLC   = array_map('strtolower', $aCols);
-                            $hasA  = fn (string $c) => in_array(strtolower($c), $aLC, true);
-
-                            if ($hasA('email')) {
-                                $acc = DB::connection($adm)->table('accounts')
-                                    ->select(['id', 'email'])
-                                    ->whereRaw('LOWER(TRIM(email)) = ?', [$email])
-                                    ->orderByDesc('id')
-                                    ->first();
-
-                                if ($acc && isset($acc->id) && is_numeric($acc->id) && (int)$acc->id > 0) {
-                                    return (int)$acc->id;
-                                }
-                            }
-                        }
-                    }
-
-                    // (Opcional) fallback: si algún día agregas admin_account_id directo a usuarios_cuenta
-                    if (isset($urow->admin_account_id) && is_numeric($urow->admin_account_id) && (int)$urow->admin_account_id > 0) {
-                        return (int)$urow->admin_account_id;
-                    }
-                }
-            }
-
-            // ==========================================================
-            // 3) (Opcional) Si en el futuro existe un bridge en cuentas_cliente/meta, aquí podrías agregarlo
-            // ==========================================================
-            // Por ahora no hacemos nada: tu diagnóstico mostró que NO existe.
-
-        } catch (\Throwable $e) {
-            // ignora y regresa 0
-        }
-
-        return 0;
+        return $this->portalContext->resolveAdminAccountIdFromClientUuid($uuid);
     }
 
-    /**
-     * Normaliza un periodo a formato Y-m. Nunca regresa null.
-     * - Si $p viene null/vacío/inválido => usa $fallback si es válido
-     * - Si ambos fallan => usa now()->format('Y-m')
-     */
     private function normalizePeriodOrNow(?string $p, ?string $fallback = null): string
     {
-        $p = trim((string) $p);
-        if ($p !== '' && $this->isValidPeriod($p)) return $p;
-
-        $fallback = trim((string) $fallback);
-        if ($fallback !== '' && $this->isValidPeriod($fallback)) return $fallback;
-
-        return now()->format('Y-m');
+        return $this->portalContext->normalizePeriodOrNow($p, $fallback);
     }
 
     private function isValidPeriod(string $period): bool
     {
-        return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period);
+        return $this->portalContext->isValidPeriod($period);
     }
 
     private function adminFkColumn(string $table): ?string
@@ -5078,216 +3811,19 @@ final class AccountBillingController extends Controller
         }
     }
 
-    /**
-     * Determina si la cuenta está en ciclo ANUAL.
-     * Fuentes:
-     * - admin.accounts.modo_cobro
-     * - admin.accounts.meta.billing.cycle / meta.stripe.billing_cycle
-     */
     private function isAnnualBillingCycle(int $accountId): bool
     {
-        if ($accountId <= 0) return false;
-
-        try {
-            $adm = (string) config('p360.conn.admin', 'mysql_admin');
-            if (!Schema::connection($adm)->hasTable('accounts')) return false;
-
-            $cols = Schema::connection($adm)->getColumnListing('accounts');
-            $lc   = array_map('strtolower', $cols);
-            $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-            $sel = ['id'];
-            foreach (['modo_cobro', 'meta', 'plan', 'plan_actual'] as $c) {
-                if ($has($c)) $sel[] = $c;
-            }
-            $sel = array_values(array_unique($sel));
-
-            $acc = DB::connection($adm)->table('accounts')
-                ->select($sel)
-                ->where('id', $accountId)
-                ->first();
-
-            if (!$acc) return false;
-
-            // ---------------------------------------------------------
-            // Normalización robusta
-            // - lower + trim
-            // - colapsa espacios
-            // - normaliza separadores (_ - .) a espacio
-            // ---------------------------------------------------------
-            $norm = static function ($v): string {
-                $s = strtolower(trim((string) $v));
-                if ($s === '') return '';
-                $s = str_replace(["\t", "\n", "\r"], ' ', $s);
-                $s = str_replace(['_', '-', '.'], ' ', $s);
-                $s = preg_replace('/\s+/', ' ', $s);
-                return trim((string) $s);
-            };
-
-            
-            // ---------------------------------------------------------
-            // ✅ GUARD: FREE/GRATIS/TRIAL/NONE nunca debe considerarse ANUAL.
-            // Esto evita que meta "yearly" (mal seteado) rompa el portal (payAllowed=null).
-            // ---------------------------------------------------------
-            $mcRaw = $has('modo_cobro') ? $norm($acc->modo_cobro ?? '') : '';
-            $planRaw = $norm(($acc->plan_actual ?? '') ?: ($acc->plan ?? ''));
-            $isFreeToken = static function (string $s) use ($norm): bool {
-                $s = $norm($s);
-                if ($s === '') return false;
-                if (in_array($s, ['free','gratis','gratuito','trial','prueba','demo','none','sin costo','sincosto','sin pago','sinpago'], true)) {
-                    return true;
-                }
-                // contiene
-                return str_contains($s, 'free')
-                    || str_contains($s, 'gratis')
-                    || str_contains($s, 'trial')
-                    || str_contains($s, 'demo')
-                    || str_contains($s, 'sin costo')
-                    || str_contains($s, 'sin pago');
-            };
-            if ($isFreeToken($mcRaw) || $isFreeToken($planRaw)) {
-                return false;
-            }
-
-            // ---------------------------------------------------------
-            // Matcher anual
-            // - exact tokens
-            // - contains (anual/annual/year/12)
-            // ---------------------------------------------------------
-            $isAnnualToken = static function (string $s) use ($norm): bool {
-                $s = $norm($s);
-                if ($s === '') return false;
-
-                if (in_array($s, [
-                    'anual', 'annual', 'annually',
-                    'year', 'yearly',
-                    '12m', '12 mes', '12 meses', '12meses',
-                    '12-month', '12 months', '12months',
-                    '1y', '1 year', 'one year',
-                ], true)) {
-                    return true;
-                }
-
-                return str_contains($s, 'anual')
-                    || str_contains($s, 'annual')
-                    || str_contains($s, 'year')
-                    || str_contains($s, '12 mes')
-                    || str_contains($s, '12m');
-            };
-
-            // helper: evalúa un valor que puede venir compuesto (ej "billing:yearly|mxn")
-            $isAnnualValue = static function ($v) use ($norm, $isAnnualToken): bool {
-                $s = $norm($v);
-                if ($s === '') return false;
-
-                if ($isAnnualToken($s)) return true;
-
-                // rompe por separadores comunes
-                $parts = preg_split('/[|,:;\/\\\\]/', $s) ?: [];
-                foreach ($parts as $p) {
-                    $p = trim((string) $p);
-                    if ($p !== '' && $isAnnualToken($p)) return true;
-                }
-
-                return false;
-            };
-
-            // 1) modo_cobro directo (si existe)
-             if ($has('modo_cobro')) {
-
-                // ✅ ya normalizado arriba ($mcRaw)
-                if ($isAnnualValue($mcRaw)) return true;
-             }
-
-             // 2) plan / plan_actual (señal fuerte)
-            // ✅ ya normalizado arriba ($planRaw)
-            if ($isAnnualValue($planRaw)) return true;
-
-            // 3) meta (SOT + variantes reales)
-            if ($has('meta') && isset($acc->meta)) {
-                $meta = is_string($acc->meta)
-                    ? (json_decode((string) $acc->meta, true) ?: [])
-                    : (array) $acc->meta;
-
-                // ✅ prioridad alta: lo que tú ya viste en prod
-                // meta.billing.billing_cycle = "yearly"
-                $candidates = [
-                    // billing.*
-                    data_get($meta, 'billing.billing_cycle'),
-                    data_get($meta, 'billing.cycle'),
-                    data_get($meta, 'billing.billingCycle'),
-                    data_get($meta, 'billing.interval'),
-                    data_get($meta, 'billing.modo_cobro'),
-                    data_get($meta, 'billing_cycle'),
-
-                    // stripe.*
-                    data_get($meta, 'stripe.billing_cycle'),
-                    data_get($meta, 'stripe.cycle'),
-                    data_get($meta, 'stripe.interval'),
-                    data_get($meta, 'stripe.plan_interval'),
-
-                    // subscription.*
-                    data_get($meta, 'subscription.billing_cycle'),
-                    data_get($meta, 'subscription.cycle'),
-                    data_get($meta, 'subscription.interval'),
-
-                    // plan.*
-                    data_get($meta, 'plan.billing_cycle'),
-                    data_get($meta, 'plan.cycle'),
-                    data_get($meta, 'plan.interval'),
-
-                    // root/meta compat
-                    data_get($meta, 'modo_cobro'),
-                    data_get($meta, 'cycle'),
-                    data_get($meta, 'interval'),
-                ];
-
-                foreach ($candidates as $v) {
-                    if ($isAnnualValue($v)) return true;
-                }
-
-                // Fallback extra: por si guardas "yearly" en alguna parte libre dentro de meta
-                try {
-                    $raw = json_encode($meta, JSON_UNESCAPED_UNICODE);
-                    $raw = is_string($raw) ? $norm($raw) : '';
-                    if ($raw !== '' && (str_contains($raw, 'yearly') || str_contains($raw, '\"billing_cycle\":\"year'))) {
-                        // match liviano: si el json contiene yearly / year en billing_cycle
-                        if (str_contains($raw, 'yearly') || str_contains($raw, 'billing cycle') || str_contains($raw, 'billing_cycle')) {
-                            // solo activamos si también aparece "year"/"annual"/"anual" cerca de ciclo
-                            if (str_contains($raw, 'year') || str_contains($raw, 'annual') || str_contains($raw, 'anual')) {
-                                return true;
-                            }
-                        }
-                    }
-                } catch (\Throwable $e) {
-                    // ignora
-                }
-            }
-
-        } catch (\Throwable $e) {
-            // ignora
-        }
-
-        return false;
+        return $this->portalContext->isAnnualBillingCycle($accountId);
     }
 
-    /**
-     * Determina si la cuenta es ANUAL (alias por compat).
-     * ✅ Mantener un solo criterio: isAnnualBillingCycle()
-     */
     private function isAnnualAccount(int $accountId): bool
     {
-        return $this->isAnnualBillingCycle($accountId);
+        return $this->portalContext->isAnnualAccount($accountId);
     }
 
-    /**
-     * Ventana para mostrar renovación anual (días antes).
-     * Default 30 días.
-     */
     private function annualRenewalWindowDays(): int
     {
-        $n = (int) (config('p360.billing.annual_renewal_window_days') ?? 30);
-        return $n > 0 ? $n : 30;
+        return $this->portalContext->annualRenewalWindowDays();
     }
 
     /**
@@ -5432,14 +3968,11 @@ final class AccountBillingController extends Controller
 
     private function connAdmin(): string
     {
-        return (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        return $this->portalContext->connAdmin();
     }
 
     private function connClientes(): string
     {
-        // ✅ Unifica la key (acepta ambas por compat)
-        return (string) (config('p360.conn.clientes')
-            ?: config('p360.conn.clients')
-            ?: 'mysql_clientes');
+        return $this->portalContext->connClientes();
     }
 }
