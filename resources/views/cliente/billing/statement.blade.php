@@ -181,12 +181,12 @@
     }
   }
 
-  // 2) primer pendiente visible
+    // 2) primer pendiente visible
   if ($mensualidadHeader <= 0) {
     foreach ($rows as $tmpRow) {
       $tmpStatus = strtolower(trim((string) ($tmpRow['status'] ?? 'pending')));
       $tmpCharge = (float) ($tmpRow['charge'] ?? ($tmpRow['total_cargo'] ?? 0));
-      $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0));
+      $tmpSaldo  = (float) ($tmpRow['saldo'] ?? 0);
 
       if (!in_array($tmpStatus, $paidStatuses, true)) {
         $mensualidadHeader = $tmpSaldo > 0 ? $tmpSaldo : $tmpCharge;
