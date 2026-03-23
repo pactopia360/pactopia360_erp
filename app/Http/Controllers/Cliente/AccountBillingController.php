@@ -651,6 +651,10 @@ final class AccountBillingController extends Controller
             $chargesByPeriod
         );
 
+        // ✅ Levantar pagos reales desde admin.payments.
+        // Esto corrige parciales que billing_statements aún no reflejó.
+        $rows = $this->applyAdminPaidAmountOverrides($accountId, $rows);
+
         if (empty($rows)) {
             // Fallback duro si no hay nada en admin
             $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
@@ -940,12 +944,27 @@ final class AccountBillingController extends Controller
 
             // ======================================================
             // 5) service_items reales
+            // - IGNORAR fallback items para que no contaminen el cargo visual
             // ======================================================
             $serviceItems = is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [];
-            $itemsTotal   = 0.0;
+            $realItemsTotal = 0.0;
+            $hasRealItems   = false;
 
             foreach ($serviceItems as $it) {
                 $it = is_array($it) ? $it : (array) $it;
+
+                $meta = $it['meta'] ?? null;
+                if (is_string($meta) && trim($meta) !== '') {
+                    $tmp = json_decode($meta, true);
+                    if (is_array($tmp)) $meta = $tmp;
+                } elseif (!is_array($meta)) {
+                    $meta = [];
+                }
+
+                $isFallbackItem = strtolower((string) data_get($meta, 'source', '')) === 'fallback';
+                if ($isFallbackItem) {
+                    continue;
+                }
 
                 $line = 0.0;
                 if (isset($it['subtotal']) && is_numeric($it['subtotal'])) {
@@ -958,10 +977,14 @@ final class AccountBillingController extends Controller
                     $line = $qty * $unit;
                 }
 
-                $itemsTotal += max(0.0, $line);
+                $line = round(max(0.0, $line), 2);
+                if ($line > 0.0001) {
+                    $hasRealItems = true;
+                    $realItemsTotal += $line;
+                }
             }
 
-            $itemsTotal = round($itemsTotal, 2);
+            $realItemsTotal = round($realItemsTotal, 2);
 
             // ======================================================
             // 6) Fuentes auxiliares
@@ -986,21 +1009,20 @@ final class AccountBillingController extends Controller
             }
 
             // ======================================================
-            // CARGO REAL DEL PERIODO
-            // PRIORIDAD CORRECTA:
-            // 1) service_items
-            // 2) billing_statements.total_cargo
-            // 3) estados_cuenta.cargo
-            // 4) mensualidad resuelta
+            // 7) Cargo visual REAL
+            // - si hay items reales, ellos mandan
+            // - si NO hay items reales, usar mensualidad resuelta antes que total contaminado
             // ======================================================
-            if ($itemsTotal > 0.0001) {
-                $visualCharge = $itemsTotal;
+            if ($hasRealItems) {
+                $visualCharge = $realItemsTotal;
+            } elseif ($monthlyCharge > 0.0001) {
+                $visualCharge = $monthlyCharge;
             } elseif ($statementCharge > 0.0001) {
                 $visualCharge = $statementCharge;
             } elseif ($edoCharge > 0.0001) {
                 $visualCharge = $edoCharge;
             } else {
-                $visualCharge = $monthlyCharge;
+                $visualCharge = 0.0;
             }
 
             $visualCharge = round(max(0.0, $visualCharge), 2);
@@ -1010,9 +1032,6 @@ final class AccountBillingController extends Controller
 
             $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
 
-            // ======================================================
-            // Override manda en status
-            // ======================================================
             if ($ov && !empty($ov['status_override'])) {
                 $ovStatus = strtolower((string) $ov['status_override']);
 
@@ -1029,17 +1048,12 @@ final class AccountBillingController extends Controller
                 }
             }
 
-            // ======================================================
-            // Si hay abono real, aunque venga pending, debe reflejar parcial/pagado
-            // ======================================================
+            // ✅ Si hay pago real y no está pagado, reflejar parcial/pagado
             if ($status !== 'paid' && $realPaid > 0.0001 && $visualCharge > 0.0001) {
                 $calcSaldo = round(max(0.0, $visualCharge - min($realPaid, $visualCharge)), 2);
                 $status = $calcSaldo <= 0.0001 ? 'paid' : 'partial';
             }
 
-            // ======================================================
-            // Canonicalización final
-            // ======================================================
             $paidAmount = 0.0;
             $saldo      = 0.0;
 
@@ -1062,13 +1076,8 @@ final class AccountBillingController extends Controller
 
                 $base = round(max(0.0, $base), 2);
 
-                if ($statementSaldo > 0.0001 && $base > 0.0001 && $realPaid <= 0.0001) {
-                    $saldo      = round(min($statementSaldo, $base), 2);
-                    $paidAmount = round(max(0.0, $base - $saldo), 2);
-                } else {
-                    $paidAmount = round(min(max(0.0, $realPaid), $base), 2);
-                    $saldo      = round(max(0.0, $base - $paidAmount), 2);
-                }
+                $paidAmount = round(min(max(0.0, $realPaid), $base), 2);
+                $saldo      = round(max(0.0, $base - $paidAmount), 2);
 
                 $visualCharge = $base;
             } elseif (in_array($status, ['pending', 'overdue'], true)) {
@@ -1114,13 +1123,13 @@ final class AccountBillingController extends Controller
                 'alias'                  => $alias !== '' ? $alias : '—',
                 'invoice_request_status' => null,
                 'invoice_has_zip'        => false,
-                'price_source'           => $itemsTotal > 0.0001
-                    ? 'admin.statement_items'
-                    : ($statementCharge > 0.0001
-                        ? 'admin.billing_statements'
-                        : ($edoCharge > 0.0001
-                            ? 'admin.estados_cuenta'
-                            : ($monthlyCharge > 0.0001 ? 'admin.monthly_resolved' : 'admin.live'))),
+                'price_source'           => $hasRealItems
+                    ? 'admin.statement_items.real'
+                    : ($monthlyCharge > 0.0001
+                        ? 'admin.monthly_resolved'
+                        : ($statementCharge > 0.0001
+                            ? 'admin.billing_statements'
+                            : ($edoCharge > 0.0001 ? 'admin.estados_cuenta' : 'admin.live'))),
                 'service_items'          => $serviceItems,
                 'meta'                   => $seed['meta'] ?? null,
                 'snapshot'               => $seed['snapshot'] ?? null,
