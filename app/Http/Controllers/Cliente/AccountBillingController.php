@@ -421,12 +421,25 @@ final class AccountBillingController extends Controller
                     $lastChargeMxnFromStatements = round(max(0.0, $c), 2);
                 }
             }
-        } catch (\Throwable $e) {
+                } catch (\Throwable $e) {
             $lastPaidFromStatements = null;
             $lastChargeMxnFromStatements = 0.0;
         }
 
-                // Pendientes reales desde statements (SOT)
+        // ✅ DOMINIO DEL ESPEJO ADMIN:
+        // si statements ya trae un periodo pagado más reciente que payments/meta,
+        // ese debe mandar en cliente.
+        if (
+            $this->isValidPeriod((string) $lastPaidFromStatements) &&
+            (
+                !$this->isValidPeriod((string) $lastPaid) ||
+                strcmp((string) $lastPaidFromStatements, (string) $lastPaid) > 0
+            )
+        ) {
+            $lastPaid = (string) $lastPaidFromStatements;
+        }
+
+        // Pendientes reales desde statements (SOT)
         $rowsFromStatementsPending = [];
         try {
             $rowsFromStatementsPending = array_values(array_filter($rowsFromStatementsAll, function ($rr) {
@@ -734,256 +747,345 @@ final class AccountBillingController extends Controller
      * @return array<int,array<string,mixed>>
      */
     private function buildLiveAdminMirrorRows(
-        int $accountId,
-        array $rowsFromStatementsAll,
-        ?string $lastPaid,
-        ?string $payAllowedUi,
-        string $rfc,
-        string $alias,
-        array $chargesByPeriod = []
-    ): array {
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+    int $accountId,
+    array $rowsFromStatementsAll,
+    ?string $lastPaid,
+    ?string $payAllowedUi,
+    string $rfc,
+    string $alias,
+    array $chargesByPeriod = []
+        ): array {
+            $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
-        $seedByPeriod = [];
-        $allPeriods   = [];
+            $seedByPeriod = [];
+            $allPeriods   = [];
+            $edoAgg       = [];
 
-        // ======================================================
-        // 1) Seed desde billing_statements
-        // ======================================================
-        foreach ($rowsFromStatementsAll as $rr) {
-            $row = is_array($rr) ? $rr : (array) $rr;
-            $p   = trim((string) ($row['period'] ?? ''));
+            $normPeriod = function ($p): ?string {
+                $p = trim((string) $p);
+                return $this->isValidPeriod($p) ? $p : null;
+            };
 
-            if (!$this->isValidPeriod($p)) {
-                continue;
+            $nextPeriod = function (string $ym): ?string {
+                if (!$this->isValidPeriod($ym)) return null;
+                try {
+                    return Carbon::createFromFormat('Y-m', $ym)->addMonthNoOverflow()->format('Y-m');
+                } catch (\Throwable $e) {
+                    return null;
+                }
+            };
+
+            // ======================================================
+            // 1) Seed desde billing_statements (SOT principal)
+            // ======================================================
+            foreach ($rowsFromStatementsAll as $rr) {
+                $row = is_array($rr) ? $rr : (array) $rr;
+                $p   = $normPeriod($row['period'] ?? null);
+
+                if (!$p) {
+                    continue;
+                }
+
+                $seedByPeriod[$p] = $row;
+                $allPeriods[$p]   = true;
             }
 
-            $seedByPeriod[$p] = $row;
-            $allPeriods[$p]   = true;
-        }
+            // ======================================================
+            // 2) Periodos reales desde payments
+            // ======================================================
+            try {
+                if (Schema::connection($adm)->hasTable('payments')) {
+                    $pCols = Schema::connection($adm)->getColumnListing('payments');
+                    $pLc   = array_map('strtolower', $pCols);
+                    $pHas  = fn (string $c) => in_array(strtolower($c), $pLc, true);
 
-        // ======================================================
-        // 2) Periodos reales desde payments
-        // ======================================================
-        try {
-            if (Schema::connection($adm)->hasTable('payments')) {
-                $pCols = Schema::connection($adm)->getColumnListing('payments');
-                $pLc   = array_map('strtolower', $pCols);
-                $pHas  = fn (string $c) => in_array(strtolower($c), $pLc, true);
+                    if ($pHas('account_id') && $pHas('period')) {
+                        $payRows = DB::connection($adm)->table('payments')
+                            ->where('account_id', $accountId)
+                            ->orderByDesc($pHas('paid_at') ? 'paid_at' : ($pHas('updated_at') ? 'updated_at' : 'id'))
+                            ->limit(120)
+                            ->get(['period']);
 
-                if ($pHas('account_id') && $pHas('period')) {
-                    $payRows = DB::connection($adm)->table('payments')
-                        ->where('account_id', $accountId)
-                        ->orderByDesc($pHas('paid_at') ? 'paid_at' : ($pHas('updated_at') ? 'updated_at' : 'id'))
-                        ->limit(120)
-                        ->get(['period']);
-
-                    foreach ($payRows as $pr) {
-                        $p = trim((string) ($pr->period ?? ''));
-                        if ($this->isValidPeriod($p)) {
-                            $allPeriods[$p] = true;
+                        foreach ($payRows as $pr) {
+                            $p = $normPeriod($pr->period ?? null);
+                            if ($p) {
+                                $allPeriods[$p] = true;
+                            }
                         }
                     }
                 }
+            } catch (\Throwable $e) {
+                Log::warning('[BILLING] buildLiveAdminMirrorRows payments periods failed', [
+                    'account_id' => $accountId,
+                    'err'        => $e->getMessage(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] buildLiveAdminMirrorRows payments periods failed', [
-                'account_id' => $accountId,
-                'err'        => $e->getMessage(),
-            ]);
-        }
 
-        // ======================================================
-        // 3) Periodos reales desde admin.estados_cuenta
-        // ======================================================
-        $edoAgg = [];
-        try {
-            if (Schema::connection($adm)->hasTable('estados_cuenta')) {
-                $edoRows = DB::connection($adm)->table('estados_cuenta')
-                    ->selectRaw('periodo, SUM(COALESCE(cargo,0)) as cargo_sum, SUM(COALESCE(abono,0)) as abono_sum')
-                    ->where('account_id', $accountId)
-                    ->groupBy('periodo')
-                    ->orderBy('periodo')
-                    ->get();
+            // ======================================================
+            // 3) Periodos reales desde admin.estados_cuenta
+            // ======================================================
+            try {
+                if (Schema::connection($adm)->hasTable('estados_cuenta')) {
+                    $edoRows = DB::connection($adm)->table('estados_cuenta')
+                        ->selectRaw('periodo, SUM(COALESCE(cargo,0)) as cargo_sum, SUM(COALESCE(abono,0)) as abono_sum')
+                        ->where('account_id', $accountId)
+                        ->groupBy('periodo')
+                        ->orderBy('periodo')
+                        ->get();
 
-                foreach ($edoRows as $er) {
-                    $p = trim((string) ($er->periodo ?? ''));
-                    if (!$this->isValidPeriod($p)) {
-                        continue;
+                    foreach ($edoRows as $er) {
+                        $p = $normPeriod($er->periodo ?? null);
+                        if (!$p) {
+                            continue;
+                        }
+
+                        $edoAgg[$p] = [
+                            'cargo' => round((float) ($er->cargo_sum ?? 0), 2),
+                            'abono' => round((float) ($er->abono_sum ?? 0), 2),
+                        ];
+
+                        $allPeriods[$p] = true;
                     }
-
-                    $edoAgg[$p] = [
-                        'cargo' => round((float) ($er->cargo_sum ?? 0), 2),
-                        'abono' => round((float) ($er->abono_sum ?? 0), 2),
-                    ];
-
-                    $allPeriods[$p] = true;
                 }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING] buildLiveAdminMirrorRows estados_cuenta periods failed', [
-                'account_id' => $accountId,
-                'err'        => $e->getMessage(),
-            ]);
-        }
-
-        // también incluir payAllowed si es válido
-        if ($this->isValidPeriod((string) $payAllowedUi)) {
-            $allPeriods[(string) $payAllowedUi] = true;
-        }
-
-        $periods = array_keys($allPeriods);
-        sort($periods);
-
-        if (empty($periods)) {
-            return [];
-        }
-
-        $out = [];
-
-        foreach ($periods as $period) {
-            $seed = $seedByPeriod[$period] ?? [];
-
-            $charge = 0.0;
-            foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
-                if (isset($seed[$k]) && is_numeric($seed[$k])) {
-                    $charge = round(max(0.0, (float) $seed[$k]), 2);
-                    break;
-                }
-            }
-
-            if ($charge <= 0.0001 && isset($edoAgg[$period]['cargo']) && (float) $edoAgg[$period]['cargo'] > 0) {
-                $charge = round((float) $edoAgg[$period]['cargo'], 2);
-            }
-
-            if ($charge <= 0.0001) {
-                $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                    $accountId,
-                    $period,
-                    $lastPaid,
-                    $payAllowedUi,
-                    $chargesByPeriod
-                );
-            }
-
-            $paidAmount = 0.0;
-            foreach (['total_abono', 'paid_amount', 'abono', 'paid'] as $k) {
-                if (isset($seed[$k]) && is_numeric($seed[$k])) {
-                    $paidAmount = round(max(0.0, (float) $seed[$k]), 2);
-                    break;
-                }
-            }
-
-            if (isset($edoAgg[$period]['abono']) && (float) $edoAgg[$period]['abono'] > $paidAmount) {
-                $paidAmount = round((float) $edoAgg[$period]['abono'], 2);
-            }
-
-            $paidCents = 0;
-            try {
-                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
             } catch (\Throwable $e) {
-                $paidCents = 0;
+                Log::warning('[BILLING] buildLiveAdminMirrorRows estados_cuenta periods failed', [
+                    'account_id' => $accountId,
+                    'err'        => $e->getMessage(),
+                ]);
             }
 
-            if ($paidCents > 0) {
-                $paidAmount = max($paidAmount, round($paidCents / 100, 2));
+            // también incluir payAllowed si es válido
+            $payAllowedNorm = $normPeriod($payAllowedUi);
+            if ($payAllowedNorm) {
+                $allPeriods[$payAllowedNorm] = true;
             }
 
-            $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
+            // ======================================================
+            // 4) Determinar rango continuo a mostrar:
+            //    desde el primer periodo real hasta el siguiente por pagar
+            // ======================================================
+            $rawPeriods = array_keys($allPeriods);
+            sort($rawPeriods);
 
-            if ($charge <= 0.0001 && $paidAmount > 0.0001) {
-                $charge = $paidAmount;
+            if (empty($rawPeriods)) {
+                return [];
             }
 
-            $saldo = 0.0;
-            if (isset($seed['saldo']) && is_numeric($seed['saldo'])) {
-                $saldo = round(max(0.0, (float) $seed['saldo']), 2);
-            } else {
-                $saldo = round(max(0.0, $charge - $paidAmount), 2);
+            $firstPeriod = $rawPeriods[0];
+            $lastPeriod  = end($rawPeriods) ?: $firstPeriod;
+
+            // si hay último pagado válido, mostrar hasta el siguiente mes
+            $lastPaidNorm = $normPeriod($lastPaid);
+            $nextAfterLastPaid = $lastPaidNorm ? $nextPeriod($lastPaidNorm) : null;
+
+            if ($nextAfterLastPaid) {
+                if (strcmp($nextAfterLastPaid, $lastPeriod) > 0) {
+                    $lastPeriod = $nextAfterLastPaid;
+                }
+                $allPeriods[$nextAfterLastPaid] = true;
             }
 
-            // ✅ Canonicalización viva
-            if ($charge <= 0.0001 && $paidAmount <= 0.0001) {
-                $status = 'no_movement';
-                $saldo  = 0.0;
-            } elseif ($paidAmount > 0.0001) {
-                $saldo = round(max(0.0, $charge - $paidAmount), 2);
-                $status = $saldo <= 0.0001 ? 'paid' : 'partial';
-            } else {
-                $saldo = round(max(0.0, $charge), 2);
-                $status = $saldo > 0.0001 ? 'pending' : 'no_movement';
+            if ($payAllowedNorm && strcmp($payAllowedNorm, $lastPeriod) > 0) {
+                $lastPeriod = $payAllowedNorm;
             }
 
-            $periodRange = $period;
+            // generar secuencia continua
+            $periods = [];
             try {
-                $c = Carbon::createFromFormat('Y-m', $period);
-                $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+                $cursor = Carbon::createFromFormat('Y-m', $firstPeriod)->startOfMonth();
+                $end    = Carbon::createFromFormat('Y-m', $lastPeriod)->startOfMonth();
+
+                while ($cursor->lte($end)) {
+                    $periods[] = $cursor->format('Y-m');
+                    $cursor->addMonthNoOverflow();
+                }
             } catch (\Throwable $e) {
+                $periods = array_keys($allPeriods);
+                sort($periods);
+            }
+
+            if (empty($periods)) {
+                return [];
+            }
+
+            $out = [];
+
+            foreach ($periods as $period) {
+                $seed = $seedByPeriod[$period] ?? [];
+
+                // ==================================================
+                // CHARGE: espejo admin primero
+                // ==================================================
+                $charge = 0.0;
+                foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
+                    if (isset($seed[$k]) && is_numeric($seed[$k])) {
+                        $charge = round(max(0.0, (float) $seed[$k]), 2);
+                        break;
+                    }
+                }
+
+                if ($charge <= 0.0001 && isset($edoAgg[$period]['cargo']) && (float) $edoAgg[$period]['cargo'] > 0) {
+                    $charge = round((float) $edoAgg[$period]['cargo'], 2);
+                }
+
+                // solo fallback al resolver si no hay nada real
+                if ($charge <= 0.0001) {
+                    $charge = $this->resolvePortalMonthlyMxnForPeriod(
+                        $accountId,
+                        $period,
+                        $lastPaidNorm,
+                        $payAllowedNorm,
+                        $chargesByPeriod
+                    );
+                }
+
+                // ==================================================
+                // PAID AMOUNT: espejo admin primero
+                // ==================================================
+                $paidAmount = 0.0;
+                foreach (['total_abono', 'paid_amount', 'abono', 'paid'] as $k) {
+                    if (isset($seed[$k]) && is_numeric($seed[$k])) {
+                        $paidAmount = round(max(0.0, (float) $seed[$k]), 2);
+                        break;
+                    }
+                }
+
+                if (isset($edoAgg[$period]['abono']) && (float) $edoAgg[$period]['abono'] > $paidAmount) {
+                    $paidAmount = round((float) $edoAgg[$period]['abono'], 2);
+                }
+
+                try {
+                    $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
+                    if ($paidCents > 0) {
+                        $paidAmount = max($paidAmount, round($paidCents / 100, 2));
+                    }
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+
+                $seedStatus = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
+
+                if ($charge <= 0.0001 && $paidAmount > 0.0001) {
+                    $charge = $paidAmount;
+                }
+
+                $saldo = 0.0;
+                if (isset($seed['saldo']) && is_numeric($seed['saldo'])) {
+                    $saldo = round(max(0.0, (float) $seed['saldo']), 2);
+                } else {
+                    $saldo = round(max(0.0, $charge - $paidAmount), 2);
+                }
+
+                // ==================================================
+                // STATUS CANÓNICO:
+                // billing_statements manda si existe
+                // ==================================================
+                if (!empty($seed)) {
+                    if ($seedStatus === 'paid') {
+                        $status = 'paid';
+                        $paidAmount = max($paidAmount, $charge);
+                        $saldo = 0.0;
+                    } elseif ($seedStatus === 'partial') {
+                        $status = 'partial';
+                        $saldo = round(max(0.0, $charge - $paidAmount), 2);
+                    } elseif (in_array($seedStatus, ['pending', 'overdue', 'no_movement'], true)) {
+                        if ($charge <= 0.0001 && $paidAmount <= 0.0001) {
+                            $status = 'no_movement';
+                            $saldo  = 0.0;
+                        } elseif ($paidAmount > 0.0001) {
+                            $saldo  = round(max(0.0, $charge - $paidAmount), 2);
+                            $status = $saldo <= 0.0001 ? 'paid' : 'partial';
+                        } else {
+                            $saldo  = round(max(0.0, $charge), 2);
+                            $status = $saldo > 0.0001 ? $seedStatus : 'no_movement';
+                        }
+                    } else {
+                        $status = 'pending';
+                    }
+                } else {
+                    if ($charge <= 0.0001 && $paidAmount <= 0.0001) {
+                        $status = 'no_movement';
+                        $saldo  = 0.0;
+                    } elseif ($paidAmount > 0.0001) {
+                        $saldo  = round(max(0.0, $charge - $paidAmount), 2);
+                        $status = $saldo <= 0.0001 ? 'paid' : 'partial';
+                    } else {
+                        $saldo  = round(max(0.0, $charge), 2);
+                        $status = $saldo > 0.0001 ? 'pending' : 'no_movement';
+                    }
+                }
+
                 $periodRange = $period;
+                try {
+                    $c = Carbon::createFromFormat('Y-m', $period);
+                    $periodRange = $c->copy()->startOfMonth()->format('d/m/Y') . ' - ' . $c->copy()->endOfMonth()->format('d/m/Y');
+                } catch (\Throwable $e) {
+                    $periodRange = $period;
+                }
+
+                $out[] = [
+                    'id'                     => $seed['id'] ?? null,
+                    'account_id'             => $accountId,
+                    'admin_account_id'       => $accountId,
+                    'statement_account_ref'  => $seed['account_id'] ?? (string) $accountId,
+                    'period'                 => $period,
+                    'status'                 => $status,
+                    'charge'                 => round($charge, 2),
+                    'total_cargo'            => round($charge, 2),
+                    'paid_amount'            => round(min($paidAmount, max($charge, $paidAmount)), 2),
+                    'total_abono'            => round(min($paidAmount, max($charge, $paidAmount)), 2),
+                    'saldo'                  => round($saldo, 2),
+                    'can_pay'                => false,
+                    'period_range'           => $periodRange,
+                    'rfc'                    => $rfc !== '' ? $rfc : '—',
+                    'alias'                  => $alias !== '' ? $alias : '—',
+                    'invoice_request_status' => null,
+                    'invoice_has_zip'        => false,
+                    'price_source'           => isset($seedByPeriod[$period]) ? 'admin.live+statements' : 'admin.live',
+                    'service_items'          => is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [],
+                    'meta'                   => $seed['meta'] ?? null,
+                    'snapshot'               => $seed['snapshot'] ?? null,
+                    'due_date'               => $seed['due_date'] ?? null,
+                    'paid_at'                => $seed['paid_at'] ?? null,
+                    'created_at'             => $seed['created_at'] ?? null,
+                    'updated_at'             => $seed['updated_at'] ?? null,
+                ];
             }
 
-            $out[] = [
-                'id'                     => $seed['id'] ?? null,
-                'account_id'             => $accountId,
-                'admin_account_id'       => $accountId,
-                'statement_account_ref'  => $seed['account_id'] ?? (string) $accountId,
-                'period'                 => $period,
-                'status'                 => $status,
-                'charge'                 => round($charge, 2),
-                'total_cargo'            => round($charge, 2),
-                'paid_amount'            => round(min($paidAmount, max($charge, $paidAmount)), 2),
-                'total_abono'            => round(min($paidAmount, max($charge, $paidAmount)), 2),
-                'saldo'                  => round($saldo, 2),
-                'can_pay'                => false,
-                'period_range'           => $periodRange,
-                'rfc'                    => $rfc !== '' ? $rfc : '—',
-                'alias'                  => $alias !== '' ? $alias : '—',
-                'invoice_request_status' => null,
-                'invoice_has_zip'        => false,
-                'price_source'           => isset($seedByPeriod[$period]) ? 'admin.live+statements' : 'admin.live',
-                'service_items'          => is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [],
-                'meta'                   => $seed['meta'] ?? null,
-                'snapshot'               => $seed['snapshot'] ?? null,
-                'due_date'               => $seed['due_date'] ?? null,
-                'paid_at'                => $seed['paid_at'] ?? null,
-                'created_at'             => $seed['created_at'] ?? null,
-                'updated_at'             => $seed['updated_at'] ?? null,
-            ];
-        }
+            usort($out, function ($a, $b) {
+                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+            });
 
-        usort($out, function ($a, $b) {
-            return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
-        });
+            // ======================================================
+            // único periodo pagable: primer no pagado con saldo > 0
+            // ======================================================
+            $firstPending = null;
+            foreach ($out as $r) {
+                $st = $this->normalizeStatementStatus((string) ($r['status'] ?? 'pending'));
+                $sd = (float) ($r['saldo'] ?? 0);
 
-        // ======================================================
-        // único periodo pagable: primer no pagado con saldo > 0
-        // ======================================================
-        $firstPending = null;
-        foreach ($out as $r) {
-            $st = $this->normalizeStatementStatus((string) ($r['status'] ?? 'pending'));
-            $sd = (float) ($r['saldo'] ?? 0);
-
-            if ($st !== 'paid' && $sd > 0.0001) {
-                $firstPending = (string) ($r['period'] ?? '');
-                break;
+                if ($st !== 'paid' && $sd > 0.0001) {
+                    $firstPending = (string) ($r['period'] ?? '');
+                    break;
+                }
             }
+
+            foreach ($out as &$r) {
+                $r['can_pay'] = ($firstPending !== null && (string) ($r['period'] ?? '') === $firstPending);
+            }
+            unset($r);
+
+            Log::info('[BILLING] buildLiveAdminMirrorRows result', [
+                'account_id'    => $accountId,
+                'last_paid'     => $lastPaidNorm,
+                'pay_allowed'   => $payAllowedNorm,
+                'periods_count' => count($out),
+                'periods'       => array_map(fn ($x) => $x['period'] ?? null, $out),
+                'first_pending' => $firstPending,
+            ]);
+
+            return $out;
         }
-
-        foreach ($out as &$r) {
-            $r['can_pay'] = ($firstPending !== null && (string) ($r['period'] ?? '') === $firstPending);
-        }
-        unset($r);
-
-        Log::info('[BILLING] buildLiveAdminMirrorRows result', [
-            'account_id'    => $accountId,
-            'last_paid'     => $lastPaid,
-            'pay_allowed'   => $payAllowedUi,
-            'periods_count' => count($out),
-            'periods'       => array_map(fn ($x) => $x['period'] ?? null, $out),
-        ]);
-
-        return $out;
-    }
 
     private function ensurePortalPayAllowedRow(
         int $accountId,
