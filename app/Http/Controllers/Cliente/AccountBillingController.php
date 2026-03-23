@@ -437,25 +437,54 @@ final class AccountBillingController extends Controller
             $rowsFromStatementsPending = [];
         }
 
+        // ==========================================================
+        // ✅ CANONICALIZAR lastPaid DESDE billing_statements (SOT)
+        // Si admin.billing_statements ya tiene un último pagado más nuevo,
+        // ese debe ganar sobre cualquier fallback viejo de payments/meta/clientes.
+        // ==========================================================
+        if ($lastPaidFromStatements && $this->isValidPeriod($lastPaidFromStatements)) {
+            $lastPaid = $lastPaidFromStatements;
+        }
+
         // ✅ payAllowed canónico (primero SOT pending, luego fallback con ventana)
-        $payAllowed = $this->computePayAllowed($accountId, $isAnnual, $basePeriod, $lastPaid, $statementRefs);
+        $payAllowed = $this->computePayAllowed(
+            $accountId,
+            $isAnnual,
+            $basePeriod,
+            $lastPaid,
+            $statementRefs
+        );
 
         // ==========================================================
-        // ✅ Periodos base para cálculo de precio auxiliar
+        // ✅ Periodos base para cálculo auxiliar
+        // REGLA:
+        // - tomar los periodos reales existentes en billing_statements
+        // - agregar payAllowed si falta
+        // - así el portal refleja en vivo lo que hay en admin
         // ==========================================================
         $periods = [];
 
-        if ($payAllowed !== null) {
-            if ($isAnnual) {
-                $baseAnnual = $lastPaid ?: $basePeriod;
-                $periods[] = $baseAnnual;
-                if ($payAllowed !== $baseAnnual) $periods[] = $payAllowed;
-            } else {
-                $periods = [$lastPaid, $payAllowed];
+        foreach ($rowsFromStatementsAll as $rr) {
+            $pp = (string) (($rr['period'] ?? '') ?: '');
+            if ($this->isValidPeriod($pp)) {
+                $periods[] = $pp;
             }
         }
 
-        $periods = array_values(array_unique(array_filter($periods, fn ($x) => is_string($x) && $this->isValidPeriod($x))));
+        if (is_string($payAllowed) && $this->isValidPeriod($payAllowed)) {
+            $periods[] = $payAllowed;
+        }
+
+        if (is_string($lastPaid) && $this->isValidPeriod($lastPaid)) {
+            $periods[] = $lastPaid;
+        }
+
+        $periods = array_values(array_unique(array_filter(
+            $periods,
+            fn ($x) => is_string($x) && $this->isValidPeriod($x)
+        )));
+
+        sort($periods);
 
         if (!$periods) {
             if (is_string($payAllowed) && $this->isValidPeriod($payAllowed)) {
