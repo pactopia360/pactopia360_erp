@@ -731,31 +731,14 @@ final class AccountBillingController extends Controller
         ]);
     }
 
-   /**
-     * ✅ ESPEJO VIVO ADMIN -> CLIENTE
-     * Fuente real:
-     * - admin.billing_statements
-     * - admin.payments
-     * - admin.estados_cuenta
-     *
-     * Regla visual:
-     * - charge = cargo real del periodo
-     * - paid_amount NO puede inflar el cargo del mes
-     * - si hubo compra extra en ese periodo, sí se refleja
-     * - si hubo pago parcial, se refleja parcial real
-     *
-     * @param array<int,array<string,mixed>> $rowsFromStatementsAll
-     * @param array<string,float> $chargesByPeriod
-     * @return array<int,array<string,mixed>>
-     */
-    private function buildLiveAdminMirrorRows(
-        int $accountId,
-        array $rowsFromStatementsAll,
-        ?string $lastPaid,
-        ?string $payAllowedUi,
-        string $rfc,
-        string $alias,
-        array $chargesByPeriod = []
+   private function buildLiveAdminMirrorRows(
+    int $accountId,
+    array $rowsFromStatementsAll,
+    ?string $lastPaid,
+    ?string $payAllowedUi,
+    string $rfc,
+    string $alias,
+    array $chargesByPeriod = []
     ): array {
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
@@ -956,7 +939,7 @@ final class AccountBillingController extends Controller
             }
 
             // ======================================================
-            // 5) service_items reales para compras extra del periodo
+            // 5) service_items reales
             // ======================================================
             $serviceItems = is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [];
             $itemsTotal   = 0.0;
@@ -994,26 +977,41 @@ final class AccountBillingController extends Controller
             $edoCharge = round((float) ($edoAgg[$period]['cargo'] ?? 0.0), 2);
             $edoPaid   = round((float) ($edoAgg[$period]['abono'] ?? 0.0), 2);
 
-            // ✅ CARGO REAL DEL PERIODO
-            $visualCharge = max($statementCharge, $itemsTotal);
-
-            if ($visualCharge <= 0.0001 && $edoCharge > 0.0001) {
-                $visualCharge = $edoCharge;
+            $paymentsPaid = 0.0;
+            try {
+                $paymentsPaidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
+                $paymentsPaid = $paymentsPaidCents > 0 ? round($paymentsPaidCents / 100, 2) : 0.0;
+            } catch (\Throwable $e) {
+                $paymentsPaid = 0.0;
             }
 
-            if ($visualCharge <= 0.0001 && $monthlyCharge > 0.0001) {
+            // ======================================================
+            // CARGO REAL DEL PERIODO
+            // PRIORIDAD CORRECTA:
+            // 1) service_items
+            // 2) billing_statements.total_cargo
+            // 3) estados_cuenta.cargo
+            // 4) mensualidad resuelta
+            // ======================================================
+            if ($itemsTotal > 0.0001) {
+                $visualCharge = $itemsTotal;
+            } elseif ($statementCharge > 0.0001) {
+                $visualCharge = $statementCharge;
+            } elseif ($edoCharge > 0.0001) {
+                $visualCharge = $edoCharge;
+            } else {
                 $visualCharge = $monthlyCharge;
             }
 
             $visualCharge = round(max(0.0, $visualCharge), 2);
 
-            // ✅ ABONO REAL detectado
-            $realPaid = round(max(0.0, max($statementPaid, $edoPaid)), 2);
+            // Abono real
+            $realPaid = round(max(0.0, max($statementPaid, $edoPaid, $paymentsPaid)), 2);
 
             $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
 
             // ======================================================
-            // Override solo manda en STATUS
+            // Override manda en status
             // ======================================================
             if ($ov && !empty($ov['status_override'])) {
                 $ovStatus = strtolower((string) $ov['status_override']);
@@ -1032,17 +1030,24 @@ final class AccountBillingController extends Controller
             }
 
             // ======================================================
-            // Canonicalización visual REAL
+            // Si hay abono real, aunque venga pending, debe reflejar parcial/pagado
+            // ======================================================
+            if ($status !== 'paid' && $realPaid > 0.0001 && $visualCharge > 0.0001) {
+                $calcSaldo = round(max(0.0, $visualCharge - min($realPaid, $visualCharge)), 2);
+                $status = $calcSaldo <= 0.0001 ? 'paid' : 'partial';
+            }
+
+            // ======================================================
+            // Canonicalización final
             // ======================================================
             $paidAmount = 0.0;
             $saldo      = 0.0;
 
             if ($status === 'paid') {
-                // ✅ NO inflar mes pagado con abono acumulado
                 $base = $visualCharge > 0.0001 ? $visualCharge : $realPaid;
 
                 $visualCharge = round(max(0.0, $base), 2);
-                $paidAmount   = round(max(0.0, $base), 2);
+                $paidAmount   = round(max(0.0, $visualCharge), 2);
                 $saldo        = 0.0;
             } elseif ($status === 'partial') {
                 $base = $visualCharge;
@@ -1057,7 +1062,7 @@ final class AccountBillingController extends Controller
 
                 $base = round(max(0.0, $base), 2);
 
-                if ($statementSaldo > 0.0001 && $base > 0.0001) {
+                if ($statementSaldo > 0.0001 && $base > 0.0001 && $realPaid <= 0.0001) {
                     $saldo      = round(min($statementSaldo, $base), 2);
                     $paidAmount = round(max(0.0, $base - $saldo), 2);
                 } else {
@@ -1109,11 +1114,13 @@ final class AccountBillingController extends Controller
                 'alias'                  => $alias !== '' ? $alias : '—',
                 'invoice_request_status' => null,
                 'invoice_has_zip'        => false,
-                'price_source'           => $statementCharge > 0.0001 || $itemsTotal > 0.0001
-                    ? 'admin.billing_statements.real'
-                    : ($edoCharge > 0.0001
-                        ? 'admin.estados_cuenta'
-                        : ($monthlyCharge > 0.0001 ? 'admin.monthly_resolved' : 'admin.live')),
+                'price_source'           => $itemsTotal > 0.0001
+                    ? 'admin.statement_items'
+                    : ($statementCharge > 0.0001
+                        ? 'admin.billing_statements'
+                        : ($edoCharge > 0.0001
+                            ? 'admin.estados_cuenta'
+                            : ($monthlyCharge > 0.0001 ? 'admin.monthly_resolved' : 'admin.live'))),
                 'service_items'          => $serviceItems,
                 'meta'                   => $seed['meta'] ?? null,
                 'snapshot'               => $seed['snapshot'] ?? null,
@@ -1156,6 +1163,7 @@ final class AccountBillingController extends Controller
 
         return $out;
     }
+
 
     private function ensurePortalPayAllowedRow(
         int $accountId,
@@ -1277,8 +1285,9 @@ final class AccountBillingController extends Controller
 
             $itemsTotal = round($itemsTotal, 2);
 
-            // ✅ Si los items reflejan más que total_cargo, usar el total real del statement
-            if ($itemsTotal > $totalCargo) {
+            // ✅ Si hay items reales, ellos mandan para el cargo visual del periodo.
+            // Evita que total_cargo contaminado vuelva a inflar el mes.
+            if ($itemsTotal > 0.0001) {
                 $totalCargo = $itemsTotal;
             }
 
@@ -1827,10 +1836,6 @@ final class AccountBillingController extends Controller
         }
     }
 
-    /**
-     * ✅ Monto pagado real (cents) desde admin.payments para un periodo.
-     * Fuente primaria para evitar "PAGADO = 0".
-     */
     private function resolvePaidCentsFromAdminPayments(int $accountId, string $period): int
     {
         if (!$this->isValidPeriod($period)) return 0;
@@ -1843,36 +1848,44 @@ final class AccountBillingController extends Controller
             $lc   = array_map('strtolower', $cols);
             $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
 
-            // Requiere al menos estas columnas para filtrar bien
             if (!$has('account_id') || !$has('period')) return 0;
 
             $q = DB::connection($adm)->table('payments')
                 ->where('account_id', $accountId)
                 ->where('period', $period);
 
-            // Status pagado (soporta variaciones)
             if ($has('status')) {
-                $q->whereIn('status', ['paid', 'succeeded', 'complete', 'completed', 'captured']);
+                $q->where(function ($w) {
+                    $w->whereNull('status')
+                        ->orWhere('status', '')
+                        ->orWhereRaw('LOWER(TRIM(status)) IN ("paid","succeeded","success","complete","completed","captured","confirmed","pagado","ok","paid_ok")');
+                });
             }
 
-            // Provider stripe si existe (pero permite NULL/'')
             if ($has('provider')) {
                 $q->where(function ($w) {
                     $w->whereNull('provider')
                         ->orWhere('provider', '')
-                        ->orWhereIn('provider', ['stripe', 'Stripe']);
+                        ->orWhereRaw('LOWER(TRIM(provider)) IN ("stripe","stripe_checkout","manual","checkout")');
                 });
             }
 
-            // Columna amount en cents
-            $amountCol = $has('amount') ? 'amount' : null;
+            $amountCol = null;
+            foreach (['amount', 'amount_cents'] as $cand) {
+                if ($has($cand)) {
+                    $amountCol = $cand;
+                    break;
+                }
+            }
             if (!$amountCol) return 0;
 
             $orderCol = $has('paid_at') ? 'paid_at'
                 : ($has('confirmed_at') ? 'confirmed_at'
-                    : ($has('updated_at') ? 'updated_at'
-                        : ($has('created_at') ? 'created_at'
-                            : ($has('id') ? 'id' : $cols[0]))));
+                    : ($has('captured_at') ? 'captured_at'
+                        : ($has('completed_at') ? 'completed_at'
+                            : ($has('updated_at') ? 'updated_at'
+                                : ($has('created_at') ? 'created_at'
+                                    : ($has('id') ? 'id' : $cols[0]))))));
 
             $row = $q->orderByDesc($orderCol)->first([$amountCol]);
 
