@@ -253,7 +253,7 @@ html[data-theme="dark"] .p360-chip{
 /* ===================== TABLE HEAD ===================== */
 .p360-table-head{
   display:grid;
-  grid-template-columns: 105px minmax(180px, 1.45fr) minmax(120px, .9fr) minmax(150px, 1fr) 108px 120px 148px;
+  grid-template-columns: 105px minmax(180px, 1.35fr) minmax(120px, .9fr) minmax(150px, 1fr) 108px 110px 110px 110px 148px;
   gap:8px;
   align-items:center;
   padding:0 10px 6px 12px;
@@ -317,7 +317,7 @@ html[data-theme="dark"] .p360-chip{
 .p360-row--flat{
   padding:0;
   display:grid;
-  grid-template-columns: 105px minmax(180px, 1.45fr) minmax(120px, .9fr) minmax(150px, 1fr) 108px 120px 148px;
+  grid-template-columns: 105px minmax(180px, 1.35fr) minmax(120px, .9fr) minmax(150px, 1fr) 108px 110px 110px 110px 148px;
   align-items:center;
   gap:8px;
   padding:8px 10px 8px 12px;
@@ -406,6 +406,33 @@ html[data-theme="dark"] .p360-chip{
 .p360-cell--actions{
   justify-content:flex-end;
   padding-right:4px;
+}
+
+.p360-cell--money{
+  justify-content:flex-end;
+  padding-right:4px;
+}
+
+.p360-money{
+  font-size:15px;
+  font-weight:1000;
+  letter-spacing:-.02em;
+  white-space:nowrap;
+  line-height:1.05;
+  text-align:right;
+  color:var(--p360-ink);
+}
+
+.p360-money--cargo{
+  color:var(--p360-ink);
+}
+
+.p360-money--paid{
+  color:var(--p360-green-ink);
+}
+
+.p360-money--saldo{
+  color:var(--p360-orange-ink);
 }
 
 /* ===================== STATUS ===================== */
@@ -641,11 +668,11 @@ html[data-theme="dark"] .p360-col{
   }
 
   .p360-row--flat{
-    grid-template-columns: 110px 1fr 120px 132px;
+    grid-template-columns: 110px 1fr 110px 110px 110px 132px;
     grid-template-areas:
-      "month period amount actions"
-      "month rfc    status actions"
-      "month alias  status actions";
+      "month period cargo paid saldo actions"
+      "month rfc    status status status actions"
+      "month alias  status status status actions";
   }
 
   .p360-cell--month{ grid-area:month; }
@@ -653,9 +680,10 @@ html[data-theme="dark"] .p360-col{
   .p360-cell--rfc{ grid-area:rfc; }
   .p360-cell--alias{ grid-area:alias; }
   .p360-cell--status{ grid-area:status; }
-  .p360-cell--amount{ grid-area:amount; }
+  .p360-cell--cargo{ grid-area:cargo; }
+  .p360-cell--paid{ grid-area:paid; }
+  .p360-cell--saldo{ grid-area:saldo; }
   .p360-cell--actions{ grid-area:actions; }
-
   .p360-cell__value{
     font-size:11px;
   }

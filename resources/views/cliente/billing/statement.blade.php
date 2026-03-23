@@ -347,7 +347,9 @@
         <div>RFC</div>
         <div>Alias</div>
         <div>Estatus</div>
-        <div>Monto</div>
+        <div>Cargo</div>
+        <div>Pagado</div>
+        <div>Saldo</div>
         <div>Acciones</div>
       </div>
 
@@ -467,25 +469,16 @@
               </span>
             </div>
 
-            <div class="p360-cell p360-cell--amount">
-              <div class="p360-amount {{ $statusClass }}">{{ $mxn($amountMain) }}</div>
+            <div class="p360-cell p360-cell--money p360-cell--cargo">
+              <div class="p360-money p360-money--cargo">{{ $mxn($charge) }}</div>
+            </div>
 
-              <div class="p360-amount-breakdown">
-                <div class="p360-amount-line">
-                  <span class="p360-amount-k">Cargo</span>
-                  <span class="p360-amount-v">{{ $mxn($charge) }}</span>
-                </div>
+            <div class="p360-cell p360-cell--money p360-cell--paid">
+              <div class="p360-money p360-money--paid">{{ $mxn($paidApplied) }}</div>
+            </div>
 
-                <div class="p360-amount-line">
-                  <span class="p360-amount-k">Pagado</span>
-                  <span class="p360-amount-v">{{ $mxn($paidApplied) }}</span>
-                </div>
-
-                <div class="p360-amount-line">
-                  <span class="p360-amount-k">Saldo</span>
-                  <span class="p360-amount-v">{{ $mxn($saldo) }}</span>
-                </div>
-              </div>
+            <div class="p360-cell p360-cell--money p360-cell--saldo">
+              <div class="p360-money p360-money--saldo">{{ $mxn($saldo) }}</div>
             </div>
 
             <div class="p360-cell p360-cell--actions">

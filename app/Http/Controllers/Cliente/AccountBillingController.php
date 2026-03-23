@@ -833,12 +833,21 @@ final class AccountBillingController extends Controller
         }
 
         // ======================================================
-        // 3) Periodos / montos desde estados_cuenta
+        // 3) admin.estados_cuenta = FUENTE PRINCIPAL DEL ESPEJO
         // ======================================================
         try {
             if (Schema::connection($adm)->hasTable('estados_cuenta')) {
+                $edoCols = Schema::connection($adm)->getColumnListing('estados_cuenta');
+                $edoLc   = array_map('strtolower', $edoCols);
+                $edoHas  = fn (string $c) => in_array(strtolower($c), $edoLc, true);
+
+                $select = 'periodo, SUM(COALESCE(cargo,0)) as cargo_sum, SUM(COALESCE(abono,0)) as abono_sum';
+                if ($edoHas('saldo')) {
+                    $select .= ', SUM(COALESCE(saldo,0)) as saldo_sum';
+                }
+
                 $edoRows = DB::connection($adm)->table('estados_cuenta')
-                    ->selectRaw('periodo, SUM(COALESCE(cargo,0)) as cargo_sum, SUM(COALESCE(abono,0)) as abono_sum')
+                    ->selectRaw($select)
                     ->where('account_id', $accountId)
                     ->groupBy('periodo')
                     ->orderBy('periodo')
@@ -850,9 +859,16 @@ final class AccountBillingController extends Controller
                         continue;
                     }
 
+                    $cargo = round((float) ($er->cargo_sum ?? 0), 2);
+                    $abono = round((float) ($er->abono_sum ?? 0), 2);
+                    $saldo = property_exists($er, 'saldo_sum')
+                        ? round(max(0.0, (float) ($er->saldo_sum ?? 0)), 2)
+                        : round(max(0.0, $cargo - $abono), 2);
+
                     $edoAgg[$p] = [
-                        'cargo' => round((float) ($er->cargo_sum ?? 0), 2),
-                        'abono' => round((float) ($er->abono_sum ?? 0), 2),
+                        'cargo' => $cargo,
+                        'abono' => $abono,
+                        'saldo' => $saldo,
                     ];
 
                     $allPeriods[$p] = true;
@@ -935,20 +951,15 @@ final class AccountBillingController extends Controller
                 }
             }
 
-            $statementSaldo = 0.0;
-            if (isset($seed['saldo']) && is_numeric($seed['saldo'])) {
-                $statementSaldo = round(max(0.0, (float) $seed['saldo']), 2);
-            } else {
-                $statementSaldo = round(max(0.0, $statementCharge - $statementPaid), 2);
-            }
+            $statementSaldo = isset($seed['saldo']) && is_numeric($seed['saldo'])
+                ? round(max(0.0, (float) $seed['saldo']), 2)
+                : round(max(0.0, $statementCharge - $statementPaid), 2);
 
             // ======================================================
-            // 5) service_items reales
-            // - IGNORAR fallback items para que no contaminen el cargo visual
+            // service_items reales
             // ======================================================
             $serviceItems = is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [];
             $realItemsTotal = 0.0;
-            $hasRealItems   = false;
 
             foreach ($serviceItems as $it) {
                 $it = is_array($it) ? $it : (array) $it;
@@ -961,8 +972,8 @@ final class AccountBillingController extends Controller
                     $meta = [];
                 }
 
-                $isFallbackItem = strtolower((string) data_get($meta, 'source', '')) === 'fallback';
-                if ($isFallbackItem) {
+                // ignora fallback
+                if (strtolower((string) data_get($meta, 'source', '')) === 'fallback') {
                     continue;
                 }
 
@@ -977,17 +988,13 @@ final class AccountBillingController extends Controller
                     $line = $qty * $unit;
                 }
 
-                $line = round(max(0.0, $line), 2);
-                if ($line > 0.0001) {
-                    $hasRealItems = true;
-                    $realItemsTotal += $line;
-                }
+                $realItemsTotal += max(0.0, $line);
             }
 
             $realItemsTotal = round($realItemsTotal, 2);
 
             // ======================================================
-            // 6) Fuentes auxiliares
+            // Fuentes auxiliares
             // ======================================================
             $monthlyCharge = round(max(0.0, $this->resolvePortalMonthlyMxnForPeriod(
                 $accountId,
@@ -999,6 +1006,7 @@ final class AccountBillingController extends Controller
 
             $edoCharge = round((float) ($edoAgg[$period]['cargo'] ?? 0.0), 2);
             $edoPaid   = round((float) ($edoAgg[$period]['abono'] ?? 0.0), 2);
+            $edoSaldo  = round((float) ($edoAgg[$period]['saldo'] ?? max(0.0, $edoCharge - $edoPaid)), 2);
 
             $paymentsPaid = 0.0;
             try {
@@ -1009,36 +1017,77 @@ final class AccountBillingController extends Controller
             }
 
             // ======================================================
-            // 7) Cargo visual REAL
-            // - si hay items reales, ellos mandan
-            // - si NO hay items reales, usar mensualidad resuelta antes que total contaminado
+            // REGLA NUEVA:
+            // admin.estados_cuenta manda si existe para ese periodo
             // ======================================================
-            if ($hasRealItems) {
-                $visualCharge = $realItemsTotal;
-            } elseif ($monthlyCharge > 0.0001) {
-                $visualCharge = $monthlyCharge;
-            } elseif ($statementCharge > 0.0001) {
-                $visualCharge = $statementCharge;
-            } elseif ($edoCharge > 0.0001) {
-                $visualCharge = $edoCharge;
+            $charge = 0.0;
+            $paidAmount = 0.0;
+            $saldo = 0.0;
+            $status = 'pending';
+
+            if ($edoCharge > 0.0001 || $edoPaid > 0.0001 || $edoSaldo > 0.0001) {
+                $charge = $edoCharge > 0.0001
+                    ? $edoCharge
+                    : max($realItemsTotal, $statementCharge, $monthlyCharge);
+
+                $paidAmount = $edoPaid > 0.0001
+                    ? $edoPaid
+                    : max($statementPaid, $paymentsPaid);
+
+                $saldo = $edoSaldo > 0.0001
+                    ? $edoSaldo
+                    : round(max(0.0, $charge - $paidAmount), 2);
+
+                if ($saldo <= 0.0001 && $charge > 0.0001) {
+                    $status = 'paid';
+                    $paidAmount = max($paidAmount, $charge);
+                    $saldo = 0.0;
+                } elseif ($paidAmount > 0.0001 && $saldo > 0.0001) {
+                    $status = 'partial';
+                } elseif ($charge > 0.0001) {
+                    $status = 'pending';
+                } else {
+                    $status = 'no_movement';
+                }
             } else {
-                $visualCharge = 0.0;
+                // fallback si admin.estados_cuenta no tiene nada
+                $charge = $realItemsTotal > 0.0001
+                    ? $realItemsTotal
+                    : ($statementCharge > 0.0001
+                        ? $statementCharge
+                        : $monthlyCharge);
+
+                $paidAmount = max($statementPaid, $paymentsPaid);
+                $saldo = $statementSaldo > 0.0001
+                    ? $statementSaldo
+                    : round(max(0.0, $charge - $paidAmount), 2);
+
+                if ($saldo <= 0.0001 && $charge > 0.0001) {
+                    $status = 'paid';
+                    $paidAmount = max($paidAmount, $charge);
+                    $saldo = 0.0;
+                } elseif ($paidAmount > 0.0001 && $saldo > 0.0001) {
+                    $status = 'partial';
+                } elseif ($charge > 0.0001) {
+                    $status = 'pending';
+                } else {
+                    $status = 'no_movement';
+                }
             }
 
-            $visualCharge = round(max(0.0, $visualCharge), 2);
-
-            // Abono real
-            $realPaid = round(max(0.0, max($statementPaid, $edoPaid, $paymentsPaid)), 2);
-
-            $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
-
+            // overrides solo ajustan status final
             if ($ov && !empty($ov['status_override'])) {
                 $ovStatus = strtolower((string) $ov['status_override']);
 
                 if ($ovStatus === 'pagado') {
                     $status = 'paid';
+                    $paidAmount = max($paidAmount, $charge);
+                    $saldo = 0.0;
                 } elseif ($ovStatus === 'parcial') {
-                    $status = 'partial';
+                    if ($charge > 0.0001 && $saldo <= 0.0001) {
+                        $saldo = round(max(0.0, $charge - $paidAmount), 2);
+                    }
+                    $status = $saldo > 0.0001 ? 'partial' : 'paid';
                 } elseif ($ovStatus === 'pendiente') {
                     $status = 'pending';
                 } elseif ($ovStatus === 'vencido') {
@@ -1048,53 +1097,13 @@ final class AccountBillingController extends Controller
                 }
             }
 
-            // ✅ Si hay pago real y no está pagado, reflejar parcial/pagado
-            if ($status !== 'paid' && $realPaid > 0.0001 && $visualCharge > 0.0001) {
-                $calcSaldo = round(max(0.0, $visualCharge - min($realPaid, $visualCharge)), 2);
-                $status = $calcSaldo <= 0.0001 ? 'paid' : 'partial';
-            }
-
-            $paidAmount = 0.0;
-            $saldo      = 0.0;
+            $charge     = round(max(0.0, $charge), 2);
+            $paidAmount = round(max(0.0, min($paidAmount, $charge > 0 ? $charge : $paidAmount)), 2);
+            $saldo      = round(max(0.0, $saldo), 2);
 
             if ($status === 'paid') {
-                $base = $visualCharge > 0.0001 ? $visualCharge : $realPaid;
-
-                $visualCharge = round(max(0.0, $base), 2);
-                $paidAmount   = round(max(0.0, $visualCharge), 2);
-                $saldo        = 0.0;
-            } elseif ($status === 'partial') {
-                $base = $visualCharge;
-
-                if ($base <= 0.0001 && $statementSaldo > 0.0001) {
-                    $base = round($realPaid + $statementSaldo, 2);
-                }
-
-                if ($base <= 0.0001 && $monthlyCharge > 0.0001) {
-                    $base = $monthlyCharge;
-                }
-
-                $base = round(max(0.0, $base), 2);
-
-                $paidAmount = round(min(max(0.0, $realPaid), $base), 2);
-                $saldo      = round(max(0.0, $base - $paidAmount), 2);
-
-                $visualCharge = $base;
-            } elseif (in_array($status, ['pending', 'overdue'], true)) {
-                $base = $visualCharge;
-
-                if ($base <= 0.0001 && $statementSaldo > 0.0001) {
-                    $base = $statementSaldo;
-                }
-
-                $visualCharge = round(max(0.0, $base), 2);
-                $paidAmount   = 0.0;
-                $saldo        = round(max(0.0, $visualCharge), 2);
-            } else {
-                $visualCharge = 0.0;
-                $paidAmount   = 0.0;
-                $saldo        = 0.0;
-                $status       = 'no_movement';
+                $paidAmount = $charge;
+                $saldo = 0.0;
             }
 
             $periodRange = $period;
@@ -1112,24 +1121,24 @@ final class AccountBillingController extends Controller
                 'statement_account_ref'  => $seed['account_id'] ?? (string) $accountId,
                 'period'                 => $period,
                 'status'                 => $status,
-                'charge'                 => round($visualCharge, 2),
-                'total_cargo'            => round($visualCharge, 2),
-                'paid_amount'            => round($paidAmount, 2),
-                'total_abono'            => round($paidAmount, 2),
-                'saldo'                  => round($saldo, 2),
+                'charge'                 => $charge,
+                'total_cargo'            => $charge,
+                'paid_amount'            => $paidAmount,
+                'total_abono'            => $paidAmount,
+                'saldo'                  => $saldo,
                 'can_pay'                => false,
                 'period_range'           => $periodRange,
                 'rfc'                    => $rfc !== '' ? $rfc : '—',
                 'alias'                  => $alias !== '' ? $alias : '—',
                 'invoice_request_status' => null,
                 'invoice_has_zip'        => false,
-                'price_source'           => $hasRealItems
-                    ? 'admin.statement_items.real'
-                    : ($monthlyCharge > 0.0001
-                        ? 'admin.monthly_resolved'
+                'price_source'           => ($edoCharge > 0.0001 || $edoPaid > 0.0001 || $edoSaldo > 0.0001)
+                    ? 'admin.estados_cuenta.sot'
+                    : ($realItemsTotal > 0.0001
+                        ? 'admin.statement_items.real'
                         : ($statementCharge > 0.0001
                             ? 'admin.billing_statements'
-                            : ($edoCharge > 0.0001 ? 'admin.estados_cuenta' : 'admin.live'))),
+                            : ($monthlyCharge > 0.0001 ? 'admin.monthly_resolved' : 'admin.live'))),
                 'service_items'          => $serviceItems,
                 'meta'                   => $seed['meta'] ?? null,
                 'snapshot'               => $seed['snapshot'] ?? null,
