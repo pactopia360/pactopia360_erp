@@ -595,7 +595,7 @@ final class AccountBillingController extends Controller
         // Cliente refleja admin.billing_statements y SOLO normaliza para Blade.
         // NO recalcula negocio, NO inventa periodos, NO reconstruye cargos.
         // ==========================================================
-        if (!empty($rowsFromStatementsAll)) {
+               if (!empty($rowsFromStatementsAll)) {
             $rows = $this->mapAdminStatementRowsForPortal(
                 $accountId,
                 $rowsFromStatementsAll,
@@ -606,15 +606,20 @@ final class AccountBillingController extends Controller
                 $chargesByPeriod
             );
 
-            // ✅ Mantener meses pagados reales + agregar último mes permitido a pagar si falta
-            $rows = $this->ensurePortalPayAllowedRow(
-                $accountId,
-                $rows,
-                $payAllowedUi,
-                $chargesByPeriod,
-                $rfc,
-                $alias
-            );
+            // ✅ SOT estricto:
+            // Si ya existen statements reales en admin, el portal NO debe inventar
+            // filas sintéticas con cargos resueltos por catálogo/fallback.
+            // Eso era la fuente del 1209.30.
+            //
+            // El cliente debe reflejar SOLO admin.billing_statements.
+            $rows = array_values(array_filter($rows, function ($row) {
+                $p = (string) ($row['period'] ?? '');
+                return $p !== '' && $this->isValidPeriod($p);
+            }));
+
+            usort($rows, function ($a, $b) {
+                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+            });
         } else {
             // Fallback duro si aún no existe billing_statements
             $rows = $this->buildPeriodRowsFromClientEstadosCuenta(
