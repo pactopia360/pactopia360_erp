@@ -1004,3 +1004,218 @@ html[data-theme="dark"] .p360-mini__msg{ color:rgba(229,231,235,.78); }
     width:calc(100vw - 24px);
   }
 }
+
+.p360-status.partial{
+  background: rgba(245, 158, 11, .12);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, .22);
+}
+
+.p360-status.next{
+  background: rgba(59, 130, 246, .10);
+  color: #1d4ed8;
+  border: 1px solid rgba(59, 130, 246, .20);
+}
+
+.p360-row.is-partial{
+  border-color: rgba(245, 158, 11, .22);
+}
+
+.p360-row.is-preview-next{
+  opacity: .96;
+}
+
+.p360-cell--amount{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.p360-amount-breakdown{
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.p360-amount-line{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.p360-amount-k{
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.p360-amount-v{
+  color: #111827;
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.theme-dark .p360-amount-k,
+body.dark .p360-amount-k{
+  color: #9ca3af;
+}
+
+.theme-dark .p360-amount-v,
+body.dark .p360-amount-v{
+  color: #f3f4f6;
+}
+
+/* =========================================================
+   PATCH v20.1 · monto por periodo más claro
+   - evita que el desglose se vea amontonado
+   - mejora parcial / próximo
+   - mantiene estilo slim actual
+========================================================= */
+
+.p360-row.is-partial::before{
+  background:linear-gradient(180deg, rgba(245,158,11,.95), rgba(245,158,11,.25));
+}
+
+.p360-row.is-next::before,
+.p360-row.is-preview-next::before{
+  background:linear-gradient(180deg, rgba(37,99,235,.95), rgba(37,99,235,.20));
+}
+
+.p360-status.partial{
+  background:rgba(245,158,11,.12);
+  color:#b45309;
+  border-color:rgba(245,158,11,.22);
+}
+.p360-status.partial .p360-dot{
+  background:#f59e0b;
+}
+
+.p360-status.next{
+  background:rgba(37,99,235,.10);
+  color:#1d4ed8;
+  border-color:rgba(37,99,235,.20);
+}
+.p360-status.next .p360-dot{
+  background:#2563eb;
+}
+
+/* ===== columna monto ===== */
+.p360-cell--amount{
+  justify-content:flex-end;
+  align-items:flex-end;
+  padding-right:6px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:0;
+}
+
+.p360-amount{
+  font-size:15px;
+  font-weight:1000;
+  letter-spacing:-.02em;
+  white-space:nowrap;
+  line-height:1.05;
+  text-align:right;
+}
+
+.p360-amount.paid{
+  color:var(--p360-green-ink);
+}
+
+.p360-amount.pending{
+  color:var(--p360-ink);
+}
+
+.p360-amount.partial{
+  color:#b45309;
+}
+
+.p360-amount.next{
+  color:var(--p360-blue-ink);
+}
+
+/* ===== desglose del monto ===== */
+.p360-amount-breakdown{
+  width:100%;
+  min-width:110px;
+  max-width:148px;
+  display:grid;
+  gap:3px;
+  padding-top:1px;
+}
+
+.p360-amount-line{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  align-items:center;
+  gap:8px;
+  font-size:10px;
+  line-height:1.15;
+}
+
+.p360-amount-k{
+  color:var(--p360-muted);
+  font-weight:900;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.p360-amount-v{
+  color:var(--p360-ink);
+  font-weight:950;
+  text-align:right;
+  white-space:nowrap;
+}
+
+/* Suavizar cuando es preview */
+.p360-row.is-preview-next .p360-amount-breakdown{
+  opacity:.92;
+}
+
+/* ===== responsive intermedio ===== */
+@media (max-width: 1280px){
+  .p360-cell--amount{
+    align-items:flex-start;
+    justify-content:flex-start;
+    padding-right:0;
+  }
+
+  .p360-amount{
+    text-align:left;
+  }
+
+  .p360-amount-breakdown{
+    min-width:0;
+    max-width:none;
+    width:100%;
+  }
+
+  .p360-amount-line{
+    grid-template-columns: auto 1fr;
+  }
+
+  .p360-amount-v{
+    text-align:left;
+  }
+}
+
+/* ===== móvil ===== */
+@media (max-width: 640px){
+  .p360-amount{
+    font-size:14px;
+  }
+
+  .p360-amount-line{
+    font-size:10px;
+  }
+
+  .p360-amount-breakdown{
+    gap:2px;
+  }
+}

@@ -760,6 +760,7 @@ final class AccountBillingController extends Controller
         $seedByPeriod = [];
         $allPeriods   = [];
         $overrideMap  = [];
+        $edoAgg       = [];
 
         // ======================================================
         // 1) Seed desde billing_statements
@@ -772,7 +773,6 @@ final class AccountBillingController extends Controller
                 continue;
             }
 
-            // si hay duplicados por periodo, preferir la fila más útil
             if (!isset($seedByPeriod[$p])) {
                 $seedByPeriod[$p] = $row;
             } else {
@@ -793,11 +793,8 @@ final class AccountBillingController extends Controller
                 if ($currentCargo > 0) $currentScore += 100;
                 if ($rowCargo > 0)     $rowScore += 100;
 
-                $currentPaidAt = !empty($current['paid_at']) ? 10 : 0;
-                $rowPaidAt     = !empty($row['paid_at']) ? 10 : 0;
-
-                $currentScore += $currentPaidAt;
-                $rowScore     += $rowPaidAt;
+                if (!empty($current['paid_at'])) $currentScore += 10;
+                if (!empty($row['paid_at']))     $rowScore += 10;
 
                 if ($rowScore >= $currentScore) {
                     $seedByPeriod[$p] = $row;
@@ -808,7 +805,7 @@ final class AccountBillingController extends Controller
         }
 
         // ======================================================
-        // 2) Periodos reales desde payments
+        // 2) Periodos desde payments
         // ======================================================
         try {
             if (Schema::connection($adm)->hasTable('payments')) {
@@ -839,9 +836,8 @@ final class AccountBillingController extends Controller
         }
 
         // ======================================================
-        // 3) Periodos reales desde admin.estados_cuenta
+        // 3) Periodos / montos desde estados_cuenta
         // ======================================================
-        $edoAgg = [];
         try {
             if (Schema::connection($adm)->hasTable('estados_cuenta')) {
                 $edoRows = DB::connection($adm)->table('estados_cuenta')
@@ -873,7 +869,7 @@ final class AccountBillingController extends Controller
         }
 
         // ======================================================
-        // 4) Periodos reales desde OVERRIDES (CRÍTICO)
+        // 4) Overrides
         // ======================================================
         try {
             $overrideTable = $this->overrideTable();
@@ -909,7 +905,6 @@ final class AccountBillingController extends Controller
             ]);
         }
 
-        // también incluir payAllowed si es válido
         if ($this->isValidPeriod((string) $payAllowedUi)) {
             $allPeriods[(string) $payAllowedUi] = true;
         }
@@ -927,155 +922,123 @@ final class AccountBillingController extends Controller
             $seed = $seedByPeriod[$period] ?? [];
             $ov   = $overrideMap[$period] ?? null;
 
-            $charge = 0.0;
+            $statementCharge = 0.0;
             foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
                 if (isset($seed[$k]) && is_numeric($seed[$k])) {
-                    $charge = round(max(0.0, (float) $seed[$k]), 2);
+                    $statementCharge = round(max(0.0, (float) $seed[$k]), 2);
                     break;
                 }
             }
 
-            if ($charge <= 0.0001 && isset($edoAgg[$period]['cargo']) && (float) $edoAgg[$period]['cargo'] > 0) {
-                $charge = round((float) $edoAgg[$period]['cargo'], 2);
-            }
-
-            if ($charge <= 0.0001) {
-                $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                    $accountId,
-                    $period,
-                    $lastPaid,
-                    $payAllowedUi,
-                    $chargesByPeriod
-                );
-            }
-
-            $paidAmount = 0.0;
+            $statementPaid = 0.0;
             foreach (['total_abono', 'paid_amount', 'abono', 'paid'] as $k) {
                 if (isset($seed[$k]) && is_numeric($seed[$k])) {
-                    $paidAmount = round(max(0.0, (float) $seed[$k]), 2);
+                    $statementPaid = round(max(0.0, (float) $seed[$k]), 2);
                     break;
                 }
             }
 
-            if (isset($edoAgg[$period]['abono']) && (float) $edoAgg[$period]['abono'] > $paidAmount) {
-                $paidAmount = round((float) $edoAgg[$period]['abono'], 2);
+            $statementSaldo = 0.0;
+            if (isset($seed['saldo']) && is_numeric($seed['saldo'])) {
+                $statementSaldo = round(max(0.0, (float) $seed['saldo']), 2);
+            } else {
+                $statementSaldo = round(max(0.0, $statementCharge - $statementPaid), 2);
             }
 
-            $paidCents = 0;
-            try {
-                $paidCents = (int) $this->resolvePaidCentsFromAdminPayments($accountId, $period);
-            } catch (\Throwable $e) {
-                $paidCents = 0;
+            // ======================================================
+            // CARGO VISUAL DEL PERIODO
+            // PRIORIDAD:
+            // 1) mensualidad resuelta del periodo
+            // 2) billing_statements.total_cargo
+            // 3) estados_cuenta.cargo
+            // ======================================================
+            $monthlyCharge = round(max(0.0, $this->resolvePortalMonthlyMxnForPeriod(
+                $accountId,
+                $period,
+                $lastPaid,
+                $payAllowedUi,
+                $chargesByPeriod
+            )), 2);
+
+            $edoCharge = round((float) ($edoAgg[$period]['cargo'] ?? 0.0), 2);
+            $edoPaid   = round((float) ($edoAgg[$period]['abono'] ?? 0.0), 2);
+
+            $visualCharge = 0.0;
+            if ($monthlyCharge > 0.0001) {
+                $visualCharge = $monthlyCharge;
+            } elseif ($statementCharge > 0.0001) {
+                $visualCharge = $statementCharge;
+            } elseif ($edoCharge > 0.0001) {
+                $visualCharge = $edoCharge;
             }
 
-            if ($paidCents > 0) {
-                $paidAmount = max($paidAmount, round($paidCents / 100, 2));
-            }
+            $realPaid = max($statementPaid, $edoPaid);
 
             $status = $this->normalizeStatementStatus((string) ($seed['status'] ?? 'pending'));
 
-            if ($charge <= 0.0001 && $paidAmount > 0.0001) {
-                $charge = $paidAmount;
-            }
-
-            $saldo = 0.0;
-            if (isset($seed['saldo']) && is_numeric($seed['saldo'])) {
-                $saldo = round(max(0.0, (float) $seed['saldo']), 2);
-            } else {
-                $saldo = round(max(0.0, $charge - $paidAmount), 2);
-            }
-
             // ======================================================
-            // Canonicalización base
-            // ======================================================
-            if ($charge <= 0.0001 && $paidAmount <= 0.0001) {
-                $status = 'no_movement';
-                $saldo  = 0.0;
-            } elseif ($paidAmount > 0.0001) {
-                $saldo = round(max(0.0, $charge - $paidAmount), 2);
-                $status = $saldo <= 0.0001 ? 'paid' : 'partial';
-            } else {
-                $saldo = round(max(0.0, $charge), 2);
-                $status = $saldo > 0.0001 ? 'pending' : 'no_movement';
-            }
-
-            // ======================================================
-            // Override manda sobre todo (CRÍTICO)
+            // Override manda en el status
+            // PERO NO debe inflar el cargo visual del mes
             // ======================================================
             if ($ov && !empty($ov['status_override'])) {
                 $ovStatus = strtolower((string) $ov['status_override']);
 
                 if ($ovStatus === 'pagado') {
-                    if ($charge <= 0.0001 && $paidAmount > 0.0001) {
-                        $charge = $paidAmount;
-                    }
-                    if ($charge <= 0.0001) {
-                        $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                            $accountId,
-                            $period,
-                            $lastPaid,
-                            $payAllowedUi,
-                            $chargesByPeriod
-                        );
-                    }
-                    if ($charge <= 0.0001 && isset($edoAgg[$period]['cargo']) && (float) $edoAgg[$period]['cargo'] > 0) {
-                        $charge = round((float) $edoAgg[$period]['cargo'], 2);
-                    }
-
-                    $paidAmount = max($paidAmount, $charge);
-                    $saldo      = 0.0;
-                    $status     = 'paid';
+                    $status = 'paid';
                 } elseif ($ovStatus === 'parcial') {
-                    if ($charge <= 0.0001) {
-                        $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                            $accountId,
-                            $period,
-                            $lastPaid,
-                            $payAllowedUi,
-                            $chargesByPeriod
-                        );
-                    }
-                    if ($charge <= 0.0001 && isset($edoAgg[$period]['cargo']) && (float) $edoAgg[$period]['cargo'] > 0) {
-                        $charge = round((float) $edoAgg[$period]['cargo'], 2);
-                    }
-
-                    if ($paidAmount <= 0.0001 && $charge > 0.0001) {
-                        $paidAmount = round(min($charge, $charge / 2), 2);
-                    }
-
-                    $saldo  = round(max(0.0, $charge - $paidAmount), 2);
-                    $status = $saldo <= 0.0001 ? 'paid' : 'partial';
+                    $status = 'partial';
                 } elseif ($ovStatus === 'pendiente') {
-                    if ($charge <= 0.0001) {
-                        $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                            $accountId,
-                            $period,
-                            $lastPaid,
-                            $payAllowedUi,
-                            $chargesByPeriod
-                        );
-                    }
-                    $paidAmount = 0.0;
-                    $saldo      = round(max(0.0, $charge), 2);
-                    $status     = $saldo > 0.0001 ? 'pending' : 'no_movement';
+                    $status = 'pending';
                 } elseif ($ovStatus === 'vencido') {
-                    if ($charge <= 0.0001) {
-                        $charge = $this->resolvePortalMonthlyMxnForPeriod(
-                            $accountId,
-                            $period,
-                            $lastPaid,
-                            $payAllowedUi,
-                            $chargesByPeriod
-                        );
-                    }
-                    $saldo  = round(max(0.0, $charge - $paidAmount), 2);
-                    $status = $saldo > 0.0001 ? 'overdue' : 'paid';
+                    $status = 'overdue';
                 } elseif ($ovStatus === 'sin_mov') {
-                    $paidAmount = 0.0;
-                    $saldo      = 0.0;
-                    $charge     = 0.0;
-                    $status     = 'no_movement';
+                    $status = 'no_movement';
                 }
+            }
+
+            // ======================================================
+            // Canonicalización visual
+            // ======================================================
+            $paidAmount = 0.0;
+            $saldo      = 0.0;
+
+            if ($status === 'paid') {
+                if ($visualCharge > 0.0001) {
+                    $paidAmount = $visualCharge;
+                    $saldo      = 0.0;
+                } else {
+                    $paidAmount = round(max(0.0, $realPaid), 2);
+                    $saldo      = 0.0;
+                    $visualCharge = $paidAmount;
+                }
+            } elseif ($status === 'partial') {
+                $base = $visualCharge > 0.0001 ? $visualCharge : $statementCharge;
+
+                $paidAmount = round(min(max(0.0, $realPaid), max(0.0, $base)), 2);
+                $saldo      = round(max(0.0, $base - $paidAmount), 2);
+
+                if ($base <= 0.0001 && $statementSaldo > 0.0001) {
+                    $saldo = $statementSaldo;
+                }
+
+                $visualCharge = round(max($base, $paidAmount + $saldo), 2);
+            } elseif (in_array($status, ['pending', 'overdue'], true)) {
+                $base = $visualCharge > 0.0001 ? $visualCharge : $statementCharge;
+
+                $paidAmount = 0.0;
+                $saldo      = round(max(0.0, $base), 2);
+
+                if ($base <= 0.0001 && $statementSaldo > 0.0001) {
+                    $saldo = $statementSaldo;
+                    $visualCharge = $statementSaldo;
+                } else {
+                    $visualCharge = $base;
+                }
+            } else {
+                $visualCharge = 0.0;
+                $paidAmount   = 0.0;
+                $saldo        = 0.0;
+                $status       = 'no_movement';
             }
 
             $periodRange = $period;
@@ -1086,8 +1049,6 @@ final class AccountBillingController extends Controller
                 $periodRange = $period;
             }
 
-            $shownPaid = round(min($paidAmount, max($charge, $paidAmount)), 2);
-
             $out[] = [
                 'id'                     => $seed['id'] ?? null,
                 'account_id'             => $accountId,
@@ -1095,10 +1056,10 @@ final class AccountBillingController extends Controller
                 'statement_account_ref'  => $seed['account_id'] ?? (string) $accountId,
                 'period'                 => $period,
                 'status'                 => $status,
-                'charge'                 => round($charge, 2),
-                'total_cargo'            => round($charge, 2),
-                'paid_amount'            => $shownPaid,
-                'total_abono'            => $shownPaid,
+                'charge'                 => round($visualCharge, 2),
+                'total_cargo'            => round($visualCharge, 2),
+                'paid_amount'            => round($paidAmount, 2),
+                'total_abono'            => round($paidAmount, 2),
                 'saldo'                  => round($saldo, 2),
                 'can_pay'                => false,
                 'period_range'           => $periodRange,
@@ -1106,7 +1067,9 @@ final class AccountBillingController extends Controller
                 'alias'                  => $alias !== '' ? $alias : '—',
                 'invoice_request_status' => null,
                 'invoice_has_zip'        => false,
-                'price_source'           => isset($seedByPeriod[$period]) ? 'admin.live+statements' : 'admin.live',
+                'price_source'           => $monthlyCharge > 0.0001
+                    ? 'admin.monthly_resolved'
+                    : (isset($seedByPeriod[$period]) ? 'admin.live+statements' : 'admin.live'),
                 'service_items'          => is_array($seed['service_items'] ?? null) ? $seed['service_items'] : [],
                 'meta'                   => $seed['meta'] ?? null,
                 'snapshot'               => $seed['snapshot'] ?? null,
@@ -1121,9 +1084,6 @@ final class AccountBillingController extends Controller
             return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
         });
 
-        // ======================================================
-        // único periodo pagable: primer no pagado con saldo > 0
-        // ======================================================
         $firstPending = null;
         foreach ($out as $r) {
             $st = $this->normalizeStatementStatus((string) ($r['status'] ?? 'pending'));
@@ -1152,7 +1112,6 @@ final class AccountBillingController extends Controller
 
         return $out;
     }
-
 
     private function ensurePortalPayAllowedRow(
         int $accountId,

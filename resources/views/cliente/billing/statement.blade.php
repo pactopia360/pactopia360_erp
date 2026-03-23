@@ -332,7 +332,7 @@
           <div class="p360-section-badge">HISTORIAL</div>
           <h2 class="p360-section-h2">Movimientos del año {{ $displayYear }}</h2>
           <div class="p360-section-p">
-            Se muestran periodos pagados, pendientes y el siguiente mes de referencia para validar la mensualidad.
+            Cada fila separa cargo del periodo, pago aplicado y saldo restante para evitar confundir pagos arrastrados o ajustes con la mensualidad real del mes.
           </div>
         </div>
       </div>
@@ -357,8 +357,8 @@
             $period = (string) ($row['period'] ?? '');
 
             $statusRaw = strtolower(trim((string) ($row['status'] ?? 'pending')));
-            $isPaid    = in_array($statusRaw, $paidStatuses, true);
             $canPay    = (bool) ($row['can_pay'] ?? false);
+            $isPreviewNext = (bool) ($row['__preview_next'] ?? false);
 
             $monthName = $period
               ? \Illuminate\Support\Carbon::createFromFormat('Y-m', $period)->translatedFormat('F')
@@ -369,28 +369,49 @@
             $rfcV   = (string) ($row['rfc'] ?? ($rfc ?? '—'));
             $aliasV = (string) ($row['alias'] ?? ($alias ?? '—'));
 
-            $paidAmount = (float) ($row['paid_amount'] ?? 0);
-            $saldo      = (float) ($row['saldo'] ?? 0);
-            $charge     = (float) ($row['charge'] ?? ($row['total_cargo'] ?? 0));
+            $charge     = round((float) ($row['charge'] ?? ($row['total_cargo'] ?? 0)), 2);
+            $paidAmount = round((float) ($row['paid_amount'] ?? ($row['total_abono'] ?? 0)), 2);
+            $saldo      = round((float) ($row['saldo'] ?? 0), 2);
 
-            /*
-            |--------------------------------------------------------------------------
-            | Monto visual correcto:
-            | - Pagado   => mostrar charge del periodo
-            | - Pendiente=> mostrar saldo si existe; si no, charge
-            |--------------------------------------------------------------------------
-            */
-            if ($isPaid) {
-              $amount = $charge > 0 ? $charge : $paidAmount;
+            // Normalización defensiva visual
+            if ($charge < 0) $charge = 0.0;
+            if ($paidAmount < 0) $paidAmount = 0.0;
+            if ($saldo < 0) $saldo = 0.0;
+
+            // Topar pago visual al cargo del periodo para evitar acumulados engañosos
+            $paidApplied = $charge > 0 ? min($paidAmount, $charge) : $paidAmount;
+
+            $isPaid    = in_array($statusRaw, $paidStatuses, true) || ($saldo <= 0.0001 && $charge > 0);
+            $isPartial = !$isPaid && $paidApplied > 0.0001 && $saldo > 0.0001;
+            $isPending = !$isPaid && !$isPartial && !$isPreviewNext;
+
+            if ($isPreviewNext) {
+              $statusText  = 'Próximo';
+              $statusClass = 'next';
+            } elseif ($isPaid) {
+              $statusText  = 'Pagado';
+              $statusClass = 'paid';
+            } elseif ($isPartial) {
+              $statusText  = 'Parcial';
+              $statusClass = 'partial';
             } else {
-              $amount = $saldo > 0 ? $saldo : $charge;
+              $statusText  = 'Pendiente';
+              $statusClass = 'pending';
             }
 
-            $statusText  = $isPaid ? 'Pagado' : ((bool) ($row['__preview_next'] ?? false) ? 'Próximo' : 'Pendiente');
-            $statusClass = $isPaid ? 'paid' : 'pending';
+            // Monto principal: saldo si está abierto, cargo si está pagado, cargo si es preview
+            if ($isPreviewNext) {
+              $amountMain = $charge;
+            } elseif ($isPaid) {
+              $amountMain = $charge > 0 ? $charge : $paidApplied;
+            } elseif ($isPartial) {
+              $amountMain = $saldo > 0 ? $saldo : $charge;
+            } else {
+              $amountMain = $saldo > 0 ? $saldo : $charge;
+            }
 
             $pdfEnabled  = $pdfInlineRouteExists && $period !== '';
-            $payEnabled  = (!$isPaid) && $canPay && $payRouteExists && $period !== '';
+            $payEnabled  = (!$isPaid) && (!$isPreviewNext) && $canPay && $payRouteExists && $period !== '';
 
             $isLastPaid = ($lastPaid && $period === $lastPaid);
 
@@ -416,14 +437,10 @@
               ? route('cliente.billing.pdf', ['period' => $period])
               : '#';
 
-            $rowClass = $isPaid ? 'is-paid' : 'is-pending';
-
-            $isPreviewNext = (bool) ($row['__preview_next'] ?? false);
+            $rowClass = 'is-' . $statusClass;
             if ($isPreviewNext) {
               $rowClass .= ' is-preview-next';
             }
-
-
           @endphp
 
           <div class="p360-row p360-row--flat {{ $rowClass }}" data-period="{{ $period }}">
@@ -451,7 +468,24 @@
             </div>
 
             <div class="p360-cell p360-cell--amount">
-              <div class="p360-amount {{ $statusClass }}">{{ $mxn($amount) }}</div>
+              <div class="p360-amount {{ $statusClass }}">{{ $mxn($amountMain) }}</div>
+
+              <div class="p360-amount-breakdown">
+                <div class="p360-amount-line">
+                  <span class="p360-amount-k">Cargo</span>
+                  <span class="p360-amount-v">{{ $mxn($charge) }}</span>
+                </div>
+
+                <div class="p360-amount-line">
+                  <span class="p360-amount-k">Pagado</span>
+                  <span class="p360-amount-v">{{ $mxn($paidApplied) }}</span>
+                </div>
+
+                <div class="p360-amount-line">
+                  <span class="p360-amount-k">Saldo</span>
+                  <span class="p360-amount-v">{{ $mxn($saldo) }}</span>
+                </div>
+              </div>
             </div>
 
             <div class="p360-cell p360-cell--actions">
