@@ -1,4 +1,7 @@
-{{-- resources/views/components/client/sidebar.blade.php (v5.3.1 – Client Sidebar · label+desc + SOT módulos · FIX: bootstrapNoSotYet en closure + fallback oculto) --}}
+{{-- resources/views/components/client/sidebar.blade.php
+   Pactopia360 · Client Sidebar · branding nuevo azul/blanco
+   conserva SOT módulos, permisos, estados, accordions y rutas
+--}}
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Facades\Auth;
@@ -9,38 +12,22 @@
   $ariaLabel = $ariaLabel ?? 'Menú principal';
   $inst      = $inst      ?? Str::lower(Str::ulid());
 
-  // =========================
-  // Cuenta cliente (mysql_clientes) para flags runtime
-  // =========================
   $user   = Auth::guard('web')->user();
   $cuenta = $cuenta ?? ($user->cuenta ?? null);
 
-  // vault_active (db clientes): manda sobre el sidebar para mostrar/ocultar Bóveda
   $vaultActive = (int) data_get($cuenta, 'vault_active', 0) === 1;
 
-  // =========================
-  // Helper robusto: route safe
-  // =========================
   $try = function(string $name, array $params = []) {
     try { return route($name, $params); } catch(\Throwable $e) {}
     return null;
   };
 
-  // =========================
-  // MÓDULOS desde sesión (SOT Admin)
-  // =========================
-  // SOT:
-  //   p360.modules_state[key] = active|inactive|hidden|blocked
-  //
-  // fallback legacy:
-  //   p360.modules[key] = bool
   $modsState  = session('p360.modules_state', []);
   $legacyMods = session('p360.modules', []);
 
   $hasSot    = is_array($modsState) && count($modsState) > 0;
   $hasLegacy = is_array($legacyMods) && count($legacyMods) > 0;
 
-  // Si no hay SOT ni legacy, NO inventar activos: ocultar módulos (salvo Inicio/Config).
   $bootstrapNoSotYet = (!$hasSot && !$hasLegacy);
 
   $stateOf = function (string $key) use ($modsState, $legacyMods, $bootstrapNoSotYet): string {
@@ -53,32 +40,19 @@
       return ((bool) $legacyMods[$key]) ? 'active' : 'inactive';
     }
 
-    // ✅ Bootstrap conservador: oculto hasta que la sesión esté poblada
     return $bootstrapNoSotYet ? 'hidden' : 'active';
   };
 
   $isVisible = function (string $key) use ($stateOf, $vaultActive): bool {
-    // ✅ Bóveda: si no está activa a nivel cuenta (clientes), NO se muestra
     if ($key === 'boveda_fiscal' && !$vaultActive) return false;
-
     return $stateOf($key) !== 'hidden';
   };
 
   $canAccess = function (string $key) use ($stateOf, $vaultActive): bool {
-
-      // ✅ Bóveda Fiscal:
-      // - Requiere vault_active=1
-      // - Si el admin la puso en blocked u hidden, se respeta
-      // - Si está inactive pero vault está activo, SE PERMITE
       if ($key === 'boveda_fiscal') {
-
-          if (!$vaultActive) {
-              return false;
-          }
+          if (!$vaultActive) return false;
 
           $st = $stateOf($key);
-
-          // Solo bloquear si explícitamente está blocked o hidden
           if (in_array($st, ['blocked','hidden'], true)) {
               return false;
           }
@@ -100,9 +74,6 @@
 
   $routeMissingTitle = fn(string $label) => $label.' (Ruta no configurada / no existe en routes/cliente.php)';
 
-  // =========================
-  // Rutas base
-  // =========================
   $rtHome        = $try('cliente.home') ?: url('/cliente/home');
   $rtMiCuenta    = $try('cliente.mi_cuenta.index') ?: url('/cliente/mi-cuenta');
   $rtPagos       = $try('cliente.mi_cuenta.pagos') ?: null;
@@ -119,9 +90,6 @@
     return $fallback;
   };
 
-  // =========================
-  // Rutas módulos
-  // =========================
   $rtFact        = $resolveRoute(['cliente.facturacion.index','cliente.facturacion','cliente.facturacion.home'], null);
   $rtFactNew     = $resolveRoute(['cliente.facturacion.nuevo','cliente.facturacion.new','cliente.facturacion.create'], null);
 
@@ -142,9 +110,6 @@
 
   $rtCfgAdv      = $resolveRoute(['cliente.config.avanzada','cliente.configuracion.avanzada','cliente.config.index','cliente.configuracion.index'], null);
 
-  // =========================
-  // Activos (robustos)
-  // =========================
   $isHome     = request()->routeIs('cliente.home') || request()->is('cliente/home');
   $isMiCuenta = request()->routeIs('cliente.mi_cuenta.*') || request()->is('cliente/mi-cuenta*');
   $isEstado   = request()->routeIs('cliente.estado_cuenta') || request()->is('cliente/estado-de-cuenta*');
@@ -156,12 +121,8 @@
 
   $isCfg      = request()->is('cliente/config*') || request()->is('cliente/configuracion*') || request()->routeIs('cliente.mi_cuenta.*');
 
-  // Inicia expanded (layout manda isOpen=true normalmente)
   $dataState = $isOpen ? 'expanded' : 'collapsed';
 
-  // =========================
-  // SVGs
-  // =========================
   $svgHome = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.1 2 12h3v8h6v-6h2v6h6v-8h3z"/></svg>';
   $svgUser = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5Zm-8 9a8 8 0 1 1 16 0Z"/></svg>';
   $svgDoc  = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2h9l3 3v17H6zM8 8h8v2H8zm0 4h8v2H8zm0 4h8v2H8z"/></svg>';
@@ -180,20 +141,17 @@
   $svgLink = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.59 13.41a1.996 1.996 0 0 1 0-2.82l3.18-3.18a2 2 0 1 1 2.82 2.82l-1.06 1.06l1.41 1.41l1.06-1.06a4 4 0 0 0-5.66-5.66l-3.18 3.18a4 4 0 0 0 0 5.66l.7.7l1.41-1.41l-.68-.7ZM13.41 10.59a1.996 1.996 0 0 1 0 2.82l-3.18 3.18a2 2 0 1 1-2.82-2.82l1.06-1.06l-1.41-1.41l-1.06 1.06a4 4 0 0 0 5.66 5.66l3.18-3.18a4 4 0 0 0 0-5.66l-.7-.7l-1.41 1.41l.68.7Z"/></svg>';
   $svgLock = '<svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16"><path fill="currentColor" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 1 1 6 0v3H9Z"/></svg>';
 
-  // ===== Descripciones UI =====
   $desc = [
     'Inicio' => 'Resumen y métricas',
     'Mi cuenta' => 'Perfil, plan y accesos',
     'Estado de cuenta' => 'Cargos, abonos y saldo',
     'Pagos' => 'Métodos y movimientos',
     'Facturas' => 'Descarga y gestión',
-
     'Facturación' => 'CFDI y administración',
     'Nuevo CFDI' => 'Crear comprobante',
     'SAT (Descarga)' => 'Detecta y procesa CFDI',
     'Descargas' => 'Historial SAT',
     'Bóveda Fiscal' => 'Archivos y resguardo',
-
     'CRM' => 'Clientes y oportunidades',
     'Nómina' => 'Recibos y timbrado',
     'Punto de venta' => 'Ventas y tickets',
@@ -203,7 +161,6 @@
     'Alertas' => 'Notificaciones',
     'Chat' => 'Soporte y mensajes',
     'Marketplace' => 'Addons y servicios',
-
     'Configuración' => 'Preferencias',
     'Configuración avanzada' => 'Opciones técnicas',
     'Cerrar sesión' => 'Salir de la plataforma',
@@ -267,7 +224,6 @@
     ';
   };
 
-  // Grupos
   $htmlCuenta = '';
   $htmlCuenta .= $renderItem('mi_cuenta','Mi cuenta',$rtMiCuenta,$isMiCuenta,$svgUser,false);
   $htmlCuenta .= $renderItem('estado_cuenta','Estado de cuenta',$rtEstadoCta,$isEstado,$svgBill,false);
@@ -277,12 +233,9 @@
   $htmlModulos = '';
   $htmlModulos .= $renderItem('facturacion','Facturación',$rtFact,$isFact,$svgBill,false);
   $htmlModulos .= $renderItem('facturacion','Nuevo CFDI',$rtFactNew,(request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),$svgPlus,false);
-
   $htmlModulos .= $renderItem('sat_descargas','SAT (Descarga)',$rtSat,($isSat && !$isDown),$svgSat,false);
   $htmlModulos .= $renderItem('sat_descargas','Descargas',$rtDescargas,$isDown,$svgDown,false);
-
   $htmlModulos .= $renderItem('boveda_fiscal','Bóveda Fiscal',$rtVault,$isVault,$svgBox,false);
-
   $htmlModulos .= $renderItem('crm','CRM',$rtCrm,(request()->routeIs('cliente.crm.*') || request()->is('cliente/crm*')),$svgUsers,false);
   $htmlModulos .= $renderItem('nomina','Nómina',$rtNomina,(request()->routeIs('cliente.nomina.*') || request()->is('cliente/nomina*')),$svgUsers,false);
   $htmlModulos .= $renderItem('pos','Punto de venta',$rtPos,(request()->routeIs('cliente.pos.*') || request()->is('cliente/pos*')),$svgStore,false);
@@ -293,16 +246,8 @@
   $htmlModulos .= $renderItem('chat','Chat',$rtChat,(request()->routeIs('cliente.chat.*') || request()->is('cliente/chat*')),$svgChat,false);
   $htmlModulos .= $renderItem('marketplace','Marketplace',$rtMarket,(request()->routeIs('cliente.marketplace.*') || request()->is('cliente/marketplace*')),$svgBag,false);
 
-  $htmlConfigAdv = $renderItem(
-    'configuracion_avanzada',
-    'Configuración avanzada',
-    $rtCfgAdv,
-    (request()->is('cliente/config*') || request()->is('cliente/configuracion*')),
-    $svgGear,
-    false
-  );
+  $htmlConfigAdv = '';
 
-  // Open accordions
   $openCuenta  = (bool) ($isMiCuenta || $isEstado || request()->is('cliente/mi-cuenta*') || request()->is('cliente/estado-de-cuenta*'));
   $openModulos = (bool) ($isFact || $isSat || $isDown || $isVault);
 @endphp
@@ -316,12 +261,13 @@
 @endonce
 
 <aside
-  class="sidebar skin-brand-rail"
+  class="sidebar skin-brand-rail p360-client-sidebar"
   id="{{ $id }}"
   aria-label="{{ $ariaLabel }}"
   data-state="{{ $dataState }}"
   data-component="p360-sidebar"
 >
+
   <div class="sidebar-head">
     <strong class="sb-title">MENÚ</strong>
     <button
@@ -330,7 +276,8 @@
       aria-label="Expandir/Colapsar"
       aria-expanded="{{ $isOpen ? 'true':'false' }}"
       title="Expandir/Colapsar (Ctrl+B)"
-      data-sb-toggle="1"></button>
+      data-sb-toggle="1"
+    ></button>
   </div>
 
   <div class="sidebar-scroll" role="navigation" aria-label="Secciones">
@@ -344,11 +291,10 @@
       {!! $renderGroupIfAny('Cuenta',  $htmlCuenta,  'nav-title-cta', true, $openCuenta) !!}
       {!! $renderGroupIfAny('Módulos', $htmlModulos, 'nav-title-mod', true, $openModulos) !!}
 
-      <div class="nav-group" aria-labelledby="nav-title-cfg">
+            <div class="nav-group" aria-labelledby="nav-title-cfg">
         <div class="nav-title" id="nav-title-cfg"><span class="pill">Configuración</span></div>
 
         {!! $renderItem('__always__','Configuración',$rtMiCuenta,$isCfg,$svgGear,true) !!}
-        {!! $htmlConfigAdv !!}
 
         <form method="POST" action="{{ $rtLogout }}" id="logoutForm-{{ $id }}-{{ $inst }}">
           @csrf
@@ -358,6 +304,7 @@
             </svg>
             <span class="tx">
               <span class="lbl">Cerrar sesión</span>
+              <span class="desc">Salir de la plataforma</span>
             </span>
           </button>
         </form>
@@ -366,6 +313,210 @@
     </nav>
   </div>
 </aside>
+
+<style>
+  .p360-client-sidebar{
+    background:rgba(255,255,255,.78) !important;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-right:1px solid rgba(37,99,235,.06) !important;
+    box-shadow:6px 0 18px rgba(15,23,42,.035);
+  }
+
+  html.theme-dark .p360-client-sidebar{
+    background:rgba(8,18,38,.78) !important;
+    border-right-color:rgba(255,255,255,.06) !important;
+    box-shadow:6px 0 18px rgba(0,0,0,.14);
+  }
+
+  .p360-client-sidebar .sidebar-head{
+    padding-top:10px;
+    padding-bottom:8px;
+  }
+
+  .p360-client-sidebar .sb-title{
+    font-size:11px;
+    letter-spacing:.12em;
+    font-weight:800;
+    color:var(--muted,#64748b);
+  }
+
+  .p360-client-sidebar .sb-toggle{
+    border-radius:10px;
+    background:rgba(255,255,255,.76);
+    border:1px solid rgba(37,99,235,.08);
+    box-shadow:none;
+  }
+
+  html.theme-dark .p360-client-sidebar .sb-toggle{
+    background:rgba(255,255,255,.05);
+    border-color:rgba(255,255,255,.07);
+    box-shadow:none;
+  }
+
+  .p360-client-sidebar .nav-title .pill{
+    background:rgba(37,99,235,.07);
+    color:#2563eb;
+    border:1px solid rgba(37,99,235,.08);
+    border-radius:999px;
+    font-weight:800;
+    letter-spacing:.03em;
+  }
+
+  html.theme-dark .p360-client-sidebar .nav-title .pill{
+    background:rgba(96,165,250,.10);
+    color:#dbeafe;
+    border-color:rgba(96,165,250,.10);
+  }
+
+  .p360-client-sidebar .tip{
+    border-radius:14px;
+    transition:background .16s ease, border-color .16s ease, transform .16s ease;
+    border:1px solid transparent;
+    box-shadow:none;
+  }
+
+  .p360-client-sidebar .tip:hover{
+    transform:none;
+    background:rgba(37,99,235,.045);
+    border-color:rgba(37,99,235,.06);
+  }
+
+  html.theme-dark .p360-client-sidebar .tip:hover{
+    background:rgba(255,255,255,.045);
+    border-color:rgba(255,255,255,.06);
+  }
+
+  .p360-client-sidebar .tip.active{
+    background:rgba(37,99,235,.10);
+    border-color:rgba(37,99,235,.10);
+    box-shadow:none;
+  }
+
+  html.theme-dark .p360-client-sidebar .tip.active{
+    background:rgba(96,165,250,.12);
+    border-color:rgba(96,165,250,.10);
+    box-shadow:none;
+  }
+
+  .p360-client-sidebar .tip .ico{
+    color:#2563eb;
+  }
+
+  html.theme-dark .p360-client-sidebar .tip .ico{
+    color:#93c5fd;
+  }
+
+  .p360-client-sidebar .tip .lbl{
+    font-weight:800;
+    color:var(--ink,#0f172a);
+  }
+
+  html.theme-dark .p360-client-sidebar .tip .lbl{
+    color:#e6efff;
+  }
+
+  .p360-client-sidebar .tip .desc{
+    margin-top:2px;
+    font-size:11px;
+    color:var(--muted,#64748b);
+  }
+
+  html.theme-dark .p360-client-sidebar .tip .desc{
+    color:#94a3b8;
+  }
+
+  .p360-client-sidebar .tip.is-disabled{
+    opacity:.58;
+    cursor:not-allowed;
+  }
+
+  .p360-client-sidebar .tip.danger{
+    color:#b91c1c;
+  }
+
+  .p360-client-sidebar .tip.danger .ico{
+    color:#dc2626;
+  }
+
+  html.theme-dark .p360-client-sidebar .tip.danger{
+    color:#fca5a5;
+  }
+
+  html.theme-dark .p360-client-sidebar .tip.danger .ico{
+    color:#fca5a5;
+  }
+
+  .p360-client-sidebar .tip.danger:hover{
+    background:rgba(239,68,68,.08);
+    border-color:rgba(239,68,68,.08);
+  }
+
+  .p360-client-sidebar .lock{
+    color:#94a3b8;
+  }
+
+  html.theme-dark .p360-client-sidebar .lock{
+    color:#9fb0ca;
+  }
+
+    /* ===== FIX Pactopia: quitar líneas rosas/rojas heredadas ===== */
+  .p360-client-sidebar,
+  .p360-client-sidebar::before,
+  .p360-client-sidebar::after,
+  .p360-client-sidebar .sidebar-head,
+  .p360-client-sidebar .sidebar-scroll,
+  .p360-client-sidebar .nav,
+  .p360-client-sidebar .nav-group,
+  .p360-client-sidebar .nav-acc,
+  .p360-client-sidebar .nav-acc::before,
+  .p360-client-sidebar .nav-acc::after{
+    border-right-color: transparent !important;
+    border-left-color: transparent !important;
+    box-shadow: none;
+  }
+
+  /* línea vertical del costado derecho */
+  .p360-client-sidebar{
+    border-right: 1px solid rgba(37,99,235,.06) !important;
+  }
+
+  html.theme-dark .p360-client-sidebar{
+    border-right: 1px solid rgba(255,255,255,.06) !important;
+  }
+
+  /* item activo sin barra roja/rosa lateral */
+  .p360-client-sidebar .tip.active,
+  .p360-client-sidebar .tip[aria-current="page"],
+  .p360-client-sidebar .tip.active::before,
+  .p360-client-sidebar .tip.active::after,
+  .p360-client-sidebar .tip[aria-current="page"]::before,
+  .p360-client-sidebar .tip[aria-current="page"]::after{
+    border-left-color: transparent !important;
+    border-right-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .p360-client-sidebar .tip.active::before,
+  .p360-client-sidebar .tip.active::after,
+  .p360-client-sidebar .tip[aria-current="page"]::before,
+  .p360-client-sidebar .tip[aria-current="page"]::after{
+    content: none !important;
+    display: none !important;
+    background: transparent !important;
+  }
+
+  /* summary/details del acordeón sin acentos rojos heredados */
+  .p360-client-sidebar details,
+  .p360-client-sidebar summary,
+  .p360-client-sidebar .nav-title,
+  .p360-client-sidebar .pill{
+    border-left-color: transparent !important;
+    border-right-color: transparent !important;
+    outline-color: transparent !important;
+  }
+
+</style>
 
 @once
   <script src="{{ asset('assets/client/js/sidebar.js') }}" defer></script>

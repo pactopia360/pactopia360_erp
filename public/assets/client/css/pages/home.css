@@ -463,3 +463,158 @@ html.theme-dark .p360-kpi--brand{
       color-mix(in oklab, var(--accent) 6%, rgba(8,16,29,.98))
     );
 }
+
+/* =========================================================
+   Pactopia Dark Fix · Home dashboard
+   ========================================================= */
+html[data-theme="dark"] .p360-home,
+html.theme-dark .p360-home{
+  --bg: #0B1220;
+  --card: #111827;
+  --ink: #E5E7EB;
+  --mut: #94A3B8;
+  --bd: rgba(255,255,255,.08);
+}
+
+html[data-theme="dark"] .p360-card,
+html.theme-dark .p360-card{
+  background: linear-gradient(180deg, rgba(17,24,39,.94), rgba(15,23,42,.92));
+  border-color: rgba(255,255,255,.08);
+  box-shadow: 0 14px 34px rgba(0,0,0,.22);
+}
+
+html[data-theme="dark"] .p360-hero,
+html.theme-dark .p360-hero{
+  background: linear-gradient(180deg, rgba(17,24,39,.96), rgba(15,23,42,.94));
+}
+
+html[data-theme="dark"] .p360-hero::before,
+html.theme-dark .p360-hero::before{
+  background:
+    radial-gradient(1200px 380px at 10% 0%, rgba(96,165,250,.12), transparent 60%),
+    radial-gradient(1100px 420px at 90% 0%, rgba(37,99,235,.10), transparent 62%);
+}
+
+html[data-theme="dark"] .p360-kpi,
+html.theme-dark .p360-kpi,
+html[data-theme="dark"] .p360-action,
+html.theme-dark .p360-action,
+html[data-theme="dark"] .p360-status__row,
+html.theme-dark .p360-status__row{
+  background: linear-gradient(180deg, rgba(17,24,39,.96), rgba(15,23,42,.92));
+  border-color: rgba(255,255,255,.08);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .p360-kpi--brand,
+html.theme-dark .p360-kpi--brand{
+  background:
+    linear-gradient(180deg,
+      rgba(30,64,175,.30),
+      rgba(15,23,42,.94)
+    );
+  border-color: rgba(96,165,250,.22);
+}
+
+html[data-theme="dark"] .p360-progress,
+html.theme-dark .p360-progress{
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.08);
+}
+
+html[data-theme="dark"] .p360-table th,
+html.theme-dark .p360-table th{
+  color: #94A3B8;
+  border-bottom-color: rgba(255,255,255,.08);
+}
+
+html[data-theme="dark"] .p360-table td,
+html.theme-dark .p360-table td{
+  color: #E5E7EB;
+  border-bottom-color: rgba(255,255,255,.06);
+}
+
+html[data-theme="dark"] .p360-table tr:hover td,
+html.theme-dark .p360-table tr:hover td{
+  background: rgba(96,165,250,.06);
+}
+
+html[data-theme="dark"] .p360-empty__t,
+html.theme-dark .p360-empty__t,
+html[data-theme="dark"] .p360-card__title,
+html.theme-dark .p360-card__title,
+html[data-theme="dark"] .p360-storage__title,
+html.theme-dark .p360-storage__title,
+html[data-theme="dark"] .p360-actions__title,
+html.theme-dark .p360-actions__title,
+html[data-theme="dark"] .p360-action__t,
+html.theme-dark .p360-action__t,
+html[data-theme="dark"] .p360-kpi__value,
+html.theme-dark .p360-kpi__value,
+html[data-theme="dark"] .p360-hero__name,
+html.theme-dark .p360-hero__name{
+  color:#E5E7EB;
+}
+
+html[data-theme="dark"] .p360-empty__d,
+html.theme-dark .p360-empty__d,
+html[data-theme="dark"] .p360-card__sub,
+html.theme-dark .p360-card__sub,
+html[data-theme="dark"] .p360-kpi__label,
+html.theme-dark .p360-kpi__label,
+html[data-theme="dark"] .p360-kpi__hint,
+html.theme-dark .p360-kpi__hint,
+html[data-theme="dark"] .p360-storage__meta,
+html.theme-dark .p360-storage__meta,
+html[data-theme="dark"] .p360-action__d,
+html.theme-dark .p360-action__d,
+html[data-theme="dark"] .p360-hero__hello,
+html.theme-dark .p360-hero__hello,
+html[data-theme="dark"] .p360-hero__period,
+html.theme-dark .p360-hero__period,
+html[data-theme="dark"] .muted,
+html.theme-dark .muted{
+  color:#94A3B8 !important;
+}
+
+html[data-theme="dark"] .p360-pill,
+html.theme-dark .p360-pill,
+html[data-theme="dark"] .p360-tag,
+html.theme-dark .p360-tag,
+html[data-theme="dark"] .p360-delta,
+html.theme-dark .p360-delta{
+  border-color: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.05);
+  color: #E5E7EB;
+}
+
+html[data-theme="dark"] .p360-pill--ok,
+html.theme-dark .p360-pill--ok,
+html[data-theme="dark"] .p360-tag--ok,
+html.theme-dark .p360-tag--ok,
+html[data-theme="dark"] .p360-delta.up,
+html.theme-dark .p360-delta.up{
+  background: rgba(59,130,246,.14);
+  border-color: rgba(96,165,250,.20);
+}
+
+html[data-theme="dark"] .p360-pill--warn,
+html.theme-dark .p360-pill--warn{
+  background: rgba(245,158,11,.14);
+  border-color: rgba(245,158,11,.20);
+}
+
+html[data-theme="dark"] .p360-pill--danger,
+html.theme-dark .p360-pill--danger,
+html[data-theme="dark"] .p360-tag--danger,
+html.theme-dark .p360-tag--danger,
+html[data-theme="dark"] .p360-delta.down,
+html.theme-dark .p360-delta.down{
+  background: rgba(239,68,68,.14);
+  border-color: rgba(239,68,68,.20);
+}
+
+html[data-theme="dark"] .p360-tag--mut,
+html.theme-dark .p360-tag--mut{
+  background: rgba(255,255,255,.05);
+}

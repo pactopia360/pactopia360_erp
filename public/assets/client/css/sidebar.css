@@ -1,25 +1,24 @@
 /* C:\wamp64\www\pactopia360_erp\public\assets\client\css\sidebar.css */
-/* ===== P360 · CLIENT · Sidebar (v1.3 · Clean SaaS · contraste real + sin rosa wash) ===== */
+/* ===== P360 · CLIENT · Sidebar (v1.4 · azul limpio · sin líneas rosas/rojas) ===== */
 
 .sidebar[data-component="p360-sidebar"]{
-  --brand: var(--p360-brand, #E11D48);
-  --brand-600: var(--p360-brand-600, #BE123C);
+  --brand: #2563eb;
+  --brand-600: #1d4ed8;
 
   /* LIGHT */
   --panel: #ffffff;
-  --ink: #0f172a;                 /* alto contraste */
-  --mut: #475569;                 /* legible */
+  --ink: #0f172a;
+  --mut: #475569;
   --mut-2: #64748b;
-  --bd: rgba(15, 23, 42, .10);
-  --bd-2: rgba(15, 23, 42, .08);
+  --bd: rgba(15, 23, 42, .08);
+  --bd-2: rgba(15, 23, 42, .06);
 
-  --hover: rgba(15, 23, 42, .04);
-  --active-bg: rgba(225, 29, 72, .12);
-  --active-bd: rgba(225, 29, 72, .26);
+  --hover: rgba(37, 99, 235, .045);
+  --active-bg: rgba(37, 99, 235, .09);
+  --active-bd: rgba(37, 99, 235, .10);
 
   --shadow: 0 16px 40px rgba(2, 6, 23, .10);
 
-  /* SOT widths */
   --w: var(--sb-w, 260px);
   --w-mini: var(--sb-wc, 72px);
 
@@ -45,12 +44,12 @@ html.theme-dark .sidebar[data-component="p360-sidebar"]{
   --ink: rgba(255,255,255,.94);
   --mut: rgba(255,255,255,.70);
   --mut-2: rgba(255,255,255,.55);
-  --bd: rgba(255,255,255,.12);
-  --bd-2: rgba(255,255,255,.08);
+  --bd: rgba(255,255,255,.10);
+  --bd-2: rgba(255,255,255,.07);
 
-  --hover: rgba(255,255,255,.06);
-  --active-bg: rgba(225, 29, 72, .22);
-  --active-bd: rgba(225, 29, 72, .32);
+  --hover: rgba(255,255,255,.05);
+  --active-bg: rgba(96, 165, 250, .12);
+  --active-bd: rgba(96, 165, 250, .12);
 
   --shadow: 0 18px 44px rgba(0,0,0,.45);
 }
@@ -77,7 +76,7 @@ html.theme-dark .sidebar[data-component="p360-sidebar"]{
 
 html[data-theme="dark"] .sidebar[data-component="p360-sidebar"] .sidebar-head,
 html.theme-dark .sidebar[data-component="p360-sidebar"] .sidebar-head{
-  background: linear-gradient(180deg, rgba(255,255,255,.05), transparent);
+  background: linear-gradient(180deg, rgba(255,255,255,.04), transparent);
 }
 
 .sidebar[data-component="p360-sidebar"] .sb-title{
@@ -96,7 +95,7 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .sidebar-head{
   border: 1px solid var(--bd);
   background: color-mix(in oklab, var(--panel) 92%, #fff);
 
-  box-shadow: 0 8px 18px rgba(2, 6, 23, .10);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, .06);
   cursor:pointer;
 
   display:flex;
@@ -105,11 +104,13 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .sidebar-head{
 
   transition: transform .12s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
 }
+
 .sidebar[data-component="p360-sidebar"] .sb-toggle:hover{
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--ink) 18%, var(--bd));
-  box-shadow: 0 12px 26px rgba(2, 6, 23, .14);
+  border-color: color-mix(in oklab, var(--brand) 18%, var(--bd));
+  box-shadow: 0 10px 22px rgba(2, 6, 23, .08);
 }
+
 .sidebar[data-component="p360-sidebar"] .sb-toggle::before{
   content:"";
   width: 18px;
@@ -124,7 +125,9 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .sidebar-head{
 }
 
 /* Hide MENÚ title when collapsed */
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .sb-title{ display:none; }
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .sb-title{
+  display:none;
+}
 
 /* ===== Scroll ===== */
 .sidebar[data-component="p360-sidebar"] .sidebar-scroll{
@@ -153,7 +156,7 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .sidebar-head{
   color: var(--mut);
 }
 
-/* ✅ Pill neutra (sin rosa), texto legible */
+/* pill neutra */
 .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   display:inline-flex;
   align-items:center;
@@ -172,9 +175,20 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
 }
 
 /* Accordion */
-.sidebar[data-component="p360-sidebar"] details.nav-acc{ margin:0; padding:0; }
-.sidebar[data-component="p360-sidebar"] details.nav-acc > summary{ list-style:none; cursor:pointer; user-select:none; }
-.sidebar[data-component="p360-sidebar"] details.nav-acc > summary::-webkit-details-marker{ display:none; }
+.sidebar[data-component="p360-sidebar"] details.nav-acc{
+  margin:0;
+  padding:0;
+}
+
+.sidebar[data-component="p360-sidebar"] details.nav-acc > summary{
+  list-style:none;
+  cursor:pointer;
+  user-select:none;
+}
+
+.sidebar[data-component="p360-sidebar"] details.nav-acc > summary::-webkit-details-marker{
+  display:none;
+}
 
 .sidebar[data-component="p360-sidebar"] details.nav-acc > summary .pill{
   position: relative;
@@ -195,13 +209,16 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
     linear-gradient(currentColor, currentColor) 50% 35% / 10px 2px no-repeat,
     linear-gradient(currentColor, currentColor) 50% 65% / 10px 2px no-repeat;
 }
+
 .sidebar[data-component="p360-sidebar"] details.nav-acc[open] > summary .pill::after{
   opacity: .9;
   background: linear-gradient(currentColor, currentColor) 50% 50% / 10px 2px no-repeat;
 }
 
 /* Hide group titles when collapsed desktop */
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none; }
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .nav-title{
+  display:none;
+}
 
 /* ===== Items ===== */
 .sidebar[data-component="p360-sidebar"] .tip{
@@ -225,45 +242,33 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease, opacity .18s ease;
 }
 
-/* left rail active */
+/* SIN barra lateral roja/rosa */
 .sidebar[data-component="p360-sidebar"] .tip::before{
-  content:"";
-  position:absolute;
-  left: 7px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--brand), var(--brand-600));
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity .18s ease, transform .18s ease;
+  content:none;
 }
 
 .sidebar[data-component="p360-sidebar"] .tip:hover{
   transform: translateY(-1px);
   background: var(--hover);
   border-color: var(--bd-2);
-  box-shadow: 0 10px 22px rgba(2, 6, 23, .10);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, .06);
 }
 
-.sidebar[data-component="p360-sidebar"] .tip.active{
+.sidebar[data-component="p360-sidebar"] .tip.active,
+.sidebar[data-component="p360-sidebar"] .tip[aria-current="page"]{
   border-color: var(--active-bd);
   background: var(--active-bg);
-  box-shadow: 0 12px 26px rgba(2, 6, 23, .12);
-}
-.sidebar[data-component="p360-sidebar"] .tip.active::before{
-  opacity: 1;
-  transform: none;
+  box-shadow: none;
 }
 
 /* Danger */
 .sidebar[data-component="p360-sidebar"] .tip.danger{
   color: color-mix(in oklab, #b91c1c 88%, var(--ink));
 }
+
 .sidebar[data-component="p360-sidebar"] .tip.danger:hover{
-  border-color: color-mix(in oklab, #b91c1c 26%, var(--bd));
-  background: color-mix(in oklab, #b91c1c 6%, transparent);
+  border-color: color-mix(in oklab, #b91c1c 18%, var(--bd));
+  background: color-mix(in oklab, #b91c1c 5%, transparent);
 }
 
 /* Icons */
@@ -275,27 +280,22 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   opacity: .98;
   transition: transform .18s ease, opacity .18s ease;
 }
+
 .sidebar[data-component="p360-sidebar"] .tip:hover .ico{
   transform: translateY(-1px);
 }
 
-/* ===== Text (Label + Desc) ===== */
+/* ===== Text ===== */
 .sidebar[data-component="p360-sidebar"] .tip > .tx{
   flex: 1 1 auto;
   min-width: 0;
-
-  /* layout real para label + desc */
   display:flex;
   flex-direction:column;
   gap: 2px;
-
-  /* evita cortes raros */
   overflow:hidden;
-
   color: var(--ink);
 }
 
-/* label principal */
 .sidebar[data-component="p360-sidebar"] .tip > .tx > .lbl{
   display:block;
   font: 750 14px/1.15 'Poppins', system-ui, -apple-system, Segoe UI, Roboto;
@@ -305,7 +305,6 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   text-overflow: ellipsis;
 }
 
-/* descripción */
 .sidebar[data-component="p360-sidebar"] .tip > .tx > .desc{
   display:block;
   font: 650 11px/1.15 'Poppins', system-ui, -apple-system, Segoe UI, Roboto;
@@ -316,16 +315,16 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   opacity: .95;
 }
 
-/* estados */
-.sidebar[data-component="p360-sidebar"] .tip.active > .tx > .desc{
+.sidebar[data-component="p360-sidebar"] .tip.active > .tx > .desc,
+.sidebar[data-component="p360-sidebar"] .tip[aria-current="page"] > .tx > .desc{
   color: var(--mut);
 }
+
 .sidebar[data-component="p360-sidebar"] .tip.is-disabled > .tx > .lbl,
 .sidebar[data-component="p360-sidebar"] .tip.is-disabled > .tx > .desc{
   color: var(--mut);
   opacity: .85;
 }
-
 
 /* Lock */
 .sidebar[data-component="p360-sidebar"] .lock{
@@ -342,6 +341,7 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .nav-title .pill{
   background: rgba(15,23,42,.03);
   color: var(--mut);
 }
+
 html[data-theme="dark"] .sidebar[data-component="p360-sidebar"] .lock,
 html.theme-dark .sidebar[data-component="p360-sidebar"] .lock{
   background: rgba(255,255,255,.06);
@@ -354,9 +354,17 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .lock{
 }
 
 /* Collapsed desktop tweaks */
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tx{ display:none; }
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tip{ justify-content:center; }
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .lock{ display:none; }
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tx{
+  display:none;
+}
+
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tip{
+  justify-content:center;
+}
+
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .lock{
+  display:none;
+}
 
 /* ===== Mobile ===== */
 @media (max-width: 1099.98px){
@@ -372,83 +380,74 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .lock{
 
     box-shadow: var(--shadow);
   }
+
   .sidebar[data-component="p360-sidebar"].open{
     transform: translateX(0);
   }
 
-  /* móvil siempre texto */
   .sidebar[data-component="p360-sidebar"][data-state="collapsed"]{
     width: var(--w);
     min-width: var(--w);
   }
-  .sidebar[data-component="p360-sidebar"][data-state="collapsed"] .tx{ display:inline-block; }
-  .sidebar[data-component="p360-sidebar"][data-state="collapsed"] .tip{ justify-content:flex-start; }
+
+  .sidebar[data-component="p360-sidebar"][data-state="collapsed"] .tx{
+    display:inline-block;
+  }
+
+  .sidebar[data-component="p360-sidebar"][data-state="collapsed"] .tip{
+    justify-content:flex-start;
+  }
 }
 
-/* Brand rail discreto */
-.sidebar[data-component="p360-sidebar"].skin-brand-rail{ position: relative; }
+/* SIN rail derecho rosa */
 .sidebar[data-component="p360-sidebar"].skin-brand-rail::after{
-  content:"";
-  position:absolute;
-  top:0;
-  right:0;
-  bottom:0;
-  width: 2px;
-  background: linear-gradient(180deg,
-    color-mix(in oklab, var(--brand) 55%, transparent),
-    color-mix(in oklab, var(--brand) 12%, transparent)
-  );
-  pointer-events:none;
-  opacity: .55;
+  content:none !important;
 }
 
 /* Hard guarantee */
-.sidebar[data-component="p360-sidebar"][data-state="expanded"] .tx{ display:inline-block !important; }
-.sidebar[data-component="p360-sidebar"][data-state="expanded"] .nav-title{ display:flex !important; }
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tx{ display:none !important; }
-.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .nav-title{ display:none !important; }
+.sidebar[data-component="p360-sidebar"][data-state="expanded"] .tx{
+  display:inline-block !important;
+}
 
+.sidebar[data-component="p360-sidebar"][data-state="expanded"] .nav-title{
+  display:flex !important;
+}
 
-/* ===================================================================
-   P360 FIX (FORCE TEXT ON EXPANDED)
-   - En tu screenshot está expanded pero .tx no aparece => algún CSS pisa
-   - Esto lo corrige sí o sí.
-   =================================================================== */
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .tx{
+  display:none !important;
+}
 
-/* Siempre muestra labels en expanded (desktop y mobile) */
+.sidebar[data-component="p360-sidebar"]:not(.is-mobile)[data-state="collapsed"] .nav-title{
+  display:none !important;
+}
+
+/* Expanded force */
 .sidebar[data-component="p360-sidebar"][data-state="expanded"] .tip .tx{
   display:inline-block !important;
   visibility:visible !important;
   opacity:1 !important;
   width:auto !important;
   height:auto !important;
-  max-width: none !important;
+  max-width:none !important;
 }
 
-/* Asegura que el layout del tip deje espacio para texto */
 .sidebar[data-component="p360-sidebar"][data-state="expanded"] .tip{
   justify-content:flex-start !important;
 }
 
-/* También asegura títulos de grupo */
 .sidebar[data-component="p360-sidebar"][data-state="expanded"] .nav-title{
   display:flex !important;
   visibility:visible !important;
   opacity:1 !important;
 }
 
-/* Solo ocultar labels cuando esté collapsed en desktop */
 @media (min-width:1100px){
   .sidebar[data-component="p360-sidebar"][data-state="collapsed"] .tip .tx{
     display:none !important;
   }
 }
 
-/* ==========================================================
-   P360 NUCLEAR FIX: en EXPANDED siempre se ve label+desc
-   (gana contra cualquier CSS global tipo .tx{display:none})
-   ========================================================== */
-
+/* Nuclear fix */
 .sidebar[data-component="p360-sidebar"][data-state="expanded"] a.tip > .tx,
 .sidebar[data-component="p360-sidebar"][data-state="expanded"] button.tip > .tx{
   display:flex !important;
@@ -474,7 +473,6 @@ html.theme-dark .sidebar[data-component="p360-sidebar"] .lock{
   opacity:.95 !important;
 }
 
-/* Solo ocultar texto en COLLAPSED desktop */
 @media (min-width:1100px){
   .sidebar[data-component="p360-sidebar"][data-state="collapsed"] a.tip > .tx,
   .sidebar[data-component="p360-sidebar"][data-state="collapsed"] button.tip > .tx{

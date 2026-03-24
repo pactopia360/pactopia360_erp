@@ -1,91 +1,233 @@
 {{-- resources/views/layouts/app.blade.php --}}
 <!doctype html>
-<html lang="es" class="h-full">
+<html lang="es" class="h-full" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <title>@yield('title', 'Pactopia360 · Admin')</title>
+  <title>@yield('title', 'Pactopia360')</title>
 
-  {{-- CSS mínimo para no depender de parciales ni compilaciones --}}
   <style>
     :root{
-      --bg:#f6f7f9; --card:#fff; --text:#111827; --muted:#6b7280;
-      --primary:#d72d08; --border:#e5e7eb; --ok:#16a34a; --warn:#f59e0b; --err:#ef4444;
+      --bg:#0b1220;
+      --bg-light:#eef2f7;
+      --card:rgba(255,255,255,0.08);
+      --card-light:#ffffff;
+      --text:#e5e7eb;
+      --text-light:#111827;
+      --muted:#9ca3af;
+      --primary:#3b82f6;
+      --gradient:linear-gradient(135deg,#1e3a8a,#2563eb);
+      --border:rgba(255,255,255,0.08);
     }
-    html,body{height:100%}
-    body{margin:0; font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji"; background:var(--bg); color:var(--text)}
-    .wrap{max-width:1200px; margin:24px auto; padding:0 16px}
-    .card{background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 10px 20px rgba(0,0,0,.04)}
-    .card-hd{padding:16px 20px; border-bottom:1px solid var(--border); font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:10px}
-    .card-bd{padding:20px}
-    .alert{padding:12px 14px; border-radius:10px; margin:8px 0}
-    .alert-ok{background:#ecfdf5; border:1px solid #a7f3d0}
-    .alert-warn{background:#fffbeb; border:1px solid #fde68a}
-    .alert-err{background:#fef2f2; border:1px solid #fecaca}
-    table{width:100%; border-collapse:collapse}
-    th,td{padding:10px 12px; border-bottom:1px solid var(--border); text-align:left}
-    th{font-weight:600; color:#374151; background:#f9fafb}
-    .muted{color:var(--muted)}
-    a{color:var(--primary); text-decoration:none}
-    a:hover{text-decoration:underline}
 
-    /* Toolbar de captura */
-    .shot-toolbar{display:flex; align-items:center; gap:6px}
-    .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:#fff; color:var(--text); padding:6px 10px; border-radius:10px; font-weight:600; cursor:pointer; text-decoration:none}
-    .btn:hover{background:#f9fafb}
-    .btn-sm{padding:5px 9px; font-size:14px; border-radius:9px}
-    .btn-outline{background:transparent}
-    .btn-outline:hover{background:#f9fafb}
-    .badge{display:inline-block; padding:.25rem .5rem; font-size:12px; font-weight:700; border-radius:999px; border:1px solid var(--border); background:#fff; color:#374151}
-    .tag{display:inline-flex; align-items:center; gap:6px}
+    [data-theme="light"]{
+      --bg:var(--bg-light);
+      --card:var(--card-light);
+      --text:var(--text-light);
+      --border:#e5e7eb;
+    }
+
+    html,body{
+      height:100%;
+      margin:0;
+      font-family:ui-sans-serif,system-ui;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    /* BACKGROUND GRADIENT */
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      background:radial-gradient(circle at 20% 20%, #1e3a8a, transparent 40%),
+                 radial-gradient(circle at 80% 80%, #2563eb, transparent 40%);
+      opacity:.4;
+      z-index:-1;
+    }
+
+    .layout{
+      display:flex;
+      min-height:100vh;
+    }
+
+    /* SIDEBAR */
+    .sidebar{
+      width:240px;
+      background:rgba(15,23,42,.9);
+      backdrop-filter:blur(12px);
+      border-right:1px solid var(--border);
+      padding:20px;
+    }
+
+    .logo{
+      font-weight:800;
+      font-size:20px;
+      letter-spacing:.5px;
+      background:linear-gradient(90deg,#60a5fa,#3b82f6);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      margin-bottom:30px;
+    }
+
+    .menu a{
+      display:block;
+      padding:10px 12px;
+      border-radius:10px;
+      color:var(--muted);
+      text-decoration:none;
+      margin-bottom:6px;
+      font-weight:500;
+    }
+
+    .menu a:hover{
+      background:rgba(255,255,255,.05);
+      color:#fff;
+    }
+
+    .menu a.active{
+      background:rgba(59,130,246,.2);
+      color:#fff;
+    }
+
+    /* CONTENT */
+    .content{
+      flex:1;
+      padding:20px 30px;
+    }
+
+    /* TOPBAR */
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:20px;
+    }
+
+    .search{
+      flex:1;
+      max-width:400px;
+      background:rgba(255,255,255,.05);
+      border-radius:12px;
+      padding:10px 14px;
+      border:1px solid var(--border);
+      color:#fff;
+    }
+
+    .user{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-weight:600;
+    }
+
+    .avatar{
+      width:36px;
+      height:36px;
+      border-radius:50%;
+      background:#3b82f6;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:bold;
+    }
+
+    /* CARD */
+    .card{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:20px;
+      margin-bottom:20px;
+    }
+
+    /* BUTTON */
+    .btn{
+      background:var(--gradient);
+      border:none;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:600;
+    }
+
+    .btn:hover{
+      opacity:.9;
+    }
+
+    /* DARK/LIGHT TOGGLE */
+    .toggle{
+      cursor:pointer;
+      border-radius:10px;
+      padding:6px 10px;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,.05);
+    }
+
   </style>
 
   @stack('head')
-  @yield('head')
 </head>
-<body class="h-full">
-  <div class="wrap">
-    <div class="card" id="cardMain" data-shot="area">
-      <div class="card-hd">
-        <div class="tag">
-          @yield('header', 'Panel de Administración')
-          <span class="badge">Layout base</span>
-        </div>
 
-        {{-- Toolbar de captura: exporta esta tarjeta (cardMain) --}}
-        <div class="shot-toolbar" role="group" aria-label="Exportar captura">
-          <button type="button"
-                  class="btn btn-sm btn-outline"
-                  title="Exportar esta sección como PNG"
-                  data-shot="png"
-                  data-shot-target="#cardMain"
-                  data-no-pjax>
-            🖼️ PNG
-          </button>
-          <button type="button"
-                  class="btn btn-sm btn-outline"
-                  title="Exportar esta sección como JPG"
-                  data-shot="jpg"
-                  data-shot-target="#cardMain"
-                  data-no-pjax>
-            JPG
-          </button>
-        </div>
-      </div>
+<body>
 
-      <div class="card-bd">
-        @if (session('status'))
-          <div class="alert alert-ok">{{ session('status') }}</div>
-        @endif
+<div class="layout">
 
-        @yield('content')
-      </div>
+  {{-- SIDEBAR --}}
+  <aside class="sidebar">
+    <div class="logo">
+      PACTOPIA
     </div>
-  </div>
 
-  @stack('scripts')
-  @yield('scripts')
+    <nav class="menu">
+      <a href="#" class="active">Inicio</a>
+      <a href="#">Cuenta</a>
+      <a href="#">Módulos</a>
+      <a href="#">Configuración</a>
+    </nav>
+  </aside>
+
+  {{-- MAIN --}}
+  <main class="content">
+
+    {{-- TOPBAR --}}
+    <div class="topbar">
+
+      <input class="search" placeholder="Buscar en tu cuenta...">
+
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="toggle" onclick="toggleTheme()">🌙</div>
+
+        <div class="user">
+          <div class="avatar">
+            {{ strtoupper(substr(auth()->user()->name ?? 'U',0,1)) }}
+          </div>
+          {{ auth()->user()->name ?? 'Usuario' }}
+        </div>
+      </div>
+
+    </div>
+
+    {{-- CONTENT --}}
+    @yield('content')
+
+  </main>
+
+</div>
+
+<script>
+function toggleTheme(){
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+}
+</script>
+
+@stack('scripts')
+
 </body>
 </html>

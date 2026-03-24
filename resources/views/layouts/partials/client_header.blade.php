@@ -1,5 +1,7 @@
 {{-- resources/views/layouts/partials/client_header.blade.php
-v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil” + estilos mejorados --}}
+   Pactopia360 · Client Header · nuevo branding azul/blanco
+   conserva dropdown, tema, badges, “Mi cuenta”, etc.
+--}}
 @php
   use Illuminate\Support\Facades\Route;
   use App\Http\Controllers\Cliente\HomeController as ClientHome;
@@ -8,11 +10,11 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
   $theme             = $isFirstPassword ? 'light' : session('client_ui.theme', 'light');
   $routeThemeSwitch  = Route::has('cliente.ui.theme.switch') ? route('cliente.ui.theme.switch') : '';
 
-  // LOGOS (archivos nuevos sin espacios)
-  $logoLightUrl = '/assets/client/p360-black.png';
-  $logoDarkUrl  = '/assets/client/p360-white.png';
+  // Logo actual (claro/oscuro)
+$logoLightUrl = '/assets/client/img/Pactopia - Letra AZUL.png';
+$logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
 
-  // SPRITE
+  // Sprite
   $spriteUrl    = '/assets/client/icons.svg';
   $spriteInline = '';
   try {
@@ -33,7 +35,7 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
   $name   = $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta';
   $email  = $u?->email ?? '';
 
-  // ===== Resumen unificado de cuenta (admin.accounts) =====
+  // Resumen unificado de cuenta
   $summary = app(ClientHome::class)->buildAccountSummary();
 
   $planRaw  = strtoupper((string)($summary['plan'] ?? ($c->plan_actual ?? $c->plan ?? 'FREE')));
@@ -45,11 +47,10 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
       true
   ));
 
-  // Lo que se muestra en el chip del header
   $plan      = $planRaw;
   $planBadge = $isProPlan ? 'PRO' : $planRaw;
 
-  // Rutas de navegación base
+  // Rutas
   $rtHome     = Route::has('cliente.home') ? route('cliente.home') : url('/cliente');
   $rtSearchTo = Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
   $rtAlerts   = Route::has('cliente.alertas')
@@ -58,22 +59,19 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
   $rtChat     = Route::has('cliente.soporte.chat')
                   ? route('cliente.soporte.chat')
                   : (Route::has('cliente.chat') ? route('cliente.chat') : '#');
-  $rtCart     = Route::has('cliente.marketplace')
-                  ? route('cliente.marketplace')
-                  : (Route::has('cliente.tienda') ? route('cliente.tienda') : '#');
   $rtLogout   = Route::has('cliente.logout') ? route('cliente.logout') : url('/cliente/logout');
 
-  // PERFIL (Mi perfil)
+  // Perfil
   $rtPerfil = Route::has('cliente.perfil')
       ? route('cliente.perfil')
       : url('cliente/perfil');
 
-  // MI CUENTA (nuevo)
+  // Mi cuenta
   $rtMiCuenta = Route::has('cliente.mi_cuenta')
       ? route('cliente.mi_cuenta')
-      : url('cliente/mi-cuenta');
+      : (Route::has('cliente.mi_cuenta.index') ? route('cliente.mi_cuenta.index') : url('cliente/mi-cuenta'));
 
-  // CONFIGURACIÓN (varios posibles nombres; NUNCA cae a perfil)
+  // Configuración
   $rtSettings = null;
   foreach ([
       'cliente.settings',
@@ -91,68 +89,89 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
       $rtSettings = url('cliente/configuracion');
   }
 
-  // Ruta para ir al módulo SAT / carrito SAT al darle "Proceder a pago"
+  // Ruta SAT carrito
   $rtSatPay = Route::has('cliente.sat.cart.index')
       ? route('cliente.sat.cart.index')
       : (Route::has('cliente.sat.index')
           ? route('cliente.sat.index')
           : url('cliente/sat'));
 
-  // Badges (opcionales)
+  // Badges
   $notifCount = (int)($notifCount ?? 0);
   $chatCount  = (int)($chatCount  ?? 0);
   $cartCount  = (int)($cartCount  ?? 0);
 
-  // Href para <use/> del sprite
+  // Helper href sprite
   $uHref = function(string $id) use ($spriteInline, $spriteUrl) {
     return $spriteInline !== '' ? "#{$id}" : ($spriteUrl . "#{$id}");
   };
 
-  // Inicial de avatar
-  $initial = strtoupper(mb_substr(trim((string)($u?->nombre ?? $u?->email ?? '')), 0, 1));
+  // Inicial avatar
+  $initial = strtoupper(mb_substr(trim((string)($u?->nombre ?? $u?->email ?? 'U')), 0, 1));
 
   // Nombre de cuenta mostrado
   $acctLabel = $u?->razon_social ?? $u?->nombre ?? $u?->email ?? 'Cuenta cliente';
 @endphp
 
-
-<header id="p360-client" class="topbar" role="banner"
-        style="grid-template-columns:auto 1fr auto; gap:16px; height:var(--header);"
-        data-theme-switch="{{ $routeThemeSwitch }}"
-        data-logo-light="{{ $logoLightUrl }}"
-        data-logo-dark="{{ $logoDarkUrl }}"
-        data-icon-sprite="{{ $spriteUrl }}"
-        data-force-light="{{ $isFirstPassword ? '1' : '0' }}">
+<header
+  id="p360-client"
+  class="topbar"
+  role="banner"
+  data-theme-switch="{{ $routeThemeSwitch }}"
+  data-logo-light="{{ $logoLightUrl }}"
+  data-logo-dark="{{ $logoDarkUrl }}"
+  data-icon-sprite="{{ $spriteUrl }}"
+  data-force-light="{{ $isFirstPassword ? '1' : '0' }}"
+>
   @if($spriteInline !== '')
     <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">{!! $spriteInline !!}</svg>
   @endif
 
-  {{-- Marca (logo proporcional controlado por --logo-h) --}}
-  <div class="brand" style="display:flex;align-items:center;gap:10px">
-    <a href="{{ $rtHome }}" aria-label="Inicio" style="display:flex;align-items:center;gap:8px;">
-      <img id="brandLogo" class="brand-logo" src="{{ $brandSrc }}" alt="Pactopia360"
-           data-src-light="{{ $logoLightUrl }}" data-src-dark="{{ $logoDarkUrl }}">
+  {{-- Marca --}}
+  <div class="p360-head-brand">
+    <a href="{{ $rtHome }}" aria-label="Inicio Pactopia360" class="p360-head-brand__link">
+      <img
+        id="brandLogo"
+        class="p360-head-brand__logo"
+        src="{{ $brandSrc }}"
+        alt="Pactopia360"
+        data-src-light="{{ $logoLightUrl }}"
+        data-src-dark="{{ $logoDarkUrl }}"
+      >
+      <div class="p360-head-brand__meta">
+        <span class="p360-head-brand__eyebrow">Pactopia360</span>
+        <span class="p360-head-brand__title">Portal Usuario</span>
+      </div>
     </a>
   </div>
 
-  {{-- Buscador (centrado en la franja superior) --}}
-  <form class="searchbar"
-        role="search"
-        action="{{ $rtSearchTo }}"
-        method="GET"
-        aria-label="Buscar CFDI o datos"
-        style="justify-self:center;">
+  {{-- Buscador --}}
+  <form
+    class="p360-head-search"
+    role="search"
+    action="{{ $rtSearchTo }}"
+    method="GET"
+    aria-label="Buscar CFDI o datos"
+  >
     <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('search') }}"/></svg>
-    <input name="q" placeholder="Buscar en tu cuenta (CFDI, receptor, folio…)" autocomplete="off" />
+    <input
+      name="q"
+      placeholder="Buscar en tu cuenta, CFDI, receptor, folio..."
+      autocomplete="off"
+    />
   </form>
 
-  {{-- Acciones header (SIN botón de menú) --}}
-  <div class="top-actions" style="display:flex; align-items:center; gap:14px;">
+  {{-- Acciones --}}
+  <div class="p360-head-actions">
     {{-- Tema --}}
-    <button id="btnTheme" class="btn icon" type="button"
-            title="{{ $isFirstPassword ? 'Tema fijo en claro en esta pantalla' : 'Cambiar tema' }}"
-            aria-pressed="{{ $theme === 'dark' ? 'true' : 'false' }}"
-            {{ $isFirstPassword ? 'disabled style=opacity:.35;cursor:not-allowed' : '' }}>
+    <button
+      id="btnTheme"
+      class="p360-icon-btn"
+      type="button"
+      title="{{ $isFirstPassword ? 'Tema fijo en claro en esta pantalla' : 'Cambiar tema' }}"
+      aria-pressed="{{ $theme === 'dark' ? 'true' : 'false' }}"
+      {{ $isFirstPassword ? 'disabled style=opacity:.35;cursor:not-allowed' : '' }}
+    >
       @if ($theme === 'dark')
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('moon') }}"/></svg>
       @else
@@ -161,45 +180,55 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
     </button>
 
     {{-- Notificaciones --}}
-    <a class="btn icon" href="{{ $rtAlerts }}" title="Notificaciones" aria-label="Notificaciones">
+    <a class="p360-icon-btn" href="{{ $rtAlerts }}" title="Notificaciones" aria-label="Notificaciones">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('bell') }}"/></svg>
-      @if($notifCount > 0)<span class="badge" aria-label="{{ $notifCount }} notificaciones">{{ $notifCount }}</span>@endif
+      @if($notifCount > 0)
+        <span class="p360-badge" aria-label="{{ $notifCount }} notificaciones">{{ $notifCount }}</span>
+      @endif
     </a>
 
-    {{-- Chat/Soporte --}}
-    <a class="btn icon" href="{{ $rtChat }}" title="Mensajes con soporte" aria-label="Mensajes con soporte">
+    {{-- Chat --}}
+    <a class="p360-icon-btn" href="{{ $rtChat }}" title="Mensajes con soporte" aria-label="Mensajes con soporte">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('chat') }}"/></svg>
-      @if($chatCount > 0)<span class="badge" aria-label="{{ $chatCount }} mensajes">{{ $chatCount }}</span>@endif
+      @if($chatCount > 0)
+        <span class="p360-badge" aria-label="{{ $chatCount }} mensajes">{{ $chatCount }}</span>
+      @endif
     </a>
 
-    {{-- ===== MINI CARRITO SAT (estilo Amazon: botón amarillo + badge rojo) ===== --}}
-    <div id="satCartHeader" class="sat-cart-header" style="display:none;">
-      <a href="{{ Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : $rtSatPay }}"
-         class="sat-cart-header-btn"
-         title="Carrito SAT"
-         aria-label="Carrito SAT">
-        <svg class="sat-cart-header-ico" viewBox="0 0 24 24" aria-hidden="true">
+    {{-- Carrito SAT --}}
+    <div id="satCartHeader" class="p360-sat-cart" style="display:none;">
+      <a
+        href="{{ Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : $rtSatPay }}"
+        class="p360-sat-cart__btn"
+        title="Carrito SAT"
+        aria-label="Carrito SAT"
+      >
+        <svg class="p360-sat-cart__ico" viewBox="0 0 24 24" aria-hidden="true">
           <use href="{{ asset('assets/client/icons.svg#cart') }}" />
         </svg>
-        <span id="satCartHeaderCount" class="sat-cart-header-badge">0</span>
+        <span id="satCartHeaderCount" class="p360-sat-cart__badge">0</span>
       </a>
     </div>
-    {{-- ===== / MINI CARRITO SAT ===== --}}
 
-    {{-- Cuenta / Perfil --}}
-    <div class="account" style="display:flex; align-items:center; gap:10px;">
-      <div class="acct-meta">
-        <span class="acct-name">{{ $acctLabel }}</span>
-        <span class="acct-plan" title="Plan actual: {{ $plan }}">{{ $planBadge }}</span>
+    {{-- Cuenta --}}
+    <div class="p360-account">
+      <div class="p360-account__meta">
+        <span class="p360-account__name" title="{{ $acctLabel }}">{{ $acctLabel }}</span>
+        <span class="p360-account__plan" title="Plan actual: {{ $plan }}">{{ $planBadge }}</span>
       </div>
 
       <div class="menu-profile" style="position:relative">
-        <button id="btnProfile" class="btn icon" aria-haspopup="menu" aria-expanded="false"
-                aria-controls="menuProfile" title="Cuenta">
-          <span class="avatar" aria-hidden="true">{{ $initial ?: 'U' }}</span>
+        <button
+          id="btnProfile"
+          class="p360-profile-btn"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="menuProfile"
+          title="Cuenta"
+        >
+          <span class="p360-profile-btn__avatar" aria-hidden="true">{{ $initial ?: 'U' }}</span>
         </button>
 
-        {{-- Dropdown modernizado --}}
         <div id="menuProfile" class="dropdown dd-profile" role="menu" aria-labelledby="btnProfile" hidden>
           <div class="dd-head" role="none">
             <div class="dd-ava" aria-hidden="true">{{ $initial ?: 'U' }}</div>
@@ -218,7 +247,6 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
               <span>Mi perfil</span>
             </a>
 
-            {{-- NUEVO: Mi cuenta (debajo de Mi perfil) --}}
             <a class="dd-item" href="{{ $rtMiCuenta }}" role="menuitem">
               <svg class="dd-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('credit-card') }}"/></svg>
               <span>Mi cuenta</span>
@@ -246,196 +274,406 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
 </header>
 
 <style>
-  :root{ --header-h:64px; --header:64px; --ico:20px; }
-
-  /* Tamaños adaptativos del logo (usa --logo-h del core) */
-  .brand-logo{ height: var(--logo-h); width:auto; display:block }
-  @media (max-width: 900px){ :root{ --logo-h:34px } }
-  @media (max-width: 520px){ :root{ --logo-h:28px } }
-
-  .topbar, .topbar * {
-    font-family: 'Poppins', var(--font-sans, ui-sans-serif), system-ui, -apple-system,
-                 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  :root{
+    --header-h:72px;
+    --header:72px;
+    --ico:20px;
+    --logo-h:42px;
+    --p360-hd-bg-light: rgba(255,255,255,.78);
+    --p360-hd-bg-dark: rgba(8,18,38,.82);
+    --p360-hd-bd-light: rgba(15,23,42,.08);
+    --p360-hd-bd-dark: rgba(255,255,255,.08);
+    --p360-hd-chip-light: rgba(255,255,255,.72);
+    --p360-hd-chip-dark: rgba(255,255,255,.06);
+    --p360-hd-brand: #2563eb;
+    --p360-hd-brand-2: #60a5fa;
   }
+
+  @media (max-width: 900px){ :root{ --logo-h:36px; } }
+  @media (max-width: 520px){ :root{ --logo-h:30px; } }
+
+  .topbar,
+  .topbar *{
+    font-family:'Poppins', var(--font-sans, ui-sans-serif), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    box-sizing:border-box;
+  }
+
   .topbar{
-    position: sticky; top:0; z-index:50; display:grid; align-items:center;
-    padding:12px 20px;
-    background: color-mix(in oklab, var(--card,#fff) 92%, transparent);
-    border-bottom:1px solid var(--bd,#e5e7eb); backdrop-filter: saturate(140%) blur(6px);
-  }
-  html.theme-dark .topbar{
-    background: color-mix(in oklab, #0b1220 86%, transparent);
-    border-bottom-color: rgba(255,255,255,.12);
+    position:sticky;
+    top:0;
+    z-index:50;
+    display:grid;
+    grid-template-columns:minmax(220px, auto) minmax(320px, 1fr) auto;
+    align-items:center;
+    gap:18px;
+    min-height:var(--header);
+    padding:12px 22px;
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    background:var(--p360-hd-bg-light);
+    border-bottom:1px solid var(--p360-hd-bd-light);
+    box-shadow:0 8px 28px rgba(15,23,42,.04);
   }
 
- .ico{
+  html.theme-dark .topbar{
+    background:var(--p360-hd-bg-dark);
+    border-bottom-color:var(--p360-hd-bd-dark);
+    box-shadow:0 12px 30px rgba(0,0,0,.18);
+  }
+
+  .p360-head-brand{
+    min-width:0;
+  }
+
+  .p360-head-brand__link{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    text-decoration:none;
+    min-width:0;
+  }
+
+  .p360-head-brand__logo{
+    height:var(--logo-h);
+    width:auto;
+    display:block;
+    object-fit:contain;
+    filter: drop-shadow(0 4px 10px rgba(37,99,235,.12));
+  }
+
+  .p360-head-brand__meta{
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+    line-height:1.05;
+  }
+
+  .p360-head-brand__eyebrow{
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--muted,#64748b);
+  }
+
+  .p360-head-brand__title{
+    font-size:15px;
+    font-weight:800;
+    color:var(--text,#0f172a);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  html.theme-dark .p360-head-brand__title{
+    color:#e8eefc;
+  }
+
+  .ico{
     width:var(--ico);
     height:var(--ico);
     display:block;
-    color: var(--text,#0f172a);
+    color:var(--text,#0f172a);
     fill: currentColor !important;
     stroke: currentColor !important;
   }
 
-  /* Fuerza que el contenido referenciado por <use> también herede color */
   .ico use,
   .dd-ico use,
-  .sat-cart-header-ico use{
+  .p360-sat-cart__ico use{
     fill: currentColor !important;
     stroke: currentColor !important;
   }
 
-  /* Íconos del dropdown */
-  .dd-ico{
-    width:18px;
-    height:18px;
-    opacity:.85;
+  .p360-head-search{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    width:100%;
+    max-width:760px;
+    min-width:240px;
+    height:46px;
+    margin-inline:auto;
+    padding:0 16px;
+    border-radius:999px;
+    border:1px solid rgba(37,99,235,.10);
+    background:linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.64));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 10px 24px rgba(15,23,42,.04);
+  }
+
+  html.theme-dark .p360-head-search{
+    background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+    border-color:rgba(255,255,255,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 10px 24px rgba(0,0,0,.12);
+  }
+
+  .p360-head-search .ico{
+    color:color-mix(in oklab, var(--text,#0f172a) 60%, transparent);
     flex:0 0 auto;
-    color: inherit;
-    fill: currentColor !important;
-    stroke: currentColor !important;
   }
 
-  /* Ícono del carrito SAT */
-  .sat-cart-header-ico{
+  .p360-head-search input{
+    all:unset;
+    flex:1;
+    font-size:14px;
+    font-weight:600;
+    color:var(--text,#0f172a);
+  }
+
+  html.theme-dark .p360-head-search input{
+    color:#e5eefc;
+  }
+
+  .p360-head-search input::placeholder{
+    color:color-mix(in oklab, var(--muted,#64748b) 86%, transparent);
+    font-weight:600;
+  }
+
+  .p360-head-actions{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    justify-self:end;
+  }
+
+  .p360-icon-btn{
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:42px;
+    height:42px;
+    border-radius:14px;
+    border:1px solid rgba(37,99,235,.10);
+    background:linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,255,255,.70));
+    box-shadow:0 10px 22px rgba(15,23,42,.04);
+    cursor:pointer;
+    text-decoration:none;
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+  }
+
+  .p360-icon-btn:hover{
+    transform:translateY(-1px);
+    box-shadow:0 14px 28px rgba(37,99,235,.10);
+    border-color:rgba(37,99,235,.18);
+  }
+
+  html.theme-dark .p360-icon-btn{
+    background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+    border-color:rgba(255,255,255,.08);
+    box-shadow:0 10px 24px rgba(0,0,0,.14);
+  }
+
+  html.theme-dark .p360-icon-btn:hover{
+    border-color:rgba(96,165,250,.22);
+    box-shadow:0 14px 30px rgba(0,0,0,.22);
+  }
+
+  .p360-badge{
+    position:absolute;
+    top:-5px;
+    right:-5px;
+    min-width:18px;
+    height:18px;
+    padding:0 6px;
+    border-radius:999px;
+    background:#ef4444;
+    color:#fff;
+    font:800 11px/18px system-ui;
+    text-align:center;
+    border:2px solid rgba(255,255,255,.92);
+  }
+
+  html.theme-dark .p360-badge{
+    border-color:#0b1220;
+  }
+
+  .p360-sat-cart{
+    display:flex;
+    align-items:center;
+  }
+
+  .p360-sat-cart__btn{
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:42px;
+    height:42px;
+    border-radius:14px;
+    border:1px solid #facc15;
+    background:linear-gradient(180deg, #ffe277 0%, #ffd814 100%);
+    box-shadow:0 10px 22px rgba(245,158,11,.18);
+    padding:0;
+    cursor:pointer;
+    transition:transform .16s ease, box-shadow .16s ease, filter .16s ease;
+  }
+
+  .p360-sat-cart__btn:hover{
+    filter:brightness(.985);
+    transform:translateY(-1px);
+    box-shadow:0 14px 28px rgba(245,158,11,.24);
+  }
+
+  .p360-sat-cart__ico{
     width:20px;
     height:20px;
     color:#111827;
     fill: currentColor !important;
     stroke: currentColor !important;
   }
-  html.theme-dark .sat-cart-header-ico{
-    color:#0b1220;
+
+  .p360-sat-cart__badge{
+    position:absolute;
+    bottom:-4px;
+    right:-4px;
+    min-width:18px;
+    height:18px;
+    padding:0 5px;
+    border-radius:999px;
+    background:#ef4444;
+    color:#fff;
+    font:700 11px/18px system-ui;
+    border:2px solid #fff;
   }
 
-
-  .searchbar{
-    display:flex; align-items:center; gap:8px;
-    border:1px solid var(--bd,#e5e7eb); border-radius:999px;
-    background: var(--chip, #f8fafc);
-    padding:0 12px; height:40px; max-width:620px; width:100%;
-    margin-inline:auto;
-  }
-  html.theme-dark .searchbar{
-    background: color-mix(in oklab, #fff 6%, transparent);
-  }
-  .searchbar .ico{
-    color: color-mix(in oklab, var(--text,#0f172a) 60%, transparent);
-  }
-  .searchbar input{
-    all:unset; flex:1; font-weight:600; color:var(--text,#0f172a); font-size:14px;
+  .p360-account{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding-left:4px;
   }
 
-  .btn.icon{
-    position:relative; display:inline-flex; align-items:center; justify-content:center;
-    width:40px; height:40px; border-radius:12px;
-    border:1px solid var(--bd,#e5e7eb); background:var(--card,#fff); cursor:pointer;
-  }
-  html.theme-dark .btn.icon{
-    background: color-mix(in oklab, #fff 6%, transparent);
-    border-color: rgba(255,255,255,.12);
-  }
-
-  .badge{
-    position:absolute; top:-6px; right:-6px; min-width:18px; height:18px;
-    padding:0 6px; border-radius:999px; background:#ef4444; color:#fff;
-    font:800 11px/18px system-ui; text-align:center;
-    border:2px solid color-mix(in oklab, var(--card,#fff) 92%, transparent);
+  .p360-account__meta{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    line-height:1.05;
+    min-width:170px;
+    max-width:260px;
   }
 
-  .acct-meta{
-    display:flex; flex-direction:column; align-items:flex-end; line-height:1.1; min-width:160px;
-  }
-  .acct-name{ font-weight:700; color:var(--text,#0f172a); }
-  .acct-plan{ font-size:12px; color:var(--muted,#6b7280); font-weight:700; }
-
-  .avatar{
-    width:36px; height:36px; border-radius:999px; display:grid; place-items:center;
-    background: var(--brand,#E11D48); color:#fff; font-weight:800; font-size:14px;
-  }
-
-  @media (max-width: 900px){
-    .acct-meta{ display:none; }
-    .searchbar{ max-width:100%; }
+  .p360-account__name{
+    font-size:13px;
+    font-weight:800;
+    color:var(--text,#0f172a);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:100%;
   }
 
-  /* ========== MINI CARRITO SAT EN HEADER (estilo Amazon) ========== */
-  .sat-cart-header{ display:flex; align-items:center; }
-  .sat-cart-header-btn{
-    position:relative;
+  html.theme-dark .p360-account__name{
+    color:#e8eefc;
+  }
+
+  .p360-account__plan{
+    margin-top:4px;
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    width:40px;
-    height:40px;
-    border-radius:12px;
-    border:1px solid #facc15;
-    background:#ffd814;
-    padding:0;
-    cursor:pointer;
-    transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
-  }
-  .sat-cart-header-btn:hover{
-    filter:brightness(0.97);
-    box-shadow:0 2px 0 #f59e0b;
-    transform:translateY(-1px);
-  }
-  .sat-cart-header-btn:active{ transform:translateY(0); box-shadow:none; }
-  html.theme-dark .sat-cart-header-btn{ border-color:#eab308; background:#facc15; }
-  .sat-cart-header-ico{ width:20px; height:20px; color:#111827; }
-  .sat-cart-header-badge{
-    position:absolute; bottom:-3px; right:-3px;
-    min-width:18px; height:18px; padding:0 5px;
+    padding:5px 10px;
     border-radius:999px;
-    background:#ef4444; color:#fff;
-    font:700 11px/18px system-ui;
-    border:2px solid #ffffff;
+    font-size:11px;
+    font-weight:900;
+    letter-spacing:.04em;
+    color:#0f4ed8;
+    background:rgba(37,99,235,.10);
+    border:1px solid rgba(37,99,235,.14);
   }
 
-  /* ========== Dropdown perfil modernizado ========== */
-  .dropdown.dd-profile{
-    position:absolute; right:0; top:calc(100% + 10px);
-    width: 280px;
-    background: color-mix(in oklab, var(--card,#fff) 96%, transparent);
-    color: var(--text,#0f172a);
-    border: 1px solid color-mix(in oklab, var(--bd,#e5e7eb) 90%, transparent);
-    border-radius: 16px;
-    box-shadow: 0 18px 46px rgba(2,6,23,.16);
-    padding: 10px;
-    z-index: 60;
-    transform-origin: top right;
+  html.theme-dark .p360-account__plan{
+    color:#cfe1ff;
+    background:rgba(96,165,250,.12);
+    border-color:rgba(96,165,250,.16);
   }
-  .dropdown[hidden]{ display:none !important; }
+
+  .p360-profile-btn{
+    border:0;
+    background:transparent;
+    padding:0;
+    cursor:pointer;
+  }
+
+  .p360-profile-btn__avatar{
+    width:42px;
+    height:42px;
+    border-radius:999px;
+    display:grid;
+    place-items:center;
+    background:linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
+    color:#fff;
+    font-weight:900;
+    font-size:14px;
+    box-shadow:0 12px 26px rgba(37,99,235,.18);
+    border:2px solid rgba(255,255,255,.88);
+  }
+
+  html.theme-dark .p360-profile-btn__avatar{
+    border-color:rgba(10,23,48,.96);
+  }
+
+  .dropdown.dd-profile{
+    position:absolute;
+    right:0;
+    top:calc(100% + 12px);
+    width:292px;
+    background:rgba(255,255,255,.92);
+    color:var(--text,#0f172a);
+    border:1px solid rgba(37,99,235,.10);
+    border-radius:18px;
+    box-shadow:0 20px 56px rgba(15,23,42,.16);
+    padding:10px;
+    z-index:60;
+    transform-origin:top right;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .dropdown[hidden]{
+    display:none !important;
+  }
+
   html.theme-dark .dropdown.dd-profile{
-    background: color-mix(in oklab, #0b1220 92%, transparent);
-    border-color: rgba(255,255,255,.12);
+    background:rgba(9,19,38,.92);
+    border-color:rgba(255,255,255,.08);
     color:#e5e7eb;
-    box-shadow: 0 18px 46px rgba(0,0,0,.40);
+    box-shadow:0 20px 56px rgba(0,0,0,.40);
   }
 
   .dd-head{
-    display:flex; align-items:center; gap:10px;
-    padding:10px 10px 12px;
-    border-radius:14px;
-    background: linear-gradient(180deg,
-      color-mix(in oklab, var(--brand,#E11D48) 10%, transparent),
-      transparent);
-    border: 1px solid color-mix(in oklab, var(--brand,#E11D48) 18%, transparent);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px;
+    border-radius:16px;
+    background:linear-gradient(180deg, rgba(37,99,235,.10), rgba(37,99,235,0));
+    border:1px solid rgba(37,99,235,.12);
   }
+
   html.theme-dark .dd-head{
-    background: linear-gradient(180deg, rgba(255,255,255,.06), transparent);
-    border-color: rgba(255,255,255,.10);
+    background:linear-gradient(180deg, rgba(96,165,250,.10), rgba(96,165,250,0));
+    border-color:rgba(255,255,255,.08);
   }
 
   .dd-ava{
-    width:40px; height:40px; border-radius:999px;
-    display:grid; place-items:center;
-    background: var(--brand,#E11D48);
+    width:42px;
+    height:42px;
+    border-radius:999px;
+    display:grid;
+    place-items:center;
+    background:linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
     color:#fff;
     font-weight:900;
     letter-spacing:.02em;
+    box-shadow:0 10px 24px rgba(37,99,235,.18);
   }
-  .dd-who{ min-width:0; flex:1; }
+
+  .dd-who{
+    min-width:0;
+    flex:1;
+  }
+
   .dd-name{
     font-weight:900;
     font-size:13px;
@@ -445,32 +683,44 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
     overflow:hidden;
     text-overflow:ellipsis;
   }
+
   .dd-mail{
-    margin-top:2px;
+    margin-top:3px;
     font-size:11px;
     font-weight:700;
-    opacity:.75;
+    opacity:.76;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
   }
+
   .dd-chip{
     font-size:11px;
     font-weight:900;
     padding:6px 10px;
     border-radius:999px;
-    border:1px solid color-mix(in oklab, var(--brand,#E11D48) 35%, transparent);
-    background: color-mix(in oklab, var(--brand,#E11D48) 14%, transparent);
+    border:1px solid rgba(37,99,235,.20);
+    background:rgba(37,99,235,.10);
     white-space:nowrap;
+    color:#0f4ed8;
   }
 
-  .dd-section{ padding:10px 4px 6px; }
+  html.theme-dark .dd-chip{
+    color:#d7e6ff;
+    background:rgba(96,165,250,.12);
+    border-color:rgba(96,165,250,.16);
+  }
+
+  .dd-section{
+    padding:10px 4px 6px;
+  }
+
   .dd-label{
     font-size:11px;
     font-weight:900;
-    letter-spacing:.06em;
+    letter-spacing:.08em;
     text-transform:uppercase;
-    opacity:.7;
+    opacity:.65;
     padding:0 8px 8px;
   }
 
@@ -484,35 +734,116 @@ v3.11 · dropdown perfil modernizado + “Mi cuenta” debajo de “Mi perfil”
     background:transparent;
     border:0;
     cursor:pointer;
-    padding:10px 10px;
-    border-radius:12px;
+    padding:11px 10px;
+    border-radius:13px;
     font-weight:800;
     text-align:left;
   }
-  .dd-ico{ width:18px; height:18px; opacity:.85; flex:0 0 auto; }
-  .dd-item:hover{
-    background: color-mix(in oklab, #0b1220 5%, transparent);
+
+  .dd-ico{
+    width:18px;
+    height:18px;
+    opacity:.9;
+    flex:0 0 auto;
+    color:inherit;
+    fill: currentColor !important;
+    stroke: currentColor !important;
   }
+
+  .dd-item:hover{
+    background:rgba(37,99,235,.06);
+  }
+
   html.theme-dark .dd-item:hover{
-    background: rgba(255,255,255,.07);
+    background:rgba(255,255,255,.06);
   }
 
   .dd-sep{
     height:1px;
     margin:8px 6px;
-    background: color-mix(in oklab, var(--bd,#e5e7eb) 70%, transparent);
+    background:rgba(15,23,42,.08);
   }
-  html.theme-dark .dd-sep{ background: rgba(255,255,255,.10); }
+
+  html.theme-dark .dd-sep{
+    background:rgba(255,255,255,.10);
+  }
 
   .dd-danger{
-    color: #b91c1c;
+    color:#b91c1c;
   }
-  html.theme-dark .dd-danger{ color:#fca5a5; }
+
+  html.theme-dark .dd-danger{
+    color:#fca5a5;
+  }
+
   .dd-danger:hover{
-    background: color-mix(in oklab, #ef4444 12%, transparent);
+    background:rgba(239,68,68,.10);
   }
+
   html.theme-dark .dd-danger:hover{
-    background: rgba(239,68,68,.16);
+    background:rgba(239,68,68,.16);
+  }
+
+  @media (max-width: 1180px){
+    .topbar{
+      grid-template-columns:auto 1fr auto;
+      gap:14px;
+    }
+
+    .p360-head-brand__meta{
+      display:none;
+    }
+
+    .p360-account__meta{
+      display:none;
+    }
+  }
+
+  @media (max-width: 900px){
+    .topbar{
+      grid-template-columns:auto 1fr auto;
+      padding:10px 14px;
+      gap:10px;
+    }
+
+    .p360-head-search{
+      min-width:0;
+      max-width:100%;
+      height:42px;
+      padding:0 14px;
+    }
+
+    .p360-icon-btn,
+    .p360-sat-cart__btn,
+    .p360-profile-btn__avatar{
+      width:40px;
+      height:40px;
+    }
+
+    .dropdown.dd-profile{
+      width:280px;
+      right:0;
+    }
+  }
+
+  @media (max-width: 640px){
+    .topbar{
+      grid-template-columns:auto 1fr auto;
+    }
+
+    .p360-head-search input{
+      font-size:13px;
+    }
+
+    .p360-head-actions{
+      gap:8px;
+    }
+
+    .p360-head-brand__logo{
+      max-width:140px;
+      height:auto;
+      max-height:var(--logo-h);
+    }
   }
 </style>
 
@@ -538,16 +869,19 @@ window.addEventListener('DOMContentLoaded', () => {
       logo.src = (next === 'dark') ? darkSrc : lightSrc;
     }
   }
+
   function setTheme(next){
     html.setAttribute('data-theme', next);
     html.classList.remove('theme-dark','theme-light');
     html.classList.add(next === 'dark' ? 'theme-dark' : 'theme-light');
+
     if (btnTheme){
       btnTheme.setAttribute('aria-pressed', next === 'dark' ? 'true' : 'false');
       btnTheme.innerHTML = next === 'dark'
         ? `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="${useHref('moon')}"/></svg>`
         : `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="${useHref('sun')}"/></svg>`;
     }
+
     setLogoForTheme(next);
   }
 
@@ -556,13 +890,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
   btnTheme?.addEventListener('click', async () => {
     if (forceLight) return;
+
     const next = (html.getAttribute('data-theme') === 'dark') ? 'light' : 'dark';
     setTheme(next);
+
     if(route){
       try{
         await fetch(route, {
           method:'POST',
-          headers:{ 'Content-Type':'application/json', 'X-CSRF-TOKEN': csrf },
+          headers:{
+            'Content-Type':'application/json',
+            'X-CSRF-TOKEN': csrf
+          },
           body: JSON.stringify({ theme: next })
         });
       }catch(e){
@@ -573,7 +912,6 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Altura dinámica del header → variables CSS
   const h = root?.getBoundingClientRect().height;
   if (h){
     const px = `${Math.round(h)}px`;
@@ -581,7 +919,6 @@ window.addEventListener('DOMContentLoaded', () => {
     html.style.setProperty('--header-h', px);
   }
 
-  // Dropdown perfil (abrir/cerrar)
   const btnProfile  = document.getElementById('btnProfile');
   const menuProfile = document.getElementById('menuProfile');
 
@@ -594,9 +931,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   btnProfile?.addEventListener('click', () => {
     if(!menuProfile) return;
-    const open = menuProfile.hidden;
-    menuProfile.hidden = !open;
-    btnProfile.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const willOpen = menuProfile.hidden;
+    menuProfile.hidden = !willOpen;
+    btnProfile.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
   });
 
   document.addEventListener('click', (e) => {
