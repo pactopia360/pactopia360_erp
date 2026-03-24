@@ -6,260 +6,291 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
 
-  <script>document.documentElement.classList.add('page-login-client');</script>
-  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}">
+  <script>
+    document.documentElement.classList.add('page-login-client');
 
-  <style>
-    /* Oculta headers globales si los hubiera */
-    html.page-login-client body > header,
-    html.page-login-client header[role="banner"],
-    html.page-login-client header.navbar,
-    html.page-login-client header.site-header,
-    html.page-login-client .topbar .brand { display:none !important; }
+    (function () {
+      try {
+        var saved = localStorage.getItem('p360_client_login_theme');
+        var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = saved === 'dark' || saved === 'light' ? saved : (systemDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-login-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-login-theme', 'light');
+      }
+    })();
+  </script>
 
-    /* Alertas compactas */
-    .alert-block{border-radius:.6rem;padding:.75rem 1rem;margin-bottom:1rem;font-size:.9rem;line-height:1.4;}
-    .alert-success{background:#dcfce7;border:1px solid #86efac;color:#166534;}
-    .alert-warn{background:#fef9c3;border:1px solid #fde047;color:#78350f;}
-    .alert-info{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;}
-    .alert-error{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;}
-
-    /* Texto pequeño de “equipo Pactopia” */
-    .mini-note-admin{font-size:.78rem;line-height:1.25;color:#6b7280;text-align:center;}
-    .mini-note-admin a{font-size:.78rem;color:#E11D48;text-decoration:none;font-weight:600;}
-    .mini-note-admin a:hover{text-decoration:underline;}
-
-    /* ===== Toggle de contraseña (solo ícono) ===== */
-    .pwd-wrap{position:relative;}
-    .pwd-wrap .toggle{
-      --eye-top: 56%;
-      position:absolute; right:10px; top:var(--eye-top); transform:translateY(-50%);
-      display:inline-grid; place-items:center; width:34px; height:34px; border-radius:8px;
-      background:transparent; border:0; cursor:pointer; color:#6b7280;
-    }
-    .pwd-wrap .toggle:focus-visible{outline:none; box-shadow:0 0 0 2px rgba(225,29,72,.25)}
-    .pwd-wrap .toggle svg{width:20px; height:20px; display:block; pointer-events:none;}
-    .pwd-wrap .toggle .eye-open{display:none;}
-    .pwd-wrap .toggle[data-showing="true"] .eye-open{display:block;}
-    .pwd-wrap .toggle[data-showing="true"] .eye-closed{display:none;}
-
-    /* Limite interno para que los campos “queden al ancho del cuadro” */
-    .card .form-head,
-    .card .form-fields,
-    .card .form-actions{
-      max-width: min(600px, 100% - 100px); /* súbelo o bájalo a gusto */
-    }
-
-  </style>
-
-  <script src="{{ asset('assets/client/js/login.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}?v={{ @filemtime(public_path('assets/client/css/login.css')) ?: time() }}">
+  <script src="{{ asset('assets/client/js/login.js') }}?v={{ @filemtime(public_path('assets/client/js/login.js')) ?: time() }}" defer></script>
 </head>
-
 <body class="theme-light">
-  @php
-    $logoDark  = 'assets/client/logop360dark.png';
-    $lightCandidates = [
-      'assets/client/logop360light.png',
-      'assets/client/logp360light_alt.png',
-      'assets/client/logp360ligjt.png',
-    ];
-    $logoLight = collect($lightCandidates)->first(fn($cand)=>file_exists(public_path($cand))) ?? $lightCandidates[0];
+@php
+    use Illuminate\Support\Facades\Route;
 
-    $urlFree   = Route::has('cliente.registro.free')   ? route('cliente.registro.free')   : '#';
-    $urlPro    = Route::has('cliente.registro.pro')    ? route('cliente.registro.pro')    : '#';
+    $logoDark  = 'assets/client/img/Pactopia - Letra AZUL.png';
+    $logoLight = 'assets/client/img/Pactopia - Letra Blanca.png';
+
     $forgotUrl = Route::has('cliente.password.forgot')
-    ? route('cliente.password.forgot')
-    : url('/cliente/password/forgot'); // ✅ fallback real, nunca #
+        ? route('cliente.password.forgot')
+        : url('/cliente/password/forgot');
 
-  @endphp
+    $adminLoginUrl = Route::has('admin.login')
+        ? route('admin.login')
+        : url('/admin/login');
 
-  <div class="theme-switch">
-    <button type="button" class="theme-btn" id="themeToggle" aria-pressed="false">
-      <span class="icon">🌙</span><span class="label">Modo oscuro</span>
-    </button>
-  </div>
+    $urlFree = Route::has('cliente.registro.free')
+        ? route('cliente.registro.free')
+        : '#';
 
-  <div class="shell shell--balanced">
-    {{-- IZQUIERDA --}}
-    <section class="brand" aria-label="Beneficios del portal de clientes">
-      <div class="brand-inner">
-        <header class="brand-top">
-          <div class="logo local-brand">
-            <img class="logo-img logo-dark"  src="{{ asset($logoDark)  }}" alt="Pactopia360">
-            <img class="logo-img logo-light" src="{{ asset($logoLight) }}" alt="Pactopia360">
-          </div>
-          <h2 class="slogan">Acceso seguro al portal de clientes</h2>
-        </header>
+    $urlPro = Route::has('cliente.registro.pro')
+        ? route('cliente.registro.pro')
+        : '#';
 
-        <ul class="points" role="list">
-          <li>🧾 <b>CFDI 4.0 sin fricción</b> con validaciones claras.</li>
-          <li>📊 <b>Conciliación ágil</b> con menos clics y más control.</li>
-          <li>🗄️ <b>Bóveda XML</b> con búsqueda rápida y descargas masivas.</li>
-          <li>🧑‍🤝‍🧑 <b>Multiusuario</b> y roles para tu equipo contable.</li>
-          <li>🔐 <b>Seguridad reforzada</b> y auditoría de accesos.</li>
+    $resendUrl = Route::has('cliente.verify.email.resend')
+        ? route('cliente.verify.email.resend', ['email' => (string) session('verify_email', old('login', ''))])
+        : url('/cliente/verificar/email/reenviar');
+
+    $emailToShow = trim((string) session('verify_email', old('login', '')));
+@endphp
+
+<main class="login-shell">
+  <section class="login-wrap">
+    <div class="login-left">
+      <div class="login-left__overlay"></div>
+
+      <div class="login-brand">
+        <img class="brand-logo brand-logo--light" src="{{ asset($logoDark) }}" alt="Pactopia360">
+        <img class="brand-logo brand-logo--dark" src="{{ asset($logoLight) }}" alt="Pactopia360">
+      </div>
+
+      <div class="login-copy">
+        <p class="login-kicker">Portal cliente</p>
+        <h1 class="login-title">Acceso seguro y simple</h1>
+
+        <p class="login-text">
+          Ingresa a tu portal para consultar información clave de tu operación con una experiencia más moderna, clara y rápida.
+        </p>
+
+        <ul class="login-mini-points">
+          <li>CFDI 4.0</li>
+          <li>Estado de cuenta</li>
+          <li>Bóveda XML</li>
+          <li>Acceso seguro</li>
         </ul>
 
-        <div class="extras">
-          <div class="extras-title">¿No tienes cuenta?</div>
-          <div class="extras-grid">
-            <a class="extra-card free" href="{{ $urlFree }}">
-              <div class="extra-kicker">Forever Free</div>
-              <div class="extra-title">Crea tu cuenta FREE</div>
-              <p class="extra-desc">Ideal para comenzar: timbra, guarda XML y suma usuarios.</p>
-              <span class="extra-cta">Crear cuenta</span>
+        <div class="plans-box">
+          <div class="plans-box__title">¿No tienes cuenta?</div>
+
+          <div class="plans-grid">
+            <a class="plan-card plan-card--free" href="{{ $urlFree }}">
+              <div class="plan-card__kicker">Forever Free</div>
+              <div class="plan-card__title">Cuenta FREE</div>
+              <div class="plan-card__desc">
+                Ideal para comenzar con timbrado, XML y acceso inicial.
+              </div>
+              <span class="plan-card__btn plan-card__btn--free">Crear cuenta</span>
             </a>
-            <a class="extra-card pro" href="{{ $urlPro }}">
-              <div class="extra-kicker">PRO</div>
-              <div class="extra-title">Mejora a PRO</div>
-              <p class="extra-desc">Reportes avanzados, capacidad ampliada y soporte priorizado.</p>
-              <span class="extra-cta">Conocer PRO</span>
+
+            <a class="plan-card plan-card--pro" href="{{ $urlPro }}">
+              <div class="plan-card__kicker">PRO</div>
+              <div class="plan-card__title">Sube a PRO</div>
+              <div class="plan-card__desc">
+                Más capacidad, reportes avanzados y mejor control.
+              </div>
+              <span class="plan-card__btn plan-card__btn--pro">Conocer PRO</span>
             </a>
           </div>
         </div>
-
-        <footer class="brand-foot">
-          <div class="foot-note">© {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.</div>
-        </footer>
       </div>
-    </section>
 
-    {{-- DERECHA (FORM) --}}
-    <section class="panel" aria-label="Inicio de sesión de cliente">
-      <form class="card card-auto" method="POST" action="{{ route('cliente.login.do') }}" id="loginForm" novalidate autocomplete="on">
+      <div class="login-foot">
+        © {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.
+      </div>
+    </div>
+
+    <div class="login-right">
+      <form class="auth-card" method="POST" action="{{ route('cliente.login.do') }}" id="loginForm" novalidate autocomplete="on">
         @csrf
 
-        <div class="card-brand"><h1 class="title">Iniciar sesión</h1></div>
+        <div class="auth-toolbar">
+          <button type="button" class="theme-toggle" id="themeToggle" aria-label="Cambiar tema" title="Cambiar tema">
+            <span class="theme-toggle__sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </span>
 
-        {{-- MENSAJES --}}
-        <div aria-live="polite" aria-atomic="true" style="margin-bottom:1rem;">
-          @if (session('logged_out'))  <div class="alert-block alert-info">Cerraste sesión correctamente.</div>@endif
-          @if (session('ok'))          <div class="alert-block alert-success">{{ session('ok') }}</div>@endif
-          @if (session('info'))        <div class="alert-block alert-info">{{ session('info') }}</div>@endif
-          @if (session('error'))       <div class="alert-block alert-error">{{ session('error') }}</div>@endif
+            <span class="theme-toggle__moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.8 6.8 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+        </div>
+
+        <div class="auth-head">
+          <div class="auth-head__eyebrow">Bienvenido</div>
+          <h2 class="auth-head__title">Iniciar sesión</h2>
+          <p class="auth-head__sub">
+            Ingresa <strong>tu correo o RFC</strong> y tu contraseña.
+            <span id="detectMsg" class="hint" style="display:none;"></span>
+          </p>
+        </div>
+
+        <div aria-live="polite" aria-atomic="true">
+          @if (session('logged_out'))
+            <div class="alert-block alert-info">Cerraste sesión correctamente.</div>
+          @endif
+
+          @if (session('ok'))
+            <div class="alert-block alert-success">{{ session('ok') }}</div>
+          @endif
+
+          @if (session('info'))
+            <div class="alert-block alert-info">{{ session('info') }}</div>
+          @endif
+
+          @if (session('error'))
+            <div class="alert-block alert-error">{{ session('error') }}</div>
+          @endif
+
           @if (session('need_verify'))
-          @php
-            $resendUrl = \Illuminate\Support\Facades\Route::has('cliente.verify.email.resend')
-              ? route('cliente.verify.email.resend', ['email' => (string) session('verify_email', old('login', ''))])
-              : url('/cliente/verificar/email/reenviar');
-
-            $emailToShow = (string) session('verify_email', old('login', ''));
-            $emailToShow = trim($emailToShow);
-          @endphp
-
-          <div class="alert-block alert-warn">
-            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-              <div style="min-width:240px; flex:1;">
-                <div>
-                  {{ is_string(session('need_verify')) ? session('need_verify') : 'Verifica tu correo y tu teléfono para activar tu cuenta.' }}
-                </div>
-
-                @if($emailToShow !== '')
-                  <div style="margin-top:.35rem; font-size:.85rem; opacity:.9;">
-                    Correo: <b>{{ $emailToShow }}</b>
+            <div class="alert-block alert-warn">
+              <div class="alert-flex">
+                <div class="alert-flex__body">
+                  <div>
+                    {{ is_string(session('need_verify')) ? session('need_verify') : 'Verifica tu correo y tu teléfono para activar tu cuenta.' }}
                   </div>
-                @endif
 
-                <div style="margin-top:.5rem; font-size:.85rem; color:#7c2d12;">
-                  ¿No te llegó? Puedes reenviar el enlace de verificación.
+                  @if($emailToShow !== '')
+                    <div class="alert-mail">
+                      Correo: <strong>{{ $emailToShow }}</strong>
+                    </div>
+                  @endif
+
+                  <div class="alert-help">
+                    Puedes reenviar el enlace de verificación.
+                  </div>
                 </div>
-              </div>
 
-              <div style="display:flex; gap:10px; align-items:center;">
-                <a href="{{ $resendUrl }}"
-                  class="btn"
-                  style="padding:.6rem .9rem; font-size:.9rem; border-radius:.65rem; text-decoration:none; display:inline-block;">
-                  Reenviar verificación
-                </a>
+                <div class="alert-flex__action">
+                  <a href="{{ $resendUrl }}" class="inline-resend-btn">Reenviar</a>
+                </div>
               </div>
             </div>
-          </div>
-        @endif
-
+          @endif
 
           @if ($errors->any())
-            <div class="alert-block alert-error">@foreach ($errors->all() as $e)<div>• {{ $e }}</div>@endforeach</div>
+            <div class="alert-block alert-error">
+              @foreach ($errors->all() as $e)
+                <div>• {{ $e }}</div>
+              @endforeach
+            </div>
           @endif
         </div>
 
-        <div class="form-body">
-          <div class="form-head">
-            <p class="subtitle">
-              Ingresa <b>tu correo</b> o <b>RFC</b> y tu contraseña.
-              <span id="detectMsg" class="hint" style="display:none;"></span>
-            </p>
+        <div class="auth-form">
+          <div class="field field-icon">
+            <label for="login">Correo electrónico o RFC</label>
+            <div class="input-shell">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="m5 7 7 5 7-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+
+              <input
+                class="input @error('login') is-invalid @enderror"
+                id="login"
+                name="login"
+                type="text"
+                value="{{ old('login') }}"
+                placeholder="micorreo@dominio.com o RFC"
+                required
+                autocomplete="username"
+                maxlength="120"
+                inputmode="email"
+              >
+            </div>
+            <div id="loginHelp" class="hint"></div>
           </div>
 
-          <div class="form-fields">
-            <div class="field">
-              <label for="login">Correo electrónico o RFC</label>
-              <input class="input @error('login') is-invalid @enderror"
-                     id="login" name="login" type="text"
-                     value="{{ old('login') }}"
-                     placeholder="micorreo@dominio.com o TU RFC"
-                     required autocomplete="username" maxlength="120" inputmode="email">
-              <div id="loginHelp" class="hint" style="margin-top:.25rem;"></div>
-            </div>
+          <div class="field field-icon pwd-wrap">
+            <label for="password">Contraseña</label>
+            <div class="input-shell">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M7 11V8a5 5 0 0 1 10 0v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                  <rect x="5" y="11" width="14" height="9" rx="2.2" stroke="currentColor" stroke-width="1.7"/>
+                </svg>
+              </span>
 
-            <div class="field pwd-wrap">
-              <label for="password">Contraseña</label>
-              <input class="input @error('password') is-invalid @enderror"
-                     id="password" type="password" name="password"
-                     required autocomplete="current-password"
-                     placeholder="********" minlength="6" maxlength="72">
-              <button type="button"
-                      class="toggle"
-                      id="pwdToggle"
-                      aria-label="Mostrar contraseña"
-                      aria-pressed="false"
-                      data-showing="false">
-                <!-- Ojo ABIERTO -->
+              <input
+                class="input @error('password') is-invalid @enderror"
+                id="password"
+                type="password"
+                name="password"
+                required
+                autocomplete="current-password"
+                placeholder="********"
+                minlength="6"
+                maxlength="72"
+              >
+
+              <button
+                type="button"
+                class="toggle"
+                id="pwdToggle"
+                aria-label="Mostrar contraseña"
+                aria-pressed="false"
+                data-showing="false">
                 <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                   <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   <circle cx="12" cy="12" r="3" stroke-width="2"/>
                 </svg>
-                <!-- Ojo CERRADO -->
                 <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                   <path d="M3 3l18 18" stroke-width="2" stroke-linecap="round"/>
                   <path d="M2 12s4-7 10-7c2.7 0 5 .9 7 2.5" stroke-width="2"/>
                   <path d="M22 12s-4 7-10 7c-2.7 0-5-.9-7-2.5" stroke-width="2"/>
                 </svg>
               </button>
-              <div id="capsTip" class="hint" style="display:none;margin-top:.35rem;">🔠 Bloq Mayús activado</div>
             </div>
-
-            <div class="row">
-              <label class="remember"><input type="checkbox" name="remember" value="1"> Recordarme</label>
-              <a class="link-muted" href="{{ $forgotUrl }}">¿Olvidaste tu contraseña?</a>
-            </div>
+            <div id="capsTip" class="hint" style="display:none;">Bloq Mayús activado</div>
           </div>
 
-          <div class="form-actions">
-            <button class="btn" id="btnSubmit" type="submit">Entrar</button>
-            <div class="hint">Al continuar aceptas las políticas de seguridad de Pactopia360.</div>
+          <div class="auth-row">
+            <label class="remember">
+              <input type="checkbox" name="remember" value="1">
+              <span>Recordarme</span>
+            </label>
+
+            <a class="link-muted" href="{{ $forgotUrl }}">¿Olvidaste tu contraseña?</a>
+          </div>
+
+          <div class="auth-actions">
+            <button class="btn-submit" id="btnSubmit" type="submit">Entrar</button>
+            <div class="hint hint-center">Al continuar aceptas las políticas de seguridad de Pactopia360.</div>
           </div>
 
           @if(app()->environment('local') && session('diag'))
-            <details class="diag" style="margin-top:1rem;">
-              <summary>🧪 Diagnóstico local</summary>
+            <details class="diag">
+              <summary>Diagnóstico local</summary>
               <pre>{{ json_encode(session('diag'), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
             </details>
           @endif
         </div>
 
-        <div class="mini-note-admin" style="margin-top:10px;">
-          ¿Eres del equipo Pactopia?<br>
-          @php
-            $adminLoginUrl = \Illuminate\Support\Facades\Route::has('admin.login')
-              ? route('admin.login')
-              : url('/admin/login');
-          @endphp
-
+        <div class="mini-note-admin">
+          ¿Eres del equipo Pactopia?
           <a href="{{ $adminLoginUrl }}">Ir a panel interno</a>
-
         </div>
       </form>
-    </section>
-  </div>
+    </div>
+  </section>
+</main>
 
 </body>
 </html>

@@ -62,25 +62,33 @@
 
   <style>
     /* ===== Variables base ===== */
-    :root{
+        :root{
       --header: 64px;
       --header-h: var(--header);
 
-      --brand:   #E11D48;
-      --brand-2: #BE123C;
-      --accent:  #0EA5E9;
+      /* ===== Nuevo branding Pactopia azul/blanco ===== */
+      --brand:   #0F5EFF;
+      --brand-2: #0A46C4;
+      --accent:  #18A0FB;
+      --accent-2:#4F8DFF;
 
-      /* FIX: por defecto FULL WIDTH (ya no centra home) */
+      --bg:      #F6F9FF;
+      --card:    #FFFFFF;
+      --ink:     #0F172A;
+      --muted:   #64748B;
+      --bd:      rgba(15, 23, 42, .10);
+
+      /* FIX: por defecto FULL WIDTH */
       --container-max: none;
       --container-px: 30px;
 
-      /* Línea rosa del header/footer */
-      --p360-rail: color-mix(in oklab, var(--brand-red, #E11D48) 28%, transparent);
+      /* Línea visual header/footer */
+      --p360-rail: color-mix(in oklab, var(--brand) 26%, transparent);
       --p360-rail-h: 2px;
 
-      /* Sidebar widths (MISMO que sidebar.css) */
-      --sb-w: 260px;      /* expandido */
-      --sb-wc: 68px;      /* colapsado */
+      /* Sidebar widths */
+      --sb-w: 260px;
+      --sb-wc: 68px;
 
       /* Footer */
       --footer-h: 40px;
@@ -93,7 +101,11 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       text-rendering: optimizeLegibility;
-      background:#fff;
+      background:
+        radial-gradient(1200px 700px at 10% 0%, rgba(15,94,255,.05), transparent 60%),
+        radial-gradient(900px 600px at 100% 20%, rgba(24,160,251,.05), transparent 58%),
+        linear-gradient(180deg, #F8FBFF 0%, #F4F8FF 100%);
+      color:var(--ink);
     }
 
     /* ===== Header rail ===== */
@@ -136,7 +148,7 @@
         bottom:calc(var(--footer-h) + var(--footer-offset)) !important;
         overflow:auto !important;
         -webkit-overflow-scrolling:touch !important;
-        background:#fff !important;
+        background:linear-gradient(180deg, #F8FBFF 0%, #F4F8FF 100%) !important;
       }
 
       /* MAIN left depende del estado */
@@ -185,7 +197,11 @@
     }
 
     /* Cards */
-    .card{ background:#fff; border:1px solid var(--bd, #e5e7eb); box-shadow:0 6px 18px rgba(0,0,0,.05); }
+    .card{
+      background:var(--card);
+      border:1px solid var(--bd, #e5e7eb);
+      box-shadow:0 10px 28px rgba(15,23,42,.06);
+    }
 
     /* ===== Footer fixed ===== */
     .client-footer{

@@ -1,48 +1,72 @@
 // C:\wamp64\www\pactopia360_erp\public\assets\client\js\login.js
-// P360 · Cliente Login JS (SOT) · v7.0
+// P360 · Cliente Login JS (SOT) · v8.0
 // FIX:
-// - Toggle password NO rompe SVG (no usa textContent)
-// - Evita doble lógica (tema + password) vs inline
-// - Unifica storage key: p360-theme-client
+// - Toggle theme claro/oscuro funcional
+// - Usa misma key que blade: p360_client_login_theme
+// - Solo icono sol/luna
 // - Detect correo/RFC, CapsLock, anti doble submit, RFC uppercase
 
 (() => {
   'use strict';
 
   document.addEventListener('DOMContentLoaded', () => {
-
     // ---------------------------------------------------
     // Tema (light/dark) — SOT aquí
     // ---------------------------------------------------
-    const KEY = 'p360-theme-client';
+    const KEY = 'p360_client_login_theme';
+    const root = document.documentElement;
     const body = document.body;
     const btnTheme = document.getElementById('themeToggle');
+    const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
-    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const saved = localStorage.getItem(KEY);
-    const initial = saved || (prefersDark ? 'dark' : 'light');
+    function getSavedTheme() {
+      try {
+        const saved = localStorage.getItem(KEY);
+        if (saved === 'dark' || saved === 'light') return saved;
+      } catch (e) {}
+      return null;
+    }
 
-    function applyTheme(theme) {
+    function getSystemTheme() {
+      return media && media.matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme, persist = false) {
       const isDark = theme === 'dark';
+
       body.classList.toggle('theme-dark', isDark);
       body.classList.toggle('theme-light', !isDark);
+      root.setAttribute('data-login-theme', isDark ? 'dark' : 'light');
 
       if (btnTheme) {
-        btnTheme.setAttribute('aria-pressed', String(isDark));
-        const iconEl = btnTheme.querySelector('.icon');
-        const labelEl = btnTheme.querySelector('.label');
-        if (iconEl) iconEl.textContent = isDark ? '🌞' : '🌙';
-        if (labelEl) labelEl.textContent = isDark ? 'Modo claro' : 'Modo oscuro';
+        btnTheme.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+        btnTheme.setAttribute('aria-label', isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro');
+        btnTheme.setAttribute('title', isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro');
+      }
+
+      if (persist) {
+        try {
+          localStorage.setItem(KEY, isDark ? 'dark' : 'light');
+        } catch (e) {}
       }
     }
 
-    applyTheme(initial);
+    applyTheme(getSavedTheme() || getSystemTheme(), false);
 
     if (btnTheme) {
-      btnTheme.addEventListener('click', () => {
-        const toDark = !body.classList.contains('theme-dark');
-        localStorage.setItem(KEY, toDark ? 'dark' : 'light');
-        applyTheme(toDark ? 'dark' : 'light');
+      btnTheme.addEventListener('click', (e) => {
+        e.preventDefault();
+        const next = body.classList.contains('theme-dark') ? 'light' : 'dark';
+        applyTheme(next, true);
+      });
+    }
+
+    if (media && typeof media.addEventListener === 'function') {
+      media.addEventListener('change', (e) => {
+        const saved = getSavedTheme();
+        if (!saved) {
+          applyTheme(e.matches ? 'dark' : 'light', false);
+        }
       });
     }
 
@@ -61,19 +85,24 @@
       if (!help || !msg) return;
       const v = (val || '').trim();
       let text = '';
+
       if (looksEmail(v)) text = 'Detectamos formato de correo electrónico.';
       else if (looksRfc(v)) text = 'Detectamos formato de RFC.';
+
       help.textContent = text;
       help.style.display = text ? 'block' : 'none';
+
       msg.textContent = text;
       msg.style.display = text ? 'inline' : 'none';
     }
 
     if (login) {
       login.addEventListener('input', (e) => renderDetect(e.target.value));
-      if (login.value) renderDetect(login.value);
 
-      // RFC uppercase al salir
+      if (login.value) {
+        renderDetect(login.value);
+      }
+
       login.addEventListener('blur', () => {
         const v = (login.value || '').trim();
         if (/^[a-z0-9&ñ]{3,4}\d{6}[a-z0-9]{3}$/i.test(v)) {
@@ -83,31 +112,25 @@
     }
 
     // ---------------------------------------------------
-    // Mostrar/ocultar contraseña (sin romper SVG)
+    // Mostrar/ocultar contraseña
     // ---------------------------------------------------
     const pwd = document.getElementById('password');
     const btnPwd = document.getElementById('pwdToggle');
 
     if (btnPwd && pwd) {
-      // Estado inicial consistente
       btnPwd.dataset.showing = 'false';
       btnPwd.setAttribute('aria-pressed', 'false');
       btnPwd.setAttribute('aria-label', 'Mostrar contraseña');
 
       btnPwd.addEventListener('click', (ev) => {
         ev.preventDefault();
+
         const show = pwd.type === 'password';
         pwd.type = show ? 'text' : 'password';
 
         btnPwd.dataset.showing = show ? 'true' : 'false';
         btnPwd.setAttribute('aria-pressed', show ? 'true' : 'false');
         btnPwd.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
-
-        // Fallback: si algún día el botón NO trae SVG y es texto, actualiza texto sin destruir HTML
-        const hasSvg = !!btnPwd.querySelector('svg');
-        if (!hasSvg) {
-          btnPwd.textContent = show ? 'Ocultar' : 'Mostrar';
-        }
       });
     }
 
@@ -115,14 +138,18 @@
     // CapsLock tip
     // ---------------------------------------------------
     const capsEl = document.getElementById('capsTip');
+
     if (pwd && capsEl) {
       const caps = (e) => {
         const on = e.getModifierState && e.getModifierState('CapsLock');
         capsEl.style.display = on ? 'block' : 'none';
       };
+
       pwd.addEventListener('keydown', caps);
       pwd.addEventListener('keyup', caps);
-      pwd.addEventListener('blur', () => (capsEl.style.display = 'none'));
+      pwd.addEventListener('blur', () => {
+        capsEl.style.display = 'none';
+      });
     }
 
     // ---------------------------------------------------
@@ -130,13 +157,17 @@
     // ---------------------------------------------------
     const form = document.getElementById('loginForm');
     const btnSubmit = document.getElementById('btnSubmit');
+
     if (form) {
       form.addEventListener('submit', () => {
         if (btnSubmit) {
           btnSubmit.disabled = true;
           btnSubmit.textContent = 'Entrando…';
         }
-        if (pwd) pwd.value = (pwd.value || '').trim();
+
+        if (pwd) {
+          pwd.value = (pwd.value || '').trim();
+        }
       });
     }
   });
