@@ -35,6 +35,7 @@ final class AccountBillingConfigService
         'facturacion'   => 'Facturación',
         'sat_descargas' => 'SAT Descargas Masivas',
         'boveda_fiscal' => 'Bóveda Fiscal',
+        'sat_boveda_v2' => 'SAT Bóveda v2',
 
         // ERP
         'crm'           => 'CRM',

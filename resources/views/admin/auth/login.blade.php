@@ -74,13 +74,11 @@
             <aside class="login-hero">
                 <div class="login-hero__inner">
                     <div class="login-brand">
-                        <img class="login-brand__logo login-brand__logo--dark" src="{{ asset('assets/admin/img/logo-pactopia360-white.png') }}" alt="Pactopia360">
-                        <img class="login-brand__logo login-brand__logo--light" src="{{ asset('assets/admin/img/logo-pactopia360-dark.png') }}" alt="Pactopia360">
+                        <img class="login-brand__logo login-brand__logo--dark" src="{{ asset('assets/admin/img/Pactopia - Letra Blanca.png') }}" alt="Pactopia360">
+                        <img class="login-brand__logo login-brand__logo--light" src="{{ asset('assets/admin/img/Pactopia - Letra Blanca.png') }}" alt="Pactopia360">
+                        <div class="login-brand__sub">Plataforma administrativa</div>
                     </div>
-
-                    <span class="login-chip">ADMIN</span>
-
-                    <h1 class="login-hero__title">Hola, bienvenido</h1>
+                    <h1 class="login-hero__title">Hola! Bienvenido</h1>
 
                     <p class="login-hero__text">
                         Accede al panel administrativo de Pactopia360 para gestionar operación, clientes, facturación, SAT y finanzas.

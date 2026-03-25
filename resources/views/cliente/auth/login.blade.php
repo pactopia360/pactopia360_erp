@@ -28,7 +28,7 @@
 @php
     use Illuminate\Support\Facades\Route;
 
-    $logoDark  = 'assets/client/img/Pactopia - Letra AZUL.png';
+    $logoDark  = 'assets/client/img/Pactopia - Letra Blanca.png';
     $logoLight = 'assets/client/img/Pactopia - Letra Blanca.png';
 
     $forgotUrl = Route::has('cliente.password.forgot')
@@ -62,11 +62,12 @@
       <div class="login-brand">
         <img class="brand-logo brand-logo--light" src="{{ asset($logoDark) }}" alt="Pactopia360">
         <img class="brand-logo brand-logo--dark" src="{{ asset($logoLight) }}" alt="Pactopia360">
+        <div class="brand-subtitle">Portal usuario</div>
       </div>
 
       <div class="login-copy">
-        <p class="login-kicker">Portal cliente</p>
-        <h1 class="login-title">Acceso seguro y simple</h1>
+        <p class="login-kicker">Portal usuario</p>
+        <h1 class="login-title">Hola! Bienvenido</h1>
 
         <p class="login-text">
           Ingresa a tu portal para consultar información clave de tu operación con una experiencia más moderna, clara y rápida.

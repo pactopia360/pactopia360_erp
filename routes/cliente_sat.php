@@ -437,6 +437,20 @@ Route::middleware(['auth:web', 'account.active'])
                 ->name('vault.file');
         }, applyNoCsrfLocal: false);
 
+        Route::prefix('v2')->as('v2.')->middleware(['sat.vault.v2'])->group(function () {
+            Route::get('/', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'index'])
+                ->name('index');
+
+            Route::post('/metadata/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadMetadata'])
+                ->name('metadata.upload');
+
+            Route::post('/xml/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadXml'])
+                ->name('xml.upload');
+
+            Route::post('/report/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadReport'])
+                ->name('report.upload');
+        });
+
         /*
         |----------------------------------------------------------------------
         | Carrito SAT

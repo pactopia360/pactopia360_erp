@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth.any'         => \App\Http\Middleware\AuthenticateAny::class,
             'account.active'   => \App\Http\Middleware\EnsureAccountIsActive::class,
             'vault.active'     => \App\Http\Middleware\EnsureVaultIsActive::class,
+            'sat.vault.v2'     => \App\Http\Middleware\EnsureSatVaultV2Access::class,
 
             'session.admin'    => \App\Http\Middleware\AdminSessionConfig::class,
             'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,

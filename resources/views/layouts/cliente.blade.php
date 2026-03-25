@@ -89,8 +89,9 @@
       --shadow-2:    0 18px 50px rgba(37, 99, 235, .10);
 
       /* Layout */
-      --container-max: none;
-      --container-px: 30px;
+      --container-max: 100%;
+      --container-px: 18px;
+      --content-max: none;
 
       --p360-rail: linear-gradient(90deg, rgba(37,99,235,.18) 0%, rgba(96,165,250,.10) 50%, rgba(37,99,235,.03) 100%);
       --p360-rail-h: 1px;
@@ -261,20 +262,38 @@
     }
 
     /* ============================================================
-       CONTENEDOR
-       ============================================================ */
+      CONTENEDOR
+    ============================================================ */
     main.content .container{
-      padding:var(--container-px);
-      max-width:var(--container-max);
-      margin:0;
-      width:100%;
+      width:100% !important;
+      max-width:100% !important;
+      min-width:0;
       min-height:100%;
+      margin:0 !important;
+      padding:var(--container-px) !important;
       box-sizing:border-box;
     }
 
     main.content .container.is-contained{
-      max-width:1440px;
-      margin:0 auto;
+      width:100% !important;
+      max-width:var(--content-max) !important;
+      margin:0 auto !important;
+      padding-inline:var(--container-px) !important;
+    }
+
+    .page-sat-vault-v2.content > .container,
+    main.content.page-sat-vault-v2 > .container,
+    main.content .container:has(.sv2){
+      width:100% !important;
+      max-width:100% !important;
+      padding-left:12px !important;
+      padding-right:12px !important;
+      margin:0 !important;
+    }
+
+    main.content > .container#shotArea{
+      width:100% !important;
+      max-width:100% !important;
     }
 
     /* ===== Base visual global ===== */
@@ -428,6 +447,45 @@
       -webkit-background-clip:text;
       background-clip:text;
       color:transparent;
+    }
+
+        @media (min-width: 1400px){
+      :root{
+        --container-px: 20px;
+      }
+
+      .page-sat-vault-v2.content > .container,
+      main.content.page-sat-vault-v2 > .container,
+      main.content .container:has(.sv2){
+        padding-left:16px !important;
+        padding-right:16px !important;
+      }
+    }
+
+    @media (max-width: 1099.98px){
+      :root{
+        --container-px: 12px;
+      }
+
+      .page-sat-vault-v2.content > .container,
+      main.content.page-sat-vault-v2 > .container,
+      main.content .container:has(.sv2){
+        padding-left:10px !important;
+        padding-right:10px !important;
+      }
+    }
+
+    @media (max-width: 640px){
+      :root{
+        --container-px: 8px;
+      }
+
+      .page-sat-vault-v2.content > .container,
+      main.content.page-sat-vault-v2 > .container,
+      main.content .container:has(.sv2){
+        padding-left:8px !important;
+        padding-right:8px !important;
+      }
     }
   </style>
 
