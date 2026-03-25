@@ -59,6 +59,24 @@
     <div class="login-left">
       <div class="login-left__overlay"></div>
 
+      <a
+        href="https://pactopia.com"
+        class="pactopia-home-btn"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Ir a pactopia.com"
+        title="pactopia.com"
+      >
+        <span class="pactopia-home-btn__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 10.8 12 4l9 6.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6.5 9.8V20h11V9.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 20v-5.2a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2V20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="pactopia-home-btn__tooltip">pactopia.com</span>
+      </a>
+
       <div class="login-brand">
         <img class="brand-logo brand-logo--light" src="{{ asset($logoDark) }}" alt="Pactopia360">
         <img class="brand-logo brand-logo--dark" src="{{ asset($logoLight) }}" alt="Pactopia360">

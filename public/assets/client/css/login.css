@@ -202,7 +202,7 @@ body::after{
 /* LEFT */
 .login-left{
   position:relative;
-  padding:42px 28px 28px 54px;
+  padding:42px 28px 28px 28px;
   background:
     radial-gradient(420px 260px at 18% 16%, rgba(255,255,255,.18), transparent 58%),
     linear-gradient(180deg, #5f7fd1 0%, #4d69c0 48%, #4660b5 100%);
@@ -218,6 +218,144 @@ body::after{
   z-index:0;
   background:none;
   opacity:1;
+}
+
+.pactopia-home-btn{
+  position:absolute;
+  top:20px;
+  left:20px;
+  z-index:3;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:46px;
+  height:46px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.22);
+  background:rgba(255,255,255,.12);
+  color:#ffffff;
+  text-decoration:none;
+  box-shadow:
+    0 10px 26px rgba(0,0,0,.16),
+    inset 0 1px 0 rgba(255,255,255,.12);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  transition:
+    transform .16s ease,
+    box-shadow .16s ease,
+    background .16s ease,
+    border-color .16s ease;
+}
+
+.pactopia-home-btn:hover{
+  transform:translateY(-1px);
+  background:rgba(255,255,255,.18);
+  border-color:rgba(255,255,255,.30);
+  box-shadow:
+    0 14px 30px rgba(0,0,0,.18),
+    inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+.pactopia-home-btn:focus-visible{
+  outline:none;
+  box-shadow:
+    0 0 0 4px rgba(255,255,255,.18),
+    0 14px 30px rgba(0,0,0,.18);
+}
+
+.pactopia-home-btn__icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;
+  height:20px;
+}
+
+.pactopia-home-btn__icon svg{
+  width:20px;
+  height:20px;
+  display:block;
+  stroke:currentColor;
+}
+
+.pactopia-home-btn__tooltip{
+  position:absolute;
+  left:58px;
+  top:50%;
+  transform:translateY(-50%) translateX(-4px);
+  white-space:nowrap;
+  padding:8px 10px;
+  border-radius:10px;
+  background:rgba(15,23,42,.88);
+  color:#ffffff;
+  font-size:12px;
+  line-height:1;
+  font-weight:800;
+  letter-spacing:.01em;
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  box-shadow:0 10px 24px rgba(0,0,0,.18);
+  transition:
+    opacity .16s ease,
+    visibility .16s ease,
+    transform .16s ease;
+}
+
+.pactopia-home-btn__tooltip::before{
+  content:"";
+  position:absolute;
+  left:-5px;
+  top:50%;
+  transform:translateY(-50%) rotate(45deg);
+  width:10px;
+  height:10px;
+  background:rgba(15,23,42,.88);
+}
+
+.pactopia-home-btn:hover .pactopia-home-btn__tooltip,
+.pactopia-home-btn:focus-visible .pactopia-home-btn__tooltip{
+  opacity:1;
+  visibility:visible;
+  transform:translateY(-50%) translateX(0);
+}
+
+body.theme-light .pactopia-home-btn{
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(255,255,255,.14);
+  color:#ffffff;
+}
+
+body.theme-light .pactopia-home-btn__tooltip{
+  background:rgba(15,23,42,.92);
+  color:#ffffff;
+}
+
+body.theme-light .pactopia-home-btn__tooltip::before{
+  background:rgba(15,23,42,.92);
+}
+
+body.theme-dark .pactopia-home-btn{
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(7,19,56,.36);
+  color:#ffffff;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+body.theme-dark .pactopia-home-btn:hover{
+  background:rgba(255,255,255,.10);
+  border-color:rgba(255,255,255,.24);
+}
+
+body.theme-dark .pactopia-home-btn__tooltip{
+  background:rgba(255,255,255,.96);
+  color:#0f172a;
+}
+
+body.theme-dark .pactopia-home-btn__tooltip::before{
+  background:rgba(255,255,255,.96);
 }
 
 .login-left::before{
@@ -248,19 +386,19 @@ body::after{
 .login-brand,
 .login-copy,
 .login-foot{
-  position:relative;
-  z-index:1;
+  margin-left:24px;
 }
 
 .login-brand{
-  position:relative;
   display:flex;
   flex-direction:column;
   align-items:flex-start;
   justify-content:flex-start;
   gap:8px;
   padding:0;
-  margin:8px 0 26px 0;
+  margin-top:22px;
+  margin-right:0;
+  margin-bottom:26px;
   border-radius:0;
   background:transparent;
   border:0;
@@ -327,9 +465,11 @@ body.theme-dark .login-brand{
 }
 
 .login-copy{
-  margin:0;
+  margin-top:0;
+  margin-right:0;
+  margin-bottom:0;
   max-width:355px;
-  padding-left:8px;
+  padding-left:0;
 }
 
 .login-kicker{
@@ -483,8 +623,10 @@ body.theme-dark .login-brand{
 
 .login-foot{
   margin-top:auto;
+  margin-right:0;
+  margin-bottom:0;
   padding-top:24px;
-  padding-left:8px;
+  padding-left:0;
   border-top:1px solid rgba(255,255,255,.12);
   font-size:12px;
   line-height:1.3;
@@ -936,7 +1078,7 @@ body.theme-dark .mini-note-admin a{
   }
 
   .login-left{
-    padding:28px 22px 22px 30px;
+    padding:28px 22px 22px 24px;
   }
 
   .plans-grid{
@@ -949,6 +1091,17 @@ body.theme-dark .mini-note-admin a{
 
   .auth-card{
     max-width:100%;
+  }
+
+  .pactopia-home-btn{
+    top:16px;
+    left:16px;
+    width:42px;
+    height:42px;
+  }
+
+  .login-brand{
+    margin:18px 0 24px 0;
   }
 }
 
@@ -1019,6 +1172,29 @@ body.theme-dark .mini-note-admin a{
 .login-copy,
 .login-foot{
   padding-left:0;
+}
+
+.pactopia-home-btn{
+  top:14px;
+  left:14px;
+  width:40px;
+  height:40px;
+}
+
+.pactopia-home-btn__tooltip{
+  left:50px;
+  font-size:11px;
+  padding:7px 9px;
+}
+
+.login-brand{
+  margin:16px 0 22px 0;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  margin-left:14px;
 }
 
 }
