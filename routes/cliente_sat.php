@@ -441,6 +441,17 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'index'])
                 ->name('index');
 
+            Route::post('/rfc/store', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'storeRfc'])
+                ->name('rfc.store');
+
+            Route::post('/rfc/update/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'updateRfc'])
+                ->where('id', '[A-Za-z0-9\-_]+')
+                ->name('rfc.update');
+
+            Route::post('/rfc/delete/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'deleteRfc'])
+                ->where('id', '[A-Za-z0-9\-_]+')
+                ->name('rfc.delete');
+
             Route::post('/metadata/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadMetadata'])
                 ->name('metadata.upload');
 
@@ -449,8 +460,13 @@ Route::middleware(['auth:web', 'account.active'])
 
             Route::post('/report/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadReport'])
                 ->name('report.upload');
-        });
 
+            Route::get('/download/{type}/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'downloadUploadedFile'])
+                ->where('type', 'metadata|xml|report')
+                ->whereNumber('id')
+                ->name('download');
+        });
+        
         /*
         |----------------------------------------------------------------------
         | Carrito SAT
