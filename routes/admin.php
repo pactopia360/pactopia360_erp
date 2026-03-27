@@ -1348,8 +1348,44 @@ Route::middleware([
                 }
             });
 
-            Route::prefix('downloads')->name('downloads.')->group(function () {
+            Route::prefix('downloads')->name('downloads.')->group(function () use ($isLocal) {
                 Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
+
+                Route::get('download/{type}/{id}', [SatOpsDownloadsController::class, 'download'])
+                    ->where([
+                        'type' => 'metadata|xml|report|vault|satdownload',
+                        'id'   => '[A-Za-z0-9\-]+',
+                    ])
+                    ->name('download');
+
+                $delete = Route::delete('delete/{type}/{id}', [SatOpsDownloadsController::class, 'destroy'])
+                    ->where([
+                        'type' => 'metadata|xml|report|vault|satdownload',
+                        'id'   => '[A-Za-z0-9\-]+',
+                    ])
+                    ->name('delete');
+
+                $bulkDeleteFiles = Route::post('bulk/files/delete', [SatOpsDownloadsController::class, 'bulkDestroyFiles'])
+                    ->name('bulk.files.delete');
+
+                Route::delete('cfdi/{source}/{id}', [SatOpsDownloadsController::class, 'destroyCfdi'])
+                    ->where([
+                        'source' => 'vault_cfdi|user_cfdi',
+                        'id'     => '[A-Za-z0-9\-]+',
+                    ])
+                    ->name('cfdi.delete');
+
+                $bulkDeleteCfdi = Route::post('bulk/cfdi/delete', [SatOpsDownloadsController::class, 'bulkDestroyCfdi'])
+                    ->name('bulk.cfdi.delete');
+
+                Route::post('cfdi/purge', [SatOpsDownloadsController::class, 'purgeCfdi'])
+                    ->name('cfdi.purge');
+
+                if ($isLocal) {
+                    $delete->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    $bulkDeleteFiles->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    $bulkDeleteCfdi->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
             });
 
             Route::prefix('manual')->name('manual.')->group(function () {
