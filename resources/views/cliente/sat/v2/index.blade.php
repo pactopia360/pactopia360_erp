@@ -119,6 +119,61 @@
             </div>
         </section>
 
+                        <div id="sv2DockObserver" class="sv2DockObserver" aria-hidden="true"></div>
+
+        <section class="sv2DockWrap" aria-label="Navegación rápida del portal">
+            <div class="sv2Dock" id="sv2SectionDock">
+                <div class="sv2Dock__left">
+                    <div class="sv2Dock__brand">
+                        <div class="sv2Dock__title">Descargas</div>
+
+                        <div class="sv2Dock__rfc">
+                            <span class="sv2Dock__rfcLabel">RFC Activo</span>
+                            <strong class="sv2Dock__rfcValue">
+                                {{ $selectedRfc ?? $activeRfc ?? $rfcOwner ?? $currentRfc ?? 'Sin RFC' }}
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="sv2Dock__nav" role="tablist" aria-label="Secciones del portal de descargas">
+                        <button type="button" class="sv2Dock__link is-active" data-sv2-jump="dataLoad">
+                            Carga de datos
+                        </button>
+
+                        <button type="button" class="sv2Dock__link" data-sv2-jump="metadata">
+                            Metadata
+                        </button>
+
+                        <button type="button" class="sv2Dock__link" data-sv2-jump="xml">
+                            XML CFDI
+                        </button>
+
+                        <button type="button" class="sv2Dock__link" data-sv2-jump="report">
+                            Reportes
+                        </button>
+
+                        <button type="button" class="sv2Dock__link" data-sv2-jump="fiscal">
+                            Resumen fiscal
+                        </button>
+
+                        <button type="button" class="sv2Dock__link" data-sv2-jump="downloads">
+                            Descargas
+                        </button>
+                    </div>
+                </div>
+
+                <div class="sv2Dock__actions">
+                    <button type="button" class="sv2Dock__action" id="sv2ExpandAll">
+                        Expandir todo
+                    </button>
+
+                    <button type="button" class="sv2Dock__action sv2Dock__action--ghost" id="sv2CollapseAll">
+                        Contraer todo
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <section class="sv2Section">
             <div class="sv2Section__head">
             </div>
@@ -448,6 +503,390 @@
                     );
                 }
             }
+
+                        $fiscalRowsSource = collect();
+
+            if (($xmlItemsFiltered ?? collect())->count() > 0) {
+                $fiscalRowsSource = collect($xmlItemsFiltered);
+            } elseif (($reportItemsFiltered ?? collect())->count() > 0) {
+                $fiscalRowsSource = collect($reportItemsFiltered);
+            }
+
+            $fiscalSummary = [
+                'ingresos_subtotal'        => 0.0,
+                'ingresos_iva'             => 0.0,
+                'ingresos_total'           => 0.0,
+                'egresos_subtotal'         => 0.0,
+                'egresos_iva'              => 0.0,
+                'egresos_total'            => 0.0,
+                'pagos_total'              => 0.0,
+                'nomina_total'             => 0.0,
+                'traslados_total'          => 0.0,
+                'retenciones_total'        => 0.0,
+                'emitidos_count'           => 0,
+                'recibidos_count'          => 0,
+                'sin_match_count'          => 0,
+                'con_match_count'          => 0,
+                'meses_activos'            => 0,
+                'fuente'                   => 'Sin datos',
+                'cobertura'                => 0,
+                'ticket_ingreso'           => 0.0,
+                'ticket_egreso'            => 0.0,
+                'iva_cero_ingresos_count'  => 0,
+                'iva_cero_egresos_count'   => 0,
+                'top_cliente_rfc'          => '—',
+                'top_cliente_nombre'       => '—',
+                'top_cliente_total'        => 0.0,
+                'top_proveedor_rfc'        => '—',
+                'top_proveedor_nombre'     => '—',
+                'top_proveedor_total'      => 0.0,
+            ];
+
+            $fiscalMonths = [];
+            $fiscalInsights = collect();
+            $fiscalHealthFlags = collect();
+
+            if ($fiscalRowsSource->count() > 0) {
+                $fiscalSummary['fuente'] = ($xmlItemsFiltered ?? collect())->count() > 0
+                    ? 'XML CFDI'
+                    : 'Reportes';
+
+                $normalizeTipo = function ($value) {
+                    $raw = strtoupper(trim((string) $value));
+
+                    if ($raw === '') return '';
+                    if (in_array($raw, ['I', 'INGRESO', 'INGRESOS'], true)) return 'I';
+                    if (in_array($raw, ['E', 'EGRESO', 'EGRESOS'], true)) return 'E';
+                    if (in_array($raw, ['P', 'PAGO', 'PAGOS'], true)) return 'P';
+                    if (in_array($raw, ['N', 'NOMINA', 'NÓMINA'], true)) return 'N';
+                    if (in_array($raw, ['T', 'TRASLADO', 'TRASLADOS'], true)) return 'T';
+
+                    return $raw;
+                };
+
+                $fiscalRowsNormalized = $fiscalRowsSource
+                    ->filter(fn ($row) => !empty($row->fecha_emision))
+                    ->map(function ($row) use ($normalizeTipo) {
+                        $isXml = isset($row->version_cfdi);
+
+                        $subtotal = $isXml ? (float) ($row->subtotal ?? 0) : (float) ($row->total ?? 0);
+                        $iva      = $isXml ? (float) ($row->iva ?? 0) : 0.0;
+                        $total    = (float) ($row->total ?? ($subtotal + $iva));
+
+                        $tipo = $normalizeTipo(
+                            $row->tipo_comprobante
+                            ?? $row->tipo
+                            ?? data_get($row, 'meta.tipo_comprobante')
+                            ?? ''
+                        );
+
+                        $direction = strtolower((string) ($row->direction ?? ''));
+                        $hasMatch  = (int) data_get($row->meta, 'matched_metadata_item_id', 0) > 0;
+                        $retenciones = (float) (
+                            data_get($row, 'meta.impuestos.retenciones_total')
+                            ?? data_get($row, 'meta.retenciones_total')
+                            ?? 0
+                        );
+
+                        $counterpartyRfc = '';
+                        $counterpartyName = '';
+
+                        if ($tipo === 'I') {
+                            $counterpartyRfc  = (string) ($row->rfc_receptor ?? $row->receptor_rfc ?? '');
+                            $counterpartyName = (string) ($row->nombre_receptor ?? $row->receptor_nombre ?? '');
+                        } elseif ($tipo === 'E' || $tipo === 'P' || $tipo === 'N' || $tipo === 'T') {
+                            $counterpartyRfc  = (string) ($row->rfc_emisor ?? $row->emisor_rfc ?? '');
+                            $counterpartyName = (string) ($row->nombre_emisor ?? $row->emisor_nombre ?? '');
+                        }
+
+                        return (object) [
+                            'ym'               => optional($row->fecha_emision)?->format('Y-m'),
+                            'fecha'            => optional($row->fecha_emision)?->format('Y-m-d'),
+                            'subtotal'         => $subtotal,
+                            'iva'              => $iva,
+                            'total'            => $total,
+                            'tipo'             => $tipo,
+                            'direction'        => $direction,
+                            'has_match'        => $hasMatch,
+                            'retenciones'      => $retenciones,
+                            'counterparty_rfc' => $counterpartyRfc,
+                            'counterparty_name'=> $counterpartyName,
+                        ];
+                    })
+                    ->values();
+
+                $fiscalSummary['emitidos_count']  = $fiscalRowsNormalized->where('direction', 'emitidos')->count();
+                $fiscalSummary['recibidos_count'] = $fiscalRowsNormalized->where('direction', 'recibidos')->count();
+                $fiscalSummary['con_match_count'] = $fiscalRowsNormalized->where('has_match', true)->count();
+                $fiscalSummary['sin_match_count'] = $fiscalRowsNormalized->where('has_match', false)->count();
+                $fiscalSummary['meses_activos']   = $fiscalRowsNormalized->pluck('ym')->filter()->unique()->count();
+
+                $ingresosRows = $fiscalRowsNormalized->filter(fn ($r) => $r->tipo === 'I');
+                $egresosRows  = $fiscalRowsNormalized->filter(fn ($r) => $r->tipo === 'E');
+                $pagosRows    = $fiscalRowsNormalized->filter(fn ($r) => $r->tipo === 'P');
+                $nominaRows   = $fiscalRowsNormalized->filter(fn ($r) => $r->tipo === 'N');
+                $trasladoRows = $fiscalRowsNormalized->filter(fn ($r) => $r->tipo === 'T');
+
+                $fiscalSummary['ingresos_subtotal'] = (float) $ingresosRows->sum('subtotal');
+                $fiscalSummary['ingresos_iva']      = (float) $ingresosRows->sum('iva');
+                $fiscalSummary['ingresos_total']    = (float) $ingresosRows->sum('total');
+
+                $fiscalSummary['egresos_subtotal']  = (float) $egresosRows->sum('subtotal');
+                $fiscalSummary['egresos_iva']       = (float) $egresosRows->sum('iva');
+                $fiscalSummary['egresos_total']     = (float) $egresosRows->sum('total');
+
+                $fiscalSummary['pagos_total']       = (float) $pagosRows->sum('total');
+                $fiscalSummary['nomina_total']      = (float) $nominaRows->sum('total');
+                $fiscalSummary['traslados_total']   = (float) $trasladoRows->sum('total');
+                $fiscalSummary['retenciones_total'] = (float) $fiscalRowsNormalized->sum('retenciones');
+
+                $fiscalSummary['ticket_ingreso'] = $ingresosRows->count() > 0
+                    ? round($fiscalSummary['ingresos_total'] / $ingresosRows->count(), 2)
+                    : 0.0;
+
+                $fiscalSummary['ticket_egreso'] = $egresosRows->count() > 0
+                    ? round($fiscalSummary['egresos_total'] / $egresosRows->count(), 2)
+                    : 0.0;
+
+                $fiscalSummary['iva_cero_ingresos_count'] = $ingresosRows
+                    ->filter(fn ($r) => $r->subtotal > 0 && $r->iva <= 0)
+                    ->count();
+
+                $fiscalSummary['iva_cero_egresos_count'] = $egresosRows
+                    ->filter(fn ($r) => $r->subtotal > 0 && $r->iva <= 0)
+                    ->count();
+
+                $baseCobertura = max(
+                    1,
+                    (int) ($metadataItems->total() ?? 0),
+                    (int) ($metadataCount ?? 0),
+                    (int) $fiscalRowsNormalized->count()
+                );
+
+                $fiscalSummary['cobertura'] = (int) round(($fiscalRowsNormalized->count() / $baseCobertura) * 100);
+
+                $topCliente = $ingresosRows
+                    ->groupBy('counterparty_rfc')
+                    ->map(function ($rows, $rfc) {
+                        $rows = collect($rows);
+                        return [
+                            'rfc'   => $rfc ?: '—',
+                            'name'  => (string) ($rows->first()->counterparty_name ?? '—'),
+                            'total' => (float) $rows->sum('total'),
+                        ];
+                    })
+                    ->sortByDesc('total')
+                    ->first();
+
+                if ($topCliente) {
+                    $fiscalSummary['top_cliente_rfc']    = $topCliente['rfc'];
+                    $fiscalSummary['top_cliente_nombre'] = $topCliente['name'] ?: $topCliente['rfc'];
+                    $fiscalSummary['top_cliente_total']  = (float) $topCliente['total'];
+                }
+
+                $topProveedor = $egresosRows
+                    ->groupBy('counterparty_rfc')
+                    ->map(function ($rows, $rfc) {
+                        $rows = collect($rows);
+                        return [
+                            'rfc'   => $rfc ?: '—',
+                            'name'  => (string) ($rows->first()->counterparty_name ?? '—'),
+                            'total' => (float) $rows->sum('total'),
+                        ];
+                    })
+                    ->sortByDesc('total')
+                    ->first();
+
+                if ($topProveedor) {
+                    $fiscalSummary['top_proveedor_rfc']    = $topProveedor['rfc'];
+                    $fiscalSummary['top_proveedor_nombre'] = $topProveedor['name'] ?: $topProveedor['rfc'];
+                    $fiscalSummary['top_proveedor_total']  = (float) $topProveedor['total'];
+                }
+
+                $fiscalMonths = $fiscalRowsNormalized
+                    ->groupBy('ym')
+                    ->map(function ($rows, $ym) {
+                        $rows = collect($rows);
+
+                        $ingresos = $rows->filter(fn ($r) => $r->tipo === 'I');
+                        $egresos  = $rows->filter(fn ($r) => $r->tipo === 'E');
+                        $pagos    = $rows->filter(fn ($r) => $r->tipo === 'P');
+
+                        $ingresosSubtotal = (float) $ingresos->sum('subtotal');
+                        $ingresosIva      = (float) $ingresos->sum('iva');
+                        $ingresosTotal    = (float) $ingresos->sum('total');
+
+                        $egresosSubtotal  = (float) $egresos->sum('subtotal');
+                        $egresosIva       = (float) $egresos->sum('iva');
+                        $egresosTotal     = (float) $egresos->sum('total');
+
+                        $pagosTotal       = (float) $pagos->sum('total');
+                        $ivaNeto          = $ingresosIva - $egresosIva;
+                        $flujoNeto        = $ingresosTotal - $egresosTotal;
+                        $matchPct         = $rows->count() > 0
+                            ? (int) round(($rows->where('has_match', true)->count() / $rows->count()) * 100)
+                            : 0;
+
+                        return [
+                            'ym'                 => (string) $ym,
+                            'ingresos_subtotal'  => $ingresosSubtotal,
+                            'ingresos_iva'       => $ingresosIva,
+                            'ingresos_total'     => $ingresosTotal,
+                            'egresos_subtotal'   => $egresosSubtotal,
+                            'egresos_iva'        => $egresosIva,
+                            'egresos_total'      => $egresosTotal,
+                            'pagos_total'        => $pagosTotal,
+                            'iva_neto'           => $ivaNeto,
+                            'flujo_neto'         => $flujoNeto,
+                            'match_pct'          => $matchPct,
+                            'health'             => $matchPct >= 80 ? 'Alta' : ($matchPct >= 50 ? 'Media' : 'Baja'),
+                        ];
+                    })
+                    ->sortBy('ym')
+                    ->values();
+
+                $fiscalIvaNeto = (float) $fiscalSummary['ingresos_iva'] - (float) $fiscalSummary['egresos_iva'];
+                $fiscalFlujoNeto = (float) $fiscalSummary['ingresos_total'] - (float) $fiscalSummary['egresos_total'];
+
+                $peakMonth = $fiscalMonths->sortByDesc('ingresos_total')->first();
+                $lowCoverageMonth = $fiscalMonths->sortBy('match_pct')->first();
+
+                $fiscalInsights = collect();
+
+                if ($peakMonth) {
+                    $fiscalInsights->push('Mayor facturación en ' . $peakMonth['ym'] . ' por $' . number_format((float) $peakMonth['ingresos_total'], 2) . '.');
+                }
+
+                if ($fiscalSummary['iva_cero_ingresos_count'] > 0) {
+                    $fiscalInsights->push(number_format((int) $fiscalSummary['iva_cero_ingresos_count']) . ' CFDI de ingreso tienen subtotal con IVA en cero; conviene validar si son exentos o si falta revisar impuestos.');
+                }
+
+                if ($fiscalSummary['sin_match_count'] > 0) {
+                    $fiscalInsights->push(number_format((int) $fiscalSummary['sin_match_count']) . ' CFDI siguen sin match contra metadata.');
+                }
+
+                if ($fiscalSummary['top_cliente_total'] > 0) {
+                    $fiscalInsights->push('Cliente principal: ' . $fiscalSummary['top_cliente_rfc'] . ' con $' . number_format((float) $fiscalSummary['top_cliente_total'], 2) . '.');
+                }
+
+                if ($fiscalSummary['top_proveedor_total'] > 0) {
+                    $fiscalInsights->push('Proveedor principal: ' . $fiscalSummary['top_proveedor_rfc'] . ' con $' . number_format((float) $fiscalSummary['top_proveedor_total'], 2) . '.');
+                }
+
+                if ($lowCoverageMonth) {
+                    $fiscalInsights->push('Mes con menor cobertura documental: ' . $lowCoverageMonth['ym'] . ' con ' . $lowCoverageMonth['match_pct'] . '%.');
+                }
+
+                $fiscalInsights = $fiscalInsights->filter()->unique()->take(5)->values();
+
+                $fiscalHealthFlags = collect([
+                    [
+                        'label' => 'Cobertura documental',
+                        'value' => $fiscalSummary['cobertura'] . '%',
+                        'tone'  => $fiscalSummary['cobertura'] >= 80 ? 'ok' : ($fiscalSummary['cobertura'] >= 50 ? 'warn' : 'danger'),
+                    ],
+                    [
+                        'label' => 'IVA neto',
+                        'value' => '$' . number_format((float) $fiscalIvaNeto, 2),
+                        'tone'  => $fiscalIvaNeto > 0 ? 'warn' : 'ok',
+                    ],
+                    [
+                        'label' => 'Sin match',
+                        'value' => number_format((int) $fiscalSummary['sin_match_count']),
+                        'tone'  => $fiscalSummary['sin_match_count'] > 0 ? 'warn' : 'ok',
+                    ],
+                ]);
+            } else {
+                $fiscalIvaNeto = 0.0;
+                $fiscalFlujoNeto = 0.0;
+            }
+
+                        $fiscalRail = [
+                [
+                    'label' => 'Facturación',
+                    'value' => '$' . number_format((float) $fiscalSummary['ingresos_total'], 2),
+                    'tone'  => 'brand',
+                ],
+                [
+                    'label' => 'Gasto',
+                    'value' => '$' . number_format((float) $fiscalSummary['egresos_total'], 2),
+                    'tone'  => 'slate',
+                ],
+                [
+                    'label' => 'IVA trasladado',
+                    'value' => '$' . number_format((float) $fiscalSummary['ingresos_iva'], 2),
+                    'tone'  => 'cyan',
+                ],
+                [
+                    'label' => 'IVA acreditable',
+                    'value' => '$' . number_format((float) $fiscalSummary['egresos_iva'], 2),
+                    'tone'  => 'emerald',
+                ],
+                [
+                    'label' => 'IVA neto',
+                    'value' => '$' . number_format((float) $fiscalIvaNeto, 2),
+                    'tone'  => $fiscalIvaNeto >= 0 ? 'amber' : 'emerald',
+                ],
+                [
+                    'label' => 'Pagos',
+                    'value' => '$' . number_format((float) $fiscalSummary['pagos_total'], 2),
+                    'tone'  => 'violet',
+                ],
+            ];
+
+            $fiscalChartRows = collect($fiscalMonths ?? [])->values();
+
+            $fiscalChartMax = max(
+                1,
+                (float) $fiscalChartRows->max('ingresos_total'),
+                (float) $fiscalChartRows->max('egresos_total'),
+                (float) $fiscalChartRows->max('pagos_total')
+            );
+
+            $chartWidth = 760;
+            $chartHeight = 220;
+            $chartPaddingX = 18;
+            $chartPaddingTop = 20;
+            $chartPaddingBottom = 34;
+            $plotWidth = $chartWidth - ($chartPaddingX * 2);
+            $plotHeight = $chartHeight - $chartPaddingTop - $chartPaddingBottom;
+
+            $buildSeriesPoints = function ($rows, string $key) use ($plotWidth, $plotHeight, $chartPaddingX, $chartPaddingTop, $fiscalChartMax) {
+                $rows = collect($rows)->values();
+                $count = max(1, $rows->count() - 1);
+
+                return $rows->map(function ($row, $index) use ($key, $count, $plotWidth, $plotHeight, $chartPaddingX, $chartPaddingTop, $fiscalChartMax) {
+                    $x = $chartPaddingX + (($plotWidth / max(1, $count)) * $index);
+                    $value = (float) ($row[$key] ?? 0);
+                    $y = $chartPaddingTop + ($plotHeight - (($value / max(1, $fiscalChartMax)) * $plotHeight));
+                    return round($x, 2) . ',' . round($y, 2);
+                })->implode(' ');
+            };
+
+            $fiscalIngresosPoints = $buildSeriesPoints($fiscalChartRows, 'ingresos_total');
+            $fiscalEgresosPoints  = $buildSeriesPoints($fiscalChartRows, 'egresos_total');
+            $fiscalPagosPoints    = $buildSeriesPoints($fiscalChartRows, 'pagos_total');
+
+            $fiscalChartBars = $fiscalChartRows->map(function ($row) use ($fiscalChartMax) {
+                $ivaValue = abs((float) ($row['iva_neto'] ?? 0));
+                $height = $fiscalChartMax > 0
+                    ? max(6, (int) round(($ivaValue / $fiscalChartMax) * 44))
+                    : 6;
+
+                return [
+                    'ym'      => (string) ($row['ym'] ?? ''),
+                    'height'  => $height,
+                    'iva_neto'=> (float) ($row['iva_neto'] ?? 0),
+                ];
+            });
+
+            $fiscalPopupSummary = [
+                'insights_count'      => (int) collect($fiscalInsights ?? [])->count(),
+                'top_cliente_rfc'     => (string) ($fiscalSummary['top_cliente_rfc'] ?? '—'),
+                'top_proveedor_rfc'   => (string) ($fiscalSummary['top_proveedor_rfc'] ?? '—'),
+                'sin_match_count'     => (int) ($fiscalSummary['sin_match_count'] ?? 0),
+                'iva_cero_ingresos'   => (int) ($fiscalSummary['iva_cero_ingresos_count'] ?? 0),
+            ];
 
         @endphp
 
@@ -1285,6 +1724,291 @@
                         </div>
                     </div>
 
+                </div>
+            </section>
+
+            <section class="sv2Section sv2Section--fiscal sv2Section--collapsed" id="fiscalBlock">
+                
+                <div class="sv2MetaBar">
+                    <div class="sv2MetaBar__left">
+                        <span class="sv2MetaBar__title">Resumen fiscal</span>
+                        <span class="sv2MetaBar__sub">
+                            Mesa fiscal · RFC {{ $selectedRfc }} · Fuente {{ $fiscalSummary['fuente'] }}
+                        </span>
+                    </div>
+
+                    <button type="button" class="sv2MetaBar__toggle" id="toggleFiscal" aria-label="Expandir o contraer resumen fiscal">
+                        <span class="sv2MetaBar__icon">+</span>
+                    </button>
+                </div>
+
+                <div class="sv2MetaContent">
+                    <div class="sv2FiscalShell">
+
+                        <div class="sv2Card sv2FiscalHeroCard">
+                            <div class="sv2FiscalHeroCard__head">
+                                <div class="sv2FiscalHeroCard__copy">
+                                    <h3 class="sv2FiscalHeroCard__title">Vista ejecutiva para contador y fiscalista</h3>
+                                    <p class="sv2FiscalHeroCard__text">
+                                        Lectura compacta de facturación, gasto, IVA, pagos y cobertura documental.
+                                    </p>
+                                </div>
+
+                                <div class="sv2FiscalHeroCard__tags">
+                                    <span class="sv2Tag">Fuente {{ $fiscalSummary['fuente'] }}</span>
+                                    <span class="sv2Tag">Cobertura {{ $fiscalSummary['cobertura'] }}%</span>
+                                    <span class="sv2Tag">{{ number_format((int) $fiscalSummary['meses_activos']) }} meses</span>
+
+                                    <button
+                                        type="button"
+                                        class="sv2FiscalReprocessBtn"
+                                        data-sv2-reprocess-smart
+                                        data-rfc="{{ $selectedRfc }}"
+                                    >
+                                        Releer faltantes
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        class="sv2FiscalReprocessBtn sv2FiscalReprocessBtn--ghost"
+                                        data-sv2-open="fiscalReprocessModal"
+                                        data-rfc="{{ $selectedRfc }}"
+                                    >
+                                        Relectura avanzada
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="sv2FiscalRail">
+                                @foreach($fiscalRail as $railItem)
+                                    <div class="sv2FiscalRail__item sv2FiscalRail__item--{{ $railItem['tone'] }}">
+                                        <span class="sv2FiscalRail__label">{{ $railItem['label'] }}</span>
+                                        <strong class="sv2FiscalRail__value">{{ $railItem['value'] }}</strong>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <div class="sv2FiscalToolbarCard sv2Card">
+                            <form method="GET" action="{{ route('cliente.sat.v2.index') }}" class="sv2FiscalToolbar">
+                                <input type="hidden" name="rfc" value="{{ $selectedRfc }}">
+
+                                <div class="sv2FiscalToolbar__group">
+                                    <span class="sv2FiscalToolbar__label">Vista</span>
+                                    <div class="sv2FiscalPills">
+                                        @php
+                                            $fiscalView = trim((string) request()->query('fiscal_view', 'mensual'));
+                                        @endphp
+
+                                        <label class="sv2FiscalPill">
+                                            <input type="radio" name="fiscal_view" value="mensual" {{ $fiscalView === 'mensual' ? 'checked' : '' }}>
+                                            <span>Mensual</span>
+                                        </label>
+
+                                        <label class="sv2FiscalPill">
+                                            <input type="radio" name="fiscal_view" value="trimestral" {{ $fiscalView === 'trimestral' ? 'checked' : '' }}>
+                                            <span>Trimestral</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="sv2FiscalToolbar__group">
+                                    <span class="sv2FiscalToolbar__label">Dirección</span>
+                                    <select name="fiscal_direction" class="sv2Select">
+                                        @php $fiscalDirection = trim((string) request()->query('fiscal_direction', '')); @endphp
+                                        <option value="">Todas</option>
+                                        <option value="emitidos" {{ $fiscalDirection === 'emitidos' ? 'selected' : '' }}>Emitidos</option>
+                                        <option value="recibidos" {{ $fiscalDirection === 'recibidos' ? 'selected' : '' }}>Recibidos</option>
+                                    </select>
+                                </div>
+
+                                <div class="sv2FiscalToolbar__group">
+                                    <span class="sv2FiscalToolbar__label">Tipo</span>
+                                    <select name="fiscal_tipo" class="sv2Select">
+                                        @php $fiscalTipo = trim((string) request()->query('fiscal_tipo', '')); @endphp
+                                        <option value="">Todos</option>
+                                        <option value="I" {{ $fiscalTipo === 'I' ? 'selected' : '' }}>Ingreso</option>
+                                        <option value="E" {{ $fiscalTipo === 'E' ? 'selected' : '' }}>Egreso</option>
+                                        <option value="P" {{ $fiscalTipo === 'P' ? 'selected' : '' }}>Pago</option>
+                                        <option value="N" {{ $fiscalTipo === 'N' ? 'selected' : '' }}>Nómina</option>
+                                        <option value="T" {{ $fiscalTipo === 'T' ? 'selected' : '' }}>Traslado</option>
+                                    </select>
+                                </div>
+
+                                <div class="sv2FiscalToolbar__group">
+                                    <span class="sv2FiscalToolbar__label">Desde</span>
+                                    <input type="date" name="fiscal_desde" class="sv2Input" value="{{ request()->query('fiscal_desde', '') }}">
+                                </div>
+
+                                <div class="sv2FiscalToolbar__group">
+                                    <span class="sv2FiscalToolbar__label">Hasta</span>
+                                    <input type="date" name="fiscal_hasta" class="sv2Input" value="{{ request()->query('fiscal_hasta', '') }}">
+                                </div>
+
+                                <div class="sv2FiscalToolbar__actions">
+                                    <button type="submit" class="sv2Btn sv2Btn--primary sv2Btn--tiny">Aplicar</button>
+                                    <a href="{{ route('cliente.sat.v2.index', ['rfc' => $selectedRfc]) }}#fiscalBlock" class="sv2Btn sv2Btn--secondary sv2Btn--tiny">Limpiar</a>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="sv2FiscalTopGrid sv2FiscalTopGrid--enhanced">
+                            <div class="sv2Card sv2FiscalChartPanel sv2FiscalChartPanel--xl">
+                                <div class="sv2FiscalChartPanel__head">
+                                    <div>
+                                        <h3 class="sv2Card__title">Tendencia fiscal</h3>
+                                        <p class="sv2Card__text">Comparativa de ingresos, egresos, pagos e IVA neto por periodo visible.</p>
+                                    </div>
+
+                                    <div class="sv2FiscalChartLegend">
+                                        <span class="sv2FiscalChartLegend__item">
+                                            <span class="sv2FiscalChartLegend__dot sv2FiscalChartLegend__dot--ingresos"></span>
+                                            Ingresos
+                                        </span>
+                                        <span class="sv2FiscalChartLegend__item">
+                                            <span class="sv2FiscalChartLegend__dot sv2FiscalChartLegend__dot--egresos"></span>
+                                            Egresos
+                                        </span>
+                                        <span class="sv2FiscalChartLegend__item">
+                                            <span class="sv2FiscalChartLegend__dot sv2FiscalChartLegend__dot--pagos"></span>
+                                            Pagos
+                                        </span>
+                                        <span class="sv2FiscalChartLegend__item">
+                                            <span class="sv2FiscalChartLegend__dot sv2FiscalChartLegend__dot--iva"></span>
+                                            IVA neto
+                                        </span>
+                                    </div>
+                                </div>
+
+                                @if($fiscalChartRows->count())
+                                    <div class="sv2FiscalChartCanvasWrap">
+                                        <div id="sv2FiscalTrendChart" class="sv2FiscalChartCanvas"></div>
+                                    </div>
+                                @else
+                                    <div class="sv2Alert sv2FiscalAlert">
+                                        Sin periodos suficientes para construir la tendencia fiscal.
+                                    </div>
+                                @endif
+                            </div>
+
+                            <div class="sv2Card sv2FiscalChartPanel sv2FiscalChartPanel--compact">
+                                <div class="sv2FiscalChartPanel__head">
+                                    <div>
+                                        <h3 class="sv2Card__title">Mix fiscal</h3>
+                                        <p class="sv2Card__text">Composición general del corte visible.</p>
+                                    </div>
+                                </div>
+
+                                @if($fiscalChartRows->count())
+                                    <div class="sv2FiscalChartCanvasWrap sv2FiscalChartCanvasWrap--compact">
+                                        <div id="sv2FiscalMixChart" class="sv2FiscalChartCanvas sv2FiscalChartCanvas--donut"></div>
+                                    </div>
+                                @else
+                                    <div class="sv2Alert sv2FiscalAlert">
+                                        Sin datos para gráfica de composición.
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+
+                        <div class="sv2FiscalBottomStrip">
+                            <button type="button" class="sv2Card sv2FiscalActionCard sv2FiscalActionCard--horizontal" data-sv2-open="fiscalInsightsModal">
+                                <div class="sv2FiscalActionCard__main">
+                                    <div class="sv2FiscalActionCard__eyebrow">Radar IA</div>
+                                    <div class="sv2FiscalActionCard__title">Hallazgos automáticos</div>
+                                    <div class="sv2FiscalActionCard__text">
+                                        Riesgos, cobertura y observaciones del corte visible.
+                                    </div>
+                                </div>
+                                <div class="sv2FiscalActionCard__aside">
+                                    <div class="sv2FiscalActionCard__value">{{ number_format(collect($fiscalInsights ?? [])->count()) }}</div>
+                                </div>
+                            </button>
+
+                            <button type="button" class="sv2Card sv2FiscalActionCard sv2FiscalActionCard--horizontal" data-sv2-open="fiscalConcentrationModal">
+                                <div class="sv2FiscalActionCard__main">
+                                    <div class="sv2FiscalActionCard__eyebrow">Concentración</div>
+                                    <div class="sv2FiscalActionCard__title">Clientes y proveedores</div>
+                                    <div class="sv2FiscalActionCard__text">
+                                        {{ $fiscalSummary['top_cliente_rfc'] }} · {{ $fiscalSummary['top_proveedor_rfc'] }}
+                                    </div>
+                                </div>
+                                <div class="sv2FiscalActionCard__aside">
+                                    <div class="sv2FiscalActionCard__value">TOP</div>
+                                </div>
+                            </button>
+
+                            <div class="sv2Card sv2FiscalHealthStrip sv2FiscalHealthStrip--horizontal">
+                                @foreach(($fiscalHealthFlags ?? collect()) as $flag)
+                                    <div class="sv2FiscalHealthStrip__row">
+                                        <span class="sv2FiscalHealthStrip__label">{{ $flag['label'] }}</span>
+                                        <span class="sv2FiscalHealthStrip__value sv2FiscalHealthStrip__value--{{ $flag['tone'] }}">
+                                            {{ $flag['value'] }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <div class="sv2Card sv2FiscalMatrixCard">
+                            <div class="sv2Card__head">
+                                <div>
+                                    <h3 class="sv2Card__title">Matriz mensual fiscal</h3>
+                                    <p class="sv2Card__text">Base, IVA, total, pagos, flujo neto y cobertura por mes.</p>
+                                </div>
+                            </div>
+
+                            @if(($fiscalMonths ?? collect())->count())
+                                <div class="sv2MetaTableWrap">
+                                    <table class="sv2MetaTable sv2FiscalMatrixTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Periodo</th>
+                                                <th>Base ingreso</th>
+                                                <th>IVA trasl.</th>
+                                                <th>Total ingreso</th>
+                                                <th>Base egreso</th>
+                                                <th>IVA acred.</th>
+                                                <th>Total egreso</th>
+                                                <th>Pagos</th>
+                                                <th>Flujo neto</th>
+                                                <th>IVA neto</th>
+                                                <th>Cobertura</th>
+                                                <th>Lectura</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($fiscalMonths as $row)
+                                                <tr>
+                                                    <td>{{ $row['ym'] }}</td>
+                                                    <td>${{ number_format((float) $row['ingresos_subtotal'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['ingresos_iva'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['ingresos_total'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['egresos_subtotal'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['egresos_iva'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['egresos_total'], 2) }}</td>
+                                                    <td>${{ number_format((float) $row['pagos_total'], 2) }}</td>
+                                                    <td class="{{ ((float) $row['flujo_neto']) >= 0 ? 'sv2FiscalTone sv2FiscalTone--up' : 'sv2FiscalTone sv2FiscalTone--down' }}">
+                                                        ${{ number_format((float) $row['flujo_neto'], 2) }}
+                                                    </td>
+                                                    <td class="{{ ((float) $row['iva_neto']) >= 0 ? 'sv2FiscalTone sv2FiscalTone--warn' : 'sv2FiscalTone sv2FiscalTone--up' }}">
+                                                        ${{ number_format((float) $row['iva_neto'], 2) }}
+                                                    </td>
+                                                    <td>{{ $row['match_pct'] }}%</td>
+                                                    <td>{{ $row['health'] }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @else
+                                <div class="sv2Alert sv2FiscalAlert">
+                                    Sin periodos suficientes para construir la matriz fiscal.
+                                </div>
+                            @endif
+                        </div>
+
+                    </div>
                 </div>
             </section>
             @endif
@@ -2134,7 +2858,215 @@
             </div>
         </div>
 
-                <div class="sv2Loading" id="sv2Loading" aria-hidden="true">
+        <div class="sv2Modal" id="fiscalInsightsModal" aria-hidden="true">
+            <div class="sv2Modal__backdrop" data-sv2-close="fiscalInsightsModal"></div>
+
+            <div class="sv2Modal__dialog sv2Modal__dialog--metadata" role="dialog" aria-modal="true" aria-labelledby="fiscalInsightsModalTitle">
+                <div class="sv2Modal__head sv2Modal__head--metadata">
+                    <div class="sv2ModalHero">
+                        <div class="sv2ModalHero__icon" aria-hidden="true">IA</div>
+                        <div class="sv2ModalHero__copy">
+                            <div class="sv2StepEyebrow">Radar IA fiscal</div>
+                            <h3 class="sv2Modal__title" id="fiscalInsightsModalTitle">Hallazgos del corte visible</h3>
+                            <p class="sv2ModalHero__text">Observaciones cortas, accionables y comerciales para contador y fiscalista.</p>
+                        </div>
+                    </div>
+
+                    <button type="button" class="sv2Modal__close" data-sv2-close="fiscalInsightsModal" aria-label="Cerrar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="sv2Modal__body sv2Modal__body--metadata">
+                    <div class="sv2FiscalPopupList">
+                        @forelse(($fiscalInsights ?? collect()) as $insight)
+                            <div class="sv2FiscalPopupItem">{{ $insight }}</div>
+                        @empty
+                            <div class="sv2FiscalPopupItem sv2FiscalPopupItem--muted">
+                                Aún no hay suficiente información para generar observaciones automáticas.
+                            </div>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sv2Modal" id="fiscalConcentrationModal" aria-hidden="true">
+            <div class="sv2Modal__backdrop" data-sv2-close="fiscalConcentrationModal"></div>
+
+            <div class="sv2Modal__dialog sv2Modal__dialog--metadata" role="dialog" aria-modal="true" aria-labelledby="fiscalConcentrationModalTitle">
+                <div class="sv2Modal__head sv2Modal__head--metadata">
+                    <div class="sv2ModalHero">
+                        <div class="sv2ModalHero__icon" aria-hidden="true">TOP</div>
+                        <div class="sv2ModalHero__copy">
+                            <div class="sv2StepEyebrow">Concentración operativa</div>
+                            <h3 class="sv2Modal__title" id="fiscalConcentrationModalTitle">Principales contrapartes</h3>
+                            <p class="sv2ModalHero__text">Cliente y proveedor principal del periodo visible.</p>
+                        </div>
+                    </div>
+
+                    <button type="button" class="sv2Modal__close" data-sv2-close="fiscalConcentrationModal" aria-label="Cerrar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="sv2Modal__body sv2Modal__body--metadata">
+                    <div class="sv2FiscalPopupGrid">
+                        <div class="sv2FiscalPopupEntity">
+                            <div class="sv2FiscalPopupEntity__label">Cliente principal</div>
+                            <div class="sv2FiscalPopupEntity__rfc">{{ $fiscalSummary['top_cliente_rfc'] }}</div>
+                            <div class="sv2FiscalPopupEntity__name">{{ $fiscalSummary['top_cliente_nombre'] }}</div>
+                            <div class="sv2FiscalPopupEntity__amount">${{ number_format((float) $fiscalSummary['top_cliente_total'], 2) }}</div>
+                        </div>
+
+                        <div class="sv2FiscalPopupEntity">
+                            <div class="sv2FiscalPopupEntity__label">Proveedor principal</div>
+                            <div class="sv2FiscalPopupEntity__rfc">{{ $fiscalSummary['top_proveedor_rfc'] }}</div>
+                            <div class="sv2FiscalPopupEntity__name">{{ $fiscalSummary['top_proveedor_nombre'] }}</div>
+                            <div class="sv2FiscalPopupEntity__amount">${{ number_format((float) $fiscalSummary['top_proveedor_total'], 2) }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+            <div class="sv2Modal" id="fiscalReprocessModal" aria-hidden="true">
+                <div class="sv2Modal__backdrop" data-sv2-close="fiscalReprocessModal"></div>
+
+                <div class="sv2Modal__dialog sv2Modal__dialog--metadata" role="dialog" aria-modal="true" aria-labelledby="fiscalReprocessModalTitle">
+                    <div class="sv2Modal__head sv2Modal__head--metadata">
+                        <div class="sv2ModalHero">
+                            <div class="sv2ModalHero__icon" aria-hidden="true">↻</div>
+                            <div class="sv2ModalHero__copy">
+                                <div class="sv2StepEyebrow">Relectura inteligente</div>
+                                <h3 class="sv2Modal__title" id="fiscalReprocessModalTitle">Reprocesar XML históricos</h3>
+                                <p class="sv2ModalHero__text">Primero se calcula el alcance y luego se ejecuta por bloque seguro.</p>
+                            </div>
+                        </div>
+
+                        <button type="button" class="sv2Modal__close" data-sv2-close="fiscalReprocessModal" aria-label="Cerrar">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="sv2Modal__body sv2Modal__body--metadata">
+                        <form class="sv2ReprocessForm" id="sv2ReprocessAdvancedForm" data-sv2-reprocess-advanced-form>
+                            @csrf
+                            <input type="hidden" name="rfc_owner" value="{{ $selectedRfc }}">
+
+                            <div class="sv2ModalBlock">
+                                <div class="sv2ModalBlock__title">Alcance</div>
+
+                                <div class="sv2DirectionPicker sv2DirectionPicker--stack">
+                                    <label class="sv2RadioCard">
+                                        <input type="radio" name="scope" value="smart" checked>
+                                        <span class="sv2RadioCard__box">
+                                            <span>
+                                                <span class="sv2RadioCard__title">Inteligente</span>
+                                                <span class="sv2RadioCard__text">Detecta el bloque más seguro con más faltantes.</span>
+                                            </span>
+                                        </span>
+                                    </label>
+
+                                    <label class="sv2RadioCard">
+                                        <input type="radio" name="scope" value="missing">
+                                        <span class="sv2RadioCard__box">
+                                            <span>
+                                                <span class="sv2RadioCard__title">Solo faltantes</span>
+                                                <span class="sv2RadioCard__text">CFDI con impuestos o subtotal incompleto.</span>
+                                            </span>
+                                        </span>
+                                    </label>
+
+                                    <label class="sv2RadioCard">
+                                        <input type="radio" name="scope" value="month">
+                                        <span class="sv2RadioCard__box">
+                                            <span>
+                                                <span class="sv2RadioCard__title">Bloque mensual</span>
+                                                <span class="sv2RadioCard__text">Releer un solo mes del RFC.</span>
+                                            </span>
+                                        </span>
+                                    </label>
+
+                                    <label class="sv2RadioCard">
+                                        <input type="radio" name="scope" value="direction">
+                                        <span class="sv2RadioCard__box">
+                                            <span>
+                                                <span class="sv2RadioCard__title">Por dirección</span>
+                                                <span class="sv2RadioCard__text">Solo emitidos o solo recibidos.</span>
+                                            </span>
+                                        </span>
+                                    </label>
+
+                                    <label class="sv2RadioCard">
+                                        <input type="radio" name="scope" value="all">
+                                        <span class="sv2RadioCard__box">
+                                            <span>
+                                                <span class="sv2RadioCard__title">Todo el RFC</span>
+                                                <span class="sv2RadioCard__text">Usar solo si el preview lo permite.</span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="sv2ModalBlock">
+                                <div class="sv2ModalBlock__title">Parámetros</div>
+
+                                <div class="sv2ModalGrid">
+                                    <div class="sv2Field sv2Field--static">
+                                        <span class="sv2Float">Periodo YYYY-MM</span>
+                                        <input type="text" name="period_ym" class="sv2Input" placeholder="2024-10">
+                                    </div>
+
+                                    <div class="sv2Field sv2Field--static">
+                                        <span class="sv2Float">Dirección</span>
+                                        <select name="direction" class="sv2Select">
+                                            <option value="">Todas</option>
+                                            <option value="emitidos">Emitidos</option>
+                                            <option value="recibidos">Recibidos</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="sv2Field sv2Field--static">
+                                        <span class="sv2Float">Límite</span>
+                                        <input type="number" name="limit" class="sv2Input" min="1" max="2000" value="300">
+                                    </div>
+
+                                    <div class="sv2Field sv2Field--static">
+                                        <span class="sv2Float">Lote</span>
+                                        <input type="number" name="chunk_size" class="sv2Input" min="25" max="500" value="200">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="sv2ReprocessPreview" id="sv2ReprocessPreview">
+                                <div class="sv2ReprocessPreview__empty">
+                                    Ejecuta el preview para calcular el alcance seguro.
+                                </div>
+                            </div>
+
+                            <div class="sv2Modal__actions sv2Modal__actions--metadata">
+                                <button type="button" class="sv2Btn sv2Btn--secondary" data-sv2-preview-reprocess>
+                                    Calcular preview
+                                </button>
+
+                                <button type="button" class="sv2Btn sv2Btn--primary" data-sv2-run-reprocess>
+                                    Ejecutar relectura
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+        <div class="sv2Loading" id="sv2Loading" aria-hidden="true">
             <div class="sv2Loading__backdrop"></div>
 
             <div class="sv2Loading__dialog" role="status" aria-live="polite" aria-busy="true">
@@ -2164,477 +3096,42 @@
 </div>
 @endsection
 
+@php
+    $sv2FiscalChartPayload = [
+        'labels'   => collect($fiscalChartRows ?? [])->pluck('ym')->values()->all(),
+        'ingresos' => collect($fiscalChartRows ?? [])->pluck('ingresos_total')->map(fn ($v) => round((float) $v, 2))->values()->all(),
+        'egresos'  => collect($fiscalChartRows ?? [])->pluck('egresos_total')->map(fn ($v) => round((float) $v, 2))->values()->all(),
+        'pagos'    => collect($fiscalChartRows ?? [])->pluck('pagos_total')->map(fn ($v) => round((float) $v, 2))->values()->all(),
+        'iva_neto' => collect($fiscalChartRows ?? [])->pluck('iva_neto')->map(fn ($v) => round((float) $v, 2))->values()->all(),
+        'mix'      => [
+            round((float) ($fiscalSummary['ingresos_total'] ?? 0), 2),
+            round((float) ($fiscalSummary['egresos_total'] ?? 0), 2),
+            round((float) ($fiscalSummary['pagos_total'] ?? 0), 2),
+            round((float) abs($fiscalIvaNeto ?? 0), 2),
+        ],
+        'mix_labels' => ['Ingresos', 'Egresos', 'Pagos', 'IVA neto'],
+        'summary'  => [
+            'fuente'    => (string) ($fiscalSummary['fuente'] ?? 'Sin datos'),
+            'cobertura' => (int) ($fiscalSummary['cobertura'] ?? 0),
+            'meses'     => (int) ($fiscalSummary['meses_activos'] ?? 0),
+            'rfc'       => (string) $selectedRfc,
+        ],
+        'routes' => [
+            'preview' => route('cliente.sat.v2.reprocess_xml.preview'),
+            'run'     => route('cliente.sat.v2.reprocess_xml.run'),
+        ],
+    ];
+@endphp
+
 @push('scripts')
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const $ = (selector, root = document) => root.querySelector(selector);
-    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-
-    const loading = $('#sv2Loading');
-    const toggleBtn = $('#toggleMetadata');
-    const metadataBlock = $('#metadataBlock');
-    const toggleXmlBtn = $('#toggleXml');
-    const xmlBlock = $('#xmlBlock');
-    const toggleReportBtn = $('#toggleReport');
-    const reportBlock = $('#reportBlock');
-    const toggleDownloadsBtn = $('#toggleDownloads');
-    const downloadsBlock = $('#downloadsBlock');
-    const uploadForms = $$('[data-sv2-upload-form]');
-    const toggleDataLoadBtn = $('#toggleDataLoad');
-    const dataLoadBlock = $('#dataLoadBlock');
-  
-    let loadingTimer = null;
-    let loadingSeconds = 0;
-
-    function syncCollapsedIcon(button, block) {
-        if (!button || !block) return;
-        const icon = $('.sv2MetaBar__icon', button);
-        if (!icon) return;
-        icon.textContent = block.classList.contains('sv2Section--collapsed') ? '+' : '−';
-    }
-
-    syncCollapsedIcon(toggleBtn, metadataBlock);
-    syncCollapsedIcon(toggleXmlBtn, xmlBlock);
-    syncCollapsedIcon(toggleReportBtn, reportBlock);
-    syncCollapsedIcon(toggleDownloadsBtn, downloadsBlock);
-    syncCollapsedIcon(toggleDataLoadBtn, dataLoadBlock);
-
-    function setBodyModalState(isOpen) {
-        document.body.classList.toggle('sv2-modal-open', isOpen);
-    }
-
-    function openModal(id) {
-        const modal = document.getElementById(id);
-        if (!modal) return;
-
-        modal.classList.add('is-open');
-        modal.setAttribute('aria-hidden', 'false');
-        setBodyModalState(true);
-    }
-
-    function closeModal(id) {
-        const modal = document.getElementById(id);
-        if (!modal) return;
-
-        modal.classList.remove('is-open');
-        modal.setAttribute('aria-hidden', 'true');
-
-        if (!document.querySelector('.sv2Modal.is-open') && !(loading && loading.classList.contains('is-open'))) {
-            setBodyModalState(false);
-        }
-    }
-
-    function closeAllModals() {
-        $$('.sv2Modal.is-open').forEach(function (modal) {
-            modal.classList.remove('is-open');
-            modal.setAttribute('aria-hidden', 'true');
-        });
-
-        if (!(loading && loading.classList.contains('is-open'))) {
-            setBodyModalState(false);
-        }
-    }
-
-    function stopLoadingTimer() {
-        if (loadingTimer) {
-            clearInterval(loadingTimer);
-            loadingTimer = null;
-        }
-    }
-
-    function setLoadingTexts(type) {
-        if (!loading) return;
-
-        const title = $('.sv2Loading__title', loading);
-        const text = $('.sv2Loading__text', loading);
-
-        if (type === 'xml') {
-            if (title) title.textContent = 'Cargando XML...';
-            if (text) text.textContent = 'Estamos subiendo el XML y asociándolo al RFC y al lote metadata seleccionado.';
-            return;
-        }
-
-        if (type === 'report') {
-            if (title) title.textContent = 'Cargando reporte...';
-            if (text) text.textContent = 'Estamos subiendo el reporte y relacionándolo con el RFC y las cargas seleccionadas.';
-            return;
-        }
-
-        if (title) title.textContent = 'Cargando metadata...';
-        if (text) text.textContent = 'Estamos subiendo el archivo y registrando el lote para el RFC seleccionado.';
-    }
-
-    function updateLoadingStatus(stageText, hintText) {
-        const stage = $('#sv2LoadingStage');
-        const elapsed = $('#sv2LoadingElapsed');
-        const hint = $('#sv2LoadingHint');
-
-        if (stage && stageText) stage.textContent = stageText;
-        if (hint && hintText) hint.textContent = hintText;
-        if (elapsed) elapsed.textContent = loadingSeconds + 's';
-    }
-
-    function showLoading(type) {
-        if (!loading) return;
-
-        loading.classList.add('is-open');
-        loading.setAttribute('aria-hidden', 'false');
-        setBodyModalState(true);
-
-        loadingSeconds = 0;
-        setLoadingTexts(type);
-        updateLoadingStatus('Preparando envío', 'Si el archivo es pesado, el proceso puede tardar varios minutos.');
-
-        stopLoadingTimer();
-        loadingTimer = setInterval(function () {
-            loadingSeconds++;
-
-            let stageText = 'Seguimos trabajando';
-            if (loadingSeconds < 4) {
-                stageText = 'Conectando con servidor';
-            } else if (loadingSeconds < 10) {
-                stageText = 'Esperando respuesta del servidor';
-            } else if (loadingSeconds < 20) {
-                stageText = 'Procesando archivo';
-            }
-
-            const hintText = loadingSeconds >= 12
-                ? 'El servidor sigue procesando la carga. ZIP y archivos grandes pueden tardar más.'
-                : null;
-
-            updateLoadingStatus(stageText, hintText);
-        }, 1000);
-    }
-
-    function hideLoading() {
-        stopLoadingTimer();
-
-        if (!loading) return;
-
-        loading.classList.remove('is-open');
-        loading.setAttribute('aria-hidden', 'true');
-
-        if (!document.querySelector('.sv2Modal.is-open')) {
-            setBodyModalState(false);
-        }
-    }
-
-    function setFormDisabled(form, disabled) {
-        $$('button, input, select, textarea', form).forEach(function (el) {
-            if (el.type === 'hidden') return;
-            el.disabled = disabled;
-        });
-    }
-
-    function showAjaxError(xhr, response) {
-        if (response && response.message) {
-            alert(response.message);
-            return;
-        }
-
-        if (response && response.errors) {
-            const firstKey = Object.keys(response.errors)[0];
-            if (firstKey && response.errors[firstKey] && response.errors[firstKey][0]) {
-                alert(response.errors[firstKey][0]);
-                return;
-            }
-        }
-
-        let raw = (xhr.responseText || '').trim();
-        if (raw.length > 500) {
-            raw = raw.substring(0, 500) + '...';
-        }
-
-        alert('Ocurrió un error al cargar el archivo.\n\n' + (raw || 'Revisa el log del servidor.'));
-    }
-
-    function submitWithAjax(form) {
-        const type = form.getAttribute('data-sv2-upload-form') || 'metadata';
-
-        if (!form.reportValidity()) {
-            return;
-        }
-
-        const xhr = new XMLHttpRequest();
-        const formData = new FormData(form);
-
-        closeAllModals();
-        showLoading(type);
-        setFormDisabled(form, true);
-
-        xhr.open('POST', form.action, true);
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.setRequestHeader('Accept', 'application/json');
-
-        xhr.upload.onprogress = function (event) {
-            const stage = $('#sv2LoadingStage');
-            const hint = $('#sv2LoadingHint');
-
-            if (!stage) return;
-
-            if (event.lengthComputable) {
-                const percent = Math.round((event.loaded / event.total) * 100);
-                stage.textContent = 'Subiendo archivo (' + percent + '%)';
-                if (hint) {
-                    hint.textContent = 'Carga en progreso. Espera a que el servidor termine de procesar el archivo.';
-                }
-                return;
-            }
-
-            stage.textContent = 'Subiendo archivo';
-        };
-
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) return;
-
-            hideLoading();
-            setFormDisabled(form, false);
-
-            let response = null;
-
-            try {
-                response = JSON.parse(xhr.responseText);
-            } catch (e) {
-                response = null;
-            }
-
-            if (xhr.status >= 200 && xhr.status < 300 && response && response.ok) {
-                window.location.href = response.redirect_url || window.location.href;
-                return;
-            }
-
-            showAjaxError(xhr, response);
-        };
-
-        xhr.onerror = function () {
-            hideLoading();
-            setFormDisabled(form, false);
-            alert('No se pudo completar la carga. Revisa tu conexión, la ruta o el log del servidor.');
-        };
-
-        xhr.send(formData);
-    }
-
-    $$('[data-sv2-open]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            openModal(btn.getAttribute('data-sv2-open'));
-        });
-    });
-
-    $$('[data-sv2-close]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            closeModal(btn.getAttribute('data-sv2-close'));
-        });
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key !== 'Escape') return;
-        if (loading && loading.classList.contains('is-open')) return;
-        closeAllModals();
-    });
-
-    uploadForms.forEach(function (form) {
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            submitWithAjax(form);
-        });
-    });
-
-    if (toggleBtn && metadataBlock) {
-        toggleBtn.addEventListener('click', function () {
-            const collapsed = metadataBlock.classList.toggle('sv2Section--collapsed');
-            const icon = $('.sv2MetaBar__icon', toggleBtn);
-
-            if (icon) {
-                icon.textContent = collapsed ? '+' : '−';
-            }
-        });
-    }
-
-    if (toggleXmlBtn && xmlBlock) {
-        toggleXmlBtn.addEventListener('click', function () {
-            const collapsed = xmlBlock.classList.toggle('sv2Section--collapsed');
-            const icon = $('.sv2MetaBar__icon', toggleXmlBtn);
-
-            if (icon) {
-                icon.textContent = collapsed ? '+' : '−';
-            }
-        });
-    }
-
-    if (toggleReportBtn && reportBlock) {
-        toggleReportBtn.addEventListener('click', function () {
-            const collapsed = reportBlock.classList.toggle('sv2Section--collapsed');
-            const icon = $('.sv2MetaBar__icon', toggleReportBtn);
-
-            if (icon) {
-                icon.textContent = collapsed ? '+' : '−';
-            }
-        });
-    }
-
-    if (toggleDownloadsBtn && downloadsBlock) {
-        toggleDownloadsBtn.addEventListener('click', function () {
-            downloadsBlock.classList.toggle('sv2Section--collapsed');
-            syncCollapsedIcon(toggleDownloadsBtn, downloadsBlock);
-        });
-    }
-
-    const sv2HasErrors = @json($errors->any());
-    const sv2OpenModalOnLoad = @json(old('sv2_open_modal', 'metadataModal'));
-
-    if (sv2HasErrors) {
-        openModal(sv2OpenModalOnLoad || 'metadataModal');
-    }
-
-    if (toggleDataLoadBtn && dataLoadBlock) {
-        const icon = $('.sv2MetaBar__icon', toggleDataLoadBtn);
-
-        const syncDataLoadState = function () {
-            const isHidden = dataLoadBlock.hasAttribute('hidden');
-            if (icon) {
-                icon.textContent = isHidden ? '+' : '−';
-            }
-            toggleDataLoadBtn.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
-        };
-
-        syncDataLoadState();
-
-        toggleDataLoadBtn.addEventListener('click', function () {
-            if (dataLoadBlock.hasAttribute('hidden')) {
-                dataLoadBlock.removeAttribute('hidden');
-            } else {
-                dataLoadBlock.setAttribute('hidden', 'hidden');
-            }
-
-            syncDataLoadState();
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.sv2RfcTable tbody tr').forEach(function (row) {
-            const input = row.querySelector('.sv2RfcTableForm input[name="razon_social"]');
-            const mirror = row.querySelector('.sv2RfcSaveMirrorBtn')?.closest('form')?.querySelector('input[name="razon_social"]');
-
-            if (!input || !mirror) return;
-
-            const sync = function () {
-                mirror.value = input.value;
-            };
-
-            input.addEventListener('input', sync);
-            input.addEventListener('change', sync);
-            sync();
-        });
-    });
-
-    document.addEventListener('DOMContentLoaded', function () {
-    const chooser = document.getElementById('sv2RfcChooser');
-    const control = document.getElementById('sv2RfcChooserControl');
-    const menu = document.getElementById('sv2RfcChooserMenu');
-    const search = document.getElementById('sv2RfcChooserSearch');
-    const list = document.getElementById('sv2RfcChooserList');
-    const value = document.getElementById('sv2RfcChooserValue');
-    const hidden = document.getElementById('sv2RfcHiddenInput');
-
-    if (!chooser || !control || !menu || !search || !list || !value || !hidden) {
-        return;
-    }
-
-    const options = Array.from(list.querySelectorAll('.sv2RfcOption'));
-
-    const openMenu = function () {
-        chooser.classList.add('is-open');
-        menu.hidden = false;
-        control.setAttribute('aria-expanded', 'true');
-        setTimeout(function () {
-            search.focus();
-            search.select();
-        }, 20);
+    window.sv2Config = {
+        hasErrors: @json($errors->any()),
+        openModalOnLoad: @json(old('sv2_open_modal', 'metadataModal')),
+        fiscalCharts: @json($sv2FiscalChartPayload),
+        selectedRfc: @json($selectedRfc),
+        csrf: @json(csrf_token())
     };
-
-    const closeMenu = function () {
-        chooser.classList.remove('is-open');
-        menu.hidden = true;
-        control.setAttribute('aria-expanded', 'false');
-    };
-
-    const normalize = function (text) {
-        return (text || '')
-            .toString()
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '');
-    };
-
-    const filterOptions = function () {
-        const term = normalize(search.value);
-
-        options.forEach(function (option) {
-            const haystack = normalize(option.getAttribute('data-search') || '');
-            const show = term === '' || haystack.includes(term);
-            option.hidden = !show;
-        });
-    };
-
-    const setSelected = function (option) {
-        const selectedRfc = option.getAttribute('data-rfc') || '';
-        const selectedName = option.getAttribute('data-name') || selectedRfc || 'Selecciona un RFC de trabajo';
-
-        hidden.value = selectedRfc;
-        value.textContent = selectedName;
-
-        options.forEach(function (item) {
-            item.classList.remove('is-active');
-            item.setAttribute('aria-selected', 'false');
-
-            const badge = item.querySelector('.sv2RfcOption__badge');
-            if (badge) badge.remove();
-        });
-
-        option.classList.add('is-active');
-        option.setAttribute('aria-selected', 'true');
-
-        const main = option.querySelector('.sv2RfcOption__main');
-        if (main && !option.querySelector('.sv2RfcOption__badge')) {
-            const badge = document.createElement('span');
-            badge.className = 'sv2RfcOption__badge';
-            badge.textContent = 'Activo';
-            option.appendChild(badge);
-        }
-
-        closeMenu();
-    };
-
-    control.addEventListener('click', function () {
-        if (chooser.classList.contains('is-open')) {
-            closeMenu();
-        } else {
-            openMenu();
-        }
-    });
-
-    search.addEventListener('input', filterOptions);
-
-    options.forEach(function (option) {
-        option.addEventListener('click', function () {
-            setSelected(option);
-        });
-    });
-
-    document.addEventListener('click', function (event) {
-        if (!chooser.contains(event.target)) {
-            closeMenu();
-        }
-    });
-
-    document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape') {
-            closeMenu();
-        }
-    });
-});
-
-});
 </script>
+<script src="{{ asset('assets/client/js/sat-v2.js') }}?v={{ filemtime(public_path('assets/client/js/sat-v2.js')) }}"></script>
 @endpush

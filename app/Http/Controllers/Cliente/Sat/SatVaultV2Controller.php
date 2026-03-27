@@ -882,102 +882,22 @@ class SatVaultV2Controller extends Controller
             ],
         ]);
 
-        $processed = 0;
+                try {
+            $result = $this->processStoredXmlUpload(
+                $xmlUpload,
+                $storedPath,
+                $extension,
+                $cuentaId,
+                $usuarioId,
+                $rfcOwner,
+                $xmlDirection,
+                $linkedMetadata
+            );
 
-        try {
-            if ($extension === 'xml') {
-                $content = Storage::disk(self::DISK)->get($storedPath);
-                $parsed = $this->parseXmlContent($content);
-
-                if ($parsed && $parsed['uuid'] !== '') {
-                    $hash = $this->generateXmlHash($content);
-
-                    if (!$this->xmlAlreadyExists($cuentaId, $usuarioId, $rfcOwner, $parsed['uuid'], $hash)) {
-                        SatUserCfdi::query()->create([
-                            'xml_upload_id'     => $xmlUpload->id,
-                            'cuenta_id'         => $cuentaId,
-                            'usuario_id'        => $usuarioId,
-                            'rfc_owner'         => $rfcOwner,
-                            'uuid'              => $parsed['uuid'],
-                            'version_cfdi'      => $parsed['version_cfdi'],
-                            'rfc_emisor'        => $parsed['rfc_emisor'],
-                            'nombre_emisor'     => $parsed['nombre_emisor'],
-                            'rfc_receptor'      => $parsed['rfc_receptor'],
-                            'nombre_receptor'   => $parsed['nombre_receptor'],
-                            'fecha_emision'     => $this->parseDateValue($parsed['fecha_emision']),
-                            'subtotal'          => $parsed['subtotal'],
-                            'total'             => $parsed['total'],
-                            'moneda'            => $parsed['moneda'],
-                            'tipo_comprobante'  => $parsed['tipo_comprobante'],
-                            'metodo_pago'       => $parsed['metodo_pago'],
-                            'forma_pago'        => $parsed['forma_pago'],
-                            'direction'         => $xmlDirection,
-                            'xml_path'          => $storedPath,
-                            'xml_hash'          => $hash,
-                            'meta'              => [],
-                        ]);
-
-                        $processed++;
-                    }
-                }
-            } elseif ($extension === 'zip') {
-                $zipPath = Storage::disk(self::DISK)->path($storedPath);
-                $zip = new \ZipArchive();
-
-                if ($zip->open($zipPath) === true) {
-                    for ($i = 0; $i < $zip->numFiles; $i++) {
-                        $name = $zip->getNameIndex($i);
-
-                        if (!str_ends_with(strtolower($name), '.xml')) {
-                            continue;
-                        }
-
-                        $content = $zip->getFromIndex($i);
-                        if (!$content) {
-                            continue;
-                        }
-
-                        $parsed = $this->parseXmlContent($content);
-                        if (!$parsed || $parsed['uuid'] === '') {
-                            continue;
-                        }
-
-                        $hash = $this->generateXmlHash($content);
-
-                        if ($this->xmlAlreadyExists($cuentaId, $usuarioId, $rfcOwner, $parsed['uuid'], $hash)) {
-                            continue;
-                        }
-
-                        SatUserCfdi::query()->create([
-                            'xml_upload_id'     => $xmlUpload->id,
-                            'cuenta_id'         => $cuentaId,
-                            'usuario_id'        => $usuarioId,
-                            'rfc_owner'         => $rfcOwner,
-                            'uuid'              => $parsed['uuid'],
-                            'version_cfdi'      => $parsed['version_cfdi'],
-                            'rfc_emisor'        => $parsed['rfc_emisor'],
-                            'nombre_emisor'     => $parsed['nombre_emisor'],
-                            'rfc_receptor'      => $parsed['rfc_receptor'],
-                            'nombre_receptor'   => $parsed['nombre_receptor'],
-                            'fecha_emision'     => $this->parseDateValue($parsed['fecha_emision']),
-                            'subtotal'          => $parsed['subtotal'],
-                            'total'             => $parsed['total'],
-                            'moneda'            => $parsed['moneda'],
-                            'tipo_comprobante'  => $parsed['tipo_comprobante'],
-                            'metodo_pago'       => $parsed['metodo_pago'],
-                            'forma_pago'        => $parsed['forma_pago'],
-                            'direction'         => $xmlDirection,
-                            'xml_path'          => $storedPath,
-                            'xml_hash'          => $hash,
-                            'meta'              => ['zip_entry' => $name],
-                        ]);
-
-                        $processed++;
-                    }
-
-                    $zip->close();
-                }
-            }
+            $processed        = (int) ($result['processed'] ?? 0);
+            $duplicatesUuid   = (int) ($result['duplicates_uuid'] ?? 0);
+            $duplicatesHash   = (int) ($result['duplicates_hash'] ?? 0);
+            $invalidFiles     = (int) ($result['invalid'] ?? 0);
 
             $xmlUpload->update([
                 'files_count' => $processed,
@@ -985,12 +905,26 @@ class SatVaultV2Controller extends Controller
                 'meta'        => array_merge((array) $xmlUpload->meta, [
                     'analysis_pending' => false,
                     'processed_files'  => $processed,
+                    'duplicates_uuid'  => $duplicatesUuid,
+                    'duplicates_hash'  => $duplicatesHash,
+                    'invalid_files'    => $invalidFiles,
+                    'processed_at'     => now()->toDateTimeString(),
+                    'linked_metadata_upload_id' => $linkedMetadata?->id,
+                    'linked_metadata_original_name' => $linkedMetadata?->original_name,
                 ]),
             ]);
 
+            $message = 'XML procesados: ' . number_format($processed);
+
+            if ($duplicatesUuid > 0 || $duplicatesHash > 0 || $invalidFiles > 0) {
+                $message .= ' · UUID duplicados: ' . number_format($duplicatesUuid);
+                $message .= ' · Hash duplicados: ' . number_format($duplicatesHash);
+                $message .= ' · Inválidos: ' . number_format($invalidFiles);
+            }
+
             return $this->jsonOrRedirectSuccess(
                 $request,
-                "XML procesados: {$processed}",
+                $message,
                 $rfcOwner
             );
         } catch (\Throwable $e) {
@@ -1008,6 +942,513 @@ class SatVaultV2Controller extends Controller
                 $rfcOwner
             );
         }
+    }
+
+    public function reprocessExistingXml(Request $request): Response
+    {
+        $user = Auth::guard('web')->user();
+        abort_unless($user, 401);
+
+        $cuentaId  = (string) ($user->cuenta_id ?? ($user->cuenta->id ?? ''));
+        $usuarioId = (string) ($user->id ?? '');
+
+        $request->validate([
+            'rfc_owner'   => ['required', 'string', 'max:20'],
+            'scope'       => ['nullable', 'in:missing,month,date_range,direction,top_limit,smart,all'],
+            'mode'        => ['nullable', 'in:missing,all'], // compatibilidad vieja
+            'period_ym'   => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
+            'desde'       => ['nullable', 'date'],
+            'hasta'       => ['nullable', 'date'],
+            'direction'   => ['nullable', 'in:emitidos,recibidos'],
+            'limit'       => ['nullable', 'integer', 'min:1', 'max:2000'],
+            'chunk_size'  => ['nullable', 'integer', 'min:25', 'max:500'],
+            'preview'     => ['nullable', 'boolean'],
+            'force_all'   => ['nullable', 'boolean'],
+        ], [
+            'rfc_owner.required' => 'Debes indicar el RFC a reprocesar.',
+            'scope.in'           => 'El alcance de reproceso no es válido.',
+            'mode.in'            => 'El modo de reproceso no es válido.',
+            'period_ym.regex'    => 'El periodo debe venir con formato YYYY-MM.',
+            'direction.in'       => 'La dirección debe ser emitidos o recibidos.',
+            'limit.max'          => 'El límite máximo permitido es 2000 CFDI por operación.',
+            'chunk_size.max'     => 'El tamaño máximo de lote permitido es 500 CFDI.',
+        ]);
+
+        $rfcOwner = strtoupper(trim((string) $request->input('rfc_owner')));
+        if (!$this->isValidRfc($rfcOwner)) {
+            return $this->jsonOrRedirectError(
+                $request,
+                'El RFC capturado no tiene un formato válido.',
+                $rfcOwner
+            );
+        }
+
+        $scope = strtolower(trim((string) $request->input('scope', '')));
+        $legacyMode = strtolower(trim((string) $request->input('mode', 'missing')));
+
+        if ($scope === '') {
+            $scope = $legacyMode === 'all' ? 'all' : 'missing';
+        }
+
+        $periodYm  = trim((string) $request->input('period_ym', ''));
+        $desde     = trim((string) $request->input('desde', ''));
+        $hasta     = trim((string) $request->input('hasta', ''));
+        $direction = strtolower(trim((string) $request->input('direction', '')));
+        $limit     = (int) $request->input('limit', 0);
+        $chunkSize = (int) $request->input('chunk_size', 200);
+        $preview   = (bool) $request->boolean('preview', false);
+        $forceAll  = (bool) $request->boolean('force_all', false);
+
+        if (!in_array($direction, ['emitidos', 'recibidos'], true)) {
+            $direction = '';
+        }
+
+        if ($chunkSize < 25) {
+            $chunkSize = 25;
+        }
+        if ($chunkSize > 500) {
+            $chunkSize = 500;
+        }
+
+        if ($limit <= 0) {
+            $limit = match ($scope) {
+                'missing'    => 300,
+                'month'      => 500,
+                'date_range' => 500,
+                'direction'  => 500,
+                'top_limit'  => 200,
+                'smart'      => 300,
+                'all'        => 1000,
+                default      => 300,
+            };
+        }
+
+        if ($limit > 2000) {
+            $limit = 2000;
+        }
+
+        $scopeConfig = [
+            'scope'      => $scope,
+            'period_ym'  => $periodYm,
+            'desde'      => $desde,
+            'hasta'      => $hasta,
+            'direction'  => $direction,
+            'limit'      => $limit,
+            'chunk_size' => $chunkSize,
+        ];
+
+        if ($scope === 'smart') {
+            $scopeConfig = $this->resolveSmartReprocessScope(
+                $cuentaId,
+                $usuarioId,
+                $rfcOwner,
+                $scopeConfig
+            );
+        }
+
+        $baseQuery = $this->buildReprocessCfdiQuery(
+            $cuentaId,
+            $usuarioId,
+            $rfcOwner,
+            $scopeConfig
+        );
+
+        $totalCandidates = (clone $baseQuery)->count();
+
+        if ($totalCandidates <= 0) {
+            return $this->jsonOrRedirectError(
+                $request,
+                'No se encontraron CFDI para reprocesar con el alcance seleccionado.',
+                $rfcOwner
+            );
+        }
+
+        $safeMaxWithoutForce = 1200;
+        if (
+            $scopeConfig['scope'] === 'all'
+            && $totalCandidates > $safeMaxWithoutForce
+            && !$forceAll
+        ) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'El alcance "todo el RFC" encontró demasiados CFDI para una sola corrida. Usa un bloque mensual, rango, dirección o activa force_all.',
+                'data'    => [
+                    'requires_confirmation' => true,
+                    'total_candidates'      => $totalCandidates,
+                    'safe_max'              => $safeMaxWithoutForce,
+                    'scope_summary'         => $this->buildReprocessScopeSummary($scopeConfig, $totalCandidates),
+                    'suggested_scope'       => $this->suggestSaferReprocessScope($cuentaId, $usuarioId, $rfcOwner),
+                ],
+            ], 422);
+        }
+
+        $scopeSummary = $this->buildReprocessScopeSummary($scopeConfig, $totalCandidates);
+
+        if ($preview) {
+            $sampleRows = (clone $baseQuery)
+                ->orderByDesc('fecha_emision')
+                ->orderByDesc('id')
+                ->limit(8)
+                ->get([
+                    'id',
+                    'uuid',
+                    'direction',
+                    'fecha_emision',
+                    'subtotal',
+                    'iva',
+                    'total',
+                    'rfc_emisor',
+                    'rfc_receptor',
+                ])
+                ->map(function (SatUserCfdi $row) {
+                    return [
+                        'id'            => (int) $row->id,
+                        'uuid'          => (string) ($row->uuid ?? ''),
+                        'direction'     => (string) ($row->direction ?? ''),
+                        'fecha_emision' => optional($row->fecha_emision)->format('Y-m-d H:i:s'),
+                        'subtotal'      => (float) ($row->subtotal ?? 0),
+                        'iva'           => (float) ($row->iva ?? 0),
+                        'total'         => (float) ($row->total ?? 0),
+                        'rfc_emisor'    => (string) ($row->rfc_emisor ?? ''),
+                        'rfc_receptor'  => (string) ($row->rfc_receptor ?? ''),
+                    ];
+                })
+                ->values()
+                ->all();
+
+            return response()->json([
+                'ok'      => true,
+                'message' => 'Preview generado correctamente.',
+                'data'    => [
+                    'preview'           => true,
+                    'rfc_owner'         => $rfcOwner,
+                    'scope_summary'     => $scopeSummary,
+                    'total_candidates'  => $totalCandidates,
+                    'estimated_batches' => (int) ceil($totalCandidates / max(1, $chunkSize)),
+                    'chunk_size'        => $chunkSize,
+                    'sample_rows'       => $sampleRows,
+                ],
+            ]);
+        }
+
+        $cfdis = (clone $baseQuery)
+            ->orderBy('fecha_emision')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
+
+        if ($cfdis->isEmpty()) {
+            return $this->jsonOrRedirectError(
+                $request,
+                'No se encontraron CFDI para reprocesar con el alcance seleccionado.',
+                $rfcOwner
+            );
+        }
+
+        $updated = 0;
+        $invalid = 0;
+        $notFound = 0;
+        $processed = 0;
+
+        foreach ($cfdis->chunk($chunkSize) as $chunk) {
+            foreach ($chunk as $cfdi) {
+                $processed++;
+
+                try {
+                    $xmlContent = $this->readStoredXmlContentForCfdi($cfdi);
+
+                    if (!is_string($xmlContent) || trim($xmlContent) === '') {
+                        $notFound++;
+                        continue;
+                    }
+
+                    $parsed = $this->parseXmlContent($xmlContent);
+
+                    if (!$parsed || trim((string) ($parsed['uuid'] ?? '')) === '') {
+                        $invalid++;
+                        continue;
+                    }
+
+                    $this->refreshExistingCfdiFromParsed($cfdi, $parsed);
+                    $updated++;
+                } catch (\Throwable $e) {
+                    $invalid++;
+
+                    Log::warning('SAT V2 reproceso histórico XML falló', [
+                        'cfdi_id'        => $cfdi->id,
+                        'uuid'           => $cfdi->uuid,
+                        'rfc_owner'      => $cfdi->rfc_owner,
+                        'scope'          => $scopeConfig['scope'] ?? null,
+                        'period_ym'      => $scopeConfig['period_ym'] ?? null,
+                        'direction'      => $scopeConfig['direction'] ?? null,
+                        'fecha_emision'  => optional($cfdi->fecha_emision)->format('Y-m-d H:i:s'),
+                        'message'        => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        $message = 'Reproceso XML completado. Procesados: ' . number_format($processed)
+            . ' · Actualizados: ' . number_format($updated)
+            . ' · Inválidos: ' . number_format($invalid)
+            . ' · No encontrados: ' . number_format($notFound) . '.';
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'ok'           => true,
+                'message'      => $message,
+                'redirect_url' => route('cliente.sat.v2.index', ['rfc' => $rfcOwner]),
+                'data'         => [
+                    'rfc_owner'         => $rfcOwner,
+                    'scope_summary'     => $scopeSummary,
+                    'processed'         => $processed,
+                    'updated'           => $updated,
+                    'invalid'           => $invalid,
+                    'not_found'         => $notFound,
+                    'estimated_batches' => (int) ceil($processed / max(1, $chunkSize)),
+                    'chunk_size'        => $chunkSize,
+                ],
+            ]);
+        }
+
+        return redirect()
+            ->route('cliente.sat.v2.index', ['rfc' => $rfcOwner])
+            ->with('success', $message);
+    }
+
+    public function previewReprocessExistingXml(Request $request): Response
+    {
+        $request->merge([
+            'preview' => true,
+        ]);
+
+        return $this->reprocessExistingXml($request);
+    }
+
+    private function buildReprocessCfdiQuery(
+    string $cuentaId,
+    string $usuarioId,
+    string $rfcOwner,
+    array $scopeConfig
+    )
+    {
+        $scope = strtolower(trim((string) ($scopeConfig['scope'] ?? 'missing')));
+        $periodYm = trim((string) ($scopeConfig['period_ym'] ?? ''));
+        $desde = trim((string) ($scopeConfig['desde'] ?? ''));
+        $hasta = trim((string) ($scopeConfig['hasta'] ?? ''));
+        $direction = strtolower(trim((string) ($scopeConfig['direction'] ?? '')));
+        $limit = (int) ($scopeConfig['limit'] ?? 300);
+
+        $query = SatUserCfdi::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->where('rfc_owner', $rfcOwner);
+
+        switch ($scope) {
+            case 'missing':
+                $query->where(function ($q) {
+                    $q->whereNull('iva')
+                        ->orWhere('iva', '<=', 0)
+                        ->orWhereNull('subtotal')
+                        ->orWhere('subtotal', '<=', 0)
+                        ->orWhereRaw('JSON_EXTRACT(meta, "$.parsed_impuestos.iva") IS NULL');
+                });
+                break;
+
+            case 'month':
+                if ($periodYm !== '' && preg_match('/^\d{4}-\d{2}$/', $periodYm)) {
+                    $query->whereRaw("DATE_FORMAT(fecha_emision, '%Y-%m') = ?", [$periodYm]);
+                }
+                break;
+
+            case 'date_range':
+                if ($desde !== '') {
+                    $query->whereDate('fecha_emision', '>=', $desde);
+                }
+                if ($hasta !== '') {
+                    $query->whereDate('fecha_emision', '<=', $hasta);
+                }
+                break;
+
+            case 'direction':
+                if (in_array($direction, ['emitidos', 'recibidos'], true)) {
+                    $query->where('direction', $direction);
+                }
+                break;
+
+            case 'top_limit':
+                // sólo usa orden descendente y límite más abajo
+                break;
+
+            case 'all':
+                // sin filtros extra
+                break;
+
+            case 'smart':
+                // smart ya debe venir resuelto antes de entrar aquí
+                $query->where(function ($q) {
+                    $q->whereNull('iva')
+                        ->orWhere('iva', '<=', 0)
+                        ->orWhereNull('subtotal')
+                        ->orWhere('subtotal', '<=', 0)
+                        ->orWhereRaw('JSON_EXTRACT(meta, "$.parsed_impuestos.iva") IS NULL');
+                });
+                break;
+
+            default:
+                $query->where(function ($q) {
+                    $q->whereNull('iva')
+                        ->orWhere('iva', '<=', 0)
+                        ->orWhereNull('subtotal')
+                        ->orWhere('subtotal', '<=', 0)
+                        ->orWhereRaw('JSON_EXTRACT(meta, "$.parsed_impuestos.iva") IS NULL');
+                });
+                break;
+        }
+
+        if (
+            $scope !== 'direction'
+            && in_array($direction, ['emitidos', 'recibidos'], true)
+        ) {
+            $query->where('direction', $direction);
+        }
+
+        if ($scope === 'top_limit') {
+            $query->orderByDesc('fecha_emision')
+                ->orderByDesc('id')
+                ->limit($limit);
+        }
+
+        return $query;
+    }
+
+    private function resolveSmartReprocessScope(
+        string $cuentaId,
+        string $usuarioId,
+        string $rfcOwner,
+        array $scopeConfig
+    ): array {
+        $missingBase = SatUserCfdi::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->where('rfc_owner', $rfcOwner)
+            ->where(function ($q) {
+                $q->whereNull('iva')
+                    ->orWhere('iva', '<=', 0)
+                    ->orWhereNull('subtotal')
+                    ->orWhere('subtotal', '<=', 0)
+                    ->orWhereRaw('JSON_EXTRACT(meta, "$.parsed_impuestos.iva") IS NULL');
+            });
+
+        if (!empty($scopeConfig['direction']) && in_array($scopeConfig['direction'], ['emitidos', 'recibidos'], true)) {
+            $missingBase->where('direction', $scopeConfig['direction']);
+        }
+
+        $bestMonth = (clone $missingBase)
+            ->selectRaw("DATE_FORMAT(fecha_emision, '%Y-%m') as ym, COUNT(*) as total")
+            ->whereNotNull('fecha_emision')
+            ->groupBy(DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"))
+            ->orderByDesc('total')
+            ->orderByDesc('ym')
+            ->first();
+
+        if ($bestMonth && !empty($bestMonth->ym)) {
+            $scopeConfig['scope'] = 'month';
+            $scopeConfig['period_ym'] = (string) $bestMonth->ym;
+
+            if (empty($scopeConfig['limit']) || (int) $scopeConfig['limit'] <= 0) {
+                $scopeConfig['limit'] = min(800, max(100, (int) $bestMonth->total));
+            }
+
+            return $scopeConfig;
+        }
+
+        $scopeConfig['scope'] = 'missing';
+        return $scopeConfig;
+    }
+
+    private function buildReprocessScopeSummary(array $scopeConfig, int $totalCandidates): array
+    {
+        $scope = strtolower(trim((string) ($scopeConfig['scope'] ?? 'missing')));
+        $direction = strtolower(trim((string) ($scopeConfig['direction'] ?? '')));
+        $periodYm = trim((string) ($scopeConfig['period_ym'] ?? ''));
+        $desde = trim((string) ($scopeConfig['desde'] ?? ''));
+        $hasta = trim((string) ($scopeConfig['hasta'] ?? ''));
+        $limit = (int) ($scopeConfig['limit'] ?? 0);
+        $chunkSize = (int) ($scopeConfig['chunk_size'] ?? 200);
+
+        $label = match ($scope) {
+            'missing'    => 'Solo CFDI con datos fiscales incompletos',
+            'month'      => 'Solo bloque mensual',
+            'date_range' => 'Solo rango de fechas',
+            'direction'  => 'Solo una dirección',
+            'top_limit'  => 'Últimos CFDI del RFC',
+            'smart'      => 'Selección inteligente',
+            'all'        => 'Todo el RFC visible',
+            default      => 'Reproceso personalizado',
+        };
+
+        return [
+            'scope'             => $scope,
+            'label'             => $label,
+            'direction'         => $direction !== '' ? $direction : null,
+            'period_ym'         => $periodYm !== '' ? $periodYm : null,
+            'desde'             => $desde !== '' ? $desde : null,
+            'hasta'             => $hasta !== '' ? $hasta : null,
+            'limit'             => $limit,
+            'chunk_size'        => $chunkSize,
+            'total_candidates'  => $totalCandidates,
+            'estimated_batches' => (int) ceil($totalCandidates / max(1, $chunkSize)),
+            'risk_level'        => $this->resolveReprocessRiskLevel($totalCandidates),
+        ];
+    }
+
+    private function resolveReprocessRiskLevel(int $totalCandidates): string
+    {
+        return match (true) {
+            $totalCandidates <= 150 => 'low',
+            $totalCandidates <= 600 => 'medium',
+            default                 => 'high',
+        };
+    }
+
+    private function suggestSaferReprocessScope(
+        string $cuentaId,
+        string $usuarioId,
+        string $rfcOwner
+    ): array {
+        $missingByMonth = SatUserCfdi::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->where('rfc_owner', $rfcOwner)
+            ->where(function ($q) {
+                $q->whereNull('iva')
+                    ->orWhere('iva', '<=', 0)
+                    ->orWhereNull('subtotal')
+                    ->orWhere('subtotal', '<=', 0)
+                    ->orWhereRaw('JSON_EXTRACT(meta, "$.parsed_impuestos.iva") IS NULL');
+            })
+            ->selectRaw("DATE_FORMAT(fecha_emision, '%Y-%m') as ym, COUNT(*) as total")
+            ->whereNotNull('fecha_emision')
+            ->groupBy(DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"))
+            ->orderByDesc('total')
+            ->orderByDesc('ym')
+            ->first();
+
+        if ($missingByMonth && !empty($missingByMonth->ym)) {
+            return [
+                'scope'     => 'month',
+                'period_ym' => (string) $missingByMonth->ym,
+                'limit'     => min(800, max(100, (int) $missingByMonth->total)),
+                'label'     => 'Te conviene reprocesar primero el mes con más faltantes.',
+            ];
+        }
+
+        return [
+            'scope' => 'missing',
+            'limit' => 300,
+            'label' => 'Te conviene reprocesar primero solo faltantes.',
+        ];
     }
 
     public function uploadReport(Request $request): Response
@@ -2124,18 +2565,23 @@ class SatVaultV2Controller extends Controller
     {
         try {
             $xml = @simplexml_load_string($xmlContent);
-            if (!$xml) return null;
+            if (!$xml) {
+                return null;
+            }
 
             $namespaces = $xml->getNamespaces(true);
 
-            // CFDI namespace (3.2, 3.3, 4.0)
             $cfdiNs = $namespaces['cfdi'] ?? $namespaces[''] ?? null;
-            if (!$cfdiNs) return null;
+            if (!$cfdiNs) {
+                return null;
+            }
 
             $xml->registerXPathNamespace('cfdi', $cfdiNs);
 
             $comprobante = $xml->xpath('//cfdi:Comprobante')[0] ?? null;
-            if (!$comprobante) return null;
+            if (!$comprobante) {
+                return null;
+            }
 
             $version = (string) ($comprobante['Version'] ?? $comprobante['version'] ?? '');
 
@@ -2148,24 +2594,49 @@ class SatVaultV2Controller extends Controller
                 $timbre = $xml->xpath('//tfd:TimbreFiscalDigital')[0] ?? null;
             }
 
-            $uuid = (string) ($timbre['UUID'] ?? '');
+            $uuid = strtoupper(trim((string) ($timbre['UUID'] ?? '')));
+
+            $subtotal   = $this->parseMoneyValue((string) ($comprobante['SubTotal'] ?? $comprobante['subTotal'] ?? '0'));
+            $descuento  = $this->parseMoneyValue((string) ($comprobante['Descuento'] ?? $comprobante['descuento'] ?? '0'));
+            $total      = $this->parseMoneyValue((string) ($comprobante['Total'] ?? $comprobante['total'] ?? '0'));
+            $iva        = $this->extractIvaFromXml($xml, $namespaces);
+            $retenidos  = $this->extractRetencionesFromXml($xml, $namespaces);
+
+            $tipoComprobante = (string) ($comprobante['TipoDeComprobante'] ?? $comprobante['tipoDeComprobante'] ?? '');
+            $moneda          = (string) ($comprobante['Moneda'] ?? $comprobante['moneda'] ?? '');
+            $metodoPago      = (string) ($comprobante['MetodoPago'] ?? $comprobante['metodoPago'] ?? '');
+            $formaPago       = (string) ($comprobante['FormaPago'] ?? $comprobante['formaPago'] ?? '');
+            $fechaEmision    = (string) ($comprobante['Fecha'] ?? $comprobante['fecha'] ?? '');
+
+            $traslados = $this->extractTrasladosBreakdownFromXml($xml, $namespaces);
+            $retenciones = $this->extractRetencionesBreakdownFromXml($xml, $namespaces);
 
             return [
-                'uuid'            => strtoupper($uuid),
-                'version_cfdi'    => $version,
-                'rfc_emisor'      => (string) ($emisor['Rfc'] ?? $emisor['rfc'] ?? ''),
-                'nombre_emisor'   => (string) ($emisor['Nombre'] ?? $emisor['nombre'] ?? ''),
-                'rfc_receptor'    => (string) ($receptor['Rfc'] ?? $receptor['rfc'] ?? ''),
-                'nombre_receptor' => (string) ($receptor['Nombre'] ?? $receptor['nombre'] ?? ''),
-                'fecha_emision'   => (string) ($comprobante['Fecha'] ?? ''),
-                'subtotal'        => (float) ($comprobante['SubTotal'] ?? 0),
-                'total'           => (float) ($comprobante['Total'] ?? 0),
-                'moneda'          => (string) ($comprobante['Moneda'] ?? ''),
-                'tipo_comprobante'=> (string) ($comprobante['TipoDeComprobante'] ?? ''),
-                'metodo_pago'     => (string) ($comprobante['MetodoPago'] ?? ''),
-                'forma_pago'      => (string) ($comprobante['FormaPago'] ?? ''),
+                'uuid'             => $uuid,
+                'version_cfdi'     => $version,
+                'rfc_emisor'       => (string) ($emisor['Rfc'] ?? $emisor['rfc'] ?? ''),
+                'nombre_emisor'    => (string) ($emisor['Nombre'] ?? $emisor['nombre'] ?? ''),
+                'rfc_receptor'     => (string) ($receptor['Rfc'] ?? $receptor['rfc'] ?? ''),
+                'nombre_receptor'  => (string) ($receptor['Nombre'] ?? $receptor['nombre'] ?? ''),
+                'fecha_emision'    => $fechaEmision,
+                'subtotal'         => $subtotal,
+                'descuento'        => $descuento,
+                'iva'              => $iva,
+                'retenciones'      => $retenidos,
+                'total'            => $total,
+                'moneda'           => $moneda,
+                'tipo_comprobante' => $tipoComprobante,
+                'metodo_pago'      => $metodoPago,
+                'forma_pago'       => $formaPago,
+                'meta'             => [
+                    'traslados'    => $traslados,
+                    'retenciones'  => $retenciones,
+                    'impuestos'    => [
+                        'iva'               => $iva,
+                        'retenciones_total' => $retenidos,
+                    ],
+                ],
             ];
-
         } catch (\Throwable) {
             return null;
         }
@@ -2213,6 +2684,89 @@ class SatVaultV2Controller extends Controller
             return round($totalIva, 2);
         } catch (\Throwable) {
             return 0.0;
+        }
+    }
+
+        private function extractRetencionesFromXml(\SimpleXMLElement $xml, array $namespaces): float
+    {
+        try {
+            $totalRetenciones = 0.0;
+
+            $cfdiNs = $namespaces['cfdi'] ?? $namespaces[''] ?? null;
+            if (!$cfdiNs) {
+                return 0.0;
+            }
+
+            $xml->registerXPathNamespace('cfdi', $cfdiNs);
+
+            $retenciones = $xml->xpath('//cfdi:Impuestos//cfdi:Retencion') ?: [];
+
+            foreach ($retenciones as $retencion) {
+                $importe = $this->parseMoneyValue((string) ($retencion['Importe'] ?? $retencion['importe'] ?? '0'));
+                $totalRetenciones += $importe;
+            }
+
+            return round($totalRetenciones, 2);
+        } catch (\Throwable) {
+            return 0.0;
+        }
+    }
+
+    private function extractTrasladosBreakdownFromXml(\SimpleXMLElement $xml, array $namespaces): array
+    {
+        try {
+            $items = [];
+
+            $cfdiNs = $namespaces['cfdi'] ?? $namespaces[''] ?? null;
+            if (!$cfdiNs) {
+                return [];
+            }
+
+            $xml->registerXPathNamespace('cfdi', $cfdiNs);
+
+            $traslados = $xml->xpath('//cfdi:Impuestos//cfdi:Traslado') ?: [];
+
+            foreach ($traslados as $traslado) {
+                $items[] = [
+                    'impuesto' => strtoupper(trim((string) ($traslado['Impuesto'] ?? $traslado['impuesto'] ?? ''))),
+                    'tipo'     => trim((string) ($traslado['TipoFactor'] ?? $traslado['tipoFactor'] ?? '')),
+                    'tasa'     => $this->parseMoneyValue((string) ($traslado['TasaOCuota'] ?? $traslado['tasaOCuota'] ?? '0')),
+                    'base'     => $this->parseMoneyValue((string) ($traslado['Base'] ?? $traslado['base'] ?? '0')),
+                    'importe'  => $this->parseMoneyValue((string) ($traslado['Importe'] ?? $traslado['importe'] ?? '0')),
+                ];
+            }
+
+            return $items;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function extractRetencionesBreakdownFromXml(\SimpleXMLElement $xml, array $namespaces): array
+    {
+        try {
+            $items = [];
+
+            $cfdiNs = $namespaces['cfdi'] ?? $namespaces[''] ?? null;
+            if (!$cfdiNs) {
+                return [];
+            }
+
+            $xml->registerXPathNamespace('cfdi', $cfdiNs);
+
+            $retenciones = $xml->xpath('//cfdi:Impuestos//cfdi:Retencion') ?: [];
+
+            foreach ($retenciones as $retencion) {
+                $items[] = [
+                    'impuesto' => strtoupper(trim((string) ($retencion['Impuesto'] ?? $retencion['impuesto'] ?? ''))),
+                    'base'     => $this->parseMoneyValue((string) ($retencion['Base'] ?? $retencion['base'] ?? '0')),
+                    'importe'  => $this->parseMoneyValue((string) ($retencion['Importe'] ?? $retencion['importe'] ?? '0')),
+                ];
+            }
+
+            return $items;
+        } catch (\Throwable) {
+            return [];
         }
     }
 
@@ -2425,6 +2979,9 @@ class SatVaultV2Controller extends Controller
                 'matched_metadata_item_id'      => $matchedMetadata?->id,
                 'matched_by'                    => $matchedMetadata ? 'uuid' : null,
                 'source'                        => 'vault_v2_xml_upload',
+                'parsed_impuestos'              => (array) data_get($parsed, 'meta.impuestos', []),
+                'parsed_traslados'              => (array) data_get($parsed, 'meta.traslados', []),
+                'parsed_retenciones'            => (array) data_get($parsed, 'meta.retenciones', []),
             ],
         ]);
 
@@ -2434,6 +2991,84 @@ class SatVaultV2Controller extends Controller
             'duplicate_hash' => 0,
             'invalid'        => 0,
         ];
+    }
+
+    private function readStoredXmlContentForCfdi(SatUserCfdi $cfdi): ?string
+    {
+        $xmlPath = trim((string) ($cfdi->xml_path ?? ''));
+        if ($xmlPath === '') {
+            return null;
+        }
+
+        if (!Storage::disk(self::DISK)->exists($xmlPath)) {
+            return null;
+        }
+
+        $meta = is_array($cfdi->meta) ? $cfdi->meta : [];
+        $zipEntry = trim((string) ($meta['zip_entry'] ?? ''));
+
+        $extension = strtolower(pathinfo($xmlPath, PATHINFO_EXTENSION));
+
+        if ($extension === 'xml') {
+            $content = Storage::disk(self::DISK)->get($xmlPath);
+            return is_string($content) ? $content : null;
+        }
+
+        if ($extension === 'zip') {
+            if ($zipEntry === '') {
+                return null;
+            }
+
+            $absolutePath = Storage::disk(self::DISK)->path($xmlPath);
+            $zip = new ZipArchive();
+
+            if ($zip->open($absolutePath) !== true) {
+                return null;
+            }
+
+            try {
+                $content = $zip->getFromName($zipEntry);
+                return is_string($content) ? $content : null;
+            } finally {
+                $zip->close();
+            }
+        }
+
+        return null;
+    }
+
+    private function refreshExistingCfdiFromParsed(SatUserCfdi $cfdi, array $parsed): void
+    {
+        $currentMeta = is_array($cfdi->meta) ? $cfdi->meta : [];
+
+        $currentMeta['source'] = $currentMeta['source'] ?? 'vault_v2_xml_upload';
+        $currentMeta['reprocessed_at'] = now()->toDateTimeString();
+        $currentMeta['parsed_impuestos'] = (array) data_get($parsed, 'meta.impuestos', []);
+        $currentMeta['parsed_traslados'] = (array) data_get($parsed, 'meta.traslados', []);
+        $currentMeta['parsed_retenciones'] = (array) data_get($parsed, 'meta.retenciones', []);
+        $currentMeta['last_reprocess_summary'] = [
+            'subtotal' => $this->parseMoneyValue($parsed['subtotal'] ?? 0),
+            'iva'      => $this->parseMoneyValue($parsed['iva'] ?? 0),
+            'total'    => $this->parseMoneyValue($parsed['total'] ?? 0),
+        ];
+
+        $cfdi->update([
+            'version_cfdi'     => $this->nullIfEmpty($parsed['version_cfdi'] ?? null),
+            'rfc_emisor'       => $this->nullIfEmpty($parsed['rfc_emisor'] ?? null),
+            'nombre_emisor'    => $this->nullIfEmpty($parsed['nombre_emisor'] ?? null),
+            'rfc_receptor'     => $this->nullIfEmpty($parsed['rfc_receptor'] ?? null),
+            'nombre_receptor'  => $this->nullIfEmpty($parsed['nombre_receptor'] ?? null),
+            'fecha_emision'    => $this->parseDateValue($parsed['fecha_emision'] ?? null),
+            'subtotal'         => $this->parseMoneyValue($parsed['subtotal'] ?? 0),
+            'descuento'        => $this->parseMoneyValue($parsed['descuento'] ?? 0),
+            'iva'              => $this->parseMoneyValue($parsed['iva'] ?? 0),
+            'total'            => $this->parseMoneyValue($parsed['total'] ?? 0),
+            'tipo_comprobante' => $this->nullIfEmpty($parsed['tipo_comprobante'] ?? null),
+            'moneda'           => $this->nullIfEmpty($parsed['moneda'] ?? null),
+            'metodo_pago'      => $this->nullIfEmpty($parsed['metodo_pago'] ?? null),
+            'forma_pago'       => $this->nullIfEmpty($parsed['forma_pago'] ?? null),
+            'meta'             => $currentMeta,
+        ]);
     }
 
     private function importReportUpload(SatUserReportUpload $upload, string $direction): int

@@ -20,7 +20,7 @@ use App\Http\Controllers\Cliente\Sat\SatCartController;
 use App\Http\Controllers\Cliente\Sat\SatZipController;
 use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
 use App\Http\Controllers\Cliente\Sat\FielExternalController;
-
+use App\Http\Controllers\Cliente\Sat\SatVaultV2Controller;
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -136,8 +136,6 @@ Route::prefix('sat')
 
             $noCsrfLocal($rExternalZip);
         }
-
-
     });
 
 /*
@@ -151,6 +149,7 @@ Route::middleware(['auth:web', 'account.active'])
     ->group(function () use (
         $noCsrfLocal,
         $onlyIfMethod,
+        $hasMethod,
         $thrCredsAlias,
         $thrRequest,
         $thrVerify,
@@ -273,7 +272,6 @@ Route::middleware(['auth:web', 'account.active'])
                 ->middleware($thrCredsAlias)
                 ->name('fiel.external.invite');
             $noCsrfLocal($rInviteLegacy);
-
         }
 
         /*
@@ -327,7 +325,6 @@ Route::middleware(['auth:web', 'account.active'])
                     ->where('id', '[0-9]+')
                     ->middleware($thrVerify)
                     ->name('password');
-
             });
 
         /*
@@ -437,36 +434,72 @@ Route::middleware(['auth:web', 'account.active'])
                 ->name('vault.file');
         }, applyNoCsrfLocal: false);
 
-        Route::prefix('v2')->as('v2.')->middleware(['sat.vault.v2'])->group(function () {
-            Route::get('/', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'index'])
-                ->name('index');
+        /*
+        |----------------------------------------------------------------------
+        | SAT V2
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('v2')
+            ->as('v2.')
+            ->middleware(['sat.vault.v2'])
+            ->group(function () use ($noCsrfLocal, $hasMethod) {
 
-            Route::post('/rfc/store', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'storeRfc'])
-                ->name('rfc.store');
+                Route::get('/', [SatVaultV2Controller::class, 'index'])
+                    ->name('index');
 
-            Route::post('/rfc/update/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'updateRfc'])
-                ->where('id', '[A-Za-z0-9\-_]+')
-                ->name('rfc.update');
+                Route::post('/rfc/store', [SatVaultV2Controller::class, 'storeRfc'])
+                    ->name('rfc.store');
 
-            Route::post('/rfc/delete/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'deleteRfc'])
-                ->where('id', '[A-Za-z0-9\-_]+')
-                ->name('rfc.delete');
+                Route::post('/rfc/update/{id}', [SatVaultV2Controller::class, 'updateRfc'])
+                    ->where('id', '[A-Za-z0-9\-_]+')
+                    ->name('rfc.update');
 
-            Route::post('/metadata/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadMetadata'])
-                ->name('metadata.upload');
+                Route::post('/rfc/delete/{id}', [SatVaultV2Controller::class, 'deleteRfc'])
+                    ->where('id', '[A-Za-z0-9\-_]+')
+                    ->name('rfc.delete');
 
-            Route::post('/xml/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadXml'])
-                ->name('xml.upload');
+                Route::post('/metadata/upload', [SatVaultV2Controller::class, 'uploadMetadata'])
+                    ->name('metadata.upload');
 
-            Route::post('/report/upload', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'uploadReport'])
-                ->name('report.upload');
+                Route::post('/xml/upload', [SatVaultV2Controller::class, 'uploadXml'])
+                    ->name('xml.upload');
 
-            Route::get('/download/{type}/{id}', [\App\Http\Controllers\Cliente\Sat\SatVaultV2Controller::class, 'downloadUploadedFile'])
-                ->where('type', 'metadata|xml|report')
-                ->whereNumber('id')
-                ->name('download');
-        });
-        
+                Route::post('/report/upload', [SatVaultV2Controller::class, 'uploadReport'])
+                    ->name('report.upload');
+
+                Route::get('/download/{type}/{id}', [SatVaultV2Controller::class, 'downloadUploadedFile'])
+                    ->where('type', 'metadata|xml|report')
+                    ->whereNumber('id')
+                    ->name('download');
+
+                /**
+                 * Preview del alcance de reproceso.
+                 * Devuelve cuántos CFDI serán procesados, lotes estimados, muestra y riesgo.
+                 */
+                if ($hasMethod(SatVaultV2Controller::class, 'previewReprocessExistingXml')) {
+                    $rPreviewReprocess = Route::post('/reprocess-xml/preview', [SatVaultV2Controller::class, 'previewReprocessExistingXml'])
+                        ->name('reprocess_xml.preview');
+                    $noCsrfLocal($rPreviewReprocess);
+                }
+
+                /**
+                 * Ejecución principal del reproceso inteligente.
+                 * Compatibilidad con front nuevo y viejo.
+                 */
+                $rReprocess = Route::post('/reprocess-xml', [SatVaultV2Controller::class, 'reprocessExistingXml'])
+                    ->name('reprocess_xml');
+                $noCsrfLocal($rReprocess);
+
+                /**
+                 * Alias opcional para front nuevo si quieres separar semánticamente preview/run.
+                 */
+                if ($hasMethod(SatVaultV2Controller::class, 'reprocessExistingXml')) {
+                    $rReprocessRun = Route::post('/reprocess-xml/run', [SatVaultV2Controller::class, 'reprocessExistingXml'])
+                        ->name('reprocess_xml.run');
+                    $noCsrfLocal($rReprocessRun);
+                }
+            });
+
         /*
         |----------------------------------------------------------------------
         | Carrito SAT
