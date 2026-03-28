@@ -1958,7 +1958,7 @@
                                 </div>
                             </div>
 
-                            @if(($fiscalMonths ?? collect())->count())
+                            @if(!empty($fiscalMonths) && count($fiscalMonths) > 0)
                                 <div class="sv2MetaTableWrap">
                                     <table class="sv2MetaTable sv2FiscalMatrixTable">
                                         <thead>

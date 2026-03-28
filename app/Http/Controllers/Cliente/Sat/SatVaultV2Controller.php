@@ -291,20 +291,50 @@ class SatVaultV2Controller extends Controller
                 ->distinct()
                 ->count('rfc_receptor');
 
+            // ============================================
+            // NUEVA DATA PARA GRÁFICA COMPARATIVA
+            // ============================================
             $chartBase = clone $baseItemsQuery;
-            $metadataSummary['meses'] = $chartBase
-                ->selectRaw("DATE_FORMAT(fecha_emision, '%Y-%m') as ym, COUNT(*) as total, COALESCE(SUM(monto),0) as monto")
+
+            $rawChart = $chartBase
+                ->selectRaw("
+                    DATE_FORMAT(fecha_emision, '%Y-%m') as ym,
+                    direction,
+                    COUNT(*) as total
+                ")
                 ->whereNotNull('fecha_emision')
-                ->groupBy(DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"))
+                ->groupBy(
+                    DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"),
+                    'direction'
+                )
                 ->orderBy('ym')
-                ->get()
-                ->map(fn ($row) => [
-                    'ym'    => (string) $row->ym,
-                    'total' => (int) $row->total,
-                    'monto' => (float) $row->monto,
-                ])
-                ->values()
-                ->all();
+                ->get();
+
+            // Transformar a formato comparativo
+            $grouped = [];
+
+            foreach ($rawChart as $row) {
+                $ym = (string) $row->ym;
+
+                if (!isset($grouped[$ym])) {
+                    $grouped[$ym] = [
+                        'ym' => $ym,
+                        'emitidos' => 0,
+                        'recibidos' => 0,
+                    ];
+                }
+
+                if ($row->direction === 'emitidos') {
+                    $grouped[$ym]['emitidos'] = (int) $row->total;
+                }
+
+                if ($row->direction === 'recibidos') {
+                    $grouped[$ym]['recibidos'] = (int) $row->total;
+                }
+            }
+
+            // Ordenar y asignar
+            $metadataSummary['meses'] = array_values($grouped);
 
             $statusBase = SatUserMetadataItem::query()
                 ->selectRaw("COALESCE(NULLIF(TRIM(estatus), ''), 'Sin estatus') as estatus_label")

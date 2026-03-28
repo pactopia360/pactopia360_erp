@@ -11,6 +11,9 @@ use App\Models\Cliente\SatUserMetadataUpload;
 use App\Models\Cliente\SatUserReportUpload;
 use App\Models\Cliente\SatUserXmlUpload;
 use App\Models\Cliente\VaultFile;
+use App\Models\Cliente\SatUserMetadataItem;
+use App\Models\Cliente\SatUserReportItem;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -47,19 +50,29 @@ final class SatOpsDownloadsController extends Controller
         $cfdiFilters = $this->resolveCfdiFilters($request);
         $cfdiItems   = $this->buildCfdiItems($cfdiFilters);
 
+        $metadataRecordFilters = $this->resolveMetadataRecordFilters($request);
+        $metadataRecordItems   = $this->buildMetadataRecordItems($metadataRecordFilters);
+
+        $reportRecordFilters = $this->resolveReportRecordFilters($request);
+        $reportRecordItems   = $this->buildReportRecordItems($reportRecordFilters);
+
         return view('admin.sat.ops.downloads.index', [
-            'title'       => 'SAT · Operación · Descargas',
-            'items'       => $items,
-            'filters'     => [
+            'title'                 => 'SAT · Operación · Descargas',
+            'items'                 => $items,
+            'filters'               => [
                 'q'    => $search,
                 'type' => $type,
             ],
-            'cfdiItems'   => $cfdiItems,
-            'cfdiFilters' => $cfdiFilters,
-            'cfdiCounts'  => [
+            'cfdiItems'             => $cfdiItems,
+            'cfdiFilters'           => $cfdiFilters,
+            'cfdiCounts'            => [
                 'v1' => $cfdiItems->where('source', 'vault_cfdi')->count(),
                 'v2' => $cfdiItems->where('source', 'user_cfdi')->count(),
             ],
+            'metadataRecordItems'   => $metadataRecordItems,
+            'metadataRecordFilters' => $metadataRecordFilters,
+            'reportRecordItems'     => $reportRecordItems,
+            'reportRecordFilters'   => $reportRecordFilters,
         ]);
     }
 
@@ -597,6 +610,10 @@ final class SatOpsDownloadsController extends Controller
 
         $row->delete();
 
+        if ($xmlUploadId > 0) {
+            $this->syncXmlUploadCounter($xmlUploadId);
+        }
+
         if ($mode !== 'with_files') {
             return;
         }
@@ -907,4 +924,713 @@ final class SatOpsDownloadsController extends Controller
             'bytes' => 0,
         ];
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | METADATA
+    |--------------------------------------------------------------------------
+    */
+
+    public function updateMetadata(Request $request, int $id): RedirectResponse
+    {
+        $row = SatUserMetadataUpload::findOrFail($id);
+
+        $row->update([
+            'rfc_owner'          => strtoupper((string) $request->input('rfc_owner', $row->rfc_owner)),
+            'direction_detected' => $request->input('direction_detected', $row->direction_detected),
+            'status'             => $request->input('status', $row->status),
+            'original_name'      => $request->input('original_name', $row->original_name),
+        ]);
+
+        return back()->with('success', 'Metadata actualizado correctamente.');
+    }
+
+    public function resetMetadataCount(int $id): RedirectResponse
+    {
+        $row = SatUserMetadataUpload::findOrFail($id);
+        $row->update(['rows_count' => 0]);
+
+        return back()->with('success', 'Contador de metadata reiniciado.');
+    }
+
+    public function recountMetadata(int $id): RedirectResponse
+    {
+        $count = SatUserMetadataItem::where('metadata_upload_id', $id)->count();
+
+        SatUserMetadataUpload::where('id', $id)->update([
+            'rows_count' => $count,
+        ]);
+
+        return back()->with('success', 'Contador recalculado: ' . number_format($count));
+    }
+
+    public function purgeMetadataItems(int $id): RedirectResponse
+    {
+        $deleted = SatUserMetadataItem::where('metadata_upload_id', $id)->delete();
+
+        $this->syncMetadataUploadCounter($id);
+
+        return back()->with('success', 'Metadata limpiada. Registros eliminados: ' . number_format($deleted));
+    }
+
+    public function destroyMetadataFull(int $id): RedirectResponse
+    {
+        $row = SatUserMetadataUpload::findOrFail($id);
+
+        SatUserMetadataItem::where('metadata_upload_id', $id)->delete();
+
+        $this->deleteFileModelPhysical($row->disk ?? '', $row->path ?? '');
+
+        $row->delete();
+
+        return back()->with('success', 'Metadata eliminada completamente.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | XML
+    |--------------------------------------------------------------------------
+    */
+
+    public function updateXml(Request $request, int $id): RedirectResponse
+    {
+        $row = SatUserXmlUpload::findOrFail($id);
+
+        $row->update([
+            'rfc_owner'          => strtoupper((string) $request->input('rfc_owner', $row->rfc_owner)),
+            'direction_detected' => $request->input('direction_detected', $row->direction_detected),
+            'status'             => $request->input('status', $row->status),
+            'original_name'      => $request->input('original_name', $row->original_name),
+        ]);
+
+        return back()->with('success', 'XML actualizado correctamente.');
+    }
+
+    public function resetXmlCount(int $id): RedirectResponse
+    {
+        SatUserXmlUpload::where('id', $id)->update(['files_count' => 0]);
+
+        return back()->with('success', 'Contador XML reiniciado.');
+    }
+
+    public function recountXml(int $id): RedirectResponse
+    {
+        $count = SatUserCfdi::where('xml_upload_id', $id)->count();
+
+        SatUserXmlUpload::where('id', $id)->update([
+            'files_count' => $count,
+        ]);
+
+        return back()->with('success', 'CFDI recalculados: ' . number_format($count));
+    }
+
+    public function purgeXmlCfdi(int $id): RedirectResponse
+    {
+        $deleted = SatUserCfdi::where('xml_upload_id', $id)->delete();
+
+        $this->syncXmlUploadCounter($id);
+
+        return back()->with('success', 'CFDI eliminados: ' . number_format($deleted));
+    }
+
+    public function destroyXmlFull(int $id): RedirectResponse
+    {
+        $row = SatUserXmlUpload::findOrFail($id);
+
+        SatUserCfdi::where('xml_upload_id', $id)->delete();
+
+        $this->deleteFileModelPhysical($row->disk ?? '', $row->path ?? '');
+
+        $row->delete();
+
+        return back()->with('success', 'XML eliminado completamente.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | REPORTES
+    |--------------------------------------------------------------------------
+    */
+
+    public function updateReport(Request $request, int $id): RedirectResponse
+    {
+        $row = SatUserReportUpload::findOrFail($id);
+
+        $row->update([
+            'rfc_owner'                   => strtoupper((string) $request->input('rfc_owner', $row->rfc_owner)),
+            'report_type'                 => $request->input('report_type', $row->report_type),
+            'status'                      => $request->input('status', $row->status),
+            'original_name'               => $request->input('original_name', $row->original_name),
+            'linked_metadata_upload_id'   => $request->input('linked_metadata_upload_id'),
+            'linked_xml_upload_id'        => $request->input('linked_xml_upload_id'),
+        ]);
+
+        return back()->with('success', 'Reporte actualizado correctamente.');
+    }
+
+    public function resetReportCount(int $id): RedirectResponse
+    {
+        SatUserReportUpload::where('id', $id)->update(['rows_count' => 0]);
+
+        return back()->with('success', 'Contador de reporte reiniciado.');
+    }
+
+    public function recountReport(int $id): RedirectResponse
+    {
+        $count = SatUserReportItem::where('report_upload_id', $id)->count();
+
+        SatUserReportUpload::where('id', $id)->update([
+            'rows_count' => $count,
+        ]);
+
+        return back()->with('success', 'Registros recalculados: ' . number_format($count));
+    }
+
+    public function purgeReportItems(int $id): RedirectResponse
+    {
+        $deleted = SatUserReportItem::where('report_upload_id', $id)->delete();
+
+        $this->syncReportUploadCounter($id);
+
+        return back()->with('success', 'Reporte limpiado. Registros eliminados: ' . number_format($deleted));
+    }
+
+    public function destroyReportFull(int $id): RedirectResponse
+    {
+        $row = SatUserReportUpload::findOrFail($id);
+
+        SatUserReportItem::where('report_upload_id', $id)->delete();
+
+        $this->deleteFileModelPhysical($row->disk ?? '', $row->path ?? '');
+
+        $row->delete();
+
+        return back()->with('success', 'Reporte eliminado completamente.');
+    }
+
+    /*
+|--------------------------------------------------------------------------
+| REGISTROS DERIVADOS · METADATA
+|--------------------------------------------------------------------------
+*/
+
+public function destroyMetadataRecord(int $id): RedirectResponse
+{
+    $row = SatUserMetadataItem::query()->find($id);
+
+    if (!$row) {
+        return back()->with('error', 'El registro de metadata no existe.');
+    }
+
+    $uploadId = (int) ($row->metadata_upload_id ?? 0);
+
+    $row->delete();
+
+    if ($uploadId > 0) {
+        $this->syncMetadataUploadCounter($uploadId);
+    }
+
+    return back()->with('success', 'Registro de metadata eliminado correctamente.');
+}
+
+public function bulkDestroyMetadataRecords(Request $request): RedirectResponse
+{
+    $selected = $request->input('selected_metadata_records', []);
+
+    if (!is_array($selected) || count($selected) === 0) {
+        return back()->with('error', 'Selecciona al menos un registro de metadata.');
+    }
+
+    $deleted = 0;
+    $errors  = 0;
+    $uploadIds = [];
+
+    foreach ($selected as $id) {
+        $row = SatUserMetadataItem::query()->find((int) $id);
+
+        if (!$row) {
+            $errors++;
+            continue;
+        }
+
+        $uploadId = (int) ($row->metadata_upload_id ?? 0);
+        if ($uploadId > 0) {
+            $uploadIds[] = $uploadId;
+        }
+
+        $row->delete();
+        $deleted++;
+    }
+
+    $this->syncMetadataUploadCounters($uploadIds);
+
+    return back()->with(
+        $deleted > 0 ? 'success' : 'error',
+        $deleted > 0
+            ? 'Registros metadata eliminados: ' . number_format($deleted) . ($errors > 0 ? ' · omitidos: ' . number_format($errors) : '')
+            : 'No se pudo eliminar ningún registro de metadata.'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| REGISTROS DERIVADOS · REPORTES
+|--------------------------------------------------------------------------
+*/
+
+public function destroyReportRecord(int $id): RedirectResponse
+{
+    $row = SatUserReportItem::query()->find($id);
+
+    if (!$row) {
+        return back()->with('error', 'El registro de reporte no existe.');
+    }
+
+    $uploadId = (int) ($row->report_upload_id ?? 0);
+
+    $row->delete();
+
+    if ($uploadId > 0) {
+        $this->syncReportUploadCounter($uploadId);
+    }
+
+    return back()->with('success', 'Registro de reporte eliminado correctamente.');
+}
+
+public function bulkDestroyReportRecords(Request $request): RedirectResponse
+{
+    $selected = $request->input('selected_report_records', []);
+
+    if (!is_array($selected) || count($selected) === 0) {
+        return back()->with('error', 'Selecciona al menos un registro de reporte.');
+    }
+
+    $deleted = 0;
+    $errors  = 0;
+    $uploadIds = [];
+
+    foreach ($selected as $id) {
+        $row = SatUserReportItem::query()->find((int) $id);
+
+        if (!$row) {
+            $errors++;
+            continue;
+        }
+
+        $uploadId = (int) ($row->report_upload_id ?? 0);
+        if ($uploadId > 0) {
+            $uploadIds[] = $uploadId;
+        }
+
+        $row->delete();
+        $deleted++;
+    }
+
+    $this->syncReportUploadCounters($uploadIds);
+
+    return back()->with(
+        $deleted > 0 ? 'success' : 'error',
+        $deleted > 0
+            ? 'Registros reporte eliminados: ' . number_format($deleted) . ($errors > 0 ? ' · omitidos: ' . number_format($errors) : '')
+            : 'No se pudo eliminar ningún registro de reporte.'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| FILTROS + LISTADOS ADMIN · METADATA ITEMS
+|--------------------------------------------------------------------------
+*/
+
+private function resolveMetadataRecordFilters(Request $request): array
+{
+    return [
+        'q'         => trim((string) $request->input('mr_q', '')),
+        'rfc'       => strtoupper(trim((string) $request->input('mr_rfc', ''))),
+        'direction' => strtolower(trim((string) $request->input('mr_direction', ''))),
+        'desde'     => trim((string) $request->input('mr_desde', '')),
+        'hasta'     => trim((string) $request->input('mr_hasta', '')),
+        'page'      => max(1, (int) $request->input('mr_page', 1)),
+        'per_page'  => min(200, max(10, (int) $request->input('mr_per_page', 50))),
+    ];
+}
+
+private function buildMetadataRecordItems(array $filters): LengthAwarePaginator
+{
+    $qb = SatUserMetadataItem::query();
+
+    if ($filters['q'] !== '') {
+        $q = $filters['q'];
+
+        $qb->where(function ($sub) use ($q) {
+            $sub->where('uuid', 'like', '%' . $q . '%')
+                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                ->orWhere('rfc_emisor', 'like', '%' . $q . '%')
+                ->orWhere('nombre_emisor', 'like', '%' . $q . '%')
+                ->orWhere('rfc_receptor', 'like', '%' . $q . '%')
+                ->orWhere('nombre_receptor', 'like', '%' . $q . '%')
+                ->orWhere('estatus', 'like', '%' . $q . '%');
+        });
+    }
+
+    if ($filters['rfc'] !== '') {
+        $rfc = $filters['rfc'];
+
+        $qb->where(function ($sub) use ($rfc) {
+            $sub->where('rfc_owner', $rfc)
+                ->orWhere('rfc_emisor', $rfc)
+                ->orWhere('rfc_receptor', $rfc);
+        });
+    }
+
+    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+        $qb->where('direction', $filters['direction']);
+    }
+
+    if ($filters['desde'] !== '') {
+        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+    }
+
+    if ($filters['hasta'] !== '') {
+        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+    }
+
+    return $qb
+        ->orderByDesc('fecha_emision')
+        ->orderByDesc('id')
+        ->paginate(
+            perPage: $filters['per_page'],
+            columns: ['*'],
+            pageName: 'mr_page',
+            page: $filters['page']
+        );
+}
+
+/*
+|--------------------------------------------------------------------------
+| FILTROS + LISTADOS ADMIN · REPORT ITEMS
+|--------------------------------------------------------------------------
+*/
+
+private function resolveReportRecordFilters(Request $request): array
+{
+    return [
+        'q'         => trim((string) $request->input('rr_q', '')),
+        'rfc'       => strtoupper(trim((string) $request->input('rr_rfc', ''))),
+        'direction' => strtolower(trim((string) $request->input('rr_direction', ''))),
+        'desde'     => trim((string) $request->input('rr_desde', '')),
+        'hasta'     => trim((string) $request->input('rr_hasta', '')),
+        'page'      => max(1, (int) $request->input('rr_page', 1)),
+        'per_page'  => min(200, max(10, (int) $request->input('rr_per_page', 50))),
+    ];
+}
+
+private function buildReportRecordItems(array $filters): LengthAwarePaginator
+{
+    $qb = SatUserReportItem::query();
+
+    if ($filters['q'] !== '') {
+        $q = $filters['q'];
+
+        $qb->where(function ($sub) use ($q) {
+            $sub->where('uuid', 'like', '%' . $q . '%')
+                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                ->orWhere('emisor_rfc', 'like', '%' . $q . '%')
+                ->orWhere('emisor_nombre', 'like', '%' . $q . '%')
+                ->orWhere('receptor_rfc', 'like', '%' . $q . '%')
+                ->orWhere('receptor_nombre', 'like', '%' . $q . '%')
+                ->orWhere('report_type', 'like', '%' . $q . '%');
+        });
+    }
+
+    if ($filters['rfc'] !== '') {
+        $rfc = $filters['rfc'];
+
+        $qb->where(function ($sub) use ($rfc) {
+            $sub->where('rfc_owner', $rfc)
+                ->orWhere('emisor_rfc', $rfc)
+                ->orWhere('receptor_rfc', $rfc);
+        });
+    }
+
+    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+        $qb->where('direction', $filters['direction']);
+    }
+
+    if ($filters['desde'] !== '') {
+        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+    }
+
+    if ($filters['hasta'] !== '') {
+        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+    }
+
+    return $qb
+        ->orderByDesc('fecha_emision')
+        ->orderByDesc('id')
+        ->paginate(
+            perPage: $filters['per_page'],
+            columns: ['*'],
+            pageName: 'rr_page',
+            page: $filters['page']
+        );
+}
+
+/*
+|--------------------------------------------------------------------------
+| RESYNC CONTADORES
+|--------------------------------------------------------------------------
+*/
+
+private function syncMetadataUploadCounter(int $uploadId): void
+{
+    if ($uploadId <= 0) {
+        return;
+    }
+
+    $count = SatUserMetadataItem::query()
+        ->where('metadata_upload_id', $uploadId)
+        ->count();
+
+    SatUserMetadataUpload::query()
+        ->whereKey($uploadId)
+        ->update(['rows_count' => $count]);
+}
+
+private function syncMetadataUploadCounters(array $uploadIds): void
+{
+    foreach (array_unique(array_filter(array_map('intval', $uploadIds))) as $uploadId) {
+        $this->syncMetadataUploadCounter($uploadId);
+    }
+}
+
+private function syncReportUploadCounter(int $uploadId): void
+{
+    if ($uploadId <= 0) {
+        return;
+    }
+
+    $count = SatUserReportItem::query()
+        ->where('report_upload_id', $uploadId)
+        ->count();
+
+    SatUserReportUpload::query()
+        ->whereKey($uploadId)
+        ->update(['rows_count' => $count]);
+}
+
+private function syncReportUploadCounters(array $uploadIds): void
+{
+    foreach (array_unique(array_filter(array_map('intval', $uploadIds))) as $uploadId) {
+        $this->syncReportUploadCounter($uploadId);
+    }
+}
+
+private function syncXmlUploadCounter(int $uploadId): void
+{
+    if ($uploadId <= 0) {
+        return;
+    }
+
+    $count = SatUserCfdi::query()
+        ->where('xml_upload_id', $uploadId)
+        ->count();
+
+    SatUserXmlUpload::query()
+        ->whereKey($uploadId)
+        ->update(['files_count' => $count]);
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| ELIMINACIÓN MASIVA POR FILTRO ACTIVO · METADATA
+|--------------------------------------------------------------------------
+*/
+
+public function purgeFilteredMetadataRecords(Request $request): RedirectResponse
+{
+    $filters = $this->resolveMetadataRecordFilters($request);
+
+    $qb = SatUserMetadataItem::query();
+
+    if ($filters['q'] !== '') {
+        $q = $filters['q'];
+
+        $qb->where(function ($sub) use ($q) {
+            $sub->where('uuid', 'like', '%' . $q . '%')
+                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                ->orWhere('rfc_emisor', 'like', '%' . $q . '%')
+                ->orWhere('nombre_emisor', 'like', '%' . $q . '%')
+                ->orWhere('rfc_receptor', 'like', '%' . $q . '%')
+                ->orWhere('nombre_receptor', 'like', '%' . $q . '%')
+                ->orWhere('estatus', 'like', '%' . $q . '%');
+        });
+    }
+
+    if ($filters['rfc'] !== '') {
+        $rfc = $filters['rfc'];
+
+        $qb->where(function ($sub) use ($rfc) {
+            $sub->where('rfc_owner', $rfc)
+                ->orWhere('rfc_emisor', $rfc)
+                ->orWhere('rfc_receptor', $rfc);
+        });
+    }
+
+    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+        $qb->where('direction', $filters['direction']);
+    }
+
+    if ($filters['desde'] !== '') {
+        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+    }
+
+    if ($filters['hasta'] !== '') {
+        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+    }
+
+    $uploadIds = $qb->clone()
+        ->whereNotNull('metadata_upload_id')
+        ->pluck('metadata_upload_id')
+        ->map(fn ($v) => (int) $v)
+        ->filter(fn ($v) => $v > 0)
+        ->unique()
+        ->values()
+        ->all();
+
+    $deleted = $qb->delete();
+
+    $this->syncMetadataUploadCounters($uploadIds);
+
+    return back()->with(
+        $deleted > 0 ? 'success' : 'error',
+        $deleted > 0
+            ? 'Registros metadata filtrados eliminados: ' . number_format($deleted)
+            : 'No hubo registros metadata filtrados para eliminar.'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| ELIMINACIÓN MASIVA POR FILTRO ACTIVO · REPORTES
+|--------------------------------------------------------------------------
+*/
+
+public function purgeFilteredReportRecords(Request $request): RedirectResponse
+{
+    $filters = $this->resolveReportRecordFilters($request);
+
+    $qb = SatUserReportItem::query();
+
+    if ($filters['q'] !== '') {
+        $q = $filters['q'];
+
+        $qb->where(function ($sub) use ($q) {
+            $sub->where('uuid', 'like', '%' . $q . '%')
+                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                ->orWhere('emisor_rfc', 'like', '%' . $q . '%')
+                ->orWhere('emisor_nombre', 'like', '%' . $q . '%')
+                ->orWhere('receptor_rfc', 'like', '%' . $q . '%')
+                ->orWhere('receptor_nombre', 'like', '%' . $q . '%')
+                ->orWhere('report_type', 'like', '%' . $q . '%');
+        });
+    }
+
+    if ($filters['rfc'] !== '') {
+        $rfc = $filters['rfc'];
+
+        $qb->where(function ($sub) use ($rfc) {
+            $sub->where('rfc_owner', $rfc)
+                ->orWhere('emisor_rfc', $rfc)
+                ->orWhere('receptor_rfc', $rfc);
+        });
+    }
+
+    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+        $qb->where('direction', $filters['direction']);
+    }
+
+    if ($filters['desde'] !== '') {
+        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+    }
+
+    if ($filters['hasta'] !== '') {
+        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+    }
+
+    $uploadIds = $qb->clone()
+        ->whereNotNull('report_upload_id')
+        ->pluck('report_upload_id')
+        ->map(fn ($v) => (int) $v)
+        ->filter(fn ($v) => $v > 0)
+        ->unique()
+        ->values()
+        ->all();
+
+    $deleted = $qb->delete();
+
+    $this->syncReportUploadCounters($uploadIds);
+
+    return back()->with(
+        $deleted > 0 ? 'success' : 'error',
+        $deleted > 0
+            ? 'Registros reporte filtrados eliminados: ' . number_format($deleted)
+            : 'No hubo registros reporte filtrados para eliminar.'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| ELIMINACIÓN POR LOTE COMPLETO
+|--------------------------------------------------------------------------
+*/
+
+public function destroyMetadataBatch(int $uploadId): RedirectResponse
+{
+    if ($uploadId <= 0) {
+        return back()->with('error', 'Lote de metadata inválido.');
+    }
+
+    $upload = SatUserMetadataUpload::query()->find($uploadId);
+
+    $deletedItems = SatUserMetadataItem::query()
+        ->where('metadata_upload_id', $uploadId)
+        ->delete();
+
+    if ($upload) {
+        $this->deleteFileModelPhysical((string) ($upload->disk ?? ''), (string) ($upload->path ?? ''));
+        $upload->delete();
+    }
+
+    return back()->with(
+        'success',
+        'Lote metadata #' . number_format($uploadId) . ' eliminado. Registros: ' . number_format($deletedItems)
+    );
+}
+
+public function destroyReportBatch(int $uploadId): RedirectResponse
+{
+    if ($uploadId <= 0) {
+        return back()->with('error', 'Lote de reporte inválido.');
+    }
+
+    $upload = SatUserReportUpload::query()->find($uploadId);
+
+    $deletedItems = SatUserReportItem::query()
+        ->where('report_upload_id', $uploadId)
+        ->delete();
+
+    if ($upload) {
+        $this->deleteFileModelPhysical((string) ($upload->disk ?? ''), (string) ($upload->path ?? ''));
+        $upload->delete();
+    }
+
+    return back()->with(
+        'success',
+        'Lote reporte #' . number_format($uploadId) . ' eliminado. Registros: ' . number_format($deletedItems)
+    );
+}
+
 }

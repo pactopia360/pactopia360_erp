@@ -1325,7 +1325,7 @@ Route::middleware([
     |--------------------------------------------------------------------------
     */
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
-        Route::prefix('ops')->name('ops.')->group(function () use ($isLocal) {
+        Route::prefix('ops')->name('ops.')->group(function () use ($isLocal, $thrAdminPosts) {
             Route::get('/', [SatOpsController::class, 'index'])->name('index');
 
             Route::prefix('credentials')->name('credentials.')->group(function () use ($isLocal) {
@@ -1348,7 +1348,7 @@ Route::middleware([
                 }
             });
 
-            Route::prefix('downloads')->name('downloads.')->group(function () use ($isLocal) {
+            Route::prefix('downloads')->name('downloads.')->group(function () use ($isLocal, $thrAdminPosts) {
                 Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
 
                 Route::get('download/{type}/{id}', [SatOpsDownloadsController::class, 'download'])
@@ -1358,7 +1358,13 @@ Route::middleware([
                     ])
                     ->name('download');
 
+                /*
+                |----------------------------------------------------------------------
+                | Operaciones legacy / generales
+                |----------------------------------------------------------------------
+                */
                 $delete = Route::delete('delete/{type}/{id}', [SatOpsDownloadsController::class, 'destroy'])
+                    ->middleware($thrAdminPosts)
                     ->where([
                         'type' => 'metadata|xml|report|vault|satdownload',
                         'id'   => '[A-Za-z0-9\-]+',
@@ -1366,9 +1372,180 @@ Route::middleware([
                     ->name('delete');
 
                 $bulkDeleteFiles = Route::post('bulk/files/delete', [SatOpsDownloadsController::class, 'bulkDestroyFiles'])
+                    ->middleware($thrAdminPosts)
                     ->name('bulk.files.delete');
 
-                Route::delete('cfdi/{source}/{id}', [SatOpsDownloadsController::class, 'destroyCfdi'])
+                /*
+                |----------------------------------------------------------------------
+                | Metadata
+                |----------------------------------------------------------------------
+                */
+                $metadataUpdate = Route::match(['PATCH', 'POST'], 'metadata/{id}/update', [SatOpsDownloadsController::class, 'updateMetadata'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.update');
+
+                $metadataResetCount = Route::post('metadata/{id}/reset-count', [SatOpsDownloadsController::class, 'resetMetadataCount'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.reset_count');
+
+                $metadataRecount = Route::post('metadata/{id}/recount', [SatOpsDownloadsController::class, 'recountMetadata'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.recount');
+
+                $metadataPurgeItems = Route::post('metadata/{id}/purge-items', [SatOpsDownloadsController::class, 'purgeMetadataItems'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.purge_items');
+
+                $metadataDestroyFull = Route::delete('metadata/{id}/destroy-full', [SatOpsDownloadsController::class, 'destroyMetadataFull'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.destroy_full');
+                
+                                $metadataRecordPurgeFiltered = Route::post(
+                    'metadata/records/purge-filtered',
+                    [SatOpsDownloadsController::class, 'purgeFilteredMetadataRecords']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->name('metadata.records.purge_filtered');
+
+                $reportRecordPurgeFiltered = Route::post(
+                    'report/records/purge-filtered',
+                    [SatOpsDownloadsController::class, 'purgeFilteredReportRecords']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->name('report.records.purge_filtered');
+                
+                $metadataBatchDestroy = Route::delete(
+                    'metadata/batch/{uploadId}',
+                    [SatOpsDownloadsController::class, 'destroyMetadataBatch']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('uploadId')
+                    ->name('metadata.batch.destroy');
+                
+                $reportBatchDestroy = Route::delete(
+                    'report/batch/{uploadId}',
+                    [SatOpsDownloadsController::class, 'destroyReportBatch']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('uploadId')
+                    ->name('report.batch.destroy');
+
+                /*
+                |----------------------------------------------------------------------
+                | XML
+                |----------------------------------------------------------------------
+                */
+                $xmlUpdate = Route::match(['PATCH', 'POST'], 'xml/{id}/update', [SatOpsDownloadsController::class, 'updateXml'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('xml.update');
+
+                $xmlResetCount = Route::post('xml/{id}/reset-count', [SatOpsDownloadsController::class, 'resetXmlCount'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('xml.reset_count');
+
+                $xmlRecount = Route::post('xml/{id}/recount', [SatOpsDownloadsController::class, 'recountXml'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('xml.recount');
+
+                $xmlPurgeCfdi = Route::post('xml/{id}/purge-cfdi', [SatOpsDownloadsController::class, 'purgeXmlCfdi'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('xml.purge_cfdi');
+
+                $xmlDestroyFull = Route::delete('xml/{id}/destroy-full', [SatOpsDownloadsController::class, 'destroyXmlFull'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('xml.destroy_full');
+
+                /*
+                |----------------------------------------------------------------------
+                | Reportes
+                |----------------------------------------------------------------------
+                */
+                $reportUpdate = Route::match(['PATCH', 'POST'], 'report/{id}/update', [SatOpsDownloadsController::class, 'updateReport'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.update');
+
+                $reportResetCount = Route::post('report/{id}/reset-count', [SatOpsDownloadsController::class, 'resetReportCount'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.reset_count');
+
+                $reportRecount = Route::post('report/{id}/recount', [SatOpsDownloadsController::class, 'recountReport'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.recount');
+
+                $reportPurgeItems = Route::post('report/{id}/purge-items', [SatOpsDownloadsController::class, 'purgeReportItems'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.purge_items');
+
+                $reportDestroyFull = Route::delete('report/{id}/destroy-full', [SatOpsDownloadsController::class, 'destroyReportFull'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.destroy_full');
+
+                                /*
+                |--------------------------------------------------------------------------
+                | Registros derivados · Metadata
+                |--------------------------------------------------------------------------
+                */
+                $metadataRecordDelete = Route::delete('metadata/records/{id}', [SatOpsDownloadsController::class, 'destroyMetadataRecord'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('metadata.records.delete');
+
+                $metadataRecordBulkDelete = Route::post('metadata/records/bulk-delete', [SatOpsDownloadsController::class, 'bulkDestroyMetadataRecords'])
+                    ->middleware($thrAdminPosts)
+                    ->name('metadata.records.bulk_delete');
+                
+                $metadataBatchDestroy = Route::delete(
+                        'metadata/batch/{uploadId}',
+                        [SatOpsDownloadsController::class, 'destroyMetadataBatch']
+                    )
+                        ->middleware($thrAdminPosts)
+                        ->whereNumber('uploadId')
+                        ->name('metadata.batch.destroy');
+
+                /*
+                |--------------------------------------------------------------------------
+                | Registros derivados · Reportes
+                |--------------------------------------------------------------------------
+                */
+                $reportRecordDelete = Route::delete('report/records/{id}', [SatOpsDownloadsController::class, 'destroyReportRecord'])
+                    ->middleware($thrAdminPosts)
+                    ->whereNumber('id')
+                    ->name('report.records.delete');
+
+                $reportRecordBulkDelete = Route::post('report/records/bulk-delete', [SatOpsDownloadsController::class, 'bulkDestroyReportRecords'])
+                    ->middleware($thrAdminPosts)
+                    ->name('report.records.bulk_delete');
+                
+                $reportBatchDestroy = Route::delete(
+                        'report/batch/{uploadId}',
+                        [SatOpsDownloadsController::class, 'destroyReportBatch']
+                    )
+                        ->middleware($thrAdminPosts)
+                        ->whereNumber('uploadId')
+                        ->name('report.batch.destroy');
+
+                /*
+                |----------------------------------------------------------------------
+                | CFDI indexados
+                |----------------------------------------------------------------------
+                */
+                $cfdiDelete = Route::delete('cfdi/{source}/{id}', [SatOpsDownloadsController::class, 'destroyCfdi'])
+                    ->middleware($thrAdminPosts)
                     ->where([
                         'source' => 'vault_cfdi|user_cfdi',
                         'id'     => '[A-Za-z0-9\-]+',
@@ -1376,17 +1553,57 @@ Route::middleware([
                     ->name('cfdi.delete');
 
                 $bulkDeleteCfdi = Route::post('bulk/cfdi/delete', [SatOpsDownloadsController::class, 'bulkDestroyCfdi'])
+                    ->middleware($thrAdminPosts)
                     ->name('bulk.cfdi.delete');
 
-                Route::post('cfdi/purge', [SatOpsDownloadsController::class, 'purgeCfdi'])
+                $cfdiPurge = Route::post('cfdi/purge', [SatOpsDownloadsController::class, 'purgeCfdi'])
+                    ->middleware($thrAdminPosts)
                     ->name('cfdi.purge');
 
-                if ($isLocal) {
-                    $delete->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-                    $bulkDeleteFiles->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-                    $bulkDeleteCfdi->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                 if ($isLocal) {
+                    foreach ([
+                        $delete,
+                        $bulkDeleteFiles,
+
+                        $metadataUpdate,
+                        $metadataResetCount,
+                        $metadataRecount,
+                        $metadataPurgeItems,
+                        $metadataDestroyFull,
+
+                        $xmlUpdate,
+                        $xmlResetCount,
+                        $xmlRecount,
+                        $xmlPurgeCfdi,
+                        $xmlDestroyFull,
+
+                        $reportUpdate,
+                        $reportResetCount,
+                        $reportRecount,
+                        $reportPurgeItems,
+                        $reportDestroyFull,
+
+                        $metadataRecordDelete,
+                        $metadataRecordBulkDelete,
+                        $reportRecordDelete,
+                        $reportRecordBulkDelete,
+                        $metadataRecordPurgeFiltered,
+                        $reportRecordPurgeFiltered,
+                        $metadataBatchDestroy,
+                        $reportBatchDestroy,
+                        $metadataBatchDestroy,
+                        $reportBatchDestroy,
+
+
+                        $cfdiDelete,
+                        $bulkDeleteCfdi,
+                        $cfdiPurge,
+                    ] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
                 }
             });
+
 
             Route::prefix('manual')->name('manual.')->group(function () {
                 Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');

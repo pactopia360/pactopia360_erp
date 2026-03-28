@@ -44,11 +44,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (actionButton) {
             actionButton.addEventListener('click', function () {
-                const selected = checks.filter(function (cb) {
-                    return cb.checked;
-                }).map(function (cb) {
-                    return cb.value;
-                });
+                const selected = checks
+                    .filter(function (cb) {
+                        return cb.checked;
+                    })
+                    .map(function (cb) {
+                        return cb.value;
+                    });
 
                 if (!selected.length) {
                     alert('Selecciona al menos un registro.');
@@ -130,6 +132,32 @@ document.addEventListener('DOMContentLoaded', function () {
             return mode === 'with_files'
                 ? '¿Seguro que deseas eliminar ' + count + ' CFDI(s) seleccionados y también sus archivos relacionados cuando aplique?'
                 : '¿Seguro que deseas eliminar ' + count + ' CFDI(s) seleccionados solo del índice?';
+        }
+    });
+
+    setupSelection({
+        master: '#checkAllMetadataRecords',
+        items: '.metadata-record-row-check',
+        counter: '[data-selected-metadata-records]',
+        runButton: '#runMetadataRecordsBulkDelete',
+        form: '#metadataRecordsBulkForm',
+        actionUrl: window.p360SatOpsDownloads.bulkMetadataRecordsDeleteUrl || '',
+        inputName: 'selected_metadata_records[]',
+        confirm: function (count) {
+            return '¿Seguro que deseas eliminar ' + count + ' registro(s) de metadata del portal?';
+        }
+    });
+
+    setupSelection({
+        master: '#checkAllReportRecords',
+        items: '.report-record-row-check',
+        counter: '[data-selected-report-records]',
+        runButton: '#runReportRecordsBulkDelete',
+        form: '#reportRecordsBulkForm',
+        actionUrl: window.p360SatOpsDownloads.bulkReportRecordsDeleteUrl || '',
+        inputName: 'selected_report_records[]',
+        confirm: function (count) {
+            return '¿Seguro que deseas eliminar ' + count + ' registro(s) de reporte del portal?';
         }
     });
 });
