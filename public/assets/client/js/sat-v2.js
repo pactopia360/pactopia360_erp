@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const fiscalTrendChartEl = $('#sv2FiscalTrendChart');
     const fiscalMixChartEl = $('#sv2FiscalMixChart');
     const sectionDock = $('#sv2SectionDock');
-    const dockObserver = $('#sv2DockObserver');
+    const dockObserver = null;
     const sectionDockLinks = $$('[data-sv2-jump]');
     const expandAllBtn = $('#sv2ExpandAll');
     const collapseAllBtn = $('#sv2CollapseAll');
@@ -974,7 +974,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function getDockHeight() {
-        return sectionDock ? Math.ceil(sectionDock.getBoundingClientRect().height) : 0;
+        if (!sectionDock) return 0;
+        return Math.ceil(sectionDock.offsetHeight || sectionDock.getBoundingClientRect().height || 0);
     }
 
     function updateDockOffsetVar() {
@@ -983,15 +984,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function isDockPinned() {
-        if (!sectionDock || !dockObserver) return false;
-        return dockObserver.getBoundingClientRect().top <= (getDockHeight() + 92);
+        return true;
     }
 
     function syncDockPinnedState() {
-        const pinned = isDockPinned();
-        document.body.classList.toggle('sv2DockPinned', pinned);
+        document.body.classList.add('sv2DockPinned');
         updateDockOffsetVar();
-        return pinned;
+        return true;
     }
 
     function scrollToEntry(entry) {
@@ -1104,13 +1103,28 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    let sv2DockScrollRaf = null;
+    let sv2DockResizeRaf = null;
+
     window.addEventListener('resize', function () {
-        handleViewportSync();
-        refreshFiscalChartsVisibility();
+        if (sv2DockResizeRaf) {
+            cancelAnimationFrame(sv2DockResizeRaf);
+        }
+
+        sv2DockResizeRaf = requestAnimationFrame(function () {
+            handleViewportSync();
+            refreshFiscalChartsVisibility();
+            sv2DockResizeRaf = null;
+        });
     });
 
     window.addEventListener('scroll', function () {
-        handleViewportSync();
+        if (sv2DockScrollRaf) return;
+
+        sv2DockScrollRaf = requestAnimationFrame(function () {
+            handleViewportSync();
+            sv2DockScrollRaf = null;
+        });
     }, { passive: true });
 
     const sv2HasErrors = window.sv2Config?.hasErrors || false;

@@ -119,66 +119,64 @@
             </div>
         </section>
 
-                        <div id="sv2DockObserver" class="sv2DockObserver" aria-hidden="true"></div>
+            <section class="sv2DockWrap" aria-label="Navegación rápida del portal">
+                <div class="sv2Dock" id="sv2SectionDock">
+                    <div class="sv2Dock__left">
+                        <div class="sv2Dock__brand">
+                            <div class="sv2Dock__title">Descargas</div>
 
-        <section class="sv2DockWrap" aria-label="Navegación rápida del portal">
-            <div class="sv2Dock" id="sv2SectionDock">
-                <div class="sv2Dock__left">
-                    <div class="sv2Dock__brand">
-                        <div class="sv2Dock__title">Descargas</div>
+                            <div class="sv2Dock__rfc">
+                                <span class="sv2Dock__rfcLabel">RFC Activo</span>
+                                <strong class="sv2Dock__rfcValue">
+                                    {{ $selectedRfc ?? $activeRfc ?? $rfcOwner ?? $currentRfc ?? 'Sin RFC' }}
+                                </strong>
+                            </div>
+                        </div>
 
-                        <div class="sv2Dock__rfc">
-                            <span class="sv2Dock__rfcLabel">RFC Activo</span>
-                            <strong class="sv2Dock__rfcValue">
-                                {{ $selectedRfc ?? $activeRfc ?? $rfcOwner ?? $currentRfc ?? 'Sin RFC' }}
-                            </strong>
+                        <div class="sv2Dock__nav" role="tablist" aria-label="Secciones del portal de descargas">
+                            <button type="button" class="sv2Dock__link is-active" data-sv2-jump="dataLoad">
+                                Carga de datos
+                            </button>
+
+                            <button type="button" class="sv2Dock__link" data-sv2-jump="metadata">
+                                Metadata
+                            </button>
+
+                            <button type="button" class="sv2Dock__link" data-sv2-jump="xml">
+                                XML CFDI
+                            </button>
+
+                            <button type="button" class="sv2Dock__link" data-sv2-jump="report">
+                                Reportes
+                            </button>
+
+                            <button type="button" class="sv2Dock__link" data-sv2-jump="fiscal">
+                                Resumen fiscal
+                            </button>
+
+                            <button type="button" class="sv2Dock__link" data-sv2-jump="downloads">
+                                Descargas
+                            </button>
                         </div>
                     </div>
 
-                    <div class="sv2Dock__nav" role="tablist" aria-label="Secciones del portal de descargas">
-                        <button type="button" class="sv2Dock__link is-active" data-sv2-jump="dataLoad">
-                            Carga de datos
+                    <div class="sv2Dock__actions">
+                        <button type="button" class="sv2Dock__action" id="sv2ExpandAll">
+                            Expandir todo
                         </button>
 
-                        <button type="button" class="sv2Dock__link" data-sv2-jump="metadata">
-                            Metadata
-                        </button>
-
-                        <button type="button" class="sv2Dock__link" data-sv2-jump="xml">
-                            XML CFDI
-                        </button>
-
-                        <button type="button" class="sv2Dock__link" data-sv2-jump="report">
-                            Reportes
-                        </button>
-
-                        <button type="button" class="sv2Dock__link" data-sv2-jump="fiscal">
-                            Resumen fiscal
-                        </button>
-
-                        <button type="button" class="sv2Dock__link" data-sv2-jump="downloads">
-                            Descargas
+                        <button type="button" class="sv2Dock__action sv2Dock__action--ghost" id="sv2CollapseAll">
+                            Contraer todo
                         </button>
                     </div>
                 </div>
+            </section>
 
-                <div class="sv2Dock__actions">
-                    <button type="button" class="sv2Dock__action" id="sv2ExpandAll">
-                        Expandir todo
-                    </button>
-
-                    <button type="button" class="sv2Dock__action sv2Dock__action--ghost" id="sv2CollapseAll">
-                        Contraer todo
-                    </button>
+            <section class="sv2Section">
+                <div class="sv2Section__head">
                 </div>
-            </div>
-        </section>
 
-        <section class="sv2Section">
-            <div class="sv2Section__head">
-            </div>
-
-            <div class="sv2KPIs">
+                <div class="sv2KPIs">
                 <article class="sv2Kpi sv2Kpi--meta">
                     <div class="sv2Kpi__top">
                         <div class="sv2Icon">
@@ -2628,10 +2626,10 @@
         <div class="sv2Modal" id="reportModal" aria-hidden="true">
             <div class="sv2Modal__backdrop" data-sv2-close="reportModal"></div>
 
-            <div class="sv2Modal__dialog sv2Modal__dialog--metadata" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
-                <div class="sv2Modal__head sv2Modal__head--metadata">
+            <div class="sv2Modal__dialog sv2Modal__dialog--metadata sv2Modal__dialog--reportClean" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
+                <div class="sv2Modal__head sv2Modal__head--metadata sv2Modal__head--reportClean">
                     <div class="sv2ModalHero">
-                        <div class="sv2ModalHero__icon" aria-hidden="true">
+                        <div class="sv2ModalHero__icon sv2ModalHero__icon--report" aria-hidden="true">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                                 <path d="M7 4h8l4 4v12H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8"/>
                                 <path d="M15 4v4h4M8 12h8M8 16h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -2641,7 +2639,9 @@
                         <div class="sv2ModalHero__copy">
                             <div class="sv2StepEyebrow">Carga de reporte</div>
                             <h3 class="sv2Modal__title" id="reportModalTitle">Asociar reporte a un RFC</h3>
-                            <p class="sv2ModalHero__text">Sube tu reporte y opcionalmente relaciónalo con metadata y XML para futuras conciliaciones.</p>
+                            <p class="sv2ModalHero__text">
+                                Sube tu reporte y relaciónalo con metadata y XML para futuras conciliaciones.
+                            </p>
                         </div>
                     </div>
 
@@ -2652,120 +2652,75 @@
                     </button>
                 </div>
 
-                <form method="POST" action="{{ route('cliente.sat.v2.report.upload') }}" enctype="multipart/form-data" class="sv2Modal__body sv2Modal__body--metadata" data-sv2-upload-form="report">
+                <form method="POST" action="{{ route('cliente.sat.v2.report.upload') }}" enctype="multipart/form-data" class="sv2Modal__body sv2Modal__body--metadata sv2Modal__body--reportClean" data-sv2-upload-form="report">
                     @csrf
 
                     <input type="hidden" name="rfc_owner" value="{{ $selectedRfc }}">
                     <input type="hidden" name="sv2_open_modal" value="reportModal">
 
-                    <div class="sv2HeroCard sv2HeroCard--v3">
-                        <div class="sv2HeroCard__header sv2HeroCard__header--v3">
-                            <div class="sv2HeroCard__titles">
-                                <span class="sv2HeroCard__eyebrow">Acceso</span>
-                                <h3 class="sv2HeroCard__title sv2HeroCard__title--v3">RFC de trabajo</h3>
+                    <div class="sv2ModalBlock sv2ModalBlock--reportAccent">
+                        <div class="sv2ModalBlock__title">RFC y asociación</div>
+
+                        <div class="sv2ModalGrid">
+                            <div class="sv2Field sv2Field--static">
+                                <span class="sv2Float">RFC de trabajo actual</span>
+                                <input
+                                    type="text"
+                                    class="sv2Input"
+                                    value="{{ $selectedRfc !== '' ? $selectedRfc : 'Sin RFC seleccionado' }}"
+                                    disabled
+                                >
                             </div>
 
-                            <button type="button" class="sv2GearBtn" data-sv2-open="rfcManagerModal" aria-label="Administrar RFC">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                    <path d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z" stroke="currentColor" stroke-width="1.8"/>
-                                    <path d="M19.4 15a1 1 0 0 0 .2 1.1l.04.04a1.9 1.9 0 0 1 0 2.68 1.9 1.9 0 0 1-2.68 0l-.04-.04a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.92V19.7A1.9 1.9 0 0 1 13.3 21.6h-2.6a1.9 1.9 0 0 1-1.9-1.9v-.06a1 1 0 0 0-.6-.92 1 1 0 0 0-1.1.2l-.04.04a1.9 1.9 0 0 1-2.68 0 1.9 1.9 0 0 1 0-2.68l.04-.04a1 1 0 0 0 .2-1.1 1 1 0 0 0-.92-.6H3.7A1.9 1.9 0 0 1 1.8 13.3v-2.6a1.9 1.9 0 0 1 1.9-1.9h.06a1 1 0 0 0 .92-.6 1 1 0 0 0-.2-1.1l-.04-.04a1.9 1.9 0 0 1 0-2.68 1.9 1.9 0 0 1 2.68 0l.04.04a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.92V4.3A1.9 1.9 0 0 1 10.7 2.4h2.6a1.9 1.9 0 0 1 1.9 1.9v.06a1 1 0 0 0 .6.92 1 1 0 0 0 1.1-.2l.04-.04a1.9 1.9 0 0 1 2.68 0 1.9 1.9 0 0 1 0 2.68l-.04.04a1 1 0 0 0-.2 1.1 1 1 0 0 0 .92.6h.06a1.9 1.9 0 0 1 1.9 1.9v2.6a1.9 1.9 0 0 1-1.9 1.9h-.06a1 1 0 0 0-.92.6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <div class="sv2HeroCard__meta sv2HeroCard__meta--v3">
-                            <span class="sv2Count">{{ $rfcs->count() }} RFC</span>
-
-                            @if($selectedRfc !== '')
-                                @php
-                                    $selectedRfcRow = $rfcs->firstWhere('rfc', $selectedRfc);
-                                    $selectedReason  = trim((string) ($selectedRfcRow->razon_social ?? ''));
-                                @endphp
-
-                                <span class="sv2ActiveRFC" title="{{ $selectedRfc }}">
-                                    {{ $selectedRfc }}
-                                </span>
-                            @endif
-                        </div>
-
-                        <form method="GET" action="{{ route('cliente.sat.v2.index') }}" class="sv2HeroSearchForm" id="sv2RfcChooserForm" autocomplete="off">
-                            <input type="hidden" name="rfc" id="sv2RfcHiddenInput" value="{{ $selectedRfc }}">
-
-                            <div class="sv2RfcChooser" id="sv2RfcChooser">
-                                <button type="button" class="sv2RfcChooser__control" id="sv2RfcChooserControl" aria-expanded="false" aria-haspopup="listbox">
-                                    <div class="sv2RfcChooser__controlText">
-                                        <span class="sv2RfcChooser__label">RFC seleccionado</span>
-                                        <strong class="sv2RfcChooser__value" id="sv2RfcChooserValue">
-                                            {{ $selectedReason !== '' ? $selectedReason : ($selectedRfc !== '' ? $selectedRfc : 'Selecciona un RFC de trabajo') }}
-                                        </strong>
-                                    </div>
-
-                                    <span class="sv2RfcChooser__chevron" aria-hidden="true">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                        </svg>
-                                    </span>
-                                </button>
-
-                                <div class="sv2RfcChooser__menu" id="sv2RfcChooserMenu" hidden>
-                                    <div class="sv2RfcChooser__searchWrap">
-                                        <input
-                                            type="text"
-                                            class="sv2RfcChooser__search"
-                                            id="sv2RfcChooserSearch"
-                                            placeholder="Buscar RFC o razón social..."
-                                        >
-                                    </div>
-
-                                    <div class="sv2RfcChooser__list" role="listbox" id="sv2RfcChooserList">
-                                        @forelse($rfcs as $rfc)
-                                            @php
-                                                $razon = trim((string) ($rfc->razon_social ?? ''));
-                                                $visibleName = $razon !== '' ? $razon : 'Sin razón social';
-                                            @endphp
-
-                                            <button
-                                                type="button"
-                                                class="sv2RfcOption {{ $selectedRfc === $rfc->rfc ? 'is-active' : '' }}"
-                                                data-rfc="{{ $rfc->rfc }}"
-                                                data-name="{{ e($visibleName) }}"
-                                                data-search="{{ strtolower($rfc->rfc . ' ' . $visibleName) }}"
-                                                role="option"
-                                                aria-selected="{{ $selectedRfc === $rfc->rfc ? 'true' : 'false' }}"
-                                            >
-                                                <span class="sv2RfcOption__main">
-                                                    <strong class="sv2RfcOption__name">{{ $visibleName }}</strong>
-                                                    <span class="sv2RfcOption__meta">{{ $rfc->rfc }}</span>
-                                                </span>
-
-                                                @if($selectedRfc === $rfc->rfc)
-                                                    <span class="sv2RfcOption__badge">Activo</span>
-                                                @endif
-                                            </button>
-                                        @empty
-                                            <div class="sv2RfcChooser__empty">
-                                                No hay RFC registrados.
-                                            </div>
-                                        @endforelse
-                                    </div>
-                                </div>
+                            <div class="sv2Field sv2Field--static">
+                                <span class="sv2Float">Usar RFC existente</span>
+                                <select name="rfc_existing" class="sv2Select">
+                                    <option value="">Selecciona un RFC existente</option>
+                                    @foreach($rfcs as $rfc)
+                                        <option value="{{ $rfc->rfc }}" {{ $selectedRfc === $rfc->rfc ? 'selected' : '' }}>
+                                            {{ $rfc->rfc }} — {{ $rfc->razon_social ?: 'Sin razón social' }}
+                                        </option>
+                                    @endforeach
+                                </select>
                             </div>
 
-                            <button type="submit" class="sv2Btn sv2Btn--primary sv2Btn--heroWide">
-                                Entrar
-                            </button>
-                        </form>
+                            <div class="sv2Field sv2Field--static">
+                                <span class="sv2Float">Capturar RFC nuevo</span>
+                                <input
+                                    type="text"
+                                    name="rfc_new"
+                                    class="sv2Input"
+                                    maxlength="20"
+                                    placeholder="Ej. XAXX010101000"
+                                    value="{{ old('rfc_new') }}"
+                                    style="text-transform:uppercase;"
+                                >
+                            </div>
+
+                            <div class="sv2Field sv2Field--static">
+                                <span class="sv2Float">Razón social</span>
+                                <input
+                                    type="text"
+                                    name="razon_social"
+                                    class="sv2Input"
+                                    maxlength="255"
+                                    placeholder="Opcional si capturas RFC nuevo"
+                                    value="{{ old('razon_social') }}"
+                                >
+                            </div>
+                        </div>
                     </div>
+
                     <div class="sv2ModalBlock">
                         <div class="sv2ModalBlock__title">Tipo de reporte</div>
 
                         <div class="sv2Field sv2Field--static">
                             <span class="sv2Float">Tipo</span>
                             <select name="report_type" class="sv2Select">
-                                <option value="csv_report">Reporte CSV</option>
-                                <option value="xlsx_report">Reporte XLSX</option>
-                                <option value="xls_report">Reporte XLS</option>
-                                <option value="txt_report">Reporte TXT</option>
+                                <option value="csv_report" {{ old('report_type', 'csv_report') === 'csv_report' ? 'selected' : '' }}>Reporte CSV</option>
+                                <option value="xlsx_report" {{ old('report_type') === 'xlsx_report' ? 'selected' : '' }}>Reporte XLSX</option>
+                                <option value="xls_report" {{ old('report_type') === 'xls_report' ? 'selected' : '' }}>Reporte XLS</option>
+                                <option value="txt_report" {{ old('report_type') === 'txt_report' ? 'selected' : '' }}>Reporte TXT</option>
                             </select>
                         </div>
                     </div>
@@ -2773,8 +2728,8 @@
                     <div class="sv2ModalBlock">
                         <div class="sv2ModalBlock__title">Dirección del reporte</div>
 
-                        <div class="sv2DirectionPicker">
-                            <label class="sv2RadioCard">
+                        <div class="sv2DirectionPicker sv2DirectionPicker--report">
+                            <label class="sv2RadioCard sv2RadioCard--report">
                                 <input type="radio" name="report_direction" value="emitidos" {{ old('report_direction', 'emitidos') === 'emitidos' ? 'checked' : '' }}>
                                 <span class="sv2RadioCard__box">
                                     <span class="sv2RadioCard__icon" aria-hidden="true">
@@ -2784,12 +2739,12 @@
                                     </span>
                                     <span>
                                         <span class="sv2RadioCard__title">Emitidos</span>
-                                        <span class="sv2RadioCard__text">Reporte de comprobantes emitidos.</span>
+                                        <span class="sv2RadioCard__text">Reporte de comprobantes emitidos por el RFC seleccionado.</span>
                                     </span>
                                 </span>
                             </label>
 
-                            <label class="sv2RadioCard">
+                            <label class="sv2RadioCard sv2RadioCard--report">
                                 <input type="radio" name="report_direction" value="recibidos" {{ old('report_direction') === 'recibidos' ? 'checked' : '' }}>
                                 <span class="sv2RadioCard__box">
                                     <span class="sv2RadioCard__icon" aria-hidden="true">
@@ -2799,7 +2754,7 @@
                                     </span>
                                     <span>
                                         <span class="sv2RadioCard__title">Recibidos</span>
-                                        <span class="sv2RadioCard__text">Reporte de comprobantes recibidos.</span>
+                                        <span class="sv2RadioCard__text">Reporte de comprobantes recibidos por el RFC seleccionado.</span>
                                     </span>
                                 </span>
                             </label>
@@ -2815,7 +2770,7 @@
                                 <select name="linked_metadata_upload_id" class="sv2Select">
                                     <option value="">Sin asociación por ahora</option>
                                     @foreach($metadataUploads as $upload)
-                                        <option value="{{ $upload->id }}">
+                                        <option value="{{ $upload->id }}" {{ (string) old('linked_metadata_upload_id') === (string) $upload->id ? 'selected' : '' }}>
                                             #{{ $upload->id }} — {{ $upload->original_name }} — {{ number_format((int) $upload->rows_count) }} registros
                                         </option>
                                     @endforeach
@@ -2827,7 +2782,7 @@
                                 <select name="linked_xml_upload_id" class="sv2Select">
                                     <option value="">Sin asociación por ahora</option>
                                     @foreach($xmlUploads as $upload)
-                                        <option value="{{ $upload->id }}">
+                                        <option value="{{ $upload->id }}" {{ (string) old('linked_xml_upload_id') === (string) $upload->id ? 'selected' : '' }}>
                                             #{{ $upload->id }} — {{ $upload->original_name }} — {{ number_format((int) $upload->files_count) }} archivo(s)
                                         </option>
                                     @endforeach
@@ -2836,21 +2791,25 @@
                         </div>
                     </div>
 
-                    <div class="sv2ModalBlock">
+                    <div class="sv2ModalBlock sv2ModalBlock--upload">
                         <div class="sv2ModalBlock__title">Archivo reporte</div>
 
                         <div class="sv2Field sv2Field--static">
                             <span class="sv2Float">Archivo reporte</span>
-                            <input type="file" name="archivo_reporte" class="sv2File" accept=".csv,.xlsx,.xls,.txt" required>
+                            <input type="file" name="archivo_reporte" class="sv2File sv2File--report" accept=".csv,.xlsx,.xls,.txt" required>
+                        </div>
+
+                        <div class="sv2UploadInlineHint">
+                            Formatos permitidos: CSV, XLSX, XLS y TXT.
                         </div>
                     </div>
 
-                    <div class="sv2Modal__actions sv2Modal__actions--metadata">
+                    <div class="sv2Modal__actions sv2Modal__actions--metadata sv2Modal__actions--reportClean">
                         <button type="button" class="sv2Btn sv2Btn--secondary" data-sv2-close="reportModal">
                             Cancelar
                         </button>
 
-                        <button type="submit" class="sv2Btn sv2Btn--primary" data-sv2-submit-upload>
+                        <button type="submit" class="sv2Btn sv2Btn--primary sv2Btn--reportSubmit" data-sv2-submit-upload>
                             Guardar y subir reporte
                         </button>
                     </div>

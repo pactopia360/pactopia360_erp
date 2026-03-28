@@ -255,62 +255,49 @@ class SatVaultV2Controller extends Controller
                 $baseItemsQuery->whereDate('fecha_emision', '<=', $metadataFilters['hasta']);
             }
 
-            $summaryBase = clone $baseItemsQuery;
+            $summaryRow = (clone $baseItemsQuery)
+                ->selectRaw("
+                    SUM(CASE WHEN direction = 'emitidos' THEN 1 ELSE 0 END) AS emitidos,
+                    SUM(CASE WHEN direction = 'recibidos' THEN 1 ELSE 0 END) AS recibidos,
+                    SUM(
+                        CASE
+                            WHEN estatus IS NULL
+                            OR TRIM(COALESCE(estatus, '')) = ''
+                            OR LOWER(TRIM(COALESCE(estatus, ''))) NOT LIKE '%cancel%'
+                            THEN 1 ELSE 0
+                        END
+                    ) AS vigentes,
+                    SUM(
+                        CASE
+                            WHEN LOWER(TRIM(COALESCE(estatus, ''))) LIKE '%cancel%'
+                            THEN 1 ELSE 0
+                        END
+                    ) AS cancelados,
+                    COALESCE(SUM(monto), 0) AS total_monto,
+                    COUNT(DISTINCT NULLIF(TRIM(COALESCE(rfc_emisor, '')), '')) AS rfc_emisores,
+                    COUNT(DISTINCT NULLIF(TRIM(COALESCE(rfc_receptor, '')), '')) AS rfc_receptores
+                ")
+                ->first();
 
-            $metadataSummary['emitidos'] = (clone $summaryBase)
-                ->where('direction', 'emitidos')
-                ->count();
+            $metadataSummary['emitidos']       = (int) ($summaryRow->emitidos ?? 0);
+            $metadataSummary['recibidos']      = (int) ($summaryRow->recibidos ?? 0);
+            $metadataSummary['vigentes']       = (int) ($summaryRow->vigentes ?? 0);
+            $metadataSummary['cancelados']     = (int) ($summaryRow->cancelados ?? 0);
+            $metadataSummary['total_monto']    = (float) ($summaryRow->total_monto ?? 0);
+            $metadataSummary['rfc_emisores']   = (int) ($summaryRow->rfc_emisores ?? 0);
+            $metadataSummary['rfc_receptores'] = (int) ($summaryRow->rfc_receptores ?? 0);
 
-            $metadataSummary['recibidos'] = (clone $summaryBase)
-                ->where('direction', 'recibidos')
-                ->count();
-
-            $metadataSummary['vigentes'] = (clone $summaryBase)
-                ->where(function ($q) {
-                    $q->whereNull('estatus')
-                    ->orWhere('estatus', '')
-                    ->orWhereRaw('LOWER(TRIM(COALESCE(estatus, ""))) not like ?', ['%cancel%']);
-                })
-                ->count();
-
-            $metadataSummary['cancelados'] = (clone $summaryBase)
-                ->whereRaw('LOWER(TRIM(COALESCE(estatus, ""))) like ?', ['%cancel%'])
-                ->count();
-
-            $metadataSummary['total_monto'] = (float) ((clone $summaryBase)->sum('monto') ?: 0);
-
-            $metadataSummary['rfc_emisores'] = (clone $summaryBase)
-                ->whereNotNull('rfc_emisor')
-                ->whereRaw('TRIM(COALESCE(rfc_emisor, "")) <> ""')
-                ->distinct()
-                ->count('rfc_emisor');
-
-            $metadataSummary['rfc_receptores'] = (clone $summaryBase)
-                ->whereNotNull('rfc_receptor')
-                ->whereRaw('TRIM(COALESCE(rfc_receptor, "")) <> ""')
-                ->distinct()
-                ->count('rfc_receptor');
-
-            // ============================================
-            // NUEVA DATA PARA GRÁFICA COMPARATIVA
-            // ============================================
-            $chartBase = clone $baseItemsQuery;
-
-            $rawChart = $chartBase
+            $rawChart = (clone $baseItemsQuery)
                 ->selectRaw("
                     DATE_FORMAT(fecha_emision, '%Y-%m') as ym,
                     direction,
                     COUNT(*) as total
                 ")
                 ->whereNotNull('fecha_emision')
-                ->groupBy(
-                    DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"),
-                    'direction'
-                )
+                ->groupBy(DB::raw("DATE_FORMAT(fecha_emision, '%Y-%m')"), 'direction')
                 ->orderBy('ym')
                 ->get();
 
-            // Transformar a formato comparativo
             $grouped = [];
 
             foreach ($rawChart as $row) {
@@ -318,22 +305,21 @@ class SatVaultV2Controller extends Controller
 
                 if (!isset($grouped[$ym])) {
                     $grouped[$ym] = [
-                        'ym' => $ym,
-                        'emitidos' => 0,
+                        'ym'        => $ym,
+                        'emitidos'  => 0,
                         'recibidos' => 0,
                     ];
                 }
 
-                if ($row->direction === 'emitidos') {
+                if ((string) $row->direction === 'emitidos') {
                     $grouped[$ym]['emitidos'] = (int) $row->total;
                 }
 
-                if ($row->direction === 'recibidos') {
+                if ((string) $row->direction === 'recibidos') {
                     $grouped[$ym]['recibidos'] = (int) $row->total;
                 }
             }
 
-            // Ordenar y asignar
             $metadataSummary['meses'] = array_values($grouped);
 
             $statusBase = SatUserMetadataItem::query()
@@ -372,8 +358,7 @@ class SatVaultV2Controller extends Controller
                 ->pluck('estatus_label')
                 ->values();
 
-            $statusSummaryBase = clone $baseItemsQuery;
-            $metadataSummary['estatuses'] = $statusSummaryBase
+            $metadataSummary['estatuses'] = (clone $baseItemsQuery)
                 ->selectRaw("COALESCE(NULLIF(TRIM(estatus), ''), 'Sin estatus') as label, COUNT(*) as total")
                 ->groupBy(DB::raw("COALESCE(NULLIF(TRIM(estatus), ''), 'Sin estatus')"))
                 ->orderByDesc('total')
@@ -2834,96 +2819,276 @@ class SatVaultV2Controller extends Controller
     }
 
     private function processStoredXmlUpload(
-        SatUserXmlUpload $xmlUpload,
-        string $storedPath,
-        string $extension,
-        string $cuentaId,
-        string $usuarioId,
-        string $rfcOwner,
-        string $xmlDirection,
-        ?SatUserMetadataUpload $linkedMetadata = null
-    ): array {
-        $processed = 0;
-        $duplicatesByUuid = 0;
-        $duplicatesByHash = 0;
-        $invalidFiles = 0;
-        $seenInCurrentBatch = [];
+    SatUserXmlUpload $xmlUpload,
+    string $storedPath,
+    string $extension,
+    string $cuentaId,
+    string $usuarioId,
+    string $rfcOwner,
+    string $xmlDirection,
+    ?SatUserMetadataUpload $linkedMetadata = null
+        ): array {
+            $candidates = [];
+            $invalidFiles = 0;
 
-        if ($extension === 'xml') {
-            $content = Storage::disk(self::DISK)->get($storedPath);
-            $result = $this->processSingleXmlContent(
-                $content,
-                $storedPath,
-                null,
-                $xmlUpload,
-                $cuentaId,
-                $usuarioId,
-                $rfcOwner,
-                $xmlDirection,
-                $linkedMetadata,
-                $seenInCurrentBatch
-            );
+            if ($extension === 'xml') {
+                $content = Storage::disk(self::DISK)->get($storedPath);
 
-            $processed         += $result['inserted'];
-            $duplicatesByUuid  += $result['duplicate_uuid'];
-            $duplicatesByHash  += $result['duplicate_hash'];
-            $invalidFiles      += $result['invalid'];
-        } elseif ($extension === 'zip') {
-            $absolutePath = Storage::disk(self::DISK)->path($storedPath);
-            $zip = new ZipArchive();
-
-            if ($zip->open($absolutePath) !== true) {
-                throw new \RuntimeException('No se pudo abrir el ZIP de XML.');
-            }
-
-            try {
-                for ($i = 0; $i < $zip->numFiles; $i++) {
-                    $entryName = (string) $zip->getNameIndex($i);
-
-                    if ($entryName === '' || str_ends_with($entryName, '/')) {
-                        continue;
-                    }
-
-                    if (strtolower(pathinfo($entryName, PATHINFO_EXTENSION)) !== 'xml') {
-                        continue;
-                    }
-
-                    $content = $zip->getFromIndex($i);
-                    if (!is_string($content) || trim($content) === '') {
-                        $invalidFiles++;
-                        continue;
-                    }
-
-                    $result = $this->processSingleXmlContent(
-                        $content,
-                        $storedPath,
-                        $entryName,
-                        $xmlUpload,
-                        $cuentaId,
-                        $usuarioId,
-                        $rfcOwner,
-                        $xmlDirection,
-                        $linkedMetadata,
-                        $seenInCurrentBatch
-                    );
-
-                    $processed         += $result['inserted'];
-                    $duplicatesByUuid  += $result['duplicate_uuid'];
-                    $duplicatesByHash  += $result['duplicate_hash'];
-                    $invalidFiles      += $result['invalid'];
+                if (!is_string($content) || trim($content) === '') {
+                    return [
+                        'processed'       => 0,
+                        'duplicates_uuid' => 0,
+                        'duplicates_hash' => 0,
+                        'invalid'         => 1,
+                    ];
                 }
-            } finally {
-                $zip->close();
-            }
-        }
 
-        return [
-            'processed'         => $processed,
-            'duplicates_uuid'   => $duplicatesByUuid,
-            'duplicates_hash'   => $duplicatesByHash,
-            'invalid'           => $invalidFiles,
-        ];
-    }
+                $parsed = $this->parseXmlContent($content);
+
+                if (!$parsed || trim((string) ($parsed['uuid'] ?? '')) === '') {
+                    return [
+                        'processed'       => 0,
+                        'duplicates_uuid' => 0,
+                        'duplicates_hash' => 0,
+                        'invalid'         => 1,
+                    ];
+                }
+
+                $candidates[] = [
+                    'uuid'       => strtoupper(trim((string) $parsed['uuid'])),
+                    'xml_hash'   => $this->generateXmlHash($content),
+                    'parsed'     => $parsed,
+                    'zip_entry'  => null,
+                    'storedPath' => $storedPath,
+                ];
+            } elseif ($extension === 'zip') {
+                $absolutePath = Storage::disk(self::DISK)->path($storedPath);
+                $zip = new ZipArchive();
+
+                if ($zip->open($absolutePath) !== true) {
+                    throw new \RuntimeException('No se pudo abrir el ZIP de XML.');
+                }
+
+                try {
+                    for ($i = 0; $i < $zip->numFiles; $i++) {
+                        $entryName = (string) $zip->getNameIndex($i);
+
+                        if ($entryName === '' || str_ends_with($entryName, '/')) {
+                            continue;
+                        }
+
+                        if (strtolower(pathinfo($entryName, PATHINFO_EXTENSION)) !== 'xml') {
+                            continue;
+                        }
+
+                        $content = $zip->getFromIndex($i);
+
+                        if (!is_string($content) || trim($content) === '') {
+                            $invalidFiles++;
+                            continue;
+                        }
+
+                        $parsed = $this->parseXmlContent($content);
+
+                        if (!$parsed || trim((string) ($parsed['uuid'] ?? '')) === '') {
+                            $invalidFiles++;
+                            continue;
+                        }
+
+                        $candidates[] = [
+                            'uuid'       => strtoupper(trim((string) $parsed['uuid'])),
+                            'xml_hash'   => $this->generateXmlHash($content),
+                            'parsed'     => $parsed,
+                            'zip_entry'  => $entryName,
+                            'storedPath' => $storedPath,
+                        ];
+                    }
+                } finally {
+                    $zip->close();
+                }
+            }
+
+            if (empty($candidates)) {
+                return [
+                    'processed'       => 0,
+                    'duplicates_uuid' => 0,
+                    'duplicates_hash' => 0,
+                    'invalid'         => $invalidFiles,
+                ];
+            }
+
+            $seenUuid = [];
+            $seenHash = [];
+            $dedupedCandidates = [];
+            $duplicatesByUuid = 0;
+            $duplicatesByHash = 0;
+
+            foreach ($candidates as $candidate) {
+                $uuid = (string) $candidate['uuid'];
+                $hash = (string) $candidate['xml_hash'];
+
+                if ($uuid === '') {
+                    $invalidFiles++;
+                    continue;
+                }
+
+                if (isset($seenUuid[$uuid])) {
+                    $duplicatesByUuid++;
+                    continue;
+                }
+
+                if ($hash !== '' && isset($seenHash[$hash])) {
+                    $duplicatesByHash++;
+                    continue;
+                }
+
+                $seenUuid[$uuid] = true;
+
+                if ($hash !== '') {
+                    $seenHash[$hash] = true;
+                }
+
+                $dedupedCandidates[] = $candidate;
+            }
+
+            if (empty($dedupedCandidates)) {
+                return [
+                    'processed'       => 0,
+                    'duplicates_uuid' => $duplicatesByUuid,
+                    'duplicates_hash' => $duplicatesByHash,
+                    'invalid'         => $invalidFiles,
+                ];
+            }
+
+            $uuids = array_values(array_unique(array_map(
+                fn ($row) => (string) $row['uuid'],
+                $dedupedCandidates
+            )));
+
+            $hashes = array_values(array_unique(array_filter(array_map(
+                fn ($row) => (string) $row['xml_hash'],
+                $dedupedCandidates
+            ))));
+
+            $existingUuidMap = [];
+            if (!empty($uuids)) {
+                $existingUuids = SatUserCfdi::query()
+                    ->where('cuenta_id', $cuentaId)
+                    ->where('usuario_id', $usuarioId)
+                    ->where('rfc_owner', $rfcOwner)
+                    ->whereIn('uuid', $uuids)
+                    ->pluck('uuid')
+                    ->map(fn ($value) => strtoupper(trim((string) $value)))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                $existingUuidMap = array_fill_keys($existingUuids, true);
+            }
+
+            $existingHashMap = [];
+            if (!empty($hashes)) {
+                $existingHashes = SatUserCfdi::query()
+                    ->where('cuenta_id', $cuentaId)
+                    ->where('usuario_id', $usuarioId)
+                    ->where('rfc_owner', $rfcOwner)
+                    ->whereIn('xml_hash', $hashes)
+                    ->pluck('xml_hash')
+                    ->map(fn ($value) => trim((string) $value))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                $existingHashMap = array_fill_keys($existingHashes, true);
+            }
+
+            $metadataMap = [];
+            if (!empty($uuids)) {
+                $metadataRows = SatUserMetadataItem::query()
+                    ->where('cuenta_id', $cuentaId)
+                    ->where('usuario_id', $usuarioId)
+                    ->where('rfc_owner', $rfcOwner)
+                    ->whereIn('uuid', $uuids)
+                    ->get(['id', 'uuid']);
+
+                foreach ($metadataRows as $row) {
+                    $metadataMap[strtoupper(trim((string) $row->uuid))] = (int) $row->id;
+                }
+            }
+
+            $rowsToInsert = [];
+            $now = now();
+
+            foreach ($dedupedCandidates as $candidate) {
+                $uuid = (string) $candidate['uuid'];
+                $hash = (string) $candidate['xml_hash'];
+
+                if (isset($existingUuidMap[$uuid])) {
+                    $duplicatesByUuid++;
+                    continue;
+                }
+
+                if ($hash !== '' && isset($existingHashMap[$hash])) {
+                    $duplicatesByHash++;
+                    continue;
+                }
+
+                $parsed = (array) $candidate['parsed'];
+
+                $rowsToInsert[] = [
+                    'xml_upload_id'     => $xmlUpload->id,
+                    'cuenta_id'         => $cuentaId,
+                    'usuario_id'        => $usuarioId,
+                    'rfc_owner'         => $rfcOwner,
+                    'uuid'              => $uuid,
+                    'version_cfdi'      => $this->nullIfEmpty($parsed['version_cfdi'] ?? null),
+                    'rfc_emisor'        => $this->nullIfEmpty($parsed['rfc_emisor'] ?? null),
+                    'nombre_emisor'     => $this->nullIfEmpty($parsed['nombre_emisor'] ?? null),
+                    'rfc_receptor'      => $this->nullIfEmpty($parsed['rfc_receptor'] ?? null),
+                    'nombre_receptor'   => $this->nullIfEmpty($parsed['nombre_receptor'] ?? null),
+                    'fecha_emision'     => $this->parseDateValue($parsed['fecha_emision'] ?? null),
+                    'subtotal'          => $this->parseMoneyValue($parsed['subtotal'] ?? 0),
+                    'descuento'         => $this->parseMoneyValue($parsed['descuento'] ?? 0),
+                    'iva'               => $this->parseMoneyValue($parsed['iva'] ?? 0),
+                    'total'             => $this->parseMoneyValue($parsed['total'] ?? 0),
+                    'tipo_comprobante'  => $this->nullIfEmpty($parsed['tipo_comprobante'] ?? null),
+                    'moneda'            => $this->nullIfEmpty($parsed['moneda'] ?? null),
+                    'metodo_pago'       => $this->nullIfEmpty($parsed['metodo_pago'] ?? null),
+                    'forma_pago'        => $this->nullIfEmpty($parsed['forma_pago'] ?? null),
+                    'direction'         => $xmlDirection,
+                    'xml_path'          => $candidate['storedPath'],
+                    'xml_hash'          => $hash,
+                    'meta'              => json_encode([
+                        'zip_entry'                     => $candidate['zip_entry'],
+                        'linked_metadata_upload_id'     => $linkedMetadata?->id,
+                        'linked_metadata_original_name' => $linkedMetadata?->original_name,
+                        'matched_metadata_item_id'      => $metadataMap[$uuid] ?? null,
+                        'matched_by'                    => isset($metadataMap[$uuid]) ? 'uuid' : null,
+                        'source'                        => 'vault_v2_xml_upload',
+                        'parsed_impuestos'              => (array) data_get($parsed, 'meta.impuestos', []),
+                        'parsed_traslados'              => (array) data_get($parsed, 'meta.traslados', []),
+                        'parsed_retenciones'            => (array) data_get($parsed, 'meta.retenciones', []),
+                    ], JSON_UNESCAPED_UNICODE),
+                    'created_at'       => $now,
+                    'updated_at'       => $now,
+                ];
+            }
+
+            if (!empty($rowsToInsert)) {
+                DB::connection('mysql_clientes')->transaction(function () use ($rowsToInsert) {
+                    foreach (array_chunk($rowsToInsert, 300) as $chunk) {
+                        SatUserCfdi::query()->insert($chunk);
+                    }
+                });
+            }
+
+            return [
+                'processed'       => count($rowsToInsert),
+                'duplicates_uuid' => $duplicatesByUuid,
+                'duplicates_hash' => $duplicatesByHash,
+                'invalid'         => $invalidFiles,
+            ];
+        }
 
     private function processSingleXmlContent(
         string $content,
