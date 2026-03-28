@@ -1320,8 +1320,8 @@ class VerificationController extends Controller
 
                 Mail::send(
                     [
-                        'html' => 'emails.cliente.welcome_active',
-                        'text' => 'emails.cliente.welcome_active_text',
+                        'html' => 'emails.cliente.welcome_account_activated',
+                        'text' => 'emails.cliente.welcome_account_activated_text',
                     ],
                     $viewData,
                     fn ($m) => $m->to($email)->subject('Tu cuenta ya está activa · Pactopia360')
