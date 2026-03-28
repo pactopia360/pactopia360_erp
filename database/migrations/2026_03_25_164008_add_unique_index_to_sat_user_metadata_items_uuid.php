@@ -7,7 +7,8 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    private string $connection = 'mysql_clientes';
+    protected $connection = 'mysql_clientes';
+
     private string $table = 'sat_user_metadata_items';
     private string $index = 'sat_meta_unique_owner_direction_uuid';
 
