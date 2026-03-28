@@ -4517,215 +4517,58 @@ final class AccountBillingController extends Controller
      * - valida disk/path y existencia física
      * - evita 500 y responde controlado
      */
-    public function downloadInvoiceZip(Request $r, string $period)
+    public function downloadInvoiceZip(\Illuminate\Http\Request $request, string $period)
     {
-        if (!$this->isValidPeriod($period)) {
-            abort(422, 'Periodo inválido.');
-        }
-
-        [$adminAccountIdRaw, $src] = $this->resolveAdminAccountId($r);
-        $adminAccountId = is_numeric($adminAccountIdRaw) ? (int) $adminAccountIdRaw : 0;
-
-        if ($adminAccountId <= 0) {
-            return back()->with('error', 'No se pudo resolver la cuenta para descargar la factura.');
-        }
-
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
-
-        $table = null;
-        if (Schema::connection($adm)->hasTable('billing_invoice_requests')) {
-            $table = 'billing_invoice_requests';
-        } elseif (Schema::connection($adm)->hasTable('invoice_requests')) {
-            $table = 'invoice_requests';
-        }
-
-        if (!$table) {
-            Log::warning('[FACTURAS][ZIP] missing invoice request table', [
-                'account_id' => $adminAccountId,
-                'period'     => $period,
-                'src'        => $src,
-                'conn'       => $adm,
-            ]);
-
-            return back()->with('error', 'No está habilitado el módulo de facturas.');
-        }
-
-        $fk = $this->adminFkColumn($table);
-        if (!$fk) {
-            Log::warning('[FACTURAS][ZIP] missing fk column', [
-                'table'      => $table,
-                'account_id' => $adminAccountId,
-                'period'     => $period,
-            ]);
-
-            return back()->with('error', 'No se pudo identificar la cuenta de la factura.');
-        }
-
-        $cols = Schema::connection($adm)->getColumnListing($table);
-        $lc   = array_map('strtolower', $cols);
-        $has  = fn (string $c) => in_array(strtolower($c), $lc, true);
-
-        $periodCol = null;
-        foreach (['period', 'periodo'] as $cand) {
-            if ($has($cand)) {
-                $periodCol = $cand;
-                break;
-            }
-        }
-
-        if (!$periodCol) {
-            Log::warning('[FACTURAS][ZIP] missing period column', [
-                'table'      => $table,
-                'account_id' => $adminAccountId,
-                'period'     => $period,
-            ]);
-
-            return back()->with('error', 'No se pudo identificar el periodo de la factura.');
-        }
-
-        $zipPathCol = null;
-        foreach (['zip_path', 'file_path', 'factura_path', 'path', 'ruta_zip', 'zip'] as $cand) {
-            if ($has($cand)) {
-                $zipPathCol = $cand;
-                break;
-            }
-        }
-
-        if (!$zipPathCol) {
-            Log::warning('[FACTURAS][ZIP] missing zip path column', [
-                'table'      => $table,
-                'account_id' => $adminAccountId,
-                'period'     => $period,
-            ]);
-
-            return back()->with('error', 'Esta factura aún no tiene archivo ZIP disponible.');
-        }
-
-        $diskCol = null;
-        foreach (['disk', 'zip_disk', 'storage_disk'] as $cand) {
-            if ($has($cand)) {
-                $diskCol = $cand;
-                break;
-            }
-        }
-
-        $statusCol = $has('status') ? 'status' : null;
-        $notesCol  = $has('notes') ? 'notes' : null;
-        $idCol     = $has('id') ? 'id' : null;
-        $updatedCol = $has('updated_at') ? 'updated_at' : null;
-        $createdCol = $has('created_at') ? 'created_at' : null;
-
-        $select = [$periodCol, $zipPathCol];
-        if ($diskCol)   $select[] = $diskCol;
-        if ($statusCol) $select[] = $statusCol;
-        if ($notesCol)  $select[] = $notesCol;
-        if ($idCol)     $select[] = $idCol;
-
-        $orderCol = $idCol ?: ($updatedCol ?: ($createdCol ?: $periodCol));
-
         try {
-            $row = DB::connection($adm)->table($table)
-                ->where($fk, $adminAccountId)
-                ->where($periodCol, $period)
-                ->orderByDesc($orderCol)
-                ->first($select);
+
+            $accountId = session('account_id') ?? session('client.account_id');
+
+            if (!$accountId) {
+                abort(403, 'Cuenta no válida');
+            }
+
+            $conn = config('p360.conn.admin') ?: 'mysql_admin';
+
+            $row = \DB::connection($conn)
+                ->table('billing_invoice_requests')
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->orderByDesc('id')
+                ->first();
 
             if (!$row) {
-                Log::warning('[FACTURAS][ZIP] invoice request not found', [
-                    'table'      => $table,
-                    'account_id' => $adminAccountId,
-                    'period'     => $period,
-                    'src'        => $src,
-                ]);
-
-                return back()->with('error', 'No se encontró una factura generada para ese periodo.');
+                return back()->with('error', 'No se encontró la factura.');
             }
 
-            $rawPath = trim((string) ($row->{$zipPathCol} ?? ''));
-            $disk    = $diskCol ? trim((string) ($row->{$diskCol} ?? '')) : 'local';
-            $disk    = $disk !== '' ? $disk : 'local';
-            $path    = ltrim($rawPath, '/');
+            $disk = $row->disk ?? 'local';
+            $path = $row->zip_path ?? null;
 
-            Log::info('[FACTURAS][ZIP] download attempt', [
-                'table'              => $table,
-                'mode'               => $table === 'billing_invoice_requests' ? 'hub' : 'legacy',
-                'invoice_request_id' => $idCol ? ($row->{$idCol} ?? null) : null,
-                'account_id'         => $adminAccountId,
-                'src'                => $src,
-                'disk'               => $disk,
-                'col'                => $zipPathCol,
-                'raw'                => $rawPath,
-                'path'               => $path,
-                'period'             => $period,
-                'status'             => $statusCol ? ($row->{$statusCol} ?? null) : null,
-            ]);
-
-            if ($path === '') {
-                return back()->with('error', 'La factura aún no tiene archivo ZIP disponible.');
+            if (!$path) {
+                return back()->with('error', 'La factura aún no tiene archivo.');
             }
 
-            $exists = false;
+            if (!\Storage::disk($disk)->exists($path)) {
 
-            try {
-                $exists = Storage::disk($disk)->exists($path);
-            } catch (\Throwable $e) {
-                Log::warning('[FACTURAS][ZIP] exists check failed on disk', [
-                    'disk'  => $disk,
-                    'path'  => $path,
-                    'err'   => $e->getMessage(),
-                    'table' => $table,
-                ]);
-            }
-
-            if (!$exists) {
-                $fallbackDisk = null;
-
-                foreach (['local', 'private', 'public'] as $tryDisk) {
-                    try {
-                        if (Storage::disk($tryDisk)->exists($path)) {
-                            $exists = true;
-                            $fallbackDisk = $tryDisk;
-                            break;
-                        }
-                    } catch (\Throwable $e) {
-                        // ignore
-                    }
-                }
-
-                if ($fallbackDisk) {
-                    $disk = $fallbackDisk;
-                }
-            }
-
-            if (!$exists) {
-                Log::error('[FACTURAS][ZIP] file missing', [
-                    'table'      => $table,
-                    'account_id' => $adminAccountId,
+                \Log::error('[FACTURA ZIP MISSING]', [
+                    'account_id' => $accountId,
                     'period'     => $period,
                     'disk'       => $disk,
                     'path'       => $path,
                 ]);
 
-                return back()->with('error', 'El ZIP de esta factura no se encontró en almacenamiento.');
+                return back()->with('error', 'El archivo no existe en el servidor.');
             }
 
-            $filename = basename($path);
-            if ($filename === '' || $filename === '.' || $filename === '..') {
-                $filename = 'factura_' . $period . '.zip';
-            }
-
-            return Storage::disk($disk)->download($path, $filename);
+            return \Storage::disk($disk)->download($path, basename($path));
 
         } catch (\Throwable $e) {
-            Log::error('[FACTURAS][ZIP] download failed', [
-                'table'      => $table,
-                'account_id' => $adminAccountId,
-                'period'     => $period,
-                'src'        => $src,
-                'err'        => $e->getMessage(),
+
+            \Log::error('[FACTURA DOWNLOAD ERROR]', [
+                'period' => $period,
+                'error'  => $e->getMessage(),
             ]);
 
-            return back()->with('error', 'No se pudo descargar la factura. Intenta nuevamente.');
+            return back()->with('error', 'Error al descargar la factura.');
         }
     }
 
