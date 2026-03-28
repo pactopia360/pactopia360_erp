@@ -510,6 +510,10 @@ final class SatOpsDownloadsController extends Controller
 
     private function buildUserCfdiQuery(array $filters)
     {
+        if (!$this->clientesTableExists('sat_user_cfdis')) {
+            return SatUserCfdi::query()->whereRaw('1 = 0');
+        }
+
         $qb = SatUserCfdi::query();
 
         if ($filters['q'] !== '') {
@@ -705,8 +709,36 @@ final class SatOpsDownloadsController extends Controller
         return $mode === 'with_files' ? 'with_files' : 'index_only';
     }
 
+    private function clientesTableExists(string $table): bool
+    {
+        try {
+            return Schema::connection(self::CONN)->hasTable($table);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function emptyPaginator(int $perPage = 50, string $pageName = 'page', int $page = 1): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator(
+            collect(),
+            0,
+            $perPage,
+            $page,
+            [
+                'path' => request()->url(),
+                'query' => request()->query(),
+                'pageName' => $pageName,
+            ]
+        );
+    }
+
     private function queryMetadata(string $search): Collection
     {
+        if (!$this->clientesTableExists('sat_user_metadata_uploads')) {
+            return collect();
+        }
+
         return SatUserMetadataUpload::query()
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
@@ -722,6 +754,13 @@ final class SatOpsDownloadsController extends Controller
 
     private function queryXml(string $search): Collection
     {
+        if (
+            !$this->clientesTableExists('sat_user_xml_uploads') ||
+            !$this->clientesTableExists('sat_user_cfdis')
+        ) {
+            return collect();
+        }
+
         return SatUserXmlUpload::query()
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
@@ -737,6 +776,13 @@ final class SatOpsDownloadsController extends Controller
 
     private function queryReport(string $search): Collection
     {
+        if (
+            !$this->clientesTableExists('sat_user_report_uploads') ||
+            !$this->clientesTableExists('sat_user_report_items')
+        ) {
+            return collect();
+        }
+
         return SatUserReportUpload::query()
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
@@ -1256,56 +1302,68 @@ private function resolveMetadataRecordFilters(Request $request): array
     ];
 }
 
-private function buildMetadataRecordItems(array $filters): LengthAwarePaginator
-{
-    $qb = SatUserMetadataItem::query();
+    private function buildMetadataRecordItems(array $filters): LengthAwarePaginator
+    {
+        if (
+            !$this->clientesTableExists('sat_user_metadata_items') ||
+            !$this->clientesTableExists('sat_user_metadata_uploads')
+        ) {
+            return $this->emptyPaginator(
+                $filters['per_page'],
+                'mr_page',
+                $filters['page']
+            );
+        }
 
-    if ($filters['q'] !== '') {
-        $q = $filters['q'];
+        $qb = SatUserMetadataItem::query();
 
-        $qb->where(function ($sub) use ($q) {
-            $sub->where('uuid', 'like', '%' . $q . '%')
-                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
-                ->orWhere('rfc_emisor', 'like', '%' . $q . '%')
-                ->orWhere('nombre_emisor', 'like', '%' . $q . '%')
-                ->orWhere('rfc_receptor', 'like', '%' . $q . '%')
-                ->orWhere('nombre_receptor', 'like', '%' . $q . '%')
-                ->orWhere('estatus', 'like', '%' . $q . '%');
-        });
+        if ($filters['q'] !== '') {
+            $q = $filters['q'];
+
+            $qb->where(function ($sub) use ($q) {
+                $sub->where('uuid', 'like', '%' . $q . '%')
+                    ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                    ->orWhere('rfc_emisor', 'like', '%' . $q . '%')
+                    ->orWhere('nombre_emisor', 'like', '%' . $q . '%')
+                    ->orWhere('rfc_receptor', 'like', '%' . $q . '%')
+                    ->orWhere('nombre_receptor', 'like', '%' . $q . '%')
+                    ->orWhere('estatus', 'like', '%' . $q . '%');
+            });
+        }
+
+        if ($filters['rfc'] !== '') {
+            $rfc = $filters['rfc'];
+
+            $qb->where(function ($sub) use ($rfc) {
+                $sub->where('rfc_owner', $rfc)
+                    ->orWhere('rfc_emisor', $rfc)
+                    ->orWhere('rfc_receptor', $rfc);
+            });
+        }
+
+        if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+            $qb->where('direction', $filters['direction']);
+        }
+
+        if ($filters['desde'] !== '') {
+            $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+        }
+
+        if ($filters['hasta'] !== '') {
+            $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+        }
+
+        return $qb
+            ->orderByDesc('fecha_emision')
+            ->orderByDesc('id')
+            ->paginate(
+                perPage: $filters['per_page'],
+                columns: ['*'],
+                pageName: 'mr_page',
+                page: $filters['page']
+            );
     }
 
-    if ($filters['rfc'] !== '') {
-        $rfc = $filters['rfc'];
-
-        $qb->where(function ($sub) use ($rfc) {
-            $sub->where('rfc_owner', $rfc)
-                ->orWhere('rfc_emisor', $rfc)
-                ->orWhere('rfc_receptor', $rfc);
-        });
-    }
-
-    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
-        $qb->where('direction', $filters['direction']);
-    }
-
-    if ($filters['desde'] !== '') {
-        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
-    }
-
-    if ($filters['hasta'] !== '') {
-        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
-    }
-
-    return $qb
-        ->orderByDesc('fecha_emision')
-        ->orderByDesc('id')
-        ->paginate(
-            perPage: $filters['per_page'],
-            columns: ['*'],
-            pageName: 'mr_page',
-            page: $filters['page']
-        );
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -1326,57 +1384,69 @@ private function resolveReportRecordFilters(Request $request): array
     ];
 }
 
-private function buildReportRecordItems(array $filters): LengthAwarePaginator
-{
-    $qb = SatUserReportItem::query();
+    private function buildReportRecordItems(array $filters): LengthAwarePaginator
+    {
+        if (
+            !$this->clientesTableExists('sat_user_report_items') ||
+            !$this->clientesTableExists('sat_user_report_uploads')
+        ) {
+            return $this->emptyPaginator(
+                $filters['per_page'],
+                'rr_page',
+                $filters['page']
+            );
+        }
 
-    if ($filters['q'] !== '') {
-        $q = $filters['q'];
+        $qb = SatUserReportItem::query();
 
-        $qb->where(function ($sub) use ($q) {
-            $sub->where('uuid', 'like', '%' . $q . '%')
-                ->orWhere('rfc_owner', 'like', '%' . $q . '%')
-                ->orWhere('emisor_rfc', 'like', '%' . $q . '%')
-                ->orWhere('emisor_nombre', 'like', '%' . $q . '%')
-                ->orWhere('receptor_rfc', 'like', '%' . $q . '%')
-                ->orWhere('receptor_nombre', 'like', '%' . $q . '%')
-                ->orWhere('report_type', 'like', '%' . $q . '%');
-        });
+        if ($filters['q'] !== '') {
+            $q = $filters['q'];
+
+            $qb->where(function ($sub) use ($q) {
+                $sub->where('uuid', 'like', '%' . $q . '%')
+                    ->orWhere('rfc_owner', 'like', '%' . $q . '%')
+                    ->orWhere('emisor_rfc', 'like', '%' . $q . '%')
+                    ->orWhere('emisor_nombre', 'like', '%' . $q . '%')
+                    ->orWhere('receptor_rfc', 'like', '%' . $q . '%')
+                    ->orWhere('receptor_nombre', 'like', '%' . $q . '%')
+                    ->orWhere('report_type', 'like', '%' . $q . '%');
+            });
+        }
+
+        if ($filters['rfc'] !== '') {
+            $rfc = $filters['rfc'];
+
+            $qb->where(function ($sub) use ($rfc) {
+                $sub->where('rfc_owner', $rfc)
+                    ->orWhere('emisor_rfc', $rfc)
+                    ->orWhere('receptor_rfc', $rfc);
+            });
+        }
+
+        if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
+            $qb->where('direction', $filters['direction']);
+        }
+
+        if ($filters['desde'] !== '') {
+            $qb->whereDate('fecha_emision', '>=', $filters['desde']);
+        }
+
+        if ($filters['hasta'] !== '') {
+            $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
+        }
+
+        return $qb
+            ->orderByDesc('fecha_emision')
+            ->orderByDesc('id')
+            ->paginate(
+                perPage: $filters['per_page'],
+                columns: ['*'],
+                pageName: 'rr_page',
+                page: $filters['page']
+            );
     }
 
-    if ($filters['rfc'] !== '') {
-        $rfc = $filters['rfc'];
-
-        $qb->where(function ($sub) use ($rfc) {
-            $sub->where('rfc_owner', $rfc)
-                ->orWhere('emisor_rfc', $rfc)
-                ->orWhere('receptor_rfc', $rfc);
-        });
-    }
-
-    if (in_array($filters['direction'], ['emitidos', 'recibidos'], true)) {
-        $qb->where('direction', $filters['direction']);
-    }
-
-    if ($filters['desde'] !== '') {
-        $qb->whereDate('fecha_emision', '>=', $filters['desde']);
-    }
-
-    if ($filters['hasta'] !== '') {
-        $qb->whereDate('fecha_emision', '<=', $filters['hasta']);
-    }
-
-    return $qb
-        ->orderByDesc('fecha_emision')
-        ->orderByDesc('id')
-        ->paginate(
-            perPage: $filters['per_page'],
-            columns: ['*'],
-            pageName: 'rr_page',
-            page: $filters['page']
-        );
-}
-
+    
 /*
 |--------------------------------------------------------------------------
 | RESYNC CONTADORES
