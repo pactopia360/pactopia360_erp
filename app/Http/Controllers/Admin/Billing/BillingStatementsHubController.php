@@ -1234,7 +1234,7 @@ final class BillingStatementsHubController extends Controller
         // EXCLUIR CUENTAS ELIMINADAS / BORRADAS
         // =====================================================
         if ($has('deleted_at')) {
-            $qb->whereNull('accounts.deleted_at');
+            $qb->whereNull(DB::raw('accounts.deleted_at'));
         }
 
         foreach (['is_deleted', 'deleted', 'eliminado'] as $flagCol) {
@@ -1250,11 +1250,13 @@ final class BillingStatementsHubController extends Controller
 
         foreach (['status', 'account_status', 'estado_cuenta'] as $statusCol) {
             if ($has($statusCol)) {
-                $qb->where(function ($w) use ($statusCol) {
-                    $w->whereNull("accounts.$statusCol")
-                      ->orWhereRaw(
-                          "LOWER(TRIM(COALESCE(accounts.$statusCol,''))) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')"
-                      );
+
+                $col = "accounts.$statusCol";
+
+                $qb->where(function ($w) use ($col) {
+                    $w->whereNull($col)
+                    ->orWhere($col, '')
+                    ->orWhereRaw("LOWER(TRIM($col)) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')");
                 });
             }
         }
