@@ -217,7 +217,7 @@ final class BillingStatementsHubController extends Controller
                 // El mirror refleja EdoCta, pero payments viene aparte en este HUB.
                 // Para UI/negocio consolidamos ambos.
                 $abonoMirror = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
-                $abonoTotal  = round(max($abonoMirror, $payPaid, $abonoMirror + $payPaid), 2);
+                $abonoTotal  = round(max($abonoMirror, $payPaid), 2);
 
                 $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
                 $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
@@ -315,40 +315,53 @@ final class BillingStatementsHubController extends Controller
 
                         // Overrides:
             // En rango NO forzamos status_override al resumen agregado.
-            // En periodo único solo aplicamos override si NO contradice la realidad financiera.
-                        if ($ov) {
+            // En periodo único SÍ respetamos el override manual.
+            if ($ov) {
                 $overrideStatus = !empty($ov['status_override'])
                     ? $this->normalizeStatus((string) $ov['status_override'])
                     : null;
 
                 if (!$rangeActive && $overrideStatus) {
-                    $canApplyOverride = true;
-
-                    $saldoPeriodo = $this->normalizeMoney($row->saldo_current ?? 0.0);
-                    $saldoTotal   = $this->normalizeMoney($row->total_due ?? 0.0);
                     $cargoShown   = $this->normalizeMoney($row->total_shown ?? 0.0);
                     $abonoShown   = $this->normalizeMoney($row->abono ?? 0.0);
+                    $prevBalance  = $this->normalizeMoney($row->prev_balance ?? 0.0);
+                    $saldoPeriodo = $this->normalizeMoney($row->saldo_current ?? 0.0);
 
-                    if ($overrideStatus === 'pagado' && $saldoTotal > 0.00001) {
-                        $canApplyOverride = false;
-                    }
+                    if ($overrideStatus === 'pagado') {
+                        $row->abono         = round(max($abonoShown, $cargoShown), 2);
+                        $row->saldo_current = 0.0;
+                        $row->saldo_shown   = 0.0;
+                        $row->saldo         = 0.0;
+                        $row->total_due     = round(max(0.0, $prevBalance), 2);
 
-                    if ($overrideStatus === 'sin_mov' && ($cargoShown > 0.00001 || $abonoShown > 0.00001 || $saldoTotal > 0.00001)) {
-                        $canApplyOverride = false;
-                    }
+                        $row->status_override = 'pagado';
+                        $row->status_pago     = $prevBalance > 0.00001 ? 'vencido' : 'pagado';
+                        $row->status_auto     = $row->status_pago;
+                    } elseif ($overrideStatus === 'sin_mov') {
+                        $row->status_override = 'sin_mov';
+                        $row->status_pago     = 'sin_mov';
+                        $row->status_auto     = 'sin_mov';
+                    } elseif ($overrideStatus === 'parcial') {
+                        if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
+                            $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
+                        }
 
-                    if ($overrideStatus === 'vencido' && $saldoTotal <= 0.00001) {
-                        $canApplyOverride = false;
-                    }
+                        $row->saldo_current = round(max(0.0, $cargoShown - (float) $row->abono), 2);
+                        $row->saldo_shown   = $row->saldo_current;
+                        $row->saldo         = $row->saldo_current;
+                        $row->total_due     = round(max(0.0, $row->saldo_current + $prevBalance), 2);
 
-                    if ($overrideStatus === 'parcial' && !($abonoShown > 0.00001 && $saldoPeriodo > 0.00001)) {
-                        $canApplyOverride = false;
-                    }
-
-                    if ($canApplyOverride) {
-                        $row->status_override = $overrideStatus;
-                        $row->status_pago     = $overrideStatus;
-                        $row->status_auto     = $overrideStatus;
+                        $row->status_override = 'parcial';
+                        $row->status_pago     = 'parcial';
+                        $row->status_auto     = 'parcial';
+                    } elseif ($overrideStatus === 'vencido') {
+                        $row->status_override = 'vencido';
+                        $row->status_pago     = 'vencido';
+                        $row->status_auto     = 'vencido';
+                    } else {
+                        $row->status_override = 'pendiente';
+                        $row->status_pago     = 'pendiente';
+                        $row->status_auto     = 'pendiente';
                     }
                 }
 
