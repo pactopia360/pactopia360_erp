@@ -11,14 +11,17 @@
   use Illuminate\Support\Facades\Route;
 
   // ===== Inputs =====
-  $q         = (string) request('q','');
-  $period    = (string) request('period', now()->format('Y-m'));
-  $accountId = (string) request('accountId','');
+  $q          = (string) request('q','');
+  $period     = (string) request('period', now()->format('Y-m'));
+  $periodFrom = (string) ($periodFrom ?? request('period_from',''));
+  $periodTo   = (string) ($periodTo ?? request('period_to',''));
+  $periodLabel= (string) ($periodLabel ?? ($period !== '' ? $period : now()->format('Y-m')));
+  $accountId  = (string) request('accountId','');
 
-  $status    = (string) request('status','all');
-  $status    = $status !== '' ? $status : 'all';
+  $status     = (string) request('status','all');
+  $status     = $status !== '' ? $status : 'all';
 
-  $perPage   = (int) request('perPage', $perPage ?? 25);
+  $perPage    = (int) request('perPage', $perPage ?? 25);
   if ($perPage <= 0) $perPage = 25;
 
   // ✅ filtro: solo seleccionadas (por checkbox)
@@ -89,11 +92,13 @@
 
   // chips
   $chipBase = [
-    'q'        => $q,
-    'period'   => $period,
-    'accountId'=> $accountId,
-    'status'   => $status,
-    'perPage'  => $perPage,
+    'q'          => $q,
+    'period'     => $period,
+    'period_from'=> $periodFrom,
+    'period_to'  => $periodTo,
+    'accountId'  => $accountId,
+    'status'     => $status,
+    'perPage'    => $perPage,
   ];
 
   if ($onlySelected && !empty($idsSelectedReq)) {
@@ -185,7 +190,7 @@
         <div>
           <div class="sx-title">Facturación · Estados de cuenta</div>
           <div class="sx-sub">
-            Periodo <span class="sx-mono">{{ $period }}</span>.
+            Periodo <span class="sx-mono">{{ $periodLabel }}</span>.
             Aquí ves totales, pagos y saldo; y puedes actualizar <b>estatus</b> y <b>forma de pago</b> por cuenta.
           </div>
         </div>
@@ -201,23 +206,33 @@
       </div>
 
       <div class="sx-filters">
-        <form method="GET" action="{{ $routeIndex }}" class="sx-grid">
-          <div class="sx-ctl">
+               <form method="GET" action="{{ $routeIndex }}" class="sx-filterbar">
+          <div class="sx-filterbar__group sx-filterbar__group--search">
             <label>Buscar</label>
-            <input class="sx-in" name="q" value="{{ $q }}" placeholder="ID, RFC, email, razón social, UUID...">
+            <input class="sx-in" name="q" value="{{ $q }}" placeholder="DNI, RFC, correo electrónico o razón social...">
           </div>
 
-          <div class="sx-ctl">
-            <label>Periodo</label>
-            <input class="sx-in" name="period" value="{{ $period }}" placeholder="YYYY-MM">
+          <div class="sx-filterbar__group sx-filterbar__group--period">
+            <label>Periodo único</label>
+            <input class="sx-in" name="period" value="{{ $period }}" placeholder="AAAA-MM">
           </div>
 
-          <div class="sx-ctl">
+          <div class="sx-filterbar__group sx-filterbar__group--period">
+            <label>Desde</label>
+            <input class="sx-in" name="period_from" value="{{ $periodFrom }}" placeholder="AAAA-MM">
+          </div>
+
+          <div class="sx-filterbar__group sx-filterbar__group--period">
+            <label>Hasta</label>
+            <input class="sx-in" name="period_to" value="{{ $periodTo }}" placeholder="AAAA-MM">
+          </div>
+
+          <div class="sx-filterbar__group sx-filterbar__group--account">
             <label>Cuenta (ID)</label>
             <input class="sx-in" name="accountId" value="{{ $accountId }}" placeholder="ID exacto">
           </div>
 
-          <div class="sx-ctl">
+          <div class="sx-filterbar__group sx-filterbar__group--status">
             <label>Estatus</label>
             <select class="sx-sel" name="status">
               <option value="all" {{ $status==='all'?'selected':'' }}>Todos</option>
@@ -227,7 +242,7 @@
             </select>
           </div>
 
-          <div class="sx-ctl">
+          <div class="sx-filterbar__group sx-filterbar__group--perpage">
             <label>Por página</label>
             <select class="sx-sel" name="perPage">
               @foreach([10,25,50,100,200] as $n)
@@ -236,8 +251,7 @@
             </select>
           </div>
 
-          <div class="sx-ctl">
-            <label>&nbsp;</label>
+          <div class="sx-filterbar__actions">
             <button class="sx-btn sx-btn-primary" type="submit">Filtrar</button>
           </div>
         </form>
@@ -317,7 +331,7 @@
                 </span>
               </div>
               <div class="sx-toolbarMeta">
-                <span class="sx-miniPill">Periodo <span class="sx-mono">{{ $period }}</span></span>
+                <span class="sx-miniPill">Periodo <span class="sx-mono">{{ $periodLabel }}</span></span>
                 <span class="sx-miniPill sx-muted">Selecciona cuentas y aplica acciones</span>
               </div>
             </div>
@@ -343,7 +357,7 @@
       <div id="sxBulkbar" class="sx-bulkbar">
         <div class="sx-bulk-left">
           <div class="sx-badge"><span id="sxBulkCount">0</span> seleccionadas</div>
-          <div class="sx-bulk-note">Periodo <span class="sx-mono">{{ $period }}</span></div>
+          <div class="sx-bulk-note">Periodo <span class="sx-mono">{{ $periodLabel }}</span></div>
         </div>
 
         <div class="sx-actionsRow">
@@ -353,7 +367,7 @@
 
         <form id="sxBulkForm" method="POST" action="{{ $hasBulkSend ? route('admin.billing.statements_hub.bulk_send') : '' }}" style="display:none;">
           @csrf
-          <input type="hidden" name="period" value="{{ $period }}">
+          <input type="hidden" name="period" value="{{ $periodTo !== '' ? $periodTo : ($periodFrom !== '' ? $periodFrom : $period) }}">
           <input type="hidden" name="account_ids" value="">
         </form>
       </div>
@@ -557,7 +571,8 @@
                           data-pay="{{ e($payMethod) }}"
                           data-show="{{ e($showUrl ?? '') }}"
                           data-pdf="{{ e($pdfUrl ?? '') }}"
-                          data-emailurl="{{ e($emailUrl ?? '') }}">
+                          data-emailurl="{{ e($emailUrl ?? '') }}"
+                          data-period="{{ e((string)($r->period ?? $period)) }}">
                     Gestionar
                   </button>
                 </td>
@@ -575,7 +590,7 @@
 
       <div style="padding:12px 18px; border-top:1px solid var(--sx-line); background: color-mix(in oklab, var(--sx-card) 96%, transparent); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div style="color:var(--sx-mut); font-weight:850; font-size:12px;">
-          Filtros: periodo <span class="sx-mono">{{ $period }}</span>,
+          Filtros: periodo <span class="sx-mono">{{ $periodLabel }}</span>,
           estatus <span class="sx-mono">{{ strtoupper($status) }}</span>,
           por página <span class="sx-mono">{{ $perPage }}</span>.
         </div>
@@ -1473,8 +1488,8 @@
       try{
         const tr = currentDrawer.rowEl;
         if(tr){
-          // Pill estatus (col 8)
-          const pill = tr.querySelector('td:nth-child(8) .sx-pill');
+          // Pill estatus (col 9)
+          const pill = tr.querySelector('td:nth-child(9) .sx-pill');
           if(pill){
             pill.innerHTML = '<span class="dot"></span>' + String(st).toUpperCase();
             pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');

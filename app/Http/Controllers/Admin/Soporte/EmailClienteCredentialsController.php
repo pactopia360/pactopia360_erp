@@ -27,9 +27,8 @@ final class EmailClienteCredentialsController extends Controller
     {
         $accountId = Str::of($accountId)->upper()->trim()->value();
 
-        // ✅ validar destinatarios
         $data = validator($request->all(), [
-            'to'         => 'required|string|max:5000', // CSV
+            'to'         => 'required|string|max:5000',
             'usuario'    => 'nullable|string|max:190',
             'password'   => 'nullable|string|max:190',
             'access_url' => 'nullable|string|max:2000',
@@ -42,7 +41,6 @@ final class EmailClienteCredentialsController extends Controller
             return back()->with('error', 'No hay correos válidos para enviar credenciales.');
         }
 
-        // ✅ cargar cuenta
         $emailCol = $this->colEmail();
         $phoneCol = $this->colPhone();
         $rfcCol   = $this->colRfcAdmin();
@@ -64,43 +62,43 @@ final class EmailClienteCredentialsController extends Controller
             return back()->with('error', 'Cuenta no encontrada para enviar credenciales.');
         }
 
-        // ✅ Datos de credencial (prioridad: request -> DB fallback)
-        $rfc = trim((string)($data['rfc'] ?? $acc->rfc ?? $acc->id));
-        $rs  = trim((string)($data['rs'] ?? $acc->razon_social ?? 'Cliente'));
+        $rfc = trim((string) ($data['rfc'] ?? $acc->rfc ?? $acc->id));
+        $rs  = trim((string) ($data['rs'] ?? $acc->razon_social ?? 'Cliente'));
 
-        $usuario = trim((string)($data['usuario'] ?? ''));
+        $usuario = trim((string) ($data['usuario'] ?? ''));
         if ($usuario === '') {
-            // En tu modal estabas mostrando RFC como "solicitud/usuario", por defecto usamos RFC.
-            $usuario = $rfc !== '' ? $rfc : (string)$acc->id;
+            $usuario = $rfc !== '' ? $rfc : (string) $acc->id;
         }
 
-        $password = trim((string)($data['password'] ?? ''));
-        // password suele venir como OTP o temporal (lo mandamos desde el modal)
+        $password = trim((string) ($data['password'] ?? ''));
 
-        $accessUrl = trim((string)($data['access_url'] ?? ''));
+        $accessUrl = trim((string) ($data['access_url'] ?? ''));
         if ($accessUrl === '') {
-            $accessUrl = rtrim((string)config('app.url'), '/') . '/cliente';
+            $accessUrl = rtrim((string) config('app.url'), '/') . '/cliente/login';
         }
 
-        // ✅ Armar payload para el correo
+        $appUrl = rtrim((string) config('app.url'), '/');
+
         $payload = [
             'brand' => [
-                'name' => 'Pactopia360',
-                // ✅ Tu logo real
-                'logo_url' => rtrim((string)config('app.url'), '/') . '/assets/brand/pactopia-logo.png',
+                'name'           => 'Pactopia360',
+                'logo_url'       => $appUrl . '/assets/admin/img/Pactopia%20-%20Letra%20AZUL.png',
+                'logo_dark_url'  => $appUrl . '/assets/admin/img/Pactopia%20-%20Letra%20AZUL.png',
+                'logo_light_url' => $appUrl . '/assets/admin/img/Pactopia%20-%20Letra%20Blanca.png',
+                'support_email'  => 'notificaciones@pactopia360.com',
             ],
             'account' => [
-                'id' => (string)$acc->id,
-                'rfc' => $rfc,
+                'id'           => (string) $acc->id,
+                'rfc'          => $rfc,
                 'razon_social' => $rs,
             ],
             'credentials' => [
-                'usuario' => $usuario,
-                'password' => $password,
+                'usuario'    => $usuario,
+                'password'   => $password,
                 'access_url' => $accessUrl,
             ],
             'meta' => [
-                'sent_by' => (string)auth('admin')->id(),
+                'sent_by' => (string) auth('admin')->id(),
                 'sent_at' => now()->toDateTimeString(),
             ],
         ];
@@ -116,7 +114,7 @@ final class EmailClienteCredentialsController extends Controller
                 $fails[] = $to;
                 Log::warning('EmailClienteCredentialsController.send mail error: ' . $e->getMessage(), [
                     'accountId' => $acc->id,
-                    'to' => $to,
+                    'to'        => $to,
                 ]);
             }
         }
@@ -136,40 +134,54 @@ final class EmailClienteCredentialsController extends Controller
     private function normalizeEmails(string $input): array
     {
         $s = trim($input);
-        if ($s === '') return [];
+        if ($s === '') {
+            return [];
+        }
 
         $s = str_replace([';', "\n", "\r", "\t"], [',', ',', ',', ' '], $s);
         $parts = array_filter(array_map('trim', explode(',', $s)));
 
         $out = [];
         foreach ($parts as $p) {
-            $e = strtolower(trim((string)$p));
-            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) $out[] = $e;
+            $e = strtolower(trim((string) $p));
+            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
+                $out[] = $e;
+            }
         }
+
         return array_values(array_unique($out));
     }
 
     private function colEmail(): string
     {
         foreach (['correo_contacto', 'email'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) {
+                return $c;
+            }
         }
+
         return 'email';
     }
 
     private function colPhone(): string
     {
         foreach (['telefono', 'phone', 'tel', 'celular'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) {
+                return $c;
+            }
         }
+
         return 'phone';
     }
 
     private function colRfcAdmin(): string
     {
         foreach (['rfc', 'rfc_padre', 'tax_id', 'rfc_cliente'] as $c) {
-            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) return $c;
+            if (Schema::connection($this->adminConn)->hasColumn('accounts', $c)) {
+                return $c;
+            }
         }
+
         return 'id';
     }
 }

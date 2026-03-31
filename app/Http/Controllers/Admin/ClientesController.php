@@ -42,9 +42,12 @@ class ClientesController extends \App\Http\Controllers\Controller
     public function index(Request $request): View
     {
         $q             = trim((string) $request->get('q', ''));
-        $planFilter    = (string) $request->get('plan', '');
-        $blocked       = $request->get('blocked');
-        $billingStatus = $request->get('billing_status');
+        $planFilterRaw    = trim((string) $request->get('plan', ''));
+        $blocked          = $request->get('blocked');
+        $billingStatusRaw = trim((string) $request->get('billing_status', ''));
+
+        $planFilter = strtolower($planFilterRaw);
+        $billingStatus = strtolower($billingStatusRaw);
 
         $perPage = (int) $request->integer('per_page', 25);
         $perPage = in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 25;
@@ -71,6 +74,16 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $query = DB::connection($this->adminConn)->table('accounts');
 
+        // ✅ Ocultar soft-deleted por defecto
+        // destroy() marca meta.deleted = true, así que aquí los excluimos del listado.
+        if ($this->hasCol($this->adminConn, 'accounts', 'meta') && (string) $request->get('with_deleted', '0') !== '1') {
+            $query->where(function ($qq) {
+                $qq->whereNull('meta')
+                   ->orWhereRaw("JSON_EXTRACT(meta, '$.deleted') IS NULL")
+                   ->orWhereRaw("LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meta, '$.deleted')), 'false')) NOT IN ('1','true')");
+            });
+        }
+
         if ($q !== '') {
             $query->where(function ($qq) use ($q, $emailCol, $phoneCol, $rfcCol) {
                 $qq->where('id', 'like', "%{$q}%")
@@ -82,15 +95,47 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         if ($planFilter !== '' && $this->hasCol($this->adminConn, 'accounts', 'plan')) {
-            $query->where('plan', $planFilter);
+            if ($planFilter === 'pro') {
+                $query->where(function ($qq) {
+                    $qq->whereRaw('UPPER(plan) = ?', ['PRO'])
+                       ->orWhereRaw('UPPER(plan) = ?', ['PRO_MENSUAL'])
+                       ->orWhereRaw('UPPER(plan) = ?', ['PRO_ANUAL']);
+                });
+            } elseif ($planFilter === 'free') {
+                $query->whereRaw('UPPER(plan) = ?', ['FREE']);
+            } else {
+                $query->whereRaw('UPPER(plan) = ?', [strtoupper($planFilter)]);
+            }
         }
 
         if (($blocked === '0' || $blocked === '1') && $this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
             $query->where('is_blocked', (int) $blocked);
         }
 
-        if ($billingStatus !== null && $billingStatus !== '' && $this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
-            $query->where('billing_status', $billingStatus);
+        if ($billingStatus !== '' && $this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
+            $billingMap = [
+                'active'    => ['active', 'activa'],
+                'trial'     => ['trial', 'prueba'],
+                'grace'     => ['grace', 'gracia'],
+                'overdue'   => ['overdue', 'vencida'],
+                'suspended' => ['suspended', 'suspendida'],
+                'cancelled' => ['cancelled', 'cancelada'],
+                'demo'      => ['demo'],
+                'activa'     => ['active', 'activa'],
+                'prueba'     => ['trial', 'prueba'],
+                'gracia'     => ['grace', 'gracia'],
+                'vencida'    => ['overdue', 'vencida'],
+                'suspendida' => ['suspended', 'suspendida'],
+                'cancelada'  => ['cancelled', 'cancelada'],
+            ];
+
+            $allowedStatuses = $billingMap[$billingStatus] ?? [$billingStatus];
+
+            $query->where(function ($qq) use ($allowedStatuses) {
+                foreach ($allowedStatuses as $st) {
+                    $qq->orWhereRaw('LOWER(billing_status) = ?', [strtolower($st)]);
+                }
+            });
         }
 
         $schemaA = Schema::connection($this->adminConn);
@@ -358,17 +403,18 @@ class ClientesController extends \App\Http\Controllers\Controller
         $rfcCol   = $this->colRfcAdmin();
 
         $rules = [
-            'rfc'               => 'required|string|max:20',
-            'razon_social'      => 'required|string|max:190',
-            'email'             => 'nullable|email|max:190',
-            'phone'             => 'nullable|string|max:25',
-            'plan'              => 'nullable|string|max:50',
-            'billing_cycle'     => ['nullable', Rule::in(['monthly', 'yearly', '', null])],
-            'billing_status'    => 'nullable|string|max:30',
-            'is_blocked'        => 'nullable|boolean',
-            'send_credentials'  => 'nullable|boolean',
+            'rfc'                  => 'required|string|max:20',
+            'razon_social'         => 'required|string|max:190',
+            'email'                => 'nullable|email|max:190',
+            'phone'                => 'nullable|string|max:25',
+            'plan'                 => 'nullable|string|max:50',
+            'billing_cycle'        => ['nullable', Rule::in(['monthly', 'yearly', '', null])],
+            'billing_status'       => 'nullable|string|max:30',
+            'is_blocked'           => 'nullable|boolean',
+            'send_credentials'     => 'nullable|boolean',
             'force_email_verified' => 'nullable|boolean',
             'force_phone_verified' => 'nullable|boolean',
+            'custom_amount_mxn'    => 'nullable|numeric|min:0|max:99999999',
         ];
 
         $data = validator($request->all(), $rules)->validate();
@@ -447,12 +493,23 @@ class ClientesController extends \App\Http\Controllers\Controller
         }
 
         // meta default mínimo
-        if ($schemaA->hasColumn('accounts', 'meta')) {
-            $meta = [];
-            $cycle = strtolower(trim((string) ($data['billing_cycle'] ?? '')));
-            if ($cycle === 'monthly') data_set($meta, 'billing.mode', 'mensual');
-            if ($cycle === 'yearly')  data_set($meta, 'billing.mode', 'anual');
-            $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        $customAmount = array_key_exists('custom_amount_mxn', $data) ? (float) $data['custom_amount_mxn'] : null;
+        $customAmount = ($customAmount !== null && $customAmount > 0.00001) ? round($customAmount, 2) : null;
+
+        if ($customAmount !== null) {
+            if ($schemaA->hasColumn('accounts', 'meta')) {
+                $meta = isset($meta) && is_array($meta) ? $meta : [];
+                data_set($meta, 'billing.override.amount_mxn', $customAmount);
+                data_set($meta, 'billing.override.enabled', true);
+                $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+            }
+
+            foreach (['custom_amount_mxn', 'override_amount_mxn', 'billing_amount_mxn', 'amount_mxn', 'license_amount_mxn'] as $col) {
+                if ($schemaA->hasColumn('accounts', $col)) {
+                    $payload[$col] = $customAmount;
+                    break;
+                }
+            }
         }
 
         // ✅ Crear en admin.accounts (RETRY robusto)
@@ -1705,6 +1762,194 @@ class ClientesController extends \App\Http\Controllers\Controller
             'recipients'    => $recipients,
             'urls'          => $urls,
         ]);
+    }
+
+        // ======================= SHOW / CORE ACTIONS =======================
+
+    public function show(string $key)
+    {
+        $emailCol = $this->colEmail();
+        $phoneCol = $this->colPhone();
+        $rfcCol   = $this->colRfcAdmin();
+
+        $acc = $this->requireAccount($key, [
+            'id',
+            $rfcCol,
+            'razon_social',
+            DB::raw("$emailCol as email"),
+            DB::raw("$phoneCol as phone"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'plan') ? 'plan' : "NULL as plan"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'billing_cycle') ? 'billing_cycle' : "NULL as billing_cycle"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'billing_status') ? 'billing_status' : "NULL as billing_status"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'next_invoice_date') ? 'next_invoice_date' : "NULL as next_invoice_date"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'is_blocked') ? 'is_blocked' : "0 as is_blocked"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'email_verified_at') ? 'email_verified_at' : "NULL as email_verified_at"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'phone_verified_at') ? 'phone_verified_at' : "NULL as phone_verified_at"),
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'meta') ? 'meta' : "NULL as meta"),
+            'created_at',
+            'updated_at',
+        ]);
+
+        $this->enrichRowsForListing([$acc]);
+
+        $extras     = $this->collectExtrasForAccountIds([(string) $acc->id]);
+        $creds      = $this->collectCredsForAccountIds([(string) $acc->id]);
+        $recipients = $this->collectRecipientsForAccountIds([(string) $acc->id]);
+
+        return response()->json([
+            'ok'         => true,
+            'account'    => $acc,
+            'extras'     => $extras[(string) $acc->id] ?? [],
+            'creds'      => $creds[(string) $acc->id] ?? [],
+            'recipients' => $recipients[(string) $acc->id] ?? [],
+            'effective_amount_mxn' => $this->computeEffectiveLicenseAmountMxn($acc),
+        ]);
+    }
+
+    public function block(string $key): RedirectResponse
+    {
+        return $this->setBlockedState($key, 1, 'Cuenta bloqueada.');
+    }
+
+    public function unblock(string $key): RedirectResponse
+    {
+        return $this->setBlockedState($key, 0, 'Cuenta desbloqueada.');
+    }
+
+    public function deactivate(string $key): RedirectResponse
+    {
+        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'razon_social', 'meta']);
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+
+        $payloadAdmin = ['updated_at' => now()];
+        $payloadMirror = ['updated_at' => now()];
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
+            $payloadAdmin['billing_status'] = 'cancelled';
+            $payloadMirror['billing_status'] = 'cancelled';
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
+            $payloadAdmin['is_blocked'] = 1;
+            $payloadMirror['is_blocked'] = 1;
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+            $meta = $this->decodeMeta($acc->meta ?? null);
+            data_set($meta, 'billing.status', 'cancelled');
+            data_set($meta, 'account.status', 'cancelled');
+            $payloadAdmin['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        DB::connection($this->adminConn)
+            ->table('accounts')
+            ->where('id', (int) $accountId)
+            ->update($payloadAdmin);
+
+        if ($rfcReal !== '') {
+            $this->upsertClienteLegacy($rfcReal, ['razon_social' => (string) ($acc->razon_social ?? '')] + $payloadAdmin);
+        }
+
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+
+        return back()->with('ok', 'Cuenta dada de baja.');
+    }
+
+    public function reactivate(string $key): RedirectResponse
+    {
+        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'razon_social', 'meta']);
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+
+        $payloadAdmin = ['updated_at' => now()];
+        $payloadMirror = ['updated_at' => now()];
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
+            $payloadAdmin['billing_status'] = 'active';
+            $payloadMirror['billing_status'] = 'active';
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
+            $payloadAdmin['is_blocked'] = 0;
+            $payloadMirror['is_blocked'] = 0;
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+            $meta = $this->decodeMeta($acc->meta ?? null);
+            data_set($meta, 'billing.status', 'active');
+            data_set($meta, 'account.status', 'active');
+            $payloadAdmin['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        DB::connection($this->adminConn)
+            ->table('accounts')
+            ->where('id', (int) $accountId)
+            ->update($payloadAdmin);
+
+        if ($rfcReal !== '') {
+            $this->upsertClienteLegacy($rfcReal, ['razon_social' => (string) ($acc->razon_social ?? '')] + $payloadAdmin);
+        }
+
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+
+        return back()->with('ok', 'Cuenta reactivada.');
+    }
+
+    public function destroy(string $key): RedirectResponse
+    {
+        $acc = $this->requireAccount($key, [
+            'id',
+            $this->colRfcAdmin(),
+            'razon_social',
+            DB::raw($this->hasCol($this->adminConn, 'accounts', 'meta') ? 'meta' : "NULL as meta"),
+        ]);
+
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+
+        $payloadAdmin  = ['updated_at' => now()];
+        $payloadMirror = ['updated_at' => now()];
+
+        // Soft delete real del lado admin
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
+            $payloadAdmin['is_blocked']  = 1;
+            $payloadMirror['is_blocked'] = 1;
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
+            $payloadAdmin['billing_status']  = 'cancelled';
+            $payloadMirror['billing_status'] = 'cancelled';
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+            $meta = $this->decodeMeta($acc->meta ?? null);
+
+            data_set($meta, 'deleted', true);
+            data_set($meta, 'deleted_at', now()->toDateTimeString());
+            data_set($meta, 'account.deleted', true);
+            data_set($meta, 'account.status', 'deleted');
+            data_set($meta, 'billing.status', 'cancelled');
+
+            $payloadAdmin['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        DB::connection($this->adminConn)
+            ->table('accounts')
+            ->where('id', (int) $accountId)
+            ->update($payloadAdmin);
+
+        if ($rfcReal !== '') {
+            $this->upsertClienteLegacy($rfcReal, [
+                'razon_social' => (string) ($acc->razon_social ?? ''),
+            ] + $payloadAdmin);
+        }
+
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+
+        return redirect()
+            ->route('admin.clientes.index')
+            ->with('ok', 'Cuenta eliminada del listado (soft delete).');
     }
 
     // ======================= SYNC accounts -> clientes =======================
@@ -3556,6 +3801,49 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $conn->table('cuentas_cliente')->where('id', (string)$cuenta->id)->update($upd);
     }
+
+        private function setBlockedState(string $key, int $blocked, string $okMessage): RedirectResponse
+    {
+        $blocked = $blocked === 1 ? 1 : 0;
+
+        $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'razon_social', 'meta']);
+        $accountId = (string) $acc->id;
+        $rfcReal   = strtoupper(trim((string) ($acc->{$this->colRfcAdmin()} ?? '')));
+
+        $payloadAdmin = ['updated_at' => now()];
+        $payloadMirror = ['updated_at' => now()];
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked')) {
+            $payloadAdmin['is_blocked'] = $blocked;
+            $payloadMirror['is_blocked'] = $blocked;
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'billing_status')) {
+            $payloadAdmin['billing_status'] = $blocked ? 'suspended' : 'active';
+            $payloadMirror['billing_status'] = $blocked ? 'suspended' : 'active';
+        }
+
+        if ($this->hasCol($this->adminConn, 'accounts', 'meta')) {
+            $meta = $this->decodeMeta($acc->meta ?? null);
+            data_set($meta, 'account.is_blocked', (bool) $blocked);
+            data_set($meta, 'billing.status', $blocked ? 'suspended' : 'active');
+            $payloadAdmin['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        DB::connection($this->adminConn)
+            ->table('accounts')
+            ->where('id', (int) $accountId)
+            ->update($payloadAdmin);
+
+        if ($rfcReal !== '') {
+            $this->upsertClienteLegacy($rfcReal, ['razon_social' => (string) ($acc->razon_social ?? '')] + $payloadAdmin);
+        }
+
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+
+        return back()->with('ok', $okMessage);
+    }
+
     private function decodeMeta(mixed $meta): array
     {
         if (is_array($meta)) return $meta;

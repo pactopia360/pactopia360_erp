@@ -646,6 +646,25 @@
     const credsUrl = (client.email_creds_url || '').toString().trim();
     setAction('#drFormEmailCreds', credsUrl || buildFallbackUrl(client, 'email-credentials'));
 
+    // Core actions
+    setAction('#drFormBlock', client.block_url || '');
+    setAction('#drFormUnblock', client.unblock_url || '');
+    setAction('#drFormDeactivate', client.deactivate_url || '');
+    setAction('#drFormReactivate', client.reactivate_url || '');
+    setAction('#drFormDelete', client.delete_url || '');
+
+    const coreMissing = $('#drCoreActionsMissing');
+    if (coreMissing) {
+      const missingCore =
+        !client.block_url &&
+        !client.unblock_url &&
+        !client.deactivate_url &&
+        !client.reactivate_url &&
+        !client.delete_url;
+
+      coreMissing.hidden = !missingCore;
+    }
+
     setCurrentClient(client);
 
     drawer.classList.add('open');
@@ -727,7 +746,7 @@
     setVal('#mEdit_rs', rs);
     setVal('#mEdit_email', client.email || '');
     setVal('#mEdit_phone', client.phone || client.telefono || '');
-    setVal('#mEdit_plan', (client.plan || '').toString().toLowerCase());
+    setVal('#mEdit_plan', (client.plan || '').toString().toUpperCase());
     setVal('#mEdit_cycle', client.billing_cycle || '');
     setVal('#mEdit_next', client.next_invoice_date || '');
 
@@ -1050,12 +1069,12 @@
       if (c) setCurrentClient(c);
     }
 
-    // 2) Menu action (block/unblock/etc. legacy) -> abrimos drawer
+       // 2) Menu action (block/unblock/deactivate/reactivate/delete)
     const menuAction = t.closest('[data-menu] [data-action]');
     if (menuAction) {
       e.preventDefault();
 
-      const action = (menuAction.getAttribute('data-action') || '').trim();
+      const action = (menuAction.getAttribute('data-action') || '').trim().toLowerCase();
       const row2 = menuAction.closest('.ac-row[data-client]');
       const client = parseClientFromRow(row2) || getCurrentClient();
 
@@ -1071,10 +1090,36 @@
       if (action === 'creds') { openDrawerModalAction('creds', client); return; }
       if (action === 'billing') { openDrawerModalAction('billing', client); return; }
 
-      // acciones core se quedan como forms del drawer (ya las tienes)
+      const formMap = {
+        block: '#drFormBlock',
+        unblock: '#drFormUnblock',
+        deactivate: '#drFormDeactivate',
+        reactivate: '#drFormReactivate',
+        delete: '#drFormDelete'
+      };
+
+      const formSel = formMap[action] || '';
+      const form = formSel ? $(formSel) : null;
+
+      if (!form) return;
+
+      const actionUrl = (form.getAttribute('action') || '').trim();
+      if (!actionUrl || actionUrl === '#') {
+        alert('Esta acción todavía no tiene ruta activa para este cliente.');
+        return;
+      }
+
+      setTimeout(() => {
+        try {
+          form.requestSubmit ? form.requestSubmit() : form.submit();
+        } catch (_) {
+          form.submit();
+        }
+      }, 80);
+
       return;
     }
-
+    
     // 2.5) Acciones de fila/menú que abren modales (edit/recipients/creds/billing)
     const rowDrawerAction = t.closest('[data-drawer-action]');
     if (rowDrawerAction && !t.closest('#clientDrawer')) {

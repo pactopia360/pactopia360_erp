@@ -21,7 +21,6 @@ final class StatementAccountPeriodMail extends Mailable implements ShouldQueue
     /** @var array<string,mixed> */
     public array $data;
 
-    // ✅ resiliencia de cola (por tus timeouts SMTP)
     public int $tries = 10;
     public int $timeout = 120;
 
@@ -38,29 +37,23 @@ final class StatementAccountPeriodMail extends Mailable implements ShouldQueue
     public function build()
     {
         $period = (string) ($this->data['period'] ?? $this->period);
-        $label  = (string) ($this->data['period_label'] ?? '');
+        $label  = (string) ($this->data['period_label'] ?? $period);
 
-        // subject override (si viene desde billing_email_logs.subject)
-        $subjectOverride = (string) ($this->data['subject_override'] ?? '');
+        $subjectOverride = trim((string) ($this->data['subject_override'] ?? ''));
         $subject = $subjectOverride !== ''
             ? $subjectOverride
-            : ('Pactopia360 · Estado de cuenta ' . $period . ($label ? ' · ' . $label : ''));
+            : ('Pactopia360 · Estado de cuenta ' . $period . ($label !== '' ? ' · ' . $label : ''));
 
-        $replyAddr = (string) ($this->data['MAIL_REPLY_TO_ADDRESS'] ?? ($this->data['reply_to_address'] ?? ''));
-        $replyName = (string) ($this->data['MAIL_REPLY_TO_NAME'] ?? ($this->data['reply_to_name'] ?? ''));
+        $replyAddr = trim((string) ($this->data['MAIL_REPLY_TO_ADDRESS'] ?? ($this->data['reply_to_address'] ?? '')));
+        $replyName = trim((string) ($this->data['MAIL_REPLY_TO_NAME'] ?? ($this->data['reply_to_name'] ?? '')));
 
-        $view = (string) ($this->data['template'] ?? 'admin.mail.statement');
+        // Plantilla maestra unificada
+        $view = 'emails.admin.billing.statement_account_period';
+        $this->data['template'] = $view;
 
-        // =====================================================
-        // ✅ AUTORIDAD: si existe billing_statement del periodo, úsalo para totales
-        // (evita que el correo muestre 0 cuando hay saldo real)
-        // =====================================================
         $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
         if (Schema::connection($adm)->hasTable('billing_statements')) {
-
-            // Trae TODOS los statements del periodo y elige el “mejor”
-            // (saldo desc, cargo desc, id desc)
             $st = DB::connection($adm)->table('billing_statements')
                 ->where('account_id', (string) $this->accountId)
                 ->where('period', $period)
@@ -68,40 +61,64 @@ final class StatementAccountPeriodMail extends Mailable implements ShouldQueue
                 ->orderByDesc(DB::raw('CAST(total_cargo AS DECIMAL(18,2))'))
                 ->orderByDesc('id')
                 ->first([
-                    'id', 'account_id', 'period',
-                    'status', 'total_cargo', 'total_abono', 'saldo',
-                    'due_date', 'sent_at', 'paid_at',
-                    'snapshot', 'meta', 'is_locked',
-                    'created_at', 'updated_at',
+                    'id',
+                    'account_id',
+                    'period',
+                    'status',
+                    'total_cargo',
+                    'total_abono',
+                    'saldo',
+                    'due_date',
+                    'sent_at',
+                    'paid_at',
+                    'snapshot',
+                    'meta',
+                    'is_locked',
+                    'created_at',
+                    'updated_at',
                 ]);
 
             if ($st) {
-                // Normaliza números (por si vienen string)
                 $cargo = (float) ($st->total_cargo ?? 0);
                 $abono = (float) ($st->total_abono ?? 0);
                 $saldo = (float) ($st->saldo ?? 0);
 
-                // Inyecta al payload para que el Blade sea consistente
-                $this->data['statement'] = $st;
-
-                // Claves “autoridad” (recomendadas para el Blade)
+                $this->data['statement']        = $st;
                 $this->data['statement_id']     = (int) ($st->id ?? 0);
                 $this->data['statement_status'] = (string) ($st->status ?? '');
                 $this->data['statement_cargo']  = $cargo;
                 $this->data['statement_abono']  = $abono;
                 $this->data['statement_saldo']  = $saldo;
 
-                // Compat: si tu template usa estos nombres
+                // Compatibilidad con la plantilla hija
                 $this->data['total_cargo'] = $cargo;
                 $this->data['total_abono'] = $abono;
                 $this->data['saldo']       = $saldo;
-                $this->data['total']       = $saldo; // “saldo a pagar”
+                $this->data['total']       = $saldo;
             }
         }
 
+        // Normalización final para layout/base
+        $this->data['period']        = $period;
+        $this->data['period_label']  = $label;
+        $this->data['subject']       = $subject;
+        $this->data['generated_at']  = $this->data['generated_at'] ?? now();
+        $this->data['emailTitle']    = $subject;
+        $this->data['openPixelUrl']  = (string) ($this->data['open_pixel_url'] ?? '');
+        $this->data['footerPrimary'] = (string) ($this->data['footerPrimary'] ?? 'Este correo fue emitido por Pactopia360.');
+        $this->data['footerSecondary'] = (string) ($this->data['footerSecondary'] ?? 'Para cualquier aclaración, responde a este mensaje o entra a tu portal.');
+
+        $saldoMail = (float) ($this->data['total_due'] ?? $this->data['total'] ?? $this->data['saldo'] ?? 0);
+        $this->data['emailPreheader'] = (string) ($this->data['emailPreheader'] ?? (
+            $saldoMail > 0.00001
+                ? ('Tienes un saldo pendiente en tu estado de cuenta por $' . number_format($saldoMail, 2) . ' MXN.')
+                : 'Tu estado de cuenta está al corriente.'
+        ));
+
         $m = $this->subject($subject)
             ->view($view)
-            ->with($this->data);
+            ->with($this->data)
+            ->bcc('notificaciones@pactopia.com', 'Pactopia Notificaciones');
 
         if ($replyAddr !== '') {
             $m->replyTo($replyAddr, $replyName !== '' ? $replyName : null);

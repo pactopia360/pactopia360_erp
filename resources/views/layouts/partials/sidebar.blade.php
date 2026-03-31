@@ -218,6 +218,7 @@
               ],
               'children'=>[
                 ['text'=>'Estados de cuenta','route'=>'admin.billing.statements.index','active_when'=>['admin.billing.statements.*']],
+                ['text'=>'Email Estados','route'=>'admin.billing.statement_emails.index','active_when'=>['admin.billing.statement_emails.*']],
                 ['text'=>'Pagos','route'=>'admin.billing.payments.index','active_when'=>['admin.billing.payments.*']],
                 ['text'=>'Solicitudes de factura','route'=>'admin.billing.invoices.requests.index','active_when'=>['admin.billing.invoices.requests.*']],
                 [

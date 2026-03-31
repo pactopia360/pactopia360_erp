@@ -1635,14 +1635,148 @@ final class BillingStatementsController extends Controller
 
         $data['stripe_session_id'] = $sessionId;
 
+        $emailId = (string) Str::ulid();
+        $data['email_id'] = $emailId;
+
+        try {
+            if (Route::has('admin.billing.hub.track_open')) {
+                $data['open_pixel_url'] = route('admin.billing.hub.track_open', ['emailId' => $emailId]);
+            }
+        } catch (\Throwable $e) {
+            $data['open_pixel_url'] = null;
+        }
+
+        try {
+            $wrapClick = function (?string $url) use ($emailId): ?string {
+                $url = trim((string) $url);
+                if ($url === '') {
+                    return null;
+                }
+
+                if (Route::has('admin.billing.hub.track_click')) {
+                    return route('admin.billing.hub.track_click', ['emailId' => $emailId]) . '?u=' . urlencode($url);
+                }
+
+                return null;
+            };
+
+            $data['pdf_track_url']    = $wrapClick((string) ($data['pdf_url'] ?? ''));
+            $data['portal_track_url'] = $wrapClick((string) ($data['portal_url'] ?? ''));
+            $data['pay_track_url']    = $wrapClick((string) ($data['pay_url'] ?? ''));
+        } catch (\Throwable $e) {
+            $data['pdf_track_url']    = $data['pdf_url'] ?? null;
+            $data['portal_track_url'] = $data['portal_url'] ?? null;
+            $data['pay_track_url']    = $data['pay_url'] ?? null;
+        }
+
+        $subject = 'Pactopia360 · Estado de cuenta ' . $period . ' · ' . (string) ($acc->razon_social ?? $acc->name ?? 'Cliente');
+        $data['subject'] = $subject;
+
+        $hasLogsTable = Schema::connection($this->adm)->hasTable('billing_email_logs');
+        $logCols = $hasLogsTable ? array_map('strtolower', Schema::connection($this->adm)->getColumnListing('billing_email_logs')) : [];
+        $hasLogCol = static fn (string $c): bool => in_array(strtolower($c), $logCols, true);
+
         foreach ($recipients as $dest) {
+            $logId = 0;
+            $metaBase = [
+                'source'            => 'billing_statements_legacy_send',
+                'account_id'        => $accountId,
+                'period'            => $period,
+                'bcc_monitor'       => 'notificaciones@pactopia.com',
+                'stripe_session_id' => $sessionId,
+            ];
+
             try {
+                if ($hasLogsTable) {
+                    $insert = [];
+
+                    if ($hasLogCol('email_id')) {
+                        $insert['email_id'] = $emailId;
+                    }
+                    if ($hasLogCol('account_id')) {
+                        $insert['account_id'] = $accountId;
+                    }
+                    if ($hasLogCol('period')) {
+                        $insert['period'] = $period;
+                    }
+                    if ($hasLogCol('statement_id')) {
+                        $insert['statement_id'] = null;
+                    }
+                    if ($hasLogCol('email')) {
+                        $insert['email'] = $dest;
+                    }
+                    if ($hasLogCol('to_list')) {
+                        $insert['to_list'] = implode(',', $recipients);
+                    }
+                    if ($hasLogCol('subject')) {
+                        $insert['subject'] = $subject;
+                    }
+                    if ($hasLogCol('template')) {
+                        $insert['template'] = 'emails.admin.billing.statement_account_period';
+                    }
+                    if ($hasLogCol('status')) {
+                        $insert['status'] = 'queued';
+                    }
+                    if ($hasLogCol('provider')) {
+                        $insert['provider'] = config('mail.default') ?: 'smtp';
+                    }
+                    if ($hasLogCol('provider_message_id')) {
+                        $insert['provider_message_id'] = null;
+                    }
+                    if ($hasLogCol('payload')) {
+                        $insert['payload'] = json_encode($data, JSON_UNESCAPED_UNICODE);
+                    }
+                    if ($hasLogCol('meta')) {
+                        $insert['meta'] = json_encode($metaBase, JSON_UNESCAPED_UNICODE);
+                    }
+                    if ($hasLogCol('queued_at')) {
+                        $insert['queued_at'] = now();
+                    }
+                    if ($hasLogCol('open_count')) {
+                        $insert['open_count'] = 0;
+                    }
+                    if ($hasLogCol('click_count')) {
+                        $insert['click_count'] = 0;
+                    }
+                    if ($hasLogCol('created_at')) {
+                        $insert['created_at'] = now();
+                    }
+                    if ($hasLogCol('updated_at')) {
+                        $insert['updated_at'] = now();
+                    }
+
+                    $logId = (int) DB::connection($this->adm)
+                        ->table('billing_email_logs')
+                        ->insertGetId($insert);
+                }
+
                 Mail::to($dest)->send(new StatementAccountPeriodMail($accountId, $period, $data));
+
+                if ($hasLogsTable && $logId > 0) {
+                    $update = [];
+
+                    if ($hasLogCol('status')) {
+                        $update['status'] = 'sent';
+                    }
+                    if ($hasLogCol('sent_at')) {
+                        $update['sent_at'] = now();
+                    }
+                    if ($hasLogCol('updated_at')) {
+                        $update['updated_at'] = now();
+                    }
+
+                    if (!empty($update)) {
+                        DB::connection($this->adm)->table('billing_email_logs')
+                            ->where('id', $logId)
+                            ->update($update);
+                    }
+                }
 
                 Log::info('[ADMIN][STATEMENT][EMAIL] enviado', [
                     'to'         => $dest,
                     'account_id' => (string) ($acc->id ?? ''),
                     'period'     => $period,
+                    'email_id'   => $emailId,
                     'has_pay'    => (bool) ($data['pay_url'] ?? null),
                     'has_qr'     => (bool) (($data['qr_data_uri'] ?? null) ?: ($data['qr_url'] ?? null)),
                     'total'      => (float) ($data['total'] ?? 0),
@@ -1650,10 +1784,38 @@ final class BillingStatementsController extends Controller
                     'expected'   => (float) ($data['expected_total'] ?? 0),
                 ]);
             } catch (\Throwable $e) {
+                if ($hasLogsTable && $logId > 0) {
+                    $metaFail = $metaBase;
+                    $metaFail['error'] = $e->getMessage();
+                    $metaFail['error_at'] = now()->toDateTimeString();
+
+                    $update = [];
+
+                    if ($hasLogCol('status')) {
+                        $update['status'] = 'failed';
+                    }
+                    if ($hasLogCol('failed_at')) {
+                        $update['failed_at'] = now();
+                    }
+                    if ($hasLogCol('meta')) {
+                        $update['meta'] = json_encode($metaFail, JSON_UNESCAPED_UNICODE);
+                    }
+                    if ($hasLogCol('updated_at')) {
+                        $update['updated_at'] = now();
+                    }
+
+                    if (!empty($update)) {
+                        DB::connection($this->adm)->table('billing_email_logs')
+                            ->where('id', $logId)
+                            ->update($update);
+                    }
+                }
+
                 Log::error('[ADMIN][STATEMENT][EMAIL] fallo', [
                     'to'         => $dest,
                     'account_id' => (string) ($acc->id ?? ''),
                     'period'     => $period,
+                    'email_id'   => $emailId,
                     'err'        => $e->getMessage(),
                 ]);
             }
@@ -1661,7 +1823,7 @@ final class BillingStatementsController extends Controller
             usleep(90000);
         }
     }
-
+    
     // =========================================================
     // RECIPIENTS
     // =========================================================

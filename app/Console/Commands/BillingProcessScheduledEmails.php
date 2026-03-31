@@ -6,12 +6,9 @@ namespace App\Console\Commands;
 
 use App\Mail\Admin\Billing\StatementAccountPeriodMail;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Schema;
 
 final class BillingProcessScheduledEmails extends Command
@@ -56,97 +53,109 @@ final class BillingProcessScheduledEmails extends Command
         $failed = 0;
 
         foreach ($rows as $r) {
-            $id      = (int) ($r->id ?? 0);
-            $emailId = (string) ($r->email_id ?? '');
-            $to      = (string) ($r->to ?? '');
-            $period  = (string) ($r->period ?? '');
-            $accountId = (string) ($r->account_id ?? '');
+            $id        = (int) ($r->id ?? 0);
+            $emailId   = trim((string) ($r->email_id ?? ''));
+            $accountId = trim((string) ($r->account_id ?? ''));
+            $period    = trim((string) ($r->period ?? ''));
+            $subject   = trim((string) ($r->subject ?? ''));
 
-            // payload puede venir como json o array
-            $payload = [];
-            try {
-                if (isset($r->payload)) {
-                    if (is_string($r->payload)) $payload = json_decode($r->payload, true) ?: [];
-                    elseif (is_array($r->payload)) $payload = $r->payload;
-                }
-            } catch (\Throwable $e) {
-                $payload = [];
+            $toList = trim((string) ($r->to_list ?? ''));
+            if ($toList === '') {
+                $toList = trim((string) ($r->to ?? $r->email ?? ''));
             }
 
-            // fallback por si account_id no está en columna
-            if ($accountId === '') $accountId = (string) ($payload['account_id'] ?? '');
-            if ($period === '')    $period    = (string) ($payload['period'] ?? '');
+            $tos = $this->parseToList($toList);
 
-            // Validación mínima
-            if ($id <= 0 || $emailId === '' || $to === '' || $accountId === '' || !preg_match('/^\d{4}\-\d{2}$/', $period)) {
+            $payload = $this->decodePayload($r->payload ?? null);
+
+            if ($accountId === '' && !empty($payload['account_id'])) {
+                $accountId = trim((string) $payload['account_id']);
+            }
+
+            if ($period === '' && !empty($payload['period'])) {
+                $period = trim((string) $payload['period']);
+            }
+
+            if ($id <= 0 || $emailId === '' || $accountId === '' || !preg_match('/^\d{4}\-\d{2}$/', $period) || empty($tos)) {
                 $failed++;
-                $this->markFailed($id, 'Payload inválido (email_id/to/account_id/period).', [
-                    'email_id' => $emailId,
-                    'to' => $to,
+                $this->markFailed($id, 'Payload inválido (id/email_id/account_id/period/to_list).', [
+                    'id'         => $id,
+                    'email_id'   => $emailId,
                     'account_id' => $accountId,
-                    'period' => $period,
-                    'payload' => $payload,
+                    'period'     => $period,
+                    'to_list'    => $toList,
+                    'payload'    => $payload,
                 ]);
                 continue;
             }
 
-            // Construir dataset para el correo
+            if (empty($payload) || !is_array($payload)) {
+                $failed++;
+                $this->markFailed($id, 'El log no contiene payload utilizable.', [
+                    'id'         => $id,
+                    'email_id'   => $emailId,
+                    'account_id' => $accountId,
+                    'period'     => $period,
+                    'to_list'    => $toList,
+                ]);
+                continue;
+            }
+
+            // Refuerza datos mínimos del payload ya generado por el flujo unificado
+            $payload['account_id'] = $accountId;
+            $payload['period']     = $period;
+            $payload['email_id']   = $emailId;
+
+            if ($subject !== '') {
+                $payload['subject_override'] = $subject;
+                $payload['subject'] = $subject;
+            }
+
+            if (empty($payload['template'])) {
+                $payload['template'] = 'emails.admin.billing.statement_account_period';
+            }
+
+            if (empty($payload['generated_at'])) {
+                $payload['generated_at'] = now();
+            }
+
             try {
-                $data = $this->buildStatementData($accountId, $period);
-
-                // tracking (usa email_id como identificador público)
-                if (Route::has('track.billing.open')) {
-                    $data['open_pixel_url'] = route('track.billing.open', ['emailId' => $emailId]);
-                }
-
-                if (Route::has('track.billing.click')) {
-                    $data['pdf_track_url'] = !empty($data['pdf_url'])
-                        ? route('track.billing.click', ['emailId' => $emailId]) . '?u=' . urlencode((string) $data['pdf_url'])
-                        : '';
-
-                    $data['pay_track_url'] = !empty($data['pay_url'])
-                        ? route('track.billing.click', ['emailId' => $emailId]) . '?u=' . urlencode((string) $data['pay_url'])
-                        : '';
-
-                    $data['portal_track_url'] = !empty($data['portal_url'])
-                        ? route('track.billing.click', ['emailId' => $emailId]) . '?u=' . urlencode((string) $data['portal_url'])
-                        : '';
-                }
-
-                // Subject: si ya existe en tabla, respétalo; si no, el Mailable lo arma.
-                $subject = (string) ($r->subject ?? '');
-                if ($subject !== '') $data['subject_override'] = $subject;
-
-                // Envío
-                Mail::to($to)->send(new StatementAccountPeriodMail($accountId, $period, $data));
+                Mail::to($tos)->send(new StatementAccountPeriodMail($accountId, $period, $payload));
 
                 $sent++;
 
-                DB::connection($this->adm)->table('billing_email_logs')->where('id', $id)->update([
-                    'status'   => 'sent',
-                    'sent_at'  => now(),
-                    'error'    => null,
+                $update = [
+                    'status'     => 'sent',
+                    'sent_at'    => now(),
                     'updated_at' => now(),
-                ]);
+                ];
 
+                if ($this->hasColumn('billing_email_logs', 'error')) {
+                    $update['error'] = null;
+                }
+
+                DB::connection($this->adm)
+                    ->table('billing_email_logs')
+                    ->where('id', $id)
+                    ->update($update);
             } catch (\Throwable $e) {
                 $failed++;
 
                 Log::error('[P360][BILLING][SCHEDULED_EMAIL] fallo envío', [
-                    'id' => $id,
-                    'email_id' => $emailId,
-                    'to' => $to,
+                    'id'         => $id,
+                    'email_id'   => $emailId,
+                    'to_list'    => $tos,
                     'account_id' => $accountId,
-                    'period' => $period,
-                    'e' => $e->getMessage(),
+                    'period'     => $period,
+                    'e'          => $e->getMessage(),
                 ]);
 
                 $this->markFailed($id, $e->getMessage(), [
-                    'id' => $id,
-                    'email_id' => $emailId,
-                    'to' => $to,
+                    'id'         => $id,
+                    'email_id'   => $emailId,
+                    'to_list'    => $tos,
                     'account_id' => $accountId,
-                    'period' => $period,
+                    'period'     => $period,
                 ]);
             }
         }
@@ -155,128 +164,99 @@ final class BillingProcessScheduledEmails extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * @return array<int,string>
+     */
+    private function parseToList(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $raw = str_replace([';', "\n", "\r", "\t"], ',', $raw);
+        $parts = array_map('trim', explode(',', $raw));
+        $parts = array_filter($parts, static fn ($x) => $x !== '');
+
+        $out = [];
+        foreach ($parts as $p) {
+            if (preg_match('/<([^>]+)>/', $p, $m)) {
+                $p = trim((string) $m[1]);
+            }
+
+            if (filter_var($p, FILTER_VALIDATE_EMAIL)) {
+                $out[] = strtolower($p);
+            }
+        }
+
+        return array_slice(array_values(array_unique($out)), 0, 20);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function decodePayload(mixed $payload): array
+    {
+        try {
+            if (is_array($payload)) {
+                return $payload;
+            }
+
+            if (is_string($payload) && trim($payload) !== '') {
+                $decoded = json_decode($payload, true);
+                return is_array($decoded) ? $decoded : [];
+            }
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string,mixed> $context
+     */
     private function markFailed(int $id, string $message, array $context = []): void
     {
         try {
-            DB::connection($this->adm)->table('billing_email_logs')->where('id', $id)->update([
-                'status'    => 'failed',
-                'failed_at' => now(),
-                'error'     => mb_substr($message, 0, 65000),
-                'updated_at'=> now(),
-            ]);
+            $update = [
+                'status'     => 'failed',
+                'failed_at'  => now(),
+                'updated_at' => now(),
+            ];
+
+            if ($this->hasColumn('billing_email_logs', 'error')) {
+                $update['error'] = mb_substr($message, 0, 65000);
+            }
+
+            if ($this->hasColumn('billing_email_logs', 'meta')) {
+                $update['meta'] = json_encode(array_merge($context, [
+                    'error'    => $message,
+                    'error_at' => now()->toDateTimeString(),
+                    'source'   => 'p360:billing:process-scheduled-emails',
+                ]), JSON_UNESCAPED_UNICODE);
+            }
+
+            DB::connection($this->adm)
+                ->table('billing_email_logs')
+                ->where('id', $id)
+                ->update($update);
         } catch (\Throwable $e) {
             Log::error('[P360][BILLING][SCHEDULED_EMAIL] no se pudo marcar failed', [
-                'id' => $id,
+                'id'  => $id,
                 'msg' => $message,
                 'ctx' => $context,
-                'e' => $e->getMessage(),
+                'e'   => $e->getMessage(),
             ]);
         }
     }
 
-    /**
-     * Dataset para el correo, compatible con resources/views/admin/mail/statement.blade.php
-     * @return array<string,mixed>
-     */
-    private function buildStatementData(string $accountId, string $period): array
+    private function hasColumn(string $table, string $column): bool
     {
-        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-
-        $items = DB::connection($this->adm)->table('estados_cuenta')
-            ->where('account_id', $accountId)
-            ->where('periodo', '=', $period)
-            ->orderBy('id')
-            ->get();
-
-        $cargoReal = (float) $items->sum('cargo');
-        $abono     = (float) $items->sum('abono');
-
-        // meta: seguro
-        $meta = [];
         try {
-            if ($acc && isset($acc->meta) && is_string($acc->meta) && trim($acc->meta) !== '') {
-                $meta = json_decode($acc->meta, true) ?: [];
-            }
+            return Schema::connection($this->adm)->hasColumn($table, $column);
         } catch (\Throwable $e) {
-            $meta = [];
+            return false;
         }
-
-        // expected_total + tarifa_label
-        $expectedTotal = 0.0;
-        $tarifaLabel   = '—';
-
-        try {
-            $lic = [];
-            if (isset($meta['license']) && is_array($meta['license'])) $lic = $meta['license'];
-            if (!$lic && isset($meta['billing']) && is_array($meta['billing'])) $lic = $meta['billing'];
-
-            $base =
-                $lic['amount_mxn'] ?? $lic['amount'] ?? $lic['base_amount'] ??
-                ($meta['billing']['amount_mxn'] ?? null) ??
-                ($meta['billing']['amount'] ?? null) ??
-                0;
-
-            $baseAmt = is_numeric($base) ? (float) $base : 0.0;
-
-            $ov = $meta['billing']['override']['amount_mxn'] ?? ($meta['billing']['override_amount_mxn'] ?? null);
-            $override = is_numeric($ov) ? (float) $ov : null;
-
-            $expectedTotal = $override !== null ? $override : $baseAmt;
-
-            $cycle = strtoupper((string) ($lic['cycle'] ?? $lic['billing_cycle'] ?? ($meta['billing']['billing_cycle'] ?? 'MENSUAL')));
-            if ($cycle === 'MONTHLY') $cycle = 'MENSUAL';
-            if ($cycle === 'YEARLY')  $cycle = 'ANUAL';
-            if ($cycle === '') $cycle = 'MENSUAL';
-
-            $pk   = (string) ($lic['pk'] ?? $lic['price_key'] ?? $lic['price_id'] ?? '');
-            $plan = strtoupper((string) ($lic['plan'] ?? ($meta['plan'] ?? 'PRO')));
-
-            $tarifaLabel = $override !== null
-                ? 'PERSONALIZADO'
-                : ($pk !== '' ? strtoupper($pk) . ' · ' . $cycle : $plan . ' · ' . $cycle);
-
-        } catch (\Throwable $e) {
-            $expectedTotal = 0.0;
-            $tarifaLabel   = '—';
-        }
-
-        $totalShown = $cargoReal > 0 ? $cargoReal : (float) $expectedTotal;
-        $saldo = max(0, $totalShown - $abono);
-
-        // URLs (si no existen rutas, no revienta)
-        $pdfUrl = '';
-        $portalUrl = '';
-
-        if (Route::has('cliente.billing.publicPdfInline')) {
-            $pdfUrl = URL::signedRoute('cliente.billing.publicPdfInline', ['accountId' => $accountId, 'period' => $period]);
-        }
-
-        if (Route::has('cliente.estado_cuenta')) {
-            $portalUrl = route('cliente.estado_cuenta') . '?period=' . urlencode($period);
-        }
-
-        return [
-            'account'        => $acc,
-            'account_id'     => $accountId,
-            'period'         => $period,
-            'period_label'   => Carbon::parse($period . '-01')->translatedFormat('F Y'),
-            'items'          => $items,
-
-            'cargo_real'     => round($cargoReal, 2),
-            'expected_total' => round($expectedTotal, 2),
-            'tarifa_label'   => $tarifaLabel,
-
-            'cargo'          => round($totalShown, 2),
-            'abono'          => round($abono, 2),
-            'total'          => round($saldo, 2),
-
-            'pdf_url'        => $pdfUrl,
-            'portal_url'     => $portalUrl,
-
-            // pay_url (si lo llenas desde hub, se respetará; si no, queda vacío)
-            'pay_url'        => '',
-
-            'generated_at'   => now(),
-        ];
     }
 }

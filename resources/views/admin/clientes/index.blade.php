@@ -37,6 +37,27 @@
 
   $total = method_exists($rows,'total') ? $rows->total() : (is_countable($rows) ? count($rows) : null);
 
+  $planNorm = function($raw) {
+    $p = strtoupper(trim((string)$raw));
+    if (in_array($p, ['PRO', 'PRO_MENSUAL', 'PRO_ANUAL'], true)) return 'pro';
+    if ($p === 'FREE') return 'free';
+    return strtolower($p);
+  };
+
+  $billingNorm = function($raw) {
+    $bs = strtolower(trim((string)$raw));
+    return match ($bs) {
+      'active', 'activa'         => 'active',
+      'trial', 'prueba'          => 'trial',
+      'grace', 'gracia'          => 'grace',
+      'overdue', 'vencida'       => 'overdue',
+      'suspended', 'suspendida'  => 'suspended',
+      'cancelled', 'cancelada'   => 'cancelled',
+      'demo'                     => 'demo',
+      default                    => $bs,
+    };
+  };
+
   // KPIs rápidos (sobre $rows ya filtrado/paginado en backend)
   $verMail = 0; $verPhone = 0; $cntPro = 0; $cntFree = 0; $cntBlocked = 0;
   $cntActive=0; $cntTrial=0; $cntOverdue=0; $cntSuspended=0; $cntCancelled=0;
@@ -45,18 +66,18 @@
     if(!empty($x->email_verified_at)) $verMail++;
     if(!empty($x->phone_verified_at)) $verPhone++;
 
-    $p = strtolower((string)($x->plan ?? ''));
-    if($p==='pro')  $cntPro++;
-    if($p==='free') $cntFree++;
+    $p = $planNorm($x->plan ?? '');
+    if($p === 'pro')  $cntPro++;
+    if($p === 'free') $cntFree++;
 
-    if((int)($x->is_blocked ?? 0)===1) $cntBlocked++;
+    if((int)($x->is_blocked ?? 0) === 1) $cntBlocked++;
 
-    $bs = strtolower((string)($x->billing_status ?? ''));
-    if($bs==='active') $cntActive++;
-    if($bs==='trial') $cntTrial++;
-    if($bs==='overdue') $cntOverdue++;
-    if($bs==='suspended') $cntSuspended++;
-    if($bs==='cancelled') $cntCancelled++;
+    $bs = $billingNorm($x->billing_status ?? '');
+    if($bs === 'active') $cntActive++;
+    if($bs === 'trial') $cntTrial++;
+    if($bs === 'overdue') $cntOverdue++;
+    if($bs === 'suspended') $cntSuspended++;
+    if($bs === 'cancelled') $cntCancelled++;
   }
 
   $defaultPeriod = now()->addMonthNoOverflow()->format('Y-m');
@@ -439,7 +460,7 @@
           $info     = $extras[$r->id] ?? null;
           $cred     = $creds[$r->id] ?? null;
 
-          $planVal  = strtolower((string)($r->plan ?? ''));
+          $planVal  = $planNorm($r->plan ?? '');
           $bcRaw    = (string)(data_get($r, 'billing_cycle') ?: (is_array($info) ? ($info['billing_cycle'] ?? '') : ''));
           $nextRaw  = (string)(data_get($r, 'next_invoice_date') ?: (is_array($info) ? ($info['next_invoice_date'] ?? '') : ''));
           $bsRaw    = (string)(data_get($r, 'billing_status') ?: (is_array($info) ? ($info['estado_cuenta'] ?? '') : ''));
@@ -458,9 +479,55 @@
           $mailOk = !empty($r->email_verified_at);
           $phoneOk = !empty($r->phone_verified_at);
 
-          // ✅ Rutas seguras por fila (evita errores si cambia el nombre)
-          $seedUrl   = $try('admin.clientes.seedStatement', ['rfc'=>$r->id]) ?: $try('admin.clientes.seedStatement', ['accountId'=>$r->id]);
-          $recipUrl  = $try('admin.clientes.recipientsUpsert', ['rfc'=>$r->id]) ?: $try('admin.clientes.recipients.upsert', ['rfc'=>$r->id]);
+                    $routeKey = (string)($r->id ?? '');
+
+          $seedUrl   = $try('admin.clientes.seedStatement', ['key' => $routeKey])
+                    ?: $try('admin.clientes.seedStatement', ['rfc' => $routeKey])
+                    ?: $try('admin.clientes.seedStatement', ['accountId' => $routeKey]);
+
+          $recipUrl  = $try('admin.clientes.recipientsUpsert', ['key' => $routeKey])
+                    ?: $try('admin.clientes.recipientsUpsert', ['rfc' => $routeKey])
+                    ?: $try('admin.clientes.recipients.upsert', ['key' => $routeKey])
+                    ?: $try('admin.clientes.recipients.upsert', ['rfc' => $routeKey]);
+
+          $emailCredsUrl = $try('admin.clientes.emailCreds', ['key' => $routeKey])
+                        ?: $try('admin.clientes.emailCreds', ['rfc' => $routeKey])
+                        ?: $try('admin.clientes.emailCredentials', ['key' => $routeKey])
+                        ?: $try('admin.clientes.emailCredentials', ['rfc' => $routeKey]);
+
+          $resendVerifyUrl = $try('admin.clientes.resendEmailVerification', ['key' => $routeKey])
+                          ?: $try('admin.clientes.resendEmailVerification', ['rfc' => $routeKey])
+                          ?: $try('admin.clientes.resendEmail', ['id' => $routeKey])
+                          ?: $try('admin.clientes.resendEmail', ['rfc' => $routeKey])
+                          ?: '';
+
+          $sendOtpUrl = $try('admin.clientes.sendPhoneOtp', ['key' => $routeKey])
+                     ?: $try('admin.clientes.sendPhoneOtp', ['rfc' => $routeKey])
+                     ?: $try('admin.clientes.sendOtp', ['id' => $routeKey])
+                     ?: $try('admin.clientes.sendOtp', ['rfc' => $routeKey])
+                     ?: '';
+
+          $blockUrl      = $try('admin.clientes.block',      ['key' => $routeKey])
+                        ?: $try('admin.clientes.block',      ['rfc' => $routeKey])
+                        ?: '';
+
+          $unblockUrl    = $try('admin.clientes.unblock',    ['key' => $routeKey])
+                        ?: $try('admin.clientes.unblock',    ['rfc' => $routeKey])
+                        ?: '';
+
+          $deactivateUrl = $try('admin.clientes.deactivate', ['key' => $routeKey])
+                        ?: $try('admin.clientes.deactivate', ['rfc' => $routeKey])
+                        ?: '';
+
+          $reactivateUrl = $try('admin.clientes.reactivate', ['key' => $routeKey])
+                        ?: $try('admin.clientes.reactivate', ['rfc' => $routeKey])
+                        ?: '';
+
+          $deleteUrl     = $try('admin.clientes.delete',     ['key' => $routeKey])
+                        ?: $try('admin.clientes.delete',     ['rfc' => $routeKey])
+                        ?: $try('admin.clientes.destroy',    ['key' => $routeKey])
+                        ?: $try('admin.clientes.destroy',    ['rfc' => $routeKey])
+                        ?: '';
 
           // ✅ Billing Accounts (iframe modal) + Statements HUB (iframe modal)
           $billingAdminUrl = '';
@@ -484,30 +551,6 @@
 
           $stmtShow  = $try('admin.billing.statements.show',  ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.show',  ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
           $stmtEmail = $try('admin.billing.statements.email', ['accountId'=>$r->id, 'period'=>$defaultPeriod]) ?: $try('admin.billing.statement.email', ['rfc'=>$r->id, 'period'=>$defaultPeriod]);
-
-          // ✅ URL para enviar credenciales
-          $emailCredsUrl = $try('admin.clientes.emailCreds', ['rfc'=>$r->id])
-                        ?: $try('admin.clientes.emailCredentials', ['rfc'=>$r->id]);
-
-          // ✅ Acciones (reenvío verificación / OTP) sin romper si no existen
-          $resendVerifyUrl = $try('admin.clientes.resendEmailVerification', ['rfc'=>$r->id])
-                          ?: $try('admin.clientes.resendEmail', ['id'=>$r->id])
-                          ?: $try('admin.clientes.resendEmail', ['rfc'=>$r->id])
-                          ?: '';
-
-          $sendOtpUrl = $try('admin.clientes.sendPhoneOtp', ['rfc'=>$r->id])
-                     ?: $try('admin.clientes.sendOtp', ['id'=>$r->id])
-                     ?: $try('admin.clientes.sendOtp', ['rfc'=>$r->id])
-                     ?: '';
-
-          // ✅ Acciones CORE (para drawer: Bloquear/Desbloquear/Baja/React/Eliminar)
-          $blockUrl      = $try('admin.clientes.block',      ['rfc'=>$r->id]) ?: '';
-          $unblockUrl    = $try('admin.clientes.unblock',    ['rfc'=>$r->id]) ?: '';
-          $deactivateUrl = $try('admin.clientes.deactivate', ['rfc'=>$r->id]) ?: '';
-          $reactivateUrl = $try('admin.clientes.reactivate', ['rfc'=>$r->id]) ?: '';
-          $deleteUrl     = $try('admin.clientes.delete',     ['rfc'=>$r->id])
-                        ?: $try('admin.clientes.destroy',    ['rfc'=>$r->id])
-                        ?: '';
 
           $rRecips = $recipients[$r->id] ?? [];
           $recipsStatement = $recipsToString($rRecips, 'statement');
@@ -961,8 +1004,10 @@
           <div class="ac-field ac-col-4">
             <label>Plan</label>
             <select class="ac-select" name="plan">
-              <option value="pro">Pro</option>
-              <option value="free">Free</option>
+              <option value="PRO">PRO</option>
+              <option value="PRO_MENSUAL">PRO_MENSUAL</option>
+              <option value="PRO_ANUAL">PRO_ANUAL</option>
+              <option value="FREE">FREE</option>
             </select>
           </div>
 
@@ -1064,8 +1109,10 @@
             <label>Plan</label>
             <select class="ac-select" id="mEdit_plan" name="plan">
               <option value="">—</option>
-              <option value="free">Free</option>
-              <option value="pro">Pro</option>
+              <option value="FREE">FREE</option>
+              <option value="PRO">PRO</option>
+              <option value="PRO_MENSUAL">PRO_MENSUAL</option>
+              <option value="PRO_ANUAL">PRO_ANUAL</option>
             </select>
           </div>
 

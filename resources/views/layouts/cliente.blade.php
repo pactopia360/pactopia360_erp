@@ -286,6 +286,7 @@
     main.content .container:has(.sv2){
       width:100% !important;
       max-width:100% !important;
+      padding-top:6px !important;
       padding-left:12px !important;
       padding-right:12px !important;
       margin:0 !important;
@@ -449,7 +450,7 @@
       color:transparent;
     }
 
-        @media (min-width: 1400px){
+    @media (min-width: 1400px){
       :root{
         --container-px: 20px;
       }
@@ -457,6 +458,7 @@
       .page-sat-vault-v2.content > .container,
       main.content.page-sat-vault-v2 > .container,
       main.content .container:has(.sv2){
+        padding-top:8px !important;
         padding-left:16px !important;
         padding-right:16px !important;
       }
@@ -470,23 +472,25 @@
       .page-sat-vault-v2.content > .container,
       main.content.page-sat-vault-v2 > .container,
       main.content .container:has(.sv2){
+        padding-top:6px !important;
         padding-left:10px !important;
         padding-right:10px !important;
       }
     }
 
     @media (max-width: 640px){
-      :root{
-        --container-px: 8px;
-      }
-
-      .page-sat-vault-v2.content > .container,
-      main.content.page-sat-vault-v2 > .container,
-      main.content .container:has(.sv2){
-        padding-left:8px !important;
-        padding-right:8px !important;
-      }
+    :root{
+      --container-px: 8px;
     }
+
+    .page-sat-vault-v2.content > .container,
+    main.content.page-sat-vault-v2 > .container,
+    main.content .container:has(.sv2){
+      padding-top:4px !important;
+      padding-left:8px !important;
+      padding-right:8px !important;
+    }
+  }
   </style>
 
   @stack('styles')

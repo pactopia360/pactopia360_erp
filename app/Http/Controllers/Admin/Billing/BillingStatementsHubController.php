@@ -57,6 +57,26 @@ final class BillingStatementsHubController extends Controller
             $period = now()->format('Y-m');
         }
 
+        $periodFrom = trim((string) $req->get('period_from', ''));
+        $periodTo   = trim((string) $req->get('period_to', ''));
+
+        if (!$this->isValidPeriod($periodFrom)) {
+            $periodFrom = '';
+        }
+
+        if (!$this->isValidPeriod($periodTo)) {
+            $periodTo = '';
+        }
+
+        if ($periodFrom !== '' && $periodTo !== '' && strcmp($periodFrom, $periodTo) > 0) {
+            [$periodFrom, $periodTo] = [$periodTo, $periodFrom];
+        }
+
+        $periodLabel = $period;
+        if ($periodFrom !== '' || $periodTo !== '') {
+            $periodLabel = ($periodFrom !== '' ? $periodFrom : '—') . ' → ' . ($periodTo !== '' ? $periodTo : '—');
+        }
+
         $accountId = trim((string) $req->get('accountId', ''));
         $accountId = $accountId !== '' ? $accountId : null;
 
@@ -119,6 +139,8 @@ final class BillingStatementsHubController extends Controller
         $accounts = $this->loadAccountsForIndex(
             q: $q,
             period: $period,
+            periodFrom: $periodFrom,
+            periodTo: $periodTo,
             accountId: $accountId,
             includeAnnual: $includeAnnual,
             onlySelected: $onlySelected,
@@ -127,12 +149,27 @@ final class BillingStatementsHubController extends Controller
 
         $accountIds = $accounts->pluck('id')->map(fn ($v) => trim((string) $v))->filter()->values()->all();
 
-        $mirrorCurrent = $this->loadBillingStatementsMirrorMap($accountIds, $period);
-        $mirrorPrev    = $this->loadPreviousOpenStatementsMap($accountIds, $period);
-        $payAgg        = $this->sumPaymentsPaidByAccountForPeriod($accountIds, $period);
-        $emailTracking = $this->trackingByAccountForPeriod($accountIds, $period);
+                $mirrorCurrent = ($periodFrom !== '' || $periodTo !== '')
+            ? $this->loadBillingStatementsMirrorMapForRange($accountIds, $periodFrom, $periodTo)
+            : $this->loadBillingStatementsMirrorMap($accountIds, $period);
 
-        $rowsCollection = $accounts->map(function (object $acc) use ($period, $mirrorCurrent, $mirrorPrev, $payAgg, $emailTracking) {
+        $mirrorPrev = ($periodFrom !== '' || $periodTo !== '')
+            ? []
+            : $this->loadPreviousOpenStatementsMap($accountIds, $period);
+
+        $payAgg = ($periodFrom !== '' || $periodTo !== '')
+            ? $this->sumPaymentsPaidByAccountForRange($accountIds, $periodFrom, $periodTo)
+            : $this->sumPaymentsPaidByAccountForPeriod($accountIds, $period);
+
+        $emailTracking = ($periodFrom !== '' || $periodTo !== '')
+            ? $this->trackingByAccountForRange($accountIds, $periodFrom, $periodTo)
+            : $this->trackingByAccountForPeriod($accountIds, $period);
+
+        $ovMap = ($periodFrom !== '' || $periodTo !== '')
+            ? $this->loadStatusOverridesMapForRange($accountIds, $periodFrom, $periodTo)
+            : $this->loadStatusOverridesMap($accountIds, $period);
+
+        $rowsCollection = $accounts->map(function (object $acc) use ($period, $periodFrom, $periodTo, $mirrorCurrent, $mirrorPrev, $payAgg, $emailTracking, $ovMap) {
             $aid = trim((string) ($acc->id ?? ''));
             $meta = $this->decodeMeta($acc->meta ?? null);
 
@@ -147,6 +184,8 @@ final class BillingStatementsHubController extends Controller
             $prevInfo  = $mirrorPrev[$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
             $payPaid   = (float) ($payAgg[$aid] ?? 0.0);
             $track     = $emailTracking[$aid] ?? [];
+            $ov        = $ovMap[$aid] ?? null;
+            $rangeActive = ($periodFrom !== '' || $periodTo !== '');
 
             if ($statement) {
                 $totalCurrent = (float) ($statement['total_cargo'] ?? 0);
@@ -164,7 +203,7 @@ final class BillingStatementsHubController extends Controller
 
                 $payAllowed = $lastPaid
                     ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-                    : $period;
+                    : ($periodTo !== '' ? $periodTo : $period);
 
                 $row->cargo          = round($totalCurrent, 2);
                 $row->expected_total = round((float) $expected, 2);
@@ -195,6 +234,35 @@ final class BillingStatementsHubController extends Controller
 
                 $row->tarifa_label = (string) $tarifaLabel;
                 $row->tarifa_pill  = (string) $tarifaPill;
+                $row->period       = $rangeActive
+                    ? (($statement['period_from'] ?? '') . ' → ' . ($statement['period_to'] ?? ''))
+                    : ($statement['period'] ?? $period);
+
+                if ($ov) {
+                    if (!empty($ov['status_override'])) {
+                        $row->status_override = $ov['status_override'];
+                        $row->status_pago     = $ov['status_override'];
+                    }
+
+                    if (!empty($ov['pay_method'])) {
+                        $row->ov_pay_method = $ov['pay_method'];
+                        $row->pay_method    = $ov['pay_method'];
+                    }
+
+                    if (!empty($ov['pay_provider'])) {
+                        $row->ov_pay_provider = $ov['pay_provider'];
+                        $row->pay_provider    = $ov['pay_provider'];
+                    }
+
+                    if (!empty($ov['pay_status'])) {
+                        $row->ov_pay_status = $ov['pay_status'];
+                        $row->pay_status    = $ov['pay_status'];
+                    }
+
+                    if (!empty($ov['paid_at'])) {
+                        $row->pay_last_paid_at = $ov['paid_at'];
+                    }
+                }
             } else {
                 $totalCurrent = (float) $expected;
                 $abono = round(max(0.0, $payPaid), 2);
@@ -216,7 +284,7 @@ final class BillingStatementsHubController extends Controller
                 $lastPaid = $this->resolveLastPaidPeriodForAccount($aid, $meta);
                 $payAllowed = $lastPaid
                     ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-                    : $period;
+                    : ($periodTo !== '' ? $periodTo : $period);
 
                 $row->cargo          = round($totalCurrent, 2);
                 $row->expected_total = round((float) $expected, 2);
@@ -247,6 +315,35 @@ final class BillingStatementsHubController extends Controller
 
                 $row->tarifa_label = (string) $tarifaLabel;
                 $row->tarifa_pill  = (string) $tarifaPill;
+                $row->period       = $rangeActive
+                    ? (($periodFrom !== '' ? $periodFrom : $period) . ' → ' . ($periodTo !== '' ? $periodTo : $period))
+                    : $period;
+
+                if ($ov) {
+                    if (!empty($ov['status_override'])) {
+                        $row->status_override = $ov['status_override'];
+                        $row->status_pago     = $ov['status_override'];
+                    }
+
+                    if (!empty($ov['pay_method'])) {
+                        $row->ov_pay_method = $ov['pay_method'];
+                        $row->pay_method    = $ov['pay_method'];
+                    }
+
+                    if (!empty($ov['pay_provider'])) {
+                        $row->ov_pay_provider = $ov['pay_provider'];
+                        $row->pay_provider    = $ov['pay_provider'];
+                    }
+
+                    if (!empty($ov['pay_status'])) {
+                        $row->ov_pay_status = $ov['pay_status'];
+                        $row->pay_status    = $ov['pay_status'];
+                    }
+
+                    if (!empty($ov['paid_at'])) {
+                        $row->pay_last_paid_at = $ov['paid_at'];
+                    }
+                }
             }
 
             $row->tracking_open_count  = (int) ($track['open_count'] ?? 0);
@@ -279,6 +376,9 @@ final class BillingStatementsHubController extends Controller
             'rows'         => $rows,
             'q'            => $q,
             'period'       => $period,
+            'periodFrom'   => $periodFrom,
+            'periodTo'     => $periodTo,
+            'periodLabel'  => $periodLabel,
             'accountId'    => $accountId,
             'status'       => $status,
             'perPage'      => $perPage,
@@ -342,8 +442,8 @@ final class BillingStatementsHubController extends Controller
             }
 
             $tos = !empty($overrideTos)
-                ? $overrideTos
-                : $this->parseToList((string) ($acc->email ?? ''));
+                    ? $overrideTos
+                    : $this->resolveRecipientsForAccount((string) $aid, (string) ($acc->email ?? ''));
 
             if (empty($tos)) {
                 $failed++;
@@ -366,7 +466,7 @@ final class BillingStatementsHubController extends Controller
                     'period'     => $period,
                     'email'      => $tos[0] ?? null,
                     'to_list'    => implode(',', $tos),
-                    'template'   => 'statement',
+                    'template'   => 'emails.admin.billing.statement_account_period',
                     'status'     => 'queued',
                     'provider'   => config('mail.default') ?: 'smtp',
                     'subject'    => $subject,
@@ -461,8 +561,9 @@ final class BillingStatementsHubController extends Controller
 
         $tos = $this->parseToList($toRaw);
         if (empty($tos)) {
-            $tos = $this->parseToList((string) ($acc->email ?? ''));
-        }
+            $tos = $this->resolveRecipientsForAccount($accountId, (string) ($acc->email ?? ''));
+}
+
         if (empty($tos)) {
             return back()->withErrors(['to' => 'No hay correos destino.']);
         }
@@ -482,7 +583,7 @@ final class BillingStatementsHubController extends Controller
             'period'     => $period,
             'email'      => $tos[0] ?? null,
             'to_list'    => implode(',', $tos),
-            'template'   => 'statement',
+            'template'   => 'emails.admin.billing.statement_account_period',
             'status'     => 'queued',
             'provider'   => config('mail.default') ?: 'smtp',
             'subject'    => $subject,
@@ -559,41 +660,81 @@ final class BillingStatementsHubController extends Controller
 
         $tos = $this->parseToList((string) ($row->to_list ?? $row->email ?? ''));
         if (empty($tos)) {
-            $tos = $this->parseToList((string) ($acc->email ?? ''));
+            $tos = $this->resolveRecipientsForAccount($accountId, (string) ($acc->email ?? ''));
         }
         if (empty($tos)) {
             return back()->withErrors(['email' => 'Sin destinatarios.']);
         }
 
         $emailId = (string) Str::ulid();
+        $payload = $this->buildStatementEmailPayloadPublic($acc, $accountId, $period, $emailId);
+
+        $subject = trim((string) ($payload['subject'] ?? ''));
+        if ($subject === '') {
+            $subject = 'Pactopia360 · Estado de cuenta ' . $period . ' · ' . (string) ($acc->razon_social ?? $acc->name ?? 'Cliente');
+        }
+
+        $newLogId = 0;
 
         try {
-            $payload = $this->buildStatementEmailPayloadPublic($acc, $accountId, $period, $emailId);
+            $newLogId = $this->insertEmailLog([
+                'email_id'   => $emailId,
+                'account_id' => $accountId,
+                'period'     => $period,
+                'email'      => $tos[0] ?? null,
+                'to_list'    => implode(',', $tos),
+                'template'   => 'emails.admin.billing.statement_account_period',
+                'status'     => 'queued',
+                'provider'   => config('mail.default') ?: 'smtp',
+                'subject'    => $subject,
+                'payload'    => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                'meta'       => json_encode([
+                    'source'         => 'admin_resend',
+                    'resend_of_log'  => (int) $id,
+                    'account_id'     => $accountId,
+                    'period'         => $period,
+                ], JSON_UNESCAPED_UNICODE),
+                'queued_at'  => now(),
+            ]);
 
             Mail::to($tos)->send(new StatementAccountPeriodMail($accountId, $period, $payload));
 
             DB::connection($this->adm)->table('billing_email_logs')
-                ->where('id', $id)
+                ->where('id', $newLogId)
                 ->update([
-                    'email_id'    => $emailId,
-                    'status'      => 'sent',
-                    'sent_at'     => now(),
-                    'failed_at'   => null,
-                    'subject'     => (string) ($payload['subject'] ?? null),
-                    'payload'     => json_encode($payload, JSON_UNESCAPED_UNICODE),
-                    'updated_at'  => now(),
+                    'status'     => 'sent',
+                    'sent_at'    => now(),
+                    'updated_at' => now(),
                 ]);
 
             return back()->with('ok', 'Reenvío OK. Nuevo email_id=' . $emailId);
         } catch (\Throwable $e) {
-            DB::connection($this->adm)->table('billing_email_logs')
-                ->where('id', $id)
-                ->update([
-                    'status'     => 'failed',
-                    'failed_at'  => now(),
-                    'updated_at' => now(),
-                    'meta'       => json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE),
-                ]);
+            if ($newLogId > 0) {
+                DB::connection($this->adm)->table('billing_email_logs')
+                    ->where('id', $newLogId)
+                    ->update([
+                        'status'     => 'failed',
+                        'failed_at'  => now(),
+                        'updated_at' => now(),
+                        'meta'       => json_encode([
+                            'error'         => $e->getMessage(),
+                            'source'        => 'admin_resend',
+                            'resend_of_log' => (int) $id,
+                            'account_id'    => $accountId,
+                            'period'        => $period,
+                        ], JSON_UNESCAPED_UNICODE),
+                    ]);
+            }
+
+            Log::error('[BILLING_HUB][resendEmail] fallo', [
+                'log_id'     => $id,
+                'new_log_id' => $newLogId,
+                'account_id' => $accountId,
+                'period'     => $period,
+                'to'         => $tos,
+                'email_id'   => $emailId,
+                'e'          => $e->getMessage(),
+            ]);
 
             return back()->withErrors(['email' => 'Reenvío falló: ' . $e->getMessage()]);
         }
@@ -1004,6 +1145,8 @@ final class BillingStatementsHubController extends Controller
     private function loadAccountsForIndex(
         string $q,
         string $period,
+        string $periodFrom,
+        string $periodTo,
         ?string $accountId,
         bool $includeAnnual,
         bool $onlySelected,
@@ -1082,10 +1225,12 @@ final class BillingStatementsHubController extends Controller
             }
         }
 
+        $rangeEnd = $periodTo !== '' ? $periodTo : ($periodFrom !== '' ? $periodFrom : $period);
+
         if (!$includeAnnual && $hasSubs) {
             $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
             $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
-            $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$period]);
+            $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$rangeEnd]);
         } elseif (!$includeAnnual && !$hasSubs) {
             $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
         }
@@ -1516,6 +1661,58 @@ final class BillingStatementsHubController extends Controller
     // =========================================================
     // PRIVATE: EMAIL HELPERS
     // =========================================================
+
+    /**
+     * @return array<int,string>
+     */
+    private function resolveRecipientsForAccount(string $accountId, string $fallbackEmail = ''): array
+    {
+        $emails = [];
+
+        $fallbackEmail = strtolower(trim($fallbackEmail));
+        if ($fallbackEmail !== '' && filter_var($fallbackEmail, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $fallbackEmail;
+        }
+
+        if (Schema::connection($this->adm)->hasTable('account_recipients')) {
+            try {
+                $q = DB::connection($this->adm)->table('account_recipients')
+                    ->select('email')
+                    ->where('account_id', $accountId);
+
+                if (Schema::connection($this->adm)->hasColumn('account_recipients', 'is_active')) {
+                    $q->where('is_active', 1);
+                }
+
+                if (Schema::connection($this->adm)->hasColumn('account_recipients', 'kind')) {
+                    $q->where(function ($w) {
+                        $w->where('kind', 'statement')
+                        ->orWhereNull('kind');
+                    });
+                }
+
+                if (Schema::connection($this->adm)->hasColumn('account_recipients', 'is_primary')) {
+                    $q->orderByDesc('is_primary');
+                }
+
+                $rows = $q->orderBy('email')->get();
+
+                foreach ($rows as $row) {
+                    $e = strtolower(trim((string) ($row->email ?? '')));
+                    if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
+                        $emails[] = $e;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[BILLING_HUB][resolveRecipientsForAccount] fallo', [
+                    'account_id' => $accountId,
+                    'err'        => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return array_values(array_unique($emails));
+    }
 
     /**
      * @return array<string,mixed>
@@ -2420,6 +2617,395 @@ final class BillingStatementsHubController extends Controller
 
         foreach ($out as $aid => $vals) {
             $out[$aid]['prev_balance'] = round((float) ($vals['prev_balance'] ?? 0), 2);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int|string> $accountIds
+     * @return array<string, array<string,mixed>>
+     */
+    private function loadStatusOverridesMap(array $accountIds, string $period): array
+    {
+        $out = [];
+
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_statement_status_overrides')) {
+            return $out;
+        }
+
+        // 🔥 Detectar si existe columna meta (dinámico)
+        $hasMeta = Schema::connection($this->adm)
+            ->hasColumn('billing_statement_status_overrides', 'meta');
+
+        $query = DB::connection($this->adm)
+            ->table('billing_statement_status_overrides')
+            ->whereIn('account_id', $accountIds)
+            ->where('period', $period)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
+
+        $cols = [
+            'id',
+            'account_id',
+            'period',
+            'status_override',
+            'updated_at',
+        ];
+
+        if ($hasMeta) {
+            $cols[] = 'meta';
+        }
+
+        $rows = $query->get($cols);
+
+        foreach ($rows as $row) {
+            $aid = trim((string) ($row->account_id ?? ''));
+            if ($aid === '' || isset($out[$aid])) {
+                continue;
+            }
+
+            $meta = [];
+
+            // 🔥 Solo si existe columna meta
+            if ($hasMeta && !empty($row->meta) && is_string($row->meta)) {
+                try {
+                    $decoded = json_decode($row->meta, true);
+                    if (is_array($decoded)) {
+                        $meta = $decoded;
+                    }
+                } catch (\Throwable $e) {
+                    $meta = [];
+                }
+            }
+
+            $out[$aid] = [
+                'status_override' => $this->normalizeStatus((string) ($row->status_override ?? '')),
+                'pay_method'      => strtolower(trim((string) ($meta['pay_method'] ?? ''))),
+                'pay_provider'    => strtolower(trim((string) ($meta['pay_provider'] ?? ''))),
+                'pay_status'      => $this->normalizeStatus((string) ($meta['pay_status'] ?? ($row->status_override ?? ''))),
+                'paid_at'         => $meta['paid_at'] ?? null,
+                'updated_at'      => $row->updated_at ?? null,
+            ];
+        }
+
+        return $out;
+    }
+
+        /**
+     * @param array<int|string> $accountIds
+     * @return array<string, array<string,mixed>>
+     */
+    private function loadBillingStatementsMirrorMapForRange(array $accountIds, string $periodFrom, string $periodTo): array
+    {
+        $out = [];
+
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_statements')) {
+            return $out;
+        }
+
+        $from = $periodFrom !== '' ? $periodFrom : '0000-01';
+        $to   = $periodTo !== '' ? $periodTo : '9999-12';
+
+        $refToAdmin = [];
+        $allRefs    = [];
+
+        foreach ($accountIds as $aid) {
+            $aidStr = trim((string) $aid);
+            if ($aidStr === '') {
+                continue;
+            }
+
+            $refs = $this->billingStatementRefsForAdminAccount($aidStr);
+            foreach ($refs as $ref) {
+                $refToAdmin[$ref] = $aidStr;
+                $allRefs[] = $ref;
+            }
+        }
+
+        $allRefs = array_values(array_unique(array_filter($allRefs)));
+        if (!$allRefs) {
+            return $out;
+        }
+
+        $rows = DB::connection($this->adm)->table('billing_statements')
+            ->whereIn('account_id', $allRefs)
+            ->where('period', '>=', $from)
+            ->where('period', '<=', $to)
+            ->orderBy('period')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'account_id',
+                'period',
+                'status',
+                'total_cargo',
+                'total_abono',
+                'saldo',
+                'paid_at',
+                'updated_at',
+            ]);
+
+        foreach ($rows as $row) {
+            $ref = trim((string) ($row->account_id ?? ''));
+            if ($ref === '' || !isset($refToAdmin[$ref])) {
+                continue;
+            }
+
+            $adminId = $refToAdmin[$ref];
+
+            if (!isset($out[$adminId])) {
+                $out[$adminId] = [
+                    'id'          => 0,
+                    'account_ref' => $ref,
+                    'period'      => '',
+                    'period_from' => null,
+                    'period_to'   => null,
+                    'status'      => 'sin_mov',
+                    'total_cargo' => 0.0,
+                    'total_abono' => 0.0,
+                    'saldo'       => 0.0,
+                    'paid_at'     => null,
+                    'updated_at'  => null,
+                ];
+            }
+
+            $p = (string) ($row->period ?? '');
+            $out[$adminId]['id'] = max((int) $out[$adminId]['id'], (int) ($row->id ?? 0));
+            $out[$adminId]['period_from'] = $out[$adminId]['period_from'] ?: $p;
+            $out[$adminId]['period_to']   = $p !== '' ? $p : $out[$adminId]['period_to'];
+            $out[$adminId]['period']      = $p;
+            $out[$adminId]['total_cargo'] += round((float) ($row->total_cargo ?? 0), 2);
+            $out[$adminId]['total_abono'] += round((float) ($row->total_abono ?? 0), 2);
+            $out[$adminId]['saldo']       += round((float) ($row->saldo ?? 0), 2);
+            $out[$adminId]['updated_at']   = $row->updated_at ?? $out[$adminId]['updated_at'];
+
+            $status = $this->normalizeStatus((string) ($row->status ?? 'pendiente'));
+            if ($status === 'vencido') {
+                $out[$adminId]['status'] = 'vencido';
+            } elseif ($status === 'parcial' && $out[$adminId]['status'] !== 'vencido') {
+                $out[$adminId]['status'] = 'parcial';
+            } elseif ($status === 'pendiente' && !in_array($out[$adminId]['status'], ['vencido', 'parcial'], true)) {
+                $out[$adminId]['status'] = 'pendiente';
+            }
+
+            if (!empty($row->paid_at)) {
+                $out[$adminId]['paid_at'] = $row->paid_at;
+            }
+        }
+
+        foreach ($out as $aid => $vals) {
+            $cargo = round((float) ($vals['total_cargo'] ?? 0), 2);
+            $abono = round((float) ($vals['total_abono'] ?? 0), 2);
+            $saldo = round(max(0.0, (float) ($vals['saldo'] ?? max(0.0, $cargo - $abono))), 2);
+
+            $out[$aid]['total_cargo'] = $cargo;
+            $out[$aid]['total_abono'] = $abono;
+            $out[$aid]['saldo'] = $saldo;
+
+            if ($saldo <= 0.00001 && $cargo > 0.00001) {
+                $out[$aid]['status'] = 'pagado';
+            } elseif ($cargo <= 0.00001 && $abono <= 0.00001) {
+                $out[$aid]['status'] = 'sin_mov';
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int,string> $accountIds
+     * @return array<string,float>
+     */
+    private function sumPaymentsPaidByAccountForRange(array $accountIds, string $periodFrom, string $periodTo): array
+    {
+        $ids = array_values(array_unique(array_filter($accountIds)));
+        if (empty($ids) || !Schema::connection($this->adm)->hasTable('payments')) {
+            return [];
+        }
+
+        $cols = Schema::connection($this->adm)->getColumnListing('payments');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        if (!$has('account_id') || !$has('period')) {
+            return [];
+        }
+
+        $from = $periodFrom !== '' ? $periodFrom : '0000-01';
+        $to   = $periodTo !== '' ? $periodTo : '9999-12';
+
+        $amtExpr = $this->paymentsAmountExpr();
+
+        $q = DB::connection($this->adm)->table('payments')
+            ->whereIn('account_id', $ids)
+            ->where('period', '>=', $from)
+            ->where('period', '<=', $to);
+
+        if ($has('status')) {
+            $q->whereIn(DB::raw('LOWER(status)'), [
+                'paid', 'succeeded', 'success', 'completed', 'complete', 'captured', 'authorized', 'pagado', 'paid_ok', 'ok',
+            ]);
+        }
+
+        $rows = $q->selectRaw("account_id as aid, SUM($amtExpr) AS paid_mxn")
+            ->groupBy('account_id')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $aid = trim((string) ($r->aid ?? ''));
+            if ($aid !== '') {
+                $out[$aid] = round((float) ($r->paid_mxn ?? 0), 2);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int|string> $accountIds
+     * @return array<string, array<string, mixed>>
+     */
+    private function trackingByAccountForRange(array $accountIds, string $periodFrom, string $periodTo): array
+    {
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_email_logs')) {
+            return [];
+        }
+
+        $from = $periodFrom !== '' ? $periodFrom : '0000-01';
+        $to   = $periodTo !== '' ? $periodTo : '9999-12';
+
+        $rows = DB::connection($this->adm)->table('billing_email_logs')
+            ->selectRaw('
+                account_id as aid,
+                SUM(COALESCE(open_count,0))   as open_count,
+                SUM(COALESCE(click_count,0))  as click_count,
+                MIN(first_open_at)            as first_open_at,
+                MAX(last_open_at)             as last_open_at,
+                MIN(first_click_at)           as first_click_at,
+                MAX(last_click_at)            as last_click_at,
+                MAX(sent_at)                  as last_sent_at
+            ')
+            ->where('period', '>=', $from)
+            ->where('period', '<=', $to)
+            ->whereIn('account_id', $accountIds)
+            ->groupBy('account_id')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $aid = (string) ($r->aid ?? '');
+            if ($aid === '') {
+                continue;
+            }
+
+            $out[$aid] = [
+                'open_count'     => (int) ($r->open_count ?? 0),
+                'click_count'    => (int) ($r->click_count ?? 0),
+                'first_open_at'  => $r->first_open_at,
+                'last_open_at'   => $r->last_open_at,
+                'first_click_at' => $r->first_click_at,
+                'last_click_at'  => $r->last_click_at,
+                'last_sent_at'   => $r->last_sent_at,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int|string> $accountIds
+     * @return array<string, array<string,mixed>>
+     */
+    private function loadStatusOverridesMapForRange(array $accountIds, string $periodFrom, string $periodTo): array
+    {
+        $out = [];
+
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_statement_status_overrides')) {
+            return $out;
+        }
+
+        $from = $periodFrom !== '' ? $periodFrom : '0000-01';
+        $to   = $periodTo !== '' ? $periodTo : '9999-12';
+
+        $hasMeta = Schema::connection($this->adm)
+            ->hasColumn('billing_statement_status_overrides', 'meta');
+
+        $query = DB::connection($this->adm)
+            ->table('billing_statement_status_overrides')
+            ->whereIn('account_id', $accountIds)
+            ->where('period', '>=', $from)
+            ->where('period', '<=', $to)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
+
+        $cols = [
+            'id',
+            'account_id',
+            'period',
+            'status_override',
+            'updated_at',
+        ];
+
+        if ($hasMeta) {
+            $cols[] = 'meta';
+        }
+
+        $rows = $query->get($cols);
+
+        foreach ($rows as $row) {
+            $aid = trim((string) ($row->account_id ?? ''));
+            if ($aid === '') {
+                continue;
+            }
+
+            $meta = [];
+            if ($hasMeta && !empty($row->meta) && is_string($row->meta)) {
+                try {
+                    $decoded = json_decode($row->meta, true);
+                    if (is_array($decoded)) {
+                        $meta = $decoded;
+                    }
+                } catch (\Throwable $e) {
+                    $meta = [];
+                }
+            }
+
+            if (!isset($out[$aid])) {
+                $out[$aid] = [
+                    'status_override' => $this->normalizeStatus((string) ($row->status_override ?? '')),
+                    'pay_method'      => strtolower(trim((string) ($meta['pay_method'] ?? ''))),
+                    'pay_provider'    => strtolower(trim((string) ($meta['pay_provider'] ?? ''))),
+                    'pay_status'      => $this->normalizeStatus((string) ($meta['pay_status'] ?? ($row->status_override ?? ''))),
+                    'paid_at'         => $meta['paid_at'] ?? null,
+                    'updated_at'      => $row->updated_at ?? null,
+                ];
+                continue;
+            }
+
+            $status = $this->normalizeStatus((string) ($row->status_override ?? ''));
+            if ($status === 'vencido') {
+                $out[$aid]['status_override'] = 'vencido';
+            } elseif ($status === 'parcial' && $out[$aid]['status_override'] !== 'vencido') {
+                $out[$aid]['status_override'] = 'parcial';
+            } elseif ($status === 'pendiente' && !in_array($out[$aid]['status_override'], ['vencido', 'parcial'], true)) {
+                $out[$aid]['status_override'] = 'pendiente';
+            }
+
+            if (!empty($meta['paid_at'])) {
+                $out[$aid]['paid_at'] = $meta['paid_at'];
+            }
+            if (!empty($meta['pay_method'])) {
+                $out[$aid]['pay_method'] = strtolower(trim((string) $meta['pay_method']));
+            }
+            if (!empty($meta['pay_provider'])) {
+                $out[$aid]['pay_provider'] = strtolower(trim((string) $meta['pay_provider']));
+            }
+            if (!empty($meta['pay_status'])) {
+                $out[$aid]['pay_status'] = $this->normalizeStatus((string) $meta['pay_status']);
+            }
         }
 
         return $out;

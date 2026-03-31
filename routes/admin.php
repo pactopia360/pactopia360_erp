@@ -38,6 +38,7 @@ use App\Http\Controllers\Admin\Billing\BillingStatementsController;
 
 // HUB nuevo (estados + pagos + emails + facturas + tracking)
 use App\Http\Controllers\Admin\Billing\BillingStatementsHubController;
+use App\Http\Controllers\Admin\Billing\BillingStatementEmailsController;
 
 // Invoicing admin
 use App\Http\Controllers\Admin\Billing\InvoicingDashboardController;
@@ -425,7 +426,7 @@ Route::middleware([
         ->middleware(perm_mw('reportes.ver'))
         ->name('reportes.index');
 
-    /*
+        /*
     |--------------------------------------------------------------------------
     | CLIENTES
     |--------------------------------------------------------------------------
@@ -506,17 +507,11 @@ Route::middleware([
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.save');
 
-            $clientesSaveRfcCompat = Route::post('clientes/{rfc}/save', [ClientesController::class, 'save'])
-                ->where('rfc', '[A-Za-z0-9]+')
-                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
-                ->name('clientes.save.rfc_compat');
-
             if ($isLocal) {
                 foreach ([
                     $clientesSavePostDirect,
                     $clientesSavePutDirect,
                     $clientesSaveKey,
-                    $clientesSaveRfcCompat,
                 ] as $rt) {
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
@@ -536,39 +531,45 @@ Route::middleware([
         }
 
         if (method_exists(ClientesController::class, 'block')) {
-            $rt = Route::post('clientes/{rfc}/block', [ClientesController::class, 'block'])
+            $rt = Route::post('clientes/{key}/block', [ClientesController::class, 'block'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.block');
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         if (method_exists(ClientesController::class, 'unblock')) {
-            $rt = Route::post('clientes/{rfc}/unblock', [ClientesController::class, 'unblock'])
+            $rt = Route::post('clientes/{key}/unblock', [ClientesController::class, 'unblock'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.unblock');
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         if (method_exists(ClientesController::class, 'deactivate')) {
-            $rt = Route::post('clientes/{rfc}/deactivate', [ClientesController::class, 'deactivate'])
+            $rt = Route::post('clientes/{key}/deactivate', [ClientesController::class, 'deactivate'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.deactivate');
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         if (method_exists(ClientesController::class, 'reactivate')) {
-            $rt = Route::post('clientes/{rfc}/reactivate', [ClientesController::class, 'reactivate'])
+            $rt = Route::post('clientes/{key}/reactivate', [ClientesController::class, 'reactivate'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.reactivate');
             if ($isLocal) $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
         if (method_exists(ClientesController::class, 'destroy')) {
-            $rt = Route::post('clientes/{rfc}/destroy', [ClientesController::class, 'destroy'])
+            $rt = Route::post('clientes/{key}/destroy', [ClientesController::class, 'destroy'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.destroy');
 
-            $rt2 = Route::post('clientes/{rfc}/delete', [ClientesController::class, 'destroy'])
+            $rt2 = Route::post('clientes/{key}/delete', [ClientesController::class, 'destroy'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.delete');
 
@@ -578,35 +579,43 @@ Route::middleware([
             }
         }
 
-        $resendV = Route::post('clientes/{rfc}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
+        $resendV = Route::post('clientes/{key}/resend-email-verification', [ClientesController::class, 'resendEmailVerification'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmailVerification');
 
-        $sendOtp = Route::post('clientes/{rfc}/send-phone-otp', [ClientesController::class, 'sendPhoneOtp'])
+        $sendOtp = Route::post('clientes/{key}/send-phone-otp', [ClientesController::class, 'sendPhoneOtp'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.sendPhoneOtp');
 
-        $forceMail = Route::post('clientes/{rfc}/force-email-verified', [ClientesController::class, 'forceEmailVerified'])
+        $forceMail = Route::post('clientes/{key}/force-email-verified', [ClientesController::class, 'forceEmailVerified'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forceEmailVerified');
 
-        $forcePhone = Route::post('clientes/{rfc}/force-phone-verified', [ClientesController::class, 'forcePhoneVerified'])
+        $forcePhone = Route::post('clientes/{key}/force-phone-verified', [ClientesController::class, 'forcePhoneVerified'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhoneVerified');
 
-        $resendV2 = Route::post('clientes/{rfc}/resend-email', [ClientesController::class, 'resendEmailVerification'])
+        $resendV2 = Route::post('clientes/{key}/resend-email', [ClientesController::class, 'resendEmailVerification'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resendEmail');
 
-        $sendOtp2 = Route::post('clientes/{rfc}/send-otp', [ClientesController::class, 'sendPhoneOtp'])
+        $sendOtp2 = Route::post('clientes/{key}/send-otp', [ClientesController::class, 'sendPhoneOtp'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.sendOtp');
 
-        $forceMail2 = Route::post('clientes/{rfc}/force-email', [ClientesController::class, 'forceEmailVerified'])
+        $forceMail2 = Route::post('clientes/{key}/force-email', [ClientesController::class, 'forceEmailVerified'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forceEmail');
 
-        $forcePhone2 = Route::post('clientes/{rfc}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
+        $forcePhone2 = Route::post('clientes/{key}/force-phone', [ClientesController::class, 'forcePhoneVerified'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.forcePhone');
 
@@ -625,34 +634,30 @@ Route::middleware([
             }
         }
 
-        $rp = Route::match(['GET', 'POST'], 'clientes/{rfcOrId}/reset-password', [ClientesController::class, 'resetPassword'])
+        $rp = Route::match(['GET', 'POST'], 'clientes/{key}/reset-password', [ClientesController::class, 'resetPassword'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.resetPassword');
-        
-        // ✅ COMPAT GET: evita pantalla 419/expirada cuando alguien abre
-        // /admin/clientes/{rfc|id}/email-credentials directo en navegador.
-        Route::get('clientes/{rfc}/email-credentials', function (string $rfc) {
+
+        Route::get('clientes/{key}/email-credentials', function (string $key) {
             if (!auth('admin')->check()) {
                 return redirect()->route('admin.login');
             }
 
             $target = \Illuminate\Support\Facades\Route::has('admin.clientes.show')
-                ? route('admin.clientes.show', ['key' => $rfc])
-                : route('admin.clientes.index', ['q' => $rfc]);
+                ? route('admin.clientes.show', ['key' => $key])
+                : route('admin.clientes.index', ['q' => $key]);
 
             return redirect($target)->with(
                 'info',
                 'La URL de envío de credenciales no es una pantalla. Ya te redirigimos al cliente para que envíes las credenciales desde ahí.'
             );
-        })->where('rfc', '[A-Za-z0-9\-]+')
+        })->where('key', '[A-Za-z0-9\-]+')
           ->middleware(perm_mw('clientes.ver'))
           ->name('clientes.emailCredentials.get_compat');
 
-        $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
-            ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
-            ->name('clientes.emailCredentials');
-
-        $emailCreds = Route::post('clientes/{rfc}/email-credentials', [ClientesController::class, 'emailCredentials'])
+        $emailCreds = Route::post('clientes/{key}/email-credentials', [ClientesController::class, 'emailCredentials'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
             ->name('clientes.emailCredentials');
 
@@ -662,7 +667,8 @@ Route::middleware([
             }
         }
 
-        $imp = Route::post('clientes/{rfc}/impersonate', [ClientesController::class, 'impersonate'])
+        $imp = Route::post('clientes/{key}/impersonate', [ClientesController::class, 'impersonate'])
+            ->where('key', '[A-Za-z0-9\-]+')
             ->middleware([$thrAdminPosts, ...perm_mw(['clientes.ver', 'clientes.impersonate'])])
             ->name('clientes.impersonate');
 
@@ -671,11 +677,13 @@ Route::middleware([
         }
 
         if (method_exists(ClientesController::class, 'recipientsUpsert')) {
-            $r1 = Route::post('clientes/{rfc}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
+            $r1 = Route::post('clientes/{key}/recipients-upsert', [ClientesController::class, 'recipientsUpsert'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipientsUpsert');
 
-            $r2 = Route::post('clientes/{rfc}/recipients', [ClientesController::class, 'recipientsUpsert'])
+            $r2 = Route::post('clientes/{key}/recipients', [ClientesController::class, 'recipientsUpsert'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.recipients');
 
@@ -687,7 +695,8 @@ Route::middleware([
         }
 
         if (method_exists(ClientesController::class, 'seedStatement')) {
-            $rt = Route::post('clientes/{rfc}/seed-statement', [ClientesController::class, 'seedStatement'])
+            $rt = Route::post('clientes/{key}/seed-statement', [ClientesController::class, 'seedStatement'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.seedStatement');
 
@@ -695,7 +704,8 @@ Route::middleware([
         }
 
         if (method_exists(ClientesController::class, 'sendCredentialsAndMaybeStatement')) {
-            $rt = Route::post('clientes/{rfc}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+            $rt = Route::post('clientes/{key}/send-credentials', [ClientesController::class, 'sendCredentialsAndMaybeStatement'])
+                ->where('key', '[A-Za-z0-9\-]+')
                 ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
                 ->name('clientes.sendCredentials');
 
@@ -834,9 +844,30 @@ Route::middleware([
             $bulkPay->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // Legacy statements
-        Route::get('statements', [BillingStatementsController::class, 'index'])
+        // Statements index principal -> HUB moderno
+        Route::get('statements', [BillingStatementsHubController::class, 'index'])
             ->name('statements.index');
+
+        // Email Estados
+        Route::get('statement-emails', [BillingStatementEmailsController::class, 'index'])
+            ->name('statement_emails.index');
+
+        Route::get('statement-emails/{id}', [BillingStatementEmailsController::class, 'show'])
+            ->whereNumber('id')
+            ->name('statement_emails.show');
+
+        Route::get('statement-emails/{id}/preview', [BillingStatementEmailsController::class, 'preview'])
+            ->whereNumber('id')
+            ->name('statement_emails.preview');
+
+        $statementEmailsResend = Route::post('statement-emails/{id}/resend', [BillingStatementEmailsController::class, 'resend'])
+            ->whereNumber('id')
+            ->middleware($thrAdminPosts)
+            ->name('statement_emails.resend');
+
+        if ($isLocal) {
+            $statementEmailsResend->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+        }
 
         $stStatus = Route::post('statements/status', [BillingStatementsController::class, 'statusAjax'])
             ->middleware($thrAdminPosts)
