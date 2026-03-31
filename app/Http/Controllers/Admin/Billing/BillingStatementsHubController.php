@@ -217,7 +217,7 @@ final class BillingStatementsHubController extends Controller
                 // El mirror refleja EdoCta, pero payments viene aparte en este HUB.
                 // Para UI/negocio consolidamos ambos.
                 $abonoMirror = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
-                $abonoTotal  = round($abonoMirror + $payPaid, 2);
+                $abonoTotal  = round(max($abonoMirror, $payPaid, $abonoMirror + $payPaid), 2);
 
                 $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
                 $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
@@ -313,14 +313,43 @@ final class BillingStatementsHubController extends Controller
                     : $period;
             }
 
-            // Overrides:
-            // en rango NO forzamos status_override al resumen agregado porque puede marcar "pagado"
-            // aunque aún exista saldo en el total consolidado.
+                        // Overrides:
+            // En rango NO forzamos status_override al resumen agregado.
+            // En periodo único solo aplicamos override si NO contradice la realidad financiera.
             if ($ov) {
-                if (!$rangeActive && !empty($ov['status_override'])) {
-                    $row->status_override = $ov['status_override'];
-                    $row->status_pago     = $ov['status_override'];
-                    $row->status_auto     = $ov['status_override'];
+                $overrideStatus = !empty($ov['status_override'])
+                    ? $this->normalizeStatus((string) $ov['status_override'])
+                    : null;
+
+                if (!$rangeActive && $overrideStatus) {
+                    $canApplyOverride = true;
+
+                    $saldoPeriodo = $this->normalizeMoney($row->saldo_current ?? 0.0);
+                    $saldoTotal   = $this->normalizeMoney($row->total_due ?? 0.0);
+                    $cargoShown   = $this->normalizeMoney($row->total_shown ?? 0.0);
+                    $abonoShown   = $this->normalizeMoney($row->abono ?? 0.0);
+
+                    if ($overrideStatus === 'pagado' && $saldoTotal > 0.00001) {
+                        $canApplyOverride = false;
+                    }
+
+                    if ($overrideStatus === 'sin_mov' && ($cargoShown > 0.00001 || $abonoShown > 0.00001 || $saldoTotal > 0.00001)) {
+                        $canApplyOverride = false;
+                    }
+
+                    if ($overrideStatus === 'vencido' && $saldoTotal <= 0.00001) {
+                        $canApplyOverride = false;
+                    }
+
+                    if ($overrideStatus === 'parcial' && !($abonoShown > 0.00001 && $saldoPeriodo > 0.00001)) {
+                        $canApplyOverride = false;
+                    }
+
+                    if ($canApplyOverride) {
+                        $row->status_override = $overrideStatus;
+                        $row->status_pago     = $overrideStatus;
+                        $row->status_auto     = $overrideStatus;
+                    }
                 }
 
                 if (!empty($ov['pay_method'])) {
@@ -334,8 +363,8 @@ final class BillingStatementsHubController extends Controller
                 }
 
                 if (!empty($ov['pay_status'])) {
-                    $row->ov_pay_status = $ov['pay_status'];
-                    $row->pay_status    = $ov['pay_status'];
+                    $row->ov_pay_status = $this->normalizeStatus((string) $ov['pay_status']);
+                    $row->pay_status    = $this->normalizeStatus((string) $ov['pay_status']);
                 }
 
                 if (!empty($ov['paid_at'])) {
@@ -1161,7 +1190,9 @@ final class BillingStatementsHubController extends Controller
             'name', 'razon_social', 'rfc',
             'plan', 'plan_actual', 'modo_cobro', 'billing_cycle',
             'is_blocked', 'estado_cuenta',
-            'meta', 'created_at',
+            'meta', 'created_at', 'updated_at',
+            'deleted_at', 'is_deleted', 'deleted', 'eliminado',
+            'status', 'account_status',
         ] as $c) {
             if ($has($c)) {
                 $select[] = "accounts.$c";
@@ -1197,8 +1228,36 @@ final class BillingStatementsHubController extends Controller
             $select[] = DB::raw('sx_sub.status as sub_status');
         }
 
-        $qb->select($select)
-            ->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id');
+        $qb->select(array_values(array_unique($select)));
+
+        // =====================================================
+        // EXCLUIR CUENTAS ELIMINADAS / BORRADAS
+        // =====================================================
+        if ($has('deleted_at')) {
+            $qb->whereNull('accounts.deleted_at');
+        }
+
+        foreach (['is_deleted', 'deleted', 'eliminado'] as $flagCol) {
+            if ($has($flagCol)) {
+                $qb->where(function ($w) use ($flagCol) {
+                    $w->whereNull("accounts.$flagCol")
+                      ->orWhere("accounts.$flagCol", 0)
+                      ->orWhere("accounts.$flagCol", '0')
+                      ->orWhere("accounts.$flagCol", false);
+                });
+            }
+        }
+
+        foreach (['status', 'account_status', 'estado_cuenta'] as $statusCol) {
+            if ($has($statusCol)) {
+                $qb->where(function ($w) use ($statusCol) {
+                    $w->whereNull("accounts.$statusCol")
+                      ->orWhereRaw(
+                          "LOWER(TRIM(COALESCE(accounts.$statusCol,''))) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')"
+                      );
+                });
+            }
+        }
 
         if ($onlySelected) {
             $qb->whereIn('accounts.id', $selectedIds);
@@ -1210,15 +1269,19 @@ final class BillingStatementsHubController extends Controller
             if ($q !== '') {
                 $qb->where(function ($w) use ($q, $has) {
                     $w->where('accounts.id', 'like', "%{$q}%");
+
                     if ($has('name')) {
                         $w->orWhere('accounts.name', 'like', "%{$q}%");
                     }
+
                     if ($has('razon_social')) {
                         $w->orWhere('accounts.razon_social', 'like', "%{$q}%");
                     }
+
                     if ($has('rfc')) {
                         $w->orWhere('accounts.rfc', 'like', "%{$q}%");
                     }
+
                     $w->orWhere('accounts.email', 'like', "%{$q}%");
                 });
             }
@@ -1234,7 +1297,23 @@ final class BillingStatementsHubController extends Controller
             $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
         }
 
-        return collect($qb->get());
+        $rows = collect(
+            $qb->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id')->get()
+        );
+
+        // =====================================================
+        // DEDUPLICAR POR ID
+        // =====================================================
+        $rows = $rows
+            ->filter(function ($r) {
+                return trim((string) ($r->id ?? '')) !== '';
+            })
+            ->unique(function ($r) {
+                return trim((string) ($r->id ?? ''));
+            })
+            ->values();
+
+        return $rows;
     }
 
     /**
