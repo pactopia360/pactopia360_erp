@@ -317,73 +317,70 @@ final class BillingStatementsHubController extends Controller
             // En rango NO forzamos status_override al resumen agregado.
             // En periodo único SÍ respetamos el override manual.
             if ($ov) {
-                $overrideStatus = !empty($ov['status_override'])
-                    ? $this->normalizeStatus((string) $ov['status_override'])
-                    : null;
+            $overrideStatus = !empty($ov['status_override'])
+                ? $this->normalizeStatus((string) $ov['status_override'])
+                : null;
 
-                if (!$rangeActive && $overrideStatus) {
-                    $cargoShown   = $this->normalizeMoney($row->total_shown ?? 0.0);
-                    $abonoShown   = $this->normalizeMoney($row->abono ?? 0.0);
-                    $prevBalance  = $this->normalizeMoney($row->prev_balance ?? 0.0);
-                    $saldoPeriodo = $this->normalizeMoney($row->saldo_current ?? 0.0);
+            if (!$rangeActive && $overrideStatus) {
+                $cargoShown   = $this->normalizeMoney($row->total_shown ?? 0.0);
+                $abonoShown   = $this->normalizeMoney($row->abono ?? 0.0);
+                $prevBalance  = $this->normalizeMoney($row->prev_balance ?? 0.0);
 
-                    if ($overrideStatus === 'pagado') {
-                        $row->abono         = round(max($abonoShown, $cargoShown), 2);
-                        $row->saldo_current = 0.0;
-                        $row->saldo_shown   = 0.0;
-                        $row->saldo         = 0.0;
-                        $row->total_due     = round(max(0.0, $prevBalance), 2);
+                $row->status_override = $overrideStatus;
 
-                        $row->status_override = 'pagado';
-                        $row->status_pago     = $prevBalance > 0.00001 ? 'vencido' : 'pagado';
-                        $row->status_auto     = $row->status_pago;
-                    } elseif ($overrideStatus === 'sin_mov') {
-                        $row->status_override = 'sin_mov';
-                        $row->status_pago     = 'sin_mov';
-                        $row->status_auto     = 'sin_mov';
-                    } elseif ($overrideStatus === 'parcial') {
-                        if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
-                            $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
-                        }
+                if ($overrideStatus === 'pagado') {
+                    $row->abono         = round(max($abonoShown, $cargoShown), 2);
+                    $row->saldo_current = 0.0;
+                    $row->saldo_shown   = 0.0;
+                    $row->saldo         = 0.0;
+                    $row->total_due     = round(max(0.0, $prevBalance), 2);
 
-                        $row->saldo_current = round(max(0.0, $cargoShown - (float) $row->abono), 2);
-                        $row->saldo_shown   = $row->saldo_current;
-                        $row->saldo         = $row->saldo_current;
-                        $row->total_due     = round(max(0.0, $row->saldo_current + $prevBalance), 2);
-
-                        $row->status_override = 'parcial';
-                        $row->status_pago     = 'parcial';
-                        $row->status_auto     = 'parcial';
-                    } elseif ($overrideStatus === 'vencido') {
-                        $row->status_override = 'vencido';
-                        $row->status_pago     = 'vencido';
-                        $row->status_auto     = 'vencido';
-                    } else {
-                        $row->status_override = 'pendiente';
-                        $row->status_pago     = 'pendiente';
-                        $row->status_auto     = 'pendiente';
+                    // Visible = pagado manual
+                    $row->status_pago = 'pagado';
+                    $row->status_auto = 'pagado';
+                } elseif ($overrideStatus === 'parcial') {
+                    if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
+                        $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
                     }
-                }
 
-                if (!empty($ov['pay_method'])) {
-                    $row->ov_pay_method = $ov['pay_method'];
-                    $row->pay_method    = $ov['pay_method'];
-                }
+                    $row->saldo_current = round(max(0.0, $cargoShown - (float) $row->abono), 2);
+                    $row->saldo_shown   = $row->saldo_current;
+                    $row->saldo         = $row->saldo_current;
+                    $row->total_due     = round(max(0.0, $row->saldo_current + $prevBalance), 2);
 
-                if (!empty($ov['pay_provider'])) {
-                    $row->ov_pay_provider = $ov['pay_provider'];
-                    $row->pay_provider    = $ov['pay_provider'];
-                }
-
-                if (!empty($ov['pay_status'])) {
-                    $row->ov_pay_status = $this->normalizeStatus((string) $ov['pay_status']);
-                    $row->pay_status    = $this->normalizeStatus((string) $ov['pay_status']);
-                }
-
-                if (!empty($ov['paid_at'])) {
-                    $row->pay_last_paid_at = $ov['paid_at'];
+                    $row->status_pago = 'parcial';
+                    $row->status_auto = 'parcial';
+                } elseif ($overrideStatus === 'vencido') {
+                    $row->status_pago = 'vencido';
+                    $row->status_auto = 'vencido';
+                } elseif ($overrideStatus === 'sin_mov') {
+                    $row->status_pago = 'sin_mov';
+                    $row->status_auto = 'sin_mov';
+                } else {
+                    $row->status_pago = 'pendiente';
+                    $row->status_auto = 'pendiente';
                 }
             }
+
+            if (!empty($ov['pay_method'])) {
+                $row->ov_pay_method = $ov['pay_method'];
+                $row->pay_method    = $ov['pay_method'];
+            }
+
+            if (!empty($ov['pay_provider'])) {
+                $row->ov_pay_provider = $ov['pay_provider'];
+                $row->pay_provider    = $ov['pay_provider'];
+            }
+
+            if (!empty($ov['pay_status'])) {
+                $row->ov_pay_status = $this->normalizeStatus((string) $ov['pay_status']);
+                $row->pay_status    = $this->normalizeStatus((string) $ov['pay_status']);
+            }
+
+            if (!empty($ov['paid_at'])) {
+                $row->pay_last_paid_at = $ov['paid_at'];
+            }
+        }
 
             $row->tracking_open_count   = (int) ($track['open_count'] ?? 0);
             $row->tracking_click_count  = (int) ($track['click_count'] ?? 0);
@@ -1184,14 +1181,14 @@ final class BillingStatementsHubController extends Controller
     // =========================================================
 
      private function loadAccountsForIndex(
-        string $q,
-        string $period,
-        string $periodFrom,
-        string $periodTo,
-        ?string $accountId,
-        bool $includeAnnual,
-        bool $onlySelected,
-        array $selectedIds
+    string $q,
+    string $period,
+    string $periodFrom,
+    string $periodTo,
+    ?string $accountId,
+    bool $includeAnnual,
+    bool $onlySelected,
+    array $selectedIds
     ): Collection {
         $cols = Schema::connection($this->adm)->getColumnListing('accounts');
         $lc   = array_map('strtolower', $cols);
@@ -1200,12 +1197,19 @@ final class BillingStatementsHubController extends Controller
         $select = ['accounts.id', 'accounts.email'];
 
         foreach ([
-            'name', 'razon_social', 'rfc',
-            'plan', 'plan_actual', 'modo_cobro', 'billing_cycle',
-            'is_blocked', 'estado_cuenta',
-            'meta', 'created_at', 'updated_at',
-            'deleted_at', 'is_deleted', 'deleted', 'eliminado',
-            'status', 'account_status',
+            'name',
+            'razon_social',
+            'rfc',
+            'plan',
+            'plan_actual',
+            'modo_cobro',
+            'billing_cycle',
+            'is_blocked',
+            'estado_cuenta',
+            'billing_status',
+            'meta',
+            'created_at',
+            'updated_at',
         ] as $c) {
             if ($has($c)) {
                 $select[] = "accounts.$c";
@@ -1213,9 +1217,17 @@ final class BillingStatementsHubController extends Controller
         }
 
         foreach ([
-            'billing_amount_mxn', 'amount_mxn', 'precio_mxn', 'monto_mxn',
-            'override_amount_mxn', 'custom_amount_mxn', 'license_amount_mxn',
-            'billing_amount', 'amount', 'precio', 'monto',
+            'billing_amount_mxn',
+            'amount_mxn',
+            'precio_mxn',
+            'monto_mxn',
+            'override_amount_mxn',
+            'custom_amount_mxn',
+            'license_amount_mxn',
+            'billing_amount',
+            'amount',
+            'precio',
+            'monto',
         ] as $c) {
             if ($has($c)) {
                 $select[] = "accounts.$c";
@@ -1239,43 +1251,57 @@ final class BillingStatementsHubController extends Controller
             $select[] = DB::raw('sx_sub.started_at as sub_started_at');
             $select[] = DB::raw('sx_sub.current_period_end as sub_current_period_end');
             $select[] = DB::raw('sx_sub.status as sub_status');
+            $select[] = DB::raw('sx_sub.plan as sub_plan');
         }
 
-        // OJO: no usar array_unique() aquí porque puede romper con DB::raw()
         $qb->select($select);
 
-        // Excluir cuentas eliminadas / archivadas
-        if ($has('deleted_at')) {
-            $qb->whereNull('accounts.deleted_at');
+        // =========================================================
+        // EXCLUSIÓN FUERTE: cuentas eliminadas / archivadas / bajas
+        // =========================================================
+        if ($has('estado_cuenta')) {
+            $qb->where(function ($w) {
+                $w->whereNull('accounts.estado_cuenta')
+                ->orWhere('accounts.estado_cuenta', '')
+                ->orWhereRaw("
+                        LOWER(TRIM(accounts.estado_cuenta)) NOT IN (
+                            'eliminado',
+                            'eliminada',
+                            'deleted',
+                            'archived',
+                            'archive',
+                            'borrado',
+                            'borrada'
+                        )
+                ");
+            });
         }
 
-        foreach (['is_deleted', 'deleted', 'eliminado'] as $flagCol) {
-            if ($has($flagCol)) {
-                $qb->where(function ($w) use ($flagCol) {
-                    $w->whereNull("accounts.$flagCol")
-                      ->orWhere("accounts.$flagCol", 0)
-                      ->orWhere("accounts.$flagCol", '0')
-                      ->orWhere("accounts.$flagCol", false);
-                });
-            }
+        if ($has('billing_status')) {
+            $qb->where(function ($w) {
+                $w->whereNull('accounts.billing_status')
+                ->orWhere('accounts.billing_status', '')
+                ->orWhereRaw("
+                        LOWER(TRIM(accounts.billing_status)) NOT IN (
+                            'eliminado',
+                            'eliminada',
+                            'deleted',
+                            'archived',
+                            'archive',
+                            'borrado',
+                            'borrada'
+                        )
+                ");
+            });
         }
 
-        foreach (['status', 'account_status', 'estado_cuenta'] as $statusCol) {
-            if ($has($statusCol)) {
-                $col = "accounts.$statusCol";
-
-                $qb->where(function ($w) use ($col) {
-                    $w->whereNull($col)
-                      ->orWhere($col, '')
-                      ->orWhereRaw("LOWER(TRIM($col)) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')");
-                });
-            }
-        }
-
+        // =========================================================
+        // FILTROS BASE
+        // =========================================================
         if ($onlySelected) {
             $qb->whereIn('accounts.id', $selectedIds);
         } else {
-            if ($accountId) {
+            if ($accountId !== null && trim($accountId) !== '') {
                 $qb->where('accounts.id', $accountId);
             }
 
@@ -1300,14 +1326,40 @@ final class BillingStatementsHubController extends Controller
             }
         }
 
-        $rangeEnd = $periodTo !== '' ? $periodTo : ($periodFrom !== '' ? $periodFrom : $period);
+        // =========================================================
+        // EXCLUSIÓN FUERTE DE ANUALES
+        // Regla nueva:
+        // - si includeAnnual = false, NO entra ninguna anual
+        // =========================================================
+        if (! $includeAnnual) {
+            if ($has('modo_cobro')) {
+                $qb->whereRaw("
+                    LOWER(TRIM(COALESCE(accounts.modo_cobro, ''))) NOT IN (
+                        'anual',
+                        'annual',
+                        'year',
+                        'yearly',
+                        '12m',
+                        '12'
+                    )
+                ");
+            }
 
-        if (!$includeAnnual && $hasSubs) {
-            $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
-            $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
-            $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$rangeEnd]);
-        } elseif (!$includeAnnual && !$hasSubs && $has('modo_cobro')) {
-            $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
+            if ($hasSubs) {
+                $qb->where(function ($w) {
+                    $w->whereNull('sx_sub.plan')
+                    ->orWhereRaw("
+                            LOWER(TRIM(COALESCE(sx_sub.plan, ''))) NOT IN (
+                                'anual',
+                                'annual',
+                                'year',
+                                'yearly',
+                                '12m',
+                                '12'
+                            )
+                    ");
+                });
+            }
         }
 
         $rows = collect(
