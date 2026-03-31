@@ -42,6 +42,9 @@
       ? (($periodFrom !== '' ? $periodFrom : $actionPeriod) . ' a ' . ($periodTo !== '' ? $periodTo : $actionPeriod))
       : $actionPeriod;
 
+  $isRangeMode = ($periodFrom !== '' || $periodTo !== '');
+  $singleManagePeriod = $actionPeriod;
+
   $accountId  = (string) request('accountId','');
 
   $status     = (string) request('status','all');
@@ -675,7 +678,9 @@
                           data-show="{{ e($showUrl ?? '') }}"
                           data-pdf="{{ e($pdfUrl ?? '') }}"
                           data-emailurl="{{ e($emailUrl ?? '') }}"
-                          data-period="{{ e(($periodFrom !== '' || $periodTo !== '') ? $periodLabel : (string)($r->period ?? $actionPeriod)) }}">
+                          data-period-label="{{ e($isRangeMode ? $periodLabel : (string)($r->period ?? $actionPeriod)) }}"
+                          data-manage-period="{{ e($singleManagePeriod) }}"
+                          data-range-mode="{{ $isRangeMode ? '1' : '0' }}">
                     Gestionar
                   </button>
                 </td>
@@ -1275,9 +1280,9 @@
     }
 
     // Fallback: copia payload
-    const periodVal = (function(){
-      try { return {!! json_encode($actionPeriod ?? '') !!}; } catch(e){ return ''; }
-    })();
+  const defaultManagePeriod = (function(){
+    try { return {!! json_encode($singleManagePeriod ?? '') !!}; } catch(e){ return ''; }
+  })();
 
     const payload = { period: periodVal, account_ids: ids.join(',') };
     try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
@@ -1440,11 +1445,14 @@
   }
 
   // Estado actual del drawer
-  let currentDrawer = {
+   let currentDrawer = {
     account: '',
     email: '',
     name: '',
     rowEl: null,
+    managePeriod: '',
+    periodLabel: '',
+    isRangeMode: false,
   };
 
   function closeDrawer(){
@@ -1497,6 +1505,9 @@
     currentDrawer.email = em || '';
     currentDrawer.name = nm || '';
     currentDrawer.rowEl = acc ? document.getElementById('sxRow-' + acc) : null;
+    currentDrawer.managePeriod = String(payload && payload.managePeriod ? payload.managePeriod : defaultManagePeriod || '').trim();
+    currentDrawer.periodLabel = String(payload && payload.periodLabel ? payload.periodLabel : '—').trim();
+    currentDrawer.isRangeMode = String(payload && payload.isRangeMode ? payload.isRangeMode : '0') === '1';
 
     setPaidAtVisibility();
 
@@ -1563,7 +1574,9 @@
         show: openBtn.getAttribute('data-show') || '',
         pdf: openBtn.getAttribute('data-pdf') || '',
         emailurl: openBtn.getAttribute('data-emailurl') || '',
-        period: openBtn.getAttribute('data-period') || '',
+        periodLabel: openBtn.getAttribute('data-period-label') || '—',
+        managePeriod: openBtn.getAttribute('data-manage-period') || '',
+        isRangeMode: openBtn.getAttribute('data-range-mode') || '0',
       });
       return;
     }
@@ -1606,8 +1619,8 @@
   }
 
   async function sxSaveDrawer(){
-    if(!currentDrawer.account){
-      sxToast('No hay cuenta seleccionada.', 'bad');
+    if(currentDrawer.isRangeMode){
+      sxToast('No puedes cambiar estatus desde vista por rango. Filtra un solo mes y vuelve a intentar.', 'warn');
       return;
     }
     if(!statusEndpoint){
@@ -1626,7 +1639,7 @@
 
     const body = {
       account_id: currentDrawer.account,
-      period: periodVal,
+      period: currentDrawer.managePeriod || defaultManagePeriod,
       status: st,
       pay_method: pay,
       paid_at: paidAt || null,
@@ -1728,6 +1741,7 @@
       }
 
       closeDrawer();
+      window.location.reload();
 
     }catch(err){
       sxToast('Error de red al guardar. Revisa consola/network.', 'bad');
