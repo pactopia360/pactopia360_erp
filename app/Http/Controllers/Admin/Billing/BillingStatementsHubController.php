@@ -316,7 +316,7 @@ final class BillingStatementsHubController extends Controller
                         // Overrides:
             // En rango NO forzamos status_override al resumen agregado.
             // En periodo único solo aplicamos override si NO contradice la realidad financiera.
-            if ($ov) {
+                        if ($ov) {
                 $overrideStatus = !empty($ov['status_override'])
                     ? $this->normalizeStatus((string) $ov['status_override'])
                     : null;
@@ -1170,7 +1170,7 @@ final class BillingStatementsHubController extends Controller
     // PRIVATE: ACCOUNTS / LISTING
     // =========================================================
 
-    private function loadAccountsForIndex(
+     private function loadAccountsForIndex(
         string $q,
         string $period,
         string $periodFrom,
@@ -1228,13 +1228,12 @@ final class BillingStatementsHubController extends Controller
             $select[] = DB::raw('sx_sub.status as sub_status');
         }
 
-        $qb->select(array_values(array_unique($select)));
+        // OJO: no usar array_unique() aquí porque puede romper con DB::raw()
+        $qb->select($select);
 
-        // =====================================================
-        // EXCLUIR CUENTAS ELIMINADAS / BORRADAS
-        // =====================================================
+        // Excluir cuentas eliminadas / archivadas
         if ($has('deleted_at')) {
-            $qb->whereNull(DB::raw('accounts.deleted_at'));
+            $qb->whereNull('accounts.deleted_at');
         }
 
         foreach (['is_deleted', 'deleted', 'eliminado'] as $flagCol) {
@@ -1250,13 +1249,12 @@ final class BillingStatementsHubController extends Controller
 
         foreach (['status', 'account_status', 'estado_cuenta'] as $statusCol) {
             if ($has($statusCol)) {
-
                 $col = "accounts.$statusCol";
 
                 $qb->where(function ($w) use ($col) {
                     $w->whereNull($col)
-                    ->orWhere($col, '')
-                    ->orWhereRaw("LOWER(TRIM($col)) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')");
+                      ->orWhere($col, '')
+                      ->orWhereRaw("LOWER(TRIM($col)) NOT IN ('eliminado','eliminada','deleted','deleted_account','borrado','borrada','archived','archive')");
                 });
             }
         }
@@ -1295,7 +1293,7 @@ final class BillingStatementsHubController extends Controller
             $annualExpr = "LOWER(COALESCE(accounts.modo_cobro,'')) IN ('anual','annual','year','yearly','12m','12')";
             $renewYm    = "DATE_FORMAT(COALESCE(sx_sub.current_period_end, sx_sub.started_at, accounts.created_at), '%Y-%m')";
             $qb->whereRaw("NOT ($annualExpr) OR ($renewYm = ?)", [$rangeEnd]);
-        } elseif (!$includeAnnual && !$hasSubs) {
+        } elseif (!$includeAnnual && !$hasSubs && $has('modo_cobro')) {
             $qb->whereRaw("LOWER(COALESCE(accounts.modo_cobro,'')) NOT IN ('anual','annual','year','yearly','12m','12')");
         }
 
@@ -1303,10 +1301,7 @@ final class BillingStatementsHubController extends Controller
             $qb->orderByDesc($has('created_at') ? 'accounts.created_at' : 'accounts.id')->get()
         );
 
-        // =====================================================
-        // DEDUPLICAR POR ID
-        // =====================================================
-        $rows = $rows
+        return $rows
             ->filter(function ($r) {
                 return trim((string) ($r->id ?? '')) !== '';
             })
@@ -1314,8 +1309,6 @@ final class BillingStatementsHubController extends Controller
                 return trim((string) ($r->id ?? ''));
             })
             ->values();
-
-        return $rows;
     }
 
     /**
