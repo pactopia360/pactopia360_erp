@@ -111,6 +111,9 @@ final class BillingStatementsHubController extends Controller
                 'rows'         => collect(),
                 'q'            => $q,
                 'period'       => $period,
+                'periodFrom'   => $periodFrom,
+                'periodTo'     => $periodTo,
+                'periodLabel'  => $periodLabel,
                 'accountId'    => $accountId,
                 'status'       => $status,
                 'perPage'      => $perPage,
@@ -126,6 +129,9 @@ final class BillingStatementsHubController extends Controller
                 'rows'         => collect(),
                 'q'            => $q,
                 'period'       => $period,
+                'periodFrom'   => $periodFrom,
+                'periodTo'     => $periodTo,
+                'periodLabel'  => $periodLabel,
                 'accountId'    => $accountId,
                 'status'       => $status,
                 'perPage'      => $perPage,
@@ -147,9 +153,13 @@ final class BillingStatementsHubController extends Controller
             selectedIds: $selectedIds
         );
 
-        $accountIds = $accounts->pluck('id')->map(fn ($v) => trim((string) $v))->filter()->values()->all();
+        $accountIds = $accounts->pluck('id')
+            ->map(fn ($v) => trim((string) $v))
+            ->filter()
+            ->values()
+            ->all();
 
-                $mirrorCurrent = ($periodFrom !== '' || $periodTo !== '')
+        $mirrorCurrent = ($periodFrom !== '' || $periodTo !== '')
             ? $this->loadBillingStatementsMirrorMapForRange($accountIds, $periodFrom, $periodTo)
             : $this->loadBillingStatementsMirrorMap($accountIds, $period);
 
@@ -169,7 +179,16 @@ final class BillingStatementsHubController extends Controller
             ? $this->loadStatusOverridesMapForRange($accountIds, $periodFrom, $periodTo)
             : $this->loadStatusOverridesMap($accountIds, $period);
 
-        $rowsCollection = $accounts->map(function (object $acc) use ($period, $periodFrom, $periodTo, $mirrorCurrent, $mirrorPrev, $payAgg, $emailTracking, $ovMap) {
+        $rowsCollection = $accounts->map(function (object $acc) use (
+            $period,
+            $periodFrom,
+            $periodTo,
+            $mirrorCurrent,
+            $mirrorPrev,
+            $payAgg,
+            $emailTracking,
+            $ovMap
+        ) {
             $aid = trim((string) ($acc->id ?? ''));
             $meta = $this->decodeMeta($acc->meta ?? null);
 
@@ -180,11 +199,11 @@ final class BillingStatementsHubController extends Controller
 
             $row = clone $acc;
 
-            $statement = $mirrorCurrent[$aid] ?? null;
-            $prevInfo  = $mirrorPrev[$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
-            $payPaid   = (float) ($payAgg[$aid] ?? 0.0);
-            $track     = $emailTracking[$aid] ?? [];
-            $ov        = $ovMap[$aid] ?? null;
+            $statement   = $mirrorCurrent[$aid] ?? null;
+            $prevInfo    = $mirrorPrev[$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
+            $payPaid     = (float) ($payAgg[$aid] ?? 0.0);
+            $track       = $emailTracking[$aid] ?? [];
+            $ov          = $ovMap[$aid] ?? null;
             $rangeActive = ($periodFrom !== '' || $periodTo !== '');
 
             if ($statement) {
@@ -265,10 +284,10 @@ final class BillingStatementsHubController extends Controller
                 }
             } else {
                 $totalCurrent = (float) $expected;
-                $abono = round(max(0.0, $payPaid), 2);
+                $abono        = round(max(0.0, $payPaid), 2);
                 $saldoCurrent = round(max(0.0, $totalCurrent - $abono), 2);
-                $prevBalance = round((float) ($prevInfo['prev_balance'] ?? 0.0), 2);
-                $totalDue = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+                $prevBalance  = round((float) ($prevInfo['prev_balance'] ?? 0.0), 2);
+                $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
 
                 $statusPago = 'pendiente';
                 if ($totalCurrent <= 0.00001 && $prevBalance <= 0.00001) {
@@ -346,8 +365,8 @@ final class BillingStatementsHubController extends Controller
                 }
             }
 
-            $row->tracking_open_count  = (int) ($track['open_count'] ?? 0);
-            $row->tracking_click_count = (int) ($track['click_count'] ?? 0);
+            $row->tracking_open_count   = (int) ($track['open_count'] ?? 0);
+            $row->tracking_click_count  = (int) ($track['click_count'] ?? 0);
             $row->tracking_last_sent_at = $track['last_sent_at'] ?? null;
 
             return $row;
@@ -388,6 +407,7 @@ final class BillingStatementsHubController extends Controller
             'kpis'         => $kpis,
         ]);
     }
+    
 
     // =========================================================
     // ACCIONES MASIVAS

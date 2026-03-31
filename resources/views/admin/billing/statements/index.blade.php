@@ -11,11 +11,37 @@
   use Illuminate\Support\Facades\Route;
 
   // ===== Inputs =====
-  $q          = (string) request('q','');
-  $period     = (string) request('period', now()->format('Y-m'));
-  $periodFrom = (string) ($periodFrom ?? request('period_from',''));
-  $periodTo   = (string) ($periodTo ?? request('period_to',''));
-  $periodLabel= (string) ($periodLabel ?? ($period !== '' ? $period : now()->format('Y-m')));
+  $q = (string) request('q', '');
+
+  $periodRaw = (string) request('period', now()->format('Y-m'));
+  $period = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $periodRaw)
+      ? $periodRaw
+      : now()->format('Y-m');
+
+  $periodFrom = (string) ($periodFrom ?? request('period_from', ''));
+  $periodTo   = (string) ($periodTo ?? request('period_to', ''));
+
+  if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $periodFrom)) $periodFrom = '';
+  if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $periodTo))   $periodTo   = '';
+
+  if ($periodFrom !== '' && $periodTo !== '' && strcmp($periodFrom, $periodTo) > 0) {
+      [$periodFrom, $periodTo] = [$periodTo, $periodFrom];
+  }
+
+  $actionPeriod = $periodTo !== ''
+      ? $periodTo
+      : ($periodFrom !== '' ? $periodFrom : $period);
+
+  $periodLabel = (string) ($periodLabel ?? (
+      ($periodFrom !== '' || $periodTo !== '')
+          ? (($periodFrom !== '' ? $periodFrom : '—') . ' → ' . ($periodTo !== '' ? $periodTo : '—'))
+          : $period
+  ));
+
+  $dateFilterDisplay = ($periodFrom !== '' || $periodTo !== '')
+      ? (($periodFrom !== '' ? $periodFrom : $actionPeriod) . ' a ' . ($periodTo !== '' ? $periodTo : $actionPeriod))
+      : $actionPeriod;
+
   $accountId  = (string) request('accountId','');
 
   $status     = (string) request('status','all');
@@ -92,18 +118,24 @@
 
   // chips
   $chipBase = [
-    'q'          => $q,
-    'period'     => $period,
-    'period_from'=> $periodFrom,
-    'period_to'  => $periodTo,
-    'accountId'  => $accountId,
-    'status'     => $status,
-    'perPage'    => $perPage,
+    'q'           => $q,
+    'period'      => $actionPeriod,
+    'period_from' => $periodFrom,
+    'period_to'   => $periodTo,
+    'accountId'   => $accountId,
+    'status'      => $status,
+    'perPage'     => $perPage,
   ];
 
   if ($onlySelected && !empty($idsSelectedReq)) {
     $chipBase['only_selected'] = 1;
     $chipBase['ids'] = implode(',', $idsSelectedReq);
+  } else {
+    unset($chipBase['only_selected'], $chipBase['ids']);
+  }
+
+  if (request()->has('includeAnnual')) {
+    $chipBase['includeAnnual'] = request('includeAnnual');
   }
 
   $chipUrl = function(array $over) use ($routeIndex, $chipBase) {
@@ -185,6 +217,24 @@
 <div class="sx-wrap">
   <div class="sx-card">
 
+    @if(session('ok'))
+      <div class="sxAlert sxAlert--ok">{{ session('ok') }}</div>
+    @endif
+
+    @if(session('error'))
+      <div class="sxAlert sxAlert--error">{{ session('error') }}</div>
+    @endif
+
+    @if($errors->any())
+      <div class="sxAlert sxAlert--error">
+        {{ $errors->first() }}
+      </div>
+    @endif
+
+    @if(!empty($error))
+      <div class="sxAlert sxAlert--error">{{ $error }}</div>
+    @endif
+
     <div class="sx-topSticky">
       <div class="sx-head">
         <div>
@@ -206,35 +256,86 @@
       </div>
 
       <div class="sx-filters">
-               <form method="GET" action="{{ $routeIndex }}" class="sx-filterbar">
+        <form method="GET" action="{{ $routeIndex }}" class="sx-filterbar" id="sxFilterForm">
+          @if(request()->has('includeAnnual'))
+            <input type="hidden" name="includeAnnual" value="{{ request('includeAnnual') }}">
+          @endif
+
+          <input type="hidden" name="period" id="sxPeriod" value="{{ $actionPeriod }}">
+          <input type="hidden" name="period_from" id="sxPeriodFrom" value="{{ $periodFrom }}">
+          <input type="hidden" name="period_to" id="sxPeriodTo" value="{{ $periodTo }}">
+
           <div class="sx-filterbar__group sx-filterbar__group--search">
             <label>Buscar</label>
-            <input class="sx-in" name="q" value="{{ $q }}" placeholder="DNI, RFC, correo electrónico o razón social...">
+            <div class="sx-inputWrap">
+              <span class="sx-inputIcon">⌕</span>
+              <input
+                class="sx-in sx-in--withIcon"
+                name="q"
+                id="sxFilterQ"
+                value="{{ $q }}"
+                placeholder="DNI, RFC, correo electrónico o razón social..."
+                autocomplete="off">
+            </div>
           </div>
 
-          <div class="sx-filterbar__group sx-filterbar__group--period">
-            <label>Periodo único</label>
-            <input class="sx-in" name="period" value="{{ $period }}" placeholder="AAAA-MM">
-          </div>
+          <div class="sx-filterbar__group sx-filterbar__group--date">
+            <label>Filtro de fechas</label>
 
-          <div class="sx-filterbar__group sx-filterbar__group--period">
-            <label>Desde</label>
-            <input class="sx-in" name="period_from" value="{{ $periodFrom }}" placeholder="AAAA-MM">
-          </div>
+            <div class="sx-dateFilter" id="sxDateFilter">
+              <button type="button" class="sx-dateFilter__trigger" id="sxDateTrigger">
+                <span class="sx-dateFilter__icon">📅</span>
+                <span class="sx-dateFilter__text" id="sxDateFilterText">{{ $dateFilterDisplay }}</span>
+                <span class="sx-dateFilter__caret">▾</span>
+              </button>
 
-          <div class="sx-filterbar__group sx-filterbar__group--period">
-            <label>Hasta</label>
-            <input class="sx-in" name="period_to" value="{{ $periodTo }}" placeholder="AAAA-MM">
+              <div class="sx-dateFilter__panel" id="sxDatePanel" hidden>
+                <div class="sx-dateFilter__panelHead">Selecciona rango mensual</div>
+
+                <div class="sx-dateFilter__grid">
+                  <div class="sx-dateFilter__field">
+                    <label>Desde</label>
+                    <input type="month" class="sx-in" id="sxPickerFrom" value="{{ $periodFrom }}">
+                  </div>
+
+                  <div class="sx-dateFilter__field">
+                    <label>Hasta</label>
+                    <input type="month" class="sx-in" id="sxPickerTo" value="{{ $periodTo !== '' ? $periodTo : $actionPeriod }}">
+                  </div>
+                </div>
+
+                <div class="sx-dateFilter__quick">
+                  <button type="button" class="sx-btn sx-btn-soft" data-sx-date-quick="current">Este mes</button>
+                  <button type="button" class="sx-btn sx-btn-soft" data-sx-date-quick="last3">Últimos 3 meses</button>
+                  <button type="button" class="sx-btn sx-btn-soft" data-sx-date-quick="last6">Últimos 6 meses</button>
+                  <button type="button" class="sx-btn sx-btn-ghost" data-sx-date-quick="clear">Limpiar rango</button>
+                </div>
+
+                <div class="sx-dateFilter__actions">
+                  <button type="button" class="sx-btn sx-btn-ghost" id="sxDateCancel">Cerrar</button>
+                  <button type="button" class="sx-btn sx-btn-primary" id="sxDateApply">Aplicar</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="sx-filterbar__group sx-filterbar__group--account">
             <label>Cuenta (ID)</label>
-            <input class="sx-in" name="accountId" value="{{ $accountId }}" placeholder="ID exacto">
+            <div class="sx-inputWrap">
+              <span class="sx-inputIcon">#</span>
+              <input
+                class="sx-in sx-in--withIcon"
+                name="accountId"
+                id="sxFilterAccount"
+                value="{{ $accountId }}"
+                placeholder="ID exacto"
+                autocomplete="off">
+            </div>
           </div>
 
           <div class="sx-filterbar__group sx-filterbar__group--status">
             <label>Estatus</label>
-            <select class="sx-sel" name="status">
+            <select class="sx-sel" name="status" id="sxFilterStatus">
               <option value="all" {{ $status==='all'?'selected':'' }}>Todos</option>
               @foreach($statusOptions as $k => $lbl)
                 <option value="{{ $k }}" {{ $status===$k?'selected':'' }}>{{ $lbl }}</option>
@@ -244,8 +345,8 @@
 
           <div class="sx-filterbar__group sx-filterbar__group--perpage">
             <label>Por página</label>
-            <select class="sx-sel" name="perPage">
-              @foreach([10,25,50,100,200] as $n)
+            <select class="sx-sel" name="perPage" id="sxFilterPerPage">
+              @foreach([10,25,50,100,200,250,500,1000] as $n)
                 <option value="{{ $n }}" {{ (int)$perPage===(int)$n?'selected':'' }}>{{ $n }}</option>
               @endforeach
             </select>
@@ -253,6 +354,7 @@
 
           <div class="sx-filterbar__actions">
             <button class="sx-btn sx-btn-primary" type="submit">Filtrar</button>
+            <button class="sx-btn sx-btn-ghost" type="button" id="sxFilterReset">Limpiar</button>
           </div>
         </form>
 
@@ -367,7 +469,7 @@
 
         <form id="sxBulkForm" method="POST" action="{{ $hasBulkSend ? route('admin.billing.statements_hub.bulk_send') : '' }}" style="display:none;">
           @csrf
-          <input type="hidden" name="period" value="{{ $periodTo !== '' ? $periodTo : ($periodFrom !== '' ? $periodFrom : $period) }}">
+          <input type="hidden" name="period" value="{{ $actionPeriod }}">
           <input type="hidden" name="account_ids" value="">
         </form>
       </div>
@@ -458,9 +560,9 @@
                 $payDue  = $fmtDate($r->pay_due_date ?? $r->vence ?? '');
                 $payLast = $fmtDate($r->pay_last_paid_at ?? $r->last_paid_at ?? '');
 
-                $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$period]) : null;
-                $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$period]) : null;
-                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$period]) : null;
+                $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
+                $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
+                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
               @endphp
 
               <tr id="sxRow-{{ e($aid) }}">
@@ -572,7 +674,7 @@
                           data-show="{{ e($showUrl ?? '') }}"
                           data-pdf="{{ e($pdfUrl ?? '') }}"
                           data-emailurl="{{ e($emailUrl ?? '') }}"
-                          data-period="{{ e((string)($r->period ?? $period)) }}">
+                          data-period="{{ e(($periodFrom !== '' || $periodTo !== '') ? $periodLabel : (string)($r->period ?? $actionPeriod)) }}">
                     Gestionar
                   </button>
                 </td>
@@ -681,7 +783,7 @@
                 data-sx-pdf-preview="1"
                 data-url=""
                 data-account=""
-                data-period="{{ e($period) }}">
+                data-period="{{ e($periodLabel) }}">
           Preview
         </button>
 
@@ -1089,7 +1191,7 @@
 
     // Fallback: copia payload
     const periodVal = (function(){
-      try{ return {!! json_encode($period ?? '') !!}; }catch(e){ return ''; }
+      try { return {!! json_encode($actionPeriod ?? '') !!}; } catch(e){ return ''; }
     })();
 
     const payload = { period: periodVal, account_ids: ids.join(',') };
@@ -1550,11 +1652,263 @@
     });
   }
 
+    // ==========================================================
+  // FILTERS PRO
   // ==========================================================
+  const sxFilterForm    = $('sxFilterForm');
+  const sxFilterQ       = $('sxFilterQ');
+  const sxFilterAccount = $('sxFilterAccount');
+  const sxFilterStatus  = $('sxFilterStatus');
+  const sxFilterPerPage = $('sxFilterPerPage');
+  const sxFilterReset   = $('sxFilterReset');
+
+  const sxDateRoot    = $('sxDateFilter');
+  const sxDateTrigger = $('sxDateTrigger');
+  const sxDatePanel   = $('sxDatePanel');
+  const sxDateText    = $('sxDateFilterText');
+
+  const sxPeriodInp   = $('sxPeriod');
+  const sxFromInp     = $('sxPeriodFrom');
+  const sxToInp       = $('sxPeriodTo');
+
+  const sxPickerFrom  = $('sxPickerFrom');
+  const sxPickerTo    = $('sxPickerTo');
+
+  const sxDateApply   = $('sxDateApply');
+  const sxDateCancel  = $('sxDateCancel');
+
+  function sxIsYm(v){
+    return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(v || '').trim());
+  }
+
+  function sxCurrentYm(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+
+  function sxSubMonths(ym, qty){
+    if(!sxIsYm(ym)) return sxCurrentYm();
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    d.setMonth(d.getMonth() - qty);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function sxNormalizeRange(from, to){
+    from = sxIsYm(from) ? from : '';
+    to   = sxIsYm(to) ? to : '';
+
+    if(from !== '' && to !== '' && from > to){
+      const tmp = from;
+      from = to;
+      to = tmp;
+    }
+
+    return { from, to };
+  }
+
+  function sxRemoveParam(name){
+    if(!sxFilterForm) return;
+    qsa(`input[name="${name}"]`, sxFilterForm).forEach(function(node){
+      if(node && !['sxPeriod','sxPeriodFrom','sxPeriodTo'].includes(node.id || '')){
+        node.remove();
+      }
+    });
+  }
+
+  function sxClearTransientQuery(){
+    sxRemoveParam('page');
+    sxRemoveParam('only_selected');
+    sxRemoveParam('onlySelected');
+    sxRemoveParam('ids');
+  }
+
+  function sxSyncDateText(){
+    const p  = sxIsYm(sxPeriodInp && sxPeriodInp.value ? sxPeriodInp.value : '') ? sxPeriodInp.value : sxCurrentYm();
+    const pf = sxIsYm(sxFromInp && sxFromInp.value ? sxFromInp.value : '') ? sxFromInp.value : '';
+    const pt = sxIsYm(sxToInp && sxToInp.value ? sxToInp.value : '') ? sxToInp.value : '';
+
+    let txt = p;
+    if(pf !== '' || pt !== ''){
+      txt = `${pf !== '' ? pf : p} a ${pt !== '' ? pt : p}`;
+    }
+
+    if(sxDateText) sxDateText.textContent = txt;
+  }
+
+  function sxSubmitFilters(){
+    if(!sxFilterForm) return;
+    sxClearTransientQuery();
+    sxFilterForm.submit();
+  }
+
+  function sxApplyDateFilter(autoSubmit = true){
+    let from = sxPickerFrom ? String(sxPickerFrom.value || '').trim() : '';
+    let to   = sxPickerTo ? String(sxPickerTo.value || '').trim() : '';
+
+    const norm = sxNormalizeRange(from, to);
+    from = norm.from;
+    to   = norm.to;
+
+    const opPeriod = to || from || sxCurrentYm();
+
+    if(sxFromInp) sxFromInp.value = from;
+    if(sxToInp)   sxToInp.value   = to;
+    if(sxPeriodInp) sxPeriodInp.value = opPeriod;
+
+    sxSyncDateText();
+    sxCloseDatePanel();
+
+    if(autoSubmit){
+      sxSubmitFilters();
+    }
+  }
+
+  function sxOpenDatePanel(){
+    if(!sxDatePanel) return;
+    sxDatePanel.hidden = false;
+    sxDateRoot && sxDateRoot.classList.add('is-open');
+  }
+
+  function sxCloseDatePanel(){
+    if(!sxDatePanel) return;
+    sxDatePanel.hidden = true;
+    sxDateRoot && sxDateRoot.classList.remove('is-open');
+  }
+
+  function sxResetFilters(){
+    if(sxFilterQ) sxFilterQ.value = '';
+    if(sxFilterAccount) sxFilterAccount.value = '';
+    if(sxFilterStatus) sxFilterStatus.value = 'all';
+    if(sxFilterPerPage) sxFilterPerPage.value = '25';
+
+    if(sxPickerFrom) sxPickerFrom.value = '';
+    if(sxPickerTo)   sxPickerTo.value   = '';
+
+    if(sxFromInp) sxFromInp.value = '';
+    if(sxToInp)   sxToInp.value   = '';
+    if(sxPeriodInp) sxPeriodInp.value = sxCurrentYm();
+
+    sxSyncDateText();
+    sxClearTransientQuery();
+    if(sxFilterForm) sxFilterForm.submit();
+  }
+
+  if(sxDateTrigger){
+    sxDateTrigger.addEventListener('click', function(ev){
+      ev.preventDefault();
+      if(!sxDatePanel) return;
+      if(sxDatePanel.hidden) sxOpenDatePanel();
+      else sxCloseDatePanel();
+    });
+  }
+
+  if(sxDateApply){
+    sxDateApply.addEventListener('click', function(ev){
+      ev.preventDefault();
+      sxApplyDateFilter(true);
+    });
+  }
+
+  if(sxDateCancel){
+    sxDateCancel.addEventListener('click', function(ev){
+      ev.preventDefault();
+      sxCloseDatePanel();
+    });
+  }
+
+  qsa('[data-sx-date-quick]').forEach(function(btn){
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      const mode = String(btn.getAttribute('data-sx-date-quick') || '').trim();
+      const nowYm = sxCurrentYm();
+
+      if(mode === 'current'){
+        if(sxPickerFrom) sxPickerFrom.value = '';
+        if(sxPickerTo)   sxPickerTo.value   = nowYm;
+        sxApplyDateFilter(true);
+        return;
+      }
+
+      if(mode === 'last3'){
+        if(sxPickerFrom) sxPickerFrom.value = sxSubMonths(nowYm, 2);
+        if(sxPickerTo)   sxPickerTo.value   = nowYm;
+        sxApplyDateFilter(true);
+        return;
+      }
+
+      if(mode === 'last6'){
+        if(sxPickerFrom) sxPickerFrom.value = sxSubMonths(nowYm, 5);
+        if(sxPickerTo)   sxPickerTo.value   = nowYm;
+        sxApplyDateFilter(true);
+        return;
+      }
+
+      if(mode === 'clear'){
+        if(sxPickerFrom) sxPickerFrom.value = '';
+        if(sxPickerTo)   sxPickerTo.value   = '';
+        if(sxFromInp) sxFromInp.value = '';
+        if(sxToInp)   sxToInp.value   = '';
+        if(sxPeriodInp) sxPeriodInp.value = sxCurrentYm();
+        sxSyncDateText();
+        sxCloseDatePanel();
+        sxSubmitFilters();
+      }
+    });
+  });
+
+  document.addEventListener('click', function(ev){
+    if(!sxDateRoot || !sxDatePanel || sxDatePanel.hidden) return;
+    if(sxDateRoot.contains(ev.target)) return;
+    sxCloseDatePanel();
+  });
+
+  if(sxFilterReset){
+    sxFilterReset.addEventListener('click', function(ev){
+      ev.preventDefault();
+      sxResetFilters();
+    });
+  }
+
+  if(sxFilterStatus){
+    sxFilterStatus.addEventListener('change', function(){
+      sxSubmitFilters();
+    });
+  }
+
+  if(sxFilterPerPage){
+    sxFilterPerPage.addEventListener('change', function(){
+      sxSubmitFilters();
+    });
+  }
+
+  if(sxFilterQ){
+    sxFilterQ.addEventListener('keydown', function(ev){
+      if(ev.key === 'Enter'){
+        ev.preventDefault();
+        sxSubmitFilters();
+      }
+    });
+  }
+
+  if(sxFilterAccount){
+    sxFilterAccount.addEventListener('keydown', function(ev){
+      if(ev.key === 'Enter'){
+        ev.preventDefault();
+        sxSubmitFilters();
+      }
+    });
+  }
+
+    // ==========================================================
   // INIT
   // ==========================================================
   applyOnlySelectedFromQuery();
   updateBulk();
+  setPaidAtVisibility();
+  sxSyncDateText();
 
 })();
 </script>
