@@ -179,7 +179,7 @@ final class BillingStatementsHubController extends Controller
             ? $this->loadStatusOverridesMapForRange($accountIds, $periodFrom, $periodTo)
             : $this->loadStatusOverridesMap($accountIds, $period);
 
-        $rowsCollection = $accounts->map(function (object $acc) use (
+                $rowsCollection = $accounts->map(function (object $acc) use (
             $period,
             $periodFrom,
             $periodTo,
@@ -201,22 +201,30 @@ final class BillingStatementsHubController extends Controller
 
             $statement   = $mirrorCurrent[$aid] ?? null;
             $prevInfo    = $mirrorPrev[$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
-            $payPaid     = (float) ($payAgg[$aid] ?? 0.0);
+            $payPaid     = $this->normalizeMoney($payAgg[$aid] ?? 0.0);
             $track       = $emailTracking[$aid] ?? [];
             $ov          = $ovMap[$aid] ?? null;
             $rangeActive = ($periodFrom !== '' || $periodTo !== '');
 
+            $prevBalance = $this->normalizeMoney($prevInfo['prev_balance'] ?? 0.0);
+            $lastPaid = null;
+            $payAllowed = ($periodTo !== '' ? $periodTo : $period);
+
             if ($statement) {
-                $totalCurrent = (float) ($statement['total_cargo'] ?? 0);
-                $abonoMirror  = (float) ($statement['total_abono'] ?? 0);
-                $saldoCurrent = (float) ($statement['saldo'] ?? max(0.0, $totalCurrent - $abonoMirror));
+                $totalCurrent = $this->normalizeMoney($statement['total_cargo'] ?? 0.0);
 
-                $statusPago = $this->normalizeStatus((string) ($statement['status'] ?? 'pendiente'));
-                if ($statusPago === 'sin_mov' && $totalCurrent > 0.00001) {
-                    $statusPago = $saldoCurrent <= 0.00001 ? 'pagado' : 'pendiente';
-                }
+                // IMPORTANTE:
+                // El mirror refleja EdoCta, pero payments viene aparte en este HUB.
+                // Para UI/negocio consolidamos ambos.
+                $abonoMirror = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
+                $abonoTotal  = round($abonoMirror + $payPaid, 2);
 
-                $lastPaid = $statement['paid_at']
+                $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
+                $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+
+                $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
+
+                $lastPaid = !empty($statement['paid_at'])
                     ? $this->parseToPeriod($statement['paid_at'])
                     : $this->resolveLastPaidPeriodForAccount($aid, $meta);
 
@@ -229,16 +237,16 @@ final class BillingStatementsHubController extends Controller
                 $row->total_shown    = round($totalCurrent, 2);
 
                 $row->abono_edo = round($abonoMirror, 2);
-                $row->abono_pay = round(max(0.0, $payPaid), 2);
-                $row->abono     = round($abonoMirror, 2);
+                $row->abono_pay = round($payPaid, 2);
+                $row->abono     = round($abonoTotal, 2);
 
-                $row->saldo_current = round(max(0.0, $saldoCurrent), 2);
-                $row->saldo_shown   = round(max(0.0, $saldoCurrent), 2);
-                $row->saldo         = round(max(0.0, $saldoCurrent), 2);
+                $row->saldo_current = round($saldoCurrent, 2);
+                $row->saldo_shown   = round($saldoCurrent, 2);
+                $row->saldo         = round($saldoCurrent, 2);
 
-                $row->prev_balance = round((float) ($prevInfo['prev_balance'] ?? 0.0), 2);
+                $row->prev_balance = round($prevBalance, 2);
                 $row->prev_period  = $prevInfo['prev_period'] ?? null;
-                $row->total_due    = round(max(0.0, $row->saldo_current + $row->prev_balance), 2);
+                $row->total_due    = round($totalDue, 2);
 
                 $row->status_pago = $statusPago;
                 $row->status_auto = $statusPago;
@@ -256,49 +264,15 @@ final class BillingStatementsHubController extends Controller
                 $row->period       = $rangeActive
                     ? (($statement['period_from'] ?? '') . ' → ' . ($statement['period_to'] ?? ''))
                     : ($statement['period'] ?? $period);
-
-                if ($ov) {
-                    if (!empty($ov['status_override'])) {
-                        $row->status_override = $ov['status_override'];
-                        $row->status_pago     = $ov['status_override'];
-                    }
-
-                    if (!empty($ov['pay_method'])) {
-                        $row->ov_pay_method = $ov['pay_method'];
-                        $row->pay_method    = $ov['pay_method'];
-                    }
-
-                    if (!empty($ov['pay_provider'])) {
-                        $row->ov_pay_provider = $ov['pay_provider'];
-                        $row->pay_provider    = $ov['pay_provider'];
-                    }
-
-                    if (!empty($ov['pay_status'])) {
-                        $row->ov_pay_status = $ov['pay_status'];
-                        $row->pay_status    = $ov['pay_status'];
-                    }
-
-                    if (!empty($ov['paid_at'])) {
-                        $row->pay_last_paid_at = $ov['paid_at'];
-                    }
-                }
             } else {
-                $totalCurrent = (float) $expected;
-                $abono        = round(max(0.0, $payPaid), 2);
-                $saldoCurrent = round(max(0.0, $totalCurrent - $abono), 2);
-                $prevBalance  = round((float) ($prevInfo['prev_balance'] ?? 0.0), 2);
+                $totalCurrent = $this->normalizeMoney($expected);
+                $abonoMirror  = 0.0;
+                $abonoTotal   = round($abonoMirror + $payPaid, 2);
+
+                $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
                 $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
 
-                $statusPago = 'pendiente';
-                if ($totalCurrent <= 0.00001 && $prevBalance <= 0.00001) {
-                    $statusPago = 'sin_mov';
-                } elseif ($totalDue <= 0.00001) {
-                    $statusPago = 'pagado';
-                } elseif ($prevBalance > 0.00001) {
-                    $statusPago = 'vencido';
-                } elseif ($abono > 0.00001 && $saldoCurrent > 0.00001) {
-                    $statusPago = 'parcial';
-                }
+                $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
 
                 $lastPaid = $this->resolveLastPaidPeriodForAccount($aid, $meta);
                 $payAllowed = $lastPaid
@@ -310,8 +284,8 @@ final class BillingStatementsHubController extends Controller
                 $row->total_shown    = round($totalCurrent, 2);
 
                 $row->abono_edo = 0.0;
-                $row->abono_pay = round($abono, 2);
-                $row->abono     = round($abono, 2);
+                $row->abono_pay = round($payPaid, 2);
+                $row->abono     = round($abonoTotal, 2);
 
                 $row->saldo_current = round($saldoCurrent, 2);
                 $row->saldo_shown   = round($saldoCurrent, 2);
@@ -337,31 +311,35 @@ final class BillingStatementsHubController extends Controller
                 $row->period       = $rangeActive
                     ? (($periodFrom !== '' ? $periodFrom : $period) . ' → ' . ($periodTo !== '' ? $periodTo : $period))
                     : $period;
+            }
 
-                if ($ov) {
-                    if (!empty($ov['status_override'])) {
-                        $row->status_override = $ov['status_override'];
-                        $row->status_pago     = $ov['status_override'];
-                    }
+            // Overrides:
+            // en rango NO forzamos status_override al resumen agregado porque puede marcar "pagado"
+            // aunque aún exista saldo en el total consolidado.
+            if ($ov) {
+                if (!$rangeActive && !empty($ov['status_override'])) {
+                    $row->status_override = $ov['status_override'];
+                    $row->status_pago     = $ov['status_override'];
+                    $row->status_auto     = $ov['status_override'];
+                }
 
-                    if (!empty($ov['pay_method'])) {
-                        $row->ov_pay_method = $ov['pay_method'];
-                        $row->pay_method    = $ov['pay_method'];
-                    }
+                if (!empty($ov['pay_method'])) {
+                    $row->ov_pay_method = $ov['pay_method'];
+                    $row->pay_method    = $ov['pay_method'];
+                }
 
-                    if (!empty($ov['pay_provider'])) {
-                        $row->ov_pay_provider = $ov['pay_provider'];
-                        $row->pay_provider    = $ov['pay_provider'];
-                    }
+                if (!empty($ov['pay_provider'])) {
+                    $row->ov_pay_provider = $ov['pay_provider'];
+                    $row->pay_provider    = $ov['pay_provider'];
+                }
 
-                    if (!empty($ov['pay_status'])) {
-                        $row->ov_pay_status = $ov['pay_status'];
-                        $row->pay_status    = $ov['pay_status'];
-                    }
+                if (!empty($ov['pay_status'])) {
+                    $row->ov_pay_status = $ov['pay_status'];
+                    $row->pay_status    = $ov['pay_status'];
+                }
 
-                    if (!empty($ov['paid_at'])) {
-                        $row->pay_last_paid_at = $ov['paid_at'];
-                    }
+                if (!empty($ov['paid_at'])) {
+                    $row->pay_last_paid_at = $ov['paid_at'];
                 }
             }
 
@@ -371,6 +349,7 @@ final class BillingStatementsHubController extends Controller
 
             return $row;
         });
+
 
         if ($status !== 'all') {
             $rowsCollection = $rowsCollection
@@ -2939,7 +2918,7 @@ final class BillingStatementsHubController extends Controller
      * @param array<int|string> $accountIds
      * @return array<string, array<string,mixed>>
      */
-    private function loadStatusOverridesMapForRange(array $accountIds, string $periodFrom, string $periodTo): array
+        private function loadStatusOverridesMapForRange(array $accountIds, string $periodFrom, string $periodTo): array
     {
         $out = [];
 
@@ -2958,6 +2937,7 @@ final class BillingStatementsHubController extends Controller
             ->whereIn('account_id', $accountIds)
             ->where('period', '>=', $from)
             ->where('period', '<=', $to)
+            ->orderByDesc('period')
             ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
@@ -2995,39 +2975,70 @@ final class BillingStatementsHubController extends Controller
 
             if (!isset($out[$aid])) {
                 $out[$aid] = [
-                    'status_override' => $this->normalizeStatus((string) ($row->status_override ?? '')),
+                    // En rango NO consolidamos status_override para evitar falsos "pagado"
+                    'status_override' => null,
                     'pay_method'      => strtolower(trim((string) ($meta['pay_method'] ?? ''))),
                     'pay_provider'    => strtolower(trim((string) ($meta['pay_provider'] ?? ''))),
-                    'pay_status'      => $this->normalizeStatus((string) ($meta['pay_status'] ?? ($row->status_override ?? ''))),
+                    'pay_status'      => $this->normalizeStatus((string) ($meta['pay_status'] ?? '')),
                     'paid_at'         => $meta['paid_at'] ?? null,
                     'updated_at'      => $row->updated_at ?? null,
                 ];
                 continue;
             }
 
-            $status = $this->normalizeStatus((string) ($row->status_override ?? ''));
-            if ($status === 'vencido') {
-                $out[$aid]['status_override'] = 'vencido';
-            } elseif ($status === 'parcial' && $out[$aid]['status_override'] !== 'vencido') {
-                $out[$aid]['status_override'] = 'parcial';
-            } elseif ($status === 'pendiente' && !in_array($out[$aid]['status_override'], ['vencido', 'parcial'], true)) {
-                $out[$aid]['status_override'] = 'pendiente';
-            }
-
-            if (!empty($meta['paid_at'])) {
+            if (!empty($meta['paid_at']) && empty($out[$aid]['paid_at'])) {
                 $out[$aid]['paid_at'] = $meta['paid_at'];
             }
-            if (!empty($meta['pay_method'])) {
+
+            if (!empty($meta['pay_method']) && empty($out[$aid]['pay_method'])) {
                 $out[$aid]['pay_method'] = strtolower(trim((string) $meta['pay_method']));
             }
-            if (!empty($meta['pay_provider'])) {
+
+            if (!empty($meta['pay_provider']) && empty($out[$aid]['pay_provider'])) {
                 $out[$aid]['pay_provider'] = strtolower(trim((string) $meta['pay_provider']));
             }
-            if (!empty($meta['pay_status'])) {
+
+            if (!empty($meta['pay_status']) && empty($out[$aid]['pay_status'])) {
                 $out[$aid]['pay_status'] = $this->normalizeStatus((string) $meta['pay_status']);
             }
         }
 
         return $out;
+    }
+
+        private function normalizeMoney(float|int|string|null $value): float
+    {
+        return round(max(0.0, (float) $value), 2);
+    }
+
+    private function computeFinancialStatus(
+        float $totalCurrent,
+        float $abonoTotal,
+        float $prevBalance = 0.0
+    ): string {
+        $totalCurrent = $this->normalizeMoney($totalCurrent);
+        $abonoTotal   = $this->normalizeMoney($abonoTotal);
+        $prevBalance  = $this->normalizeMoney($prevBalance);
+
+        $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
+        $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+
+        if ($totalCurrent <= 0.00001 && $prevBalance <= 0.00001) {
+            return 'sin_mov';
+        }
+
+        if ($totalDue <= 0.00001) {
+            return 'pagado';
+        }
+
+        if ($prevBalance > 0.00001) {
+            return 'vencido';
+        }
+
+        if ($abonoTotal > 0.00001 && $saldoCurrent > 0.00001) {
+            return 'parcial';
+        }
+
+        return 'pendiente';
     }
 }
