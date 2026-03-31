@@ -866,7 +866,7 @@ final class BillingStatementsController extends Controller
     // STATUS AJAX
     // =========================================================
 
-    public function statusAjax(Request $req): JsonResponse
+   public function statusAjax(Request $req): JsonResponse
     {
         $data = $req->validate([
             'account_id' => 'required|string|max:64',
@@ -951,6 +951,11 @@ final class BillingStatementsController extends Controller
             }
         });
 
+        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        if (!$acc) {
+            return response()->json(['ok' => false, 'message' => 'Cuenta no encontrada'], 404);
+        }
+
         $stmt = $this->getBillingStatementSnapshot($accountId, $period);
 
         $agg = DB::connection($this->adm)->table('estados_cuenta')
@@ -963,8 +968,10 @@ final class BillingStatementsController extends Controller
         $abonoEdo = (float) ($agg->abono ?? 0);
         $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
 
-        $acc  = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        $meta = $this->hub->decodeMeta($acc->meta ?? null) ?: [];
+        $meta = $this->hub->decodeMeta($acc->meta ?? null);
+        if (!is_array($meta)) {
+            $meta = [];
+        }
 
         $lastPaid = $this->resolveLastPaidPeriodForAccount($accountId, $meta);
 
@@ -983,33 +990,55 @@ final class BillingStatementsController extends Controller
 
         $financials = $this->resolveStatementFinancials(
             $stmt,
-            $cargoEdo,
+            $cargoEdo > 0.00001 ? $cargoEdo : $expected,
             $abonoEdo,
             $abonoPay,
             $expected,
             0.0
         );
 
-        $total = round((float) $financials['total_shown'], 2);
-        $abono = round((float) $financials['abono_total'], 2);
-        $saldo = round((float) $financials['saldo_shown'], 2);
+        $row = (object) [
+            'cargo'            => round($cargoEdo, 2),
+            'expected_total'   => round((float) $expected, 2),
+            'total_shown'      => round((float) $financials['total_shown'], 2),
+            'abono'            => round((float) $financials['abono_total'], 2),
+            'abono_edo'        => round((float) $abonoEdo, 2),
+            'abono_pay'        => round((float) $abonoPay, 2),
+            'saldo'            => round((float) $financials['saldo_shown'], 2),
+            'saldo_shown'      => round((float) $financials['saldo_shown'], 2),
+            'saldo_current'    => round((float) $financials['saldo_shown'], 2),
+            'prev_balance'     => 0.0,
+            'total_due'        => round((float) $financials['saldo_shown'], 2),
+            'status_pago'      => (string) $financials['status_pago'],
+            'status_auto'      => (string) $financials['status_pago'],
+            'pay_method'       => null,
+            'pay_provider'     => null,
+            'pay_status'       => (string) $financials['status_pago'],
+            'pay_last_paid_at' => $financials['paid_at'] ?? null,
+            'pay_due_date'     => $financials['due_date'] ?? null,
+        ];
 
-        // La UI sigue mostrando el override solicitado,
-        // pero los importes salen del cálculo financiero real.
+        $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
+        $row = $this->applyStatusOverride($row, $ov[(string) $accountId] ?? null);
+
         return response()->json([
-            'ok'           => true,
-            'account_id'   => $accountId,
-            'period'       => $period,
-            'status'       => $status,
-            'pay_method'   => $payMethod,
-            'pay_provider' => $payProvider,
-            'pay_status'   => $status,
-            'paid_at'      => $status === 'pagado' ? $paidAt?->toDateTimeString() : null,
-            'total'        => $total,
-            'abono'        => $abono,
-            'saldo'        => $saldo,
+            'ok'             => true,
+            'account_id'     => $accountId,
+            'period'         => $period,
+            'status'         => (string) ($row->status_pago ?? $status),
+            'status_auto'    => (string) ($row->status_auto ?? $status),
+            'pay_method'     => $row->pay_method ?? $payMethod,
+            'pay_provider'   => $row->pay_provider ?? $payProvider,
+            'pay_status'     => $row->pay_status ?? $status,
+            'paid_at'        => $row->pay_last_paid_at ?? ($status === 'pagado' ? $paidAt?->toDateTimeString() : null),
+            'total'          => round((float) ($row->total_shown ?? 0), 2),
+            'abono'          => round((float) ($row->abono ?? 0), 2),
+            'saldo'          => round((float) ($row->saldo ?? 0), 2),
+            'saldo_current'  => round((float) ($row->saldo_current ?? 0), 2),
+            'total_due'      => round((float) ($row->total_due ?? 0), 2),
         ]);
     }
+
 
     private function parsePaidAtFromRequest(string $raw): ?Carbon
     {

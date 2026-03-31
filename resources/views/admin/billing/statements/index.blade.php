@@ -633,29 +633,30 @@
 
                 <td class="sx-right sx-mono">{{ $fmtMoney($total) }}</td>
 
-                <td class="sx-right">
-                  <div class="sx-mono">{{ $fmtMoney($abono) }}</div>
+                <td class="sx-right"
+                    data-col="abono"
+                    data-abono-edo="{{ (float)$abonoEdo }}"
+                    data-abono-pay="{{ (float)$abonoPay }}">
+                  <div class="sx-mono" data-role="abono-total">{{ $fmtMoney($abono) }}</div>
                   <div class="sx-subrow">
-                    EdoCta: <span class="sx-mono">{{ $fmtMoney($abonoEdo) }}</span>
-                    · Pay: <span class="sx-mono">{{ $fmtMoney($abonoPay) }}</span>
+                    EdoCta: <span class="sx-mono" data-role="abono-edo">{{ $fmtMoney($abonoEdo) }}</span>
+                    · Pay: <span class="sx-mono" data-role="abono-pay">{{ $fmtMoney($abonoPay) }}</span>
                   </div>
                 </td>
 
-                <td class="sx-right">
-                  <span class="sx-pill {{ $prevBalance > 0 ? 'sx-bad' : 'sx-ok' }}">
-                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($prevBalance) }}</span>
+                <td class="sx-right" data-col="prev-balance">
+                  <span class="sx-pill {{ $prevBalance > 0 ? 'sx-bad' : 'sx-ok' }}" data-role="prev-pill">
+                    <span class="dot"></span><span class="sx-mono" data-role="prev-value">{{ $fmtMoney($prevBalance) }}</span>
                   </span>
                 </td>
 
-                <td class="sx-right">
-                  <span class="sx-pill {{ $saldoTotal > 0 ? 'sx-warn' : 'sx-ok' }}">
-                    <span class="dot"></span><span class="sx-mono">{{ $fmtMoney($saldoTotal) }}</span>
+                <td class="sx-right" data-col="saldo-total">
+                  <span class="sx-pill {{ $saldoTotal > 0 ? 'sx-warn' : 'sx-ok' }}" data-role="saldo-pill">
+                    <span class="dot"></span><span class="sx-mono" data-role="saldo-total">{{ $fmtMoney($saldoTotal) }}</span>
                   </span>
-                  @if($saldoPeriodo > 0 && $prevBalance > 0)
-                    <div class="sx-subrow">
-                      Periodo: <span class="sx-mono">{{ $fmtMoney($saldoPeriodo) }}</span>
-                    </div>
-                  @endif
+                  <div class="sx-subrow" data-role="saldo-periodo-wrap" @if(!($saldoPeriodo > 0 && $prevBalance > 0)) style="display:none;" @endif>
+                    Periodo: <span class="sx-mono" data-role="saldo-periodo">{{ $fmtMoney($saldoPeriodo) }}</span>
+                  </div>
                 </td>
 
                 <td>
@@ -848,6 +849,90 @@
   function fmtMoney(n){
     const v = Number(n || 0);
     return '$' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+    function setPillState(el, stateType){
+    if(!el) return;
+    el.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
+
+    if(stateType === 'ok') el.classList.add('sx-ok');
+    else if(stateType === 'warn') el.classList.add('sx-warn');
+    else if(stateType === 'bad') el.classList.add('sx-bad');
+    else el.classList.add('sx-dim');
+  }
+
+  function updateRowFinancials(tr, payload, selectedStatus){
+    if(!tr || !payload) return;
+
+    const totalShown   = Number(payload.total || 0);
+    const abonoTotal   = Number(payload.abono || 0);
+    const saldoCurrent = Number(
+      typeof payload.saldo_current !== 'undefined'
+        ? payload.saldo_current
+        : (payload.saldo || 0)
+    );
+    const totalDue     = Number(
+      typeof payload.total_due !== 'undefined'
+        ? payload.total_due
+        : (payload.saldo || 0)
+    );
+
+    const prevBalance = Math.max(0, Number(totalDue - saldoCurrent));
+
+    const abonoCell = tr.querySelector('[data-col="abono"]');
+    if(abonoCell){
+      const totalNode = abonoCell.querySelector('[data-role="abono-total"]');
+      if(totalNode) totalNode.textContent = fmtMoney(abonoTotal);
+
+      const edoNode = abonoCell.querySelector('[data-role="abono-edo"]');
+      const payNode = abonoCell.querySelector('[data-role="abono-pay"]');
+
+      const currentEdo = Number(abonoCell.getAttribute('data-abono-edo') || 0);
+      let currentPay   = Number(abonoCell.getAttribute('data-abono-pay') || 0);
+
+      if(String(selectedStatus).toLowerCase() === 'pagado'){
+        currentPay = Math.max(currentPay, abonoTotal);
+        abonoCell.setAttribute('data-abono-pay', String(currentPay));
+      }
+
+      if(edoNode) edoNode.textContent = fmtMoney(currentEdo);
+      if(payNode) payNode.textContent = fmtMoney(currentPay);
+    }
+
+    const prevCell = tr.querySelector('[data-col="prev-balance"]');
+    if(prevCell){
+      const prevVal  = prevCell.querySelector('[data-role="prev-value"]');
+      const prevPill = prevCell.querySelector('[data-role="prev-pill"]');
+
+      if(prevVal) prevVal.textContent = fmtMoney(prevBalance);
+      setPillState(prevPill, prevBalance > 0 ? 'bad' : 'ok');
+    }
+
+    const saldoCell = tr.querySelector('[data-col="saldo-total"]');
+    if(saldoCell){
+      const saldoVal   = saldoCell.querySelector('[data-role="saldo-total"]');
+      const saldoPill  = saldoCell.querySelector('[data-role="saldo-pill"]');
+      const saldoWrap  = saldoCell.querySelector('[data-role="saldo-periodo-wrap"]');
+      const saldoPer   = saldoCell.querySelector('[data-role="saldo-periodo"]');
+
+      if(saldoVal) saldoVal.textContent = fmtMoney(totalDue);
+      setPillState(saldoPill, totalDue > 0 ? 'warn' : 'ok');
+
+      if(saldoPer) saldoPer.textContent = fmtMoney(saldoCurrent);
+
+      if(saldoWrap){
+        if(saldoCurrent > 0 && prevBalance > 0){
+          saldoWrap.style.display = '';
+        } else {
+          saldoWrap.style.display = 'none';
+        }
+      }
+    }
+
+    const totalCell = tr.querySelector('td:nth-child(5) .sx-mono');
+    if(totalCell){
+      totalCell.textContent = fmtMoney(totalShown);
+    }
   }
 
   // ==========================================================
@@ -1586,51 +1671,61 @@
 
       sxToast('Cambios guardados.', 'ok');
 
-      // ✅ Actualiza UI en la fila (estatus + método + último pago)
-      try{
+            try{
         const tr = currentDrawer.rowEl;
         if(tr){
-          // Pill estatus (col 9)
+          const finalStatus = String((data && (data.status || data.status_auto)) || st).toLowerCase().trim();
+
+          // Pill estatus
           const pill = tr.querySelector('td:nth-child(9) .sx-pill');
           if(pill){
-            pill.innerHTML = '<span class="dot"></span>' + String(st).toUpperCase();
+            pill.innerHTML = '<span class="dot"></span>' + String(finalStatus || st).toUpperCase();
             pill.classList.remove('sx-ok','sx-warn','sx-bad','sx-dim');
-            const s = String(st).toLowerCase();
-            if(s === 'pagado') pill.classList.add('sx-ok');
-            else if(s === 'vencido') pill.classList.add('sx-bad');
-            else if(s === 'pendiente' || s === 'parcial') pill.classList.add('sx-warn');
+
+            if(finalStatus === 'pagado') pill.classList.add('sx-ok');
+            else if(finalStatus === 'vencido') pill.classList.add('sx-bad');
+            else if(finalStatus === 'pendiente' || finalStatus === 'parcial') pill.classList.add('sx-warn');
             else pill.classList.add('sx-dim');
           }
 
-          // En "Contacto/Meta" actualiza Método + Últ pago
+          // Finanzas visibles
+          updateRowFinancials(tr, data, finalStatus || st);
+
+          // Contacto / Meta
           const meta = tr.querySelector('td:nth-child(4) .sx-subrow');
           if(meta){
             let html = meta.innerHTML;
 
-            // Método
+            const finalPayMethod = String((data && data.pay_method) || pay || '—');
+            const finalPaidAt = String((data && data.paid_at) || (String(finalStatus).toLowerCase() === 'pagado' ? (paidAt || nowLocalDatetimeValue()) : ''));
+
             if(html.includes('Método:')){
-              html = html.replace(/Método:\s*<span class="sx-mono">.*?<\/span>/, 'Método: <span class="sx-mono">'+escapeHtml(pay || '—')+'</span>');
+              html = html.replace(/Método:\s*<span class="sx-mono">.*?<\/span>/, 'Método: <span class="sx-mono">'+escapeHtml(finalPayMethod)+'</span>');
             }else{
-              html += '<span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+escapeHtml(pay || '—')+'</span>';
+              html += '<span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+escapeHtml(finalPayMethod)+'</span>';
             }
 
-            // Último pago
-            if(String(st).toLowerCase() === 'pagado'){
-              const valPaid = paidAt || nowLocalDatetimeValue();
+            if(String(finalStatus).toLowerCase() === 'pagado'){
               if(html.includes('Últ. pago:')){
-                html = html.replace(/Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, 'Últ. pago: <span class="sx-mono">'+escapeHtml(valPaid)+'</span>');
+                html = html.replace(/Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, 'Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAt)+'</span>');
               }else{
-                html += '<br>Últ. pago: <span class="sx-mono">'+escapeHtml(valPaid)+'</span>';
+                html += '<br>Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAt)+'</span>';
               }
-            }else{
-              // si ya no es pagado, opcional: limpia el “Últ. pago”
-              // html = html.replace(/<br>\s*Últ\.\s*pago:.*$/,'');
             }
 
             meta.innerHTML = html;
           }
+
+          // También sincroniza atributos del botón Gestionar para siguiente apertura
+          const openBtn = tr.querySelector('[data-sx-open-drawer="1"]');
+          if(openBtn){
+            openBtn.setAttribute('data-status', finalStatus || st);
+            openBtn.setAttribute('data-pay', String((data && data.pay_method) || pay || ''));
+          }
         }
-      }catch(e){}
+      }catch(e){
+        console.error(e);
+      }
 
       closeDrawer();
 
