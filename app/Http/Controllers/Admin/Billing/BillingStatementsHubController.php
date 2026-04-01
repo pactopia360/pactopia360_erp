@@ -384,6 +384,14 @@ final class BillingStatementsHubController extends Controller
             ])
             ->values();
 
+        // =========================================================
+        // KPIs CORRECTOS (ANTES DE PAGINAR)
+        // =========================================================
+        $kpis = $this->buildKpis($rowsCollection);
+
+        // =========================================================
+        // PAGINACIÓN
+        // =========================================================
         $currentPage = (int) $req->get('page', LengthAwarePaginator::resolveCurrentPage());
         $currentPage = max(1, $currentPage);
 
@@ -394,8 +402,6 @@ final class BillingStatementsHubController extends Controller
             $req->url(),
             $req->query()
         );
-
-        $kpis = $this->buildKpis($rows->getCollection());
 
         return view('admin.billing.statements.index', [
             'rows'         => $rows,
