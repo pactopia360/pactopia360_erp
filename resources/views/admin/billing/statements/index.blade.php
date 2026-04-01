@@ -572,7 +572,7 @@
                 $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$rowPeriod]) : null;
               @endphp
 
-              <tr id="sxRow-{{ e($aid) }}">
+              <tr id="sxRow-{{ e($aid) }}-{{ e(str_replace('-', '', $rowPeriod)) }}">
                 <td onclick="event.stopPropagation();">
                   <input class="sx-ck sx-row"
                     type="checkbox"
@@ -672,21 +672,22 @@
 
                 <td class="sx-right sx-actionsTd">
                   <button class="sx-btn sx-btn-soft sx-actOpen"
-                        type="button"
-                        data-sx-open-drawer="1"
-                        data-account="{{ e($aid) }}"
-                        data-name="{{ e($name) }}"
-                        data-email="{{ e($mail) }}"
-                        data-status="{{ e($st) }}"
-                        data-pay="{{ e($payMethod) }}"
-                        data-show="{{ e($showUrl ?? '') }}"
-                        data-pdf="{{ e($pdfUrl ?? '') }}"
-                        data-emailurl="{{ e($emailUrl ?? '') }}"
-                        data-period-label="{{ e((string)($r->period ?? $actionPeriod)) }}"
-                        data-manage-period="{{ e($rowPeriod) }}"
-                        data-range-mode="0">
-                  Gestionar
-                </button>
+                          type="button"
+                          data-sx-open-drawer="1"
+                          data-account="{{ e($aid) }}"
+                          data-name="{{ e($name) }}"
+                          data-email="{{ e($mail) }}"
+                          data-status="{{ e($st) }}"
+                          data-pay="{{ e($payMethod) }}"
+                          data-show="{{ e($showUrl ?? '') }}"
+                          data-pdf="{{ e($pdfUrl ?? '') }}"
+                          data-emailurl="{{ e($emailUrl ?? '') }}"
+                          data-period="{{ e($rowPeriod) }}"
+                          data-period-label="{{ e((string)($r->period ?? $actionPeriod)) }}"
+                          data-manage-period="{{ e($rowPeriod) }}"
+                          data-range-mode="0">
+                    Gestionar
+                  </button>
                 </td>
               </tr>
             @empty
@@ -1445,13 +1446,14 @@
   }
 
   // Estado actual del drawer
-   let currentDrawer = {
+  let currentDrawer = {
     account: '',
     email: '',
     name: '',
     rowEl: null,
     managePeriod: '',
     periodLabel: '',
+    period: '',
     isRangeMode: false,
   };
 
@@ -1493,7 +1495,7 @@
     // set selects
     if(dStatus){
       const st = String(payload && payload.status ? payload.status : '').toLowerCase().trim();
-      if(st) dStatus.value = st;
+      dStatus.value = ['pendiente','parcial','pagado','vencido','sin_mov'].includes(st) ? st : 'pendiente';
     }
     if(dPay){
       const pm = String(payload && payload.pay ? payload.pay : '').toLowerCase().trim();
@@ -1501,12 +1503,17 @@
     }
 
     // store current
+    const exactPeriod = String(payload && payload.period ? payload.period : '').trim();
+    const managePeriod = String(payload && payload.managePeriod ? payload.managePeriod : (exactPeriod || defaultManagePeriod || '')).trim();
+    const rowKey = (acc && managePeriod) ? ('sxRow-' + acc + '-' + String(managePeriod).replace(/-/g, '')) : '';
+
     currentDrawer.account = acc || '';
     currentDrawer.email = em || '';
     currentDrawer.name = nm || '';
-    currentDrawer.rowEl = acc ? document.getElementById('sxRow-' + acc) : null;
-    currentDrawer.managePeriod = String(payload && payload.managePeriod ? payload.managePeriod : defaultManagePeriod || '').trim();
-    currentDrawer.periodLabel = String(payload && payload.periodLabel ? payload.periodLabel : '—').trim();
+    currentDrawer.period = exactPeriod || managePeriod || '';
+    currentDrawer.managePeriod = managePeriod || '';
+    currentDrawer.periodLabel = String(payload && payload.periodLabel ? payload.periodLabel : (managePeriod || '—')).trim();
+    currentDrawer.rowEl = rowKey ? document.getElementById(rowKey) : null;
     currentDrawer.isRangeMode = String(payload && payload.isRangeMode ? payload.isRangeMode : '0') === '1';
 
     setPaidAtVisibility();
@@ -1574,6 +1581,7 @@
         show: openBtn.getAttribute('data-show') || '',
         pdf: openBtn.getAttribute('data-pdf') || '',
         emailurl: openBtn.getAttribute('data-emailurl') || '',
+        period: openBtn.getAttribute('data-period') || '',
         periodLabel: openBtn.getAttribute('data-period-label') || '—',
         managePeriod: openBtn.getAttribute('data-manage-period') || '',
         isRangeMode: openBtn.getAttribute('data-range-mode') || '0',
@@ -1625,8 +1633,14 @@
       return;
     }
 
-    const st  = String(dStatus && dStatus.value ? dStatus.value : '').trim();
-    const pay = String(dPay && dPay.value ? dPay.value : '').trim();
+    const st  = String(dStatus ? (dStatus.options[dStatus.selectedIndex]?.value || dStatus.value || '') : '').trim().toLowerCase();
+    const pay = String(dPay ? (dPay.options[dPay.selectedIndex]?.value || dPay.value || '') : '').trim().toLowerCase();
+
+    const allowedStatuses = ['pendiente','parcial','pagado','vencido','sin_mov'];
+    if(!allowedStatuses.includes(st)){
+      sxToast('Estatus inválido en el drawer. Vuelve a seleccionar el estatus.', 'bad');
+      return;
+    }
 
     let paidAt = '';
     if(String(st).toLowerCase() === 'pagado'){
@@ -1634,9 +1648,9 @@
       if(!paidAt) paidAt = nowLocalDatetimeValue();
     }
 
-    const body = {
+     const body = {
       account_id: currentDrawer.account,
-      period: currentDrawer.managePeriod || defaultManagePeriod,
+      period: currentDrawer.managePeriod || currentDrawer.period || defaultManagePeriod,
       status: st,
       pay_method: pay,
       paid_at: paidAt || null,
@@ -1648,6 +1662,14 @@
       dSave.setAttribute('data-loading','1');
       dSave.textContent = 'Guardando...';
     }
+
+    console.log('[BILLING][SAVE]', {
+      account_id: currentDrawer.account,
+      period: currentDrawer.managePeriod || defaultManagePeriod,
+      status: st,
+      pay_method: pay,
+      paid_at: paidAt || null,
+    });
 
     try{
       const res = await fetch(statusEndpoint, {
