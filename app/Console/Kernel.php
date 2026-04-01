@@ -97,13 +97,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground();
 
         // Reenvío SOLO de pendientes el día 15
-        $schedule->command('p360:statements:send --status=pending --actor=system')
+        $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
             ->monthlyOn(15, '09:00')
             ->withoutOverlapping()
             ->runInBackground();
 
         // Reenvío SOLO de pendientes el último día del mes
-        $schedule->command('p360:statements:send --status=pending --actor=system')
+        $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
             ->lastDayOfMonth('18:00')
             ->withoutOverlapping()
             ->runInBackground();

@@ -19,7 +19,8 @@ class P360SendStatements extends Command
                             {--queue=emails : Queue name (default: emails)}
                             {--delay=0 : Delay en segundos por job (default: 0)}
                             {--chunk=200 : Tamaño de chunk (default: 200)}
-                            {--force=0 : 1=reenviar aunque el statement ya tenga sent_at}';
+                            {--force=0 : 1=reenviar aunque el statement ya tenga sent_at}
+                            {--reminder=0 : 1=modo recordatorio (solo aplica a pending y permite reenvio aunque ya tenga sent_at)}';
 
     protected $description = 'Encola el envío de estados de cuenta por email (por periodo actual o indicado).';
 
@@ -34,6 +35,7 @@ class P360SendStatements extends Command
         $delaySec   = (int) ($this->option('delay') ?: 0);
         $chunkSize  = max(1, (int) ($this->option('chunk') ?: 200));
         $force      = (string) ($this->option('force') ?: '0') === '1';
+        $reminder   = (string) ($this->option('reminder') ?: '0') === '1';
 
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
             $this->error("Invalid period format. Expected YYYY-MM. Got: {$period}");
@@ -45,6 +47,11 @@ class P360SendStatements extends Command
             return self::FAILURE;
         }
 
+        if ($reminder && $status !== 'pending') {
+            $this->error('Reminder mode only supports --status=pending.');
+            return self::FAILURE;
+        }
+
         $baseQuery = BillingStatement::query()->where('period', $period);
 
         if ($status !== 'all') {
@@ -53,29 +60,33 @@ class P360SendStatements extends Command
 
         $totalMatching = (clone $baseQuery)->count();
 
+        $skipSentAtGuard = $this->shouldSkipSentAtGuard($status, $force, $reminder);
+
         // Anti-duplicado por billing_statements.sent_at
         $sentAtSkipped = 0;
-        if (!$force && Schema::connection('mysql_admin')->hasColumn('billing_statements', 'sent_at')) {
+        if (
+            !$skipSentAtGuard &&
+            Schema::connection('mysql_admin')->hasColumn('billing_statements', 'sent_at')
+        ) {
             $beforeSentFilter = (clone $baseQuery)->count();
             $baseQuery->whereNull('sent_at');
             $afterSentFilter = (clone $baseQuery)->count();
             $sentAtSkipped = max(0, $beforeSentFilter - $afterSentFilter);
         }
 
-        // Guard previo de integridad:
-        // 1) snapshot debe existir y no ser null/vacío
-        // 2) no encolar statements completamente vacíos (cargo=0, abono=0, saldo=0)
+        // Guard previo de integridad
         $beforeIntegrityFilter = (clone $baseQuery)->count();
-        $this->applyIntegrityGuards($baseQuery);
+        $this->applyIntegrityGuards($baseQuery, $status, $reminder);
         $afterIntegrityFilter = (clone $baseQuery)->count();
         $integritySkipped = max(0, $beforeIntegrityFilter - $afterIntegrityFilter);
 
         $toQueue = $afterIntegrityFilter;
         $skipped = max(0, $totalMatching - $toQueue);
 
+        $modeLabel = $reminder ? 'REMINDER' : ($force ? 'FORCED' : 'NORMAL');
+
         $this->info(
-            "Queueing {$toQueue} statements for period {$period} (status={$status}) on {$connection}:{$queue}"
-            . ($force ? ' [FORCED]' : '')
+            "Queueing {$toQueue} statements for period {$period} (status={$status}, mode={$modeLabel}) on {$connection}:{$queue}"
         );
 
         if ($sentAtSkipped > 0) {
@@ -83,7 +94,7 @@ class P360SendStatements extends Command
         }
 
         if ($integritySkipped > 0) {
-            $this->warn("Skipped {$integritySkipped} statements due to integrity guard (snapshot vacío/nulo o statement sin importes).");
+            $this->warn("Skipped {$integritySkipped} statements due to integrity guard.");
         }
 
         if ($skipped > 0 && $sentAtSkipped === 0 && $integritySkipped === 0) {
@@ -97,6 +108,7 @@ class P360SendStatements extends Command
                 'connection'        => $connection,
                 'queue'             => $queue,
                 'force'             => $force,
+                'reminder'          => $reminder,
                 'total_matching'    => $totalMatching,
                 'sent_at_skipped'   => $sentAtSkipped,
                 'integrity_skipped' => $integritySkipped,
@@ -119,7 +131,8 @@ class P360SendStatements extends Command
                 &$queued,
                 $period,
                 $status,
-                $force
+                $force,
+                $reminder
             ) {
                 foreach ($rows as $st) {
                     $pending = SendStatementEmailJob::dispatch((int) $st->id, $actor)
@@ -140,6 +153,7 @@ class P360SendStatements extends Command
                     'connection' => $connection,
                     'queue'      => $queue,
                     'force'      => $force,
+                    'reminder'   => $reminder,
                 ]);
             });
 
@@ -148,7 +162,20 @@ class P360SendStatements extends Command
         return self::SUCCESS;
     }
 
-    private function applyIntegrityGuards(Builder $query): void
+    private function shouldSkipSentAtGuard(string $status, bool $force, bool $reminder): bool
+    {
+        if ($force) {
+            return true;
+        }
+
+        if ($reminder && $status === 'pending') {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function applyIntegrityGuards(Builder $query, string $status, bool $reminder): void
     {
         $conn = 'mysql_admin';
 
@@ -161,11 +188,18 @@ class P360SendStatements extends Command
                 ->where('snapshot', '<>', '{}');
         }
 
-        // no encolar statements totalmente vacíos
         $hasCargo = Schema::connection($conn)->hasColumn('billing_statements', 'total_cargo');
         $hasAbono = Schema::connection($conn)->hasColumn('billing_statements', 'total_abono');
         $hasSaldo = Schema::connection($conn)->hasColumn('billing_statements', 'saldo');
 
+        // En modo reminder para pending:
+        // SOLO reenviar si realmente sigue con saldo > 0
+        if ($reminder && $status === 'pending' && $hasSaldo) {
+            $query->where('saldo', '>', 0);
+            return;
+        }
+
+        // Envío normal: no encolar statements totalmente vacíos
         if ($hasCargo && $hasAbono && $hasSaldo) {
             $query->where(function (Builder $q) {
                 $q->where('total_cargo', '>', 0)
