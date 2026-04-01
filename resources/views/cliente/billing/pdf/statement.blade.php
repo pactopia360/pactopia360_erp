@@ -247,13 +247,29 @@
   $addrInline = implode(' · ', array_filter($addrParts, fn($v)=>trim((string)$v) !== ''));
 
   // Logo (data URI)
+   // Logo (data URI) · prioridad al nuevo logo azul
   $logoDataUri = $logo_data_uri ?? null;
-  $logoFilePath = public_path('assets/client/Logo1Pactopia.png');
-  if (!$logoDataUri && is_file($logoFilePath)) {
-    try {
-      $bin = file_get_contents($logoFilePath);
-      if ($bin !== false && strlen($bin) > 10) $logoDataUri = 'data:image/png;base64,'.base64_encode($bin);
-    } catch (\Throwable $e) {}
+
+  $logoCandidates = [
+    public_path('assets/client/img/Pactopia - Letra AZUL.png'),
+    public_path('assets/client/Logo1Pactopia.png'),
+  ];
+
+  if (!$logoDataUri) {
+    foreach ($logoCandidates as $logoFilePath) {
+      if (is_file($logoFilePath) && is_readable($logoFilePath)) {
+        try {
+          $bin = file_get_contents($logoFilePath);
+          if ($bin !== false && strlen($bin) > 10) {
+            $ext  = strtolower(pathinfo($logoFilePath, PATHINFO_EXTENSION));
+            $mime = $ext === 'jpg' || $ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+            $logoDataUri = 'data:' . $mime . ';base64,' . base64_encode($bin);
+            break;
+          }
+        } catch (\Throwable $e) {
+        }
+      }
+    }
   }
 
   // ======================================================
