@@ -3,23 +3,23 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 
 class EnviarEstadoCuenta extends Command
 {
     protected $signature = 'p360:enviar-estado-cuenta';
-    protected $description = 'Envía el estado de cuenta a clientes (mensual)';
+    protected $description = 'COMANDO LEGACY DESHABILITADO. No usar para envios de estados de cuenta.';
 
     public function handle(): int
     {
-        $clientes = DB::connection('mysql_admin')->table('clientes')->get();
-        foreach ($clientes as $c) {
-            Mail::send('emails.estado_cuenta', ['cliente'=>$c], function($m) use ($c){
-                $m->to($c->email)->subject('Estado de cuenta - Pactopia360');
-            });
-        }
-        $this->info('Estados de cuenta enviados.');
-        return self::SUCCESS;
+        $this->newLine();
+        $this->error('El comando p360:enviar-estado-cuenta esta DESHABILITADO.');
+        $this->line('Motivo: es un flujo legacy que envia correos sin validar saldo real, pagos, sent_at ni el HUB moderno.');
+        $this->line('Ademas depende de la vista legacy emails.estado_cuenta, que ya no existe.');
+        $this->newLine();
+        $this->warn('No se envio ningun correo.');
+        $this->line('Usa unicamente los flujos modernos del modulo Billing/HUB.');
+        $this->newLine();
+
+        return self::FAILURE;
     }
 }
