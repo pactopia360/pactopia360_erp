@@ -38,15 +38,68 @@ final class AccountBillingStateService
             $hasBilling = Schema::connection($adm)->hasColumn('accounts', 'billing_status');
             if (!$hasEstado && !$hasBilling) return;
 
-            $ids = array_values(array_unique(array_filter([$aidStr, $aidInt > 0 ? (string) $aidInt : null])));
+            $ids = array_values(array_unique(array_filter([
+                $aidStr,
+                $aidInt > 0 ? (string) $aidInt : null,
+            ])));
 
-            // HOTFIX:
-            // La cuenta queda pendiente si existe cualquier statement con saldo > 0.
-            // NO confiar en status, porque antes se contaminó con "pagado" manual.
-            $pending = DB::connection($adm)->table('billing_statements')
+            $hasOverrides = Schema::connection($adm)->hasTable('billing_statement_status_overrides');
+
+            $rows = DB::connection($adm)->table('billing_statements')
                 ->whereIn('account_id', $ids)
-                ->whereRaw('COALESCE(saldo,0) > 0')
-                ->exists();
+                ->orderByDesc('period')
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->get([
+                    'id',
+                    'account_id',
+                    'period',
+                    'status',
+                    'saldo',
+                    'paid_at',
+                ]);
+
+            $overridePaid = [];
+            if ($hasOverrides) {
+                $ovRows = DB::connection($adm)->table('billing_statement_status_overrides')
+                    ->whereIn('account_id', $ids)
+                    ->where('status_override', 'pagado')
+                    ->get(['account_id', 'period']);
+
+                foreach ($ovRows as $ov) {
+                    $k = trim((string) $ov->account_id) . '|' . trim((string) $ov->period);
+                    $overridePaid[$k] = true;
+                }
+            }
+
+            $pending = false;
+
+            foreach ($rows as $row) {
+                $period = trim((string) ($row->period ?? ''));
+                $saldo  = round(max(0.0, (float) ($row->saldo ?? 0)), 2);
+                $status = strtolower(trim((string) ($row->status ?? '')));
+                $paidAt = $row->paid_at ?? null;
+
+                if ($saldo <= 0.00001) {
+                    continue;
+                }
+
+                if (!empty($paidAt)) {
+                    continue;
+                }
+
+                if (in_array($status, ['paid', 'pagado', 'complete', 'completed', 'success', 'succeeded', 'captured'], true)) {
+                    continue;
+                }
+
+                $key1 = trim((string) ($row->account_id ?? '')) . '|' . $period;
+                if (isset($overridePaid[$key1])) {
+                    continue;
+                }
+
+                $pending = true;
+                break;
+            }
 
             $upd = ['updated_at' => now()];
             if ($hasEstado) {
