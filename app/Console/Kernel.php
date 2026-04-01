@@ -27,6 +27,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\SatAutoDownloadCommand::class,
         \App\Console\Commands\SatCleanupFreeCommand::class,
         \App\Console\Commands\SatMonitorAlertsCommand::class,
+        \App\Console\Commands\P360BillingRepairAll::class,
 
         // (Tu comando previo, si aún lo usas)
         \App\Console\Commands\GenerateMonthlyStatements::class,
