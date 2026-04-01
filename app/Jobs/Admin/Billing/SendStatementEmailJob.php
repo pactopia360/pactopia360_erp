@@ -52,18 +52,15 @@ class SendStatementEmailJob implements ShouldQueue
         $period    = trim((string) $st->period);
 
         if ($accountId === '' || !preg_match('/^\d{4}\-\d{2}$/', $period)) {
-            $this->createEvent($st->id, 'failed', 'Statement inválido para envío.', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
-            Log::warning('[P360][STATEMENTS][JOB] Statement inválido', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
+            $this->markFailedAndSkip(
+                $st,
+                'Statement inválido para envío.',
+                [
+                    'statement_id' => $st->id,
+                    'account_id'   => $accountId,
+                    'period'       => $period,
+                ]
+            );
             return;
         }
 
@@ -73,35 +70,15 @@ class SendStatementEmailJob implements ShouldQueue
             ->first();
 
         if (!$account) {
-            $this->createEvent($st->id, 'failed', 'Cuenta admin no encontrada.', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
-            Log::warning('[P360][STATEMENTS][JOB] Cuenta no encontrada', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
-            return;
-        }
-
-        $recipients = $this->resolveRecipientsForAccount($accountId, (string) ($account->email ?? ''));
-        if (empty($recipients)) {
-            $this->createEvent($st->id, 'failed', 'Sin destinatarios configurados.', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
-            Log::warning('[P360][STATEMENTS][JOB] Sin destinatarios', [
-                'statement_id' => $st->id,
-                'account_id'   => $accountId,
-                'period'       => $period,
-            ]);
-
+            $this->markFailedAndSkip(
+                $st,
+                'Cuenta admin no encontrada.',
+                [
+                    'statement_id' => $st->id,
+                    'account_id'   => $accountId,
+                    'period'       => $period,
+                ]
+            );
             return;
         }
 
@@ -110,6 +87,35 @@ class SendStatementEmailJob implements ShouldQueue
             ->where('statement_id', $st->id)
             ->orderBy('id')
             ->get();
+
+        $guard = $this->validateStatementBeforeSend($st, $account, $items);
+        if (!$guard['ok']) {
+            $this->markFailedAndSkip(
+                $st,
+                (string) $guard['message'],
+                [
+                    'statement_id' => $st->id,
+                    'account_id'   => $accountId,
+                    'period'       => $period,
+                    'guard'        => $guard['meta'],
+                ]
+            );
+            return;
+        }
+
+        $recipients = $this->resolveRecipientsForAccount($accountId, (string) ($account->email ?? ''));
+        if (empty($recipients)) {
+            $this->markFailedAndSkip(
+                $st,
+                'Sin destinatarios configurados.',
+                [
+                    'statement_id' => $st->id,
+                    'account_id'   => $accountId,
+                    'period'       => $period,
+                ]
+            );
+            return;
+        }
 
         $sent = 0;
         $failed = 0;
@@ -186,7 +192,6 @@ class SendStatementEmailJob implements ShouldQueue
             }
         }
 
-        // ✅ Solo marcar sent_at cuando TODOS los destinatarios salieron bien
         if ($sent > 0 && $failed === 0) {
             $st->sent_at = now();
             $st->save();
@@ -215,6 +220,100 @@ class SendStatementEmailJob implements ShouldQueue
                 'actor'         => $this->actor,
             ]
         );
+    }
+
+    /**
+     * @return array{ok:bool,message:string,meta:array<string,mixed>}
+     */
+    private function validateStatementBeforeSend(BillingStatement $st, object $account, $items): array
+    {
+        $snapshot = $st->snapshot;
+
+        $hasSnapshot = false;
+        if (is_array($snapshot) && !empty($snapshot)) {
+            $hasSnapshot = true;
+        } elseif (is_string($snapshot) && trim($snapshot) !== '') {
+            $decoded = json_decode($snapshot, true);
+            $hasSnapshot = json_last_error() === JSON_ERROR_NONE && is_array($decoded) && !empty($decoded);
+        }
+
+        $itemCount = 0;
+        if (is_iterable($items)) {
+            foreach ($items as $item) {
+                $itemCount++;
+            }
+        }
+
+        $totalCargo = round((float) ($st->total_cargo ?? 0), 2);
+        $totalAbono = round((float) ($st->total_abono ?? 0), 2);
+        $saldo      = round((float) ($st->saldo ?? 0), 2);
+
+        $accountEmail = trim((string) ($account->email ?? ''));
+
+        if (!$hasSnapshot) {
+            return [
+                'ok'      => false,
+                'message' => 'Guard blocked: statement sin snapshot válido.',
+                'meta'    => [
+                    'reason'       => 'missing_snapshot',
+                    'statement_id' => $st->id,
+                    'account_id'   => (string) $st->account_id,
+                    'period'       => (string) $st->period,
+                ],
+            ];
+        }
+
+        if ($itemCount === 0 && $totalCargo <= 0.00001 && $totalAbono <= 0.00001 && $saldo <= 0.00001) {
+            return [
+                'ok'      => false,
+                'message' => 'Guard blocked: statement vacío, sin items ni importes.',
+                'meta'    => [
+                    'reason'       => 'empty_statement',
+                    'statement_id' => $st->id,
+                    'account_id'   => (string) $st->account_id,
+                    'period'       => (string) $st->period,
+                    'item_count'   => $itemCount,
+                    'total_cargo'  => $totalCargo,
+                    'total_abono'  => $totalAbono,
+                    'saldo'        => $saldo,
+                ],
+            ];
+        }
+
+        if ($accountEmail === '' && $itemCount === 0) {
+            return [
+                'ok'      => false,
+                'message' => 'Guard blocked: sin email principal y sin items para respaldo visual.',
+                'meta'    => [
+                    'reason'       => 'weak_statement_data',
+                    'statement_id' => $st->id,
+                    'account_id'   => (string) $st->account_id,
+                    'period'       => (string) $st->period,
+                ],
+            ];
+        }
+
+        return [
+            'ok'      => true,
+            'message' => 'ok',
+            'meta'    => [
+                'item_count'  => $itemCount,
+                'total_cargo' => $totalCargo,
+                'total_abono' => $totalAbono,
+                'saldo'       => $saldo,
+            ],
+        ];
+    }
+
+    private function markFailedAndSkip(BillingStatement $st, string $message, array $meta = []): void
+    {
+        $this->createEvent($st->id, 'failed', $message, $meta);
+
+        Log::warning('[P360][STATEMENTS][JOB] Envío bloqueado por guard.', array_merge([
+            'statement_id' => $st->id,
+            'actor'        => $this->actor,
+            'message'      => $message,
+        ], $meta));
     }
 
     /**
@@ -262,7 +361,6 @@ class SendStatementEmailJob implements ShouldQueue
             }
         }
 
-        // fallback al email principal de la cuenta
         $fallbackEmail = strtolower(trim($fallbackEmail));
         if ($fallbackEmail !== '' && filter_var($fallbackEmail, FILTER_VALIDATE_EMAIL)) {
             $emails[] = $fallbackEmail;
@@ -290,8 +388,6 @@ class SendStatementEmailJob implements ShouldQueue
         $totalCargo = round((float) ($st->total_cargo ?? 0), 2);
         $totalAbono = round((float) ($st->total_abono ?? 0), 2);
         $saldoTotal = round((float) ($st->saldo ?? max(0, $prevSaldo + $totalCargo - $totalAbono)), 2);
-
-        // Saldo del periodo sin arrastre anterior
         $saldoPeriodo = round(max(0, $totalCargo - $totalAbono), 2);
 
         $status = strtolower(trim((string) ($st->status ?? 'pending')));
@@ -308,7 +404,6 @@ class SendStatementEmailJob implements ShouldQueue
             $dt = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
             $periodLabel = ucfirst($dt->locale('es')->translatedFormat('F Y'));
         } catch (\Throwable $e) {
-            // noop
         }
 
         $pdfUrl = '';
