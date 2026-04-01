@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\Admin\Billing\SendStatementEmailJob;
 use App\Models\Admin\Billing\BillingStatement;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
@@ -53,11 +54,23 @@ class P360SendStatements extends Command
         $totalMatching = (clone $baseQuery)->count();
 
         // Anti-duplicado por billing_statements.sent_at
+        $sentAtSkipped = 0;
         if (!$force && Schema::connection('mysql_admin')->hasColumn('billing_statements', 'sent_at')) {
+            $beforeSentFilter = (clone $baseQuery)->count();
             $baseQuery->whereNull('sent_at');
+            $afterSentFilter = (clone $baseQuery)->count();
+            $sentAtSkipped = max(0, $beforeSentFilter - $afterSentFilter);
         }
 
-        $toQueue = (clone $baseQuery)->count();
+        // Guard previo de integridad:
+        // 1) snapshot debe existir y no ser null/vacío
+        // 2) no encolar statements completamente vacíos (cargo=0, abono=0, saldo=0)
+        $beforeIntegrityFilter = (clone $baseQuery)->count();
+        $this->applyIntegrityGuards($baseQuery);
+        $afterIntegrityFilter = (clone $baseQuery)->count();
+        $integritySkipped = max(0, $beforeIntegrityFilter - $afterIntegrityFilter);
+
+        $toQueue = $afterIntegrityFilter;
         $skipped = max(0, $totalMatching - $toQueue);
 
         $this->info(
@@ -65,11 +78,30 @@ class P360SendStatements extends Command
             . ($force ? ' [FORCED]' : '')
         );
 
-        if ($skipped > 0) {
-            $this->warn("Skipped {$skipped} statements because they already have sent_at.");
+        if ($sentAtSkipped > 0) {
+            $this->warn("Skipped {$sentAtSkipped} statements because they already have sent_at.");
+        }
+
+        if ($integritySkipped > 0) {
+            $this->warn("Skipped {$integritySkipped} statements due to integrity guard (snapshot vacío/nulo o statement sin importes).");
+        }
+
+        if ($skipped > 0 && $sentAtSkipped === 0 && $integritySkipped === 0) {
+            $this->warn("Skipped {$skipped} statements by current filters.");
         }
 
         if ($toQueue === 0) {
+            Log::warning('[STATEMENTS_SEND] nothing queued after guards', [
+                'period'            => $period,
+                'status'            => $status,
+                'connection'        => $connection,
+                'queue'             => $queue,
+                'force'             => $force,
+                'total_matching'    => $totalMatching,
+                'sent_at_skipped'   => $sentAtSkipped,
+                'integrity_skipped' => $integritySkipped,
+            ]);
+
             $this->info('DONE. queued=0');
             return self::SUCCESS;
         }
@@ -114,5 +146,32 @@ class P360SendStatements extends Command
         $this->info("DONE. queued={$queued}");
 
         return self::SUCCESS;
+    }
+
+    private function applyIntegrityGuards(Builder $query): void
+    {
+        $conn = 'mysql_admin';
+
+        // snapshot debe existir y no ser null/vacío
+        if (Schema::connection($conn)->hasColumn('billing_statements', 'snapshot')) {
+            $query->whereNotNull('snapshot')
+                ->where('snapshot', '<>', '')
+                ->where('snapshot', '<>', 'null')
+                ->where('snapshot', '<>', '[]')
+                ->where('snapshot', '<>', '{}');
+        }
+
+        // no encolar statements totalmente vacíos
+        $hasCargo = Schema::connection($conn)->hasColumn('billing_statements', 'total_cargo');
+        $hasAbono = Schema::connection($conn)->hasColumn('billing_statements', 'total_abono');
+        $hasSaldo = Schema::connection($conn)->hasColumn('billing_statements', 'saldo');
+
+        if ($hasCargo && $hasAbono && $hasSaldo) {
+            $query->where(function (Builder $q) {
+                $q->where('total_cargo', '>', 0)
+                  ->orWhere('total_abono', '>', 0)
+                  ->orWhere('saldo', '>', 0);
+            });
+        }
     }
 }
