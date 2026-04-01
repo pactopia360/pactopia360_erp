@@ -42,71 +42,91 @@ final class StatementAccountPeriodMail extends Mailable implements ShouldQueue
         $subjectOverride = trim((string) ($this->data['subject_override'] ?? ''));
         $subject = $subjectOverride !== ''
             ? $subjectOverride
-            : ('Pactopia360 · Estado de cuenta ' . $period . ($label !== '' ? ' · ' . $label : ''));
+            : ((string) ($this->data['subject'] ?? ''));
+
+        if ($subject === '') {
+            $subject = 'Pactopia360 · Estado de cuenta ' . $period . ($label !== '' ? ' · ' . $label : '');
+        }
 
         $replyAddr = trim((string) ($this->data['MAIL_REPLY_TO_ADDRESS'] ?? ($this->data['reply_to_address'] ?? '')));
         $replyName = trim((string) ($this->data['MAIL_REPLY_TO_NAME'] ?? ($this->data['reply_to_name'] ?? '')));
 
-        // Plantilla maestra unificada
-        $view = 'emails.admin.billing.statement_account_period';
+        $view = (string) ($this->data['template'] ?? 'emails.admin.billing.statement_account_period');
         $this->data['template'] = $view;
 
-        $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        // Solo hidratar desde DB si falta información clave.
+        $needsHydration = !isset($this->data['statement_id']) || !isset($this->data['statement']) || !isset($this->data['total_due']);
 
-        if (Schema::connection($adm)->hasTable('billing_statements')) {
-            $st = DB::connection($adm)->table('billing_statements')
-                ->where('account_id', (string) $this->accountId)
-                ->where('period', $period)
-                ->orderByDesc(DB::raw('CAST(saldo AS DECIMAL(18,2))'))
-                ->orderByDesc(DB::raw('CAST(total_cargo AS DECIMAL(18,2))'))
-                ->orderByDesc('id')
-                ->first([
-                    'id',
-                    'account_id',
-                    'period',
-                    'status',
-                    'total_cargo',
-                    'total_abono',
-                    'saldo',
-                    'due_date',
-                    'sent_at',
-                    'paid_at',
-                    'snapshot',
-                    'meta',
-                    'is_locked',
-                    'created_at',
-                    'updated_at',
-                ]);
+        if ($needsHydration) {
+            $adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
 
-            if ($st) {
-                $cargo = (float) ($st->total_cargo ?? 0);
-                $abono = (float) ($st->total_abono ?? 0);
-                $saldo = (float) ($st->saldo ?? 0);
+            if (Schema::connection($adm)->hasTable('billing_statements')) {
+                $st = DB::connection($adm)->table('billing_statements')
+                    ->where('account_id', (string) $this->accountId)
+                    ->where('period', $period)
+                    ->orderByDesc('id')
+                    ->first([
+                        'id',
+                        'account_id',
+                        'period',
+                        'status',
+                        'total_cargo',
+                        'total_abono',
+                        'saldo',
+                        'due_date',
+                        'sent_at',
+                        'paid_at',
+                        'snapshot',
+                        'meta',
+                        'is_locked',
+                        'created_at',
+                        'updated_at',
+                    ]);
 
-                $this->data['statement']        = $st;
-                $this->data['statement_id']     = (int) ($st->id ?? 0);
-                $this->data['statement_status'] = (string) ($st->status ?? '');
-                $this->data['statement_cargo']  = $cargo;
-                $this->data['statement_abono']  = $abono;
-                $this->data['statement_saldo']  = $saldo;
+                if ($st) {
+                    $cargo = (float) ($st->total_cargo ?? 0);
+                    $abono = (float) ($st->total_abono ?? 0);
+                    $saldo = (float) ($st->saldo ?? 0);
 
-                // Compatibilidad con la plantilla hija
-                $this->data['total_cargo'] = $cargo;
-                $this->data['total_abono'] = $abono;
-                $this->data['saldo']       = $saldo;
-                $this->data['total']       = $saldo;
+                    $meta = [];
+                    if (is_array($st->meta)) {
+                        $meta = $st->meta;
+                    } elseif (is_string($st->meta) && trim($st->meta) !== '') {
+                        $decoded = json_decode($st->meta, true);
+                        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                            $meta = $decoded;
+                        }
+                    }
+
+                    $prev = (float) ($meta['prev_saldo'] ?? 0);
+                    $periodDue = max(0, $cargo - $abono);
+
+                    $this->data['statement']         = $st;
+                    $this->data['statement_id']      = (int) ($st->id ?? 0);
+                    $this->data['statement_status']  = (string) ($st->status ?? '');
+                    $this->data['statement_cargo']   = $cargo;
+                    $this->data['statement_abono']   = $abono;
+                    $this->data['statement_saldo']   = $periodDue;
+
+                    $this->data['total_cargo']       = $cargo;
+                    $this->data['total_abono']       = $abono;
+                    $this->data['saldo']             = $saldo;
+                    $this->data['total']             = $saldo;
+                    $this->data['prev_balance']      = $prev;
+                    $this->data['current_period_due']= $periodDue;
+                    $this->data['total_due']         = $saldo;
+                }
             }
         }
 
-        // Normalización final para layout/base
-        $this->data['period']        = $period;
-        $this->data['period_label']  = $label;
-        $this->data['subject']       = $subject;
-        $this->data['generated_at']  = $this->data['generated_at'] ?? now();
-        $this->data['emailTitle']    = $subject;
-        $this->data['openPixelUrl']  = (string) ($this->data['open_pixel_url'] ?? '');
-        $this->data['footerPrimary'] = (string) ($this->data['footerPrimary'] ?? 'Este correo fue emitido por Pactopia360.');
-        $this->data['footerSecondary'] = (string) ($this->data['footerSecondary'] ?? 'Para cualquier aclaración, responde a este mensaje o entra a tu portal.');
+        $this->data['period']         = $period;
+        $this->data['period_label']   = $label;
+        $this->data['subject']        = $subject;
+        $this->data['generated_at']   = $this->data['generated_at'] ?? now();
+        $this->data['emailTitle']     = $subject;
+        $this->data['openPixelUrl']   = (string) ($this->data['open_pixel_url'] ?? '');
+        $this->data['footerPrimary']  = (string) ($this->data['footerPrimary'] ?? 'Este correo fue emitido por Pactopia360.');
+        $this->data['footerSecondary']= (string) ($this->data['footerSecondary'] ?? 'Para cualquier aclaración, responde a este mensaje o entra a tu portal.');
 
         $saldoMail = (float) ($this->data['total_due'] ?? $this->data['total'] ?? $this->data['saldo'] ?? 0);
         $this->data['emailPreheader'] = (string) ($this->data['emailPreheader'] ?? (

@@ -10,7 +10,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -48,7 +47,7 @@ class SendStatementEmailJob implements ShouldQueue
             ]);
             return;
         }
-        
+
         $accountId = trim((string) $st->account_id);
         $period    = trim((string) $st->period);
 
@@ -167,14 +166,14 @@ class SendStatementEmailJob implements ShouldQueue
                 ];
 
                 if ($logId > 0) {
-                $this->updateEmailLogFailed($logId, $e->getMessage(), [
-                    'source'       => 'p360:statements:send',
-                    'actor'        => $this->actor,
-                    'statement_id' => $st->id,
-                    'account_id'   => $accountId,
-                    'period'       => $period,
-                    'email'        => $dest,
-                ]);
+                    $this->updateEmailLogFailed($logId, $e->getMessage(), [
+                        'source'       => 'p360:statements:send',
+                        'actor'        => $this->actor,
+                        'statement_id' => $st->id,
+                        'account_id'   => $accountId,
+                        'period'       => $period,
+                        'email'        => $dest,
+                    ]);
                 }
 
                 Log::error('[P360][STATEMENTS][JOB] Fallo envío estado de cuenta', [
@@ -187,23 +186,33 @@ class SendStatementEmailJob implements ShouldQueue
             }
         }
 
-        if ($sent > 0) {
+        // ✅ Solo marcar sent_at cuando TODOS los destinatarios salieron bien
+        if ($sent > 0 && $failed === 0) {
             $st->sent_at = now();
             $st->save();
         }
 
+        $eventName = 'sent';
+        $eventNotes = 'Sent via queue (unified mail/log flow).';
+
+        if ($sent > 0 && $failed > 0) {
+            $eventName = 'partial';
+            $eventNotes = 'Envío parcial: algunos destinatarios fallaron.';
+        } elseif ($sent === 0 && $failed > 0) {
+            $eventName = 'failed';
+            $eventNotes = 'No se pudo enviar a ningún destinatario.';
+        }
+
         $this->createEvent(
             $st->id,
-            $failed > 0 && $sent === 0 ? 'failed' : 'sent',
-            $failed > 0
-                ? 'Envío procesado con incidencias.'
-                : 'Sent via queue (unified mail/log flow).',
+            $eventName,
+            $eventNotes,
             [
-                'sent_count'   => $sent,
-                'failed_count' => $failed,
-                'sent_emails'  => $sentEmails,
-                'failed_emails'=> $failedEmails,
-                'actor'        => $this->actor,
+                'sent_count'    => $sent,
+                'failed_count'  => $failed,
+                'sent_emails'   => $sentEmails,
+                'failed_emails' => $failedEmails,
+                'actor'         => $this->actor,
             ]
         );
     }
@@ -214,13 +223,6 @@ class SendStatementEmailJob implements ShouldQueue
     private function resolveRecipientsForAccount(string $accountId, string $fallbackEmail): array
     {
         $emails = [];
-
-
-        // Después fallback
-        $fallbackEmail = strtolower(trim($fallbackEmail));
-        if ($fallbackEmail !== '' && filter_var($fallbackEmail, FILTER_VALIDATE_EMAIL)) {
-            $emails[] = $fallbackEmail;
-        }
 
         if (Schema::connection($this->adm)->hasTable('account_recipients')) {
             try {
@@ -260,6 +262,12 @@ class SendStatementEmailJob implements ShouldQueue
             }
         }
 
+        // fallback al email principal de la cuenta
+        $fallbackEmail = strtolower(trim($fallbackEmail));
+        if ($fallbackEmail !== '' && filter_var($fallbackEmail, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $fallbackEmail;
+        }
+
         return array_values(array_unique($emails));
     }
 
@@ -272,13 +280,19 @@ class SendStatementEmailJob implements ShouldQueue
     {
         $period = trim((string) $st->period);
 
-        $razonSocial = trim((string) ($account->razon_social ?? $account->name ?? 'Cliente'));
+        $razonSocial  = trim((string) ($account->razon_social ?? $account->name ?? 'Cliente'));
         $accountEmail = trim((string) ($account->email ?? ''));
-        $accountRfc = trim((string) ($account->rfc ?? ''));
+        $accountRfc   = trim((string) ($account->rfc ?? ''));
+
+        $meta = is_array($st->meta) ? $st->meta : [];
+        $prevSaldo = round((float) ($meta['prev_saldo'] ?? 0), 2);
 
         $totalCargo = round((float) ($st->total_cargo ?? 0), 2);
         $totalAbono = round((float) ($st->total_abono ?? 0), 2);
-        $saldo      = round((float) ($st->saldo ?? max(0, $totalCargo - $totalAbono)), 2);
+        $saldoTotal = round((float) ($st->saldo ?? max(0, $prevSaldo + $totalCargo - $totalAbono)), 2);
+
+        // Saldo del periodo sin arrastre anterior
+        $saldoPeriodo = round(max(0, $totalCargo - $totalAbono), 2);
 
         $status = strtolower(trim((string) ($st->status ?? 'pending')));
         $status = match ($status) {
@@ -291,8 +305,10 @@ class SendStatementEmailJob implements ShouldQueue
 
         $periodLabel = $period;
         try {
-            $periodLabel = Carbon::parse($period . '-01')->translatedFormat('F Y');
+            $dt = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+            $periodLabel = ucfirst($dt->locale('es')->translatedFormat('F Y'));
         } catch (\Throwable $e) {
+            // noop
         }
 
         $pdfUrl = '';
@@ -319,7 +335,7 @@ class SendStatementEmailJob implements ShouldQueue
         }
 
         try {
-            if ($saldo > 0.00001 && Route::has('admin.billing.hub.paylink')) {
+            if ($saldoTotal > 0.00001 && Route::has('admin.billing.hub.paylink')) {
                 $payUrl = route('admin.billing.hub.paylink') . '?account_id=' . urlencode((string) $st->account_id) . '&period=' . urlencode($period);
             }
         } catch (\Throwable $e) {
@@ -347,23 +363,23 @@ class SendStatementEmailJob implements ShouldQueue
                         : '';
                 };
 
-                $pdfTrackUrl = $wrap($pdfUrl);
+                $pdfTrackUrl    = $wrap($pdfUrl);
                 $portalTrackUrl = $wrap($portalUrl);
-                $payTrackUrl = $wrap($payUrl);
+                $payTrackUrl    = $wrap($payUrl);
             }
         } catch (\Throwable $e) {
-            $pdfTrackUrl = $pdfUrl;
+            $pdfTrackUrl    = $pdfUrl;
             $portalTrackUrl = $portalUrl;
-            $payTrackUrl = $payUrl;
+            $payTrackUrl    = $payUrl;
         }
 
         $subject = 'Pactopia360 · Estado de cuenta ' . $period . ' · ' . $razonSocial;
 
         return [
-            'template'         => 'emails.admin.billing.statement_account_period',
-            'subject'          => $subject,
-            'email_id'         => $emailId,
-            'generated_at'     => now(),
+            'template'            => 'emails.admin.billing.statement_account_period',
+            'subject'             => $subject,
+            'email_id'            => $emailId,
+            'generated_at'        => now(),
 
             'account' => (object) [
                 'id'           => (string) $st->account_id,
@@ -373,35 +389,35 @@ class SendStatementEmailJob implements ShouldQueue
                 'email'        => $accountEmail,
             ],
 
-            'statement'        => $st,
-            'statement_id'     => (int) $st->id,
-            'statement_status' => $status,
-            'statement_cargo'  => $totalCargo,
-            'statement_abono'  => $totalAbono,
-            'statement_saldo'  => $saldo,
+            'statement'           => $st,
+            'statement_id'        => (int) $st->id,
+            'statement_status'    => $status,
+            'statement_cargo'     => $totalCargo,
+            'statement_abono'     => $totalAbono,
+            'statement_saldo'     => $saldoPeriodo,
 
-            'period'           => $period,
-            'period_label'     => $periodLabel,
-            'items'            => $items,
+            'period'              => $period,
+            'period_label'        => $periodLabel,
+            'items'               => $items,
 
-            'tarifa_label'     => 'Estado de cuenta',
-            'total_cargo'      => $totalCargo,
-            'total_abono'      => $totalAbono,
-            'saldo'            => $saldo,
-            'total'            => $saldo,
-            'current_period_due' => $saldo,
-            'prev_balance'     => 0.0,
-            'total_due'        => $saldo,
-            'status_pago'      => $status,
+            'tarifa_label'        => 'Estado de cuenta',
+            'total_cargo'         => $totalCargo,
+            'total_abono'         => $totalAbono,
+            'saldo'               => $saldoTotal,
+            'total'               => $saldoTotal,
+            'current_period_due'  => $saldoPeriodo,
+            'prev_balance'        => $prevSaldo,
+            'total_due'           => $saldoTotal,
+            'status_pago'         => $status,
 
-            'pdf_url'          => $pdfUrl,
-            'portal_url'       => $portalUrl,
-            'pay_url'          => $payUrl,
+            'pdf_url'             => $pdfUrl,
+            'portal_url'          => $portalUrl,
+            'pay_url'             => $payUrl,
 
-            'open_pixel_url'   => $openPixelUrl,
-            'pdf_track_url'    => $pdfTrackUrl,
-            'portal_track_url' => $portalTrackUrl,
-            'pay_track_url'    => $payTrackUrl,
+            'open_pixel_url'      => $openPixelUrl,
+            'pdf_track_url'       => $pdfTrackUrl,
+            'portal_track_url'    => $portalTrackUrl,
+            'pay_track_url'       => $payTrackUrl,
         ];
     }
 
@@ -475,8 +491,12 @@ class SendStatementEmailJob implements ShouldQueue
             Schema::connection($this->adm)->getColumnListing('billing_email_logs')
         );
 
-        if (in_array('status', $cols, true))  $update['status'] = 'sent';
-        if (in_array('sent_at', $cols, true)) $update['sent_at'] = now();
+        if (in_array('status', $cols, true)) {
+            $update['status'] = 'sent';
+        }
+        if (in_array('sent_at', $cols, true)) {
+            $update['sent_at'] = now();
+        }
 
         DB::connection($this->adm)
             ->table('billing_email_logs')
@@ -500,8 +520,12 @@ class SendStatementEmailJob implements ShouldQueue
 
         $update = ['updated_at' => now()];
 
-        if (in_array('status', $cols, true))    $update['status'] = 'failed';
-        if (in_array('failed_at', $cols, true)) $update['failed_at'] = now();
+        if (in_array('status', $cols, true)) {
+            $update['status'] = 'failed';
+        }
+        if (in_array('failed_at', $cols, true)) {
+            $update['failed_at'] = now();
+        }
 
         if (in_array('meta', $cols, true)) {
             $update['meta'] = json_encode(array_merge($context, [

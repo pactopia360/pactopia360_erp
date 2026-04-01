@@ -1,39 +1,30 @@
 {{-- resources/views/emails/admin/billing/statement_account_period.blade.php --}}
 @php
   $acc = $account ?? null;
+  $st  = $statement ?? null;
 
-  $accName = trim((string) (($acc->razon_social ?? '') ?: ($acc->name ?? '') ?: ($acc->email ?? 'Cliente')));
+  $accId    = trim((string) (($acc->id ?? '') ?: ($st->account_id ?? '')));
+  $accName  = trim((string) (($acc->razon_social ?? '') ?: ($acc->name ?? '') ?: ($acc->email ?? 'Cliente')));
   $accEmail = trim((string) ($acc->email ?? ''));
   $accRfc   = trim((string) ($acc->rfc ?? ''));
 
-  $periodTxt = (string) ($period_label ?? $period ?? '');
+  $periodTxt = trim((string) ($period_label ?? $period ?? ''));
+  $periodRaw = trim((string) ($period ?? ''));
 
-  $statementCargo = (float) ($statement_cargo ?? 0);
-  $statementAbono = (float) ($statement_abono ?? 0);
+  $statementId = (int) ($statement_id ?? ($st->id ?? 0));
+
+  $statementCargo = (float) ($statement_cargo ?? ($st->total_cargo ?? 0));
+  $statementAbono = (float) ($statement_abono ?? ($st->total_abono ?? 0));
   $statementSaldo = (float) ($statement_saldo ?? 0);
 
-  $cargoPeriodo = $statementCargo > 0.00001
-      ? $statementCargo
-      : (float) ($total_cargo ?? $cargo ?? 0);
-
-  $abonoTotal = $statementAbono > 0.00001
-      ? $statementAbono
-      : (float) ($total_abono ?? $abono ?? 0);
-
-  $saldoPeriodo = $statementSaldo > 0.00001
-      ? $statementSaldo
-      : (float) ($current_period_due ?? $saldo ?? 0);
+  $cargoPeriodo = (float) ($total_cargo ?? $cargo ?? $statementCargo ?? 0);
+  $abonoTotal   = (float) ($total_abono ?? $abono ?? $statementAbono ?? 0);
 
   $saldoAnterior = (float) ($prev_balance ?? 0);
-  $saldoTotal = (float) ($total_due ?? $total ?? max(0, $saldoPeriodo + $saldoAnterior));
+  $saldoPeriodo  = (float) ($current_period_due ?? $statementSaldo ?? max(0, $cargoPeriodo - $abonoTotal));
+  $saldoTotal    = (float) ($total_due ?? $total ?? $saldo ?? max(0, $saldoAnterior + $saldoPeriodo));
 
-  if ($statementSaldo > 0.00001) {
-      $saldoTotal = max($saldoTotal, $statementSaldo);
-  }
-
-  $hasSaldo = $saldoTotal > 0.00001;
-
-  $statusRaw = strtolower((string) ($status_override ?? $status_pago ?? $statement_status ?? ($hasSaldo ? 'pendiente' : 'pagado')));
+  $statusRaw = strtolower((string) ($status_override ?? $status_pago ?? $statement_status ?? ($saldoTotal > 0.00001 ? 'pendiente' : 'pagado')));
   if (in_array($statusRaw, ['paid','succeeded','success','completed','complete'], true)) {
       $statusRaw = 'pagado';
   }
@@ -63,7 +54,6 @@
   };
 
   $tarifaLabel = trim((string) ($tarifa_label ?? 'Estado de cuenta'));
-  $statementId = (int) ($statement_id ?? 0);
 
   $payMethodUi   = trim((string) ($pay_method ?? ''));
   $payProviderUi = trim((string) ($pay_provider ?? ''));
@@ -77,7 +67,22 @@
   $payTrackUrl    = (string) ($pay_track_url ?? $pay_url ?? '');
 
   $generatedAt = (string) ($generated_at ?? now());
-  $emailId     = trim((string) ($email_id ?? ''));
+  try {
+      $generatedAt = \Illuminate\Support\Carbon::parse($generatedAt)->format('Y-m-d H:i:s');
+  } catch (\Throwable $e) {
+      // noop
+  }
+
+  $dueDateUi = trim((string) ($due_date ?? ($st->due_date ?? '')));
+  try {
+      if ($dueDateUi !== '') {
+          $dueDateUi = \Illuminate\Support\Carbon::parse($dueDateUi)->format('d/m/Y');
+      }
+  } catch (\Throwable $e) {
+      // noop
+  }
+
+  $emailId = trim((string) ($email_id ?? ''));
 
   $itemsRaw  = $items ?? [];
   $itemsList = is_iterable($itemsRaw) ? $itemsRaw : [];
@@ -86,10 +91,12 @@
       return '$' . number_format((float) $n, 2) . ' MXN';
   };
 
-  $safeText = function (?string $v, string $fallback = '—'): string {
+  $safeText = function ($v, string $fallback = '—'): string {
       $v = trim((string) $v);
       return $v !== '' ? $v : $fallback;
   };
+
+  $hasSaldo = $saldoTotal > 0.00001;
 
   $emailTitle = (string) ($subject ?? 'Pactopia360 · Estado de cuenta');
   $emailPreheader = $hasSaldo
@@ -113,7 +120,39 @@
 
   $rows = [];
   foreach ($itemsList as $it) {
-      $rows[] = $it;
+      $cargoRow = 0.0;
+      $abonoRow = 0.0;
+
+      if (isset($it->cargo) || isset($it->abono)) {
+          $cargoRow = (float) ($it->cargo ?? 0);
+          $abonoRow = (float) ($it->abono ?? 0);
+      } else {
+          $amount = (float) ($it->amount ?? 0);
+          if ($amount >= 0) {
+              $cargoRow = $amount;
+          } else {
+              $abonoRow = abs($amount);
+          }
+      }
+
+      $concepto = trim((string) ($it->concepto ?? $it->code ?? $it->type ?? '—'));
+      $detalle  = trim((string) ($it->detalle ?? $it->description ?? '—'));
+
+      $rows[] = (object) [
+          'concepto' => $concepto !== '' ? $concepto : '—',
+          'detalle'  => $detalle !== '' ? $detalle : '—',
+          'cargo'    => $cargoRow,
+          'abono'    => $abonoRow,
+      ];
+  }
+
+  if (empty($rows) && ($cargoPeriodo > 0 || $abonoTotal > 0)) {
+      $rows[] = (object) [
+          'concepto' => 'Resumen del periodo',
+          'detalle'  => $periodTxt !== '' ? $periodTxt : ($periodRaw !== '' ? $periodRaw : 'Periodo actual'),
+          'cargo'    => $cargoPeriodo,
+          'abono'    => $abonoTotal,
+      ];
   }
 @endphp
 
@@ -122,8 +161,7 @@
 @section('email_content')
   <tr>
     <td style="padding:0;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#ffffff;border:1px solid #dbe5f1;border-radius:18px;overflow:hidden;border-collapse:collapse;box-shadow:0 10px 26px rgba(15,23,42,.08);">
-        <tr>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#ffffff;border:1px solid #dbe5f1;border-radius:18px;overflow:hidden;border-collapse:collapse;box-shadow:0 10px 26px rgba(15,23,42,.08);">        <tr>
           <td style="padding:0;">
 
             {{-- HERO AZUL PACTOPIA --}}
@@ -227,11 +265,35 @@
                     </tr>
                   </table>
 
-                  {{-- DATOS --}}
+                  {{-- DATOS GENERALES --}}
                   <div style="margin-top:14px;border-radius:12px;border:1px solid {{ $brandSoftBd }};background:{{ $brandSoftBg }};padding:14px;">
                     <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="font-size:13px;border-collapse:collapse;">
                       <tr>
-                        <td style="width:160px;color:{{ $brandMuted }};padding:6px 0;">Tarifa</td>
+                        <td style="width:180px;color:{{ $brandMuted }};padding:6px 0;">Cliente</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($accName) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">RFC</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($accRfc) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">Correo de contacto</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($accEmail) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">Cuenta</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($accId) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">Periodo</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($periodTxt !== '' ? $periodTxt : $periodRaw) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">Fecha límite</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($dueDateUi) }}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:{{ $brandMuted }};padding:6px 0;">Tarifa</td>
                         <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($tarifaLabel) }}</td>
                       </tr>
                       <tr>
@@ -244,7 +306,7 @@
                       </tr>
                       <tr>
                         <td style="color:{{ $brandMuted }};padding:6px 0;">Tracking</td>
-                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $emailId !== '' ? $emailId : '—' }}</td>
+                        <td style="padding:6px 0;color:{{ $brandText }};font-weight:700;">{{ $safeText($emailId) }}</td>
                       </tr>
 
                       @if($lastPaidUi !== '')
@@ -290,9 +352,9 @@
                       </a>
                     @endif
 
-                    @if(!$hasSaldo && $portalTrackUrl !== '')
+                    @if($portalTrackUrl !== '')
                       <a href="{{ $portalTrackUrl }}"
-                         style="display:inline-block;background:#ffffff;color:{{ $brandBlue3 }};text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:700;font-size:13px;border:1px solid {{ $brandSoftBd }};margin:0 6px 8px 6px;">
+                         style="display:inline-block;background:#ffffff;color:{{ $brandBlue3 }};text-decoration:none;padding:10px 16px;border-radius:12px;font-weight:700;font-size:13px;border:1px solid {{ $brandSoftBd }};margin:0 6px 8px 6px;">
                         Ir al portal
                       </a>
                     @endif
@@ -346,6 +408,7 @@
                   <div style="margin-top:6px;color:{{ $brandMuted }};font-size:12px;line-height:1.7;">
                     Cargo del periodo: <strong style="color:{{ $brandText }};">{{ $fmtMoney($cargoPeriodo) }}</strong>
                     · Abonos: <strong style="color:{{ $brandText }};">{{ $fmtMoney($abonoTotal) }}</strong>
+                    · Saldo anterior: <strong style="color:{{ $brandText }};">{{ $fmtMoney($saldoAnterior) }}</strong>
                     · Total final: <strong style="color:{{ $brandText }};">{{ $fmtMoney($saldoTotal) }}</strong>
                   </div>
 

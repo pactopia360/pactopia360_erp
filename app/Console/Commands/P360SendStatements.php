@@ -11,8 +11,8 @@ use Illuminate\Support\Facades\Schema;
 class P360SendStatements extends Command
 {
     protected $signature = 'p360:statements:send
-                            {--period= : Periodo YYYY-MM (default: mes anterior)}
-                            {--status=pending : pending|paid|credit|all}
+                            {--period= : Periodo YYYY-MM (default: mes actual)}
+                            {--status=all : pending|paid|credit|all}
                             {--actor=system : Actor para auditoría}
                             {--connection= : Queue connection (default: config queue.default)}
                             {--queue=emails : Queue name (default: emails)}
@@ -20,12 +20,12 @@ class P360SendStatements extends Command
                             {--chunk=200 : Tamaño de chunk (default: 200)}
                             {--force=0 : 1=reenviar aunque el statement ya tenga sent_at}';
 
-    protected $description = 'Encola el envío de estados de cuenta por email (por periodo).';
+    protected $description = 'Encola el envío de estados de cuenta por email (por periodo actual o indicado).';
 
     public function handle(): int
     {
-        $period = (string) ($this->option('period') ?: now()->subMonth()->format('Y-m'));
-        $status = (string) ($this->option('status') ?: 'pending');
+        $period = (string) ($this->option('period') ?: now()->format('Y-m'));
+        $status = strtolower((string) ($this->option('status') ?: 'all'));
         $actor  = (string) ($this->option('actor') ?: 'system');
 
         $connection = (string) ($this->option('connection') ?: config('queue.default'));
@@ -36,6 +36,11 @@ class P360SendStatements extends Command
 
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
             $this->error("Invalid period format. Expected YYYY-MM. Got: {$period}");
+            return self::FAILURE;
+        }
+
+        if (!in_array($status, ['pending', 'paid', 'credit', 'all'], true)) {
+            $this->error("Invalid status. Expected pending|paid|credit|all. Got: {$status}");
             return self::FAILURE;
         }
 

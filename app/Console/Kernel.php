@@ -38,7 +38,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\ProcessScheduledBillingEmails::class,
         \App\Console\Commands\P360\SyncModulesCommand::class,
 
-        //Centro de costos
+        // Centro de costos
         \App\Console\Commands\Finance\SyncAccountVendorsFromClientes::class,
 
         // ✅ SAT (Backfill meta CFDI desde ZIP/XML)
@@ -47,7 +47,7 @@ class Kernel extends ConsoleKernel
         // ✅ Billing HUB scheduled emails
         BillingProcessScheduledEmails::class,
 
-        //Facturotopia
+        // Facturotopia
         \App\Console\Commands\Billing\FacturotopiaAutoSyncCommand::class,
     ];
 
@@ -82,16 +82,17 @@ class Kernel extends ConsoleKernel
         // ============================
         // ✅ Estados de cuenta (nuevo)
         // ============================
-
-        // 1) Generar / sincronizar el periodo actual (1ro del mes)
+        // Regla corregida:
+        // - El día 1 desde primera hora se sincroniza el periodo actual
+        // - Después se envían TODOS los estados de ese mismo periodo
+        // - No solo pending, sino all
         $schedule->command('p360:statements:sync --actor=system')
-            ->monthlyOn(1, '08:00')
+            ->monthlyOn(1, '00:05')
             ->withoutOverlapping()
             ->runInBackground();
 
-        // 2) Enviar por correo el estado del mes anterior (1ro del mes)
-        $schedule->command('p360:statements:send --actor=system')
-            ->monthlyOn(1, '08:10')
+        $schedule->command('p360:statements:send --status=all --actor=system')
+            ->monthlyOn(1, '00:15')
             ->withoutOverlapping()
             ->runInBackground();
 
