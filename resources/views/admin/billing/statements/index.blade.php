@@ -97,6 +97,14 @@
     'payments' => null,
   ];
 
+    $opsSummary = $opsSummary ?? [
+    'total'   => 0,
+    'sent'    => 0,
+    'blocked' => 0,
+    'failed'  => 0,
+    'pending' => 0,
+  ];
+
   $fmtMoney = fn($n) => '$' . number_format((float)$n, 2);
 
   $routeIndex = route('admin.billing.statements.index');
@@ -378,6 +386,50 @@
         </div>
       </div>
 
+
+            <div class="sx-kpis" style="margin-bottom:14px;">
+        <div class="sx-kpi">
+          <div class="sx-k">Estados detectados</div>
+          <div class="sx-v">{{ (int)($opsSummary['total'] ?? 0) }}</div>
+          <div class="sx-mini" title="Statements localizados en billing_statements para el periodo filtrado.">
+            Statements localizados para el filtro actual.
+          </div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Enviados</div>
+          <div class="sx-v">{{ (int)($opsSummary['sent'] ?? 0) }}</div>
+          <div class="sx-mini" title="Statements con envío exitoso registrado en billing_email_logs.">
+            Con log <span class="sx-mono">sent</span>.
+          </div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Bloqueados por guard</div>
+          <div class="sx-v">{{ (int)($opsSummary['blocked'] ?? 0) }}</div>
+          <div class="sx-mini" title="Statements frenados por snapshot inválido o statement vacío.">
+            Snapshot nulo/vacío o sin importes.
+          </div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Fallidos</div>
+          <div class="sx-v">{{ (int)($opsSummary['failed'] ?? 0) }}</div>
+          <div class="sx-mini" title="Statements con intento de envío fallido.">
+            Con log <span class="sx-mono">failed</span>.
+          </div>
+        </div>
+
+        <div class="sx-kpi">
+          <div class="sx-k">Pendientes</div>
+          <div class="sx-v">{{ (int)($opsSummary['pending'] ?? 0) }}</div>
+          <div class="sx-mini" title="Statements detectados sin envío exitoso, sin bloqueo guard y sin fallo registrado.">
+            Aún sin cierre operativo.
+          </div>
+        </div>
+      </div>
+
+      
       <div class="sx-kpis">
         <div class="sx-kpi">
           <div class="sx-k">Total</div>

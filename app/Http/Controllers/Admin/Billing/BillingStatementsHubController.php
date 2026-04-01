@@ -390,6 +390,16 @@ final class BillingStatementsHubController extends Controller
         $kpis = $this->buildKpis($rowsCollection);
 
         // =========================================================
+        // RESUMEN OPERATIVO DE ENVÍOS
+        // =========================================================
+        $opsSummary = $this->buildOpsSummaryForHub(
+            rows: $rowsCollection,
+            period: $period,
+            periodFrom: $periodFrom,
+            periodTo: $periodTo
+        );
+
+        // =========================================================
         // PAGINACIÓN
         // =========================================================
         $currentPage = (int) $req->get('page', LengthAwarePaginator::resolveCurrentPage());
@@ -417,6 +427,7 @@ final class BillingStatementsHubController extends Controller
             'idsCsv'       => $onlySelected ? implode(',', $selectedIds) : '',
             'error'        => null,
             'kpis'         => $kpis,
+            'opsSummary'   => $opsSummary,
         ]);
     }
     
@@ -3199,5 +3210,196 @@ final class BillingStatementsHubController extends Controller
         }
 
         return 'pendiente';
+    }
+
+        /**
+     * @param \Illuminate\Support\Collection<int, mixed> $rows
+     * @return array<string,int|array<int,string>>
+     */
+    private function buildOpsSummaryForHub(Collection $rows, string $period, string $periodFrom = '', string $periodTo = ''): array
+    {
+        $accountIds = $rows
+            ->map(fn ($r) => trim((string) ($r->id ?? '')))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_statements')) {
+            return [
+                'total'      => 0,
+                'sent'       => 0,
+                'blocked'    => 0,
+                'failed'     => 0,
+                'pending'    => 0,
+                'statement_ids' => [],
+                'sent_ids'      => [],
+                'blocked_ids'   => [],
+                'failed_ids'    => [],
+                'pending_ids'   => [],
+            ];
+        }
+
+        $from = $this->isValidPeriod($periodFrom) ? $periodFrom : $period;
+        $to   = $this->isValidPeriod($periodTo) ? $periodTo : ($this->isValidPeriod($periodFrom) ? $periodFrom : $period);
+
+        if (!$this->isValidPeriod($from)) {
+            $from = $period;
+        }
+        if (!$this->isValidPeriod($to)) {
+            $to = $period;
+        }
+        if (strcmp($from, $to) > 0) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $refToAdmin = [];
+        $allRefs = [];
+
+        foreach ($accountIds as $aid) {
+            $refs = $this->billingStatementRefsForAdminAccount($aid);
+            foreach ($refs as $ref) {
+                $refToAdmin[$ref] = $aid;
+                $allRefs[] = $ref;
+            }
+        }
+
+        $allRefs = array_values(array_unique(array_filter($allRefs)));
+        if (empty($allRefs)) {
+            return [
+                'total'      => 0,
+                'sent'       => 0,
+                'blocked'    => 0,
+                'failed'     => 0,
+                'pending'    => 0,
+                'statement_ids' => [],
+                'sent_ids'      => [],
+                'blocked_ids'   => [],
+                'failed_ids'    => [],
+                'pending_ids'   => [],
+            ];
+        }
+
+        $statements = DB::connection($this->adm)->table('billing_statements')
+            ->whereIn('account_id', $allRefs)
+            ->where('period', '>=', $from)
+            ->where('period', '<=', $to)
+            ->orderByDesc('id')
+            ->get(['id', 'account_id', 'period']);
+
+        $statementIds = $statements
+            ->pluck('id')
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($statementIds)) {
+            return [
+                'total'      => 0,
+                'sent'       => 0,
+                'blocked'    => 0,
+                'failed'     => 0,
+                'pending'    => 0,
+                'statement_ids' => [],
+                'sent_ids'      => [],
+                'blocked_ids'   => [],
+                'failed_ids'    => [],
+                'pending_ids'   => [],
+            ];
+        }
+
+        $sentIds = [];
+        $failedIds = [];
+        $blockedIds = [];
+
+        if (Schema::connection($this->adm)->hasTable('billing_email_logs')) {
+            $logRows = DB::connection($this->adm)->table('billing_email_logs')
+                ->whereIn('statement_id', $statementIds)
+                ->select(['statement_id', 'status'])
+                ->get();
+
+            foreach ($logRows as $row) {
+                $sid = (int) ($row->statement_id ?? 0);
+                $st  = strtolower(trim((string) ($row->status ?? '')));
+
+                if ($sid <= 0) {
+                    continue;
+                }
+
+                if ($st === 'sent') {
+                    $sentIds[$sid] = $sid;
+                }
+
+                if ($st === 'failed') {
+                    $failedIds[$sid] = $sid;
+                }
+            }
+        }
+
+        if (Schema::connection($this->adm)->hasTable('billing_statement_events')) {
+            $eventRows = DB::connection($this->adm)->table('billing_statement_events')
+                ->whereIn('statement_id', $statementIds)
+                ->where('event', 'failed')
+                ->select(['statement_id', 'notes'])
+                ->get();
+
+            foreach ($eventRows as $row) {
+                $sid = (int) ($row->statement_id ?? 0);
+                $notes = strtolower(trim((string) ($row->notes ?? '')));
+
+                if ($sid <= 0) {
+                    continue;
+                }
+
+                if (
+                    str_contains($notes, 'guard blocked')
+                    || str_contains($notes, 'snapshot válido')
+                    || str_contains($notes, 'snapshot valido')
+                    || str_contains($notes, 'statement vacío')
+                    || str_contains($notes, 'statement vacio')
+                    || str_contains($notes, 'envío bloqueado por guard')
+                    || str_contains($notes, 'envio bloqueado por guard')
+                ) {
+                    $blockedIds[$sid] = $sid;
+                    unset($failedIds[$sid]);
+                }
+            }
+        }
+
+        $statementIdSet = array_fill_keys($statementIds, true);
+        $sentIdSet      = array_fill_keys(array_values($sentIds), true);
+        $blockedIdSet   = array_fill_keys(array_values($blockedIds), true);
+        $failedIdSet    = array_fill_keys(array_values($failedIds), true);
+
+        $pendingIds = [];
+        foreach ($statementIds as $sid) {
+            if (isset($sentIdSet[$sid])) {
+                continue;
+            }
+            if (isset($blockedIdSet[$sid])) {
+                continue;
+            }
+            if (isset($failedIdSet[$sid])) {
+                continue;
+            }
+            if (isset($statementIdSet[$sid])) {
+                $pendingIds[] = $sid;
+            }
+        }
+
+        return [
+            'total'         => count($statementIds),
+            'sent'          => count($sentIds),
+            'blocked'       => count($blockedIds),
+            'failed'        => count($failedIds),
+            'pending'       => count($pendingIds),
+            'statement_ids' => array_values($statementIds),
+            'sent_ids'      => array_values($sentIds),
+            'blocked_ids'   => array_values($blockedIds),
+            'failed_ids'    => array_values($failedIds),
+            'pending_ids'   => array_values($pendingIds),
+        ];
     }
 }
