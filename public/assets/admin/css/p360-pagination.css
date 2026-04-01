@@ -82,3 +82,15 @@
   .p360-page .p360-lbl{ display:none; }
   .p360-page{ padding:0 10px; height:32px; }
 }
+
+.p360-pagerLinks{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.p360-pagerLinks .p360-pagination{
+  margin:0;
+}
