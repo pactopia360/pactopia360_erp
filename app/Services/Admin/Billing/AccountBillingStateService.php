@@ -23,32 +23,41 @@ final class AccountBillingStateService
     public static function sync(int|string $accountId, ?string $reason = null): void
     {
         $adm = (string) config('p360.conn.admin', 'mysql_admin');
-        $aidStr = (string) $accountId;
-        $aidInt = (int) $accountId;
+        $aidStr = trim((string) $accountId);
+        $aidInt = is_numeric($accountId) ? (int) $accountId : 0;
 
-        if ($aidInt <= 0 && $aidStr === '0') return;
+        if ($aidStr === '') {
+            return;
+        }
 
         try {
             if (!Schema::connection($adm)->hasTable('accounts')) return;
             if (!Schema::connection($adm)->hasTable('billing_statements')) return;
 
-            $hasEstado = Schema::connection($adm)->hasColumn('accounts', 'estado_cuenta');
+            $hasEstado  = Schema::connection($adm)->hasColumn('accounts', 'estado_cuenta');
             $hasBilling = Schema::connection($adm)->hasColumn('accounts', 'billing_status');
             if (!$hasEstado && !$hasBilling) return;
 
-            // pendiente real si saldo>0 y status != paid
+            $ids = array_values(array_unique(array_filter([$aidStr, $aidInt > 0 ? (string) $aidInt : null])));
+
+            // HOTFIX:
+            // La cuenta queda pendiente si existe cualquier statement con saldo > 0.
+            // NO confiar en status, porque antes se contaminó con "pagado" manual.
             $pending = DB::connection($adm)->table('billing_statements')
-                ->whereIn('account_id', [$aidStr, $aidInt])
+                ->whereIn('account_id', $ids)
                 ->whereRaw('COALESCE(saldo,0) > 0')
-                ->whereRaw('LOWER(COALESCE(status,"")) <> "paid"')
                 ->exists();
 
             $upd = ['updated_at' => now()];
-            if ($hasEstado)  $upd['estado_cuenta']  = $pending ? 'pendiente' : 'activa';
-            if ($hasBilling) $upd['billing_status'] = $pending ? 'overdue' : 'active';
+            if ($hasEstado) {
+                $upd['estado_cuenta'] = $pending ? 'pendiente' : 'activa';
+            }
+            if ($hasBilling) {
+                $upd['billing_status'] = $pending ? 'overdue' : 'active';
+            }
 
             DB::connection($adm)->table('accounts')
-                ->whereIn('id', [$aidStr, $aidInt])
+                ->whereIn('id', $ids)
                 ->update($upd);
 
             Log::info('[BILLING_STATE_SYNC] ok', [
@@ -59,7 +68,7 @@ final class AccountBillingStateService
             ]);
         } catch (\Throwable $e) {
             Log::warning('[BILLING_STATE_SYNC] fail', [
-                'account_id' => (string)$accountId,
+                'account_id' => $aidStr,
                 'reason'     => $reason,
                 'err'        => $e->getMessage(),
             ]);

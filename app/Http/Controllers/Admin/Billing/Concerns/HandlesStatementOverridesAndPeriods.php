@@ -372,48 +372,17 @@ trait HandlesStatementOverridesAndPeriods
                 }
                 if ($ps !== null) {
                     $row->pay_status = $ps;
+                } elseif ($s === 'pagado') {
+                    $row->pay_status = 'paid';
                 }
 
                 if ($row->ov_paid_at !== null) {
                     $row->pay_last_paid_at = $row->ov_paid_at;
                 }
 
-                if ($s === 'pagado') {
-                    $total = (float) ($row->total_shown ?? 0.0);
-
-                    if ($total <= 0.00001) {
-                        $c = (float) ($row->cargo ?? 0.0);
-                        $e = (float) ($row->expected_total ?? 0.0);
-                        $total = $c > 0.00001 ? $c : $e;
-                    }
-
-                    $row->abono_pay   = round($total, 2);
-                    $row->abono       = round($total, 2);
-                    $row->saldo_shown = 0.0;
-                    $row->saldo       = 0.0;
-
-                    if (empty($row->pay_status)) {
-                        $row->pay_status = 'paid';
-                    }
-                } else {
-                    $row->abono_pay = 0.0;
-
-                    $abEdo = (float) ($row->abono_edo ?? 0.0);
-
-                    $total = (float) ($row->total_shown ?? 0.0);
-                    if ($total <= 0.00001) {
-                        $c = (float) ($row->cargo ?? 0.0);
-                        $e = (float) ($row->expected_total ?? 0.0);
-                        $total = $c > 0.00001 ? $c : $e;
-                    }
-
-                    $row->abono = round($abEdo, 2);
-
-                    $saldo = (float) max(0.0, $total - $abEdo);
-                    $row->saldo_shown = round($saldo, 2);
-                    $row->saldo       = round($saldo, 2);
-                }
-
+                // HOTFIX CRITICO:
+                // NO tocar abonos, saldo, total_due, abono_pay ni nada contable.
+                // El override es solo visual/operativo, no contable.
                 return $row;
             }
         }

@@ -473,9 +473,12 @@ final class BillingStatementsHubController extends Controller
             ->get()
             ->keyBy('id');
 
+        $ovMap = $this->loadStatusOverridesMap($ids, $period);
+
         $sent = 0;
         $queued = 0;
         $failed = 0;
+        $skipped = 0;
 
         foreach ($ids as $aid) {
             $acc = $accounts[$aid] ?? null;
@@ -484,9 +487,20 @@ final class BillingStatementsHubController extends Controller
                 continue;
             }
 
+            $ovStatus = strtolower(trim((string) (($ovMap[$aid]['status_override'] ?? '') ?: '')));
+            [$totalShown, $abono, $saldo] = $this->computeSimpleStatementTotals($acc, (string) $aid, $period);
+
+            // HOTFIX:
+            // 1) no enviar si ya no hay saldo real
+            // 2) no enviar si el periodo está marcado pagado por override
+            if ($saldo <= 0.00001 || $ovStatus === 'pagado') {
+                $skipped++;
+                continue;
+            }
+
             $tos = !empty($overrideTos)
-                    ? $overrideTos
-                    : $this->resolveRecipientsForAccount((string) $aid, (string) ($acc->email ?? ''));
+                ? $overrideTos
+                : $this->resolveRecipientsForAccount((string) $aid, (string) ($acc->email ?? ''));
 
             if (empty($tos)) {
                 $failed++;
@@ -494,9 +508,9 @@ final class BillingStatementsHubController extends Controller
             }
 
             $emailId = (string) Str::ulid();
+            $logId = 0;
 
             try {
-                // ✅ Generar payload antes del log para no insertar subject NULL
                 $payload = $this->buildStatementEmailPayloadPublic($acc, (string) $aid, $period, $emailId);
                 $subject = trim((string) ($payload['subject'] ?? ''));
                 if ($subject === '') {
@@ -542,7 +556,7 @@ final class BillingStatementsHubController extends Controller
             } catch (\Throwable $e) {
                 $failed++;
 
-                if (!empty($logId)) {
+                if ($logId > 0) {
                     DB::connection($this->adm)->table('billing_email_logs')
                         ->where('id', $logId)
                         ->update([
@@ -566,7 +580,7 @@ final class BillingStatementsHubController extends Controller
             }
         }
 
-        return back()->with('ok', "Bulk envío listo. sent={$sent}, queued={$queued}, failed={$failed}.");
+        return back()->with('ok', "Bulk envío listo. sent={$sent}, queued={$queued}, skipped={$skipped}, failed={$failed}.");
     }
 
     // =========================================================
@@ -602,19 +616,28 @@ final class BillingStatementsHubController extends Controller
             return back()->withErrors(['account_id' => 'Cuenta no encontrada.']);
         }
 
+        $ovMap = $this->loadStatusOverridesMap([$accountId], $period);
+        $ovStatus = strtolower(trim((string) (($ovMap[$accountId]['status_override'] ?? '') ?: '')));
+        [$totalShown, $abono, $saldo] = $this->computeSimpleStatementTotals($acc, $accountId, $period);
+
+        if ($saldo <= 0.00001 || $ovStatus === 'pagado') {
+            return back()->withErrors([
+                'mail' => 'No se envió: el periodo ya no tiene saldo pendiente real o está marcado como pagado por override.',
+            ]);
+        }
+
         $tos = $this->parseToList($toRaw);
         if (empty($tos)) {
             $tos = $this->resolveRecipientsForAccount($accountId, (string) ($acc->email ?? ''));
-}
+        }
 
         if (empty($tos)) {
             return back()->withErrors(['to' => 'No hay correos destino.']);
         }
 
         $emailId = (string) Str::ulid();
-
-        // ✅ Generar payload primero para tener subject válido antes del insert del log
         $payload = $this->buildStatementEmailPayloadPublic($acc, $accountId, $period, $emailId);
+
         $subject = trim((string) ($payload['subject'] ?? ''));
         if ($subject === '') {
             $subject = 'Pactopia360 · Estado de cuenta ' . $period . ' · ' . (string) ($acc->razon_social ?? $acc->name ?? 'Cliente');
