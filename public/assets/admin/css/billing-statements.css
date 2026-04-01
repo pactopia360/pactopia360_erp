@@ -445,7 +445,7 @@ html[data-theme="light"]{
    KPIS
    ========================================================= */
 .sx-kpis{
-  padding: 10px 14px;
+  padding: 8px 14px;
   display:grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
@@ -455,18 +455,20 @@ html[data-theme="light"]{
 
 .sx-kpi{
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   background: var(--sx-soft2);
   border: 1px solid var(--sx-stroke);
   border-radius: 14px;
-  padding: 12px 10px 10px;
-  min-height: 58px;
+  padding: 10px 12px;
+  min-height: 52px;
   min-width: 0;
 }
 
 .sx-kpi .sx-k{
-  position: absolute;
-  top: 8px;
-  left: 10px;
+  position: static;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -477,10 +479,11 @@ html[data-theme="light"]{
   color: var(--sx-mut);
   font: 950 10px/1 system-ui;
   letter-spacing: .01em;
-  max-width: calc(100% - 20px);
+  max-width: 72%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
 }
 
 .sx-kpi .sx-k::before{
@@ -494,10 +497,13 @@ html[data-theme="light"]{
 }
 
 .sx-kpi .sx-v{
-  margin-top: 14px;
+  margin-top: 0;
+  margin-left: auto;
   color: var(--sx-text);
-  font: 980 14px/1.05 system-ui;
-  word-break: break-word;
+  font: 980 20px/1 system-ui;
+  white-space: nowrap;
+  text-align: right;
+  flex: 0 0 auto;
 }
 
 .sx-kpi .sx-mini{
@@ -1278,7 +1284,20 @@ body.sx-drawer-open{
    ========================================================= */
 @media (max-width: 1280px){
   .sx-kpis{
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .sx-kpi{
+    padding: 9px 10px;
+  }
+
+  .sx-kpi .sx-k{
+    max-width: 68%;
+    font-size: 9.5px;
+  }
+
+  .sx-kpi .sx-v{
+    font-size: 18px;
   }
 }
 
@@ -1330,6 +1349,22 @@ body.sx-drawer-open{
 
   .sx-kpis{
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sx-kpi{
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 64px;
+  }
+
+  .sx-kpi .sx-k{
+    max-width: 100%;
+  }
+
+  .sx-kpi .sx-v{
+    margin-left: 0;
+    text-align: left;
   }
 
   .sx-toolbar{
