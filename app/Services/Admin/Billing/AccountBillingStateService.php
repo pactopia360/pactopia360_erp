@@ -72,7 +72,8 @@ final class AccountBillingStateService
                 return;
             }
 
-            // 1) Respeta anualidad / suscripción vigente
+            $currentPeriod = now()->format('Y-m');
+
             $hasActiveCoverage = false;
 
             if (Schema::connection($adm)->hasTable('subscriptions')) {
@@ -89,7 +90,6 @@ final class AccountBillingStateService
                             $hasActiveCoverage = true;
                         }
                     } catch (\Throwable $e) {
-                        // ignore
                     }
                 }
             }
@@ -125,7 +125,6 @@ final class AccountBillingStateService
                 }
             }
 
-            // 2) Overrides pagado por periodo
             $overridePaid = [];
             if (Schema::connection($adm)->hasTable('billing_statement_status_overrides')) {
                 $ovRows = DB::connection($adm)->table('billing_statement_status_overrides')
@@ -141,7 +140,6 @@ final class AccountBillingStateService
                 }
             }
 
-            // 3) Detectar columnas reales de payments
             $paymentAmountExpr = null;
             if (Schema::connection($adm)->hasTable('payments')) {
                 $payCols = Schema::connection($adm)->getColumnListing('payments');
@@ -159,7 +157,6 @@ final class AccountBillingStateService
                 }
             }
 
-            // 4) Revisión de statements por periodo, calculando saldo real
             $rows = DB::connection($adm)->table('billing_statements')
                 ->where('account_id', (string) $account->id)
                 ->orderByDesc('period')
@@ -182,6 +179,12 @@ final class AccountBillingStateService
                     continue;
                 }
 
+                // CLAVE:
+                // solo periodos anteriores al actual vuelven la cuenta overdue
+                if ($period >= $currentPeriod) {
+                    continue;
+                }
+
                 if (isset($overridePaid[$period])) {
                     continue;
                 }
@@ -191,10 +194,6 @@ final class AccountBillingStateService
                     continue;
                 }
 
-                $paidAt = $row->paid_at ?? null;
-                $status = strtolower(trim((string) ($row->status ?? '')));
-
-                // Recalcular con payments reales
                 $paid = 0.0;
 
                 if ($paymentAmountExpr !== null && Schema::connection($adm)->hasTable('payments')) {
@@ -202,7 +201,7 @@ final class AccountBillingStateService
                         ->where('account_id', (int) $account->id)
                         ->where(function ($w) use ($period) {
                             $w->where('period', $period)
-                              ->orWhere('period', 'like', $period . '%');
+                            ->orWhere('period', 'like', $period . '%');
                         })
                         ->whereIn(DB::raw('LOWER(status)'), [
                             'paid', 'pagado', 'succeeded', 'success',
@@ -216,14 +215,6 @@ final class AccountBillingStateService
                 $saldoReal = round(max(0.0, $cargo - $paid), 2);
 
                 if ($saldoReal <= 0.00001) {
-                    continue;
-                }
-
-                if (!empty($paidAt) && $saldoReal <= 0.00001) {
-                    continue;
-                }
-
-                if (in_array($status, ['paid', 'pagado'], true) && $saldoReal <= 0.00001) {
                     continue;
                 }
 
