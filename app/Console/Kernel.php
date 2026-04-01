@@ -55,8 +55,8 @@ class Kernel extends ConsoleKernel
     {
         $schedule->timezone('America/Mexico_City');
 
-        // --- Mantenimientos existentes ---
-        $schedule->command('p360:estado-cuenta')->monthlyOn(1, '09:00');
+        // LEGACY DESHABILITADO:
+        // $schedule->command('p360:estado-cuenta')->monthlyOn(1, '09:00');
         $schedule->command('p360:bloquear-morosos')->monthlyOn(5, '09:30');
         $schedule->command('p360:reset-mass-invoices')->hourly();
         $schedule->command('otp:clean')->hourly();
@@ -82,10 +82,10 @@ class Kernel extends ConsoleKernel
         // ============================
         // ✅ Estados de cuenta (nuevo)
         // ============================
-        // Regla corregida:
-        // - El día 1 desde primera hora se sincroniza el periodo actual
-        // - Después se envían TODOS los estados de ese mismo periodo
-        // - No solo pending, sino all
+        // Regla:
+        // 1) Día 1 del mes: sincroniza y envía el periodo actual.
+        // 2) Día 15 del mes: reenvía SOLO pendientes.
+        // 3) Último día del mes: reenvía SOLO pendientes.
         $schedule->command('p360:statements:sync --actor=system')
             ->monthlyOn(1, '00:05')
             ->withoutOverlapping()
@@ -93,6 +93,18 @@ class Kernel extends ConsoleKernel
 
         $schedule->command('p360:statements:send --status=all --actor=system')
             ->monthlyOn(1, '00:15')
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // Reenvío SOLO de pendientes el día 15
+        $schedule->command('p360:statements:send --status=pending --actor=system')
+            ->monthlyOn(15, '09:00')
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // Reenvío SOLO de pendientes el último día del mes
+        $schedule->command('p360:statements:send --status=pending --actor=system')
+            ->lastDayOfMonth('18:00')
             ->withoutOverlapping()
             ->runInBackground();
 
