@@ -2550,6 +2550,49 @@ final class BillingStatementsController extends Controller
             ];
         }
 
+        // ==============================
+        // TOTAL PAGADO GLOBAL (CRITICO)
+        // ==============================
+        $totalPaidGlobal = DB::connection($adm)->table('payments')
+            ->where('account_id', $accountId)
+            ->whereIn(DB::raw('LOWER(status)'), [
+                'paid','pagado','succeeded','success','completed','complete','captured'
+            ])
+            ->sum('amount');
+
+        $totalPaidGlobal = round($totalPaidGlobal / 100, 2);
+
+        // ==============================
+        // TOTAL CARGOS GLOBAL
+        // ==============================
+        $totalChargedGlobal = DB::connection($adm)->table('billing_statements')
+            ->where('account_id', $accountId)
+            ->sum('total_cargo');
+
+        $totalChargedGlobal = round((float)$totalChargedGlobal, 2);
+
+        $globalBalance = round($totalPaidGlobal - $totalChargedGlobal, 2);
+
+        // ==============================
+        // CARGO DEL PERIODO
+        // ==============================
+        $cargo = round((float) $st->total_cargo, 2);
+
+        // ==============================
+        // SI TIENE SALDO A FAVOR → PAGADO
+        // ==============================
+        if ($globalBalance >= $cargo) {
+            return [
+                'cargo' => $cargo,
+                'abono' => $cargo,
+                'saldo' => 0,
+                'status' => 'paid',
+            ];
+        }
+
+        // ==============================
+        // SI NO → lógica normal por periodo
+        // ==============================
         $paid = DB::connection($adm)->table('payments')
             ->where('account_id', $accountId)
             ->where(function ($q) use ($period) {
@@ -2562,7 +2605,6 @@ final class BillingStatementsController extends Controller
             ->sum('amount');
 
         $paid = round($paid / 100, 2);
-        $cargo = round((float) $st->total_cargo, 2);
         $saldo = round(max(0, $cargo - $paid), 2);
 
         $status = 'pending';

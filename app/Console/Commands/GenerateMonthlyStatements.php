@@ -64,6 +64,30 @@ final class GenerateMonthlyStatements extends Command
 
             [$amountPesos, $concept] = $this->resolveAmountAndConcept($priceKey, $billingCycle, $acc);
 
+            // ==============================
+            // VALIDAR SI YA ESTA PAGADO / PREPAGADO
+            // ==============================
+            $totalPaid = DB::connection($this->adm)->table('payments')
+                ->where('account_id', $accountId)
+                ->whereIn(DB::raw('LOWER(status)'), [
+                    'paid','pagado','succeeded','success','completed','complete','captured'
+                ])
+                ->sum(DB::raw('COALESCE(amount,0)/100'));
+
+            // Sumar cargos históricos
+            $totalCharged = DB::connection($this->adm)->table('estados_cuenta')
+                ->where('account_id', $accountId)
+                ->sum(DB::raw('COALESCE(cargo,0)'));
+
+            $balance = round($totalPaid - $totalCharged, 2);
+
+            // Si ya tiene saldo a favor suficiente → NO generar cargo
+            if ($balance >= $amountPesos) {
+                $this->line("SKIP PREPAID account={$accountId} balance={$balance}");
+                $skipped++;
+                continue;
+            }
+
             // Si no hay monto, no generamos cargo
             if ($amountPesos <= 0) {
                 $skipped++;
