@@ -953,57 +953,57 @@ final class BillingStatementsController extends Controller
             // =====================================================
             // ✅ SINCRONIZA billing_statements
             // =====================================================
-            if (Schema::connection($this->adm)->hasTable('billing_statements')) {
-                $stmtRow = DB::connection($this->adm)->table('billing_statements')
-                    ->where('account_id', $accountId)
-                    ->where('period', $period)
-                    ->first(['id', 'total_cargo', 'total_abono', 'saldo', 'status', 'paid_at']);
+                if (Schema::connection($this->adm)->hasTable('billing_statements')) {
+                    $stmtRow = DB::connection($this->adm)->table('billing_statements')
+                        ->where('account_id', $accountId)
+                        ->where('period', $period)
+                        ->first(['id', 'total_cargo', 'total_abono', 'saldo', 'status', 'paid_at']);
 
-                if ($stmtRow) {
-                    $cargoStmt = round((float) ($stmtRow->total_cargo ?? 0), 2);
-                    $abonoStmt = round((float) ($stmtRow->total_abono ?? 0), 2);
+                    if ($stmtRow) {
+                        $cargoStmt = round((float) ($stmtRow->total_cargo ?? 0), 2);
+                        $abonoStmt = round((float) ($stmtRow->total_abono ?? 0), 2);
 
-                    $stmtUpdate = [
-                        'updated_at' => now(),
-                    ];
+                        $stmtUpdate = [
+                            'updated_at' => now(),
+                        ];
 
-                    if ($status === 'pagado') {
-                        $stmtUpdate['total_abono'] = round(max($abonoStmt, $cargoStmt), 2);
-                        $stmtUpdate['saldo']       = 0.0;
-                        $stmtUpdate['status']      = 'paid';
-                        $stmtUpdate['paid_at']     = $paidAt ? $paidAt->toDateTimeString() : now()->toDateTimeString();
-                    } elseif ($status === 'parcial') {
-                        $nuevoAbono = $abonoStmt;
-                        if ($nuevoAbono <= 0.00001 && $cargoStmt > 0.00001) {
-                            $nuevoAbono = round(min($cargoStmt, max(0.01, $cargoStmt * 0.5)), 2);
+                        if ($status === 'pagado') {
+                            $stmtUpdate['total_abono'] = round(max($abonoStmt, $cargoStmt), 2);
+                            $stmtUpdate['saldo']       = 0.0;
+                            $stmtUpdate['status']      = 'paid';
+                            $stmtUpdate['paid_at']     = $paidAt ? $paidAt->toDateTimeString() : now()->toDateTimeString();
+                        } elseif ($status === 'parcial') {
+                            $nuevoAbono = $abonoStmt;
+                            if ($nuevoAbono <= 0.00001 && $cargoStmt > 0.00001) {
+                                $nuevoAbono = round(min($cargoStmt, max(0.01, $cargoStmt * 0.5)), 2);
+                            }
+
+                            $stmtUpdate['total_abono'] = round($nuevoAbono, 2);
+                            $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $nuevoAbono), 2);
+                            $stmtUpdate['status']      = 'partial';
+                            $stmtUpdate['paid_at']     = null;
+                        } elseif ($status === 'vencido') {
+                            $stmtUpdate['total_abono'] = round($abonoStmt, 2);
+                            $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $abonoStmt), 2);
+                            $stmtUpdate['status']      = 'pending';
+                            $stmtUpdate['paid_at']     = null;
+                        } elseif ($status === 'sin_mov') {
+                            $stmtUpdate['total_abono'] = 0.0;
+                            $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt), 2);
+                            $stmtUpdate['status']      = 'void';
+                            $stmtUpdate['paid_at']     = null;
+                        } else {
+                            $stmtUpdate['total_abono'] = round($abonoStmt, 2);
+                            $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $abonoStmt), 2);
+                            $stmtUpdate['status']      = 'pending';
+                            $stmtUpdate['paid_at']     = null;
                         }
 
-                        $stmtUpdate['total_abono'] = round($nuevoAbono, 2);
-                        $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $nuevoAbono), 2);
-                        $stmtUpdate['status']      = 'partial';
-                        $stmtUpdate['paid_at']     = null;
-                    } elseif ($status === 'vencido') {
-                        $stmtUpdate['total_abono'] = round($abonoStmt, 2);
-                        $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $abonoStmt), 2);
-                        $stmtUpdate['status']      = 'pending';
-                        $stmtUpdate['paid_at']     = null;
-                    } elseif ($status === 'sin_mov') {
-                        $stmtUpdate['total_abono'] = 0.0;
-                        $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt), 2);
-                        $stmtUpdate['status']      = 'void';
-                        $stmtUpdate['paid_at']     = null;
-                    } else {
-                        $stmtUpdate['total_abono'] = round($abonoStmt, 2);
-                        $stmtUpdate['saldo']       = round(max(0.0, $cargoStmt - $abonoStmt), 2);
-                        $stmtUpdate['status']      = 'pending';
-                        $stmtUpdate['paid_at']     = null;
+                        DB::connection($this->adm)->table('billing_statements')
+                            ->where('id', (int) $stmtRow->id)
+                            ->update($stmtUpdate);
                     }
-
-                    DB::connection($this->adm)->table('billing_statements')
-                        ->where('id', (int) $stmtRow->id)
-                        ->update($stmtUpdate);
                 }
-            }
         });
 
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
