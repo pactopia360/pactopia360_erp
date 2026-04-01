@@ -2579,9 +2579,32 @@ final class BillingStatementsController extends Controller
         $cargo = round((float) $st->total_cargo, 2);
 
         // ==============================
-        // SI TIENE SALDO A FAVOR → PAGADO
+        // CALCULAR SALDO ACUMULADO HASTA ESTE PERIODO
         // ==============================
-        if ($globalBalance >= $cargo) {
+        $totalPaidGlobal = DB::connection($adm)->table('payments')
+            ->where('account_id', $accountId)
+            ->whereIn(DB::raw('LOWER(status)'), [
+                'paid','pagado','succeeded','success','completed','complete','captured'
+            ])
+            ->sum('amount');
+
+        $totalPaidGlobal = round($totalPaidGlobal / 100, 2);
+
+        // cargos hasta este periodo (ordenados)
+        $totalChargedUntilPeriod = DB::connection($adm)->table('billing_statements')
+            ->where('account_id', $accountId)
+            ->where('period', '<=', $period)
+            ->sum('total_cargo');
+
+        $totalChargedUntilPeriod = round((float)$totalChargedUntilPeriod, 2);
+
+        // saldo disponible hasta este periodo
+        $balanceUntilPeriod = round($totalPaidGlobal - $totalChargedUntilPeriod, 2);
+
+        // ==============================
+        // SI ALCANZA PARA ESTE PERIODO → PAGADO
+        // ==============================
+        if ($balanceUntilPeriod >= 0) {
             return [
                 'cargo' => $cargo,
                 'abono' => $cargo,
