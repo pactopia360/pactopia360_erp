@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -120,13 +121,25 @@ final class PaymentsController extends Controller
 
         $methods = [];
         $providers = [];
+
         if ($has('method')) {
             $methods = DB::connection($this->adm)->table('payments')
-                ->select('method')->whereNotNull('method')->distinct()->orderBy('method')->pluck('method')->all();
+                ->select('method')
+                ->whereNotNull('method')
+                ->distinct()
+                ->orderBy('method')
+                ->pluck('method')
+                ->all();
         }
+
         if ($has('provider')) {
             $providers = DB::connection($this->adm)->table('payments')
-                ->select('provider')->whereNotNull('provider')->distinct()->orderBy('provider')->pluck('provider')->all();
+                ->select('provider')
+                ->whereNotNull('provider')
+                ->distinct()
+                ->orderBy('provider')
+                ->pluck('provider')
+                ->all();
         }
 
         return view('admin.billing.payments.index', [
@@ -175,38 +188,58 @@ final class PaymentsController extends Controller
 
         $period  = $data['period'] ?? now()->format('Y-m');
         $concept = trim((string) ($data['concept'] ?? '')) ?: 'Pago recibido (manual)';
+        $also    = (bool) ($data['also_apply_statement'] ?? false);
+
+        if (Schema::connection($this->adm)->hasTable('accounts')) {
+            $existsAccount = DB::connection($this->adm)->table('accounts')
+                ->where('id', $accountId)
+                ->exists();
+
+            if (!$existsAccount) {
+                return back()->withErrors(['account_id' => 'La cuenta indicada no existe.'])->withInput();
+            }
+        }
+
+        $now = now();
 
         $row = [
             'account_id' => $accountId,
             'amount'     => $amountCents,
             'currency'   => $currency,
             'status'     => 'paid',
-            'paid_at'    => now(),
-            'created_at' => now(),
-            'updated_at' => now(),
+            'paid_at'    => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
         ];
 
         if ($has('due_date')) {
-            $row['due_date'] = now();
+            $row['due_date'] = $now;
         }
+
         if ($has('reference')) {
-            $row['reference'] = 'manual:' . now()->format('YmdHis');
+            $row['reference'] = $this->buildManualReference($accountId, $period);
         }
+
         if ($has('provider')) {
             $row['provider'] = 'manual';
         }
+
         if ($has('method')) {
             $row['method'] = 'transfer';
         }
+
         if ($has('concept')) {
             $row['concept'] = $concept;
         }
+
         if ($has('period')) {
             $row['period'] = $period;
         }
+
         if ($has('amount_mxn')) {
             $row['amount_mxn'] = $amountPesos;
         }
+
         if ($has('monto_mxn')) {
             $row['monto_mxn'] = $amountPesos;
         }
@@ -214,49 +247,20 @@ final class PaymentsController extends Controller
         if ($has('meta')) {
             $row['meta'] = json_encode([
                 'type'                 => 'manual',
+                'source'               => 'admin.payments.manual',
                 'concept'              => $concept,
                 'period'               => $period,
-                'also_apply_statement' => (bool) ($data['also_apply_statement'] ?? false),
+                'amount_pesos'         => $amountPesos,
+                'also_apply_statement' => $also,
+                'captured_at'          => $now->toDateTimeString(),
             ], JSON_UNESCAPED_UNICODE);
         }
-
-        $also = (bool) ($data['also_apply_statement'] ?? false);
 
         DB::connection($this->adm)->transaction(function () use ($also, $row, $accountId, $period, $concept, $amountPesos) {
             DB::connection($this->adm)->table('payments')->insert($row);
 
             if ($also) {
-                if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
-                    throw new \RuntimeException('No existe estados_cuenta; no se puede aplicar el abono.');
-                }
-
-                DB::connection($this->adm)->table('estados_cuenta')->insert([
-                    'account_id' => $accountId,
-                    'periodo'    => $period,
-                    'concepto'   => $concept,
-                    'detalle'    => 'Registro manual en admin (Payments Center)',
-                    'cargo'      => 0.00,
-                    'abono'      => $amountPesos,
-                    'saldo'      => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $items = DB::connection($this->adm)->table('estados_cuenta')
-                    ->where('account_id', $accountId)
-                    ->where('periodo', '=', $period)
-                    ->orderByDesc('id')
-                    ->get();
-
-                $saldo = max(0, (float) $items->sum('cargo') - (float) $items->sum('abono'));
-                $lastId = (int) ($items->first()->id ?? 0);
-
-                if ($lastId > 0) {
-                    DB::connection($this->adm)->table('estados_cuenta')->where('id', $lastId)->update([
-                        'saldo'      => round($saldo, 2),
-                        'updated_at' => now(),
-                    ]);
-                }
+                $this->applyManualCreditToEstadoCuenta($accountId, $period, $concept, $amountPesos);
             }
 
             $this->rebuildBillingStatementForPeriod((string) $accountId, $period);
@@ -280,7 +284,14 @@ final class PaymentsController extends Controller
         $lc   = array_map('strtolower', $cols);
         $has  = fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-        $allowedStatuses = ['pending', 'paid', 'failed', 'canceled', 'cancelled', 'refunded'];
+        $allowedStatuses = [
+            'pending',
+            'paid',
+            'failed',
+            'canceled',
+            'cancelled',
+            'refunded',
+        ];
 
         $rules = [
             'amount_pesos' => 'required|numeric|min:0.01|max:99999999',
@@ -299,40 +310,75 @@ final class PaymentsController extends Controller
         $amountPesos = round((float) $data['amount_pesos'], 2);
         $amountCents = (int) round($amountPesos * 100);
         $currency    = strtoupper(trim((string) ($data['currency'] ?? ($pay->currency ?? 'MXN'))));
+
         if ($currency === '') {
             $currency = 'MXN';
+        }
+
+        $newStatus = strtolower(trim((string) $data['status']));
+        $paidAt    = null;
+
+        if ($newStatus === 'paid') {
+            $paidAt = ($data['paid_at'] ?? null)
+                ? Carbon::parse((string) $data['paid_at'])
+                : (($pay->paid_at ?? null) ? Carbon::parse((string) $pay->paid_at) : now());
+        } elseif ($has('paid_at')) {
+            $paidAt = ($data['paid_at'] ?? null)
+                ? Carbon::parse((string) $data['paid_at'])
+                : null;
         }
 
         $upd = [
             'amount'     => $amountCents,
             'currency'   => $currency,
-            'status'     => $data['status'],
+            'status'     => $newStatus,
             'updated_at' => now(),
         ];
 
         if ($has('amount_mxn')) {
             $upd['amount_mxn'] = $amountPesos;
         }
+
         if ($has('monto_mxn')) {
             $upd['monto_mxn'] = $amountPesos;
         }
+
         if ($has('paid_at')) {
-            $upd['paid_at'] = ($data['paid_at'] ?? null) ? Carbon::parse((string) $data['paid_at']) : null;
+            $upd['paid_at'] = $paidAt;
         }
+
         if ($has('period')) {
-            $upd['period'] = $data['period'] ?: null;
+            $upd['period'] = !empty($data['period']) ? $data['period'] : null;
         }
+
         if ($has('concept')) {
-            $upd['concept'] = $data['concept'] ?: null;
+            $upd['concept'] = !empty($data['concept']) ? $data['concept'] : null;
         }
+
         if ($has('method')) {
-            $upd['method'] = $data['method'] ?: null;
+            $upd['method'] = !empty($data['method']) ? $data['method'] : null;
         }
+
         if ($has('provider')) {
-            $upd['provider'] = $data['provider'] ?: null;
+            $upd['provider'] = !empty($data['provider']) ? $data['provider'] : null;
         }
+
         if ($has('reference')) {
-            $upd['reference'] = $data['reference'] ?: null;
+            $upd['reference'] = !empty($data['reference']) ? $data['reference'] : null;
+        }
+
+        if ($has('meta') && isset($pay->meta) && $pay->meta !== null && trim((string) $pay->meta) !== '') {
+            $meta = $this->decodeMeta((string) $pay->meta);
+            $meta['last_update_source'] = 'admin.payments.update';
+            $meta['last_updated_at']    = now()->toDateTimeString();
+            $meta['status']             = $newStatus;
+            $meta['amount_pesos']       = $amountPesos;
+
+            if (!empty($data['period'])) {
+                $meta['period'] = $data['period'];
+            }
+
+            $upd['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
         }
 
         DB::connection($this->adm)->transaction(function () use ($id, $upd, $pay, $data) {
@@ -340,15 +386,16 @@ final class PaymentsController extends Controller
 
             $oldPeriod = trim((string) ($pay->period ?? ''));
             $newPeriod = trim((string) ($data['period'] ?? $oldPeriod));
-            $accountId = (string) ($pay->account_id ?? '');
+            $accountId = trim((string) ($pay->account_id ?? ''));
 
             if ($accountId !== '') {
-                if ($oldPeriod !== '' && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $oldPeriod)) {
+                if ($oldPeriod !== '' && $this->isValidPeriod($oldPeriod)) {
                     $this->rebuildBillingStatementForPeriod($accountId, $oldPeriod);
                 }
-                if ($newPeriod !== '' && $newPeriod !== $oldPeriod && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $newPeriod)) {
+
+                if ($newPeriod !== '' && $this->isValidPeriod($newPeriod) && $newPeriod !== $oldPeriod) {
                     $this->rebuildBillingStatementForPeriod($accountId, $newPeriod);
-                } elseif ($newPeriod !== '' && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $newPeriod)) {
+                } elseif ($newPeriod !== '' && $this->isValidPeriod($newPeriod)) {
                     $this->rebuildBillingStatementForPeriod($accountId, $newPeriod);
                 }
             }
@@ -377,7 +424,7 @@ final class PaymentsController extends Controller
             $accountId = trim((string) ($pay->account_id ?? ''));
             $period    = trim((string) ($pay->period ?? ''));
 
-            if ($accountId !== '' && $period !== '' && preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+            if ($accountId !== '' && $period !== '' && $this->isValidPeriod($period)) {
                 $this->rebuildBillingStatementForPeriod($accountId, $period);
             }
         });
@@ -403,8 +450,11 @@ final class PaymentsController extends Controller
 
         $acc = null;
         if (Schema::connection($this->adm)->hasTable('accounts')) {
-            $acc = DB::connection($this->adm)->table('accounts')->where('id', (int) $pay->account_id)->first();
+            $acc = DB::connection($this->adm)->table('accounts')
+                ->where('id', (int) $pay->account_id)
+                ->first();
         }
+
         if ($to === '') {
             $to = (string) ($acc->email ?? '');
         }
@@ -434,7 +484,7 @@ final class PaymentsController extends Controller
         $accountId = trim($accountId);
         $period    = trim($period);
 
-        if ($accountId === '' || !preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
             return;
         }
 
@@ -490,7 +540,7 @@ final class PaymentsController extends Controller
         $lc   = array_map('strtolower', $cols);
         $has  = fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-        if (!$has('account_id') || !$has('period')) {
+        if (!$has('account_id') || !$has('period') || !$has('status')) {
             return 0.0;
         }
 
@@ -498,11 +548,9 @@ final class PaymentsController extends Controller
             ->where('account_id', $accountId)
             ->where(function ($w) use ($period) {
                 $w->where('period', $period)
-                  ->orWhere('period', 'like', $period . '%');
-            });
-
-        if ($has('status')) {
-            $q->whereIn(DB::raw('LOWER(status)'), [
+                    ->orWhere('period', 'like', $period . '%');
+            })
+            ->whereIn(DB::raw('LOWER(status)'), [
                 'paid',
                 'pagado',
                 'succeeded',
@@ -514,9 +562,6 @@ final class PaymentsController extends Controller
                 'paid_ok',
                 'ok',
             ]);
-        } else {
-            return 0.0;
-        }
 
         if ($has('amount_mxn')) {
             return round((float) ($q->sum('amount_mxn') ?? 0), 2);
@@ -537,12 +582,75 @@ final class PaymentsController extends Controller
         return 0.0;
     }
 
+    private function applyManualCreditToEstadoCuenta(int $accountId, string $period, string $concept, float $amountPesos): void
+    {
+        if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            throw new \RuntimeException('No existe estados_cuenta; no se puede aplicar el abono.');
+        }
+
+        DB::connection($this->adm)->table('estados_cuenta')->insert([
+            'account_id' => $accountId,
+            'periodo'    => $period,
+            'concepto'   => $concept,
+            'detalle'    => 'Registro manual en admin (Payments Center)',
+            'cargo'      => 0.00,
+            'abono'      => $amountPesos,
+            'saldo'      => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $items = DB::connection($this->adm)->table('estados_cuenta')
+            ->where('account_id', $accountId)
+            ->where('periodo', $period)
+            ->orderByDesc('id')
+            ->get();
+
+        $saldo  = max(0.0, (float) $items->sum('cargo') - (float) $items->sum('abono'));
+        $lastId = (int) ($items->first()->id ?? 0);
+
+        if ($lastId > 0) {
+            DB::connection($this->adm)->table('estados_cuenta')
+                ->where('id', $lastId)
+                ->update([
+                    'saldo'      => round($saldo, 2),
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
+    private function buildManualReference(int $accountId, string $period): string
+    {
+        return sprintf(
+            'manual:%d:%s:%s',
+            $accountId,
+            $period,
+            strtoupper(Str::random(10))
+        );
+    }
+
+    private function decodeMeta(string $meta): array
+    {
+        try {
+            $decoded = json_decode($meta, true);
+            return is_array($decoded) ? $decoded : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function isValidPeriod(string $period): bool
+    {
+        return (bool) preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', trim($period));
+    }
+
     private function safeDate(string $v): ?Carbon
     {
         $v = trim($v);
         if ($v === '') {
             return null;
         }
+
         try {
             return Carbon::parse($v);
         } catch (\Throwable) {
@@ -554,11 +662,10 @@ final class PaymentsController extends Controller
     {
         $conn = DB::connection($this->adm);
 
-        $dateCol = $has('paid_at') ? 'paid_at' : ($has('created_at') ? 'created_at' : null);
-
-        $today = now()->toDateString();
+        $dateCol    = $has('paid_at') ? 'paid_at' : ($has('created_at') ? 'created_at' : null);
+        $today      = now()->toDateString();
         $monthStart = now()->startOfMonth()->toDateString();
-        $last30 = now()->subDays(29)->toDateString();
+        $last30     = now()->subDays(29)->toDateString();
 
         $paidQ = $conn->table('payments')->where('status', 'paid');
         if ($dateCol) {
@@ -574,7 +681,6 @@ final class PaymentsController extends Controller
 
         $pendingCount = (int) $conn->table('payments')->where('status', 'pending')->count();
         $paidCount    = (int) $conn->table('payments')->where('status', 'paid')->count();
-
         $avgPaidCents = (int) $conn->table('payments')->where('status', 'paid')->avg('amount');
 
         $labels = [];

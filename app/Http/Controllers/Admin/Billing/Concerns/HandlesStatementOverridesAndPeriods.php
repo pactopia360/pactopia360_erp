@@ -331,6 +331,152 @@ trait HandlesStatementOverridesAndPeriods
             ]);
         }
 
+        // Si no hay override manual, intentar override visual automático por prepago real
+        $out = $this->appendSyntheticPaidOverrides($accountIds, $period, $out);
+
+        return $out;
+    }
+
+        /**
+     * Override visual automático por prepago real.
+     * No toca contabilidad. Solo pinta el periodo como pagado
+     * si el total pagado global alcanza para cubrir los cargos acumulados
+     * hasta este periodo.
+     *
+     * @return array{
+     *   status:string,
+     *   reason:?string,
+     *   updated_by:?int,
+     *   updated_at:?string,
+     *   pay_method:?string,
+     *   pay_provider:?string,
+     *   pay_status:?string,
+     *   paid_at:mixed
+     * }|null
+     */
+    private function resolveSyntheticPaidOverride(string $accountId, string $period): ?array
+    {
+        try {
+            $accountId = trim($accountId);
+            $period    = trim($period);
+
+            if ($accountId === '' || !$this->isValidPeriod($period)) {
+                return null;
+            }
+
+            if (
+                !Schema::connection($this->adm)->hasTable('billing_statements') ||
+                !Schema::connection($this->adm)->hasTable('payments')
+            ) {
+                return null;
+            }
+
+            $payCols = Schema::connection($this->adm)->getColumnListing('payments');
+            $payLc   = array_map('strtolower', $payCols);
+            $hasPay  = static fn (string $c): bool => in_array(strtolower($c), $payLc, true);
+
+            $amountExpr = null;
+            if ($hasPay('amount_mxn')) {
+                $amountExpr = 'COALESCE(amount_mxn,0)';
+            } elseif ($hasPay('monto_mxn')) {
+                $amountExpr = 'COALESCE(monto_mxn,0)';
+            } elseif ($hasPay('amount_cents')) {
+                $amountExpr = 'COALESCE(amount_cents,0)/100';
+            } elseif ($hasPay('amount')) {
+                $amountExpr = 'COALESCE(amount,0)/100';
+            }
+
+            if ($amountExpr === null) {
+                return null;
+            }
+
+            $paymentAccountIds = [$accountId];
+            if (ctype_digit($accountId)) {
+                $paymentAccountIds[] = (int) $accountId;
+            }
+
+            $totalPaidGlobal = (float) (
+                DB::connection($this->adm)->table('payments')
+                    ->whereIn('account_id', $paymentAccountIds)
+                    ->whereIn(DB::raw('LOWER(status)'), [
+                        'paid', 'pagado', 'succeeded', 'success',
+                        'completed', 'complete', 'captured', 'authorized',
+                        'paid_ok', 'ok',
+                    ])
+                    ->selectRaw("SUM({$amountExpr}) as s")
+                    ->value('s') ?? 0
+            );
+
+            $totalPaidGlobal = round($totalPaidGlobal, 2);
+
+            $totalChargedUntilPeriod = (float) (
+                DB::connection($this->adm)->table('billing_statements')
+                    ->where('account_id', $accountId)
+                    ->where('period', '<=', $period)
+                    ->sum('total_cargo') ?? 0
+            );
+
+            $totalChargedUntilPeriod = round($totalChargedUntilPeriod, 2);
+
+            // Si no hay cargos acumulados hasta este periodo, no sintetizar override
+            if ($totalChargedUntilPeriod <= 0.00001) {
+                return null;
+            }
+
+            // Si el prepago global cubre los cargos acumulados hasta este periodo,
+            // este periodo debe verse como pagado.
+            if ($totalPaidGlobal >= $totalChargedUntilPeriod) {
+                return [
+                    'status'       => 'pagado',
+                    'reason'       => 'prepago_aplicado_automaticamente',
+                    'updated_by'   => null,
+                    'updated_at'   => now()->toDateTimeString(),
+                    'pay_method'   => 'prepago',
+                    'pay_provider' => 'system',
+                    'pay_status'   => 'paid',
+                    'paid_at'      => null,
+                ];
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] resolveSyntheticPaidOverride failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Si no existe override manual, intenta construir uno visual automático
+     * por saldo/prepago real.
+     *
+     * @param array<int,string|int> $accountIds
+     * @param array<string,array<string,mixed>> $out
+     * @return array<string,array<string,mixed>>
+     */
+    private function appendSyntheticPaidOverrides(array $accountIds, string $period, array $out): array
+    {
+        foreach ($accountIds as $aidRaw) {
+            $aid = trim((string) $aidRaw);
+            if ($aid === '') {
+                continue;
+            }
+
+            // Override manual real siempre gana
+            if (isset($out[$aid])) {
+                continue;
+            }
+
+            $synthetic = $this->resolveSyntheticPaidOverride($aid, $period);
+            if ($synthetic !== null) {
+                $out[$aid] = $synthetic;
+            }
+        }
+
         return $out;
     }
 

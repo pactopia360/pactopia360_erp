@@ -14,14 +14,18 @@ final class AccountBillingStateService
 {
     /**
      * Sincroniza accounts.estado_cuenta + accounts.billing_status
-     * usando saldo real basado en payments vs billing_statements.total_cargo.
+     * usando cobertura financiera acumulada real:
      *
-     * REGLA:
-     * - Una cuenta queda pendiente si existe al menos 1 periodo con cargo > pagos aplicados
-     * - Respeta override "pagado" por periodo
-     * - Respeta subscriptions activas con current_period_end futuro para evitar falso overdue
+     * REGRA NUEVA:
+     * - Suma cargos exigibles acumulados hasta el periodo actual
+     * - Suma pagos reales válidos acumulados en payments
+     * - Si pagos acumulados >= cargos acumulados exigibles => activa
+     * - Si pagos acumulados < cargos acumulados exigibles => pendiente
      *
-     * IMPORTANTE:
+     * NOTAS:
+     * - NO depende principalmente de overrides visuales
+     * - Sí respeta overrides "pagado" como excepción operativa por periodo
+     * - Sí respeta subscriptions activas/anuales con current_period_end futuro
      * - NO toca is_blocked
      * - NO inventa ingresos
      */
@@ -51,13 +55,17 @@ final class AccountBillingStateService
                 return;
             }
 
-            $ids = array_values(array_unique(array_filter([
+            $accountIds = array_values(array_unique(array_filter([
                 $aidStr,
                 $aidInt > 0 ? (string) $aidInt : null,
-            ])));
+                $aidInt > 0 ? $aidInt : null,
+            ], static fn ($v) => $v !== null && $v !== '')));
 
             $account = DB::connection($adm)->table('accounts')
-                ->whereIn('id', $ids)
+                ->whereIn('id', array_values(array_filter([
+                    $aidStr,
+                    $aidInt > 0 ? $aidInt : null,
+                ], static fn ($v) => $v !== null && $v !== '')))
                 ->orderByDesc('id')
                 ->first([
                     'id',
@@ -74,6 +82,9 @@ final class AccountBillingStateService
 
             $currentPeriod = now()->format('Y-m');
 
+            // -------------------------------------------------
+            // 1) Cobertura activa por subscription vigente
+            // -------------------------------------------------
             $hasActiveCoverage = false;
 
             if (Schema::connection($adm)->hasTable('subscriptions')) {
@@ -90,6 +101,7 @@ final class AccountBillingStateService
                             $hasActiveCoverage = true;
                         }
                     } catch (\Throwable $e) {
+                        // ignore
                     }
                 }
             }
@@ -104,9 +116,11 @@ final class AccountBillingStateService
             ) {
                 if ($hasActiveCoverage) {
                     $upd = ['updated_at' => now()];
+
                     if ($hasEstado) {
                         $upd['estado_cuenta'] = 'activa';
                     }
+
                     if ($hasBilling) {
                         $upd['billing_status'] = 'active';
                     }
@@ -125,7 +139,11 @@ final class AccountBillingStateService
                 }
             }
 
+            // -------------------------------------------------
+            // 2) Overrides "pagado" por periodo (solo apoyo operativo)
+            // -------------------------------------------------
             $overridePaid = [];
+
             if (Schema::connection($adm)->hasTable('billing_statement_status_overrides')) {
                 $ovRows = DB::connection($adm)->table('billing_statement_status_overrides')
                     ->where('account_id', (string) $account->id)
@@ -134,34 +152,28 @@ final class AccountBillingStateService
 
                 foreach ($ovRows as $ov) {
                     $p = trim((string) ($ov->period ?? ''));
-                    if ($p !== '') {
+                    if ($p !== '' && self::isValidPeriod($p)) {
                         $overridePaid[$p] = true;
                     }
                 }
             }
 
-            $paymentAmountExpr = null;
-            if (Schema::connection($adm)->hasTable('payments')) {
-                $payCols = Schema::connection($adm)->getColumnListing('payments');
-                $payLc   = array_map('strtolower', $payCols);
-                $hasPay  = static fn (string $c): bool => in_array(strtolower($c), $payLc, true);
+            // -------------------------------------------------
+            // 3) Total pagado real acumulado en payments
+            // -------------------------------------------------
+            $totalPaid = self::sumAllValidPaymentsMxn($adm, $accountIds);
 
-                if ($hasPay('amount_mxn')) {
-                    $paymentAmountExpr = 'COALESCE(amount_mxn,0)';
-                } elseif ($hasPay('monto_mxn')) {
-                    $paymentAmountExpr = 'COALESCE(monto_mxn,0)';
-                } elseif ($hasPay('amount_cents')) {
-                    $paymentAmountExpr = 'COALESCE(amount_cents,0)/100';
-                } elseif ($hasPay('amount')) {
-                    $paymentAmountExpr = 'COALESCE(amount,0)/100';
-                }
-            }
-
-            $rows = DB::connection($adm)->table('billing_statements')
+            // -------------------------------------------------
+            // 4) Cargos exigibles acumulados hasta el periodo actual
+            //    - solo periodos <= actual
+            //    - solo cargos > 0
+            //    - si el periodo tiene override "pagado", se excluye
+            // -------------------------------------------------
+            $statementRows = DB::connection($adm)->table('billing_statements')
                 ->where('account_id', (string) $account->id)
-                ->orderByDesc('period')
-                ->orderByDesc('updated_at')
-                ->orderByDesc('id')
+                ->where('period', '<=', $currentPeriod)
+                ->orderBy('period')
+                ->orderBy('id')
                 ->get([
                     'id',
                     'period',
@@ -171,67 +183,63 @@ final class AccountBillingStateService
                     'paid_at',
                 ]);
 
-            $pending = false;
+            $requiredCharges = 0.0;
+            $evaluatedPeriods = [];
+            $periodBreakdown = [];
 
-            // Tomar solo el último periodo anterior al actual
-            $targetRow = null;
-
-            foreach ($rows as $row) {
+            foreach ($statementRows as $row) {
                 $period = trim((string) ($row->period ?? ''));
 
-                if ($period === '') {
+                if ($period === '' || !self::isValidPeriod($period)) {
                     continue;
                 }
 
-                if ($period < $currentPeriod) {
-                    $targetRow = $row;
-                    break; // SOLO el más reciente vencido
+                $cargo = round(max(0.0, (float) ($row->total_cargo ?? 0)), 2);
+
+                if ($cargo <= 0.00001) {
+                    continue;
                 }
+
+                $statusNorm = strtolower(trim((string) ($row->status ?? '')));
+                if (in_array($statusNorm, ['void', 'cancelled', 'canceled'], true)) {
+                    continue;
+                }
+
+                if (isset($overridePaid[$period])) {
+                    $periodBreakdown[] = [
+                        'period' => $period,
+                        'cargo'  => $cargo,
+                        'mode'   => 'override_paid_excluded',
+                    ];
+                    continue;
+                }
+
+                $requiredCharges += $cargo;
+                $evaluatedPeriods[] = $period;
+
+                $periodBreakdown[] = [
+                    'period' => $period,
+                    'cargo'  => $cargo,
+                    'mode'   => 'required',
+                ];
             }
 
-            $pending = false;
+            $requiredCharges = round($requiredCharges, 2);
+            $totalPaid       = round($totalPaid, 2);
 
-            if ($targetRow) {
-
-                $period = trim((string) ($targetRow->period ?? ''));
-
-                if (!isset($overridePaid[$period])) {
-
-                    $cargo = round(max(0.0, (float) ($targetRow->total_cargo ?? 0)), 2);
-
-                    if ($cargo > 0.00001) {
-
-                        $paid = 0.0;
-
-                        if ($paymentAmountExpr !== null && Schema::connection($adm)->hasTable('payments')) {
-                            $q = DB::connection($adm)->table('payments')
-                                ->where('account_id', (int) $account->id)
-                                ->where(function ($w) use ($period) {
-                                    $w->where('period', $period)
-                                    ->orWhere('period', 'like', $period . '%');
-                                })
-                                ->whereIn(DB::raw('LOWER(status)'), [
-                                    'paid', 'pagado', 'succeeded', 'success',
-                                    'completed', 'complete', 'captured', 'authorized',
-                                    'paid_ok', 'ok',
-                                ]);
-
-                            $paid = round((float) ($q->selectRaw("SUM({$paymentAmountExpr}) as s")->value('s') ?? 0), 2);
-                        }
-
-                        $saldoReal = round(max(0.0, $cargo - $paid), 2);
-
-                        if ($saldoReal > 0.00001) {
-                            $pending = true;
-                        }
-                    }
-                }
-            }
+            // -------------------------------------------------
+            // 5) Resultado global real
+            // -------------------------------------------------
+            $pending = $totalPaid + 0.00001 < $requiredCharges;
+            $credit  = round(max(0.0, $totalPaid - $requiredCharges), 2);
+            $debt    = round(max(0.0, $requiredCharges - $totalPaid), 2);
 
             $upd = ['updated_at' => now()];
+
             if ($hasEstado) {
                 $upd['estado_cuenta'] = $pending ? 'pendiente' : 'activa';
             }
+
             if ($hasBilling) {
                 $upd['billing_status'] = $pending ? 'overdue' : 'active';
             }
@@ -241,10 +249,17 @@ final class AccountBillingStateService
                 ->update($upd);
 
             Log::info('[BILLING_STATE_SYNC] ok', [
-                'account_id' => $aidStr,
-                'pending'    => $pending,
-                'reason'     => $reason,
-                'upd'        => $upd,
+                'account_id'        => $aidStr,
+                'reason'            => $reason,
+                'current_period'    => $currentPeriod,
+                'total_paid'        => $totalPaid,
+                'required_charges'  => $requiredCharges,
+                'credit'            => $credit,
+                'debt'              => $debt,
+                'pending'           => $pending,
+                'evaluated_periods' => $evaluatedPeriods,
+                'period_breakdown'  => $periodBreakdown,
+                'upd'               => $upd,
             ]);
         } catch (\Throwable $e) {
             Log::warning('[BILLING_STATE_SYNC] fail', [
@@ -253,5 +268,68 @@ final class AccountBillingStateService
                 'err'        => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Suma todos los pagos válidos reales de la cuenta.
+     * No depende del period del pago.
+     */
+    private static function sumAllValidPaymentsMxn(string $adm, array $accountIds): float
+    {
+        if (empty($accountIds)) {
+            return 0.0;
+        }
+
+        if (!Schema::connection($adm)->hasTable('payments')) {
+            return 0.0;
+        }
+
+        $payCols = Schema::connection($adm)->getColumnListing('payments');
+        $payLc   = array_map('strtolower', $payCols);
+        $hasPay  = static fn (string $c): bool => in_array(strtolower($c), $payLc, true);
+
+        if (!$hasPay('account_id') || !$hasPay('status')) {
+            return 0.0;
+        }
+
+        $amountExpr = null;
+
+        if ($hasPay('amount_mxn')) {
+            $amountExpr = 'COALESCE(amount_mxn,0)';
+        } elseif ($hasPay('monto_mxn')) {
+            $amountExpr = 'COALESCE(monto_mxn,0)';
+        } elseif ($hasPay('amount_cents')) {
+            $amountExpr = 'COALESCE(amount_cents,0)/100';
+        } elseif ($hasPay('amount')) {
+            $amountExpr = 'COALESCE(amount,0)/100';
+        }
+
+        if ($amountExpr === null) {
+            return 0.0;
+        }
+
+        $sum = DB::connection($adm)->table('payments')
+            ->whereIn('account_id', $accountIds)
+            ->whereIn(DB::raw('LOWER(status)'), [
+                'paid',
+                'pagado',
+                'succeeded',
+                'success',
+                'completed',
+                'complete',
+                'captured',
+                'authorized',
+                'paid_ok',
+                'ok',
+            ])
+            ->selectRaw("SUM({$amountExpr}) as s")
+            ->value('s');
+
+        return round((float) ($sum ?? 0), 2);
+    }
+
+    private static function isValidPeriod(string $period): bool
+    {
+        return (bool) preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', trim($period));
     }
 }
