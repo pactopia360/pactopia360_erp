@@ -173,53 +173,59 @@ final class AccountBillingStateService
 
             $pending = false;
 
+            // Tomar solo el último periodo anterior al actual
+            $targetRow = null;
+
             foreach ($rows as $row) {
                 $period = trim((string) ($row->period ?? ''));
+
                 if ($period === '') {
                     continue;
                 }
 
-                // CLAVE:
-                // solo periodos anteriores al actual vuelven la cuenta overdue
-                if ($period >= $currentPeriod) {
-                    continue;
+                if ($period < $currentPeriod) {
+                    $targetRow = $row;
+                    break; // SOLO el más reciente vencido
                 }
+            }
 
-                if (isset($overridePaid[$period])) {
-                    continue;
+            $pending = false;
+
+            if ($targetRow) {
+
+                $period = trim((string) ($targetRow->period ?? ''));
+
+                if (!isset($overridePaid[$period])) {
+
+                    $cargo = round(max(0.0, (float) ($targetRow->total_cargo ?? 0)), 2);
+
+                    if ($cargo > 0.00001) {
+
+                        $paid = 0.0;
+
+                        if ($paymentAmountExpr !== null && Schema::connection($adm)->hasTable('payments')) {
+                            $q = DB::connection($adm)->table('payments')
+                                ->where('account_id', (int) $account->id)
+                                ->where(function ($w) use ($period) {
+                                    $w->where('period', $period)
+                                    ->orWhere('period', 'like', $period . '%');
+                                })
+                                ->whereIn(DB::raw('LOWER(status)'), [
+                                    'paid', 'pagado', 'succeeded', 'success',
+                                    'completed', 'complete', 'captured', 'authorized',
+                                    'paid_ok', 'ok',
+                                ]);
+
+                            $paid = round((float) ($q->selectRaw("SUM({$paymentAmountExpr}) as s")->value('s') ?? 0), 2);
+                        }
+
+                        $saldoReal = round(max(0.0, $cargo - $paid), 2);
+
+                        if ($saldoReal > 0.00001) {
+                            $pending = true;
+                        }
+                    }
                 }
-
-                $cargo = round(max(0.0, (float) ($row->total_cargo ?? 0)), 2);
-                if ($cargo <= 0.00001) {
-                    continue;
-                }
-
-                $paid = 0.0;
-
-                if ($paymentAmountExpr !== null && Schema::connection($adm)->hasTable('payments')) {
-                    $q = DB::connection($adm)->table('payments')
-                        ->where('account_id', (int) $account->id)
-                        ->where(function ($w) use ($period) {
-                            $w->where('period', $period)
-                            ->orWhere('period', 'like', $period . '%');
-                        })
-                        ->whereIn(DB::raw('LOWER(status)'), [
-                            'paid', 'pagado', 'succeeded', 'success',
-                            'completed', 'complete', 'captured', 'authorized',
-                            'paid_ok', 'ok',
-                        ]);
-
-                    $paid = round((float) ($q->selectRaw("SUM({$paymentAmountExpr}) as s")->value('s') ?? 0), 2);
-                }
-
-                $saldoReal = round(max(0.0, $cargo - $paid), 2);
-
-                if ($saldoReal <= 0.00001) {
-                    continue;
-                }
-
-                $pending = true;
-                break;
             }
 
             $upd = ['updated_at' => now()];
