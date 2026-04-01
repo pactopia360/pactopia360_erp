@@ -563,9 +563,13 @@
                 $payDue  = $fmtDate($r->pay_due_date ?? $r->vence ?? '');
                 $payLast = $fmtDate($r->pay_last_paid_at ?? $r->last_paid_at ?? '');
 
-                $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
-                $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
-                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$actionPeriod]) : null;
+                $rowPeriod = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)($r->period ?? ''))
+                    ? (string) $r->period
+                    : $actionPeriod;
+
+                $showUrl  = ($hasShow && $aid) ? route('admin.billing.statements.show', ['accountId'=>$aid, 'period'=>$rowPeriod]) : null;
+                $pdfUrl   = ($hasPdf  && $aid) ? route('admin.billing.statements.pdf',  ['accountId'=>$aid, 'period'=>$rowPeriod]) : null;
+                $emailUrl = ($hasSendLegacy && $aid) ? route('admin.billing.statements.email', ['accountId'=>$aid, 'period'=>$rowPeriod]) : null;
               @endphp
 
               <tr id="sxRow-{{ e($aid) }}">
@@ -668,21 +672,21 @@
 
                 <td class="sx-right sx-actionsTd">
                   <button class="sx-btn sx-btn-soft sx-actOpen"
-                          type="button"
-                          data-sx-open-drawer="1"
-                          data-account="{{ e($aid) }}"
-                          data-name="{{ e($name) }}"
-                          data-email="{{ e($mail) }}"
-                          data-status="{{ e($st) }}"
-                          data-pay="{{ e($payMethod) }}"
-                          data-show="{{ e($showUrl ?? '') }}"
-                          data-pdf="{{ e($pdfUrl ?? '') }}"
-                          data-emailurl="{{ e($emailUrl ?? '') }}"
-                          data-period-label="{{ e($isRangeMode ? $periodLabel : (string)($r->period ?? $actionPeriod)) }}"
-                          data-manage-period="{{ e($singleManagePeriod) }}"
-                          data-range-mode="{{ $isRangeMode ? '1' : '0' }}">
-                    Gestionar
-                  </button>
+                        type="button"
+                        data-sx-open-drawer="1"
+                        data-account="{{ e($aid) }}"
+                        data-name="{{ e($name) }}"
+                        data-email="{{ e($mail) }}"
+                        data-status="{{ e($st) }}"
+                        data-pay="{{ e($payMethod) }}"
+                        data-show="{{ e($showUrl ?? '') }}"
+                        data-pdf="{{ e($pdfUrl ?? '') }}"
+                        data-emailurl="{{ e($emailUrl ?? '') }}"
+                        data-period-label="{{ e((string)($r->period ?? $actionPeriod)) }}"
+                        data-manage-period="{{ e($rowPeriod) }}"
+                        data-range-mode="0">
+                  Gestionar
+                </button>
                 </td>
               </tr>
             @empty
@@ -1280,11 +1284,7 @@
     }
 
     // Fallback: copia payload
-  const defaultManagePeriod = (function(){
-    try { return {!! json_encode($singleManagePeriod ?? '') !!}; } catch(e){ return ''; }
-  })();
-
-    const payload = { period: periodVal, account_ids: ids.join(',') };
+     const payload = { period: defaultManagePeriod, account_ids: ids.join(',') };
     try{ navigator.clipboard.writeText(JSON.stringify(payload)); }catch(e){}
     sxToast('Se copió al portapapeles (period + account_ids CSV). Falta configurar bulkForm/action.', 'info');
   };
@@ -1417,8 +1417,8 @@
     try { return {!! json_encode($statusEndpoint ?? '') !!}; } catch(e){ return ''; }
   })();
 
-  const periodVal = (function(){
-    try { return {!! json_encode($period ?? '') !!}; } catch(e){ return ''; }
+   const defaultManagePeriod = (function(){
+    try { return {!! json_encode($singleManagePeriod ?? '') !!}; } catch(e){ return ''; }
   })();
 
   function csrfToken(){
@@ -1619,10 +1619,7 @@
   }
 
   async function sxSaveDrawer(){
-    if(currentDrawer.isRangeMode){
-      sxToast('No puedes cambiar estatus desde vista por rango. Filtra un solo mes y vuelve a intentar.', 'warn');
-      return;
-    }
+    
     if(!statusEndpoint){
       sxToast('No está configurado el endpoint para guardar estatus (admin.billing.statements.status).', 'bad');
       return;

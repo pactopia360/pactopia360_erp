@@ -72,8 +72,10 @@ final class BillingStatementsHubController extends Controller
             [$periodFrom, $periodTo] = [$periodTo, $periodFrom];
         }
 
+        $isRange = ($periodFrom !== '' || $periodTo !== '');
+
         $periodLabel = $period;
-        if ($periodFrom !== '' || $periodTo !== '') {
+        if ($isRange) {
             $periodLabel = ($periodFrom !== '' ? $periodFrom : '—') . ' → ' . ($periodTo !== '' ? $periodTo : '—');
         }
 
@@ -159,242 +161,228 @@ final class BillingStatementsHubController extends Controller
             ->values()
             ->all();
 
-        $mirrorCurrent = ($periodFrom !== '' || $periodTo !== '')
-            ? $this->loadBillingStatementsMirrorMapForRange($accountIds, $periodFrom, $periodTo)
-            : $this->loadBillingStatementsMirrorMap($accountIds, $period);
+        $months = $isRange
+            ? $this->buildPeriodsInRange(
+                $periodFrom !== '' ? $periodFrom : $period,
+                $periodTo !== '' ? $periodTo : ($periodFrom !== '' ? $periodFrom : $period)
+            )
+            : [$period];
 
-        $mirrorPrev = ($periodFrom !== '' || $periodTo !== '')
-            ? []
-            : $this->loadPreviousOpenStatementsMap($accountIds, $period);
+        $mirrorByMonth   = [];
+        $mirrorPrevByMonth = [];
+        $payAggByMonth   = [];
+        $emailByMonth    = [];
+        $ovMapByMonth    = [];
 
-        $payAgg = ($periodFrom !== '' || $periodTo !== '')
-            ? $this->sumPaymentsPaidByAccountForRange($accountIds, $periodFrom, $periodTo)
-            : $this->sumPaymentsPaidByAccountForPeriod($accountIds, $period);
-
-        $emailTracking = ($periodFrom !== '' || $periodTo !== '')
-            ? $this->trackingByAccountForRange($accountIds, $periodFrom, $periodTo)
-            : $this->trackingByAccountForPeriod($accountIds, $period);
-
-        $ovMap = ($periodFrom !== '' || $periodTo !== '')
-            ? $this->loadStatusOverridesMapForRange($accountIds, $periodFrom, $periodTo)
-            : $this->loadStatusOverridesMap($accountIds, $period);
-
-                $rowsCollection = $accounts->map(function (object $acc) use (
-            $period,
-            $periodFrom,
-            $periodTo,
-            $mirrorCurrent,
-            $mirrorPrev,
-            $payAgg,
-            $emailTracking,
-            $ovMap
-        ) {
-            $aid = trim((string) ($acc->id ?? ''));
-            $meta = $this->decodeMeta($acc->meta ?? null);
-
-            $custom = $this->extractCustomAmountMxn($acc, $meta);
-            [$expected, $tarifaLabel, $tarifaPill] = $custom !== null && $custom > 0.00001
-                ? [round($custom, 2), 'PERSONALIZADO', 'info']
-                : $this->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
-
-            $row = clone $acc;
-
-            $statement   = $mirrorCurrent[$aid] ?? null;
-            $prevInfo    = $mirrorPrev[$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
-            $payPaid     = $this->normalizeMoney($payAgg[$aid] ?? 0.0);
-            $track       = $emailTracking[$aid] ?? [];
-            $ov          = $ovMap[$aid] ?? null;
-            $rangeActive = ($periodFrom !== '' || $periodTo !== '');
-
-            $prevBalance = $this->normalizeMoney($prevInfo['prev_balance'] ?? 0.0);
-            $lastPaid = null;
-            $payAllowed = ($periodTo !== '' ? $periodTo : $period);
-
-            if ($statement) {
-                $totalCurrent = $this->normalizeMoney($statement['total_cargo'] ?? 0.0);
-
-                // IMPORTANTE:
-                // El mirror refleja EdoCta, pero payments viene aparte en este HUB.
-                // Para UI/negocio consolidamos ambos.
-                $abonoMirror = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
-                $abonoTotal  = round(max($abonoMirror, $payPaid), 2);
-
-                $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
-                $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
-
-                $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
-
-                $lastPaid = !empty($statement['paid_at'])
-                    ? $this->parseToPeriod($statement['paid_at'])
-                    : $this->resolveLastPaidPeriodForAccount($aid, $meta);
-
-                $payAllowed = $lastPaid
-                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-                    : ($periodTo !== '' ? $periodTo : $period);
-
-                $row->cargo          = round($totalCurrent, 2);
-                $row->expected_total = round((float) $expected, 2);
-                $row->total_shown    = round($totalCurrent, 2);
-
-                $row->abono_edo = round($abonoMirror, 2);
-                $row->abono_pay = round($payPaid, 2);
-                $row->abono     = round($abonoTotal, 2);
-
-                $row->saldo_current = round($saldoCurrent, 2);
-                $row->saldo_shown   = round($saldoCurrent, 2);
-                $row->saldo         = round($saldoCurrent, 2);
-
-                $row->prev_balance = round($prevBalance, 2);
-                $row->prev_period  = $prevInfo['prev_period'] ?? null;
-                $row->total_due    = round($totalDue, 2);
-
-                $row->status_pago = $statusPago;
-                $row->status_auto = $statusPago;
-
-                $row->last_paid        = $lastPaid;
-                $row->pay_allowed      = $payAllowed;
-                $row->pay_last_paid_at = $statement['paid_at'] ?? null;
-                $row->pay_due_date     = null;
-                $row->pay_method       = null;
-                $row->pay_provider     = null;
-                $row->pay_status       = $statusPago;
-
-                $row->tarifa_label = (string) $tarifaLabel;
-                $row->tarifa_pill  = (string) $tarifaPill;
-                $row->period       = $rangeActive
-                    ? (($statement['period_from'] ?? '') . ' → ' . ($statement['period_to'] ?? ''))
-                    : ($statement['period'] ?? $period);
-            } else {
-                $totalCurrent = $this->normalizeMoney($expected);
-                $abonoMirror  = 0.0;
-                $abonoTotal   = round($abonoMirror + $payPaid, 2);
-
-                $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
-                $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
-
-                $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
-
-                $lastPaid = $this->resolveLastPaidPeriodForAccount($aid, $meta);
-                $payAllowed = $lastPaid
-                    ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-                    : ($periodTo !== '' ? $periodTo : $period);
-
-                $row->cargo          = round($totalCurrent, 2);
-                $row->expected_total = round((float) $expected, 2);
-                $row->total_shown    = round($totalCurrent, 2);
-
-                $row->abono_edo = 0.0;
-                $row->abono_pay = round($payPaid, 2);
-                $row->abono     = round($abonoTotal, 2);
-
-                $row->saldo_current = round($saldoCurrent, 2);
-                $row->saldo_shown   = round($saldoCurrent, 2);
-                $row->saldo         = round($saldoCurrent, 2);
-
-                $row->prev_balance = round($prevBalance, 2);
-                $row->prev_period  = $prevInfo['prev_period'] ?? null;
-                $row->total_due    = round($totalDue, 2);
-
-                $row->status_pago = $statusPago;
-                $row->status_auto = $statusPago;
-
-                $row->last_paid        = $lastPaid;
-                $row->pay_allowed      = $payAllowed;
-                $row->pay_last_paid_at = null;
-                $row->pay_due_date     = null;
-                $row->pay_method       = null;
-                $row->pay_provider     = null;
-                $row->pay_status       = $statusPago;
-
-                $row->tarifa_label = (string) $tarifaLabel;
-                $row->tarifa_pill  = (string) $tarifaPill;
-                $row->period       = $rangeActive
-                    ? (($periodFrom !== '' ? $periodFrom : $period) . ' → ' . ($periodTo !== '' ? $periodTo : $period))
-                    : $period;
-            }
-
-                        // Overrides:
-            // En rango NO forzamos status_override al resumen agregado.
-            // En periodo único SÍ respetamos el override manual.
-            if ($ov) {
-            $overrideStatus = !empty($ov['status_override'])
-                ? $this->normalizeStatus((string) $ov['status_override'])
-                : null;
-
-            if (!$rangeActive && $overrideStatus) {
-                $cargoShown   = $this->normalizeMoney($row->total_shown ?? 0.0);
-                $abonoShown   = $this->normalizeMoney($row->abono ?? 0.0);
-                $prevBalance  = $this->normalizeMoney($row->prev_balance ?? 0.0);
-
-                $row->status_override = $overrideStatus;
-
-                if ($overrideStatus === 'pagado') {
-                    $row->abono         = round(max($abonoShown, $cargoShown), 2);
-                    $row->saldo_current = 0.0;
-                    $row->saldo_shown   = 0.0;
-                    $row->saldo         = 0.0;
-                    $row->total_due     = round(max(0.0, $prevBalance), 2);
-
-                    // Visible = pagado manual
-                    $row->status_pago = 'pagado';
-                    $row->status_auto = 'pagado';
-                } elseif ($overrideStatus === 'parcial') {
-                    if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
-                        $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
-                    }
-
-                    $row->saldo_current = round(max(0.0, $cargoShown - (float) $row->abono), 2);
-                    $row->saldo_shown   = $row->saldo_current;
-                    $row->saldo         = $row->saldo_current;
-                    $row->total_due     = round(max(0.0, $row->saldo_current + $prevBalance), 2);
-
-                    $row->status_pago = 'parcial';
-                    $row->status_auto = 'parcial';
-                } elseif ($overrideStatus === 'vencido') {
-                    $row->status_pago = 'vencido';
-                    $row->status_auto = 'vencido';
-                } elseif ($overrideStatus === 'sin_mov') {
-                    $row->status_pago = 'sin_mov';
-                    $row->status_auto = 'sin_mov';
-                } else {
-                    $row->status_pago = 'pendiente';
-                    $row->status_auto = 'pendiente';
-                }
-            }
-
-            if (!empty($ov['pay_method'])) {
-                $row->ov_pay_method = $ov['pay_method'];
-                $row->pay_method    = $ov['pay_method'];
-            }
-
-            if (!empty($ov['pay_provider'])) {
-                $row->ov_pay_provider = $ov['pay_provider'];
-                $row->pay_provider    = $ov['pay_provider'];
-            }
-
-            if (!empty($ov['pay_status'])) {
-                $row->ov_pay_status = $this->normalizeStatus((string) $ov['pay_status']);
-                $row->pay_status    = $this->normalizeStatus((string) $ov['pay_status']);
-            }
-
-            if (!empty($ov['paid_at'])) {
-                $row->pay_last_paid_at = $ov['paid_at'];
-            }
+        foreach ($months as $month) {
+            $mirrorByMonth[$month]     = $this->loadBillingStatementsMirrorMap($accountIds, $month);
+            $mirrorPrevByMonth[$month] = $this->loadPreviousOpenStatementsMap($accountIds, $month);
+            $payAggByMonth[$month]     = $this->sumPaymentsPaidByAccountForPeriod($accountIds, $month);
+            $emailByMonth[$month]      = $this->trackingByAccountForPeriod($accountIds, $month);
+            $ovMapByMonth[$month]      = $this->loadStatusOverridesMap($accountIds, $month);
         }
 
-            $row->tracking_open_count   = (int) ($track['open_count'] ?? 0);
-            $row->tracking_click_count  = (int) ($track['click_count'] ?? 0);
-            $row->tracking_last_sent_at = $track['last_sent_at'] ?? null;
+        $rowsCollection = collect();
 
-            return $row;
-        });
+        foreach ($accounts as $acc) {
+            $aid = trim((string) ($acc->id ?? ''));
+            if ($aid === '') {
+                continue;
+            }
 
+            $meta = $this->decodeMeta($acc->meta ?? null);
+
+            foreach ($months as $month) {
+                $custom = $this->extractCustomAmountMxn($acc, $meta);
+                [$expected, $tarifaLabel, $tarifaPill] = $custom !== null && $custom > 0.00001
+                    ? [round($custom, 2), 'PERSONALIZADO', 'info']
+                    : $this->resolveEffectiveAmountForPeriodFromMeta($meta, $month, null);
+
+                $row = clone $acc;
+
+                $statement   = $mirrorByMonth[$month][$aid] ?? null;
+                $prevInfo    = $mirrorPrevByMonth[$month][$aid] ?? ['prev_balance' => 0.0, 'prev_period' => null];
+                $payPaid     = $this->normalizeMoney($payAggByMonth[$month][$aid] ?? 0.0);
+                $track       = $emailByMonth[$month][$aid] ?? [];
+                $ov          = $ovMapByMonth[$month][$aid] ?? null;
+
+                $prevBalance = $this->normalizeMoney($prevInfo['prev_balance'] ?? 0.0);
+                $lastPaid    = null;
+                $payAllowed  = $month;
+
+                if ($statement) {
+                    $totalCurrent = $this->normalizeMoney($statement['total_cargo'] ?? 0.0);
+                    $abonoMirror  = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
+                    $abonoTotal   = round(max($abonoMirror, $payPaid), 2);
+                    $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
+                    $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+
+                    $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
+
+                    $lastPaid = !empty($statement['paid_at'])
+                        ? $this->parseToPeriod($statement['paid_at'])
+                        : $this->resolveLastPaidPeriodForAccount($aid, $meta);
+
+                    $payAllowed = $lastPaid
+                        ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+                        : $month;
+
+                    $row->cargo          = round($totalCurrent, 2);
+                    $row->expected_total = round((float) $expected, 2);
+                    $row->total_shown    = round($totalCurrent, 2);
+
+                    $row->abono_edo = round($abonoMirror, 2);
+                    $row->abono_pay = round($payPaid, 2);
+                    $row->abono     = round($abonoTotal, 2);
+
+                    $row->saldo_current = round($saldoCurrent, 2);
+                    $row->saldo_shown   = round($saldoCurrent, 2);
+                    $row->saldo         = round($saldoCurrent, 2);
+
+                    $row->prev_balance = round($prevBalance, 2);
+                    $row->prev_period  = $prevInfo['prev_period'] ?? null;
+                    $row->total_due    = round($totalDue, 2);
+
+                    $row->status_pago = $statusPago;
+                    $row->status_auto = $statusPago;
+
+                    $row->last_paid        = $lastPaid;
+                    $row->pay_allowed      = $payAllowed;
+                    $row->pay_last_paid_at = $statement['paid_at'] ?? null;
+                    $row->pay_due_date     = null;
+                    $row->pay_method       = null;
+                    $row->pay_provider     = null;
+                    $row->pay_status       = $statusPago;
+                } else {
+                    $totalCurrent = $this->normalizeMoney($expected);
+                    $abonoMirror  = 0.0;
+                    $abonoTotal   = round($payPaid, 2);
+                    $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
+                    $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
+
+                    $statusPago = $this->computeFinancialStatus($totalCurrent, $abonoTotal, $prevBalance);
+
+                    $lastPaid = $this->resolveLastPaidPeriodForAccount($aid, $meta);
+                    $payAllowed = $lastPaid
+                        ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
+                        : $month;
+
+                    $row->cargo          = round($totalCurrent, 2);
+                    $row->expected_total = round((float) $expected, 2);
+                    $row->total_shown    = round($totalCurrent, 2);
+
+                    $row->abono_edo = 0.0;
+                    $row->abono_pay = round($payPaid, 2);
+                    $row->abono     = round($abonoTotal, 2);
+
+                    $row->saldo_current = round($saldoCurrent, 2);
+                    $row->saldo_shown   = round($saldoCurrent, 2);
+                    $row->saldo         = round($saldoCurrent, 2);
+
+                    $row->prev_balance = round($prevBalance, 2);
+                    $row->prev_period  = $prevInfo['prev_period'] ?? null;
+                    $row->total_due    = round($totalDue, 2);
+
+                    $row->status_pago = $statusPago;
+                    $row->status_auto = $statusPago;
+
+                    $row->last_paid        = $lastPaid;
+                    $row->pay_allowed      = $payAllowed;
+                    $row->pay_last_paid_at = null;
+                    $row->pay_due_date     = null;
+                    $row->pay_method       = null;
+                    $row->pay_provider     = null;
+                    $row->pay_status       = $statusPago;
+                }
+
+                if ($ov) {
+                    $overrideStatus = !empty($ov['status_override'])
+                        ? $this->normalizeStatus((string) $ov['status_override'])
+                        : null;
+
+                    if ($overrideStatus) {
+                        $cargoShown  = $this->normalizeMoney($row->total_shown ?? 0.0);
+                        $abonoShown  = $this->normalizeMoney($row->abono ?? 0.0);
+                        $prevBalance = $this->normalizeMoney($row->prev_balance ?? 0.0);
+
+                        $row->status_override = $overrideStatus;
+
+                        if ($overrideStatus === 'pagado') {
+                            $row->abono         = round(max($abonoShown, $cargoShown), 2);
+                            $row->saldo_current = 0.0;
+                            $row->saldo_shown   = 0.0;
+                            $row->saldo         = 0.0;
+                            $row->total_due     = round(max(0.0, $prevBalance), 2);
+                            $row->status_pago   = 'pagado';
+                            $row->status_auto   = 'pagado';
+                        } elseif ($overrideStatus === 'parcial') {
+                            if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
+                                $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
+                            }
+
+                            $row->saldo_current = round(max(0.0, $cargoShown - (float) $row->abono), 2);
+                            $row->saldo_shown   = $row->saldo_current;
+                            $row->saldo         = $row->saldo_current;
+                            $row->total_due     = round(max(0.0, $row->saldo_current + $prevBalance), 2);
+                            $row->status_pago   = 'parcial';
+                            $row->status_auto   = 'parcial';
+                        } elseif ($overrideStatus === 'vencido') {
+                            $row->status_pago = 'vencido';
+                            $row->status_auto = 'vencido';
+                        } elseif ($overrideStatus === 'sin_mov') {
+                            $row->status_pago = 'sin_mov';
+                            $row->status_auto = 'sin_mov';
+                        } else {
+                            $row->status_pago = 'pendiente';
+                            $row->status_auto = 'pendiente';
+                        }
+                    }
+
+                    if (!empty($ov['pay_method'])) {
+                        $row->ov_pay_method = $ov['pay_method'];
+                        $row->pay_method    = $ov['pay_method'];
+                    }
+
+                    if (!empty($ov['pay_provider'])) {
+                        $row->ov_pay_provider = $ov['pay_provider'];
+                        $row->pay_provider    = $ov['pay_provider'];
+                    }
+
+                    if (!empty($ov['pay_status'])) {
+                        $row->ov_pay_status = $this->normalizeStatus((string) $ov['pay_status']);
+                        $row->pay_status    = $this->normalizeStatus((string) $ov['pay_status']);
+                    }
+
+                    if (!empty($ov['paid_at'])) {
+                        $row->pay_last_paid_at = $ov['paid_at'];
+                    }
+                }
+
+                $row->tarifa_label = (string) $tarifaLabel;
+                $row->tarifa_pill  = (string) $tarifaPill;
+                $row->period       = $month;
+
+                $row->tracking_open_count   = (int) ($track['open_count'] ?? 0);
+                $row->tracking_click_count  = (int) ($track['click_count'] ?? 0);
+                $row->tracking_last_sent_at = $track['last_sent_at'] ?? null;
+
+                $rowsCollection->push($row);
+            }
+        }
 
         if ($status !== 'all') {
             $rowsCollection = $rowsCollection
                 ->filter(fn ($x) => strtolower(trim((string) ($x->status_pago ?? ''))) === $status)
                 ->values();
         }
+
+        $rowsCollection = $rowsCollection
+            ->sortBy([
+                ['period', 'desc'],
+                ['created_at', 'desc'],
+                ['id', 'desc'],
+            ])
+            ->values();
 
         $currentPage = (int) $req->get('page', LengthAwarePaginator::resolveCurrentPage());
         $currentPage = max(1, $currentPage);
@@ -3145,7 +3133,33 @@ final class BillingStatementsHubController extends Controller
         return $out;
     }
 
-        private function normalizeMoney(float|int|string|null $value): float
+    /**
+     * @return array<int,string>
+     */
+    private function buildPeriodsInRange(string $from, string $to): array
+    {
+        if (!$this->isValidPeriod($from) || !$this->isValidPeriod($to)) {
+            return [];
+        }
+
+        if (strcmp($from, $to) > 0) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $out = [];
+        $cursor = Carbon::createFromFormat('Y-m', $from)->startOfMonth();
+        $end    = Carbon::createFromFormat('Y-m', $to)->startOfMonth();
+
+        while ($cursor->lte($end)) {
+            $out[] = $cursor->format('Y-m');
+            $cursor->addMonthNoOverflow();
+        }
+
+        return $out;
+    }
+
+
+    private function normalizeMoney(float|int|string|null $value): float
     {
         return round(max(0.0, (float) $value), 2);
     }
