@@ -1087,8 +1087,22 @@ final class BillingStatementsController extends Controller
         $payMethod   = trim((string) ($data['pay_method'] ?? '')) ?: 'manual';
         $payProvider = in_array($payMethod, ['stripe', 'card'], true) ? 'stripe' : 'manual';
 
+        if ($status === 'pagado') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No puedes marcar "pagado" desde estatus visual. Registra un pago real manual para conciliar payments y billing_statements.',
+            ], 422);
+        }
+
         if (!$this->isValidPeriod($period)) {
             return response()->json(['ok' => false, 'message' => 'Periodo inválido'], 422);
+        }
+
+        if ($status === 'pagado') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No puedes marcar "pagado" desde estatus visual. Registra un pago real manual para conciliar payments y billing_statements.',
+            ], 422);
         }
 
         if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {

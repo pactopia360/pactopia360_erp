@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class AdminBillingAccountsController extends Controller
 {
@@ -153,47 +155,299 @@ class AdminBillingAccountsController extends Controller
             'detalle'  => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $period = $validated['period'];
-        $amount = round((float)$validated['amount'], 2);
-        $ref    = trim((string)($validated['ref'] ?? ''));
-        $det    = trim((string)($validated['detalle'] ?? ''));
+        $period = (string) $validated['period'];
+        $amount = round((float) $validated['amount'], 2);
+        $ref    = trim((string) ($validated['ref'] ?? ''));
+        $det    = trim((string) ($validated['detalle'] ?? ''));
 
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $account)->first();
         abort_if(!$acc, 404);
 
-        // Idempotencia simple por ref (si viene). Si no viene ref, insertamos.
-        if ($ref !== '') {
-            $exists = DB::connection($this->adm)->table('estados_cuenta')
-                ->where('account_id', $account)
-                ->where('periodo', $period)
-                ->where('source', 'manual')
-                ->where('ref', $ref)
-                ->exists();
-            if ($exists) {
-                return back()->with('ok', 'Abono manual ya existía (ref).');
-            }
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return back()->withErrors(['payments' => 'No existe la tabla payments.']);
         }
 
-        DB::connection($this->adm)->table('estados_cuenta')->insert([
-            'account_id' => $account,
-            'periodo'    => $period,
-            'concepto'   => 'Pago manual (transferencia)',
-            'detalle'    => $det !== '' ? $det : ('Registrado por Admin · ' . now()->toDateTimeString()),
-            'cargo'      => 0,
-            'abono'      => $amount,
-            'saldo'      => null,
-            'source'     => 'manual',
-            'ref'        => $ref !== '' ? $ref : null,
-            'meta'       => json_encode([
-                'type'   => 'manual_payment',
-                'by'     => 'admin',
-                'at'     => now()->toISOString(),
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if (!Schema::connection($this->adm)->hasTable('estados_cuenta')) {
+            return back()->withErrors(['estados_cuenta' => 'No existe la tabla estados_cuenta.']);
+        }
 
-        return back()->with('ok', 'Abono manual registrado.');
+        $paymentsCols = Schema::connection($this->adm)->getColumnListing('payments');
+        $paymentsLc   = array_map('strtolower', $paymentsCols);
+        $payHas       = static fn (string $c): bool => in_array(strtolower($c), $paymentsLc, true);
+
+        $now         = now();
+        $amountCents = (int) round($amount * 100);
+        $reference   = $ref !== '' ? $ref : sprintf(
+            'hub-manual:%d:%s:%s',
+            $account,
+            $period,
+            strtoupper(Str::random(10))
+        );
+
+        DB::connection($this->adm)->transaction(function () use (
+            $account,
+            $period,
+            $amount,
+            $amountCents,
+            $reference,
+            $det,
+            $now,
+            $payHas
+        ) {
+            // 1) Idempotencia real en payments por referencia
+            if ($payHas('reference')) {
+                $existingPayment = DB::connection($this->adm)->table('payments')
+                    ->where('account_id', $account)
+                    ->where('reference', $reference)
+                    ->first();
+
+                if ($existingPayment) {
+                    return;
+                }
+            }
+
+            // 2) Insertar pago real en payments
+            $paymentRow = [
+                'account_id' => $account,
+                'amount'     => $amountCents,
+                'currency'   => 'MXN',
+                'status'     => 'paid',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if ($payHas('paid_at')) {
+                $paymentRow['paid_at'] = $now;
+            }
+
+            if ($payHas('due_date')) {
+                $paymentRow['due_date'] = $now;
+            }
+
+            if ($payHas('period')) {
+                $paymentRow['period'] = $period;
+            }
+
+            if ($payHas('method')) {
+                $paymentRow['method'] = 'transfer';
+            }
+
+            if ($payHas('provider')) {
+                $paymentRow['provider'] = 'manual';
+            }
+
+            if ($payHas('concept')) {
+                $paymentRow['concept'] = 'Pago manual (transferencia)';
+            }
+
+            if ($payHas('reference')) {
+                $paymentRow['reference'] = $reference;
+            }
+
+            if ($payHas('amount_mxn')) {
+                $paymentRow['amount_mxn'] = $amount;
+            }
+
+            if ($payHas('monto_mxn')) {
+                $paymentRow['monto_mxn'] = $amount;
+            }
+
+            if ($payHas('meta')) {
+                $paymentRow['meta'] = json_encode([
+                    'type'         => 'manual',
+                    'source'       => 'admin.billing.statements_hub.manual_payment',
+                    'period'       => $period,
+                    'amount_pesos' => $amount,
+                    'ref'          => $reference,
+                    'detalle'      => $det !== '' ? $det : null,
+                    'captured_at'  => $now->toDateTimeString(),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            DB::connection($this->adm)->table('payments')->insert($paymentRow);
+
+            // 3) Insertar abono espejo en estados_cuenta solo si no existe ya esa referencia
+            $existsEstado = false;
+            $estadoCols = Schema::connection($this->adm)->getColumnListing('estados_cuenta');
+            $estadoLc   = array_map('strtolower', $estadoCols);
+            $edoHas     = static fn (string $c): bool => in_array(strtolower($c), $estadoLc, true);
+
+            if ($edoHas('source') && $edoHas('ref')) {
+                $existsEstado = DB::connection($this->adm)->table('estados_cuenta')
+                    ->where('account_id', $account)
+                    ->where('periodo', $period)
+                    ->where('source', 'manual')
+                    ->where('ref', $reference)
+                    ->exists();
+            }
+
+            if (!$existsEstado) {
+                $estadoRow = [
+                    'account_id' => $account,
+                    'periodo'    => $period,
+                    'concepto'   => 'Pago manual (transferencia)',
+                    'detalle'    => $det !== '' ? $det : ('Registrado por Admin · ' . $now->toDateTimeString()),
+                    'cargo'      => 0,
+                    'abono'      => $amount,
+                    'saldo'      => null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                if ($edoHas('source')) {
+                    $estadoRow['source'] = 'manual';
+                }
+
+                if ($edoHas('ref')) {
+                    $estadoRow['ref'] = $reference;
+                }
+
+                if ($edoHas('meta')) {
+                    $estadoRow['meta'] = json_encode([
+                        'type'         => 'manual_payment',
+                        'source'       => 'admin.billing.statements_hub.manual_payment',
+                        'period'       => $period,
+                        'amount_pesos' => $amount,
+                        'ref'          => $reference,
+                        'at'           => $now->toISOString(),
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                }
+
+                DB::connection($this->adm)->table('estados_cuenta')->insert($estadoRow);
+            }
+
+            // 4) Recalcular saldos corridos de estados_cuenta del periodo
+            $items = DB::connection($this->adm)->table('estados_cuenta')
+                ->where('account_id', $account)
+                ->where('periodo', $period)
+                ->orderBy('id')
+                ->get(['id', 'cargo', 'abono']);
+
+            $runningSaldo = 0.0;
+
+            foreach ($items as $it) {
+                $cargo = is_numeric($it->cargo ?? null) ? (float) $it->cargo : 0.0;
+                $abono = is_numeric($it->abono ?? null) ? (float) $it->abono : 0.0;
+
+                $runningSaldo = max(0.0, $runningSaldo + $cargo - $abono);
+
+                DB::connection($this->adm)->table('estados_cuenta')
+                    ->where('id', (int) $it->id)
+                    ->update([
+                        'saldo'      => round($runningSaldo, 2),
+                        'updated_at' => $now,
+                    ]);
+            }
+
+            // 5) Reconciliar billing_statements del periodo
+            if (Schema::connection($this->adm)->hasTable('billing_statements')) {
+                $statement = DB::connection($this->adm)->table('billing_statements')
+                    ->where('account_id', $account)
+                    ->where('period', $period)
+                    ->orderByDesc('updated_at')
+                    ->orderByDesc('id')
+                    ->first();
+
+                if ($statement) {
+                    $cargoTotal = round((float) ($statement->total_cargo ?? 0), 2);
+
+                    $paidTotal = 0.0;
+                    $paidQ = DB::connection($this->adm)->table('payments')
+                        ->where('account_id', $account)
+                        ->where(function ($w) use ($period) {
+                            $w->where('period', $period)
+                            ->orWhere('period', 'like', $period . '%');
+                        })
+                        ->whereIn(DB::raw('LOWER(status)'), [
+                            'paid',
+                            'pagado',
+                            'succeeded',
+                            'success',
+                            'completed',
+                            'complete',
+                            'captured',
+                            'authorized',
+                            'paid_ok',
+                            'ok',
+                        ]);
+
+                    if ($payHas('amount_mxn')) {
+                        $paidTotal = round((float) ($paidQ->sum('amount_mxn') ?? 0), 2);
+                    } elseif ($payHas('monto_mxn')) {
+                        $paidTotal = round((float) ($paidQ->sum('monto_mxn') ?? 0), 2);
+                    } elseif ($payHas('amount_cents')) {
+                        $paidTotal = round(((float) ($paidQ->sum('amount_cents') ?? 0)) / 100, 2);
+                    } else {
+                        $paidTotal = round(((float) ($paidQ->sum('amount') ?? 0)) / 100, 2);
+                    }
+
+                    $saldo = round(max(0.0, $cargoTotal - $paidTotal), 2);
+
+                    $status = 'pending';
+                    $paidAt = null;
+
+                    if ($cargoTotal <= 0.00001 && $paidTotal <= 0.00001) {
+                        $status = 'void';
+                    } elseif ($saldo <= 0.00001 && $paidTotal > 0.00001) {
+                        $status = 'paid';
+                        $paidAt = $now;
+                    } elseif ($paidTotal > 0.00001) {
+                        $status = 'partial';
+                    }
+
+                    DB::connection($this->adm)->table('billing_statements')
+                        ->where('id', (int) $statement->id)
+                        ->update([
+                            'total_abono' => $paidTotal,
+                            'saldo'       => $saldo,
+                            'status'      => $status,
+                            'paid_at'     => $paidAt,
+                            'updated_at'  => $now,
+                        ]);
+                }
+            }
+
+            // 6) Si había override visual del periodo, alinearlo al estado real
+            if (Schema::connection($this->adm)->hasTable('billing_statement_status_overrides')) {
+                $ov = DB::connection($this->adm)->table('billing_statement_status_overrides')
+                    ->where('account_id', $account)
+                    ->where('period', $period)
+                    ->first();
+
+                if ($ov) {
+                    $statementNow = DB::connection($this->adm)->table('billing_statements')
+                        ->where('account_id', $account)
+                        ->where('period', $period)
+                        ->orderByDesc('updated_at')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if ($statementNow) {
+                        $newStatus = strtolower((string) ($statementNow->status ?? 'pending'));
+                        $newStatus = match ($newStatus) {
+                            'paid'    => 'pagado',
+                            'partial' => 'parcial',
+                            'void'    => 'sin_mov',
+                            'overdue' => 'vencido',
+                            default   => 'pendiente',
+                        };
+
+                        DB::connection($this->adm)->table('billing_statement_status_overrides')
+                            ->where('id', (int) $ov->id)
+                            ->update([
+                                'status_override' => $newStatus,
+                                'updated_at'      => $now,
+                            ]);
+                    }
+                }
+            }
+        });
+
+        if (class_exists(\App\Services\Admin\Billing\AccountBillingStateService::class)) {
+            \App\Services\Admin\Billing\AccountBillingStateService::sync($account, 'admin.billing.statements_hub.manual_payment');
+        }
+
+        return back()->with('ok', 'Pago manual registrado y conciliado.');
     }
 
     public function sendStatementEmail(Request $request, int $account)

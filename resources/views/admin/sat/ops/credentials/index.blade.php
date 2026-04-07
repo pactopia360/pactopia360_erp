@@ -1,5 +1,5 @@
 {{-- resources/views/admin/sat/ops/credentials/index.blade.php --}}
-{{-- P360 · Admin · SAT Ops · Credenciales (v6.0 · Clean admin redesign) --}}
+{{-- P360 · Admin · SAT Ops · Credenciales (v5.0 · Rediseño premium operativo) --}}
 
 @extends('layouts.admin')
 
@@ -76,7 +76,7 @@
     $extVer = (bool)$pick($row, ['external_verified'], false);
 
     if ($extRfc !== '' || $isExt) {
-      return $extVer ? ['Externo verificado','t-ext-ok'] : ['Externo','t-ext'];
+      return $extVer ? ['Externo · verificado','t-ext-ok'] : ['Externo','t-ext'];
     }
     return ['Cliente','t-cli'];
   };
@@ -85,7 +85,7 @@
     $cer = (string)$pick($row, ['cer_path'], '');
     $key = (string)$pick($row, ['key_path'], '');
     $has = (trim($cer) !== '' && trim($key) !== '');
-    return $has ? ['CER / KEY','f-ok'] : ['Incompleto','f-warn'];
+    return $has ? ['CER/KEY','f-ok'] : ['Sin archivos','f-warn'];
   };
 
   $alertTag = function($row) use ($pick){
@@ -98,8 +98,8 @@
     if($w) $parts[] = 'WhatsApp';
     if($i) $parts[] = 'InApp';
 
-    if(empty($parts)) return ['Sin alertas','al-off'];
-    return [implode(' · ', $parts),'al-on'];
+    if(empty($parts)) return ['Alertas: Off','al-off'];
+    return ['Alertas: '.implode(' · ', $parts),'al-on'];
   };
 
   $short = function($v, $n=14){
@@ -162,6 +162,12 @@
     return $isBlock || in_array($stRaw, ['bloqueado','blocked','error','invalid'], true);
   })->count();
 
+  $kpiExternal = $pageItems->filter(function($row) use ($pick){
+    $extRfc = trim((string)$pick($row, ['external_rfc'], ''));
+    $isExt  = (bool)$pick($row, ['from_external'], false);
+    return $extRfc !== '' || $isExt;
+  })->count();
+
   $kpiWithFiles = $pageItems->filter(function($row) use ($pick){
     $cer = trim((string)$pick($row, ['cer_path'], ''));
     $key = trim((string)$pick($row, ['key_path'], ''));
@@ -172,10 +178,10 @@
 @section('page-header')
   <div class="p360-ph p360-ph-ops">
     <div class="p360-ph-left">
-      <div class="p360-ph-kicker">ADMIN · SAT OPS</div>
+      <div class="p360-ph-kicker">ADMIN · SAT OPS · CREDENCIALES</div>
       <h1 class="p360-ph-title">Credenciales SAT</h1>
       <div class="p360-ph-sub">
-        Revisión operativa de cuentas, archivos CER / KEY, validación SAT, alertas y detalle técnico desde un solo panel.
+        Consola operativa para revisar cuentas, origen, archivos CSD, alertas y validación SAT sin salir del backoffice.
       </div>
     </div>
 
@@ -192,91 +198,146 @@
        data-csrf="{{ csrf_token() }}"
        data-rt-delete="{{ $rtDeleteName ? route($rtDeleteName, ['id' => '___ID___']) : '' }}">
 
-    {{-- Header operativo compacto --}}
-    <section class="ops-overview">
-      <div class="ops-overview__main">
-        <div class="ops-overview__eyebrow">Panel operativo</div>
-        <h2 class="ops-overview__title">Gestión central de credenciales</h2>
-        <p class="ops-overview__text">
-          Busca por RFC o cuenta, revisa estado, origen, archivos y abre el detalle completo en el panel lateral.
+    {{-- Hero summary --}}
+    <section class="ops-hero">
+      <div class="ops-hero-main">
+        <div class="ops-hero-badge">MÓDULO OPERATIVO</div>
+        <h2 class="ops-hero-title">Control centralizado de certificados y accesos SAT</h2>
+        <p class="ops-hero-text">
+          Consulta rápida por RFC, revisión de origen cliente/externo, descarga de CER/KEY, verificación de alertas y acceso al detalle completo en drawer lateral.
         </p>
+
+        <div class="ops-hero-meta">
+          <span class="chip">Ruta <span class="mono">/admin/sat/ops/credentials</span></span>
+          <span class="chip">Fuente <span class="mono">mysql_clientes.sat_credentials</span></span>
+          <span class="chip">Por página <span class="mono">{{ $per }}</span></span>
+        </div>
       </div>
 
-      <div class="ops-overview__stats">
-        <article class="ops-stat-card">
-          <div class="ops-stat-card__label">Total</div>
-          <div class="ops-stat-card__value">{{ number_format($kpiTotal) }}</div>
-        </article>
+      <div class="ops-hero-side">
+        <div class="hero-stat hero-stat-total">
+          <div class="hero-stat-k">Registros</div>
+          <div class="hero-stat-v">{{ number_format($kpiTotal) }}</div>
+          <div class="hero-stat-s">Total del listado filtrado</div>
+        </div>
 
-        <article class="ops-stat-card">
-          <div class="ops-stat-card__label">Validados</div>
-          <div class="ops-stat-card__value">{{ number_format($kpiValid) }}</div>
-        </article>
-
-        <article class="ops-stat-card">
-          <div class="ops-stat-card__label">Pendientes</div>
-          <div class="ops-stat-card__value">{{ number_format($kpiPending) }}</div>
-        </article>
-
-        <article class="ops-stat-card">
-          <div class="ops-stat-card__label">Con archivos</div>
-          <div class="ops-stat-card__value">{{ number_format($kpiWithFiles) }}</div>
-        </article>
+        <div class="hero-stat hero-stat-valid">
+          <div class="hero-stat-k">Validados</div>
+          <div class="hero-stat-v">{{ number_format($kpiValid) }}</div>
+          <div class="hero-stat-s">Página actual</div>
+        </div>
       </div>
     </section>
 
-    {{-- Filtros --}}
-    <form class="ops-toolbar ops-toolbar--inline" method="GET" action="{{ url()->current() }}">
-      <form class="ops-toolbar ops-toolbar--one-line" method="GET" action="{{ url()->current() }}">
-      <div class="ops-one-line">
-        <div class="ops-one-line__search">
-          <label class="lbl lbl--sr" for="opsSearch">Buscar</label>
+    {{-- KPI cards --}}
+    <section class="ops-kpis">
+      <article class="ops-kpi-card">
+        <div class="ops-kpi-icon ok">✓</div>
+        <div class="ops-kpi-copy">
+          <div class="ops-kpi-label">Validado</div>
+          <div class="ops-kpi-value">{{ number_format($kpiValid) }}</div>
+          <div class="ops-kpi-note">Credenciales listas para operar</div>
+        </div>
+      </article>
+
+      <article class="ops-kpi-card">
+        <div class="ops-kpi-icon warn">!</div>
+        <div class="ops-kpi-copy">
+          <div class="ops-kpi-label">Pendiente</div>
+          <div class="ops-kpi-value">{{ number_format($kpiPending) }}</div>
+          <div class="ops-kpi-note">Revisar validación o carga</div>
+        </div>
+      </article>
+
+      <article class="ops-kpi-card">
+        <div class="ops-kpi-icon bad">×</div>
+        <div class="ops-kpi-copy">
+          <div class="ops-kpi-label">Bloqueado</div>
+          <div class="ops-kpi-value">{{ number_format($kpiBlocked) }}</div>
+          <div class="ops-kpi-note">Con estatus inválido o error</div>
+        </div>
+      </article>
+
+      <article class="ops-kpi-card">
+        <div class="ops-kpi-icon ext">↗</div>
+        <div class="ops-kpi-copy">
+          <div class="ops-kpi-label">Externo</div>
+          <div class="ops-kpi-value">{{ number_format($kpiExternal) }}</div>
+          <div class="ops-kpi-note">Entradas de origen externo</div>
+        </div>
+      </article>
+
+      <article class="ops-kpi-card">
+        <div class="ops-kpi-icon files">▣</div>
+        <div class="ops-kpi-copy">
+          <div class="ops-kpi-label">Con CER / KEY</div>
+          <div class="ops-kpi-value">{{ number_format($kpiWithFiles) }}</div>
+          <div class="ops-kpi-note">Archivos completos en esta página</div>
+        </div>
+      </article>
+    </section>
+
+    {{-- Filters --}}
+    <form class="ops-toolbar" method="GET" action="{{ url()->current() }}">
+      <div class="ops-toolbar-top">
+        <div class="ops-search">
+          <label class="lbl" for="opsSearch">Buscar</label>
           <div class="field-wrap field-wrap-search">
             <span class="field-ico">⌕</span>
             <input id="opsSearch" name="q" class="inp" type="search"
-                  value="{{ $q }}"
-                  placeholder="RFC, razón social, cuenta_id, ID, externo..."
-                  autocomplete="off">
+                   value="{{ $q }}"
+                   placeholder="RFC, razón social, ID, cuenta_id, account_id, externo..."
+                   autocomplete="off">
           </div>
         </div>
 
-        <div class="ops-one-line__item ops-one-line__item--status">
-          <label class="lbl lbl--micro" for="opsStatus">Estatus</label>
-          <select id="opsStatus" name="status" class="sel">
-            <option value=""          @selected($status==='')>Todos</option>
-            <option value="validado"  @selected($status==='validado')>Validado</option>
-            <option value="pendiente" @selected($status==='pendiente')>Pendiente</option>
-            <option value="bloqueado" @selected($status==='bloqueado')>Bloqueado</option>
-          </select>
+        <div class="ops-toolbar-inline">
+          <div class="ops-select">
+            <label class="lbl" for="opsStatus">Estatus</label>
+            <select id="opsStatus" name="status" class="sel">
+              <option value=""          @selected($status==='')>Todos</option>
+              <option value="validado"  @selected($status==='validado')>Validado</option>
+              <option value="pendiente" @selected($status==='pendiente')>Pendiente</option>
+              <option value="bloqueado" @selected($status==='bloqueado')>Bloqueado</option>
+            </select>
+          </div>
+
+          <div class="ops-select">
+            <label class="lbl" for="opsOrigin">Origen</label>
+            <select id="opsOrigin" name="origin" class="sel">
+              <option value=""         @selected($origin==='')>Todos</option>
+              <option value="cliente"  @selected($origin==='cliente')>Cliente</option>
+              <option value="externo"  @selected($origin==='externo')>Externo</option>
+            </select>
+          </div>
+
+          <div class="ops-select ops-select-sm">
+            <label class="lbl" for="opsPer">Por pág.</label>
+            <select id="opsPer" name="per" class="sel">
+              @foreach([10,25,50,100,200] as $n)
+                <option value="{{ $n }}" @selected((int)$per===$n)>{{ $n }}</option>
+              @endforeach
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="ops-toolbar-bottom">
+        <div class="ops-filter-pills">
+          <span class="filter-pill {{ $status === '' ? 'is-active' : '' }}">Estatus: {{ $status !== '' ? ucfirst($status) : 'Todos' }}</span>
+          <span class="filter-pill {{ $origin === '' ? 'is-active' : '' }}">Origen: {{ $origin !== '' ? ucfirst($origin) : 'Todos' }}</span>
+          <span class="filter-pill">Vista: Operativa</span>
         </div>
 
-        <div class="ops-one-line__item ops-one-line__item--origin">
-          <label class="lbl lbl--micro" for="opsOrigin">Origen</label>
-          <select id="opsOrigin" name="origin" class="sel">
-            <option value=""         @selected($origin==='')>Todos</option>
-            <option value="cliente"  @selected($origin==='cliente')>Cliente</option>
-            <option value="externo"  @selected($origin==='externo')>Externo</option>
-          </select>
-        </div>
-
-        <div class="ops-one-line__item ops-one-line__item--per">
-          <label class="lbl lbl--micro" for="opsPer">Por pág.</label>
-          <select id="opsPer" name="per" class="sel">
-            @foreach([10,25,50,100,200] as $n)
-              <option value="{{ $n }}" @selected((int)$per===$n)>{{ $n }}</option>
-            @endforeach
-          </select>
-        </div>
-
-        <div class="ops-one-line__actions">
-          <button class="p360-btn p360-btn-primary" type="submit">Aplicar</button>
+        <div class="ops-actions-right">
+          <button class="p360-btn p360-btn-primary" type="submit">Aplicar filtros</button>
           <a class="p360-btn" href="{{ url()->current() }}">Limpiar</a>
         </div>
       </div>
     </form>
 
-    {{-- Barra de contexto --}}
-    <div class="ops-summary ops-summary--clean">
+    {{-- Summary strip --}}
+    <div class="ops-summary">
       <div class="sum-left">
         <div class="sum-title">Listado de credenciales</div>
         <div class="sum-sub">
@@ -289,13 +350,13 @@
       </div>
 
       <div class="sum-right">
-        <span class="chip">Ruta <span class="mono">/admin/sat/ops/credentials</span></span>
-        <span class="chip">Fuente <span class="mono">mysql_clientes.sat_credentials</span></span>
+        <span class="chip">Ctrl/Cmd + K para buscar</span>
+        <span class="chip">Click en fila para abrir detalle</span>
       </div>
     </div>
 
-    {{-- Listado --}}
-    <div class="ops-table ops-v6 ops-compact">
+    {{-- List --}}
+    <div class="ops-table ops-v5 ops-compact">
       <div class="ops-table-head">
         <div class="th">Cuenta / RFC</div>
         <div class="th">Origen</div>
@@ -309,7 +370,7 @@
         <div class="ops-empty">
           <div class="empty-ico">🗂️</div>
           <div class="empty-title">Sin resultados</div>
-          <div class="empty-sub">Ajusta filtros o limpia la búsqueda para volver a cargar registros.</div>
+          <div class="empty-sub">Ajusta los filtros o limpia la búsqueda para volver a cargar registros.</div>
         </div>
       @else
         @foreach($rows as $row)
@@ -420,6 +481,7 @@
                data-acc-plan="{{ e($accPlan) }}"
                data-acc-created="{{ e($accCreated) }}">
 
+            {{-- COL 1 --}}
             <div class="td td-c1">
               <div class="c1-top">
                 <div class="c1-avatar">{{ strtoupper(substr($rfc !== '—' ? $rfc : $name, 0, 1)) }}</div>
@@ -437,11 +499,12 @@
               <div class="c1-mini">
                 <span class="mini mono" title="ID">{{ $short($id, 18) }}</span>
                 @if($accountHint !== '')
-                  <span class="mini" title="{{ $accountHint }}">{{ $accountHint }}</span>
+                  <span class="mini" title="{{ $accountHint }}">Fuente: {{ $accountHint }}</span>
                 @endif
               </div>
             </div>
 
+            {{-- COL 2 --}}
             <div class="td td-c2">
               <span class="tag {{ $oCls }}" title="{{ $originHint }}">{{ $oTxt }}</span>
               @if($extRfc !== '')
@@ -451,6 +514,7 @@
               @endif
             </div>
 
+            {{-- COL 3 --}}
             <div class="td td-c3">
               <div class="stack">
                 <span class="tag {{ $fCls }}">{{ $fTxt }}</span>
@@ -462,6 +526,7 @@
               </div>
             </div>
 
+            {{-- COL 4 --}}
             <div class="td td-c4">
               <span class="tag {{ $alCls }}">{{ $alTxt }}</span>
               <div class="hint" title="Última alerta">
@@ -469,6 +534,7 @@
               </div>
             </div>
 
+            {{-- COL 5 --}}
             <div class="td td-c5">
               <div class="kvline">
                 <span class="k">Alta</span>
@@ -480,6 +546,7 @@
               </div>
             </div>
 
+            {{-- COL 6 --}}
             <div class="td td-actions">
               <div class="act act-compact">
                 <button class="a a-primary" type="button" data-open-cred>Ver detalle</button>

@@ -1,13 +1,5 @@
 // public/assets/admin/js/sat-ops-credentials.js
-// P360 · Admin · SAT Ops · Credenciales (v5.0)
-// - Drawer detalle por fila
-// - Copy / copy-from
-// - Password toggle
-// - Meta drawer
-// - Kebab menu
-// - Delete vía fetch DELETE
-// - Ctrl/Cmd + K enfoca búsqueda
-// - Enter/Espacio abre detalle en fila enfocada
+// P360 · Admin · SAT Ops · Credenciales · Rediseño tabla v7.0
 
 (function () {
   'use strict';
@@ -16,6 +8,8 @@
   window.__P360_SAT_OPS_CRED_JS__ = true;
 
   const root = document.getElementById('p360OpsCred');
+  if (!root) return;
+
   const search = document.getElementById('opsSearch');
 
   const metaDrawer = document.getElementById('metaDrawer');
@@ -74,7 +68,8 @@
   function toast(msg, kind) {
     try {
       if (window.P360 && typeof window.P360.toast === 'function') {
-        return window.P360.toast(msg);
+        window.P360.toast(msg, { timeout: kind === 'error' ? 5000 : 3600 });
+        return;
       }
     } catch (_) {}
     try { console.log('[P360]', kind || 'info', msg); } catch (_) {}
@@ -226,7 +221,7 @@
 
   function getRowFromTarget(t) {
     if (!t) return null;
-    return t.closest('.tr[data-row], .tr[data-id]') || null;
+    return t.closest('tr[data-row], tr[data-id], .ops-table-row[data-row], .ops-table-row[data-id], .tr[data-row], .tr[data-id]') || null;
   }
 
   function readRowData(row) {
@@ -381,12 +376,10 @@
   }
 
   function getDeleteTemplate() {
-    if (!root) return '';
     return root.getAttribute('data-rt-delete') || '';
   }
 
   function getCsrf() {
-    if (!root) return '';
     return root.getAttribute('data-csrf') || '';
   }
 
@@ -426,7 +419,7 @@
         return false;
       }
 
-      const row = document.querySelector(`.tr[data-id="${cssEscape(id)}"]`);
+      const row = document.querySelector(`[data-row][data-id="${cssEscape(id)}"]`);
       if (row) row.remove();
 
       if (activeId && activeId === id && isCredOpen()) {
@@ -481,14 +474,14 @@
     const editBtn = t.closest('[data-cred-edit]');
     if (editBtn) {
       closeAllMenus();
-      toast('Editar: pendiente de implementar (definir campos editables OPS).', 'error');
+      toast('Editar: pendiente de implementar.', 'error');
       return;
     }
 
     const refreshBtn = t.closest('[data-cred-refresh]');
     if (refreshBtn) {
       closeAllMenus();
-      toast('Actualizar: pendiente de implementar (endpoint PATCH/GET detalle).', 'error');
+      toast('Actualizar: pendiente de implementar.', 'error');
       return;
     }
 
@@ -545,7 +538,7 @@
       return;
     }
 
-    const rowClick = t.closest('.tr[data-row], .tr[data-id]');
+    const rowClick = getRowFromTarget(t);
     if (rowClick) {
       if (
         t.closest('.td-actions') ||
@@ -602,7 +595,7 @@
       }
     }
 
-    const row = ev.target && ev.target.closest ? ev.target.closest('.tr[data-row], .tr[data-id]') : null;
+    const row = getRowFromTarget(ev.target);
     if (row && (ev.key === 'Enter' || ev.key === ' ')) {
       if (ev.target.closest('button, a, input, select, textarea')) return;
       ev.preventDefault();
@@ -625,7 +618,7 @@
   })();
 
   (function prepareRows() {
-    const rows = Array.from(document.querySelectorAll('.tr[data-row], .tr[data-id]'));
+    const rows = Array.from(document.querySelectorAll('[data-row][data-id]'));
     rows.forEach((row) => {
       if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '0');
       row.setAttribute('role', 'button');
