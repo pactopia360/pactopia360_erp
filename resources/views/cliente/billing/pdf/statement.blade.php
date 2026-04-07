@@ -117,32 +117,36 @@
   elseif ($prevBalanceFallback > 0.00001 || $prevIsPaid) $showPrevLine = true;
 
   // ======================================================
-  // ✅ Due del periodo actual (SOT)
+  // ✅ Due del periodo actual / total acumulado (SOT backend)
   // ======================================================
-  $candidates = [
-    $current_period_due ?? null,
-    $saldo_actual ?? null,
-    $saldo ?? null,
-    $amount_due ?? null,
-    $statement_saldo ?? null,
-    $statement_total ?? null,
-    $total ?? null,
-    $charge ?? null,
-    $cargo ?? null,
-  ];
-
-  $currentDue = 0.0;
-  foreach ($candidates as $cand) {
-    $v = $f($cand);
-    if ($v > 0.00001) { $currentDue = $v; break; }
+  $currentDue = $f($current_period_due ?? null);
+  if ($currentDue <= 0.00001) {
+    $currentDue = $f($saldo_actual ?? null);
+  }
+  if ($currentDue <= 0.00001) {
+    $currentDue = $f($saldo ?? null);
+  }
+  if ($currentDue <= 0.00001) {
+    $currentDue = $f($amount_due ?? null);
+  }
+  if ($currentDue <= 0.00001) {
+    $currentDue = $f($statement_saldo ?? null);
+  }
+  if ($currentDue <= 0.00001) {
+    $currentDue = $r2(max(0.0, $cargo - $abono));
+  } else {
+    $currentDue = $r2(max(0.0, $currentDue));
   }
 
-  if ($currentDue <= 0.00001) $currentDue = $r2(max(0.0, $cargo - $abono));
-  else $currentDue = $r2(max(0.0, $currentDue));
+  $showPrev = ($prevBalance > 0.00001);
 
-  // ✅ sumar saldo anterior SOLO si hay deuda real
-  $showPrev   = ($prevBalance > 0.00001);
-  $totalPagar = $r2($currentDue + ($showPrev ? $prevBalance : 0.0));
+  // ✅ El total general SIEMPRE debe respetar total_due si el backend lo mandó
+  $totalDueFromBackend = $f($total_due ?? null);
+  if ($totalDueFromBackend > 0.00001) {
+    $totalPagar = $r2($totalDueFromBackend);
+  } else {
+    $totalPagar = $r2($currentDue + ($showPrev ? $prevBalance : 0.0));
+  }
 
   $prevLabelSafe = trim((string)($prevPeriodLabel ?? ''));
   if ($prevLabelSafe === '') $prevLabelSafe = trim((string)($prevPeriod ?? ''));
@@ -371,6 +375,11 @@
   $moneda   = ($pesosInt === 1) ? 'peso' : 'pesos';
   $totalLetrasCalc = trim($pesosTxt).' '.$moneda.' '.str_pad((string)$cent, 2, '0', STR_PAD_LEFT).'/100 MN';
   $totalLetras = (string)($total_letras ?? $totalLetrasCalc);
+
+  $debugPrevBalance = $r2($prevBalance);
+  $debugCurrentDue  = $r2($currentDue);
+  $debugTotalDue    = $r2($f($total_due ?? null));
+  $debugTotalPagar  = $r2($totalPagar);
 
   // Period label
   $periodLabel = $periodSafe;
@@ -838,8 +847,8 @@
     </tr>
   </table>
 
-  <div class="footerLine xs mut">
-    Documento informativo · Periodo {{ $periodSafe }} · Cuenta {{ $accountIdNum ?: '—' }} · Generado {{ $printedAt->format('Y-m-d H:i') }} · CSS {{ $cssHash6 }}
+   <div class="footerLine xs mut">
+    Documento informativo · Periodo {{ $periodSafe }} · Cuenta {{ $accountIdNum ?: '—' }} · Generado {{ $printedAt->format('Y-m-d H:i') }} · CSS {{ $cssHash6 }} · prev={{ number_format($debugPrevBalance, 2) }} · current={{ number_format($debugCurrentDue, 2) }} · total_due={{ number_format($debugTotalDue, 2) }} · total_pagar={{ number_format($debugTotalPagar, 2) }}
   </div>
 </div>
 
