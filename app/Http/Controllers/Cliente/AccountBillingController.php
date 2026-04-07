@@ -1598,6 +1598,111 @@ final class AccountBillingController extends Controller
             return null;
         }
     }
+
+        /**
+     * Obtiene el saldo pendiente de un periodo desde admin.billing_statements.
+     */
+    private function resolveStatementDueMxn(int $accountId, string $period): float
+    {
+        if ($accountId <= 0 || !$this->isValidPeriod($period)) {
+            return 0.0;
+        }
+
+        try {
+            $refs = $this->buildStatementRefs($accountId);
+            if (empty($refs)) {
+                $refs = [(string) $accountId, (int) $accountId];
+            }
+
+            $row = DB::connection($this->connAdmin())
+                ->table('billing_statements')
+                ->whereIn('account_id', $refs)
+                ->where('period', $period)
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->first([
+                    'status',
+                    'total_cargo',
+                    'total_abono',
+                    'saldo',
+                ]);
+
+            if (!$row) {
+                return 0.0;
+            }
+
+            $status = $this->normalizeStatementStatus((string) ($row->status ?? 'pending'));
+            if ($status === 'paid') {
+                return 0.0;
+            }
+
+            $saldo = is_numeric($row->saldo ?? null)
+                ? (float) $row->saldo
+                : max(
+                    0.0,
+                    (float) ($row->total_cargo ?? 0) - (float) ($row->total_abono ?? 0)
+                );
+
+            return round(max(0.0, $saldo), 2);
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING][PDF] resolveStatementDueMxn failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return 0.0;
+        }
+    }
+
+    /**
+     * Saldo pendiente del periodo inmediato anterior para PDF.
+     * Regla solicitada: si abril está pendiente y marzo también, abril debe mostrar marzo + abril.
+     */
+    private function resolvePreviousOpenBalanceForPdf(int $accountId, string $period): array
+    {
+        if ($accountId <= 0 || !$this->isValidPeriod($period)) {
+            return [
+                'prev_period'        => null,
+                'prev_period_label'  => null,
+                'prev_balance'       => 0.0,
+            ];
+        }
+
+        try {
+            $prevPeriod = Carbon::createFromFormat('Y-m', $period)
+                ->subMonthNoOverflow()
+                ->format('Y-m');
+
+            $prevBalance = $this->resolveStatementDueMxn($accountId, $prevPeriod);
+
+            if ($prevBalance <= 0.00001) {
+                return [
+                    'prev_period'        => null,
+                    'prev_period_label'  => null,
+                    'prev_balance'       => 0.0,
+                ];
+            }
+
+            return [
+                'prev_period'        => $prevPeriod,
+                'prev_period_label'  => Str::title(Carbon::parse($prevPeriod . '-01')->translatedFormat('F Y')),
+                'prev_balance'       => round($prevBalance, 2),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING][PDF] resolvePreviousOpenBalanceForPdf failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+
+            return [
+                'prev_period'        => null,
+                'prev_period_label'  => null,
+                'prev_balance'       => 0.0,
+            ];
+        }
+    }
     
     /**
      * ==========================================================
@@ -1606,35 +1711,31 @@ final class AccountBillingController extends Controller
      */
     private function renderStatementPdf(\Illuminate\Http\Request $r, int $accountId, string $period, bool $inline)
     {
-        // Cargar statements desde admin (misma lógica base que tu statement())
         $statementRefs = $this->buildStatementRefs((int) $accountId);
         $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
 
-        // seleccionar solo el periodo pedido
         $row = null;
         foreach ((array) $rowsAll as $rr) {
-            if ((string)($rr['period'] ?? '') === $period) { 
-                $row = $rr; 
-                break; 
+            if ((string) ($rr['period'] ?? '') === $period) {
+                $row = $rr;
+                break;
             }
         }
 
         if (!$row) {
-
-            // 🔎 buscar último periodo existente (SOT real)
             $periods = [];
-            foreach ((array)$rowsAll as $rr) {
-                $pp = (string)($rr['period'] ?? '');
+            foreach ((array) $rowsAll as $rr) {
+                $pp = (string) ($rr['period'] ?? '');
                 if ($this->isValidPeriod($pp)) {
                     $periods[] = $pp;
                 }
             }
 
             $periods = array_values(array_unique($periods));
-            sort($periods); // asc YYYY-MM
+            sort($periods);
             $fallback = !empty($periods) ? end($periods) : null;
 
-            \Illuminate\Support\Facades\Log::warning('[BILLING][PDF] period not found, fallback', [
+            Log::warning('[BILLING][PDF] period not found, fallback', [
                 'account_id' => $accountId,
                 'period'     => $period,
                 'fallback'   => $fallback,
@@ -1650,29 +1751,26 @@ final class AccountBillingController extends Controller
             abort(404);
         }
 
-        // ✅ Ciclo (mensual/anual) para etiquetado correcto en PDF
         $isAnnual = false;
         try {
-            $isAnnual = (bool) $this->isAnnualBillingCycle((int)$accountId);
+            $isAnnual = (bool) $this->isAnnualBillingCycle((int) $accountId);
         } catch (\Throwable $e) {
             $isAnnual = false;
         }
 
         $billingCycle = $isAnnual ? 'annual' : 'monthly';
 
-
-        // ✅ Items (desde admin) para PDF
         $items = [];
         try {
-            $sid = (int)($row['id'] ?? 0);
+            $sid = (int) ($row['id'] ?? 0);
             if ($sid > 0) {
-                $itemsRaw = $this->fetchStatementItems((string)config('p360.conn.admin','mysql_admin'), $sid);
+                $itemsRaw = $this->fetchStatementItems((string) config('p360.conn.admin', 'mysql_admin'), $sid);
+
                 $items = array_values(array_map(function ($x) use ($isAnnual) {
-                    $a = is_array($x) ? $x : (array)$x;
+                    $a = is_array($x) ? $x : (array) $x;
 
-                    $name = (string)($a['description'] ?? 'Servicio');
+                    $name = (string) ($a['description'] ?? 'Servicio');
 
-                    // ✅ Si la cuenta es anual, evita textos "mensual/monthly" en PDF
                     if ($isAnnual) {
                         $name = preg_replace('/\bmensual\b/iu', 'anual', $name);
                         $name = preg_replace('/\bmonthly\b/iu', 'annual', $name);
@@ -1680,17 +1778,30 @@ final class AccountBillingController extends Controller
 
                     return [
                         'name'       => $name,
-                        'unit_price' => (float)($a['unit_price'] ?? 0),
-                        'qty'        => (float)($a['qty'] ?? 1),
-                        'subtotal'   => (float)($a['amount'] ?? 0),
+                        'unit_price' => (float) ($a['unit_price'] ?? 0),
+                        'qty'        => (float) ($a['qty'] ?? 1),
+                        'subtotal'   => (float) ($a['amount'] ?? 0),
                     ];
                 }, $itemsRaw));
-
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            $items = [];
+        }
 
+        $cargo = round((float) ($row['total_cargo'] ?? ($row['charge'] ?? 0)), 2);
+        $abono = round((float) ($row['total_abono'] ?? ($row['paid_amount'] ?? 0)), 2);
 
-        // Data mínima para la vista PDF (la vista puede ser tolerante; si pide más, lo ajustamos)
+        $currentPeriodDue = $this->resolveStatementDueMxn($accountId, $period);
+
+        if ($currentPeriodDue <= 0.00001) {
+            $currentPeriodDue = round(max(0.0, $cargo - $abono), 2);
+        }
+
+        $prevInfo = $this->resolvePreviousOpenBalanceForPdf($accountId, $period);
+        $prevBalance = round((float) ($prevInfo['prev_balance'] ?? 0), 2);
+
+        $totalDue = round(max(0.0, $currentPeriodDue + $prevBalance), 2);
+
         $data = [
             'account_id' => $accountId,
             'accountId'  => $accountId,
@@ -1698,29 +1809,33 @@ final class AccountBillingController extends Controller
             'row'        => $row,
             'rows'       => [$row],
 
-            // ✅ ciclo para el Blade PDF (y para etiquetas)
             'billing_cycle' => $billingCycle,
-            'modo_cobro'    => $billingCycle, // compat con tu Blade (usa $modoCobro)
+            'modo_cobro'    => $billingCycle,
 
-            // compat
             'inline'        => $inline,
             'service_items' => $items,
 
-            // ✅ label coherente con el ciclo
-            'service_label' => $isAnnual ? 'Suscripción anual Pactopia360' : 'Suscripción mensual Pactopia360',
+            'service_label' => $isAnnual
+                ? 'Suscripción anual Pactopia360'
+                : 'Suscripción mensual Pactopia360',
 
-            'cargo' => (float)($row['total_cargo'] ?? ($row['charge'] ?? 0)),
-            'abono' => (float)($row['total_abono'] ?? ($row['paid_amount'] ?? 0)),
+            'cargo'               => $cargo,
+            'abono'               => $abono,
+            'saldo'               => $currentPeriodDue,
+            'current_period_due'  => $currentPeriodDue,
+
+            'prev_period'         => $prevInfo['prev_period'] ?? null,
+            'prev_period_label'   => $prevInfo['prev_period_label'] ?? null,
+            'prev_balance'        => $prevBalance,
+
+            'total_due'           => $totalDue,
+            'total'               => $totalDue,
+
+            'generated_at'        => now(),
         ];
 
-        // ==========================================================
-        // ✅ Pay URL + QR (Cliente)
-        // - Admin sí lo manda; Cliente no.
-        // - Usamos publicPay (sin sesión) con URL firmada (30 min).
-        // ==========================================================
         $payUrl = '';
         try {
-            // Link público firmado para abrir checkout desde QR/Link sin depender de sesión
             $payUrl = URL::temporarySignedRoute(
                 'cliente.billing.publicPay',
                 now()->addMinutes(30),
@@ -1733,42 +1848,37 @@ final class AccountBillingController extends Controller
         if ($payUrl !== '') {
             $data['pay_url'] = $payUrl;
 
-            // QR preferente embebido (data URI)
             $qrData = $this->qrDataUriFromText($payUrl, 240);
             if (is_string($qrData) && trim($qrData) !== '') {
                 $data['qr_data_uri'] = $qrData;
             } else {
-                // fallback: por si quieres que el Blade intente cargarlo (opcional)
                 $data['qr_url'] = null;
             }
         } else {
-            // Para que el Blade no “crea” que hay URL si no existe
             $data['pay_url'] = '';
             $data['qr_data_uri'] = null;
             $data['qr_url'] = null;
         }
 
-        // DomPDF wrapper (barryvdh/laravel-dompdf)
         try {
             $pdf = app('dompdf.wrapper');
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('[BILLING][PUBLIC_PDF] dompdf.wrapper not available', [
+            Log::error('[BILLING][PUBLIC_PDF] dompdf.wrapper not available', [
                 'account_id' => $accountId,
-                'period' => $period,
-                'err' => $e->getMessage(),
+                'period'     => $period,
+                'err'        => $e->getMessage(),
             ]);
             abort(500, 'PDF engine no disponible.');
         }
 
         $pdf->loadView('cliente.billing.pdf.statement', $data);
 
-        $filename = 'estado-de-cuenta-'.$period.'.pdf';
+        $filename = 'estado-de-cuenta-' . $period . '.pdf';
 
         $resp = $inline
             ? $pdf->stream($filename)
             : $pdf->download($filename);
 
-        // Permitir iframe same-origin
         $resp->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $resp->headers->set('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'; object-src 'self';");
 
