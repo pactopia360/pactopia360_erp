@@ -448,8 +448,18 @@
     ];
   }, $serviceItems));
 
-  // ✅ Insert saldo anterior como línea
-  if ($showPrevLine) {
+  // ✅ Si backend ya mandó líneas separadas por periodo, NO insertar línea resumida de saldo anterior
+  $hasDetailedPeriodLines = false;
+  foreach ($serviceItems as $tmpIt) {
+    $tmpRow = is_array($tmpIt) ? $tmpIt : (is_object($tmpIt) ? (array)$tmpIt : []);
+    $tmpName = mb_strtolower(trim((string)($tmpRow['name'] ?? $tmpRow['service'] ?? $tmpRow['servicio'] ?? '')));
+    if (str_contains($tmpName, 'mensualidad ') || preg_match('/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/u', $tmpName)) {
+      $hasDetailedPeriodLines = true;
+      break;
+    }
+  }
+
+  if (!$hasDetailedPeriodLines && $showPrevLine) {
     if ($prevIsPaid) {
       array_unshift($serviceItems, [
         'name'       => 'Saldo anterior (' . $prevLabelSafe . ') · Pagado',
