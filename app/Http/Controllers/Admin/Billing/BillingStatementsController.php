@@ -1071,7 +1071,7 @@ final class BillingStatementsController extends Controller
     // STATUS AJAX
     // =========================================================
 
-  public function statusAjax(Request $req): JsonResponse
+    public function statusAjax(Request $req): JsonResponse
     {
         $data = $req->validate([
             'account_id' => 'required|string|max:64',
@@ -1086,13 +1086,6 @@ final class BillingStatementsController extends Controller
         $status      = strtolower(trim((string) $data['status']));
         $payMethod   = trim((string) ($data['pay_method'] ?? '')) ?: 'manual';
         $payProvider = in_array($payMethod, ['stripe', 'card'], true) ? 'stripe' : 'manual';
-
-        if ($status === 'pagado') {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'No puedes marcar "pagado" desde estatus visual. Registra un pago real manual para conciliar payments y billing_statements.',
-            ], 422);
-        }
 
         if (!$this->isValidPeriod($period)) {
             return response()->json(['ok' => false, 'message' => 'Periodo inválido'], 422);
@@ -1110,9 +1103,6 @@ final class BillingStatementsController extends Controller
         }
 
         $paidAt = null;
-        if ($status === 'pagado') {
-            $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? '')) ?: now();
-        }
 
         $by = auth('admin')->id();
 
@@ -1141,7 +1131,7 @@ final class BillingStatementsController extends Controller
             $meta['pay_method']   = $payMethod;
             $meta['pay_provider'] = $payProvider;
             $meta['pay_status']   = $status;
-            $meta['paid_at']      = $status === 'pagado' ? $paidAt?->toDateTimeString() : null;
+            $meta['paid_at']      = null;
 
             $payload = [
                 'account_id'      => $accountId,
@@ -1256,7 +1246,7 @@ final class BillingStatementsController extends Controller
             'pay_method'     => $row->pay_method ?? $payMethod,
             'pay_provider'   => $row->pay_provider ?? $payProvider,
             'pay_status'     => $row->pay_status ?? $status,
-            'paid_at'        => $row->pay_last_paid_at ?? ($status === 'pagado' ? $paidAt?->toDateTimeString() : null),
+            'paid_at'        => $row->pay_last_paid_at ?? null,
             'total'          => round((float) ($row->total_shown ?? 0), 2),
             'abono'          => round((float) ($row->abono ?? 0), 2),
             'saldo'          => round((float) ($row->saldo ?? 0), 2),
