@@ -517,7 +517,148 @@ final class BillingStatementsController extends Controller
     // PDF / EMAIL DATA
     // =========================================================
 
-    /**
+        /**
+     * Construye líneas detalladas del PDF admin:
+     * - una línea por cada billing_statement pendiente hasta el periodo solicitado
+     * - separa saldo anterior vs periodo actual
+     * - usa montos con IVA incluido; el blade ya los divide para mostrar tabla sin IVA
+     *
+     * @return array{
+     *   service_items: array<int,array<string,mixed>>,
+     *   prev_period: ?string,
+     *   prev_period_label: ?string,
+     *   prev_balance: float,
+     *   current_period_due: float,
+     *   total_due: float
+     * }
+     */
+    private function buildDetailedPendingLinesForPdf(string $accountId, string $period): array
+    {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
+            return [
+                'service_items'      => [],
+                'prev_period'        => null,
+                'prev_period_label'  => null,
+                'prev_balance'       => 0.0,
+                'current_period_due' => 0.0,
+                'total_due'          => 0.0,
+            ];
+        }
+
+        $serviceItems = [];
+        $prevBalance = 0.0;
+        $currentPeriodDue = 0.0;
+        $prevPeriodMostRecent = null;
+        $prevPeriodLabelMostRecent = null;
+
+        try {
+            if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+                return [
+                    'service_items'      => [],
+                    'prev_period'        => null,
+                    'prev_period_label'  => null,
+                    'prev_balance'       => 0.0,
+                    'current_period_due' => 0.0,
+                    'total_due'          => 0.0,
+                ];
+            }
+
+            $rows = DB::connection($this->adm)->table('billing_statements')
+                ->where('account_id', $accountId)
+                ->where('period', '<=', $period)
+                ->orderBy('period')
+                ->get([
+                    'id',
+                    'period',
+                    'status',
+                    'total_cargo',
+                    'total_abono',
+                    'saldo',
+                ]);
+
+            foreach ($rows as $st) {
+                $rowPeriod = trim((string) ($st->period ?? ''));
+                if (!$this->isValidPeriod($rowPeriod)) {
+                    continue;
+                }
+
+                $status = strtolower(trim((string) ($st->status ?? 'pending')));
+                $status = match ($status) {
+                    'paid', 'pagado', 'succeeded', 'success', 'complete', 'completed', 'captured', 'confirmed' => 'pagado',
+                    'partial', 'parcial' => 'parcial',
+                    'overdue', 'vencido', 'past_due', 'unpaid' => 'vencido',
+                    'sin_mov', 'sin mov', 'sin_movimiento', 'sin movimiento', 'no_movement', 'no movement' => 'sin_mov',
+                    default => 'pendiente',
+                };
+
+                if ($status === 'pagado') {
+                    continue;
+                }
+
+                $saldo = is_numeric($st->saldo ?? null)
+                    ? (float) $st->saldo
+                    : max(
+                        0.0,
+                        (float) ($st->total_cargo ?? 0) - (float) ($st->total_abono ?? 0)
+                    );
+
+                $saldo = round(max(0.0, $saldo), 2);
+
+                if ($saldo <= 0.00001) {
+                    continue;
+                }
+
+                $label = $rowPeriod;
+                try {
+                    $label = Str::title(Carbon::parse($rowPeriod . '-01')->translatedFormat('F Y'));
+                } catch (\Throwable $e) {
+                    $label = $rowPeriod;
+                }
+
+                $serviceItems[] = [
+                    'service'   => 'Mensualidad ' . $label,
+                    'name'      => 'Mensualidad ' . $label,
+                    'unit_cost' => $saldo,
+                    'unit_price'=> $saldo,
+                    'qty'       => 1,
+                    'subtotal'  => $saldo,
+                    'period'    => $rowPeriod,
+                ];
+
+                if ($rowPeriod === $period) {
+                    $currentPeriodDue += $saldo;
+                } else {
+                    $prevBalance += $saldo;
+                    $prevPeriodMostRecent = $rowPeriod;
+                    $prevPeriodLabelMostRecent = $label;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[ADMIN][STATEMENTS] buildDetailedPendingLinesForPdf failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
+        }
+
+        $prevBalance = round(max(0.0, $prevBalance), 2);
+        $currentPeriodDue = round(max(0.0, $currentPeriodDue), 2);
+        $totalDue = round(max(0.0, $prevBalance + $currentPeriodDue), 2);
+
+        return [
+            'service_items'      => $serviceItems,
+            'prev_period'        => $prevPeriodMostRecent,
+            'prev_period_label'  => $prevPeriodLabelMostRecent,
+            'prev_balance'       => $prevBalance,
+            'current_period_due' => $currentPeriodDue,
+            'total_due'          => $totalDue,
+        ];
+    }
+
+     /**
      * @return array<string,mixed>
      */
     private function buildStatementData(string $accountId, string $period): array
@@ -530,13 +671,47 @@ final class BillingStatementsController extends Controller
         $abonoTot   = (float) ($cur['abono'] ?? 0.0);
         $saldoCur   = (float) ($cur['saldo'] ?? 0.0);
 
-        $prevInfo   = $this->computePrevOpenBalance((string) $accountId, (string) $period, $cur['last_paid'] ?? null);
-        $prevPeriod = $prevInfo['prev_period'] ?? null;
-        $prevSaldo  = round(max(0.0, (float) ($prevInfo['prev_balance'] ?? 0.0)), 2);
+        $detail = $this->buildDetailedPendingLinesForPdf((string) $accountId, (string) $period);
 
-        $totalDue = round(max(0.0, $saldoCur + $prevSaldo), 2);
+        $detailedItems     = is_array($detail['service_items'] ?? null) ? $detail['service_items'] : [];
+        $prevPeriod        = $detail['prev_period'] ?? null;
+        $prevPeriodLabel   = $detail['prev_period_label'] ?? null;
+        $prevSaldo         = round(max(0.0, (float) ($detail['prev_balance'] ?? 0.0)), 2);
+        $currentPeriodDue  = round(max(0.0, (float) ($detail['current_period_due'] ?? 0.0)), 2);
+        $totalDue          = round(max(0.0, (float) ($detail['total_due'] ?? 0.0)), 2);
 
-                $statusBase = $this->computeFinancialStatus($cargoShown, $abonoTot, $prevSaldo);
+        // Fallback si por alguna razón no pudo construir líneas detalladas
+        if (empty($detailedItems)) {
+            $prevInfo   = $this->computePrevOpenBalance((string) $accountId, (string) $period, $cur['last_paid'] ?? null);
+            $prevPeriod = $prevInfo['prev_period'] ?? null;
+            $prevSaldo  = round(max(0.0, (float) ($prevInfo['prev_balance'] ?? 0.0)), 2);
+
+            $currentPeriodDue = round(max(0.0, $saldoCur), 2);
+            $totalDue         = round(max(0.0, $currentPeriodDue + $prevSaldo), 2);
+
+            if ($currentPeriodDue > 0.00001) {
+                $label = Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y'));
+                $detailedItems[] = [
+                    'service'   => 'Mensualidad ' . $label,
+                    'name'      => 'Mensualidad ' . $label,
+                    'unit_cost' => $currentPeriodDue,
+                    'unit_price'=> $currentPeriodDue,
+                    'qty'       => 1,
+                    'subtotal'  => $currentPeriodDue,
+                    'period'    => $period,
+                ];
+            }
+
+            if ($prevPeriod && !$prevPeriodLabel) {
+                try {
+                    $prevPeriodLabel = Str::title(Carbon::parse($prevPeriod . '-01')->translatedFormat('F Y'));
+                } catch (\Throwable $e) {
+                    $prevPeriodLabel = $prevPeriod;
+                }
+            }
+        }
+
+        $statusBase = $this->computeFinancialStatus($cargoShown, $abonoTot, $prevSaldo);
 
         $row = (object) [
             'cargo'            => round((float) ($cur['cargo_real'] ?? 0.0), 2),
@@ -547,7 +722,7 @@ final class BillingStatementsController extends Controller
             'abono_pay'        => round((float) ($cur['abono_pay'] ?? 0.0), 2),
             'saldo'            => round(max(0.0, $saldoCur), 2),
             'saldo_shown'      => round(max(0.0, $saldoCur), 2),
-            'saldo_current'    => round(max(0.0, $saldoCur), 2),
+            'saldo_current'    => round(max(0.0, $currentPeriodDue), 2),
             'prev_balance'     => $prevSaldo,
             'total_due'        => $totalDue,
             'tarifa_label'     => (string) ($cur['tarifa_label'] ?? '-'),
@@ -566,11 +741,12 @@ final class BillingStatementsController extends Controller
         $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
         $row = $this->applyStatusOverride($row, $ov[(string) $accountId] ?? null);
 
-        $finalSaldoCurrent = round(max(0.0, (float) ($row->saldo_current ?? $saldoCur)), 2);
+        $finalSaldoCurrent = round(max(0.0, (float) ($row->saldo_current ?? $currentPeriodDue)), 2);
         $finalPrevBalance  = round(max(0.0, (float) ($row->prev_balance ?? $prevSaldo)), 2);
         $finalTotalDue     = round(max(0.0, (float) ($row->total_due ?? ($finalSaldoCurrent + $finalPrevBalance))), 2);
 
         $effectivePrevPeriod = $finalPrevBalance > 0.00001 ? $prevPeriod : null;
+        $effectivePrevPeriodLabel = $finalPrevBalance > 0.00001 ? $prevPeriodLabel : null;
 
         $qrText = $this->resolveQrTextForStatement($accountId, $period, null);
         [$qrDataUri, $qrUrl] = $this->makeQrDataForText((string) ($qrText ?? ''));
@@ -581,9 +757,9 @@ final class BillingStatementsController extends Controller
             'period'             => $period,
             'period_label'       => Str::title(Carbon::parse($period . '-01')->translatedFormat('F Y')),
             'items'              => $items,
-            'consumos'           => $cur['consumos'] ?? [],
-            'service_items'      => $cur['consumos'] ?? [],
-            'consumos_total'     => round((float) ($cur['consumos_total'] ?? 0), 2),
+            'consumos'           => $detailedItems,
+            'service_items'      => $detailedItems,
+            'consumos_total'     => round((float) $finalTotalDue, 2),
             'cargo_real'         => round((float) ($cur['cargo_real'] ?? 0), 2),
             'expected_total'     => round((float) ($row->expected_total ?? $cur['expected_total'] ?? 0), 2),
             'tarifa_label'       => (string) ($row->tarifa_label ?? $cur['tarifa_label'] ?? '-'),
@@ -594,7 +770,7 @@ final class BillingStatementsController extends Controller
             'abono_pay'          => round((float) ($row->abono_pay ?? $cur['abono_pay'] ?? 0), 2),
             'saldo'              => round((float) ($row->saldo ?? $saldoCur), 2),
             'prev_period'        => $effectivePrevPeriod,
-            'prev_period_label'  => $effectivePrevPeriod ? Str::title(Carbon::parse($effectivePrevPeriod . '-01')->translatedFormat('F Y')) : null,
+            'prev_period_label'  => $effectivePrevPeriodLabel,
             'prev_balance'       => $finalPrevBalance,
             'current_period_due' => $finalSaldoCurrent,
             'total_due'          => $finalTotalDue,
