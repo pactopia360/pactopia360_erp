@@ -1,12 +1,13 @@
 // public/assets/admin/js/sat-ops-credentials.js
-// P360 · Admin · SAT Ops · Credenciales (v4.0)
-// - Drawer de detalle por fila (data-open-cred / #credDrawer)
-// - Copy buttons (data-copy) y copy-from (data-copy-from="#id")
-// - Password toggle en drawer (data-cred-pass-toggle)
-// - Meta drawer (data-meta-btn / data-open-meta) + copiar meta
-// - Kebab menu (data-menu)
-// - Delete (data-delete-id) y delete desde drawer (data-cred-delete) via fetch DELETE si existe #p360OpsCred[data-rt-delete]
-// - Ctrl+K enfoca búsqueda (#opsSearch)
+// P360 · Admin · SAT Ops · Credenciales (v5.0)
+// - Drawer detalle por fila
+// - Copy / copy-from
+// - Password toggle
+// - Meta drawer
+// - Kebab menu
+// - Delete vía fetch DELETE
+// - Ctrl/Cmd + K enfoca búsqueda
+// - Enter/Espacio abre detalle en fila enfocada
 
 (function () {
   'use strict';
@@ -17,21 +18,13 @@
   const root = document.getElementById('p360OpsCred');
   const search = document.getElementById('opsSearch');
 
-  // ===== Meta Drawer (existente) =====
   const metaDrawer = document.getElementById('metaDrawer');
   const metaTitleEl = document.getElementById('metaTitle');
   const metaPreEl = document.getElementById('metaPre');
   const btnCopyMeta = metaDrawer ? metaDrawer.querySelector('[data-copy-meta]') : null;
 
-  // ===== Cred Drawer (nuevo) =====
   const credDrawer = document.getElementById('credDrawer');
-
-  // Drawer close buttons/backdrops
   const credCloseSel = '[data-cred-close]';
-
-  // Cred drawer fields
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   const credRfc = document.getElementById('credRfc');
   const credStatus = document.getElementById('credStatus');
@@ -72,7 +65,6 @@
   const credUpdated = document.getElementById('credUpdated');
   const credValidated = document.getElementById('credValidated');
 
-  // runtime state
   let activeRowEl = null;
   let activeId = '';
   let activeRfc = '';
@@ -82,14 +74,13 @@
   function toast(msg, kind) {
     try {
       if (window.P360 && typeof window.P360.toast === 'function') {
-        if (kind === 'error' && window.P360.toast.error) return window.P360.toast.error(msg);
-        if (kind === 'success' && window.P360.toast.success) return window.P360.toast.success(msg);
         return window.P360.toast(msg);
       }
     } catch (_) {}
-    try { console.log('[P360]', msg); } catch (_) {}
-    if (kind === 'error') alert(msg);
-
+    try { console.log('[P360]', kind || 'info', msg); } catch (_) {}
+    if (kind === 'error') {
+      try { alert(msg); } catch (_) {}
+    }
   }
 
   async function copyText(text, okMsg) {
@@ -99,7 +90,6 @@
       if (okMsg) toast(okMsg, 'success');
       return true;
     } catch (_) {
-      // fallback con textarea
       try {
         const ta = document.createElement('textarea');
         ta.value = val;
@@ -120,13 +110,11 @@
     }
   }
 
-    function cssEscape(value) {
+  function cssEscape(value) {
     const v = String(value ?? '');
     try {
       if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(v);
     } catch (_) {}
-    // fallback más robusto para selectores tipo [data-id="..."]
-    // escapa backslash, comillas y corchetes (por si acaso)
     return v
       .replace(/\\/g, '\\\\')
       .replace(/"/g, '\\"')
@@ -134,9 +122,6 @@
       .replace(/\]/g, '\\]');
   }
 
-
-
-  // ===== Menús kebab =====
   function closeAllMenus(except) {
     const menus = document.querySelectorAll('[data-menu]');
     menus.forEach((m) => {
@@ -156,50 +141,47 @@
     menuWrap.classList.toggle('is-open', isHidden);
   }
 
-  // ===== Meta drawer =====
+  function setPageScrollLock(lock) {
+    document.documentElement.style.overflow = lock ? 'hidden' : '';
+    document.body.style.overflow = lock ? 'hidden' : '';
+  }
+
   function openMetaDrawer(title, text) {
     if (!metaDrawer) return;
-    try {
-      if (metaTitleEl) metaTitleEl.textContent = title || 'Meta';
-      if (metaPreEl) metaPreEl.textContent = text || '{}';
-      metaDrawer.setAttribute('aria-hidden', 'false');
-      document.documentElement.style.overflow = 'hidden';
-    } catch (_) {}
+    if (metaTitleEl) metaTitleEl.textContent = title || 'Meta';
+    if (metaPreEl) metaPreEl.textContent = text || '{}';
+    metaDrawer.setAttribute('aria-hidden', 'false');
+    setPageScrollLock(true);
   }
 
   function closeMetaDrawer() {
     if (!metaDrawer) return;
-    try {
-      metaDrawer.setAttribute('aria-hidden', 'true');
-      document.documentElement.style.overflow = '';
-    } catch (_) {}
+    metaDrawer.setAttribute('aria-hidden', 'true');
+    if (!isCredOpen()) setPageScrollLock(false);
   }
 
-  // ===== Cred drawer =====
   function isCredOpen() {
     return !!(credDrawer && credDrawer.getAttribute('aria-hidden') === 'false');
   }
 
   function openCredDrawer() {
     if (!credDrawer) return;
-    try {
-      credDrawer.setAttribute('aria-hidden', 'false');
-      document.documentElement.style.overflow = 'hidden';
-    } catch (_) {}
+    credDrawer.setAttribute('aria-hidden', 'false');
+    setPageScrollLock(true);
   }
 
   function closeCredDrawer() {
     if (!credDrawer) return;
-    try {
-      credDrawer.setAttribute('aria-hidden', 'true');
-      document.documentElement.style.overflow = '';
-    } catch (_) {}
+    credDrawer.setAttribute('aria-hidden', 'true');
     if (activeRowEl) activeRowEl.classList.remove('is-active');
     activeRowEl = null;
     activeId = '';
     activeRfc = '';
     activeMeta = '{}';
     activeMetaTitle = 'Meta';
+    if (metaDrawer && metaDrawer.getAttribute('aria-hidden') !== 'false') {
+      setPageScrollLock(false);
+    }
   }
 
   function setText(el, val, dash = '—') {
@@ -230,14 +212,17 @@
 
   function safeAttr(el, name, value) {
     if (!el) return;
-    try {
-      if (value === null || value === undefined || value === '') el.removeAttribute(name);
-      else el.setAttribute(name, String(value));
-    } catch (_) {}
+    if (value === null || value === undefined || value === '') el.removeAttribute(name);
+    else el.setAttribute(name, String(value));
   }
 
-  function show(el) { if (el) el.style.display = ''; }
-  function hide(el) { if (el) el.style.display = 'none'; }
+  function show(el) {
+    if (el) el.style.display = '';
+  }
+
+  function hide(el) {
+    if (el) el.style.display = 'none';
+  }
 
   function getRowFromTarget(t) {
     if (!t) return null;
@@ -327,13 +312,10 @@
     setText(credAccPlan, d.accPlan);
     setText(credAccCreated, d.accCreated);
 
-
     if (credAccountLink) {
       let url = (d.accountUrl || '').trim();
-
-      // Fallback: si no viene URL pero tenemos accountId numérico, construimos ruta típica
-      // (esto evita que se "muera" el botón por un route/cache viejo en Blade)
       const aid = String(d.accountId || '').trim();
+
       if (!url && aid && /^\d+$/.test(aid)) {
         url = `/admin/billing/accounts/${encodeURIComponent(aid)}`;
       }
@@ -346,7 +328,6 @@
         hide(credAccountLink);
       }
     }
-
 
     setTag(credOriginTag, d.origin || '—', d.originCls || '');
     setText(credOriginHint, d.originHint || '—');
@@ -399,7 +380,6 @@
     setText(credValidated, d.validated || '—');
   }
 
-  // ===== Delete helpers =====
   function getDeleteTemplate() {
     if (!root) return '';
     return root.getAttribute('data-rt-delete') || '';
@@ -419,8 +399,7 @@
 
     let url = tpl;
     if (url.includes('___ID___')) url = url.replace('___ID___', encodeURIComponent(id));
-    else url = url.replace(/\/$/, '') + '/' + encodeURIComponent(id); // fallback
-
+    else url = url.replace(/\/$/, '') + '/' + encodeURIComponent(id);
 
     const ok = confirm(
       `¿Eliminar credencial?\n\nRFC: ${rfc || '—'}\nID: ${id}\n\nEsta acción no se puede deshacer.`
@@ -462,23 +441,19 @@
     }
   }
 
-  // ===== Delegated click handler =====
   document.addEventListener('click', function (ev) {
     const t = ev.target;
 
-    // Close meta drawer
     if (t.closest('[data-drawer-close]')) {
       closeMetaDrawer();
       return;
     }
 
-    // Close cred drawer
     if (t.closest(credCloseSel)) {
       closeCredDrawer();
       return;
     }
 
-    // Copy direct
     const copyBtn = t.closest('[data-copy]');
     if (copyBtn) {
       const txt = copyBtn.getAttribute('data-copy') || '';
@@ -487,7 +462,6 @@
       return;
     }
 
-    // Copy from selector
     const copyFromBtn = t.closest('[data-copy-from]');
     if (copyFromBtn) {
       const sel = copyFromBtn.getAttribute('data-copy-from') || '';
@@ -504,7 +478,6 @@
       return;
     }
 
-    // Edit (stub)
     const editBtn = t.closest('[data-cred-edit]');
     if (editBtn) {
       closeAllMenus();
@@ -512,7 +485,6 @@
       return;
     }
 
-    // Refresh (stub)
     const refreshBtn = t.closest('[data-cred-refresh]');
     if (refreshBtn) {
       closeAllMenus();
@@ -520,8 +492,6 @@
       return;
     }
 
-
-    // Open meta drawer
     const metaBtn = t.closest('[data-meta-btn], [data-open-meta]');
     if (metaBtn) {
       const title = metaBtn.getAttribute('data-title') || activeMetaTitle || 'Meta';
@@ -531,7 +501,6 @@
       return;
     }
 
-    // Password toggle
     const passTgl = t.closest('[data-cred-pass-toggle]');
     if (passTgl) {
       if (!credPassInput) return;
@@ -541,7 +510,6 @@
       return;
     }
 
-    // Kebab open/close
     const kebabBtn = t.closest('[data-menu-btn]');
     if (kebabBtn) {
       const menuWrap = kebabBtn.closest('[data-menu]');
@@ -550,7 +518,6 @@
       return;
     }
 
-    // Delete (kebab)
     const delBtn = t.closest('[data-delete-id]');
     if (delBtn) {
       const id = delBtn.getAttribute('data-delete-id') || '';
@@ -560,7 +527,6 @@
       return;
     }
 
-    // Delete (drawer)
     const drawerDelBtn = t.closest('[data-cred-delete]');
     if (drawerDelBtn) {
       closeAllMenus();
@@ -569,7 +535,6 @@
       return;
     }
 
-    // Open cred drawer (botón Ver)
     const openCredBtn = t.closest('[data-open-cred]');
     if (openCredBtn) {
       const row = getRowFromTarget(openCredBtn);
@@ -580,7 +545,6 @@
       return;
     }
 
-    // Click en fila abre drawer (si no es acción)
     const rowClick = t.closest('.tr[data-row], .tr[data-id]');
     if (rowClick) {
       if (
@@ -590,32 +554,27 @@
         t.closest('[data-menu]') ||
         t.closest('[data-open-cred]')
       ) {
-        // no-op
-      } else {
-        fillCredDrawerFromRow(rowClick);
-        openCredDrawer();
-        closeAllMenus();
         return;
       }
+
+      fillCredDrawerFromRow(rowClick);
+      openCredDrawer();
+      closeAllMenus();
+      return;
     }
 
-    // Click fuera cierra menús
     if (!t.closest('[data-menu]')) {
       closeAllMenus();
     }
   });
 
-  // Copy meta button
   if (btnCopyMeta) {
     btnCopyMeta.addEventListener('click', function () {
-      try {
-        const txt = metaPreEl ? metaPreEl.textContent : '';
-        copyText(txt || '', 'Meta copiada');
-      } catch (_) {}
+      const txt = metaPreEl ? metaPreEl.textContent : '';
+      copyText(txt || '', 'Meta copiada');
     });
   }
 
-  // Keyboard shortcuts
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {
       closeAllMenus();
@@ -636,12 +595,23 @@
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'k' || ev.key === 'K')) {
       if (search) {
         ev.preventDefault();
-        try { search.focus(); search.select(); } catch (_) {}
+        try {
+          search.focus();
+          search.select();
+        } catch (_) {}
       }
+    }
+
+    const row = ev.target && ev.target.closest ? ev.target.closest('.tr[data-row], .tr[data-id]') : null;
+    if (row && (ev.key === 'Enter' || ev.key === ' ')) {
+      if (ev.target.closest('button, a, input, select, textarea')) return;
+      ev.preventDefault();
+      fillCredDrawerFromRow(row);
+      openCredDrawer();
+      closeAllMenus();
     }
   });
 
-  // Prevent disabled download links
   (function preventDisabledLinks() {
     if (!credDrawer) return;
     credDrawer.addEventListener('click', function (ev) {
@@ -651,6 +621,17 @@
         ev.preventDefault();
         toast('Archivo no disponible para esta credencial.', 'error');
       }
+    });
+  })();
+
+  (function prepareRows() {
+    const rows = Array.from(document.querySelectorAll('.tr[data-row], .tr[data-id]'));
+    rows.forEach((row) => {
+      if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      const id = row.getAttribute('data-id') || '';
+      const rfc = row.getAttribute('data-rfc') || '';
+      row.setAttribute('aria-label', `Abrir detalle de credencial ${rfc || id}`);
     });
   })();
 

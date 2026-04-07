@@ -29,21 +29,40 @@ class SatCredential extends Model
         'account_id',
         'rfc',
         'razon_social',
+
+        'tipo_origen',
+        'origen_detalle',
+        'source_label',
+
         'cer_path',
         'key_path',
-        'key_password',      // existe (TEXT)
-        'key_password_enc',  // opcional (si algún día la agregas)
+        'key_password',
+        'key_password_enc',
+
+        'fiel_cer_path',
+        'fiel_key_path',
+        'fiel_password_enc',
+
+        'csd_cer_path',
+        'csd_key_path',
+        'csd_password_enc',
+
+        'external_upload_id',
+        'estatus_operativo',
+
         'meta',
-        'validated_at',      // opcional (si algún día la agregas)
+        'validated_at',
         'created_at',
         'updated_at',
+        'deleted_at',
     ];
-
+    
     protected $casts = [
         'meta'          => 'array',
         'validated_at'  => 'datetime',
         'created_at'    => 'datetime',
         'updated_at'    => 'datetime',
+        'deleted_at'    => 'datetime',
     ];
 
     /** Cache por request para no consultar Schema repetidamente */

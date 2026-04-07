@@ -8,9 +8,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $conn = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $conn  = (string) (config('p360.conn.admin') ?: 'mysql_admin');
+        $table = 'finance_income_overrides';
 
-        Schema::connection($conn)->create('finance_income_overrides', function (Blueprint $t) {
+        if (Schema::connection($conn)->hasTable($table)) {
+            return;
+        }
+
+        Schema::connection($conn)->create($table, function (Blueprint $t) {
             $t->bigIncrements('id');
 
             // projection|statement
@@ -20,7 +25,7 @@ return new class extends Migration
             $t->string('account_id', 64);
             $t->string('period', 7); // YYYY-MM
 
-            // Para ventas únicas (si se quiere usar override; normalmente se actualiza finance_sales directo)
+            // Para ventas únicas
             $t->unsignedBigInteger('sale_id')->nullable();
 
             // Overrides operativos
@@ -31,7 +36,7 @@ return new class extends Migration
             $t->string('rfc_receptor', 20)->nullable();
             $t->string('forma_pago', 40)->nullable();
 
-            // Montos override (opcional, útil para proyecciones)
+            // Montos override
             $t->decimal('subtotal', 14, 2)->nullable();
             $t->decimal('iva', 14, 2)->nullable();
             $t->decimal('total', 14, 2)->nullable();

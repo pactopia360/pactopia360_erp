@@ -1,5 +1,5 @@
 {{-- resources/views/admin/sat/ops/downloads/index.blade.php --}}
-{{-- P360 · Admin · SAT Ops · Descargas (v3.2 administración total portal SAT) --}}
+{{-- P360 · Admin · SAT Ops · Descargas · Rediseño mejorado de distribución --}}
 
 @extends('layouts.admin')
 
@@ -46,15 +46,15 @@
     $typeFilterUi = !empty($filters['type']) ? strtoupper((string) $filters['type']) : 'ALL';
 
     $statusOptions = [
-        ''            => '—',
-        'uploaded'    => 'uploaded',
-        'uploading'   => 'uploading',
-        'processing'  => 'processing',
-        'processed'   => 'processed',
+        ''                => '—',
+        'uploaded'        => 'uploaded',
+        'uploading'       => 'uploading',
+        'processing'      => 'processing',
+        'processed'       => 'processed',
         'processed_empty' => 'processed_empty',
-        'subido'      => 'subido',
-        'procesado'   => 'procesado',
-        'error'       => 'error',
+        'subido'          => 'subido',
+        'procesado'       => 'procesado',
+        'error'           => 'error',
     ];
 
     $reportTypeOptions = [
@@ -63,6 +63,40 @@
         'xls_report'  => 'xls_report',
         'txt_report'  => 'txt_report',
     ];
+
+    $activeFileFiltersCount = collect([
+        $filters['q'] ?? null,
+        $filters['type'] ?? null,
+    ])->filter(fn($v) => filled($v))->count();
+
+    $activeCfdiFiltersCount = collect([
+        $cfdiFilters['source'] ?? null,
+        $cfdiFilters['q'] ?? null,
+        $cfdiFilters['rfc'] ?? null,
+        $cfdiFilters['tipo'] ?? null,
+        $cfdiFilters['desde'] ?? null,
+        $cfdiFilters['hasta'] ?? null,
+        $cfdiFilters['periodo'] ?? null,
+        $cfdiFilters['older_than_months'] ?? null,
+    ])->filter(function ($v) {
+        return !is_null($v) && $v !== '' && $v !== 'all' && $v !== '0';
+    })->count();
+
+    $activeMetadataFiltersCount = collect([
+        $metadataRecordFilters['q'] ?? null,
+        $metadataRecordFilters['rfc'] ?? null,
+        $metadataRecordFilters['direction'] ?? null,
+        $metadataRecordFilters['desde'] ?? null,
+        $metadataRecordFilters['hasta'] ?? null,
+    ])->filter(fn($v) => filled($v))->count();
+
+    $activeReportFiltersCount = collect([
+        $reportRecordFilters['q'] ?? null,
+        $reportRecordFilters['rfc'] ?? null,
+        $reportRecordFilters['direction'] ?? null,
+        $reportRecordFilters['desde'] ?? null,
+        $reportRecordFilters['hasta'] ?? null,
+    ])->filter(fn($v) => filled($v))->count();
 @endphp
 
 @section('page-header')
@@ -71,7 +105,7 @@
             <div class="p360-ph-kicker">ADMIN · SAT OPS</div>
             <h1 class="p360-ph-title">Descargas</h1>
             <div class="p360-ph-sub">
-                Administración centralizada de archivos y registros cargados desde el portal cliente.
+                Centro de administración para archivos SAT, CFDI indexados, metadata y reportes derivados del portal cliente.
             </div>
         </div>
 
@@ -83,7 +117,7 @@
 @endsection
 
 @section('content')
-    <div class="ops-shell">
+    <div class="ops-shell ops-shell--redesign">
 
         @if(session('success'))
             <div class="ops-alert">
@@ -97,85 +131,183 @@
             </div>
         @endif
 
-        <section class="ops-topbar">
-            <div>
-                <div class="ops-topbar__title">Archivos SAT cargados</div>
-                <div class="ops-topbar__sub">
-                    Consulta, filtra, descarga, edita, recalcula y limpia archivos desde admin.
-                </div>
+        {{-- HERO / RESUMEN --}}
+        <section class="ops-hero">
+            <div class="ops-hero__main">
+                <div class="ops-hero__eyebrow">Centro de administración SAT</div>
+                <h2 class="ops-hero__title">Operación consolidada de descargas y datos derivados</h2>
+                <p class="ops-hero__text">
+                    Gestiona archivos cargados, CFDI indexados, metadata del portal y reportes desde una sola vista con bloques separados,
+                    filtros rápidos y acciones masivas mejor distribuidas.
+                </p>
 
-                <div class="ops-pills">
-                    <span class="ops-pill">Metadata {{ number_format($countMetadata) }}</span>
-                    <span class="ops-pill">XML {{ number_format($countXml) }}</span>
-                    <span class="ops-pill">Reportes {{ number_format($countReport) }}</span>
-                    <span class="ops-pill">Bóveda v1 {{ number_format($countVault) }}</span>
-                    <span class="ops-pill">SAT v1 {{ number_format($countSatDl) }}</span>
-                    <span class="ops-pill">CFDI v1 {{ number_format($countCfdiV1) }}</span>
-                    <span class="ops-pill">CFDI v2 {{ number_format($countCfdiV2) }}</span>
-                    <span class="ops-pill">Metadata items {{ number_format($totalMetadataRecords) }}</span>
-                    <span class="ops-pill">Report items {{ number_format($totalReportRecords) }}</span>
+                <div class="ops-hero__chips">
+                    <span class="ops-pill">Archivos {{ number_format($totalItems) }}</span>
+                    <span class="ops-pill">CFDI {{ number_format($totalCfdi) }}</span>
+                    <span class="ops-pill">Metadata {{ number_format($totalMetadataRecords) }}</span>
+                    <span class="ops-pill">Reportes {{ number_format($totalReportRecords) }}</span>
+                    <span class="ops-pill">Filtro {{ $typeFilterUi }}</span>
                 </div>
             </div>
 
-            <div class="ops-mini-stats">
-                <div class="ops-mini-stat">
-                    <span class="ops-mini-stat__label">Archivos</span>
-                    <strong class="ops-mini-stat__value">{{ number_format($totalItems) }}</strong>
-                </div>
-
-                <div class="ops-mini-stat">
-                    <span class="ops-mini-stat__label">CFDI</span>
-                    <strong class="ops-mini-stat__value">{{ number_format($totalCfdi) }}</strong>
-                </div>
-
-                <div class="ops-mini-stat">
-                    <span class="ops-mini-stat__label">Filtro</span>
-                    <strong class="ops-mini-stat__value">{{ $typeFilterUi }}</strong>
+            <div class="ops-hero__aside">
+                <div class="ops-summary-card">
+                    <div class="ops-summary-card__label">Total operativo</div>
+                    <div class="ops-summary-card__value">
+                        {{ number_format($totalItems + $totalCfdi + $totalMetadataRecords + $totalReportRecords) }}
+                    </div>
+                    <div class="ops-summary-card__hint">registros entre módulos</div>
                 </div>
             </div>
         </section>
 
-        <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-toolbar">
-            <div class="ops-field">
-                <label class="ops-label" for="q">Buscar</label>
-                <input
-                    id="q"
-                    class="ops-input"
-                    type="search"
-                    name="q"
-                    value="{{ $filters['q'] ?? '' }}"
-                    placeholder="RFC, archivo, estatus..."
-                    autocomplete="off"
-                >
-            </div>
+        {{-- KPIS --}}
+        <section class="ops-kpi-grid ops-kpi-grid--top">
+            <article class="ops-kpi-card ops-kpi-card--primary">
+                <div class="ops-kpi-card__label">Archivos SAT</div>
+                <div class="ops-kpi-card__value">{{ number_format($totalItems) }}</div>
+                <div class="ops-kpi-card__hint">Cargas registradas</div>
+            </article>
 
-            <div class="ops-field">
-                <label class="ops-label" for="type">Tipo</label>
-                <select id="type" class="ops-select" name="type">
-                    <option value="">Todos</option>
-                    <option value="metadata" @selected(($filters['type'] ?? '') === 'metadata')>Metadata</option>
-                    <option value="xml" @selected(($filters['type'] ?? '') === 'xml')>XML</option>
-                    <option value="report" @selected(($filters['type'] ?? '') === 'report')>Reporte</option>
-                    <option value="vault" @selected(($filters['type'] ?? '') === 'vault')>Bóveda v1</option>
-                    <option value="satdownload" @selected(($filters['type'] ?? '') === 'satdownload')>Descarga SAT v1</option>
-                </select>
-            </div>
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">Metadata</div>
+                <div class="ops-kpi-card__value">{{ number_format($countMetadata) }}</div>
+                <div class="ops-kpi-card__hint">Lotes metadata</div>
+            </article>
 
-            <div class="ops-toolbar__actions">
-                <button type="submit" class="p360-btn p360-btn--primary">Filtrar</button>
-                <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
-            </div>
-        </form>
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">XML</div>
+                <div class="ops-kpi-card__value">{{ number_format($countXml) }}</div>
+                <div class="ops-kpi-card__hint">Lotes XML</div>
+            </article>
 
-        <section class="ops-card ops-card--files">
-            <div class="ops-card__head">
-                <div>
-                    <div class="ops-card__title">Listado de archivos</div>
-                    <div class="ops-card__sub">Vista consolidada de SAT Bóveda v1 y SAT Bóveda v2.</div>
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">Reportes</div>
+                <div class="ops-kpi-card__value">{{ number_format($countReport) }}</div>
+                <div class="ops-kpi-card__hint">Lotes de reporte</div>
+            </article>
+
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">CFDI indexados</div>
+                <div class="ops-kpi-card__value">{{ number_format($totalCfdi) }}</div>
+                <div class="ops-kpi-card__hint">Índices disponibles</div>
+            </article>
+
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">CFDI v2</div>
+                <div class="ops-kpi-card__value">{{ number_format($countCfdiV2) }}</div>
+                <div class="ops-kpi-card__hint">Bóveda v2</div>
+            </article>
+
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">Bóveda v1</div>
+                <div class="ops-kpi-card__value">{{ number_format($countVault) }}</div>
+                <div class="ops-kpi-card__hint">Heredados</div>
+            </article>
+
+            <article class="ops-kpi-card">
+                <div class="ops-kpi-card__label">SAT v1</div>
+                <div class="ops-kpi-card__value">{{ number_format($countSatDl) }}</div>
+                <div class="ops-kpi-card__hint">Descargas históricas</div>
+            </article>
+        </section>
+
+        {{-- NAVEGACIÓN --}}
+        <section class="ops-quick-nav ops-quick-nav--modern">
+            <a href="#panel-files" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">Archivos cargados</span>
+                <span class="ops-quick-nav__meta">{{ number_format($totalItems) }}</span>
+            </a>
+
+            <a href="#panel-purge" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">Limpieza avanzada</span>
+                <span class="ops-quick-nav__meta">CFDI</span>
+            </a>
+
+            <a href="#panel-cfdi" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">CFDI indexados</span>
+                <span class="ops-quick-nav__meta">{{ number_format($totalCfdi) }}</span>
+            </a>
+
+            <a href="#panel-metadata" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">Metadata portal</span>
+                <span class="ops-quick-nav__meta">{{ number_format($totalMetadataRecords) }}</span>
+            </a>
+
+            <a href="#panel-reports" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">Reportes portal</span>
+                <span class="ops-quick-nav__meta">{{ number_format($totalReportRecords) }}</span>
+            </a>
+
+            <button type="button" class="ops-quick-nav__item ops-quick-nav__item--button" data-expand-all>
+                Expandir todo
+            </button>
+
+            <button type="button" class="ops-quick-nav__item ops-quick-nav__item--button" data-collapse-all>
+                Contraer todo
+            </button>
+        </section>
+
+        {{-- ARCHIVOS --}}
+        <details class="ops-accordion ops-card ops-card--files" id="panel-files" open>
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Módulo 01</div>
+                        <div class="ops-card__title">Archivos SAT cargados</div>
+                        <div class="ops-card__sub">
+                            Administración central de metadata, XML, reportes, bóveda v1 y descargas SAT v1.
+                        </div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format($totalItems) }} registro(s)</div>
+                        <div class="ops-counter ops-counter--soft">{{ $activeFileFiltersCount }} filtro(s)</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
+                    </div>
+                </div>
+            </summary>
+
+            <div class="ops-accordion__body">
+                <div class="ops-section-toolbar">
+                    <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-toolbar ops-toolbar--files">
+                        <div class="ops-field ops-field--grow">
+                            <label class="ops-label" for="q">Buscar</label>
+                            <input
+                                id="q"
+                                class="ops-input"
+                                type="search"
+                                name="q"
+                                value="{{ $filters['q'] ?? '' }}"
+                                placeholder="RFC, archivo, estatus..."
+                                autocomplete="off"
+                            >
+                        </div>
+
+                        <div class="ops-field">
+                            <label class="ops-label" for="type">Tipo</label>
+                            <select id="type" class="ops-select" name="type">
+                                <option value="">Todos</option>
+                                <option value="metadata" @selected(($filters['type'] ?? '') === 'metadata')>Metadata</option>
+                                <option value="xml" @selected(($filters['type'] ?? '') === 'xml')>XML</option>
+                                <option value="report" @selected(($filters['type'] ?? '') === 'report')>Reporte</option>
+                                <option value="vault" @selected(($filters['type'] ?? '') === 'vault')>Bóveda v1</option>
+                                <option value="satdownload" @selected(($filters['type'] ?? '') === 'satdownload')>Descarga SAT v1</option>
+                            </select>
+                        </div>
+
+                        <div class="ops-toolbar__actions">
+                            <button type="submit" class="p360-btn p360-btn--primary">Filtrar</button>
+                            <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
+                        </div>
+                    </form>
                 </div>
 
-                <div class="ops-card__side">
-                    <div class="ops-counter">{{ number_format($totalItems) }} registro(s)</div>
+                <div class="ops-card__head ops-card__head--sub">
+                    <div>
+                        <div class="ops-card__title">Acciones masivas de archivos</div>
+                        <div class="ops-card__sub">Selecciona varios registros y ejecuta la limpieza desde una barra separada.</div>
+                    </div>
 
                     <div class="ops-bulkbar" id="filesBulkBar">
                         <div class="ops-bulkbar__info">
@@ -193,507 +325,604 @@
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <form id="filesBulkForm" method="POST" action="" class="ops-hidden-bulk-form">
-                @csrf
-                @method('DELETE')
-            </form>
+                <form id="filesBulkForm" method="POST" action="" class="ops-hidden-bulk-form">
+                    @csrf
+                </form>
 
-            <div class="ops-table-wrap">
-                <table class="ops-table">
-                    <thead>
-                        <tr>
-                            <th class="ops-check-col">
-                                <label class="ops-check">
-                                    <input type="checkbox" id="checkAllFiles">
-                                    <span></span>
-                                </label>
-                            </th>
-                            <th>Tipo</th>
-                            <th>RFC</th>
-                            <th>Archivo</th>
-                            <th>Tamaño</th>
-                            <th>Extra</th>
-                            <th>Estatus</th>
-                            <th>Fecha</th>
-                            <th class="ta-right">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($items as $item)
-                            @php
-                                $bytes = (int) ($item['bytes'] ?? 0);
-
-                                $sizeLabel = $bytes > 0
-                                    ? ($bytes >= 1048576
-                                        ? number_format($bytes / 1048576, 2) . ' MB'
-                                        : number_format($bytes / 1024, 2) . ' KB')
-                                    : '—';
-
-                                $type      = strtolower((string) ($item['type'] ?? ''));
-                                $status    = strtolower((string) ($item['status'] ?? ''));
-                                $direction = strtolower((string) ($item['direction'] ?? ''));
-                                $statusCss = in_array($status, ['procesado', 'processed', 'subido', 'uploaded', 'error'], true) ? $status : 'default';
-                                $createdAt = !empty($item['created_at'])
-                                    ? Carbon::parse($item['created_at'])->format('d/m/Y H:i')
-                                    : '—';
-
-                                $isMetadata = $type === 'metadata';
-                                $isXml      = $type === 'xml';
-                                $isReport   = $type === 'report';
-
-                                $counterLabel = '—';
-                                if ($isMetadata) {
-                                    $counterLabel = 'rows_count';
-                                } elseif ($isXml) {
-                                    $counterLabel = 'files_count';
-                                } elseif ($isReport) {
-                                    $counterLabel = 'rows_count';
-                                }
-                            @endphp
-
+                <div class="ops-table-wrap">
+                    <table class="ops-table">
+                        <thead>
                             <tr>
-                                <td class="ops-check-col">
+                                <th class="ops-check-col">
                                     <label class="ops-check">
-                                        <input
-                                            type="checkbox"
-                                            class="file-row-check"
-                                            value="{{ $type }}::{{ $item['id'] }}"
-                                        >
+                                        <input type="checkbox" id="checkAllFiles">
                                         <span></span>
                                     </label>
-                                </td>
+                                </th>
+                                <th>Tipo</th>
+                                <th>RFC</th>
+                                <th>Archivo</th>
+                                <th>Tamaño</th>
+                                <th>Extra</th>
+                                <th>Estatus</th>
+                                <th>Fecha</th>
+                                <th class="ta-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($items as $item)
+                                @php
+                                    $bytes = (int) ($item['bytes'] ?? 0);
 
-                                <td>
-                                    <span class="ops-chip ops-chip--{{ $type !== '' ? $type : 'metadata' }}">
-                                        {{ strtoupper($type !== '' ? $type : '—') }}
-                                    </span>
-                                </td>
+                                    $sizeLabel = $bytes > 0
+                                        ? ($bytes >= 1048576
+                                            ? number_format($bytes / 1048576, 2) . ' MB'
+                                            : number_format($bytes / 1024, 2) . ' KB')
+                                        : '—';
 
-                                <td>
-                                    <div class="ops-rfc">{{ $item['rfc'] ?: '—' }}</div>
-                                </td>
+                                    $type      = strtolower((string) ($item['type'] ?? ''));
+                                    $status    = strtolower((string) ($item['status'] ?? ''));
+                                    $direction = strtolower((string) ($item['direction'] ?? ''));
+                                    $statusCss = in_array($status, ['procesado', 'processed', 'subido', 'uploaded', 'error', 'processing', 'processed_empty'], true) ? $status : 'default';
+                                    $createdAt = !empty($item['created_at'])
+                                        ? Carbon::parse($item['created_at'])->format('d/m/Y H:i')
+                                        : '—';
 
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $item['name'] ?: 'Sin nombre' }}</div>
-                                        <div class="ops-file__meta">
-                                            ID #{{ $item['id'] }}
-                                            @if($direction !== '')
-                                                · {{ strtoupper($direction) }}
+                                    $isMetadata = $type === 'metadata';
+                                    $isXml      = $type === 'xml';
+                                    $isReport   = $type === 'report';
+
+                                    $counterLabel = '—';
+                                    if ($isMetadata) {
+                                        $counterLabel = 'rows_count';
+                                    } elseif ($isXml) {
+                                        $counterLabel = 'files_count';
+                                    } elseif ($isReport) {
+                                        $counterLabel = 'rows_count';
+                                    }
+                                @endphp
+
+                                <tr>
+                                    <td class="ops-check-col">
+                                        <label class="ops-check">
+                                            <input
+                                                type="checkbox"
+                                                class="file-row-check"
+                                                value="{{ $type }}::{{ $item['id'] }}"
+                                            >
+                                            <span></span>
+                                        </label>
+                                    </td>
+
+                                    <td>
+                                        <span class="ops-chip ops-chip--{{ $type !== '' ? $type : 'metadata' }}">
+                                            {{ strtoupper($type !== '' ? $type : '—') }}
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <div class="ops-rfc">{{ $item['rfc'] ?: '—' }}</div>
+                                    </td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $item['name'] ?: 'Sin nombre' }}</div>
+                                            <div class="ops-file__meta">
+                                                ID #{{ $item['id'] }}
+                                                @if($direction !== '')
+                                                    · {{ strtoupper($direction) }}
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <td>{{ $sizeLabel }}</td>
+
+                                    <td>
+                                        <span class="ops-status">
+                                            {{ $counterLabel }}
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <span class="ops-status ops-status--{{ $statusCss }}">
+                                            {{ $item['status'] ?: '—' }}
+                                        </span>
+                                    </td>
+
+                                    <td>{{ $createdAt }}</td>
+
+                                    <td class="ta-right">
+                                        <div class="ops-row-actions">
+                                            <a
+                                                class="p360-btn p360-btn--sm"
+                                                href="{{ route('admin.sat.ops.downloads.download', [$type, $item['id']]) }}"
+                                            >
+                                                Descargar
+                                            </a>
+
+                                            @if($isMetadata)
+                                                <details class="ops-inline-editor">
+                                                    <summary class="p360-btn p360-btn--sm">Editar</summary>
+                                                    <div class="ops-inline-editor__panel">
+                                                        <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.update', $item['id']) }}">
+                                                            @csrf
+                                                            @method('PATCH')
+
+                                                            <div class="ops-inline-grid">
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">RFC</label>
+                                                                    <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Dirección</label>
+                                                                    <select class="ops-select" name="direction_detected">
+                                                                        <option value="">—</option>
+                                                                        <option value="emitidos" @selected(($direction ?? '') === 'emitidos')>emitidos</option>
+                                                                        <option value="recibidos" @selected(($direction ?? '') === 'recibidos')>recibidos</option>
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Estatus</label>
+                                                                    <select class="ops-select" name="status">
+                                                                        @foreach($statusOptions as $k => $v)
+                                                                            <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field ops-field--full">
+                                                                    <label class="ops-label">Nombre</label>
+                                                                    <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="ops-actions-inline">
+                                                                <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
+                                                            </div>
+                                                        </form>
+                                                    </div>
+                                                </details>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar rows_count a 0?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular rows_count desde metadata items?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.purge_items', $item['id']) }}" onsubmit="return confirm('¿Eliminar metadata items derivados y dejar contador en cero?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Limpiar items</button>
+                                                </form>
+
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.metadata.destroy_full', $item['id']) }}"
+                                                    onsubmit="return confirm('¿Eliminar metadata, items derivados y archivo físico?');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar full
+                                                    </button>
+                                                </form>
+                                            @elseif($isXml)
+                                                <details class="ops-inline-editor">
+                                                    <summary class="p360-btn p360-btn--sm">Editar</summary>
+                                                    <div class="ops-inline-editor__panel">
+                                                        <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.update', $item['id']) }}">
+                                                            @csrf
+                                                            @method('PATCH')
+
+                                                            <div class="ops-inline-grid">
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">RFC</label>
+                                                                    <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Dirección</label>
+                                                                    <select class="ops-select" name="direction_detected">
+                                                                        <option value="">—</option>
+                                                                        <option value="emitidos" @selected(($direction ?? '') === 'emitidos')>emitidos</option>
+                                                                        <option value="recibidos" @selected(($direction ?? '') === 'recibidos')>recibidos</option>
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Estatus</label>
+                                                                    <select class="ops-select" name="status">
+                                                                        @foreach($statusOptions as $k => $v)
+                                                                            <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field ops-field--full">
+                                                                    <label class="ops-label">Nombre</label>
+                                                                    <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="ops-actions-inline">
+                                                                <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
+                                                            </div>
+                                                        </form>
+                                                    </div>
+                                                </details>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar files_count a 0?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular files_count desde CFDI?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.purge_cfdi', $item['id']) }}" onsubmit="return confirm('¿Eliminar CFDI ligados a este XML y dejar files_count en cero?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Limpiar CFDI</button>
+                                                </form>
+
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.xml.destroy_full', $item['id']) }}"
+                                                    onsubmit="return confirm('¿Eliminar XML, CFDI ligados y archivo físico?');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar full
+                                                    </button>
+                                                </form>
+                                            @elseif($isReport)
+                                                <details class="ops-inline-editor">
+                                                    <summary class="p360-btn p360-btn--sm">Editar</summary>
+                                                    <div class="ops-inline-editor__panel">
+                                                        <form method="POST" action="{{ route('admin.sat.ops.downloads.report.update', $item['id']) }}">
+                                                            @csrf
+                                                            @method('PATCH')
+
+                                                            <div class="ops-inline-grid">
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">RFC</label>
+                                                                    <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Tipo reporte</label>
+                                                                    <select class="ops-select" name="report_type">
+                                                                        @foreach($reportTypeOptions as $k => $v)
+                                                                            <option value="{{ $k }}" @selected(($item['report_type'] ?? '') === $k)>{{ $v }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">Estatus</label>
+                                                                    <select class="ops-select" name="status">
+                                                                        @foreach($statusOptions as $k => $v)
+                                                                            <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">linked_metadata_upload_id</label>
+                                                                    <input class="ops-input" type="number" name="linked_metadata_upload_id" value="{{ $item['linked_metadata_upload_id'] ?? '' }}">
+                                                                </div>
+
+                                                                <div class="ops-field">
+                                                                    <label class="ops-label">linked_xml_upload_id</label>
+                                                                    <input class="ops-input" type="number" name="linked_xml_upload_id" value="{{ $item['linked_xml_upload_id'] ?? '' }}">
+                                                                </div>
+
+                                                                <div class="ops-field ops-field--full">
+                                                                    <label class="ops-label">Nombre</label>
+                                                                    <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="ops-actions-inline">
+                                                                <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
+                                                            </div>
+                                                        </form>
+                                                    </div>
+                                                </details>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.report.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar rows_count a 0?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.report.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular rows_count desde report items?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
+                                                </form>
+
+                                                <form method="POST" action="{{ route('admin.sat.ops.downloads.report.purge_items', $item['id']) }}" onsubmit="return confirm('¿Eliminar report items derivados y dejar contador en cero?');">
+                                                    @csrf
+                                                    <button type="submit" class="p360-btn p360-btn--sm">Limpiar items</button>
+                                                </form>
+
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.report.destroy_full', $item['id']) }}"
+                                                    onsubmit="return confirm('¿Eliminar reporte, items derivados y archivo físico?');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar full
+                                                    </button>
+                                                </form>
+                                            @else
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.delete', [$type, $item['id']]) }}"
+                                                    onsubmit="return confirm('¿Seguro que deseas eliminar este archivo? Esta acción también elimina el archivo físico si existe.');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar
+                                                    </button>
+                                                </form>
                                             @endif
                                         </div>
-                                    </div>
-                                </td>
-
-                                <td>{{ $sizeLabel }}</td>
-
-                                <td>
-                                    <span class="ops-status">
-                                        {{ $counterLabel }}
-                                    </span>
-                                </td>
-
-                                <td>
-                                    <span class="ops-status ops-status--{{ $statusCss }}">
-                                        {{ $item['status'] ?: '—' }}
-                                    </span>
-                                </td>
-
-                                <td>{{ $createdAt }}</td>
-
-                                <td class="ta-right">
-                                    <div class="ops-row-actions">
-                                        <a
-                                            class="p360-btn p360-btn--sm"
-                                            href="{{ route('admin.sat.ops.downloads.download', [$type, $item['id']]) }}"
-                                        >
-                                            Descargar
-                                        </a>
-
-                                        @if($isMetadata)
-                                            <details class="ops-inline-editor">
-                                                <summary class="p360-btn p360-btn--sm">Editar</summary>
-                                                <div class="ops-inline-editor__panel">
-                                                    <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.update', $item['id']) }}">
-                                                        @csrf
-                                                        @method('PATCH')
-
-                                                        <div class="ops-inline-grid">
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">RFC</label>
-                                                                <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Dirección</label>
-                                                                <select class="ops-select" name="direction_detected">
-                                                                    <option value="">—</option>
-                                                                    <option value="emitidos" @selected(($direction ?? '') === 'emitidos')>emitidos</option>
-                                                                    <option value="recibidos" @selected(($direction ?? '') === 'recibidos')>recibidos</option>
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Estatus</label>
-                                                                <select class="ops-select" name="status">
-                                                                    @foreach($statusOptions as $k => $v)
-                                                                        <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
-                                                                    @endforeach
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field ops-field--full">
-                                                                <label class="ops-label">Nombre</label>
-                                                                <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
-                                                            </div>
-                                                        </div>
-
-                                                        <div class="ops-actions-inline">
-                                                            <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </details>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar rows_count a 0?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular rows_count desde metadata items?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.metadata.purge_items', $item['id']) }}" onsubmit="return confirm('¿Eliminar metadata items derivados y dejar contador en cero?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Limpiar items</button>
-                                            </form>
-
-                                            <form
-                                                method="POST"
-                                                action="{{ route('admin.sat.ops.downloads.metadata.destroy_full', $item['id']) }}"
-                                                onsubmit="return confirm('¿Eliminar metadata, items derivados y archivo físico?');"
-                                            >
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                    Eliminar full
-                                                </button>
-                                            </form>
-                                        @elseif($isXml)
-                                            <details class="ops-inline-editor">
-                                                <summary class="p360-btn p360-btn--sm">Editar</summary>
-                                                <div class="ops-inline-editor__panel">
-                                                    <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.update', $item['id']) }}">
-                                                        @csrf
-                                                        @method('PATCH')
-
-                                                        <div class="ops-inline-grid">
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">RFC</label>
-                                                                <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Dirección</label>
-                                                                <select class="ops-select" name="direction_detected">
-                                                                    <option value="">—</option>
-                                                                    <option value="emitidos" @selected(($direction ?? '') === 'emitidos')>emitidos</option>
-                                                                    <option value="recibidos" @selected(($direction ?? '') === 'recibidos')>recibidos</option>
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Estatus</label>
-                                                                <select class="ops-select" name="status">
-                                                                    @foreach($statusOptions as $k => $v)
-                                                                        <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
-                                                                    @endforeach
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field ops-field--full">
-                                                                <label class="ops-label">Nombre</label>
-                                                                <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
-                                                            </div>
-                                                        </div>
-
-                                                        <div class="ops-actions-inline">
-                                                            <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </details>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar files_count a 0?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular files_count desde CFDI?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.xml.purge_cfdi', $item['id']) }}" onsubmit="return confirm('¿Eliminar CFDI ligados a este XML y dejar files_count en cero?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Limpiar CFDI</button>
-                                            </form>
-
-                                            <form
-                                                method="POST"
-                                                action="{{ route('admin.sat.ops.downloads.xml.destroy_full', $item['id']) }}"
-                                                onsubmit="return confirm('¿Eliminar XML, CFDI ligados y archivo físico?');"
-                                            >
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                    Eliminar full
-                                                </button>
-                                            </form>
-                                        @elseif($isReport)
-                                            <details class="ops-inline-editor">
-                                                <summary class="p360-btn p360-btn--sm">Editar</summary>
-                                                <div class="ops-inline-editor__panel">
-                                                    <form method="POST" action="{{ route('admin.sat.ops.downloads.report.update', $item['id']) }}">
-                                                        @csrf
-                                                        @method('PATCH')
-
-                                                        <div class="ops-inline-grid">
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">RFC</label>
-                                                                <input class="ops-input" type="text" name="rfc_owner" value="{{ $item['rfc'] ?? '' }}">
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Tipo reporte</label>
-                                                                <select class="ops-select" name="report_type">
-                                                                    @foreach($reportTypeOptions as $k => $v)
-                                                                        <option value="{{ $k }}">{{ $v }}</option>
-                                                                    @endforeach
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">Estatus</label>
-                                                                <select class="ops-select" name="status">
-                                                                    @foreach($statusOptions as $k => $v)
-                                                                        <option value="{{ $k }}" @selected(($item['status'] ?? '') === $k)>{{ $v }}</option>
-                                                                    @endforeach
-                                                                </select>
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">linked_metadata_upload_id</label>
-                                                                <input class="ops-input" type="number" name="linked_metadata_upload_id" value="">
-                                                            </div>
-
-                                                            <div class="ops-field">
-                                                                <label class="ops-label">linked_xml_upload_id</label>
-                                                                <input class="ops-input" type="number" name="linked_xml_upload_id" value="">
-                                                            </div>
-
-                                                            <div class="ops-field ops-field--full">
-                                                                <label class="ops-label">Nombre</label>
-                                                                <input class="ops-input" type="text" name="original_name" value="{{ $item['name'] ?? '' }}">
-                                                            </div>
-                                                        </div>
-
-                                                        <div class="ops-actions-inline">
-                                                            <button type="submit" class="p360-btn p360-btn--primary p360-btn--sm">Guardar</button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </details>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.report.reset_count', $item['id']) }}" onsubmit="return confirm('¿Reiniciar rows_count a 0?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Reset</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.report.recount', $item['id']) }}" onsubmit="return confirm('¿Recalcular rows_count desde report items?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Recalcular</button>
-                                            </form>
-
-                                            <form method="POST" action="{{ route('admin.sat.ops.downloads.report.purge_items', $item['id']) }}" onsubmit="return confirm('¿Eliminar report items derivados y dejar contador en cero?');">
-                                                @csrf
-                                                <button type="submit" class="p360-btn p360-btn--sm">Limpiar items</button>
-                                            </form>
-
-                                            <form
-                                                method="POST"
-                                                action="{{ route('admin.sat.ops.downloads.report.destroy_full', $item['id']) }}"
-                                                onsubmit="return confirm('¿Eliminar reporte, items derivados y archivo físico?');"
-                                            >
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                    Eliminar full
-                                                </button>
-                                            </form>
-                                        @else
-                                            <form
-                                                method="POST"
-                                                action="{{ route('admin.sat.ops.downloads.delete', [$type, $item['id']]) }}"
-                                                onsubmit="return confirm('¿Seguro que deseas eliminar este archivo? Esta acción también elimina el archivo físico si existe.');"
-                                            >
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                    Eliminar
-                                                </button>
-                                            </form>
-                                        @endif
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="9">
-                                    <div class="ops-empty">
-                                        No hay archivos para mostrar con los filtros actuales.
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <section class="ops-card ops-card--report-records">
-            <div class="ops-card__head">
-                <div>
-                    <div class="ops-card__title">Retención y limpieza</div>
-                    <div class="ops-card__sub">Limpieza compacta de CFDI por filtros específicos.</div>
-                </div>
-
-                <div class="ops-card__side">
-                    <div class="ops-counter">{{ number_format($totalCfdi) }} CFDI</div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="9">
+                                        <div class="ops-empty">
+                                            No hay archivos para mostrar con los filtros actuales.
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
             </div>
+        </details>
 
-            <form method="POST" action="{{ route('admin.sat.ops.downloads.cfdi.purge') }}" class="ops-filters-grid ops-filters-grid--purge ops-filters-grid--one-line">
-                @csrf
+        {{-- LIMPIEZA --}}
+        <details class="ops-accordion ops-card ops-card--purge" id="panel-purge">
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Módulo 02</div>
+                        <div class="ops-card__title">Retención y limpieza avanzada</div>
+                        <div class="ops-card__sub">
+                            Zona separada para ejecutar purgas con filtros controlados y reducir errores en operaciones masivas.
+                        </div>
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_source">Origen</label>
-                    <select id="cfdi_source" name="cfdi_source" class="ops-select">
-                        <option value="all" @selected(($cfdiFilters['source'] ?? 'all') === 'all')>Ambas bóvedas</option>
-                        <option value="vault_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'vault_cfdi')>Bóveda v1</option>
-                        <option value="user_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'user_cfdi')>Bóveda v2</option>
-                    </select>
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format($totalCfdi) }} CFDI</div>
+                        <div class="ops-counter ops-counter--soft">{{ $activeCfdiFiltersCount }} filtro(s)</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
+                    </div>
                 </div>
+            </summary>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_periodo">Periodo</label>
-                    <input
-                        id="cfdi_periodo"
-                        type="month"
-                        name="cfdi_periodo"
-                        class="ops-input"
-                        value="{{ $cfdiFilters['periodo'] ?? '' }}"
-                    >
+            <div class="ops-accordion__body">
+                <form method="POST" action="{{ route('admin.sat.ops.downloads.cfdi.purge') }}" class="ops-filters-grid ops-filters-grid--purge">
+                    @csrf
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_source">Origen</label>
+                        <select id="cfdi_source" name="cfdi_source" class="ops-select">
+                            <option value="all" @selected(($cfdiFilters['source'] ?? 'all') === 'all')>Ambas bóvedas</option>
+                            <option value="vault_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'vault_cfdi')>Bóveda v1</option>
+                            <option value="user_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'user_cfdi')>Bóveda v2</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_periodo">Periodo</label>
+                        <input
+                            id="cfdi_periodo"
+                            type="month"
+                            name="cfdi_periodo"
+                            class="ops-input"
+                            value="{{ $cfdiFilters['periodo'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_desde">Desde</label>
+                        <input
+                            id="cfdi_desde"
+                            type="date"
+                            name="cfdi_desde"
+                            class="ops-input"
+                            value="{{ $cfdiFilters['desde'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_hasta">Hasta</label>
+                        <input
+                            id="cfdi_hasta"
+                            type="date"
+                            name="cfdi_hasta"
+                            class="ops-input"
+                            value="{{ $cfdiFilters['hasta'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="older_than_months">Antigüedad</label>
+                        <select id="older_than_months" name="older_than_months" class="ops-select">
+                            <option value="0" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 0)>Sin regla</option>
+                            <option value="3" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 3)>3 meses</option>
+                            <option value="6" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 6)>6 meses</option>
+                            <option value="12" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 12)>12 meses</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_q">Buscar CFDI</label>
+                        <input
+                            id="cfdi_q"
+                            type="search"
+                            name="cfdi_q"
+                            class="ops-input"
+                            value="{{ $cfdiFilters['q'] ?? '' }}"
+                            placeholder="UUID, RFC, emisor..."
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_rfc">RFC</label>
+                        <input
+                            id="cfdi_rfc"
+                            type="text"
+                            name="cfdi_rfc"
+                            class="ops-input"
+                            value="{{ $cfdiFilters['rfc'] ?? '' }}"
+                            placeholder="AAA010101AAA"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_tipo">Dirección</label>
+                        <select id="cfdi_tipo" name="cfdi_tipo" class="ops-select">
+                            <option value="" @selected(($cfdiFilters['tipo'] ?? '') === '')>Todos</option>
+                            <option value="emitidos" @selected(($cfdiFilters['tipo'] ?? '') === 'emitidos')>Emitidos</option>
+                            <option value="recibidos" @selected(($cfdiFilters['tipo'] ?? '') === 'recibidos')>Recibidos</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mode">Modo</label>
+                        <select id="mode" name="mode" class="ops-select">
+                            <option value="index_only">Solo índices</option>
+                            <option value="with_files">Índices + archivos</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-actions-inline ops-actions-inline--end">
+                        <button
+                            type="submit"
+                            class="p360-btn p360-btn--solid-danger"
+                            onclick="return confirm('¿Seguro que deseas ejecutar la limpieza con estos filtros?');"
+                        >
+                            Ejecutar limpieza
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </details>
+
+        {{-- CFDI --}}
+        <details class="ops-accordion ops-card ops-card--cfdi" id="panel-cfdi" open>
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Módulo 03</div>
+                        <div class="ops-card__title">Datos extraídos / CFDI indexados</div>
+                        <div class="ops-card__sub">
+                            Vista enfocada a búsqueda, revisión y borrado controlado de índices CFDI por origen y dirección.
+                        </div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format($totalCfdi) }} registro(s)</div>
+                        <div class="ops-counter ops-counter--soft">v1 {{ number_format($countCfdiV1) }} · v2 {{ number_format($countCfdiV2) }}</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
+                    </div>
                 </div>
+            </summary>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_desde">Desde</label>
-                    <input
-                        id="cfdi_desde"
-                        type="date"
-                        name="cfdi_desde"
-                        class="ops-input"
-                        value="{{ $cfdiFilters['desde'] ?? '' }}"
-                    >
-                </div>
+            <div class="ops-accordion__body">
+                <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid">
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_source_filter">Origen</label>
+                        <select id="cfdi_source_filter" name="cfdi_source" class="ops-select">
+                            <option value="all" @selected(($cfdiFilters['source'] ?? 'all') === 'all')>Ambas bóvedas</option>
+                            <option value="vault_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'vault_cfdi')>Bóveda v1</option>
+                            <option value="user_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'user_cfdi')>Bóveda v2</option>
+                        </select>
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_hasta">Hasta</label>
-                    <input
-                        id="cfdi_hasta"
-                        type="date"
-                        name="cfdi_hasta"
-                        class="ops-input"
-                        value="{{ $cfdiFilters['hasta'] ?? '' }}"
-                    >
-                </div>
+                    <div class="ops-field ops-field--grow">
+                        <label class="ops-label" for="cfdi_q_filter">Buscar CFDI</label>
+                        <input
+                            id="cfdi_q_filter"
+                            class="ops-input"
+                            type="search"
+                            name="cfdi_q"
+                            value="{{ $cfdiFilters['q'] ?? '' }}"
+                            placeholder="UUID, RFC, emisor, receptor..."
+                        >
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="older_than_months">Antigüedad</label>
-                    <select id="older_than_months" name="older_than_months" class="ops-select">
-                        <option value="0" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 0)>Sin regla</option>
-                        <option value="3" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 3)>3 meses</option>
-                        <option value="6" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 6)>6 meses</option>
-                        <option value="12" @selected((int) ($cfdiFilters['older_than_months'] ?? 0) === 12)>12 meses</option>
-                    </select>
-                </div>
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_rfc_filter">RFC</label>
+                        <input
+                            id="cfdi_rfc_filter"
+                            class="ops-input"
+                            type="text"
+                            name="cfdi_rfc"
+                            value="{{ $cfdiFilters['rfc'] ?? '' }}"
+                            placeholder="AAA010101AAA"
+                        >
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_q">Buscar CFDI</label>
-                    <input
-                        id="cfdi_q"
-                        type="search"
-                        name="cfdi_q"
-                        class="ops-input"
-                        value="{{ $cfdiFilters['q'] ?? '' }}"
-                        placeholder="UUID, RFC, emisor..."
-                    >
-                </div>
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_tipo_filter">Dirección</label>
+                        <select id="cfdi_tipo_filter" class="ops-select" name="cfdi_tipo">
+                            <option value="" @selected(($cfdiFilters['tipo'] ?? '') === '')>Todos</option>
+                            <option value="emitidos" @selected(($cfdiFilters['tipo'] ?? '') === 'emitidos')>Emitidos</option>
+                            <option value="recibidos" @selected(($cfdiFilters['tipo'] ?? '') === 'recibidos')>Recibidos</option>
+                        </select>
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_rfc">RFC</label>
-                    <input
-                        id="cfdi_rfc"
-                        type="text"
-                        name="cfdi_rfc"
-                        class="ops-input"
-                        value="{{ $cfdiFilters['rfc'] ?? '' }}"
-                        placeholder="AAA010101AAA"
-                    >
-                </div>
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_desde_filter">Desde</label>
+                        <input
+                            id="cfdi_desde_filter"
+                            class="ops-input"
+                            type="date"
+                            name="cfdi_desde"
+                            value="{{ $cfdiFilters['desde'] ?? '' }}"
+                        >
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_tipo">Dirección</label>
-                    <select id="cfdi_tipo" name="cfdi_tipo" class="ops-select">
-                        <option value="" @selected(($cfdiFilters['tipo'] ?? '') === '')>Todos</option>
-                        <option value="emitidos" @selected(($cfdiFilters['tipo'] ?? '') === 'emitidos')>Emitidos</option>
-                        <option value="recibidos" @selected(($cfdiFilters['tipo'] ?? '') === 'recibidos')>Recibidos</option>
-                    </select>
-                </div>
+                    <div class="ops-field">
+                        <label class="ops-label" for="cfdi_hasta_filter">Hasta</label>
+                        <input
+                            id="cfdi_hasta_filter"
+                            class="ops-input"
+                            type="date"
+                            name="cfdi_hasta"
+                            value="{{ $cfdiFilters['hasta'] ?? '' }}"
+                        >
+                    </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="mode">Modo</label>
-                    <select id="mode" name="mode" class="ops-select">
-                        <option value="index_only">Solo índices</option>
-                        <option value="with_files">Índices + archivos</option>
-                    </select>
-                </div>
+                    <div class="ops-actions-inline">
+                        <button type="submit" class="p360-btn p360-btn--primary">Filtrar CFDI</button>
+                        <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
+                    </div>
+                </form>
 
-                <div class="ops-actions-inline">
-                    <button
-                        type="submit"
-                        class="p360-btn p360-btn--solid-danger"
-                        onclick="return confirm('¿Seguro que deseas ejecutar la limpieza con estos filtros?');"
-                    >
-                        Ejecutar limpieza
-                    </button>
-                </div>
-            </form>
-        </section>
-
-        <section class="ops-card ops-card--cfdi">
-            <div class="ops-card__head">
-                <div>
-                    <div class="ops-card__title">Datos extraídos / CFDI indexados</div>
-                    <div class="ops-card__sub">Administración compacta de registros CFDI.</div>
-                </div>
-
-                <div class="ops-card__side">
-                    <div class="ops-counter">{{ number_format($totalCfdi) }} registro(s)</div>
+                <div class="ops-card__head ops-card__head--sub">
+                    <div>
+                        <div class="ops-card__title">Acciones masivas CFDI</div>
+                        <div class="ops-card__sub">Borra solo índices o índices + archivos relacionados cuando aplique.</div>
+                    </div>
 
                     <div class="ops-bulkbar" id="cfdiBulkBar">
                         <div class="ops-bulkbar__info">
@@ -712,708 +941,657 @@
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid ops-filters-grid--one-line">
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_source_filter">Origen</label>
-                    <select id="cfdi_source_filter" name="cfdi_source" class="ops-select">
-                        <option value="all" @selected(($cfdiFilters['source'] ?? 'all') === 'all')>Ambas bóvedas</option>
-                        <option value="vault_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'vault_cfdi')>Bóveda v1</option>
-                        <option value="user_cfdi" @selected(($cfdiFilters['source'] ?? '') === 'user_cfdi')>Bóveda v2</option>
-                    </select>
-                </div>
+                <form id="cfdiBulkForm" method="POST" action="" class="ops-hidden-bulk-form">
+                    @csrf
+                </form>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_q_filter">Buscar CFDI</label>
-                    <input
-                        id="cfdi_q_filter"
-                        class="ops-input"
-                        type="search"
-                        name="cfdi_q"
-                        value="{{ $cfdiFilters['q'] ?? '' }}"
-                        placeholder="UUID, RFC, emisor, receptor..."
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_rfc_filter">RFC</label>
-                    <input
-                        id="cfdi_rfc_filter"
-                        class="ops-input"
-                        type="text"
-                        name="cfdi_rfc"
-                        value="{{ $cfdiFilters['rfc'] ?? '' }}"
-                        placeholder="AAA010101AAA"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_tipo_filter">Dirección</label>
-                    <select id="cfdi_tipo_filter" class="ops-select" name="cfdi_tipo">
-                        <option value="" @selected(($cfdiFilters['tipo'] ?? '') === '')>Todos</option>
-                        <option value="emitidos" @selected(($cfdiFilters['tipo'] ?? '') === 'emitidos')>Emitidos</option>
-                        <option value="recibidos" @selected(($cfdiFilters['tipo'] ?? '') === 'recibidos')>Recibidos</option>
-                    </select>
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_desde_filter">Desde</label>
-                    <input
-                        id="cfdi_desde_filter"
-                        class="ops-input"
-                        type="date"
-                        name="cfdi_desde"
-                        value="{{ $cfdiFilters['desde'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="cfdi_hasta_filter">Hasta</label>
-                    <input
-                        id="cfdi_hasta_filter"
-                        class="ops-input"
-                        type="date"
-                        name="cfdi_hasta"
-                        value="{{ $cfdiFilters['hasta'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-actions-inline">
-                    <button type="submit" class="p360-btn p360-btn--primary">Filtrar CFDI</button>
-                    <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
-                </div>
-            </form>
-
-            <form id="cfdiBulkForm" method="POST" action="" class="ops-hidden-bulk-form">
-                @csrf
-            </form>
-
-            <div class="ops-table-wrap">
-                <table class="ops-table ops-table--cfdi">
-                    <thead>
-                        <tr>
-                            <th class="ops-check-col">
-                                <label class="ops-check">
-                                    <input type="checkbox" id="checkAllCfdi">
-                                    <span></span>
-                                </label>
-                            </th>
-                            <th>Origen</th>
-                            <th>UUID</th>
-                            <th>Fecha</th>
-                            <th>Tipo</th>
-                            <th>Emisor</th>
-                            <th>Receptor</th>
-                            <th>Total</th>
-                            <th class="ta-right">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($cfdiItems as $row)
+                <div class="ops-table-wrap">
+                    <table class="ops-table ops-table--cfdi">
+                        <thead>
                             <tr>
-                                <td class="ops-check-col">
+                                <th class="ops-check-col">
                                     <label class="ops-check">
-                                        <input
-                                            type="checkbox"
-                                            class="cfdi-row-check"
-                                            value="{{ $row['source'] }}::{{ $row['id'] }}"
-                                        >
+                                        <input type="checkbox" id="checkAllCfdi">
                                         <span></span>
                                     </label>
-                                </td>
-
-                                <td>
-                                    <span class="ops-chip {{ ($row['source'] ?? '') === 'vault_cfdi' ? 'ops-chip--vault' : 'ops-chip--xml' }}">
-                                        {{ $row['source_ui'] ?? '—' }}
-                                    </span>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row['uuid'] ?: '—' }}</div>
-                                        <div class="ops-file__meta">Cuenta {{ $row['cuenta_id'] ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>{{ $row['fecha'] ?: '—' }}</td>
-
-                                <td>
-                                    <span class="ops-status">
-                                        {{ $row['direction'] ?: ($row['tipo'] ?: '—') }}
-                                    </span>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row['rfc_emisor'] ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row['nombre_emisor'] ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row['rfc_receptor'] ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row['nombre_receptor'] ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>${{ number_format((float) ($row['total'] ?? 0), 2) }}</td>
-
-                                <td class="ta-right">
-                                    <div class="ops-row-actions">
-                                        <form
-                                            method="POST"
-                                            action="{{ route('admin.sat.ops.downloads.cfdi.delete', [$row['source'], $row['id']]) }}"
-                                            onsubmit="return confirm('¿Eliminar este registro CFDI?');"
-                                        >
-                                            @csrf
-                                            @method('DELETE')
-                                            <input type="hidden" name="mode" value="index_only">
-                                            <button type="submit" class="p360-btn p360-btn--sm">
-                                                Borrar índice
-                                            </button>
-                                        </form>
-
-                                        <form
-                                            method="POST"
-                                            action="{{ route('admin.sat.ops.downloads.cfdi.delete', [$row['source'], $row['id']]) }}"
-                                            onsubmit="return confirm('¿Eliminar este CFDI y sus archivos relacionados cuando aplique?');"
-                                        >
-                                            @csrf
-                                            @method('DELETE')
-                                            <input type="hidden" name="mode" value="with_files">
-                                            <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                Índice + archivo
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
+                                </th>
+                                <th>Origen</th>
+                                <th>UUID</th>
+                                <th>Fecha</th>
+                                <th>Tipo</th>
+                                <th>Emisor</th>
+                                <th>Receptor</th>
+                                <th>Total</th>
+                                <th class="ta-right">Acciones</th>
                             </tr>
-                        @empty
-                            <tr>
-                                <td colspan="9">
-                                    <div class="ops-empty">
-                                        No hay CFDI indexados para mostrar con los filtros actuales.
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </section>
+                        </thead>
+                        <tbody>
+                            @forelse($cfdiItems as $row)
+                                <tr>
+                                    <td class="ops-check-col">
+                                        <label class="ops-check">
+                                            <input
+                                                type="checkbox"
+                                                class="cfdi-row-check"
+                                                value="{{ $row['source'] }}::{{ $row['id'] }}"
+                                            >
+                                            <span></span>
+                                        </label>
+                                    </td>
 
-        <section class="ops-card ops-card--metadata-records">
-            <div class="ops-card__head">
-                <div>
-                    <div class="ops-card__title">Registros metadata del portal</div>
-                    <div class="ops-card__sub">Estos son los registros que sí aparecen en la sección Metadata del portal cliente.</div>
-                </div>
+                                    <td>
+                                        <span class="ops-chip {{ ($row['source'] ?? '') === 'vault_cfdi' ? 'ops-chip--vault' : 'ops-chip--xml' }}">
+                                            {{ $row['source_ui'] ?? '—' }}
+                                        </span>
+                                    </td>
 
-                <div class="ops-card__side">
-                    <div class="ops-counter">{{ number_format($totalMetadataRecords) }} registro(s)</div>
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row['uuid'] ?: '—' }}</div>
+                                            <div class="ops-file__meta">Cuenta {{ $row['cuenta_id'] ?: '—' }}</div>
+                                        </div>
+                                    </td>
 
-                    <div class="ops-bulkbar" id="metadataRecordsBulkBar">
-                      <div class="ops-bulkbar__info">
-                          Seleccionados: <strong data-selected-metadata-records>0</strong>
-                      </div>
+                                    <td>{{ $row['fecha'] ?: '—' }}</td>
 
-                      <div class="ops-actions-inline">
-                          <button type="button" class="p360-btn p360-btn--danger p360-btn--sm" id="runMetadataRecordsBulkDelete">
-                              Eliminar seleccionados
-                          </button>
+                                    <td>
+                                        <span class="ops-status">
+                                            {{ $row['direction'] ?: ($row['tipo'] ?: '—') }}
+                                        </span>
+                                    </td>
 
-                          <form
-                              method="POST"
-                              action="{{ route('admin.sat.ops.downloads.metadata.records.purge_filtered') }}"
-                              onsubmit="return confirm('¿Seguro que deseas eliminar TODOS los registros metadata que cumplan el filtro actual? Esta acción puede borrar miles de registros.');"
-                          >
-                              @csrf
-                              <input type="hidden" name="mr_q" value="{{ $metadataRecordFilters['q'] ?? '' }}">
-                              <input type="hidden" name="mr_rfc" value="{{ $metadataRecordFilters['rfc'] ?? '' }}">
-                              <input type="hidden" name="mr_direction" value="{{ $metadataRecordFilters['direction'] ?? '' }}">
-                              <input type="hidden" name="mr_desde" value="{{ $metadataRecordFilters['desde'] ?? '' }}">
-                              <input type="hidden" name="mr_hasta" value="{{ $metadataRecordFilters['hasta'] ?? '' }}">
-                              <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                  Eliminar todos los filtrados
-                              </button>
-                          </form>
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row['rfc_emisor'] ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row['nombre_emisor'] ?: '—' }}</div>
+                                        </div>
+                                    </td>
 
-                          @php
-                              $visibleMetadataBatchId = null;
-                              if (count($metadataRecordItems) > 0) {
-                                  $firstMetaRow = null;
-                                  foreach ($metadataRecordItems as $metaRowTmp) {
-                                      if ((int) ($metaRowTmp->metadata_upload_id ?? 0) > 0) {
-                                          $firstMetaRow = $metaRowTmp;
-                                          break;
-                                      }
-                                  }
-                                  $visibleMetadataBatchId = $firstMetaRow ? (int) ($firstMetaRow->metadata_upload_id ?? 0) : null;
-                              }
-                          @endphp
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row['rfc_receptor'] ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row['nombre_receptor'] ?: '—' }}</div>
+                                        </div>
+                                    </td>
 
-                          @if((int) $visibleMetadataBatchId > 0)
-                              <form
-                                  method="POST"
-                                  action="{{ route('admin.sat.ops.downloads.metadata.batch.destroy', $visibleMetadataBatchId) }}"
-                                  onsubmit="return confirm('¿Seguro que deseas eliminar el lote completo de metadata #{{ $visibleMetadataBatchId }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
-                              >
-                                  @csrf
-                                  @method('DELETE')
-                                  <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                      Eliminar lote #{{ $visibleMetadataBatchId }}
-                                  </button>
-                              </form>
-                          @endif
-                      </div>
-                  </div>
-                  </div>
+                                    <td>${{ number_format((float) ($row['total'] ?? 0), 2) }}</td>
+
+                                    <td class="ta-right">
+                                        <div class="ops-row-actions">
+                                            <form
+                                                method="POST"
+                                                action="{{ route('admin.sat.ops.downloads.cfdi.delete', [$row['source'], $row['id']]) }}"
+                                                onsubmit="return confirm('¿Eliminar este registro CFDI?');"
+                                            >
+                                                @csrf
+                                                @method('DELETE')
+                                                <input type="hidden" name="mode" value="index_only">
+                                                <button type="submit" class="p360-btn p360-btn--sm">
+                                                    Borrar índice
+                                                </button>
+                                            </form>
+
+                                            <form
+                                                method="POST"
+                                                action="{{ route('admin.sat.ops.downloads.cfdi.delete', [$row['source'], $row['id']]) }}"
+                                                onsubmit="return confirm('¿Eliminar este CFDI y sus archivos relacionados cuando aplique?');"
+                                            >
+                                                @csrf
+                                                @method('DELETE')
+                                                <input type="hidden" name="mode" value="with_files">
+                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                    Índice + archivo
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="9">
+                                        <div class="ops-empty">
+                                            No hay CFDI indexados para mostrar con los filtros actuales.
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
             </div>
+        </details>
 
-            <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid ops-filters-grid--one-line">
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_q">Buscar</label>
-                    <input
-                        id="mr_q"
-                        class="ops-input"
-                        type="search"
-                        name="mr_q"
-                        value="{{ $metadataRecordFilters['q'] ?? '' }}"
-                        placeholder="UUID, RFC, emisor, receptor..."
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_rfc">RFC</label>
-                    <input
-                        id="mr_rfc"
-                        class="ops-input"
-                        type="text"
-                        name="mr_rfc"
-                        value="{{ $metadataRecordFilters['rfc'] ?? '' }}"
-                        placeholder="AAA010101AAA"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_direction">Dirección</label>
-                    <select id="mr_direction" class="ops-select" name="mr_direction">
-                        <option value="" @selected(($metadataRecordFilters['direction'] ?? '') === '')>Todos</option>
-                        <option value="emitidos" @selected(($metadataRecordFilters['direction'] ?? '') === 'emitidos')>Emitidos</option>
-                        <option value="recibidos" @selected(($metadataRecordFilters['direction'] ?? '') === 'recibidos')>Recibidos</option>
-                    </select>
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_desde">Desde</label>
-                    <input
-                        id="mr_desde"
-                        class="ops-input"
-                        type="date"
-                        name="mr_desde"
-                        value="{{ $metadataRecordFilters['desde'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_hasta">Hasta</label>
-                    <input
-                        id="mr_hasta"
-                        class="ops-input"
-                        type="date"
-                        name="mr_hasta"
-                        value="{{ $metadataRecordFilters['hasta'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="mr_per_page">Filas</label>
-                    <select id="mr_per_page" class="ops-select" name="mr_per_page">
-                        @foreach([25,50,100,200] as $pp)
-                            <option value="{{ $pp }}" @selected((int) ($metadataRecordFilters['per_page'] ?? 50) === $pp)>{{ $pp }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="ops-actions-inline">
-                    <button type="submit" class="p360-btn p360-btn--primary">Filtrar metadata</button>
-                    <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
-                </div>
-            </form>
-
-            <form id="metadataRecordsBulkForm" method="POST" action="{{ route('admin.sat.ops.downloads.metadata.records.bulk_delete') }}" class="ops-hidden-bulk-form">
-                @csrf
-            </form>
-
-            <div class="ops-table-wrap">
-                <table class="ops-table ops-table--cfdi">
-                    <thead>
-                        <tr>
-                            <th class="ops-check-col">
-                                <label class="ops-check">
-                                    <input type="checkbox" id="checkAllMetadataRecords">
-                                    <span></span>
-                                </label>
-                            </th>
-                            <th>ID</th>
-                            <th>UUID</th>
-                            <th>Fecha</th>
-                            <th>Dirección</th>
-                            <th>Emisor</th>
-                            <th>Receptor</th>
-                            <th>Monto</th>
-                            <th>Estatus</th>
-                            <th>Lote</th>
-                            <th class="ta-right">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($metadataRecordItems as $row)
-                            <tr>
-                                <td class="ops-check-col">
-                                    <label class="ops-check">
-                                        <input
-                                            type="checkbox"
-                                            class="metadata-record-row-check"
-                                            value="{{ $row->id }}"
-                                        >
-                                        <span></span>
-                                    </label>
-                                </td>
-
-                                <td>#{{ $row->id }}</td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->uuid ?: '—' }}</div>
-                                        <div class="ops-file__meta">RFC owner {{ $row->rfc_owner ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>{{ optional($row->fecha_emision)->format('Y-m-d H:i:s') ?: '—' }}</td>
-
-                                <td>
-                                    <span class="ops-status">{{ $row->direction ?: '—' }}</span>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->rfc_emisor ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row->nombre_emisor ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->rfc_receptor ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row->nombre_receptor ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>${{ number_format((float) ($row->monto ?? 0), 2) }}</td>
-                                <td>{{ $row->estatus ?: '—' }}</td>
-                                <td>#{{ $row->metadata_upload_id ?: '—' }}</td>
-
-                                <td class="ta-right">
-                                  <div class="ops-row-actions">
-                                      <form
-                                          method="POST"
-                                          action="{{ route('admin.sat.ops.downloads.metadata.records.delete', $row->id) }}"
-                                          onsubmit="return confirm('¿Eliminar este registro de metadata del portal?');"
-                                      >
-                                          @csrf
-                                          @method('DELETE')
-                                          <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                              Eliminar
-                                          </button>
-                                      </form>
-
-                                      @if((int) ($row->metadata_upload_id ?? 0) > 0)
-                                          <form
-                                              method="POST"
-                                              action="{{ route('admin.sat.ops.downloads.metadata.batch.destroy', $row->metadata_upload_id) }}"
-                                              onsubmit="return confirm('¿Eliminar el lote completo de metadata #{{ (int) $row->metadata_upload_id }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
-                                          >
-                                              @csrf
-                                              @method('DELETE')
-                                              <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                  Eliminar lote
-                                              </button>
-                                          </form>
-                                      @endif
-                                  </div>
-                              </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="11">
-                                    <div class="ops-empty">
-                                        No hay registros metadata para mostrar con los filtros actuales.
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-
-            @if(method_exists($metadataRecordItems, 'links'))
-                <div class="ops-card__foot">
-                    {{ $metadataRecordItems->onEachSide(1)->links() }}
-                </div>
-            @endif
-        </section>
-
-        <section class="ops-card ops-card--purge">
-            <div class="ops-card__head">
-                <div>
-                    <div class="ops-card__title">Registros reportes del portal</div>
-                    <div class="ops-card__sub">Estos son los registros que sí aparecen en la sección Reportes / Resumen fiscal del portal cliente.</div>
-                </div>
-
-                <div class="ops-card__side">
-                    <div class="ops-counter">{{ number_format($totalReportRecords) }} registro(s)</div>
-
-                    <div class="ops-bulkbar" id="reportRecordsBulkBar">
-                        <div class="ops-bulkbar__info">
-                            Seleccionados: <strong data-selected-report-records>0</strong>
+        {{-- METADATA PORTAL --}}
+        <details class="ops-accordion ops-card ops-card--metadata-records" id="panel-metadata">
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Módulo 04</div>
+                        <div class="ops-card__title">Registros metadata del portal</div>
+                        <div class="ops-card__sub">
+                            Registros que alimentan la sección de Metadata del portal cliente, con filtros y borrado por lote.
                         </div>
+                    </div>
 
-                        <div class="ops-actions-inline">
-                          <button type="button" class="p360-btn p360-btn--danger p360-btn--sm" id="runReportRecordsBulkDelete">
-                              Eliminar seleccionados
-                          </button>
-
-                          <form
-                              method="POST"
-                              action="{{ route('admin.sat.ops.downloads.report.records.purge_filtered') }}"
-                              onsubmit="return confirm('¿Seguro que deseas eliminar TODOS los registros de reporte que cumplan el filtro actual? Esta acción puede borrar miles de registros.');"
-                          >
-                              @csrf
-                              <input type="hidden" name="rr_q" value="{{ $reportRecordFilters['q'] ?? '' }}">
-                              <input type="hidden" name="rr_rfc" value="{{ $reportRecordFilters['rfc'] ?? '' }}">
-                              <input type="hidden" name="rr_direction" value="{{ $reportRecordFilters['direction'] ?? '' }}">
-                              <input type="hidden" name="rr_desde" value="{{ $reportRecordFilters['desde'] ?? '' }}">
-                              <input type="hidden" name="rr_hasta" value="{{ $reportRecordFilters['hasta'] ?? '' }}">
-                              <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                  Eliminar todos los filtrados
-                              </button>
-                          </form>
-                      </div>
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format($totalMetadataRecords) }} registro(s)</div>
+                        <div class="ops-counter ops-counter--soft">{{ $activeMetadataFiltersCount }} filtro(s)</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
                     </div>
                 </div>
-            </div>
+            </summary>
 
-            <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid ops-filters-grid--one-line">
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_q">Buscar</label>
-                    <input
-                        id="rr_q"
-                        class="ops-input"
-                        type="search"
-                        name="rr_q"
-                        value="{{ $reportRecordFilters['q'] ?? '' }}"
-                        placeholder="UUID, RFC, emisor, receptor..."
-                    >
+            <div class="ops-accordion__body">
+                <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid">
+                    <div class="ops-field ops-field--grow">
+                        <label class="ops-label" for="mr_q">Buscar</label>
+                        <input
+                            id="mr_q"
+                            class="ops-input"
+                            type="search"
+                            name="mr_q"
+                            value="{{ $metadataRecordFilters['q'] ?? '' }}"
+                            placeholder="UUID, RFC, emisor, receptor..."
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mr_rfc">RFC</label>
+                        <input
+                            id="mr_rfc"
+                            class="ops-input"
+                            type="text"
+                            name="mr_rfc"
+                            value="{{ $metadataRecordFilters['rfc'] ?? '' }}"
+                            placeholder="AAA010101AAA"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mr_direction">Dirección</label>
+                        <select id="mr_direction" class="ops-select" name="mr_direction">
+                            <option value="" @selected(($metadataRecordFilters['direction'] ?? '') === '')>Todos</option>
+                            <option value="emitidos" @selected(($metadataRecordFilters['direction'] ?? '') === 'emitidos')>Emitidos</option>
+                            <option value="recibidos" @selected(($metadataRecordFilters['direction'] ?? '') === 'recibidos')>Recibidos</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mr_desde">Desde</label>
+                        <input
+                            id="mr_desde"
+                            class="ops-input"
+                            type="date"
+                            name="mr_desde"
+                            value="{{ $metadataRecordFilters['desde'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mr_hasta">Hasta</label>
+                        <input
+                            id="mr_hasta"
+                            class="ops-input"
+                            type="date"
+                            name="mr_hasta"
+                            value="{{ $metadataRecordFilters['hasta'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="mr_per_page">Filas</label>
+                        <select id="mr_per_page" class="ops-select" name="mr_per_page">
+                            @foreach([25,50,100,200] as $pp)
+                                <option value="{{ $pp }}" @selected((int) ($metadataRecordFilters['per_page'] ?? 50) === $pp)>{{ $pp }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="ops-actions-inline">
+                        <button type="submit" class="p360-btn p360-btn--primary">Filtrar metadata</button>
+                        <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
+                    </div>
+                </form>
+
+                <div class="ops-card__head ops-card__head--sub">
+                    <div>
+                        <div class="ops-card__title">Acciones masivas metadata</div>
+                        <div class="ops-card__sub">Selecciona registros, elimina todos los filtrados o elimina un lote completo.</div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-bulkbar" id="metadataRecordsBulkBar">
+                            <div class="ops-bulkbar__info">
+                                Seleccionados: <strong data-selected-metadata-records>0</strong>
+                            </div>
+
+                            <div class="ops-actions-inline">
+                                <button type="button" class="p360-btn p360-btn--danger p360-btn--sm" id="runMetadataRecordsBulkDelete">
+                                    Eliminar seleccionados
+                                </button>
+
+                                <form
+                                    method="POST"
+                                    action="{{ route('admin.sat.ops.downloads.metadata.records.purge_filtered') }}"
+                                    onsubmit="return confirm('¿Seguro que deseas eliminar TODOS los registros metadata que cumplan el filtro actual? Esta acción puede borrar miles de registros.');"
+                                >
+                                    @csrf
+                                    <input type="hidden" name="mr_q" value="{{ $metadataRecordFilters['q'] ?? '' }}">
+                                    <input type="hidden" name="mr_rfc" value="{{ $metadataRecordFilters['rfc'] ?? '' }}">
+                                    <input type="hidden" name="mr_direction" value="{{ $metadataRecordFilters['direction'] ?? '' }}">
+                                    <input type="hidden" name="mr_desde" value="{{ $metadataRecordFilters['desde'] ?? '' }}">
+                                    <input type="hidden" name="mr_hasta" value="{{ $metadataRecordFilters['hasta'] ?? '' }}">
+                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                        Eliminar todos los filtrados
+                                    </button>
+                                </form>
+
+                                @php
+                                    $visibleMetadataBatchId = null;
+                                    if (count($metadataRecordItems) > 0) {
+                                        $firstMetaRow = null;
+                                        foreach ($metadataRecordItems as $metaRowTmp) {
+                                            if ((int) ($metaRowTmp->metadata_upload_id ?? 0) > 0) {
+                                                $firstMetaRow = $metaRowTmp;
+                                                break;
+                                            }
+                                        }
+                                        $visibleMetadataBatchId = $firstMetaRow ? (int) ($firstMetaRow->metadata_upload_id ?? 0) : null;
+                                    }
+                                @endphp
+
+                                @if((int) $visibleMetadataBatchId > 0)
+                                    <form
+                                        method="POST"
+                                        action="{{ route('admin.sat.ops.downloads.metadata.batch.destroy', $visibleMetadataBatchId) }}"
+                                        onsubmit="return confirm('¿Seguro que deseas eliminar el lote completo de metadata #{{ $visibleMetadataBatchId }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
+                                    >
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                            Eliminar lote #{{ $visibleMetadataBatchId }}
+                                        </button>
+                                    </form>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_rfc">RFC</label>
-                    <input
-                        id="rr_rfc"
-                        class="ops-input"
-                        type="text"
-                        name="rr_rfc"
-                        value="{{ $reportRecordFilters['rfc'] ?? '' }}"
-                        placeholder="AAA010101AAA"
-                    >
-                </div>
+                <form id="metadataRecordsBulkForm" method="POST" action="{{ route('admin.sat.ops.downloads.metadata.records.bulk_delete') }}" class="ops-hidden-bulk-form">
+                    @csrf
+                </form>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_direction">Dirección</label>
-                    <select id="rr_direction" class="ops-select" name="rr_direction">
-                        <option value="" @selected(($reportRecordFilters['direction'] ?? '') === '')>Todos</option>
-                        <option value="emitidos" @selected(($reportRecordFilters['direction'] ?? '') === 'emitidos')>Emitidos</option>
-                        <option value="recibidos" @selected(($reportRecordFilters['direction'] ?? '') === 'recibidos')>Recibidos</option>
-                    </select>
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_desde">Desde</label>
-                    <input
-                        id="rr_desde"
-                        class="ops-input"
-                        type="date"
-                        name="rr_desde"
-                        value="{{ $reportRecordFilters['desde'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_hasta">Hasta</label>
-                    <input
-                        id="rr_hasta"
-                        class="ops-input"
-                        type="date"
-                        name="rr_hasta"
-                        value="{{ $reportRecordFilters['hasta'] ?? '' }}"
-                    >
-                </div>
-
-                <div class="ops-field">
-                    <label class="ops-label" for="rr_per_page">Filas</label>
-                    <select id="rr_per_page" class="ops-select" name="rr_per_page">
-                        @foreach([25,50,100,200] as $pp)
-                            <option value="{{ $pp }}" @selected((int) ($reportRecordFilters['per_page'] ?? 50) === $pp)>{{ $pp }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="ops-actions-inline">
-                  <button type="button" class="p360-btn p360-btn--danger p360-btn--sm" id="runReportRecordsBulkDelete">
-                      Eliminar seleccionados
-                  </button>
-
-                  <form
-                      method="POST"
-                      action="{{ route('admin.sat.ops.downloads.report.records.purge_filtered') }}"
-                      onsubmit="return confirm('¿Seguro que deseas eliminar TODOS los registros de reporte que cumplan el filtro actual? Esta acción puede borrar miles de registros.');"
-                  >
-                      @csrf
-                      <input type="hidden" name="rr_q" value="{{ $reportRecordFilters['q'] ?? '' }}">
-                      <input type="hidden" name="rr_rfc" value="{{ $reportRecordFilters['rfc'] ?? '' }}">
-                      <input type="hidden" name="rr_direction" value="{{ $reportRecordFilters['direction'] ?? '' }}">
-                      <input type="hidden" name="rr_desde" value="{{ $reportRecordFilters['desde'] ?? '' }}">
-                      <input type="hidden" name="rr_hasta" value="{{ $reportRecordFilters['hasta'] ?? '' }}">
-                      <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                          Eliminar todos los filtrados
-                      </button>
-                  </form>
-              </div>
-            </form>
-
-            <form id="reportRecordsBulkForm" method="POST" action="{{ route('admin.sat.ops.downloads.report.records.bulk_delete') }}" class="ops-hidden-bulk-form">
-                @csrf
-            </form>
-
-            <div class="ops-table-wrap">
-                <table class="ops-table ops-table--cfdi">
-                    <thead>
-                        <tr>
-                            <th class="ops-check-col">
-                                <label class="ops-check">
-                                    <input type="checkbox" id="checkAllReportRecords">
-                                    <span></span>
-                                </label>
-                            </th>
-                            <th>ID</th>
-                            <th>UUID</th>
-                            <th>Fecha</th>
-                            <th>Dirección</th>
-                            <th>Emisor</th>
-                            <th>Receptor</th>
-                            <th>Tipo</th>
-                            <th>Total</th>
-                            <th>Lote</th>
-                            <th class="ta-right">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($reportRecordItems as $row)
+                <div class="ops-table-wrap">
+                    <table class="ops-table ops-table--cfdi">
+                        <thead>
                             <tr>
-                                <td class="ops-check-col">
+                                <th class="ops-check-col">
                                     <label class="ops-check">
-                                        <input
-                                            type="checkbox"
-                                            class="report-record-row-check"
-                                            value="{{ $row->id }}"
-                                        >
+                                        <input type="checkbox" id="checkAllMetadataRecords">
                                         <span></span>
                                     </label>
-                                </td>
-
-                                <td>#{{ $row->id }}</td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->uuid ?: '—' }}</div>
-                                        <div class="ops-file__meta">RFC owner {{ $row->rfc_owner ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>{{ optional($row->fecha_emision)->format('Y-m-d H:i:s') ?: '—' }}</td>
-                                <td><span class="ops-status">{{ $row->direction ?: '—' }}</span></td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->emisor_rfc ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row->emisor_nombre ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>
-                                    <div class="ops-file">
-                                        <div class="ops-file__name">{{ $row->receptor_rfc ?: '—' }}</div>
-                                        <div class="ops-file__meta">{{ $row->receptor_nombre ?: '—' }}</div>
-                                    </div>
-                                </td>
-
-                                <td>{{ $row->tipo_comprobante ?: '—' }}</td>
-                                <td>${{ number_format((float) ($row->total ?? 0), 2) }}</td>
-                                <td>#{{ $row->report_upload_id ?: '—' }}</td>
-
-                                <td class="ta-right">
-                                  <div class="ops-row-actions">
-                                      <form
-                                          method="POST"
-                                          action="{{ route('admin.sat.ops.downloads.metadata.records.delete', $row->id) }}"
-                                          onsubmit="return confirm('¿Eliminar este registro de metadata del portal?');"
-                                      >
-                                          @csrf
-                                          @method('DELETE')
-                                          <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                              Eliminar
-                                          </button>
-                                      </form>
-
-                                      @if((int) ($row->metadata_upload_id ?? 0) > 0)
-                                          <form
-                                              method="POST"
-                                              action="{{ route('admin.sat.ops.downloads.metadata.batch.destroy', $row->metadata_upload_id) }}"
-                                              onsubmit="return confirm('¿Eliminar el lote completo de metadata #{{ (int) $row->metadata_upload_id }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
-                                          >
-                                              @csrf
-                                              @method('DELETE')
-                                              <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
-                                                  Eliminar lote
-                                              </button>
-                                          </form>
-                                      @endif
-                                  </div>
-                              </td>
+                                </th>
+                                <th>ID</th>
+                                <th>UUID</th>
+                                <th>Fecha</th>
+                                <th>Dirección</th>
+                                <th>Emisor</th>
+                                <th>Receptor</th>
+                                <th>Monto</th>
+                                <th>Estatus</th>
+                                <th>Lote</th>
+                                <th class="ta-right">Acciones</th>
                             </tr>
-                        @empty
-                            <tr>
-                                <td colspan="11">
-                                    <div class="ops-empty">
-                                        No hay registros de reporte para mostrar con los filtros actuales.
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            @forelse($metadataRecordItems as $row)
+                                <tr>
+                                    <td class="ops-check-col">
+                                        <label class="ops-check">
+                                            <input
+                                                type="checkbox"
+                                                class="metadata-record-row-check"
+                                                value="{{ $row->id }}"
+                                            >
+                                            <span></span>
+                                        </label>
+                                    </td>
 
-            @if(method_exists($reportRecordItems, 'links'))
-                <div class="ops-card__foot">
-                    {{ $reportRecordItems->onEachSide(1)->links() }}
+                                    <td>#{{ $row->id }}</td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->uuid ?: '—' }}</div>
+                                            <div class="ops-file__meta">RFC owner {{ $row->rfc_owner ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>{{ optional($row->fecha_emision)->format('Y-m-d H:i:s') ?: '—' }}</td>
+
+                                    <td>
+                                        <span class="ops-status">{{ $row->direction ?: '—' }}</span>
+                                    </td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->rfc_emisor ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row->nombre_emisor ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->rfc_receptor ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row->nombre_receptor ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>${{ number_format((float) ($row->monto ?? 0), 2) }}</td>
+                                    <td>{{ $row->estatus ?: '—' }}</td>
+                                    <td>#{{ $row->metadata_upload_id ?: '—' }}</td>
+
+                                    <td class="ta-right">
+                                        <div class="ops-row-actions">
+                                            <form
+                                                method="POST"
+                                                action="{{ route('admin.sat.ops.downloads.metadata.records.delete', $row->id) }}"
+                                                onsubmit="return confirm('¿Eliminar este registro de metadata del portal?');"
+                                            >
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                    Eliminar
+                                                </button>
+                                            </form>
+
+                                            @if((int) ($row->metadata_upload_id ?? 0) > 0)
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.metadata.batch.destroy', $row->metadata_upload_id) }}"
+                                                    onsubmit="return confirm('¿Eliminar el lote completo de metadata #{{ (int) $row->metadata_upload_id }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar lote
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="11">
+                                        <div class="ops-empty">
+                                            No hay registros metadata para mostrar con los filtros actuales.
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
-            @endif
-        </section>
+
+                @if(method_exists($metadataRecordItems, 'links'))
+                    <div class="ops-card__foot">
+                        {{ $metadataRecordItems->onEachSide(1)->links() }}
+                    </div>
+                @endif
+            </div>
+        </details>
+
+        {{-- REPORTES PORTAL --}}
+        <details class="ops-accordion ops-card ops-card--report-records" id="panel-reports">
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Módulo 05</div>
+                        <div class="ops-card__title">Registros reportes del portal</div>
+                        <div class="ops-card__sub">
+                            Registros usados por la sección de reportes y resumen fiscal del portal cliente.
+                        </div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format($totalReportRecords) }} registro(s)</div>
+                        <div class="ops-counter ops-counter--soft">{{ $activeReportFiltersCount }} filtro(s)</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
+                    </div>
+                </div>
+            </summary>
+
+            <div class="ops-accordion__body">
+                <form method="GET" action="{{ route('admin.sat.ops.downloads.index') }}" class="ops-filters-grid">
+                    <div class="ops-field ops-field--grow">
+                        <label class="ops-label" for="rr_q">Buscar</label>
+                        <input
+                            id="rr_q"
+                            class="ops-input"
+                            type="search"
+                            name="rr_q"
+                            value="{{ $reportRecordFilters['q'] ?? '' }}"
+                            placeholder="UUID, RFC, emisor, receptor..."
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="rr_rfc">RFC</label>
+                        <input
+                            id="rr_rfc"
+                            class="ops-input"
+                            type="text"
+                            name="rr_rfc"
+                            value="{{ $reportRecordFilters['rfc'] ?? '' }}"
+                            placeholder="AAA010101AAA"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="rr_direction">Dirección</label>
+                        <select id="rr_direction" class="ops-select" name="rr_direction">
+                            <option value="" @selected(($reportRecordFilters['direction'] ?? '') === '')>Todos</option>
+                            <option value="emitidos" @selected(($reportRecordFilters['direction'] ?? '') === 'emitidos')>Emitidos</option>
+                            <option value="recibidos" @selected(($reportRecordFilters['direction'] ?? '') === 'recibidos')>Recibidos</option>
+                        </select>
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="rr_desde">Desde</label>
+                        <input
+                            id="rr_desde"
+                            class="ops-input"
+                            type="date"
+                            name="rr_desde"
+                            value="{{ $reportRecordFilters['desde'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="rr_hasta">Hasta</label>
+                        <input
+                            id="rr_hasta"
+                            class="ops-input"
+                            type="date"
+                            name="rr_hasta"
+                            value="{{ $reportRecordFilters['hasta'] ?? '' }}"
+                        >
+                    </div>
+
+                    <div class="ops-field">
+                        <label class="ops-label" for="rr_per_page">Filas</label>
+                        <select id="rr_per_page" class="ops-select" name="rr_per_page">
+                            @foreach([25,50,100,200] as $pp)
+                                <option value="{{ $pp }}" @selected((int) ($reportRecordFilters['per_page'] ?? 50) === $pp)>{{ $pp }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="ops-actions-inline">
+                        <button type="submit" class="p360-btn p360-btn--primary">Filtrar reportes</button>
+                        <a class="p360-btn" href="{{ route('admin.sat.ops.downloads.index') }}">Limpiar</a>
+                    </div>
+                </form>
+
+                <div class="ops-card__head ops-card__head--sub">
+                    <div>
+                        <div class="ops-card__title">Acciones masivas reportes</div>
+                        <div class="ops-card__sub">Elimina seleccionados o todos los registros que cumplan el filtro actual.</div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-bulkbar" id="reportRecordsBulkBar">
+                            <div class="ops-bulkbar__info">
+                                Seleccionados: <strong data-selected-report-records>0</strong>
+                            </div>
+
+                            <div class="ops-actions-inline">
+                                <button type="button" class="p360-btn p360-btn--danger p360-btn--sm" id="runReportRecordsBulkDelete">
+                                    Eliminar seleccionados
+                                </button>
+
+                                <form
+                                    method="POST"
+                                    action="{{ route('admin.sat.ops.downloads.report.records.purge_filtered') }}"
+                                    onsubmit="return confirm('¿Seguro que deseas eliminar TODOS los registros de reporte que cumplan el filtro actual? Esta acción puede borrar miles de registros.');"
+                                >
+                                    @csrf
+                                    <input type="hidden" name="rr_q" value="{{ $reportRecordFilters['q'] ?? '' }}">
+                                    <input type="hidden" name="rr_rfc" value="{{ $reportRecordFilters['rfc'] ?? '' }}">
+                                    <input type="hidden" name="rr_direction" value="{{ $reportRecordFilters['direction'] ?? '' }}">
+                                    <input type="hidden" name="rr_desde" value="{{ $reportRecordFilters['desde'] ?? '' }}">
+                                    <input type="hidden" name="rr_hasta" value="{{ $reportRecordFilters['hasta'] ?? '' }}">
+                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                        Eliminar todos los filtrados
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="reportRecordsBulkForm" method="POST" action="{{ route('admin.sat.ops.downloads.report.records.bulk_delete') }}" class="ops-hidden-bulk-form">
+                    @csrf
+                </form>
+
+                <div class="ops-table-wrap">
+                    <table class="ops-table ops-table--cfdi">
+                        <thead>
+                            <tr>
+                                <th class="ops-check-col">
+                                    <label class="ops-check">
+                                        <input type="checkbox" id="checkAllReportRecords">
+                                        <span></span>
+                                    </label>
+                                </th>
+                                <th>ID</th>
+                                <th>UUID</th>
+                                <th>Fecha</th>
+                                <th>Dirección</th>
+                                <th>Emisor</th>
+                                <th>Receptor</th>
+                                <th>Tipo</th>
+                                <th>Total</th>
+                                <th>Lote</th>
+                                <th class="ta-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($reportRecordItems as $row)
+                                <tr>
+                                    <td class="ops-check-col">
+                                        <label class="ops-check">
+                                            <input
+                                                type="checkbox"
+                                                class="report-record-row-check"
+                                                value="{{ $row->id }}"
+                                            >
+                                            <span></span>
+                                        </label>
+                                    </td>
+
+                                    <td>#{{ $row->id }}</td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->uuid ?: '—' }}</div>
+                                            <div class="ops-file__meta">RFC owner {{ $row->rfc_owner ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>{{ optional($row->fecha_emision)->format('Y-m-d H:i:s') ?: '—' }}</td>
+                                    <td><span class="ops-status">{{ $row->direction ?: '—' }}</span></td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->emisor_rfc ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row->emisor_nombre ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>
+                                        <div class="ops-file">
+                                            <div class="ops-file__name">{{ $row->receptor_rfc ?: '—' }}</div>
+                                            <div class="ops-file__meta">{{ $row->receptor_nombre ?: '—' }}</div>
+                                        </div>
+                                    </td>
+
+                                    <td>{{ $row->tipo_comprobante ?: '—' }}</td>
+                                    <td>${{ number_format((float) ($row->total ?? 0), 2) }}</td>
+                                    <td>#{{ $row->report_upload_id ?: '—' }}</td>
+
+                                    <td class="ta-right">
+                                        <div class="ops-row-actions">
+                                            <form
+                                                method="POST"
+                                                action="{{ route('admin.sat.ops.downloads.report.records.delete', $row->id) }}"
+                                                onsubmit="return confirm('¿Eliminar este registro de reporte del portal?');"
+                                            >
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                    Eliminar
+                                                </button>
+                                            </form>
+
+                                            @if((int) ($row->report_upload_id ?? 0) > 0)
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.downloads.report.batch.destroy', $row->report_upload_id) }}"
+                                                    onsubmit="return confirm('¿Eliminar el lote completo de reporte #{{ (int) $row->report_upload_id }}? Esto borrará todos los registros del lote, el upload padre y el archivo físico.');"
+                                                >
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="p360-btn p360-btn--danger p360-btn--sm">
+                                                        Eliminar lote
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="11">
+                                        <div class="ops-empty">
+                                            No hay registros de reporte para mostrar con los filtros actuales.
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                @if(method_exists($reportRecordItems, 'links'))
+                    <div class="ops-card__foot">
+                        {{ $reportRecordItems->onEachSide(1)->links() }}
+                    </div>
+                @endif
+            </div>
+        </details>
 
     </div>
 @endsection

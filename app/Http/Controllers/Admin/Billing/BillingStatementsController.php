@@ -174,6 +174,17 @@ final class BillingStatementsController extends Controller
             $statusPago = $this->computeFinancialStatus($totalShown, $abonoTot, 0.0);
         }
 
+        $prevInfo   = $this->computePrevOpenBalance((string) $accountId, (string) $period, $lastPaid);
+        $prevPeriod = $prevInfo['prev_period'] ?? null;
+        $prevSaldo  = round(max(0.0, (float) ($prevInfo['prev_balance'] ?? 0.0)), 2);
+        $totalDue   = round(max(0.0, (float) $saldoShown + $prevSaldo), 2);
+
+        $statusPago = $this->computeFinancialStatus(
+            (float) $totalShown,
+            (float) $abonoTot,
+            (float) $prevSaldo
+        );
+
         $row = (object) [
             'cargo'            => round($cargoEdo, 2),
             'expected_total'   => round((float) $expected, 2),
@@ -184,8 +195,8 @@ final class BillingStatementsController extends Controller
             'saldo'            => round((float) $saldoShown, 2),
             'saldo_shown'      => round((float) $saldoShown, 2),
             'saldo_current'    => round((float) $saldoShown, 2),
-            'prev_balance'     => 0.0,
-            'total_due'        => round((float) $saldoShown, 2),
+            'prev_balance'     => $prevSaldo,
+            'total_due'        => $totalDue,
             'tarifa_label'     => (string) $tarifaLabel,
             'tarifa_pill'      => (string) $tarifaPill,
             'status_pago'      => $statusPago,
@@ -197,6 +208,7 @@ final class BillingStatementsController extends Controller
             'pay_method'       => null,
             'pay_provider'     => null,
             'pay_status'       => $statusPago,
+            'prev_period'      => $prevPeriod,
         ];
 
         $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
@@ -218,6 +230,8 @@ final class BillingStatementsController extends Controller
             'abono_pay'        => round((float) ($row->abono_pay ?? $abonoPay), 2),
             'total'            => round((float) ($row->total_shown ?? $totalShown), 2),
             'saldo'            => round((float) ($row->saldo ?? $saldoShown), 2),
+            'prev_balance'     => round((float) ($row->prev_balance ?? 0), 2),
+            'total_due'        => round((float) ($row->total_due ?? $saldoShown), 2),
             'last_paid'        => $lastPaid,
             'pay_allowed'      => $payAllowed,
             'status_pago'      => (string) ($row->status_pago ?? $statusPago),
@@ -375,6 +389,20 @@ final class BillingStatementsController extends Controller
         }
 
         try {
+            // 1) Fuente principal: billing_statements
+            if (Schema::connection($this->adm)->hasTable('billing_statements')) {
+                $existsStatement = DB::connection($this->adm)->table('billing_statements')
+                    ->where('account_id', $accountId)
+                    ->where('period', $period)
+                    ->limit(1)
+                    ->exists();
+
+                if ($existsStatement) {
+                    return true;
+                }
+            }
+
+            // 2) Evidencia legacy: estados_cuenta
             if (Schema::connection($this->adm)->hasTable('estados_cuenta')) {
                 $existsEstado = DB::connection($this->adm)->table('estados_cuenta')
                     ->where('account_id', $accountId)
@@ -387,10 +415,12 @@ final class BillingStatementsController extends Controller
                 }
             }
 
+            // 3) Evidencia por pagos del periodo
             if ($this->hasPaymentsForAccountPeriod($accountId, $period)) {
                 return true;
             }
 
+            // 4) Evidencia por override manual
             if (Schema::connection($this->adm)->hasTable($this->overrideTable())) {
                 $existsOverride = DB::connection($this->adm)->table($this->overrideTable())
                     ->where('account_id', $accountId)

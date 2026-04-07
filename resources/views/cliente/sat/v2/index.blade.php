@@ -26,214 +26,481 @@
         @endif
 
           <section class="sv2Hero">
-            <div class="sv2Hero__grid">
-                <div class="sv2Hero__left">
-                    <div class="sv2Hero__content">
+    <div class="sv2Hero__grid">
+        <div class="sv2Hero__left">
+            <div class="sv2Hero__content">
 
-                        <div class="sv2Hero__copy">
-                            <h1 class="sv2Hero__title">Portal de descargas</h1>
+                <span class="sv2Pill">SAT V2 · Flujo operativo</span>
 
-                            <p class="sv2Hero__subtitle">
-                                Consulta, resguarda y descarga archivos de metadata, XML CFDI y reportes asociados a tu RFC de trabajo.
+                <div class="sv2Hero__copy">
+                    <h1 class="sv2Hero__title">Centro SAT</h1>
+
+                    <p class="sv2Hero__subtitle">
+                        Administra tus RFC, solicita cotizaciones, da seguimiento a descargas SAT y consulta tu bóveda v2 desde un solo lugar.
+                    </p>
+                </div>
+
+                <div class="sv2Hero__chips">
+                    <span class="sv2Chip">RFC y credenciales</span>
+                    <span class="sv2Chip">Cotizaciones</span>
+                    <span class="sv2Chip">Seguimiento</span>
+                    <span class="sv2Chip">Descargas SAT</span>
+                    <span class="sv2Chip">Bóveda v2</span>
+                </div>
+            </div>
+        </div>
+
+        <aside class="sv2HeroCard sv2HeroCard--v2">
+            <div class="sv2HeroCard__header">
+                <div class="sv2HeroCard__titles">
+                    <span class="sv2HeroCard__eyebrow">Bloque 1</span>
+                    <h3 class="sv2HeroCard__title">RFC de trabajo</h3>
+                </div>
+
+                <button
+                    type="button"
+                    class="sv2GearBtn"
+                    data-sv2-open="rfcManagerModal"
+                    title="Gestionar RFC"
+                >
+                    ⚙️
+                </button>
+            </div>
+
+            <div class="sv2HeroCard__meta">
+                <span class="sv2Count">{{ $rfcs->count() }} RFC</span>
+
+                @if($selectedRfc)
+                    <span class="sv2ActiveRFC" title="{{ $selectedRfc }}">
+                        {{ $selectedRfc }}
+                    </span>
+                @else
+                    <span class="sv2ActiveRFC" title="Sin RFC activo">
+                        Sin RFC activo
+                    </span>
+                @endif
+            </div>
+
+            <form method="GET" action="{{ route('cliente.sat.v2.index') }}" class="sv2HeroCard__form">
+                <select name="rfc" class="sv2Select sv2Select--v2">
+                    <option value="">Selecciona un RFC</option>
+                    @foreach($rfcs as $rfc)
+                        <option value="{{ $rfc->rfc }}" {{ $selectedRfc === $rfc->rfc ? 'selected' : '' }}>
+                            {{ $rfc->rfc }}{{ $rfc->razon_social ? ' — '.$rfc->razon_social : '' }}
+                        </option>
+                    @endforeach
+                </select>
+
+                <button type="submit" class="sv2Btn sv2Btn--v2">
+                    Usar RFC
+                </button>
+            </form>
+        </aside>
+    </div>
+</section>
+
+<section class="sv2DockWrap" aria-label="Navegación rápida del módulo SAT">
+    <div class="sv2Dock" id="sv2SectionDock">
+        <div class="sv2Dock__left">
+            <div class="sv2Dock__brand">
+                <div class="sv2Dock__title">Centro SAT</div>
+
+                <div class="sv2Dock__rfc">
+                    <span class="sv2Dock__rfcLabel">RFC activo</span>
+                    <strong class="sv2Dock__rfcValue">
+                        {{ $selectedRfc ?: 'Sin RFC' }}
+                    </strong>
+                </div>
+            </div>
+
+            <div class="sv2Dock__nav" role="tablist" aria-label="Secciones del módulo SAT">
+                <button type="button" class="sv2Dock__link is-active" data-sv2-jump="dataLoad">
+                    Centro SAT
+                </button>
+
+                <button type="button" class="sv2Dock__link" data-sv2-jump="metadata">
+                    Metadata
+                </button>
+
+                <button type="button" class="sv2Dock__link" data-sv2-jump="xml">
+                    XML CFDI
+                </button>
+
+                <button type="button" class="sv2Dock__link" data-sv2-jump="report">
+                    Reportes
+                </button>
+
+                <button type="button" class="sv2Dock__link" data-sv2-jump="fiscal">
+                    Resumen fiscal
+                </button>
+
+                <button type="button" class="sv2Dock__link" data-sv2-jump="downloads">
+                    Descargas
+                </button>
+            </div>
+        </div>
+
+        <div class="sv2Dock__actions">
+            <button type="button" class="sv2Dock__action" id="sv2ExpandAll">
+                Expandir todo
+            </button>
+
+            <button type="button" class="sv2Dock__action sv2Dock__action--ghost" id="sv2CollapseAll">
+                Contraer todo
+            </button>
+        </div>
+    </div>
+</section>
+
+<section class="sv2Section">
+    <div class="sv2KPIs">
+        <article class="sv2Kpi sv2Kpi--meta">
+            <div class="sv2Kpi__top">
+                <div class="sv2Icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M4 7a3 3 0 0 1 3-3h4M20 7a3 3 0 0 0-3-3h-4M4 17a3 3 0 0 0 3 3h4M20 17a3 3 0 0 1-3 3h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="sv2Kpi__label">RFC registrados</div>
+            </div>
+            <div class="sv2Kpi__value">{{ number_format($rfcs->count()) }}</div>
+            <div class="sv2Kpi__desc">Disponibles para operar.</div>
+        </article>
+
+        <article class="sv2Kpi sv2Kpi--xml">
+            <div class="sv2Kpi__top">
+                <div class="sv2Icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="sv2Kpi__label">RFC activo</div>
+            </div>
+            <div class="sv2Kpi__value">{{ $selectedRfc ?: '—' }}</div>
+            <div class="sv2Kpi__desc">{{ $selectedRfc ? 'Listo para operar.' : 'Selecciona un RFC.' }}</div>
+        </article>
+
+        <article class="sv2Kpi sv2Kpi--batch">
+            <div class="sv2Kpi__top">
+                <div class="sv2Icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M7 4h8l4 4v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M15 4v4h4" stroke="currentColor" stroke-width="1.8"/>
+                    </svg>
+                </div>
+                <div class="sv2Kpi__label">Metadata</div>
+            </div>
+            <div class="sv2Kpi__value">{{ number_format($metadataCount) }}</div>
+            <div class="sv2Kpi__desc">Registros cargados.</div>
+        </article>
+
+        <article class="sv2Kpi sv2Kpi--zip">
+            <div class="sv2Kpi__top">
+                <div class="sv2Icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M8 7 4 12l4 5M16 7l4 5-4 5M14 5l-4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="sv2Kpi__label">XML CFDI</div>
+            </div>
+            <div class="sv2Kpi__value">{{ number_format($cfdiCount) }}</div>
+            <div class="sv2Kpi__desc">CFDI procesados.</div>
+        </article>
+    </div>
+</section>
+
+<section class="sv2Section" id="dataLoadSection">
+    <div class="sv2MetaBar">
+        <div class="sv2MetaBar__left">
+            <span class="sv2MetaBar__title">Centro SAT</span>
+            <span class="sv2MetaBar__sub">
+                Flujo base del módulo: RFC, cotización, seguimiento, descarga y bóveda.
+            </span>
+        </div>
+
+        <button
+            type="button"
+            class="sv2MetaBar__toggle"
+            id="toggleDataLoad"
+            aria-label="Expandir o contraer centro SAT"
+            aria-expanded="true"
+        >
+            <span class="sv2MetaBar__icon">−</span>
+        </button>
+    </div>
+
+    <div class="sv2MetaContent" id="dataLoadBlock">
+        <div class="sv2Main sv2Main--single">
+            <div class="sv2Stack">
+
+                <div class="sv2Card">
+                    <div class="sv2Card__head">
+                        <div>
+                            <h3 class="sv2Card__title">Bloque 1 · RFC y credenciales</h3>
+                            <p class="sv2Card__text">
+                                Registra RFC de manera interna o externa. Este es el punto de entrada del flujo SAT.
                             </p>
                         </div>
 
-                        <div class="sv2Hero__chips">
-                            <span class="sv2Chip">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M7 4h8l4 4v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8"/>
-                                    <path d="M15 4v4h4" stroke="currentColor" stroke-width="1.8"/>
-                                </svg>
-                                Metadata
-                            </span>
+                        <span class="sv2Tag">
+                            {{ $selectedRfc ? 'RFC activo listo' : 'Pendiente de selección' }}
+                        </span>
+                    </div>
 
-                            <span class="sv2Chip">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M8 7 4 12l4 5M16 7l4 5-4 5M14 5l-4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                XML CFDI
-                            </span>
+                    <div class="sv2Card__body">
+                        <div class="sv2UploadsRow">
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__topbar">
+                                    <div class="sv2UploadCard__left">
+                                        <div class="sv2UploadCard__icon" aria-hidden="true">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                <path d="M4 7a3 3 0 0 1 3-3h4M20 7a3 3 0 0 0-3-3h-4M4 17a3 3 0 0 0 3 3h4M20 17a3 3 0 0 1-3 3h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                <path d="M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            </svg>
+                                        </div>
 
-                            <span class="sv2Chip">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M7 12h4l2-2 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                    <circle cx="7" cy="12" r="2" stroke="currentColor" stroke-width="1.8"/>
-                                    <circle cx="17" cy="12" r="2" stroke="currentColor" stroke-width="1.8"/>
-                                </svg>
-                                Conciliación
-                            </span>
+                                        <div class="sv2UploadCard__main">
+                                            <div class="sv2UploadCard__pills">
+                                                <span class="sv2UploadBadge">RFC</span>
+                                                <span class="sv2UploadChip">Interno / Externo</span>
+                                            </div>
 
-                            <span class="sv2Chip">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M12 16V8M12 16l-4-4M12 16l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                    <path d="M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                                </svg>
-                                Descargas
-                            </span>
+                                            <h3 class="sv2UploadCard__title">Administración de RFC</h3>
+                                        </div>
+                                    </div>
+
+                                    <div class="sv2UploadCard__percent">{{ $rfcs->count() > 0 ? 100 : 20 }}</div>
+                                </div>
+
+                                <div class="sv2UploadCard__progress">
+                                    <span class="sv2UploadCard__progressFill" style="width: {{ $rfcs->count() > 0 ? 100 : 20 }}%"></span>
+                                </div>
+
+                                <div class="sv2UploadCard__stats">
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Registrados</span>
+                                        <strong class="sv2UploadStat2__value">{{ number_format($rfcs->count()) }}</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Activo</span>
+                                        <strong class="sv2UploadStat2__value">{{ $selectedRfc ?: 'Sin RFC' }}</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Estado</span>
+                                        <strong class="sv2UploadStat2__value">{{ $selectedRfc ? 'Operativo' : 'Pendiente' }}</strong>
+                                    </div>
+                                </div>
+
+                                <div class="sv2UploadCard__footer">
+                                    <button
+                                        type="button"
+                                        class="sv2Btn sv2Btn--primary sv2Btn--tiny"
+                                        data-sv2-open="rfcManagerModal"
+                                    >
+                                        Gestionar RFC
+                                    </button>
+
+                                    <span class="sv2UploadCard__note">
+                                        Alta, edición y baja lógica.
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="sv2UploadCard sv2UploadCard--xml">
+                                <div class="sv2UploadCard__topbar">
+                                    <div class="sv2UploadCard__left">
+                                        <div class="sv2UploadCard__icon" aria-hidden="true">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                <path d="M7 12h10M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                            </svg>
+                                        </div>
+
+                                        <div class="sv2UploadCard__main">
+                                            <div class="sv2UploadCard__pills">
+                                                <span class="sv2UploadBadge sv2UploadBadge--xml">Bloque 2</span>
+                                                <span class="sv2UploadChip">Siguiente fase</span>
+                                            </div>
+
+                                            <h3 class="sv2UploadCard__title">Cotizaciones SAT</h3>
+                                        </div>
+                                    </div>
+
+                                    <div class="sv2UploadCard__percent">0</div>
+                                </div>
+
+                                <div class="sv2UploadCard__progress">
+                                    <span class="sv2UploadCard__progressFill sv2UploadCard__progressFill--xml" style="width: 0%"></span>
+                                </div>
+
+                                <div class="sv2UploadCard__stats">
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Estado</span>
+                                        <strong class="sv2UploadStat2__value">Pendiente</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Requiere</span>
+                                        <strong class="sv2UploadStat2__value">RFC operativo</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Destino</span>
+                                        <strong class="sv2UploadStat2__value">Solicitud admin</strong>
+                                    </div>
+                                </div>
+
+                                <div class="sv2UploadCard__footer">
+                                    <button type="button" class="sv2Btn sv2Btn--secondary sv2Btn--tiny" disabled>
+                                        Próximamente
+                                    </button>
+
+                                    <span class="sv2UploadCard__note">
+                                        Simulación y cotización formal.
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="sv2UploadCard sv2UploadCard--report">
+                                <div class="sv2UploadCard__topbar">
+                                    <div class="sv2UploadCard__left">
+                                        <div class="sv2UploadCard__icon" aria-hidden="true">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                <path d="M6 18h12M8 14h8M10 10h4M7 4h10l2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                            </svg>
+                                        </div>
+
+                                        <div class="sv2UploadCard__main">
+                                            <div class="sv2UploadCard__pills">
+                                                <span class="sv2UploadBadge sv2UploadBadge--report">Operación</span>
+                                                <span class="sv2UploadChip">Fase actual</span>
+                                            </div>
+
+                                            <h3 class="sv2UploadCard__title">Bóveda y cargas</h3>
+                                        </div>
+                                    </div>
+
+                                    <div class="sv2UploadCard__percent">{{ ($metadataUploads->count() + $xmlUploads->count() + ($reportUploads->count() ?? 0)) > 0 ? 100 : 35 }}</div>
+                                </div>
+
+                                <div class="sv2UploadCard__progress">
+                                    <span class="sv2UploadCard__progressFill sv2UploadCard__progressFill--report" style="width: {{ ($metadataUploads->count() + $xmlUploads->count() + ($reportUploads->count() ?? 0)) > 0 ? 100 : 35 }}%"></span>
+                                </div>
+
+                                <div class="sv2UploadCard__stats">
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Metadata</span>
+                                        <strong class="sv2UploadStat2__value">{{ number_format($metadataCount) }}</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">XML</span>
+                                        <strong class="sv2UploadStat2__value">{{ number_format($cfdiCount) }}</strong>
+                                    </div>
+
+                                    <div class="sv2UploadStat2">
+                                        <span class="sv2UploadStat2__label">Reportes</span>
+                                        <strong class="sv2UploadStat2__value">{{ number_format($reportCount ?? 0) }}</strong>
+                                    </div>
+                                </div>
+
+                                <div class="sv2UploadCard__footer">
+                                    <span class="sv2Btn sv2Btn--secondary sv2Btn--tiny" style="pointer-events:none;">
+                                        Ya operativo
+                                    </span>
+
+                                    <span class="sv2UploadCard__note">
+                                        Tu bóveda actual se conserva.
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <aside class="sv2HeroCard sv2HeroCard--v2">
-                    <div class="sv2HeroCard__header">
-                        <div class="sv2HeroCard__titles">
-                            <span class="sv2HeroCard__eyebrow">Acceso</span>
-                            <h3 class="sv2HeroCard__title">RFC de trabajo</h3>
+                <div class="sv2Card">
+                    <div class="sv2Card__head">
+                        <div>
+                            <h3 class="sv2Card__title">Alcances del flujo SAT</h3>
+                            <p class="sv2Card__text">
+                                Así queda organizado el módulo cliente para continuar el desarrollo por etapas.
+                            </p>
                         </div>
-
-                        <button
-                            type="button"
-                            class="sv2GearBtn"
-                            data-sv2-open="rfcManagerModal"
-                            title="Gestionar RFC"
-                        >
-                            ⚙️
-                        </button>
                     </div>
 
-                    <div class="sv2HeroCard__meta">
-                        <span class="sv2Count">{{ $rfcs->count() }} RFC</span>
+                    <div class="sv2Card__body">
+                        <div class="sv2UploadsRow">
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">1</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">RFC y credenciales</h3>
+                                    <p class="sv2Card__text">Registro interno o externo, administración y selección de RFC de trabajo.</p>
+                                </div>
+                            </div>
 
-                        @if($selectedRfc)
-                            <span class="sv2ActiveRFC" title="{{ $selectedRfc }}">
-                                {{ $selectedRfc }}
-                            </span>
-                        @endif
-                    </div>
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">2</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">Cotización</h3>
+                                    <p class="sv2Card__text">Simulación sin validez y solicitud formal enviada a admin.</p>
+                                </div>
+                            </div>
 
-                    <form method="GET" action="{{ route('cliente.sat.v2.index') }}" class="sv2HeroCard__form">
-                        <select name="rfc" class="sv2Select sv2Select--v2">
-                            <option value="">Selecciona un RFC</option>
-                            @foreach($rfcs as $rfc)
-                                <option value="{{ $rfc->rfc }}" {{ $selectedRfc === $rfc->rfc ? 'selected' : '' }}>
-                                    {{ $rfc->rfc }}{{ $rfc->razon_social ? ' — '.$rfc->razon_social : '' }}
-                                </option>
-                            @endforeach
-                        </select>
-
-                        <button type="submit" class="sv2Btn sv2Btn--v2">
-                            Entrar
-                        </button>
-                    </form>
-                </aside>
-            </div>
-        </section>
-
-            <section class="sv2DockWrap" aria-label="Navegación rápida del portal">
-                <div class="sv2Dock" id="sv2SectionDock">
-                    <div class="sv2Dock__left">
-                        <div class="sv2Dock__brand">
-                            <div class="sv2Dock__title">Descargas</div>
-
-                            <div class="sv2Dock__rfc">
-                                <span class="sv2Dock__rfcLabel">RFC Activo</span>
-                                <strong class="sv2Dock__rfcValue">
-                                    {{ $selectedRfc ?? $activeRfc ?? $rfcOwner ?? $currentRfc ?? 'Sin RFC' }}
-                                </strong>
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">3</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">Seguimiento y pago</h3>
+                                    <p class="sv2Card__text">Estado de cotización, pago por Stripe o transferencia y avance de descarga.</p>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="sv2Dock__nav" role="tablist" aria-label="Secciones del portal de descargas">
-                            <button type="button" class="sv2Dock__link is-active" data-sv2-jump="dataLoad">
-                                Carga de datos
-                            </button>
+                        <div class="sv2UploadsRow" style="margin-top:12px;">
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">4</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">Descarga SAT</h3>
+                                    <p class="sv2Card__text">Proceso admin y carga progresiva de archivos vinculados a la solicitud.</p>
+                                </div>
+                            </div>
 
-                            <button type="button" class="sv2Dock__link" data-sv2-jump="metadata">
-                                Metadata
-                            </button>
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">5</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">Bóveda V2</h3>
+                                    <p class="sv2Card__text">Consulta final de metadata, XML, reportes y descargas ya entregadas.</p>
+                                </div>
+                            </div>
 
-                            <button type="button" class="sv2Dock__link" data-sv2-jump="xml">
-                                XML CFDI
-                            </button>
-
-                            <button type="button" class="sv2Dock__link" data-sv2-jump="report">
-                                Reportes
-                            </button>
-
-                            <button type="button" class="sv2Dock__link" data-sv2-jump="fiscal">
-                                Resumen fiscal
-                            </button>
-
-                            <button type="button" class="sv2Dock__link" data-sv2-jump="downloads">
-                                Descargas
-                            </button>
+                            <div class="sv2UploadCard">
+                                <div class="sv2UploadCard__main">
+                                    <div class="sv2UploadCard__pills">
+                                        <span class="sv2UploadBadge">Actual</span>
+                                    </div>
+                                    <h3 class="sv2UploadCard__title">Operación técnica</h3>
+                                    <p class="sv2Card__text">Tus bloques técnicos actuales siguen disponibles debajo para no perder operación.</p>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-
-                    <div class="sv2Dock__actions">
-                        <button type="button" class="sv2Dock__action" id="sv2ExpandAll">
-                            Expandir todo
-                        </button>
-
-                        <button type="button" class="sv2Dock__action sv2Dock__action--ghost" id="sv2CollapseAll">
-                            Contraer todo
-                        </button>
                     </div>
                 </div>
-            </section>
 
-            <section class="sv2Section">
-                <div class="sv2Section__head">
-                </div>
-
-                <div class="sv2KPIs">
-                <article class="sv2Kpi sv2Kpi--meta">
-                    <div class="sv2Kpi__top">
-                        <div class="sv2Icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <path d="M7 4h8l4 4v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8"/>
-                                <path d="M15 4v4h4M8 12h8M8 16h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                            </svg>
-                        </div>
-                        <div class="sv2Kpi__label">Metadata</div>
-                    </div>
-                    <div class="sv2Kpi__value">{{ number_format($metadataCount) }}</div>
-                    <div class="sv2Kpi__desc">Base SAT cargada.</div>
-                </article>
-
-                <article class="sv2Kpi sv2Kpi--xml">
-                    <div class="sv2Kpi__top">
-                        <div class="sv2Icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <path d="M8 7 4 12l4 5M16 7l4 5-4 5M14 5l-4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </div>
-                        <div class="sv2Kpi__label">XML CFDI</div>
-                    </div>
-                    <div class="sv2Kpi__value">{{ number_format($cfdiCount) }}</div>
-                    <div class="sv2Kpi__desc">XML vinculados.</div>
-                </article>
-
-                <article class="sv2Kpi sv2Kpi--batch">
-                    <div class="sv2Kpi__top">
-                        <div class="sv2Icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <rect x="4" y="5" width="16" height="4" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
-                                <rect x="4" y="10" width="16" height="4" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
-                                <rect x="4" y="15" width="16" height="4" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
-                            </svg>
-                        </div>
-                        <div class="sv2Kpi__label">Lotes metadata</div>
-                    </div>
-                    <div class="sv2Kpi__value">{{ number_format($metadataUploads->count()) }}</div>
-                    <div class="sv2Kpi__desc">Lotes cargados.</div>
-                </article>
-
-                <article class="sv2Kpi sv2Kpi--zip">
-                    <div class="sv2Kpi__top">
-                        <div class="sv2Icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <path d="M8 4h8l4 4v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8"/>
-                                <path d="M12 9v6M10 13l2 2 2-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </div>
-                        <div class="sv2Kpi__label">Lotes XML</div>
-                    </div>
-                    <div class="sv2Kpi__value">{{ number_format($xmlUploads->count()) }}</div>
-                    <div class="sv2Kpi__desc">Paquetes XML.</div>
-                </article>
             </div>
-        </section>
+        </div>
+    </div>
+</section>
 
         @php
             $resolveProgress = function (bool $hasRfc, int $uploadsCount, int $itemsCount): int {

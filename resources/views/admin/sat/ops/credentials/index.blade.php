@@ -1,5 +1,5 @@
 {{-- resources/views/admin/sat/ops/credentials/index.blade.php --}}
-{{-- P360 · Admin · SAT Ops · Credenciales (v4.0 · Drawer derecho por fila + lista compacta) --}}
+{{-- P360 · Admin · SAT Ops · Credenciales (v6.0 · Clean admin redesign) --}}
 
 @extends('layouts.admin')
 
@@ -76,7 +76,7 @@
     $extVer = (bool)$pick($row, ['external_verified'], false);
 
     if ($extRfc !== '' || $isExt) {
-      return $extVer ? ['Externo · verificado','t-ext-ok'] : ['Externo','t-ext'];
+      return $extVer ? ['Externo verificado','t-ext-ok'] : ['Externo','t-ext'];
     }
     return ['Cliente','t-cli'];
   };
@@ -85,7 +85,7 @@
     $cer = (string)$pick($row, ['cer_path'], '');
     $key = (string)$pick($row, ['key_path'], '');
     $has = (trim($cer) !== '' && trim($key) !== '');
-    return $has ? ['CER/KEY','f-ok'] : ['Sin archivos','f-warn'];
+    return $has ? ['CER / KEY','f-ok'] : ['Incompleto','f-warn'];
   };
 
   $alertTag = function($row) use ($pick){
@@ -98,8 +98,8 @@
     if($w) $parts[] = 'WhatsApp';
     if($i) $parts[] = 'InApp';
 
-    if(empty($parts)) return ['Alertas: Off','al-off'];
-    return ['Alertas: '.implode(' · ', $parts),'al-on'];
+    if(empty($parts)) return ['Sin alertas','al-off'];
+    return [implode(' · ', $parts),'al-on'];
   };
 
   $short = function($v, $n=14){
@@ -108,7 +108,6 @@
     return strlen($v) > $n ? (substr($v,0,$n).'…') : $v;
   };
 
-  // Password: intenta decrypt/base64 y si no, tal cual (último recurso)
   $kpPlain = function($row) use ($pick){
     $enc = (string)$pick($row, ['key_password_enc'], '');
     $raw = (string)$pick($row, ['key_password'], '');
@@ -129,7 +128,6 @@
     return trim($out) !== '' ? $out : '';
   };
 
-  // Rutas: preferimos OPS (este controller), si no, fallback a /admin/sat/credentials/...
   $rtCerName = Route::has('admin.sat.ops.credentials.cer') ? 'admin.sat.ops.credentials.cer'
              : (Route::has('admin.sat.credentials.cer') ? 'admin.sat.credentials.cer' : null);
 
@@ -141,14 +139,44 @@
 
   $canGoAccount = Route::has('admin.billing.accounts.show');
 
+  $pageItems = collect($rows ? $rows->items() : []);
+  $kpiTotal = (int)($rows?->total() ?? 0);
+  $kpiValid = $pageItems->filter(function($row) use ($pick){
+    $isValid = (bool) $pick($row, ['is_valid'], false);
+    $stRaw   = strtolower(trim((string)$pick($row, ['sat_status'], '')));
+    return $isValid || in_array($stRaw, ['validado','valido','ok','active'], true);
+  })->count();
+
+  $kpiPending = $pageItems->filter(function($row) use ($pick){
+    $isValid = (bool) $pick($row, ['is_valid'], false);
+    $isBlock = (bool) $pick($row, ['is_blocked'], false);
+    $stRaw   = strtolower(trim((string)$pick($row, ['sat_status'], '')));
+    if ($isBlock || in_array($stRaw, ['bloqueado','blocked','error','invalid'], true)) return false;
+    if ($isValid || in_array($stRaw, ['validado','valido','ok','active'], true)) return false;
+    return true;
+  })->count();
+
+  $kpiBlocked = $pageItems->filter(function($row) use ($pick){
+    $isBlock = (bool) $pick($row, ['is_blocked'], false);
+    $stRaw   = strtolower(trim((string)$pick($row, ['sat_status'], '')));
+    return $isBlock || in_array($stRaw, ['bloqueado','blocked','error','invalid'], true);
+  })->count();
+
+  $kpiWithFiles = $pageItems->filter(function($row) use ($pick){
+    $cer = trim((string)$pick($row, ['cer_path'], ''));
+    $key = trim((string)$pick($row, ['key_path'], ''));
+    return $cer !== '' && $key !== '';
+  })->count();
 @endphp
 
 @section('page-header')
-  <div class="p360-ph">
+  <div class="p360-ph p360-ph-ops">
     <div class="p360-ph-left">
       <div class="p360-ph-kicker">ADMIN · SAT OPS</div>
-      <h1 class="p360-ph-title">Credenciales</h1>
-      <div class="p360-ph-sub">Control operativo de RFCs: cuenta, origen, archivos, alertas y estatus SAT.</div>
+      <h1 class="p360-ph-title">Credenciales SAT</h1>
+      <div class="p360-ph-sub">
+        Revisión operativa de cuentas, archivos CER / KEY, validación SAT, alertas y detalle técnico desde un solo panel.
+      </div>
     </div>
 
     <div class="p360-ph-right">
@@ -164,18 +192,57 @@
        data-csrf="{{ csrf_token() }}"
        data-rt-delete="{{ $rtDeleteName ? route($rtDeleteName, ['id' => '___ID___']) : '' }}">
 
-    {{-- Filters --}}
-    <form class="ops-toolbar" method="GET" action="{{ url()->current() }}">
-      <div class="ops-search">
-        <div class="lbl">Buscar</div>
-        <input id="opsSearch" name="q" class="inp" type="search"
-               value="{{ $q }}" placeholder="Cuenta, RFC, razón social, cuenta_id, ID, externo..." autocomplete="off">
+    {{-- Header operativo compacto --}}
+    <section class="ops-overview">
+      <div class="ops-overview__main">
+        <div class="ops-overview__eyebrow">Panel operativo</div>
+        <h2 class="ops-overview__title">Gestión central de credenciales</h2>
+        <p class="ops-overview__text">
+          Busca por RFC o cuenta, revisa estado, origen, archivos y abre el detalle completo en el panel lateral.
+        </p>
       </div>
 
-      <div class="ops-filters">
-        <div class="ops-select">
-          <div class="lbl">Estatus</div>
-          <select name="status" class="sel">
+      <div class="ops-overview__stats">
+        <article class="ops-stat-card">
+          <div class="ops-stat-card__label">Total</div>
+          <div class="ops-stat-card__value">{{ number_format($kpiTotal) }}</div>
+        </article>
+
+        <article class="ops-stat-card">
+          <div class="ops-stat-card__label">Validados</div>
+          <div class="ops-stat-card__value">{{ number_format($kpiValid) }}</div>
+        </article>
+
+        <article class="ops-stat-card">
+          <div class="ops-stat-card__label">Pendientes</div>
+          <div class="ops-stat-card__value">{{ number_format($kpiPending) }}</div>
+        </article>
+
+        <article class="ops-stat-card">
+          <div class="ops-stat-card__label">Con archivos</div>
+          <div class="ops-stat-card__value">{{ number_format($kpiWithFiles) }}</div>
+        </article>
+      </div>
+    </section>
+
+    {{-- Filtros --}}
+    <form class="ops-toolbar ops-toolbar--inline" method="GET" action="{{ url()->current() }}">
+      <form class="ops-toolbar ops-toolbar--one-line" method="GET" action="{{ url()->current() }}">
+      <div class="ops-one-line">
+        <div class="ops-one-line__search">
+          <label class="lbl lbl--sr" for="opsSearch">Buscar</label>
+          <div class="field-wrap field-wrap-search">
+            <span class="field-ico">⌕</span>
+            <input id="opsSearch" name="q" class="inp" type="search"
+                  value="{{ $q }}"
+                  placeholder="RFC, razón social, cuenta_id, ID, externo..."
+                  autocomplete="off">
+          </div>
+        </div>
+
+        <div class="ops-one-line__item ops-one-line__item--status">
+          <label class="lbl lbl--micro" for="opsStatus">Estatus</label>
+          <select id="opsStatus" name="status" class="sel">
             <option value=""          @selected($status==='')>Todos</option>
             <option value="validado"  @selected($status==='validado')>Validado</option>
             <option value="pendiente" @selected($status==='pendiente')>Pendiente</option>
@@ -183,38 +250,38 @@
           </select>
         </div>
 
-        <div class="ops-select">
-          <div class="lbl">Origen</div>
-          <select name="origin" class="sel">
+        <div class="ops-one-line__item ops-one-line__item--origin">
+          <label class="lbl lbl--micro" for="opsOrigin">Origen</label>
+          <select id="opsOrigin" name="origin" class="sel">
             <option value=""         @selected($origin==='')>Todos</option>
             <option value="cliente"  @selected($origin==='cliente')>Cliente</option>
             <option value="externo"  @selected($origin==='externo')>Externo</option>
           </select>
         </div>
 
-        <div class="ops-select ops-select-sm">
-          <div class="lbl">Por pág.</div>
-          <select name="per" class="sel">
+        <div class="ops-one-line__item ops-one-line__item--per">
+          <label class="lbl lbl--micro" for="opsPer">Por pág.</label>
+          <select id="opsPer" name="per" class="sel">
             @foreach([10,25,50,100,200] as $n)
               <option value="{{ $n }}" @selected((int)$per===$n)>{{ $n }}</option>
             @endforeach
           </select>
         </div>
 
-        <div class="ops-actions-right">
+        <div class="ops-one-line__actions">
           <button class="p360-btn p360-btn-primary" type="submit">Aplicar</button>
           <a class="p360-btn" href="{{ url()->current() }}">Limpiar</a>
         </div>
       </div>
     </form>
 
-    {{-- Summary strip --}}
-    <div class="ops-summary">
+    {{-- Barra de contexto --}}
+    <div class="ops-summary ops-summary--clean">
       <div class="sum-left">
-        <div class="sum-title">Resultados</div>
+        <div class="sum-title">Listado de credenciales</div>
         <div class="sum-sub">
           @if($rows)
-            Mostrando {{ $rows->firstItem() ?? 0 }}–{{ $rows->lastItem() ?? 0 }} de {{ $rows->total() }}
+            Mostrando {{ $rows->firstItem() ?? 0 }}–{{ $rows->lastItem() ?? 0 }} de {{ $rows->total() }} registros
           @else
             —
           @endif
@@ -222,13 +289,13 @@
       </div>
 
       <div class="sum-right">
-        <span class="chip">Ruta: <span class="mono">/admin/sat/ops/credentials</span></span>
-        <span class="chip">Fuente: <span class="mono">mysql_clientes.sat_credentials</span></span>
+        <span class="chip">Ruta <span class="mono">/admin/sat/ops/credentials</span></span>
+        <span class="chip">Fuente <span class="mono">mysql_clientes.sat_credentials</span></span>
       </div>
     </div>
 
-    {{-- List (compact) --}}
-    <div class="ops-table ops-v3 ops-compact">
+    {{-- Listado --}}
+    <div class="ops-table ops-v6 ops-compact">
       <div class="ops-table-head">
         <div class="th">Cuenta / RFC</div>
         <div class="th">Origen</div>
@@ -242,7 +309,7 @@
         <div class="ops-empty">
           <div class="empty-ico">🗂️</div>
           <div class="empty-title">Sin resultados</div>
-          <div class="empty-sub">Ajusta filtros o limpia la búsqueda.</div>
+          <div class="empty-sub">Ajusta filtros o limpia la búsqueda para volver a cargar registros.</div>
         </div>
       @else
         @foreach($rows as $row)
@@ -252,13 +319,6 @@
             $rfc    = $fmtRfc(data_get($row,'rfc'));
             $name   = $fmt($pick($row, ['razon_social','alias','nombre'], '—'));
 
-            // Cuenta (detalles reales si vienen del controller)
-            $accEmail   = trim((string)$pick($row, ['account_email'], ''));
-            $accPhone   = trim((string)$pick($row, ['account_phone'], ''));
-            $accStatus  = trim((string)$pick($row, ['account_status'], ''));
-            $accPlan    = trim((string)$pick($row, ['account_plan'], ''));
-            
-            // Cuenta (hidratada por controller)
             $accountHint = trim((string)$pick($row, ['account_hint'], ''));
             $accountRef  = $fmt($pick($row, ['account_ref_id'], '—'));
             $aidFull     = $fmt($pick($row, ['account_id'], '—'));
@@ -267,7 +327,6 @@
             $accountName = trim((string)$pick($row, ['account_name'], ''));
             $accTitle    = $accountName !== '' ? $accountName : ($name !== '—' ? $name : 'Cuenta');
 
-            // Detalle real de cuenta (drawer)
             $accEmail    = trim((string)$pick($row, ['account_email'], ''));
             $accPhone    = trim((string)$pick($row, ['account_phone'], ''));
             $accStatus   = trim((string)$pick($row, ['account_status'], ''));
@@ -294,7 +353,6 @@
             $hasCer = trim((string)$pick($row, ['cer_path'], '')) !== '';
             $hasKey = trim((string)$pick($row, ['key_path'], '')) !== '';
 
-            // Meta
             $metaRaw = $pick($row, ['meta'], null);
             try{
               if (is_string($metaRaw)) $metaJson = $metaRaw;
@@ -304,18 +362,12 @@
             }
             $metaJson = $metaJson ?: '{}';
 
-            // URLs descargas
             $cerUrl = $rtCerName ? route($rtCerName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/cer');
             $keyUrl = $rtKeyName ? route($rtKeyName, ['id' => $id]) : url('/admin/sat/credentials/'.$id.'/key');
 
-            // Link cuenta (SIEMPRE debe ser admin_account_id numérico)
-            $adminAccountId = trim((string)$pick($row, ['account_admin_id','admin_account_id'], ''));
-
-            // Link cuenta (✅ usa ID numérico real si viene hidratado)
             $accountUrl = null;
             $accountLinkId = trim((string)$pick($row, ['account_link_id'], ''));
 
-            // fallback: si por alguna razón ya viniera numérico en account_ref_id
             if ($accountLinkId === '') {
               $tmp = trim((string)$pick($row, ['account_ref_id'], ''));
               if ($tmp !== '' && ctype_digit($tmp)) $accountLinkId = $tmp;
@@ -325,9 +377,6 @@
               try { $accountUrl = route('admin.billing.accounts.show', ['id' => $accountLinkId]); }
               catch(\Throwable) { $accountUrl = null; }
             }
-
-
-
           @endphp
 
           <div class="tr tr-compact"
@@ -369,39 +418,39 @@
                data-acc-phone="{{ e($accPhone) }}"
                data-acc-status="{{ e($accStatus) }}"
                data-acc-plan="{{ e($accPlan) }}"
-               data-acc-created="{{ e($accCreated) }}"
+               data-acc-created="{{ e($accCreated) }}">
 
-          >
-
-            {{-- COL 1: Cuenta / RFC --}}
             <div class="td td-c1">
               <div class="c1-top">
-                <div class="c1-acc" title="{{ $accTitle }}">{{ $accTitle }}</div>
+                <div class="c1-avatar">{{ strtoupper(substr($rfc !== '—' ? $rfc : $name, 0, 1)) }}</div>
+                <div class="c1-head">
+                  <div class="c1-acc" title="{{ $accTitle }}">{{ $accTitle }}</div>
+                  <div class="c1-sub">
+                    <span class="mono c1-rfc" title="{{ $rfc }}">{{ $rfc }}</span>
+                    <span class="dotsep">•</span>
+                    <span class="c1-name" title="{{ $name }}">{{ $name }}</span>
+                  </div>
+                </div>
                 <span class="pill {{ $bCls }}">{{ $bTxt }}</span>
               </div>
-              <div class="c1-sub">
-                <span class="mono c1-rfc" title="{{ $rfc }}">{{ $rfc }}</span>
-                <span class="dotsep">•</span>
-                <span class="c1-name" title="{{ $name }}">{{ $name }}</span>
-              </div>
+
               <div class="c1-mini">
                 <span class="mini mono" title="ID">{{ $short($id, 18) }}</span>
                 @if($accountHint !== '')
-                  <span class="dotsep">•</span>
-                  <span class="mini" title="{{ $accountHint }}">Fuente: {{ $accountHint }}</span>
+                  <span class="mini" title="{{ $accountHint }}">{{ $accountHint }}</span>
                 @endif
               </div>
             </div>
 
-            {{-- COL 2: Origen --}}
             <div class="td td-c2">
               <span class="tag {{ $oCls }}" title="{{ $originHint }}">{{ $oTxt }}</span>
               @if($extRfc !== '')
                 <div class="hint mono" title="{{ $extRfc }}">{{ $extRfc }}</div>
+              @else
+                <div class="hint">Sin RFC externo</div>
               @endif
             </div>
 
-            {{-- COL 3: Archivos --}}
             <div class="td td-c3">
               <div class="stack">
                 <span class="tag {{ $fCls }}">{{ $fTxt }}</span>
@@ -413,15 +462,13 @@
               </div>
             </div>
 
-            {{-- COL 4: SAT / Alertas --}}
             <div class="td td-c4">
               <span class="tag {{ $alCls }}">{{ $alTxt }}</span>
               <div class="hint" title="Última alerta">
-                {{ $lastAlertAt ? $ago($lastAlertAt) : '—' }}
+                {{ $lastAlertAt ? $ago($lastAlertAt) : 'Sin alertas registradas' }}
               </div>
             </div>
 
-            {{-- COL 5: Actividad --}}
             <div class="td td-c5">
               <div class="kvline">
                 <span class="k">Alta</span>
@@ -433,14 +480,13 @@
               </div>
             </div>
 
-            {{-- COL 6: Acciones --}}
             <div class="td td-actions">
               <div class="act act-compact">
-                <button class="a a-primary" type="button" data-open-cred>Ver</button>
+                <button class="a a-primary" type="button" data-open-cred>Ver detalle</button>
                 <button class="a a-ghost" type="button" data-copy="{{ e($rfc) }}" data-toast="RFC copiado">Copiar</button>
 
                 <div class="kebab" data-menu>
-                  <button class="kebab-btn" type="button" aria-label="Herramientas" data-menu-btn>⋯</button>
+                  <button class="a a-ghost kebab-btn" type="button" aria-label="Herramientas" data-menu-btn>⋯</button>
                   <div class="kebab-menu" data-menu-panel aria-hidden="true">
                     <button type="button" class="km-item"
                             data-meta-btn
@@ -458,7 +504,6 @@
                     @endif
                   </div>
                 </div>
-
               </div>
             </div>
 
@@ -467,7 +512,6 @@
       @endif
     </div>
 
-    {{-- Pagination --}}
     @if($rows && $rows->hasPages())
       <div class="ops-pager">
         {{ $rows->links() }}
@@ -494,10 +538,8 @@
       </div>
 
       <div class="drawer-body">
-
         <div class="d-grid">
 
-          {{-- Cuenta --}}
           <section class="d-card">
             <div class="d-card-h">
               <div class="d-card-t">Cuenta</div>
@@ -539,8 +581,7 @@
               <div class="v" id="credAccCreated">—</div>
             </div>
 
-
-             <div class="d-ids">
+            <div class="d-ids">
               <div class="idrow">
                 <div class="k">Cuenta ref</div>
                 <div class="v mono" id="credAccRef">—</div>
@@ -563,10 +604,8 @@
                 </div>
               </details>
             </div>
-
           </section>
 
-          {{-- Origen / SAT --}}
           <section class="d-card">
             <div class="d-card-h">
               <div class="d-card-t">Origen / SAT</div>
@@ -591,7 +630,6 @@
             </div>
           </section>
 
-          {{-- Archivos / Password --}}
           <section class="d-card">
             <div class="d-card-h">
               <div class="d-card-t">Archivos</div>
@@ -618,7 +656,6 @@
             </div>
           </section>
 
-          {{-- Actividad --}}
           <section class="d-card">
             <div class="d-card-h">
               <div class="d-card-t">Actividad</div>
@@ -641,7 +678,6 @@
             </div>
           </section>
 
-          {{-- Acciones --}}
           <section class="d-card d-card-actions">
             <div class="d-card-h">
               <div class="d-card-t">Acciones</div>
@@ -673,7 +709,7 @@
     </div>
   </div>
 
-  {{-- Meta Drawer (se conserva) --}}
+  {{-- Meta Drawer --}}
   <div class="p360-drawer" id="metaDrawer" aria-hidden="true">
     <div class="drawer-backdrop" data-drawer-close></div>
     <div class="drawer-card" role="dialog" aria-modal="true" aria-label="Meta">

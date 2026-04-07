@@ -1,0 +1,468 @@
+.page-admin-sat-ops-v3 .page-container{
+    width: 100%;
+    max-width: none;
+    padding-top: 10px;
+    padding-left: 16px;
+    padding-right: 16px;
+}
+
+.satOpsWrap{
+    display: grid;
+    gap: 18px;
+}
+
+/* =========================================================
+   HERO LIMPIO
+========================================================= */
+.satOpsHero{
+    display: block;
+    width: 100%;
+    padding: 0;
+}
+
+.satOpsHero__main{
+    width: 100%;
+    min-height: 154px;
+    padding: 28px 30px;
+    border: 1px solid color-mix(in oklab, var(--bd) 86%, transparent);
+    border-radius: 22px;
+    background:
+        radial-gradient(circle at top right, rgba(255,255,255,.08), transparent 26%),
+        linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+    box-shadow: 0 14px 32px rgba(15,23,42,.10);
+    display: flex;
+    align-items: center;
+}
+
+.satOpsHero__content{
+    width: 100%;
+    max-width: 980px;
+}
+
+.satOpsHero__eyebrow{
+    font: 800 11px/1 system-ui;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.72);
+}
+
+.satOpsHero__title{
+    margin: 10px 0 0;
+    font: 900 34px/1.05 system-ui;
+    letter-spacing: -.03em;
+    color: #fff;
+}
+
+.satOpsHero__subtitle{
+    margin: 12px 0 0;
+    max-width: 840px;
+    font: 500 14px/1.6 system-ui;
+    color: rgba(255,255,255,.86);
+}
+
+.satOpsHero__actions{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+/* =========================================================
+   BOTONES
+========================================================= */
+.satOpsBtn{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.18);
+    background: rgba(255,255,255,.10);
+    color: #fff;
+    text-decoration: none;
+    font: 700 13px/1 system-ui;
+    transition: transform .14s ease, box-shadow .14s ease, background .14s ease;
+}
+
+.satOpsBtn:hover{
+    transform: translateY(-1px);
+    background: rgba(255,255,255,.14);
+}
+
+.satOpsBtn--primary{
+    border-color: #fff;
+    background: #fff;
+    color: #1d4ed8;
+    box-shadow: 0 10px 24px rgba(255,255,255,.14);
+}
+
+.satOpsBtn--primary:hover{
+    background: #f8fafc;
+}
+
+/* =========================================================
+   LAYOUT PRINCIPAL
+========================================================= */
+.satOpsBoard{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 18px;
+    align-items: start;
+}
+
+.satOpsBoard__main{
+    display: grid;
+    gap: 18px;
+}
+
+.satOpsBoard__aside{
+    display: grid;
+    gap: 16px;
+}
+
+/* =========================================================
+   SECCIONES
+========================================================= */
+.satOpsSection{
+    display: grid;
+    gap: 14px;
+}
+
+.satOpsSectionHead{
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.satOpsSectionHead--clean{
+    padding: 4px 2px;
+}
+
+.satOpsSectionTitle{
+    margin: 0;
+    font: 850 24px/1.08 system-ui;
+    letter-spacing: -.025em;
+    color: var(--text);
+}
+
+.satOpsSectionText{
+    margin: 6px 0 0;
+    font: 500 13px/1.55 system-ui;
+    color: var(--muted);
+}
+
+.satOpsSectionMeta{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.satOpsKicker{
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--bd);
+    background: color-mix(in oklab, var(--panel-bg) 74%, transparent);
+    color: var(--text);
+    font: 700 12px/1 system-ui;
+}
+
+/* =========================================================
+   GRID DE MÓDULOS
+========================================================= */
+.satOpsGrid{
+    display: grid;
+    gap: 14px;
+}
+
+.satOpsGrid--4{
+    grid-template-columns: repeat(4, minmax(0,1fr));
+}
+
+.satOpsCard{
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 190px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in oklab, var(--bd) 88%, transparent);
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(15,23,42,.05);
+    text-decoration: none;
+    color: inherit;
+    overflow: hidden;
+    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+}
+
+.satOpsCard:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(15,23,42,.08);
+    border-color: color-mix(in oklab, #3b82f6 22%, var(--bd));
+}
+
+.satOpsCard.is-disabled{
+    opacity: .68;
+}
+
+.satOpsCard--clean::before{
+    content: '';
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, #1d4ed8 0%, #60a5fa 100%);
+    opacity: .95;
+}
+
+.satOpsCard__top{
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.satOpsCard__body{
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.satOpsCard__icon{
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    font-size: 21px;
+    border: 1px solid var(--bd);
+    background: color-mix(in oklab, var(--panel-bg) 78%, transparent);
+}
+
+.satOpsBadge{
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font: 700 11px/1 system-ui;
+    border: 1px solid var(--bd);
+    white-space: nowrap;
+}
+
+.satOpsBadge--on{
+    background: #ecfdf3;
+    color: #047857;
+    border-color: #a7f3d0;
+}
+
+.satOpsBadge--off{
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fdba74;
+}
+
+.satOpsCard__title{
+    font: 800 18px/1.15 system-ui;
+    letter-spacing: -.02em;
+    color: var(--text);
+}
+
+.satOpsCard__desc{
+    font: 500 13px/1.6 system-ui;
+    color: var(--muted);
+}
+
+.satOpsCard__bottom{
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid color-mix(in oklab, var(--text) 10%, transparent);
+    font: 700 12px/1 system-ui;
+    color: var(--text);
+}
+
+/* =========================================================
+   PANELS LATERALES
+========================================================= */
+.satOpsPanel{
+    border: 1px solid color-mix(in oklab, var(--bd) 88%, transparent);
+    border-radius: 18px;
+    background: var(--card-bg);
+    box-shadow: 0 8px 24px rgba(15,23,42,.05);
+    padding: 18px;
+}
+
+.satOpsPanel__head{
+    display: grid;
+    gap: 6px;
+}
+
+.satOpsPanel__title{
+    margin: 0;
+    font: 800 17px/1.15 system-ui;
+    color: var(--text);
+    letter-spacing: -.02em;
+}
+
+.satOpsPanel__text{
+    margin: 0;
+    font: 500 13px/1.55 system-ui;
+    color: var(--muted);
+}
+
+.satOpsQuickActions{
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.satOpsMiniAction{
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 13px;
+    border-radius: 14px;
+    border: 1px solid var(--bd);
+    background: color-mix(in oklab, var(--panel-bg) 48%, transparent);
+    text-decoration: none;
+    color: inherit;
+    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+}
+
+.satOpsMiniAction:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(15,23,42,.05);
+    border-color: color-mix(in oklab, #3b82f6 20%, var(--bd));
+}
+
+.satOpsMiniAction.is-disabled{
+    opacity: .6;
+    cursor: default;
+}
+
+.satOpsMiniAction__icon{
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+}
+
+.satOpsMiniAction strong{
+    display: block;
+    font: 700 13px/1.15 system-ui;
+    color: var(--text);
+}
+
+.satOpsMiniAction small{
+    display: block;
+    margin-top: 4px;
+    font: 500 12px/1.2 system-ui;
+    color: var(--muted);
+}
+
+.satOpsList{
+    margin: 12px 0 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 8px;
+    color: var(--text);
+}
+
+.satOpsList--clean li{
+    font: 600 13px/1.5 system-ui;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 1380px){
+    .satOpsGrid--4{
+        grid-template-columns: repeat(3, minmax(0,1fr));
+    }
+}
+
+@media (max-width: 1180px){
+    .page-admin-sat-ops-v3 .page-container{
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .satOpsBoard{
+        grid-template-columns: 1fr;
+    }
+
+    .satOpsGrid--4{
+        grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+
+    .satOpsHero__main{
+        padding: 26px 24px;
+    }
+
+    .satOpsHero__title{
+        font-size: 30px;
+    }
+}
+
+@media (max-width: 900px){
+    .satOpsSectionHead{
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .satOpsGrid--4{
+        grid-template-columns: 1fr;
+    }
+
+    .satOpsHero__main{
+        min-height: 136px;
+        padding: 22px 18px;
+        border-radius: 18px;
+    }
+
+    .satOpsHero__title{
+        font-size: 26px;
+    }
+
+    .satOpsHero__actions{
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .satOpsBtn{
+        width: 100%;
+    }
+}
+
+@media (max-width: 640px){
+    .page-admin-sat-ops-v3 .page-container{
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .satOpsHero__main,
+    .satOpsCard,
+    .satOpsPanel{
+        border-radius: 16px;
+    }
+
+    .satOpsHero__title{
+        font-size: 23px;
+        line-height: 1.08;
+    }
+
+    .satOpsCard{
+        min-height: 176px;
+        padding: 16px;
+    }
+}

@@ -21,6 +21,7 @@ use App\Http\Controllers\Cliente\Sat\SatZipController;
 use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
 use App\Http\Controllers\Cliente\Sat\FielExternalController;
 use App\Http\Controllers\Cliente\Sat\SatVaultV2Controller;
+use App\Http\Controllers\Cliente\Sat\SatRfcController;
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -168,6 +169,25 @@ Route::middleware(['auth:web', 'account.active'])
         |----------------------------------------------------------------------
         */
         Route::get('/', [SatDescargaController::class, 'index'])->name('index');
+
+        Route::get('/rfcs', [SatRfcController::class, 'index'])->name('rfcs.index');
+
+        $rfcStoreMaster = Route::post('/rfcs/store', [SatRfcController::class, 'store'])
+            ->middleware($thrCredsAlias)
+            ->name('rfcs.store');
+        $noCsrfLocal($rfcStoreMaster);
+        
+        $rfcUpdateMaster = Route::post('/rfcs/update/{id}', [SatRfcController::class, 'update'])
+            ->where('id', '[A-Za-z0-9\-_]+')
+            ->middleware($thrCredsAlias)
+            ->name('rfcs.update');
+        $noCsrfLocal($rfcUpdateMaster);
+
+        $rfcDeleteMaster = Route::post('/rfcs/delete/{id}', [SatRfcController::class, 'destroy'])
+            ->where('id', '[A-Za-z0-9\-_]+')
+            ->middleware($thrCredsAlias)
+            ->name('rfcs.delete');
+        $noCsrfLocal($rfcDeleteMaster);
 
         Route::get('/dashboard/stats', [SatDescargaController::class, 'dashboardStats'])
             ->middleware($thrVerify)

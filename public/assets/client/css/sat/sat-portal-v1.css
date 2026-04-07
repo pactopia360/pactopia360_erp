@@ -1023,3 +1023,309 @@ html[data-theme="light"] body main#clientMain.content.page-sat .card{
   font-weight: 850;
   color: var(--p360-ink);
 }
+
+/* =========================================================
+   SAT Portal v2 · Paso 1
+   Hero + toolbar + refinado visual superior
+========================================================= */
+
+.sat4-hero{
+  margin-bottom:14px;
+}
+
+.sat4-hero-main{
+  display:grid;
+  grid-template-columns:minmax(0,1.4fr) 320px;
+  gap:16px;
+  padding:18px;
+  border-radius:28px;
+  border:1px solid rgba(37,99,235,.14);
+  background:linear-gradient(135deg, #0f2748 0%, #163d8f 52%, #3b82f6 100%);
+  box-shadow:0 26px 80px rgba(2,6,23,.16);
+  color:#fff;
+}
+
+.sat4-hero-copy{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  min-height:150px;
+}
+
+.sat4-hero-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  font-size:12px;
+  font-weight:950;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.92);
+  margin-bottom:10px;
+}
+
+.sat4-hero-title{
+  margin:0;
+  font-size:30px;
+  line-height:1.05;
+  font-weight:980;
+  letter-spacing:-.03em;
+  color:#fff;
+}
+
+.sat4-hero-subtitle{
+  margin:12px 0 0;
+  max-width:760px;
+  font-size:14px;
+  line-height:1.55;
+  font-weight:700;
+  color:rgba(255,255,255,.86);
+}
+
+.sat4-hero-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:16px;
+}
+
+.sat4-hero-chip{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:34px;
+  padding:0 14px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.10);
+  color:#fff;
+  font-size:12px;
+  font-weight:900;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+.sat4-hero-side{
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(10px);
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.sat4-hero-side-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.sat4-hero-side-kicker{
+  font-size:11px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:rgba(255,255,255,.78);
+}
+
+.sat4-hero-side-title{
+  margin-top:4px;
+  font-size:20px;
+  line-height:1.05;
+  font-weight:980;
+  color:#fff;
+}
+
+.sat4-hero-gear{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.10);
+  color:#fff;
+  cursor:pointer;
+}
+
+.sat4-hero-side-tags{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.sat4-hero-tag{
+  display:inline-flex;
+  align-items:center;
+  min-height:30px;
+  padding:0 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.12);
+  color:#fff;
+  font-size:11px;
+  font-weight:950;
+}
+
+.sat4-hero-side-form{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-top:auto;
+}
+
+.sat4-btn-block{
+  width:100%;
+}
+
+.sat4-toolbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:14px;
+  padding:12px 14px;
+  border-radius:22px;
+  border:1px solid var(--p360-bd);
+  background:rgba(255,255,255,.90);
+  box-shadow:var(--p360-shadow2);
+  margin-bottom:14px;
+}
+
+.sat4-toolbar-left{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+
+.sat4-toolbar-title{
+  font-size:14px;
+  font-weight:980;
+  color:var(--p360-ink);
+}
+
+.sat4-toolbar-rfc{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.sat4-toolbar-rfc-label{
+  font-size:11px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--p360-mut);
+}
+
+.sat4-toolbar-rfc-value{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  padding:0 10px;
+  border-radius:999px;
+  background:rgba(37,99,235,.10);
+  color:var(--p360-accent);
+  font-size:11px;
+  font-weight:980;
+  border:1px solid rgba(37,99,235,.14);
+}
+
+.sat4-toolbar-tabs{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.sat4-toolbar-tab{
+  min-height:34px;
+  padding:0 14px;
+  border-radius:999px;
+  border:1px solid rgba(15,23,42,.10);
+  background:#fff;
+  color:var(--p360-ink);
+  font-size:12px;
+  font-weight:900;
+  cursor:pointer;
+  box-shadow:0 8px 18px rgba(2,6,23,.04);
+}
+
+.sat4-toolbar-tab.is-active{
+  background:rgba(37,99,235,.92);
+  color:#fff;
+  border-color:rgba(37,99,235,.20);
+}
+
+.sat4-toolbar-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.sat4-kpis2--v2{
+  margin-bottom:14px;
+}
+
+.sat4-kpi2--metric{
+  min-height:82px;
+}
+
+.sat4-workspace--v2 .sat4-work-card,
+.sat4-portal--v2 .sat4-portal-card{
+  border-radius:24px;
+}
+
+.sat4-work-grid--v2{
+  grid-template-columns:1.25fr repeat(3, minmax(0,1fr));
+}
+
+.sat4-workspace--v2 .sat4-work-cta{
+  min-height:88px;
+}
+
+.sat4-portal--v2 .sat4-portal-head{
+  background:rgba(15,23,42,.015);
+}
+
+@media (max-width:1100px){
+  .sat4-hero-main{
+    grid-template-columns:1fr;
+  }
+
+  .sat4-work-grid--v2{
+    grid-template-columns:1fr 1fr;
+  }
+
+  .sat4-toolbar{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .sat4-toolbar-actions{
+    justify-content:flex-start;
+  }
+}
+
+@media (max-width:640px){
+  .sat4-hero-main{
+    padding:16px;
+    border-radius:22px;
+  }
+
+  .sat4-hero-title{
+    font-size:24px;
+  }
+
+  .sat4-toolbar{
+    padding:12px;
+  }
+
+  .sat4-work-grid--v2{
+    grid-template-columns:1fr;
+  }
+}

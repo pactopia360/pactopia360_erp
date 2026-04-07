@@ -53,6 +53,7 @@ use App\Http\Controllers\Admin\Usuarios\AdministrativosController;
 use App\Http\Controllers\Admin\Billing\Sat\SatDiscountCodesController as AdminSatDiscountCodesController;
 use App\Http\Controllers\Admin\Billing\Sat\SatPriceRulesController as AdminSatPriceRulesController;
 use App\Http\Controllers\Admin\Sat\SatCredentialsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsRfcsController;
 
 //Facturacion
 use App\Http\Controllers\Admin\Billing\EmisoresController;
@@ -65,6 +66,7 @@ use App\Http\Controllers\Admin\Sat\Ops\SatOpsDownloadsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsManualRequestsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsPaymentsController;
 
+
 // Finanzas (módulo)
 use App\Http\Controllers\Admin\Finance\CostCentersController;
 use App\Http\Controllers\Admin\Finance\IncomeController;
@@ -75,6 +77,7 @@ use App\Http\Controllers\Admin\Finance\CommissionsController;
 use App\Http\Controllers\Admin\Finance\ProjectionsController;
 use App\Http\Controllers\Admin\Finance\IncomeActionsController;
 use App\Http\Controllers\Admin\Finance\ExpensesActionsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsVaultAccessController;
 
 /*
 |--------------------------------------------------------------------------
@@ -1181,6 +1184,35 @@ Route::middleware([
             }
         });
 
+        Route::prefix('vault-access')->name('vault_access.')->group(function () use ($thrAdminPosts, $isLocal) {
+                Route::get('/', [SatOpsVaultAccessController::class, 'index'])->name('index');
+
+                $vaultV1Update = Route::post('account/{cuentaId}/v1', [SatOpsVaultAccessController::class, 'updateV1'])
+                    ->where('cuentaId', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('v1.update');
+
+                $vaultV2ModuleUpdate = Route::post('account/{cuentaId}/v2-module', [SatOpsVaultAccessController::class, 'updateV2Module'])
+                    ->where('cuentaId', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('v2_module.update');
+
+                $vaultV2UsersUpdate = Route::post('account/{cuentaId}/v2-users', [SatOpsVaultAccessController::class, 'updateV2Users'])
+                    ->where('cuentaId', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('v2_users.update');
+
+                if ($isLocal) {
+                    foreach ([
+                        $vaultV1Update,
+                        $vaultV2ModuleUpdate,
+                        $vaultV2UsersUpdate,
+                    ] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
+                }
+            });
+
         // SAT admin dentro de billing
         Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
             Route::prefix('prices')->name('prices.')->group(function () use ($thrAdminPosts, $isLocal) {
@@ -1358,6 +1390,30 @@ Route::middleware([
     Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {
         Route::prefix('ops')->name('ops.')->group(function () use ($isLocal, $thrAdminPosts) {
             Route::get('/', [SatOpsController::class, 'index'])->name('index');
+
+            Route::prefix('rfcs')->name('rfcs.')->group(function () use ($thrAdminPosts, $isLocal) {
+                Route::get('/', [SatOpsRfcsController::class, 'index'])->name('index');
+
+                $store = Route::post('/', [SatOpsRfcsController::class, 'store'])
+                    ->middleware($thrAdminPosts)
+                    ->name('store');
+
+                $update = Route::post('{id}/update', [SatOpsRfcsController::class, 'update'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('update');
+
+                $destroy = Route::post('{id}/delete', [SatOpsRfcsController::class, 'destroy'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('delete');
+
+                if ($isLocal) {
+                    foreach ([$store, $update, $destroy] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
+                }
+            });
 
             Route::prefix('credentials')->name('credentials.')->group(function () use ($isLocal) {
                 Route::get('/', [SatOpsCredentialsController::class, 'index'])->name('index');

@@ -9,16 +9,20 @@ return new class extends Migration
     /**
      * IMPORTANTE:
      * Esto va en la BD de CLIENTES, NO en admin.
-     * Ajusta el nombre de conexión si tu proyecto usa otro alias.
      */
     private string $conn = 'mysql_clientes';
+    private string $table = 'sat_fiel_external';
 
     public function up(): void
     {
-        Schema::connection($this->conn)->create('sat_fiel_external', function (Blueprint $table) {
+        if (Schema::connection($this->conn)->hasTable($this->table)) {
+            return;
+        }
+
+        Schema::connection($this->conn)->create($this->table, function (Blueprint $table) {
             $table->bigIncrements('id');
 
-            // Relación con cuenta cliente (ajusta si tu campo real se llama distinto)
+            // Relación con cuenta cliente
             $table->unsignedBigInteger('account_id')->index();
 
             // Datos visibles en tabla
@@ -34,18 +38,17 @@ return new class extends Migration
             // Estado de procesamiento
             $table->string('status', 40)->default('PENDING')->index();
 
-            // Metadata extra (por si guardas notas, ip, user_agent, etc.)
+            // Metadata extra
             $table->json('meta')->nullable();
 
             $table->timestamps();
 
-            // Opcional: si quieres evitar duplicados por cuenta + nombre
             $table->index(['account_id', 'file_name']);
         });
     }
 
     public function down(): void
     {
-        Schema::connection($this->conn)->dropIfExists('sat_fiel_external');
+        Schema::connection($this->conn)->dropIfExists($this->table);
     }
 };

@@ -272,60 +272,98 @@
   data-plan="{{ $plan }}"
   data-mode="{{ $modeSafe }}"
 >
-  {{-- Topbar minimal --}}
-  <header class="sat4-top">
-    <div class="sat4-brand">
-      <div class="sat4-dot {{ $modeSafe === 'demo' ? 'is-demo' : 'is-prod' }}"></div>
-      <div class="sat4-title">
-        <div class="sat4-h1">SAT</div>
-        <div class="sat4-h2">Descargas masivas</div>
-      </div>
-    </div>
+    {{-- Header v2 --}}
+  <section class="sat4-hero">
+    <div class="sat4-hero-main">
+      <div class="sat4-hero-copy">
+        <div class="sat4-hero-kicker">
+          <span class="sat4-dot {{ $modeSafe === 'demo' ? 'is-demo' : 'is-prod' }}"></span>
+          <span>SAT · Descargas masivas CFDI</span>
+        </div>
 
-        <div class="sat4-actions">
-      @if($rtMode)
-        <button class="sat4-chip" type="button" id="sat4Mode" data-url="{{ $rtMode }}">
-          <span class="sat4-chip-ico">●</span>
-          <span class="sat4-chip-txt">{{ $modeSafe === 'demo' ? 'DEMO' : 'PROD' }}</span>
-        </button>
-      @endif
+        <h1 class="sat4-hero-title">Portal de descargas</h1>
 
-      <button class="sat4-chip" type="button" id="sat4Refresh">
-        <span class="sat4-chip-ico">↻</span>
-        <span class="sat4-chip-txt">Refrescar</span>
-      </button>
+        <p class="sat4-hero-subtitle">
+          Consulta, resguarda y descarga archivos de metadata, XML CFDI y reportes asociados a tu RFC de trabajo.
+        </p>
 
-      {{-- Campana / Notificaciones (portal style) --}}
-      <div style="position:relative;">
-        <button type="button" class="sat4-bell" id="sat4Bell" aria-label="Notificaciones">
-          🔔
-          <span class="sat4-bell-dot"></span>
-        </button>
-
-        <div class="sat4-notify" id="sat4Notify" aria-label="Notificaciones">
-          <div class="sat4-notify-head">
-            <div class="sat4-notify-ttl">Notificaciones</div>
-            <button type="button" class="sat4-notify-clear" id="sat4NotifyClear">Descartar todo</button>
-          </div>
-          <div class="sat4-notify-list" id="sat4NotifyList">
-            <div class="sat4-note">
-              <div class="sat4-note-ico">🛰️</div>
-              <div class="sat4-note-meta">
-                <div class="sat4-note-title">SAT</div>
-                <div class="sat4-note-sub">Sin notificaciones aún.</div>
-                <div class="sat4-note-time">—</div>
-              </div>
-            </div>
-          </div>
+        <div class="sat4-hero-chips">
+          <span class="sat4-hero-chip">Metadata</span>
+          <span class="sat4-hero-chip">XML CFDI</span>
+          <span class="sat4-hero-chip">Conciliación</span>
+          <span class="sat4-hero-chip">Descargas</span>
         </div>
       </div>
+
+      <aside class="sat4-hero-side">
+        <div class="sat4-hero-side-head">
+          <div>
+            <div class="sat4-hero-side-kicker">Acceso</div>
+            <div class="sat4-hero-side-title">RFC de trabajo</div>
+          </div>
+
+          <button class="sat4-hero-gear" type="button" data-open="sat4ModalConnections">⚙️</button>
+        </div>
+
+        <div class="sat4-hero-side-tags">
+          <span class="sat4-hero-tag">{{ $kRfcValid }} RFC</span>
+          @if($externalRfc !== '')
+            <span class="sat4-hero-tag mono">{{ $externalRfc }}</span>
+          @endif
+        </div>
+
+        <div class="sat4-hero-side-form">
+          <select class="sat4-in" id="sat4HeroRfc">
+            <option value="">Selecciona RFC</option>
+            @foreach($rfcOptionsAll as $opt)
+              @php
+                $rf = (string)($opt['rf'] ?? '');
+                $al = trim((string)($opt['alias'] ?? ''));
+                $ok = (bool)($opt['validated'] ?? false);
+              @endphp
+              <option value="{{ $rf }}" {{ $ok ? '' : 'disabled' }}>
+                {{ $rf }}{{ $al !== '' ? ' · '.$al : '' }}{{ $ok ? '' : ' (pendiente)' }}
+              </option>
+            @endforeach
+          </select>
+
+          <button class="sat4-btn sat4-btn-primary sat4-btn-block" type="button" data-open="sat4ModalRequest">
+            Entrar
+          </button>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  {{-- Navegación superior del módulo --}}
+  <section class="sat4-toolbar">
+    <div class="sat4-toolbar-left">
+      <div class="sat4-toolbar-title">Descargas</div>
+
+      <div class="sat4-toolbar-rfc">
+        <span class="sat4-toolbar-rfc-label">RFC activo</span>
+        <span class="sat4-toolbar-rfc-value mono">{{ $externalRfc !== '' ? $externalRfc : 'Sin RFC' }}</span>
+      </div>
+
+      <div class="sat4-toolbar-tabs">
+        <button class="sat4-toolbar-tab is-active" type="button">Carga de datos</button>
+        <button class="sat4-toolbar-tab" type="button">Metadata</button>
+        <button class="sat4-toolbar-tab" type="button">XML CFDI</button>
+        <button class="sat4-toolbar-tab" type="button">Reportes</button>
+        <button class="sat4-toolbar-tab" type="button">Resumen fiscal</button>
+        <button class="sat4-toolbar-tab" type="button">Descargas</button>
+      </div>
     </div>
 
-  </header>
+    <div class="sat4-toolbar-actions">
+      <button class="sat4-btn sat4-btn-primary" type="button">Expandir todo</button>
+      <button class="sat4-btn" type="button">Contraer todo</button>
+    </div>
+  </section>
 
-  {{-- KPIs (ERP cards) --}}
-  <section class="sat4-kpis2" aria-label="Indicadores SAT">
-    <div class="sat4-kpi2 is-accent">
+  {{-- KPIs --}}
+  <section class="sat4-kpis2 sat4-kpis2--v2" aria-label="Indicadores SAT">
+    <div class="sat4-kpi2 sat4-kpi2--metric is-accent">
       <div class="sat4-kpi2-ico">🛰️</div>
       <div class="sat4-kpi2-meta">
         <div class="sat4-kpi2-l">Peticiones</div>
@@ -333,7 +371,8 @@
         <div class="sat4-kpi2-h">Disponibles</div>
       </div>
     </div>
-    <div class="sat4-kpi2">
+
+    <div class="sat4-kpi2 sat4-kpi2--metric">
       <div class="sat4-kpi2-ico">📦</div>
       <div class="sat4-kpi2-meta">
         <div class="sat4-kpi2-l">30 días</div>
@@ -341,15 +380,17 @@
         <div class="sat4-kpi2-h">Descargas</div>
       </div>
     </div>
-    <div class="sat4-kpi2">
+
+    <div class="sat4-kpi2 sat4-kpi2--metric">
       <div class="sat4-kpi2-ico">✅</div>
       <div class="sat4-kpi2-meta">
         <div class="sat4-kpi2-l">RFCs OK</div>
         <div class="sat4-kpi2-n mono" id="kpiRfcs">{{ number_format((int)$kRfcValid) }}</div>
-        <div class="sat4-kpi2-h">{{ $kRfcValid>0 ? 'Verificado' : 'Pendiente' }}</div>
+        <div class="sat4-kpi2-h">{{ $kRfcValid > 0 ? 'Verificado' : 'Pendiente' }}</div>
       </div>
     </div>
-    <div class="sat4-kpi2">
+
+    <div class="sat4-kpi2 sat4-kpi2--metric">
       <div class="sat4-kpi2-ico">📦</div>
       <div class="sat4-kpi2-meta">
         <div class="sat4-kpi2-l">Plan</div>
@@ -359,8 +400,8 @@
     </div>
   </section>
 
-  {{-- Workspace principal (como ERP moderno) --}}
-  <section class="sat4-workspace" aria-label="Nueva descarga">
+  {{-- Workspace principal --}}
+  <section class="sat4-workspace sat4-workspace--v2" aria-label="Nueva descarga">
     <div class="sat4-work-card">
       <div class="sat4-work-head">
         <div class="sat4-work-titles">
@@ -375,7 +416,7 @@
         </div>
       </div>
 
-      <div class="sat4-work-grid">
+      <div class="sat4-work-grid sat4-work-grid--v2">
         <button class="sat4-work-cta" type="button" data-open="sat4ModalRequest">
           <div class="sat4-work-cta-ico">⬇️</div>
           <div class="sat4-work-cta-t">
@@ -401,13 +442,12 @@
           <div class="sat4-work-tile-ttl">Bóveda</div>
           <div class="sat4-work-tile-sub">Abrir / Ampliar</div>
         </a>
-
       </div>
     </div>
   </section>
 
-    {{-- Portal de Descarga (progreso + estado actual) --}}
-  <section class="sat4-portal" aria-label="Portal Descarga SAT">
+  {{-- Portal de descarga --}}
+  <section class="sat4-portal sat4-portal--v2" aria-label="Portal Descarga SAT">
     <div class="sat4-portal-card">
       <div class="sat4-portal-head">
         <div>
@@ -422,7 +462,6 @@
       </div>
 
       <div class="sat4-portal-body">
-        {{-- Ring --}}
         <div class="sat4-ring">
           <div class="sat4-ring-wrap" id="sat4RingWrap" style="--p:0;">
             <div class="sat4-ring-center">
@@ -437,28 +476,29 @@
           </div>
 
           <div class="sat4-help">
-            Tip: “Iniciar descarga” abre el selector de <b>Mes/Año</b> (como portal).
-            El modo <b>Avanzado</b> usa rango de fechas y Multi-RFC.
+            Tip: “Iniciar descarga” abre el selector de <b>Mes/Año</b> como portal. El modo <b>Avanzado</b> usa rango de fechas y Multi-RFC.
           </div>
         </div>
 
-        {{-- Estado actual --}}
         <div class="sat4-status">
-          <div class="sat4-status-ttl">Estado de la Descarga Actual</div>
+          <div class="sat4-status-ttl">Estado de la descarga actual</div>
 
           <div class="sat4-status-grid">
             <div class="sat4-stat">
               <div class="sat4-stat-n mono" id="sat4StatSat">0</div>
               <div class="sat4-stat-l">Comprobantes SAT</div>
             </div>
+
             <div class="sat4-stat">
               <div class="sat4-stat-n mono" id="sat4StatNew">0</div>
               <div class="sat4-stat-l">Comprobantes nuevos</div>
             </div>
+
             <div class="sat4-stat">
               <div class="sat4-stat-n mono" id="sat4StatFail">0</div>
               <div class="sat4-stat-l">Comprobantes fallidos</div>
             </div>
+
             <div class="sat4-stat">
               <div class="sat4-stat-n mono" id="sat4StatReg">0</div>
               <div class="sat4-stat-l">Comprobantes registrados</div>

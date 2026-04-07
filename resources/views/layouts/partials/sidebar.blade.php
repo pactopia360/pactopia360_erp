@@ -237,13 +237,34 @@
                 ],
                 ['text'=>'Precios Stripe (catálogo)','route'=>'admin.config.param.stripe_prices.index','active_when'=>['admin.config.param.stripe_prices.*']],
                 ['text'=>'Licencias por cuenta (meta)','route'=>'admin.config.param.licencias.index','active_when'=>['admin.config.param.licencias.*']],
-                ['text'=>'SAT · Lista de precios','route'=>'admin.sat.prices.index','active_when'=>['admin.sat.prices.*']],
-                ['text'=>'SAT · Códigos descuento','route'=>'admin.sat.discounts.index','active_when'=>['admin.sat.discounts.*']],
-                ['text'=>'SAT · Operación','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
               ],
             ],
           ],
         ],
+
+        [
+          'section'=>'SAT',
+          'items'=>[
+            [
+              'text'=>'SAT',
+              'icon'=>'◌',
+              'id'=>'sat-admin',
+              'active_when'=>[
+                'admin.sat.*'
+              ],
+              'children'=>[
+                ['text'=>'Dashboard SAT','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.index']],
+                ['text'=>'RFC maestro','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.rfcs.*']],
+                ['text'=>'Lista de precios','route'=>'admin.sat.prices.index','active_when'=>['admin.sat.prices.*']],
+                ['text'=>'Códigos descuento','route'=>'admin.sat.discounts.index','active_when'=>['admin.sat.discounts.*']],
+                ['text'=>'Operación SAT','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
+                ['text'=>'Cotizaciones SAT','route'=>'#','active_when'=>['admin.sat.quotes.*']],
+                ['text'=>'Descargas SAT','route'=>'#','active_when'=>['admin.sat.downloads.*']],
+              ],
+            ],
+          ],
+        ],
+
         [
           'section'=>'Finanzas',
           'items'=>[

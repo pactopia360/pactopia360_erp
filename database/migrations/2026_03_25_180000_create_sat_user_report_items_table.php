@@ -8,9 +8,16 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    private string $conn = 'mysql_clientes';
+    private string $table = 'sat_user_report_items';
+
     public function up(): void
     {
-        Schema::connection('mysql_clientes')->create('sat_user_report_items', function (Blueprint $table) {
+        if (Schema::connection($this->conn)->hasTable($this->table)) {
+            return;
+        }
+
+        Schema::connection($this->conn)->create($this->table, function (Blueprint $table) {
             $table->bigIncrements('id');
 
             $table->string('cuenta_id', 50)->index();
@@ -54,6 +61,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::connection('mysql_clientes')->dropIfExists('sat_user_report_items');
+        Schema::connection($this->conn)->dropIfExists($this->table);
     }
 };
