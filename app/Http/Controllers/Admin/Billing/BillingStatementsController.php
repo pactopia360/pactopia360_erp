@@ -1081,33 +1081,54 @@ final class BillingStatementsController extends Controller
             'paid_at'    => 'nullable|string',
         ]);
 
-        $accountId   = trim((string) $data['account_id']);
-        $period      = trim((string) $data['period']);
-        $status      = strtolower(trim((string) $data['status']));
-        $payMethod   = trim((string) ($data['pay_method'] ?? '')) ?: 'manual';
-        $payProvider = in_array($payMethod, ['stripe', 'card'], true) ? 'stripe' : 'manual';
+        $accountId = trim((string) $data['account_id']);
+        $period    = trim((string) $data['period']);
+        $status    = strtolower(trim((string) $data['status']));
+        $payMethod = trim((string) ($data['pay_method'] ?? ''));
 
-        if (!$this->isValidPeriod($period)) {
-            return response()->json(['ok' => false, 'message' => 'Periodo inválido'], 422);
+        if ($payMethod === '') {
+            $payMethod = $status === 'pagado' ? 'manual' : 'manual';
         }
 
-        if ($status === 'pagado') {
+        $payProvider = match ($payMethod) {
+            'stripe', 'card' => 'stripe',
+            'transferencia', 'transfer', 'manual', 'efectivo', 'cash', 'deposito', 'depósito', 'prepago' => 'manual',
+            default => 'manual',
+        };
+
+        if (!$this->isValidPeriod($period)) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'No puedes marcar "pagado" desde estatus visual. Registra un pago real manual para conciliar payments y billing_statements.',
+                'message' => 'Periodo inválido.',
             ], 422);
         }
 
         if (!Schema::connection($this->adm)->hasTable($this->overrideTable())) {
-            return response()->json(['ok' => false, 'message' => 'Tabla overrides no existe'], 422);
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Tabla overrides no existe.',
+            ], 422);
         }
 
         $paidAt = null;
 
+        if ($status === 'pagado') {
+            $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? ''));
+            if (!$paidAt) {
+                $paidAt = now();
+            }
+        }
+
         $by = auth('admin')->id();
 
         DB::connection($this->adm)->transaction(function () use (
-            $accountId, $period, $status, $by, $payMethod, $payProvider, $paidAt
+            $accountId,
+            $period,
+            $status,
+            $by,
+            $payMethod,
+            $payProvider,
+            $paidAt
         ) {
             $table = $this->overrideTable();
 
@@ -1128,10 +1149,18 @@ final class BillingStatementsController extends Controller
                 }
             }
 
+            $normalizedPayStatus = match ($status) {
+                'pagado'   => 'paid',
+                'parcial'  => 'partial',
+                'vencido'  => 'overdue',
+                'sin_mov'  => 'no_movement',
+                default    => 'pending',
+            };
+
             $meta['pay_method']   = $payMethod;
             $meta['pay_provider'] = $payProvider;
-            $meta['pay_status']   = $status;
-            $meta['paid_at']      = null;
+            $meta['pay_status']   = $normalizedPayStatus;
+            $meta['paid_at']      = $paidAt?->toDateTimeString();
 
             $payload = [
                 'account_id'      => $accountId,
@@ -1142,6 +1171,24 @@ final class BillingStatementsController extends Controller
 
             if ($this->overrideTableHas('updated_by')) {
                 $payload['updated_by'] = $by ? (int) $by : null;
+            }
+
+            if ($this->overrideTableHas('pay_method')) {
+                $payload['pay_method'] = $payMethod;
+            }
+
+            if ($this->overrideTableHas('pay_provider')) {
+                $payload['pay_provider'] = $payProvider;
+            }
+
+            if ($this->overrideTableHas('pay_status')) {
+                $payload['pay_status'] = $normalizedPayStatus;
+            } elseif ($this->overrideTableHas('status')) {
+                $payload['status'] = $normalizedPayStatus;
+            }
+
+            if ($this->overrideTableHas('paid_at')) {
+                $payload['paid_at'] = $paidAt?->toDateTimeString();
             }
 
             if ($this->overrideTableHas('meta')) {
@@ -1156,17 +1203,21 @@ final class BillingStatementsController extends Controller
                 if ($this->overrideTableHas('created_at')) {
                     $payload['created_at'] = now();
                 }
+
                 DB::connection($this->adm)->table($table)->insert($payload);
             }
 
-            // HOTFIX CRITICO:
-            // NO tocar billing_statements.total_abono / saldo / status / paid_at
-            // desde override manual. El override es visual-operativo, no contable.
+            // IMPORTANTE:
+            // Este guardado sigue siendo SOLO visual/operativo.
+            // No altera payments ni billing_statements contables.
         });
 
         $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
         if (!$acc) {
-            return response()->json(['ok' => false, 'message' => 'Cuenta no encontrada'], 404);
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Cuenta no encontrada.',
+            ], 404);
         }
 
         $agg = DB::connection($this->adm)->table('estados_cuenta')
@@ -1245,8 +1296,8 @@ final class BillingStatementsController extends Controller
             'status_auto'    => (string) ($row->status_auto ?? $status),
             'pay_method'     => $row->pay_method ?? $payMethod,
             'pay_provider'   => $row->pay_provider ?? $payProvider,
-            'pay_status'     => $row->pay_status ?? $status,
-            'paid_at'        => $row->pay_last_paid_at ?? null,
+            'pay_status'     => $row->pay_status ?? ($status === 'pagado' ? 'paid' : $status),
+            'paid_at'        => $row->pay_last_paid_at ?? $paidAt?->toDateTimeString(),
             'total'          => round((float) ($row->total_shown ?? 0), 2),
             'abono'          => round((float) ($row->abono ?? 0), 2),
             'saldo'          => round((float) ($row->saldo ?? 0), 2),

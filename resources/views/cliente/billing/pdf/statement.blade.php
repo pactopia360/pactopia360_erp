@@ -409,8 +409,8 @@
     $serviceLabel = preg_replace('/\bmonthly\b/iu', 'annual', $serviceLabel);
   }
 
-  // ======================================================
-  // ✅ Service items (normalización compat)
+    // ======================================================
+  // ✅ Service items (normalización compat + filtro defensivo)
   // ======================================================
   $serviceItems = [];
   $si = $service_items ?? null;
@@ -425,7 +425,67 @@
   }
   if (!is_array($serviceItems)) $serviceItems = [];
 
-  $serviceItems = array_values(array_map(function ($it) use ($f, $r2) {
+  $monthMapEs = [
+    'enero' => '01',
+    'febrero' => '02',
+    'marzo' => '03',
+    'abril' => '04',
+    'mayo' => '05',
+    'junio' => '06',
+    'julio' => '07',
+    'agosto' => '08',
+    'septiembre' => '09',
+    'setiembre' => '09',
+    'octubre' => '10',
+    'noviembre' => '11',
+    'diciembre' => '12',
+    'january' => '01',
+    'february' => '02',
+    'march' => '03',
+    'april' => '04',
+    'may' => '05',
+    'june' => '06',
+    'july' => '07',
+    'august' => '08',
+    'september' => '09',
+    'october' => '10',
+    'november' => '11',
+    'december' => '12',
+  ];
+
+  $extractPeriodKey = function (array $row, string $fallbackName = '') use ($monthMapEs): ?string {
+    $candidates = [
+      trim((string)($row['period'] ?? '')),
+      trim((string)($row['period_key'] ?? '')),
+      trim((string)($row['periodo'] ?? '')),
+      trim((string)($row['month'] ?? '')),
+      trim((string)($fallbackName ?? '')),
+    ];
+
+    foreach ($candidates as $raw) {
+      if ($raw === '') continue;
+
+      if (preg_match('/\b(\d{4})-(0[1-9]|1[0-2])\b/u', $raw, $m)) {
+        return $m[1] . '-' . $m[2];
+      }
+
+      if (preg_match('/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})\b/iu', $raw, $m)) {
+        $monthTxt = mb_strtolower(trim((string)$m[1]));
+        $yearTxt  = trim((string)$m[2]);
+        $mm = $monthMapEs[$monthTxt] ?? null;
+        if ($mm !== null) {
+          return $yearTxt . '-' . $mm;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  $currentPeriodKey = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $periodSafe) ? $periodSafe : null;
+  $prevPeriodKey    = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $prevPeriod) ? $prevPeriod : null;
+
+  $serviceItems = array_values(array_map(function ($it) use ($f, $r2, $extractPeriodKey) {
     $row = is_array($it) ? $it : (is_object($it) ? (array)$it : []);
 
     $itemName = trim((string)($row['service'] ?? $row['name'] ?? $row['servicio'] ?? $row['concepto'] ?? $row['title'] ?? 'Servicio'));
@@ -440,18 +500,40 @@
     $sub    = $f($subRaw);
     if ($sub <= 0.00001) $sub = $unit * $qty;
 
+    $periodKey = $extractPeriodKey($row, $itemName);
+
     return [
       'name'       => $itemName,
       'unit_price' => $r2(max(0.0, $unit)),
       'qty'        => $r2(max(0.0, $qty)),
       'subtotal'   => $r2(max(0.0, $sub)),
+      'period_key' => $periodKey,
     ];
   }, $serviceItems));
 
-  // ✅ El detalle de consumos debe venir armado desde backend.
-  // NO insertar aquí una línea resumida de saldo anterior.
+  // ✅ Filtro defensivo:
+  // Si no hay saldo anterior real, no debe mostrarse ningún periodo menor al actual.
+  // Además, si el periodo anterior está marcado pagado, se excluye explícitamente.
+  $serviceItems = array_values(array_filter($serviceItems, function (array $it) use ($currentPeriodKey, $prevPeriodKey, $prevBalance, $prevIsPaid) {
+    $itemPeriod = trim((string)($it['period_key'] ?? ''));
+    $itemSub    = (float)($it['subtotal'] ?? 0);
 
-  // Fill de tabla para ocupar alto sin romper footer (SOT)
+    if ($itemSub <= 0.00001) {
+      return false;
+    }
+
+    if ($prevIsPaid && $prevPeriodKey !== null && $itemPeriod === $prevPeriodKey) {
+      return false;
+    }
+
+    if ($prevBalance <= 0.00001 && $currentPeriodKey !== null && $itemPeriod !== '' && strcmp($itemPeriod, $currentPeriodKey) < 0) {
+      return false;
+    }
+
+    return true;
+  }));
+
+  // ✅ Si por filtro quedó vacío, el fallback de abajo dibuja solo el periodo actual.
   $rowsCount = count($serviceItems);
   $minRows   = ($rowsCount <= 1) ? 9 : (($rowsCount <= 3) ? 8 : (($rowsCount <= 6) ? 7 : 6));
   $padRows   = max(0, $minRows - $rowsCount);
