@@ -1941,16 +1941,88 @@ final class AccountBillingController extends Controller
 
         $billingCycle = $isAnnual ? 'annual' : 'monthly';
 
-        $openLinesInfo = $this->resolveOpenStatementLinesForPdf($accountId, $period);
+                $serviceItems = [];
+        $prevBalance = 0.0;
+        $currentPeriodDue = 0.0;
+        $totalDue = 0.0;
+        $prevPeriod = null;
+        $prevPeriodLabel = null;
 
-        $serviceItems = $openLinesInfo['lines'] ?? [];
-        $prevBalance = round((float) ($openLinesInfo['prev_balance'] ?? 0), 2);
-        $currentPeriodDue = round((float) ($openLinesInfo['current_period_due'] ?? 0), 2);
-        $totalDue = round((float) ($openLinesInfo['total_due'] ?? 0), 2);
+        try {
+            $pendingRows = [];
 
-        if ($currentPeriodDue <= 0.00001) {
-            $currentPeriodDue = $this->resolveCurrentStatementDueForPdf($accountId, $period);
+            foreach ((array) $rowsAll as $rr) {
+                $rp = trim((string) ($rr['period'] ?? ''));
+                if (!$this->isValidPeriod($rp)) {
+                    continue;
+                }
+
+                if (strcmp($rp, $period) > 0) {
+                    continue;
+                }
+
+                $st = $this->normalizeStatementStatus((string) ($rr['status'] ?? 'pending'));
+
+                $saldoRow = isset($rr['saldo']) && is_numeric($rr['saldo'])
+                    ? (float) $rr['saldo']
+                    : max(
+                        0.0,
+                        (float) ($rr['total_cargo'] ?? ($rr['charge'] ?? 0))
+                        - (float) ($rr['total_abono'] ?? ($rr['paid_amount'] ?? 0))
+                    );
+
+                $saldoRow = round(max(0.0, $saldoRow), 2);
+
+                if ($st === 'paid' || $saldoRow <= 0.00001) {
+                    continue;
+                }
+
+                $pendingRows[] = [
+                    'period' => $rp,
+                    'saldo'  => $saldoRow,
+                ];
+            }
+
+            usort($pendingRows, function ($a, $b) {
+                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
+            });
+
+            foreach ($pendingRows as $pr) {
+                $rp = (string) ($pr['period'] ?? '');
+                $saldoRow = round((float) ($pr['saldo'] ?? 0), 2);
+
+                try {
+                    $label = Str::title(Carbon::parse($rp . '-01')->translatedFormat('F Y'));
+                } catch (\Throwable $e) {
+                    $label = $rp;
+                }
+
+                $serviceItems[] = [
+                    'name'       => 'Mensualidad ' . $label,
+                    'unit_price' => $saldoRow,
+                    'qty'        => 1,
+                    'subtotal'   => $saldoRow,
+                    'period'     => $rp,
+                ];
+
+                if ($rp === $period) {
+                    $currentPeriodDue += $saldoRow;
+                } else {
+                    $prevBalance += $saldoRow;
+                    $prevPeriod = $rp;
+                    $prevPeriodLabel = $label;
+                }
+            }
+
+            $prevBalance = round($prevBalance, 2);
+            $currentPeriodDue = round($currentPeriodDue, 2);
             $totalDue = round($prevBalance + $currentPeriodDue, 2);
+        } catch (\Throwable $e) {
+            Log::warning('[BILLING][PDF] build detailed serviceItems failed', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'err'        => $e->getMessage(),
+            ]);
         }
 
         if (empty($serviceItems)) {
@@ -1983,6 +2055,11 @@ final class AccountBillingController extends Controller
             }
 
             $serviceItems = $items;
+
+            if ($currentPeriodDue <= 0.00001) {
+                $currentPeriodDue = $this->resolveCurrentStatementDueForPdf($accountId, $period);
+                $totalDue = round($prevBalance + $currentPeriodDue, 2);
+            }
         }
 
         $cargo = round((float) ($row['total_cargo'] ?? ($row['charge'] ?? 0)), 2);
@@ -2010,8 +2087,8 @@ final class AccountBillingController extends Controller
             'saldo'               => $currentPeriodDue,
             'current_period_due'  => $currentPeriodDue,
 
-            'prev_period'         => $openLinesInfo['prev_period'] ?? null,
-            'prev_period_label'   => $openLinesInfo['prev_period_label'] ?? null,
+            'prev_period'         => $prevPeriod,
+            'prev_period_label'   => $prevPeriodLabel,
             'prev_balance'        => $prevBalance,
 
             'total_due'           => $totalDue,

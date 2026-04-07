@@ -448,35 +448,8 @@
     ];
   }, $serviceItems));
 
-  // ✅ Si backend ya mandó líneas separadas por periodo, NO insertar línea resumida de saldo anterior
-  $hasDetailedPeriodLines = false;
-  foreach ($serviceItems as $tmpIt) {
-    $tmpRow = is_array($tmpIt) ? $tmpIt : (is_object($tmpIt) ? (array)$tmpIt : []);
-    $tmpName = mb_strtolower(trim((string)($tmpRow['name'] ?? $tmpRow['service'] ?? $tmpRow['servicio'] ?? '')));
-    if (str_contains($tmpName, 'mensualidad ') || preg_match('/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/u', $tmpName)) {
-      $hasDetailedPeriodLines = true;
-      break;
-    }
-  }
-
-  if (!$hasDetailedPeriodLines && $showPrevLine) {
-    if ($prevIsPaid) {
-      array_unshift($serviceItems, [
-        'name'       => 'Saldo anterior (' . $prevLabelSafe . ') · Pagado',
-        'unit_price' => 0,
-        'qty'        => 1,
-        'subtotal'   => 0,
-      ]);
-    } elseif ($showPrev) {
-      $pb = $r2((float)$prevBalance);
-      array_unshift($serviceItems, [
-        'name'       => 'Saldo anterior (' . $prevLabelSafe . ')',
-        'unit_price' => $pb,
-        'qty'        => 1,
-        'subtotal'   => $pb,
-      ]);
-    }
-  }
+  // ✅ El detalle de consumos debe venir armado desde backend.
+  // NO insertar aquí una línea resumida de saldo anterior.
 
   // Fill de tabla para ocupar alto sin romper footer (SOT)
   $rowsCount = count($serviceItems);
