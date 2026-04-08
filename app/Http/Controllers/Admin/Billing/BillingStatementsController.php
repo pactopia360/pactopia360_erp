@@ -1087,7 +1087,7 @@ final class BillingStatementsController extends Controller
         $payMethod = trim((string) ($data['pay_method'] ?? ''));
 
         if ($payMethod === '') {
-            $payMethod = $status === 'pagado' ? 'manual' : 'manual';
+            $payMethod = 'manual';
         }
 
         $payProvider = match ($payMethod) {
@@ -1111,7 +1111,6 @@ final class BillingStatementsController extends Controller
         }
 
         $paidAt = null;
-
         if ($status === 'pagado') {
             $paidAt = $this->parsePaidAtFromRequest((string) ($data['paid_at'] ?? ''));
             if (!$paidAt) {
@@ -1207,75 +1206,113 @@ final class BillingStatementsController extends Controller
                 DB::connection($this->adm)->table($table)->insert($payload);
             }
 
-            // IMPORTANTE:
-            // Este guardado sigue siendo SOLO visual/operativo.
-            // No altera payments ni billing_statements contables.
+            // =====================================================
+            // CONTABILIDAD REAL:
+            // 1) crear/actualizar payment manual cuando se marca pagado
+            // 2) eliminar synthetic manual payment cuando ya no sea pagado
+            // 3) SINCRONIZAR billing_statements para que al refrescar
+            //    no regrese al snapshot viejo
+            // =====================================================
+                        if ($status === 'pagado') {
+                $statement = DB::connection($this->adm)->table('billing_statements')
+                    ->where('account_id', $accountId)
+                    ->where('period', $period)
+                    ->first([
+                        'id',
+                        'total_cargo',
+                        'total_abono',
+                        'saldo',
+                    ]);
+
+                $targetTotal = 0.0;
+
+                if ($statement) {
+                    $targetTotal = round((float) ($statement->total_cargo ?? 0), 2);
+                }
+
+                // Si no existe snapshot real o viene en cero,
+                // usa el cálculo visible del periodo como fallback fuerte.
+                if ($targetTotal <= 0.00001) {
+                    $financials = $this->computeStatementTotalsForPeriod($accountId, $period);
+                    $targetTotal = round((float) (
+                        $financials['cargo']
+                        ?? $financials['expected_total']
+                        ?? 0
+                    ), 2);
+                }
+
+                if ($targetTotal <= 0.00001) {
+                    $calc = $this->recalcStatementFromPayments($accountId, $period);
+                    $targetTotal = round((float) ($calc['cargo'] ?? 0), 2);
+                }
+
+                if ($targetTotal > 0.00001) {
+                    $this->upsertManualPaidPaymentForStatement(
+                        $accountId,
+                        $period,
+                        $targetTotal,
+                        $payMethod,
+                        $payProvider,
+                        $paidAt
+                    );
+                }
+            } else {
+                $this->deleteSyntheticManualPaymentsForStatement($accountId, $period);
+            }
+
+            $this->syncBillingStatementFromManualStatus(
+                $accountId,
+                $period,
+                $status,
+                $payMethod,
+                $payProvider,
+                $paidAt
+            );
+
+            unset($this->cacheLastPaid[(string) $accountId]);
         });
 
-        $acc = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
-        if (!$acc) {
+        $account = DB::connection($this->adm)->table('accounts')->where('id', $accountId)->first();
+        if (!$account) {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Cuenta no encontrada.',
             ], 404);
         }
 
-        $agg = DB::connection($this->adm)->table('estados_cuenta')
-            ->selectRaw('SUM(COALESCE(cargo,0)) as cargo, SUM(COALESCE(abono,0)) as abono')
-            ->where('account_id', $accountId)
-            ->where('periodo', $period)
-            ->first();
-
-        $cargoEdo = (float) ($agg->cargo ?? 0);
-        $abonoEdo = (float) ($agg->abono ?? 0);
-        $abonoPay = (float) $this->sumPaymentsForAccountPeriod($accountId, $period);
-
-        $meta = $this->hub->decodeMeta($acc->meta ?? null);
+        $meta = $this->hub->decodeMeta($account->meta ?? null);
         if (!is_array($meta)) {
             $meta = [];
         }
 
         $lastPaid = $this->resolveLastPaidPeriodForAccount($accountId, $meta);
 
-        $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-            : $period;
+        $financials = $this->computeStatementTotalsForPeriod($accountId, $period);
+        $prevInfo   = $this->computePrevOpenBalance($accountId, $period, $lastPaid);
 
-        $custom = $this->extractCustomAmountMxn($acc, $meta);
-
-        if ($custom !== null && $custom > 0.00001) {
-            $expected = (float) $custom;
-        } else {
-            [$expected] = $this->safeResolveEffectiveAmountFromMeta($meta, $period, $payAllowed);
-            $expected = (float) $expected;
-        }
+        $prevBalance = round(max(0.0, (float) ($prevInfo['prev_balance'] ?? 0.0)), 2);
+        $prevPeriod  = $prevInfo['prev_period'] ?? null;
 
         $calc = $this->recalcStatementFromPayments($accountId, $period);
 
-        $totalShown = round((float) ($calc['cargo'] ?? 0), 2);
-        $abonoTotal = round((float) ($calc['abono'] ?? 0), 2);
-        $saldoShown = round((float) ($calc['saldo'] ?? 0), 2);
-        $statusCalc = (string) ($calc['status'] ?? 'pendiente');
+        $totalShown = round((float) ($calc['cargo'] ?? ($financials['cargo'] ?? 0)), 2);
+        $abonoTotal = round((float) ($calc['abono'] ?? ($financials['abono'] ?? 0)), 2);
+        $saldoShown = round((float) ($calc['saldo'] ?? ($financials['saldo'] ?? 0)), 2);
 
-        if ($totalShown <= 0.00001) {
-            $totalShown = round((float) ($cargoEdo > 0.00001 ? $cargoEdo : $expected), 2);
-            $abonoTotal = round((float) $abonoPay, 2);
-            $saldoShown = round(max(0.0, $totalShown - $abonoTotal), 2);
-            $statusCalc = $this->computeFinancialStatus($totalShown, $abonoTotal, 0.0);
-        }
+        $statusCalc = $this->computeFinancialStatus($totalShown, $abonoTotal, $prevBalance);
 
-        $row = (object) [
-            'cargo'            => round($cargoEdo, 2),
-            'expected_total'   => round((float) $expected, 2),
+        $rowUi = (object) [
+            'cargo'            => round((float) ($financials['cargo_real'] ?? 0), 2),
+            'expected_total'   => round((float) ($financials['expected_total'] ?? 0), 2),
             'total_shown'      => $totalShown,
             'abono'            => $abonoTotal,
-            'abono_edo'        => round((float) $abonoEdo, 2),
-            'abono_pay'        => round((float) $abonoPay, 2),
+            'abono_edo'        => round((float) ($financials['abono_edo'] ?? 0), 2),
+            'abono_pay'        => round((float) ($financials['abono_pay'] ?? 0), 2),
             'saldo'            => $saldoShown,
             'saldo_shown'      => $saldoShown,
             'saldo_current'    => $saldoShown,
-            'prev_balance'     => 0.0,
-            'total_due'        => $saldoShown,
+            'prev_balance'     => $prevBalance,
+            'total_due'        => round(max(0.0, $saldoShown + $prevBalance), 2),
             'status_pago'      => $statusCalc,
             'status_auto'      => $statusCalc,
             'pay_method'       => null,
@@ -1283,27 +1320,349 @@ final class BillingStatementsController extends Controller
             'pay_status'       => $statusCalc,
             'pay_last_paid_at' => null,
             'pay_due_date'     => null,
+            'prev_period'      => $prevPeriod,
         ];
 
         $ov = $this->fetchStatusOverridesForAccountsPeriod([$accountId], $period);
-        $row = $this->applyStatusOverride($row, $ov[(string) $accountId] ?? null);
+        $rowUi = $this->applyStatusOverride($rowUi, $ov[(string) $accountId] ?? null);
 
         return response()->json([
             'ok'             => true,
             'account_id'     => $accountId,
             'period'         => $period,
-            'status'         => (string) ($row->status_pago ?? $status),
-            'status_auto'    => (string) ($row->status_auto ?? $status),
-            'pay_method'     => $row->pay_method ?? $payMethod,
-            'pay_provider'   => $row->pay_provider ?? $payProvider,
-            'pay_status'     => $row->pay_status ?? ($status === 'pagado' ? 'paid' : $status),
-            'paid_at'        => $row->pay_last_paid_at ?? $paidAt?->toDateTimeString(),
-            'total'          => round((float) ($row->total_shown ?? 0), 2),
-            'abono'          => round((float) ($row->abono ?? 0), 2),
-            'saldo'          => round((float) ($row->saldo ?? 0), 2),
-            'saldo_current'  => round((float) ($row->saldo_current ?? 0), 2),
-            'total_due'      => round((float) ($row->total_due ?? 0), 2),
+            'status'         => (string) ($rowUi->status_pago ?? $status),
+            'status_auto'    => (string) ($rowUi->status_auto ?? $status),
+            'pay_method'     => $rowUi->pay_method ?? $payMethod,
+            'pay_provider'   => $rowUi->pay_provider ?? $payProvider,
+            'pay_status'     => $rowUi->pay_status ?? ($status === 'pagado' ? 'paid' : $status),
+            'paid_at'        => $rowUi->pay_last_paid_at ?? $paidAt?->toDateTimeString(),
+            'total'          => round((float) ($rowUi->total_shown ?? 0), 2),
+            'abono'          => round((float) ($rowUi->abono ?? 0), 2),
+            'saldo'          => round((float) ($rowUi->saldo ?? 0), 2),
+            'saldo_current'  => round((float) ($rowUi->saldo_current ?? 0), 2),
+            'prev_balance'   => round((float) ($rowUi->prev_balance ?? 0), 2),
+            'total_due'      => round((float) ($rowUi->total_due ?? 0), 2),
+            'prev_period'    => $rowUi->prev_period ?? null,
         ]);
+    }
+
+        private function upsertManualPaidPaymentForStatement(
+        string $accountId,
+        string $period,
+        float $amountMxn,
+        string $payMethod,
+        string $payProvider,
+        ?Carbon $paidAt
+    ): void {
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return;
+        }
+
+        $cols = Schema::connection($this->adm)->getColumnListing('payments');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        if (!$has('account_id')) {
+            return;
+        }
+
+        $reference = 'manual-status:' . $accountId . ':' . $period;
+        $amountCents = (int) round($amountMxn * 100);
+
+        $existing = DB::connection($this->adm)->table('payments')
+            ->where('account_id', $accountId)
+            ->when($has('period'), fn ($q) => $q->where('period', $period))
+            ->when($has('reference'), fn ($q) => $q->where('reference', $reference))
+            ->orderByDesc($has('id') ? 'id' : $cols[0])
+            ->first();
+
+        $payload = [];
+
+        if ($has('account_id')) {
+            $payload['account_id'] = ctype_digit($accountId) ? (int) $accountId : $accountId;
+        }
+        if ($has('period')) {
+            $payload['period'] = $period;
+        }
+        if ($has('status')) {
+            $payload['status'] = 'paid';
+        }
+        if ($has('method')) {
+            $payload['method'] = $payMethod !== '' ? $payMethod : 'manual';
+        }
+        if ($has('provider')) {
+            $payload['provider'] = $payProvider !== '' ? $payProvider : 'manual';
+        }
+        if ($has('reference')) {
+            $payload['reference'] = $reference;
+        }
+        if ($has('concept')) {
+            $payload['concept'] = 'Pago manual estado de cuenta ' . $period;
+        }
+        if ($has('currency')) {
+            $payload['currency'] = 'MXN';
+        }
+        if ($has('amount_mxn')) {
+            $payload['amount_mxn'] = round($amountMxn, 2);
+        }
+        if ($has('monto_mxn')) {
+            $payload['monto_mxn'] = round($amountMxn, 2);
+        }
+        if ($has('amount')) {
+            $payload['amount'] = $amountCents;
+        }
+        if ($has('amount_cents')) {
+            $payload['amount_cents'] = $amountCents;
+        }
+        if ($has('paid_at')) {
+            $payload['paid_at'] = ($paidAt ?: now())->toDateTimeString();
+        }
+        if ($has('due_date')) {
+            $payload['due_date'] = ($paidAt ?: now())->toDateString();
+        }
+        if ($has('meta')) {
+            $payload['meta'] = json_encode([
+                'source'      => 'manual_status_override',
+                'kind'        => 'synthetic_manual_payment',
+                'period'      => $period,
+                'amount_mxn'  => round($amountMxn, 2),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        $payload['updated_at'] = now();
+
+        if ($existing && isset($existing->id) && $has('id')) {
+            DB::connection($this->adm)->table('payments')
+                ->where('id', (int) $existing->id)
+                ->update($payload);
+            return;
+        }
+
+        $payload['created_at'] = now();
+
+        DB::connection($this->adm)->table('payments')->insert($payload);
+    }
+
+    private function deleteSyntheticManualPaymentsForStatement(string $accountId, string $period): void
+    {
+        if (!Schema::connection($this->adm)->hasTable('payments')) {
+            return;
+        }
+
+        $cols = Schema::connection($this->adm)->getColumnListing('payments');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        if (!$has('account_id')) {
+            return;
+        }
+
+        $reference = 'manual-status:' . $accountId . ':' . $period;
+
+        $q = DB::connection($this->adm)->table('payments')
+            ->where('account_id', $accountId);
+
+        if ($has('period')) {
+            $q->where('period', $period);
+        }
+
+        if ($has('reference')) {
+            $q->where('reference', $reference);
+        } elseif ($has('concept')) {
+            $q->where('concept', 'Pago manual estado de cuenta ' . $period);
+        } else {
+            return;
+        }
+
+        $q->delete();
+    }
+
+            private function syncBillingStatementFromManualStatus(
+        string $accountId,
+        string $period,
+        string $status,
+        string $payMethod,
+        string $payProvider,
+        ?Carbon $paidAt
+    ): void {
+        if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+            return;
+        }
+
+        $cols = Schema::connection($this->adm)->getColumnListing('billing_statements');
+        $lc   = array_map('strtolower', $cols);
+        $has  = static fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        if (
+            !$has('account_id')
+            || !$has('period')
+            || !$has('total_cargo')
+        ) {
+            return;
+        }
+
+        $statement = DB::connection($this->adm)->table('billing_statements')
+            ->where('account_id', $accountId)
+            ->where('period', $period)
+            ->first();
+
+        $statementMeta = [];
+        $cargo = 0.0;
+
+        if ($statement) {
+            $cargo = round((float) ($statement->total_cargo ?? 0), 2);
+
+            try {
+                $statementMeta = json_decode((string) ($statement->meta ?? ''), true);
+                if (!is_array($statementMeta)) {
+                    $statementMeta = [];
+                }
+            } catch (\Throwable $e) {
+                $statementMeta = [];
+            }
+        }
+
+        // Si no existe row real o viene en cero, usar el cálculo visible como base
+        if ($cargo <= 0.00001) {
+            $financials = $this->computeStatementTotalsForPeriod($accountId, $period);
+            $cargo = round((float) (
+                $financials['cargo']
+                ?? $financials['expected_total']
+                ?? 0
+            ), 2);
+        }
+
+        if ($cargo <= 0.00001) {
+            return;
+        }
+
+        $paidReal = round($this->sumPaymentsForAccountPeriod($accountId, $period), 2);
+
+        $abono = 0.0;
+        $saldo = 0.0;
+        $mirrorStatus = 'pending';
+        $paidAtValue = null;
+
+        switch ($status) {
+            case 'pagado':
+                $abono = round(max($cargo, $paidReal), 2);
+                $saldo = 0.0;
+                $mirrorStatus = 'paid';
+                $paidAtValue = ($paidAt ?: now())->toDateTimeString();
+                break;
+
+            case 'parcial':
+                $abono = round(min($cargo, max(0.0, $paidReal)), 2);
+                $saldo = round(max(0.0, $cargo - $abono), 2);
+                $mirrorStatus = $abono > 0.00001 ? 'partial' : 'pending';
+                break;
+
+            case 'vencido':
+                $abono = round(min($cargo, max(0.0, $paidReal)), 2);
+                $saldo = round(max(0.0, $cargo - $abono), 2);
+                $mirrorStatus = $saldo > 0.00001 ? 'overdue' : 'paid';
+                $paidAtValue = $saldo <= 0.00001 ? (($paidAt ?: now())->toDateTimeString()) : null;
+                break;
+
+            case 'sin_mov':
+                $abono = round(min($cargo, max(0.0, $paidReal)), 2);
+                $saldo = round(max(0.0, $cargo - $abono), 2);
+                $mirrorStatus = ($cargo <= 0.00001 && $abono <= 0.00001)
+                    ? 'no_movement'
+                    : ($saldo > 0.00001 ? 'pending' : 'paid');
+                $paidAtValue = $saldo <= 0.00001 && $abono > 0.00001
+                    ? (($paidAt ?: now())->toDateTimeString())
+                    : null;
+                break;
+
+            case 'pendiente':
+            default:
+                $abono = round(min($cargo, max(0.0, $paidReal)), 2);
+                $saldo = round(max(0.0, $cargo - $abono), 2);
+                $mirrorStatus = $abono > 0.00001 && $saldo > 0.00001 ? 'partial' : 'pending';
+                break;
+        }
+
+        if ($mirrorStatus === 'paid') {
+            $abono = round(max($abono, $cargo), 2);
+            $saldo = 0.0;
+        }
+
+        $statementMeta['manual_status_sync'] = [
+            'status'        => $status,
+            'mirror_status' => $mirrorStatus,
+            'pay_method'    => $payMethod !== '' ? $payMethod : null,
+            'pay_provider'  => $payProvider !== '' ? $payProvider : null,
+            'paid_at'       => $paidAtValue,
+            'synced_at'     => now()->toDateTimeString(),
+        ];
+
+        $payload = [];
+
+        if ($has('account_id')) {
+            $payload['account_id'] = ctype_digit($accountId) ? (int) $accountId : $accountId;
+        }
+
+        if ($has('period')) {
+            $payload['period'] = $period;
+        }
+
+        if ($has('total_cargo')) {
+            $payload['total_cargo'] = round($cargo, 2);
+        }
+
+        if ($has('total_abono')) {
+            $payload['total_abono'] = round($abono, 2);
+        }
+
+        if ($has('saldo')) {
+            $payload['saldo'] = round($saldo, 2);
+        }
+
+        if ($has('status')) {
+            $payload['status'] = $mirrorStatus;
+        }
+
+        if ($has('paid_at')) {
+            $payload['paid_at'] = $paidAtValue;
+        }
+
+        if ($has('due_date') && !$statement) {
+            $payload['due_date'] = Carbon::createFromFormat('Y-m', $period)->endOfMonth()->toDateString();
+        }
+
+        if ($has('snapshot')) {
+            $snapshot = is_array($statementMeta['snapshot'] ?? null) ? $statementMeta['snapshot'] : [];
+            $snapshot['manual_sync'] = [
+                'cargo'  => round($cargo, 2),
+                'abono'  => round($abono, 2),
+                'saldo'  => round($saldo, 2),
+                'status' => $mirrorStatus,
+            ];
+            $payload['snapshot'] = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        if ($has('meta')) {
+            $payload['meta'] = json_encode($statementMeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        if ($has('updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        if ($statement) {
+            DB::connection($this->adm)->table('billing_statements')
+                ->where('account_id', $accountId)
+                ->where('period', $period)
+                ->update($payload);
+            return;
+        }
+
+        if ($has('created_at')) {
+            $payload['created_at'] = now();
+        }
+
+        DB::connection($this->adm)->table('billing_statements')->insert($payload);
     }
 
     private function parsePaidAtFromRequest(string $raw): ?Carbon
@@ -2795,114 +3154,61 @@ final class BillingStatementsController extends Controller
 
     private function recalcStatementFromPayments(string $accountId, string $period): array
     {
-        $adm = $this->adm;
+        $accountId = trim($accountId);
+        $period    = trim($period);
 
-        $st = DB::connection($adm)->table('billing_statements')
-            ->where('account_id', $accountId)
-            ->where('period', $period)
-            ->first();
-
-        if (!$st) {
+        if ($accountId === '' || !$this->isValidPeriod($period)) {
             return [
-                'cargo' => 0,
-                'abono' => 0,
-                'saldo' => 0,
+                'cargo'  => 0.0,
+                'abono'  => 0.0,
+                'saldo'  => 0.0,
                 'status' => 'void',
             ];
         }
 
-        // ==============================
-        // TOTAL PAGADO GLOBAL (CRITICO)
-        // ==============================
-        $totalPaidGlobal = DB::connection($adm)->table('payments')
-            ->where('account_id', $accountId)
-            ->whereIn(DB::raw('LOWER(status)'), [
-                'paid','pagado','succeeded','success','completed','complete','captured'
-            ])
-            ->sum('amount');
+        $stmt = $this->getBillingStatementSnapshot($accountId, $period);
 
-        $totalPaidGlobal = round($totalPaidGlobal / 100, 2);
-
-        // ==============================
-        // TOTAL CARGOS GLOBAL
-        // ==============================
-        $totalChargedGlobal = DB::connection($adm)->table('billing_statements')
-            ->where('account_id', $accountId)
-            ->sum('total_cargo');
-
-        $totalChargedGlobal = round((float)$totalChargedGlobal, 2);
-
-        $globalBalance = round($totalPaidGlobal - $totalChargedGlobal, 2);
-
-        // ==============================
-        // CARGO DEL PERIODO
-        // ==============================
-        $cargo = round((float) $st->total_cargo, 2);
-
-        // ==============================
-        // CALCULAR SALDO ACUMULADO HASTA ESTE PERIODO
-        // ==============================
-        $totalPaidGlobal = DB::connection($adm)->table('payments')
-            ->where('account_id', $accountId)
-            ->whereIn(DB::raw('LOWER(status)'), [
-                'paid','pagado','succeeded','success','completed','complete','captured'
-            ])
-            ->sum('amount');
-
-        $totalPaidGlobal = round($totalPaidGlobal / 100, 2);
-
-        // cargos hasta este periodo (ordenados)
-        $totalChargedUntilPeriod = DB::connection($adm)->table('billing_statements')
-            ->where('account_id', $accountId)
-            ->where('period', '<=', $period)
-            ->sum('total_cargo');
-
-        $totalChargedUntilPeriod = round((float)$totalChargedUntilPeriod, 2);
-
-        // saldo disponible hasta este periodo
-        $balanceUntilPeriod = round($totalPaidGlobal - $totalChargedUntilPeriod, 2);
-
-        // ==============================
-        // SI ALCANZA PARA ESTE PERIODO → PAGADO
-        // ==============================
-        if ($balanceUntilPeriod >= 0) {
+        if (!$stmt) {
             return [
-                'cargo' => $cargo,
-                'abono' => $cargo,
-                'saldo' => 0,
-                'status' => 'paid',
+                'cargo'  => 0.0,
+                'abono'  => 0.0,
+                'saldo'  => 0.0,
+                'status' => 'void',
             ];
         }
 
-        // ==============================
-        // SI NO → lógica normal por periodo
-        // ==============================
-        $paid = DB::connection($adm)->table('payments')
-            ->where('account_id', $accountId)
-            ->where(function ($q) use ($period) {
-                $q->where('period', $period)
-                ->orWhere('period', 'like', $period.'%');
-            })
-            ->whereIn(DB::raw('LOWER(status)'), [
-                'paid','pagado','succeeded','success','completed','complete','captured'
-            ])
-            ->sum('amount');
+        // =====================================================
+        // FUENTE REAL DE PAGOS DEL PERIODO
+        // Usa el helper central que ya resuelve amount_mxn /
+        // monto_mxn / amount_cents / amount correctamente.
+        // =====================================================
+        $paidPeriod = round($this->sumPaymentsForAccountPeriod($accountId, $period), 2);
 
-        $paid = round($paid / 100, 2);
-        $saldo = round(max(0, $cargo - $paid), 2);
+        $cargoStmt = round((float) ($stmt['cargo'] ?? 0.0), 2);
+        $abonoStmt = round((float) ($stmt['abono'] ?? 0.0), 2);
+
+        // Consolidación:
+        // - si billing_statements ya trae abono mayor, se respeta
+        // - si payments del periodo es mayor, se toma ese
+        $abono = round(max($abonoStmt, $paidPeriod), 2);
+        $saldo = round(max(0.0, $cargoStmt - $abono), 2);
 
         $status = 'pending';
 
-        if ($saldo <= 0.01 && $paid > 0) {
+        if ($cargoStmt <= 0.00001 && $abono <= 0.00001) {
+            $status = 'void';
+        } elseif ($saldo <= 0.01 && $abono > 0.0) {
             $status = 'paid';
-        } elseif ($paid > 0 && $saldo > 0) {
+            $abono  = $cargoStmt;
+            $saldo  = 0.0;
+        } elseif ($abono > 0.0 && $saldo > 0.01) {
             $status = 'partial';
         }
 
         return [
-            'cargo' => $cargo,
-            'abono' => $paid,
-            'saldo' => $saldo,
+            'cargo'  => round($cargoStmt, 2),
+            'abono'  => round($abono, 2),
+            'saldo'  => round($saldo, 2),
             'status' => $status,
         ];
     }

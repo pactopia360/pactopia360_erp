@@ -724,22 +724,23 @@
 
                 <td class="sx-right sx-actionsTd">
                   <button class="sx-btn sx-btn-soft sx-actOpen"
-                          type="button"
-                          data-sx-open-drawer="1"
-                          data-account="{{ e($aid) }}"
-                          data-name="{{ e($name) }}"
-                          data-email="{{ e($mail) }}"
-                          data-status="{{ e($st) }}"
-                          data-pay="{{ e($payMethod) }}"
-                          data-show="{{ e($showUrl ?? '') }}"
-                          data-pdf="{{ e($pdfUrl ?? '') }}"
-                          data-emailurl="{{ e($emailUrl ?? '') }}"
-                          data-period="{{ e($rowPeriod) }}"
-                          data-period-label="{{ e((string)($r->period ?? $actionPeriod)) }}"
-                          data-manage-period="{{ e($rowPeriod) }}"
-                          data-range-mode="0">
-                    Gestionar
-                  </button>
+                        type="button"
+                        data-sx-open-drawer="1"
+                        data-account="{{ e($aid) }}"
+                        data-name="{{ e($name) }}"
+                        data-email="{{ e($mail) }}"
+                        data-status="{{ e($st) }}"
+                        data-pay="{{ e($payMethod) }}"
+                        data-paid-at="{{ e($payLast) }}"
+                        data-show="{{ e($showUrl ?? '') }}"
+                        data-pdf="{{ e($pdfUrl ?? '') }}"
+                        data-emailurl="{{ e($emailUrl ?? '') }}"
+                        data-period="{{ e($rowPeriod) }}"
+                        data-period-label="{{ e((string)($r->period ?? $actionPeriod)) }}"
+                        data-manage-period="{{ e($rowPeriod) }}"
+                        data-range-mode="0">
+                  Gestionar
+                </button>
                 </td>
               </tr>
             @empty
@@ -784,14 +785,14 @@
 
 <div id="sxToast" class="sx-toast"></div>
 
-<!-- ===== Drawer: Acciones por cuenta (PRO) ===== -->
+<!-- ===== Modal compacto: Acciones por cuenta ===== -->
 <div id="sxDrawer" class="sx-drawer" aria-hidden="true">
   <div class="sx-drawer-backdrop" data-sx-drawer-close="1"></div>
 
   <aside class="sx-drawer-panel" role="dialog" aria-modal="true" aria-label="Acciones de cuenta">
     <div class="sx-drawer-head">
       <div class="sx-drawer-title">
-        <div class="sx-drawer-kicker">Acciones</div>
+        <div class="sx-drawer-kicker">Gestión rápida</div>
 
         <div class="sx-drawer-main">
           <span id="sxDAccount" class="sx-pill sx-dim"><span class="dot"></span>#—</span>
@@ -807,60 +808,69 @@
 
     <div class="sx-drawer-body">
       <div class="sx-drawer-block">
-        <div class="sx-drawer-label">Estatus</div>
-        <select class="sx-sel" id="sxDStatus">
-          @foreach($statusOptions as $k => $lbl)
-            <option value="{{ $k }}">{{ $lbl }}</option>
-          @endforeach
-        </select>
-      </div>
+        <div class="sx-drawer-label">Configuración del periodo</div>
 
-      <div class="sx-drawer-block">
-        <div class="sx-drawer-label">Forma de pago</div>
-        <select class="sx-sel" id="sxDPay">
-          @foreach($payMethodOptions as $k => $lbl)
-            <option value="{{ $k }}">{{ $lbl }}</option>
-          @endforeach
-        </select>
-      </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div style="min-width:0;">
+            <div class="sx-drawer-label" style="margin-bottom:8px;">Estatus</div>
+            <select class="sx-sel" id="sxDStatus">
+              @foreach($statusOptions as $k => $lbl)
+                <option value="{{ $k }}">{{ $lbl }}</option>
+              @endforeach
+            </select>
+          </div>
 
-      {{-- ✅ Fecha de pago (solo cuando Estatus = Pagado) --}}
-      <div class="sx-drawer-block" id="sxDPaidAtWrap" style="display:none;">
-        <div class="sx-drawer-label">Fecha de pago</div>
-        <input class="sx-in" id="sxDPaidAt" type="datetime-local" value="">
-        <div class="sx-drawer-footnote" style="margin-top:6px;">
-          Requerido para marcar como <b>Pagado</b>. Si lo dejas vacío, se usará la hora actual.
+          <div style="min-width:0;">
+            <div class="sx-drawer-label" style="margin-bottom:8px;">Forma de pago</div>
+            <select class="sx-sel" id="sxDPay">
+              @foreach($payMethodOptions as $k => $lbl)
+                <option value="{{ $k }}">{{ $lbl }}</option>
+              @endforeach
+            </select>
+          </div>
+        </div>
+
+        <div id="sxDPaidAtWrap" style="display:none; margin-top:12px;">
+          <div class="sx-drawer-label" style="margin-bottom:8px;">Fecha de pago</div>
+          <input class="sx-in" id="sxDPaidAt" type="datetime-local" value="">
+          <div class="sx-drawer-footnote" style="margin-top:8px;">
+            Solo se usa cuando el estatus está en <b>Pagado</b>.
+          </div>
         </div>
       </div>
 
-      <div class="sx-drawer-row">
+      <div class="sx-drawer-row" style="justify-content:space-between; align-items:center;">
+        <div class="sx-drawer-footnote" style="margin:0;">
+          Cambios rápidos del estado de cuenta.
+        </div>
+
         <button id="sxDSave" class="sx-btn sx-btn-primary" type="button">Guardar cambios</button>
       </div>
 
       <div class="sx-drawer-sep"></div>
 
-      <div class="sx-drawer-row sx-drawer-links">
-        <a id="sxDShow" class="sx-btn sx-btn-primary" href="#" style="display:none;">Ver</a>
+      <div class="sx-drawer-block" style="padding:12px 14px;">
+        <div class="sx-drawer-label" style="margin-bottom:10px;">Acciones rápidas</div>
 
-        <button id="sxDPreview" class="sx-btn sx-btn-soft" type="button" style="display:none;"
-                data-sx-pdf-preview="1"
-                data-url=""
-                data-account=""
-                data-period="{{ e($periodLabel) }}">
-          Preview
-        </button>
+        <div class="sx-drawer-row sx-drawer-links">
+          <a id="sxDShow" class="sx-btn sx-btn-primary" href="#" style="display:none;">Ver</a>
 
-        <a id="sxDPdf" class="sx-btn sx-btn-soft" target="_blank" rel="noopener" href="#" style="display:none;">PDF</a>
+          <button id="sxDPreview" class="sx-btn sx-btn-soft" type="button" style="display:none;"
+                  data-sx-pdf-preview="1"
+                  data-url=""
+                  data-account=""
+                  data-period="{{ e($periodLabel) }}">
+            Preview
+          </button>
 
-        <form id="sxDEmailForm" method="POST" action="" style="display:none; margin:0;">
-          @csrf
-          <input type="hidden" name="to" value="">
-          <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
-        </form>
-      </div>
+          <a id="sxDPdf" class="sx-btn sx-btn-soft" target="_blank" rel="noopener" href="#" style="display:none;">PDF</a>
 
-      <div class="sx-drawer-footnote">
-        Se abre como drawer para no romper la tabla.
+          <form id="sxDEmailForm" method="POST" action="" style="display:none; margin:0;">
+            @csrf
+            <input type="hidden" name="to" value="">
+            <button class="sx-btn sx-btn-soft" type="submit">Enviar</button>
+          </form>
+        </div>
       </div>
     </div>
   </aside>
@@ -1479,19 +1489,50 @@
     return m ? String(m.getAttribute('content')||'') : '';
   }
 
-  function nowLocalDatetimeValue(){
-    const d = new Date();
-    const pad = (n)=> String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  function pad2(n){
+  return String(n).padStart(2,'0');
+  }
+
+  function toDatetimeLocalValue(raw){
+    const s = String(raw || '').trim();
+    if(!s) return '';
+
+    if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)){
+      return s;
+    }
+
+    const normalized = s.replace(' a. m.', '').replace(' p. m.', '').replace(/\s+/g, ' ').trim();
+
+    const parsed = new Date(normalized);
+    if(!Number.isNaN(parsed.getTime())){
+      return `${parsed.getFullYear()}-${pad2(parsed.getMonth()+1)}-${pad2(parsed.getDate())}T${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+    }
+
+    const m = normalized.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/);
+    if(m){
+      return `${m[1]}T${m[2]}:${m[3]}`;
+    }
+
+    return '';
+  }
+
+  function fromDatetimeLocalToDisplay(raw){
+    const v = String(raw || '').trim();
+    if(!v) return '';
+    return v.replace('T', ' ');
   }
 
   function setPaidAtVisibility(){
     const st = String(dStatus && dStatus.value ? dStatus.value : '').toLowerCase().trim();
     const on = (st === 'pagado');
-    if(dPaidWrap) dPaidWrap.style.display = on ? '' : 'none';
-    if(on && dPaidAt && !String(dPaidAt.value||'').trim()){
-      dPaidAt.value = nowLocalDatetimeValue();
+
+    if(dPaidWrap) dPaidWrap.style.display = on ? 'block' : 'none';
+
+    if(on && dPaidAt && !String(dPaidAt.value || '').trim()){
+      const existing = String(currentDrawer.paidAt || '').trim();
+      dPaidAt.value = existing !== '' ? existing : nowLocalDatetimeValue();
     }
+
     if(!on && dPaidAt){
       dPaidAt.value = '';
     }
@@ -1506,6 +1547,7 @@
     managePeriod: '',
     periodLabel: '',
     period: '',
+    paidAt: '',
     isRangeMode: false,
   };
 
@@ -1554,6 +1596,13 @@
       dPay.value = pm || '';
     }
 
+    const paidAtLocal = toDatetimeLocalValue(payload && payload.paidAt ? payload.paidAt : '');
+    currentDrawer.paidAt = paidAtLocal;
+
+    if(dPaidAt){
+      dPaidAt.value = paidAtLocal || '';
+    }
+
     // store current
     const exactPeriod = String(payload && payload.period ? payload.period : '').trim();
     const managePeriod = String(payload && payload.managePeriod ? payload.managePeriod : (exactPeriod || defaultManagePeriod || '')).trim();
@@ -1566,6 +1615,7 @@
     currentDrawer.managePeriod = managePeriod || '';
     currentDrawer.periodLabel = String(payload && payload.periodLabel ? payload.periodLabel : (managePeriod || '—')).trim();
     currentDrawer.rowEl = rowKey ? document.getElementById(rowKey) : null;
+    currentDrawer.paidAt = paidAtLocal || '';
     currentDrawer.isRangeMode = String(payload && payload.isRangeMode ? payload.isRangeMode : '0') === '1';
 
     setPaidAtVisibility();
@@ -1624,20 +1674,21 @@
     const openBtn = ev.target && ev.target.closest ? ev.target.closest('[data-sx-open-drawer="1"]') : null;
     if(openBtn){
       ev.preventDefault();
-      openDrawer({
-        account: openBtn.getAttribute('data-account') || '',
-        name: openBtn.getAttribute('data-name') || '—',
-        email: openBtn.getAttribute('data-email') || '—',
-        status: openBtn.getAttribute('data-status') || '',
-        pay: openBtn.getAttribute('data-pay') || '',
-        show: openBtn.getAttribute('data-show') || '',
-        pdf: openBtn.getAttribute('data-pdf') || '',
-        emailurl: openBtn.getAttribute('data-emailurl') || '',
-        period: openBtn.getAttribute('data-period') || '',
-        periodLabel: openBtn.getAttribute('data-period-label') || '—',
-        managePeriod: openBtn.getAttribute('data-manage-period') || '',
-        isRangeMode: openBtn.getAttribute('data-range-mode') || '0',
-      });
+     openDrawer({
+      account: openBtn.getAttribute('data-account') || '',
+      name: openBtn.getAttribute('data-name') || '—',
+      email: openBtn.getAttribute('data-email') || '—',
+      status: openBtn.getAttribute('data-status') || '',
+      pay: openBtn.getAttribute('data-pay') || '',
+      paidAt: openBtn.getAttribute('data-paid-at') || '',
+      show: openBtn.getAttribute('data-show') || '',
+      pdf: openBtn.getAttribute('data-pdf') || '',
+      emailurl: openBtn.getAttribute('data-emailurl') || '',
+      period: openBtn.getAttribute('data-period') || '',
+      periodLabel: openBtn.getAttribute('data-period-label') || '—',
+      managePeriod: openBtn.getAttribute('data-manage-period') || '',
+      isRangeMode: openBtn.getAttribute('data-range-mode') || '0',
+    });
       return;
     }
 
@@ -1781,7 +1832,8 @@
             let html = meta.innerHTML;
 
             const finalPayMethod = String((data && data.pay_method) || pay || '—');
-            const finalPaidAt = String((data && data.paid_at) || (String(finalStatus).toLowerCase() === 'pagado' ? (paidAt || nowLocalDatetimeValue()) : ''));
+            const finalPaidAtRaw = String((data && data.paid_at) || (String(finalStatus).toLowerCase() === 'pagado' ? (paidAt || nowLocalDatetimeValue()) : ''));
+            const finalPaidAtDisplay = fromDatetimeLocalToDisplay(finalPaidAtRaw);
 
             if(html.includes('Método:')){
               html = html.replace(/Método:\s*<span class="sx-mono">.*?<\/span>/, 'Método: <span class="sx-mono">'+escapeHtml(finalPayMethod)+'</span>');
@@ -1789,15 +1841,20 @@
               html += '<span style="opacity:.55;"> · </span> Método: <span class="sx-mono">'+escapeHtml(finalPayMethod)+'</span>';
             }
 
-            if(String(finalStatus).toLowerCase() === 'pagado'){
+            if(String(finalStatus).toLowerCase() === 'pagado' && finalPaidAtDisplay !== ''){
               if(html.includes('Últ. pago:')){
-                html = html.replace(/Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, 'Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAt)+'</span>');
+                html = html.replace(/Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, 'Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAtDisplay)+'</span>');
               }else{
-                html += '<br>Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAt)+'</span>';
+                html += '<br>Últ. pago: <span class="sx-mono">'+escapeHtml(finalPaidAtDisplay)+'</span>';
               }
             }
 
+            if(String(finalStatus).toLowerCase() !== 'pagado'){
+              html = html.replace(/<br>Últ\.\s*pago:\s*<span class="sx-mono">.*?<\/span>/, '');
+            }
+
             meta.innerHTML = html;
+            currentDrawer.paidAt = toDatetimeLocalValue(finalPaidAtRaw);
           }
 
           // También sincroniza atributos del botón Gestionar para siguiente apertura
@@ -1805,6 +1862,7 @@
           if(openBtn){
             openBtn.setAttribute('data-status', finalStatus || st);
             openBtn.setAttribute('data-pay', String((data && data.pay_method) || pay || ''));
+            openBtn.setAttribute('data-paid-at', String((data && data.paid_at) || (paidAt || '')));
           }
         }
       }catch(e){
@@ -1812,7 +1870,6 @@
       }
 
       closeDrawer();
-      window.location.reload();
 
     }catch(err){
       sxToast('Error de red al guardar. Revisa consola/network.', 'bad');
@@ -2091,7 +2148,25 @@
   sxSyncDateText();
 
 })();
+
+(function improveCompactDrawerGrid(){
+  const mq = window.matchMedia('(max-width: 640px)');
+  const apply = function(){
+    const grid = document.querySelector('#sxDrawer .sx-drawer-block div[style*="grid-template-columns:1fr 1fr"]');
+    if(!grid) return;
+    grid.style.gridTemplateColumns = mq.matches ? '1fr' : '1fr 1fr';
+  };
+  apply();
+  if(mq.addEventListener){
+    mq.addEventListener('change', apply);
+  }else if(mq.addListener){
+    mq.addListener(apply);
+  }
+})();
+
 </script>
+
+
 @endpush
 
 @endsection

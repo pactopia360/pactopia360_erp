@@ -31,6 +31,11 @@ final class BillingStatementsHubController extends Controller
     /** @var array<string, string|null> */
     private array $cacheLastPaid = [];
 
+    private bool $debugHub = false;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $debugHubBuffer = [];
+
     public function __construct()
     {
         $this->adm = (string) (config('p360.conn.admin') ?: 'mysql_admin');
@@ -50,6 +55,10 @@ final class BillingStatementsHubController extends Controller
 
     public function index(Request $req): View
     {
+        
+        $this->debugHub = $req->boolean('debug_hub') || $req->boolean('debugHub');
+        $this->debugHubBuffer = [];
+
         $q = trim((string) $req->get('q', ''));
 
         $period = (string) $req->get('period', now()->format('Y-m'));
@@ -180,6 +189,14 @@ final class BillingStatementsHubController extends Controller
             $payAggByMonth[$month]     = $this->sumPaymentsPaidByAccountForPeriod($accountIds, $month);
             $emailByMonth[$month]      = $this->trackingByAccountForPeriod($accountIds, $month);
             $ovMapByMonth[$month]      = $this->loadStatusOverridesMap($accountIds, $month);
+
+            $this->debugHubLog('month_sources_loaded', [
+                'month'          => $month,
+                'mirror_count'   => count($mirrorByMonth[$month]),
+                'prev_count'     => count($mirrorPrevByMonth[$month]),
+                'payments_count' => count($payAggByMonth[$month]),
+                'override_count' => count($ovMapByMonth[$month]),
+            ]);
         }
 
         $rowsCollection = collect();
@@ -225,6 +242,10 @@ final class BillingStatementsHubController extends Controller
                     $totalCurrent = $this->normalizeMoney($statement['total_cargo'] ?? 0.0);
                     $abonoMirror  = $this->normalizeMoney($statement['total_abono'] ?? 0.0);
                     $abonoTotal   = round(max($abonoMirror, $payPaid), 2);
+
+                    // IMPORTANTE:
+                    // saldo actual del periodo = solo cargo del periodo - abono del periodo
+                    // NO usar saldo del mirror porque puede traer arrastre histórico.
                     $saldoCurrent = round(max(0.0, $totalCurrent - $abonoTotal), 2);
                     $totalDue     = round(max(0.0, $saldoCurrent + $prevBalance), 2);
 
@@ -319,14 +340,27 @@ final class BillingStatementsHubController extends Controller
                         $row->status_override = $overrideStatus;
 
                         if ($overrideStatus === 'pagado') {
-                            $row->abono         = round(max($abonoShown, $cargoShown), 2);
-                            $row->saldo_current = 0.0;
-                            $row->saldo_shown   = 0.0;
-                            $row->saldo         = 0.0;
-                            $row->total_due     = round(max(0.0, $prevBalance), 2);
-                            $row->status_pago   = 'pagado';
-                            $row->status_auto   = 'pagado';
-                        } elseif ($overrideStatus === 'parcial') {
+                                // =====================================================
+                                // REGLA CORRECTA:
+                                // si el usuario marca PAGADO manual,
+                                // se considera que TODO queda saldado hasta este periodo
+                                // (incluye arrastre previo)
+                                // =====================================================
+
+                                $row->abono         = round(max($abonoShown, $cargoShown), 2);
+                                $row->saldo_current = 0.0;
+                                $row->saldo_shown   = 0.0;
+                                $row->saldo         = 0.0;
+
+                                // 🔥 AQUÍ ESTÁ LA CLAVE:
+                                $row->prev_balance  = 0.0;
+                                $row->prev_period   = null;
+
+                                $row->total_due     = 0.0;
+
+                                $row->status_pago   = 'pagado';
+                                $row->status_auto   = 'pagado';
+                            } elseif ($overrideStatus === 'parcial') {
                             if ($cargoShown > 0.00001 && $abonoShown <= 0.00001) {
                                 $row->abono = round(min($cargoShown, max(0.01, $cargoShown * 0.5)), 2);
                             }
@@ -377,6 +411,17 @@ final class BillingStatementsHubController extends Controller
                 $row->tracking_click_count  = (int) ($track['click_count'] ?? 0);
                 $row->tracking_last_sent_at = $track['last_sent_at'] ?? null;
 
+                $this->debugHubCaptureRow(
+                    accountId: $aid,
+                    period: $month,
+                    expected: (float) $expected,
+                    statement: $statement,
+                    prevInfo: $prevInfo,
+                    payPaid: (float) $payPaid,
+                    ov: $ov,
+                    row: $row
+                );
+
                 $rowsCollection->push($row);
             }
         }
@@ -423,6 +468,18 @@ final class BillingStatementsHubController extends Controller
             $req->url(),
             $req->query()
         );
+
+        $this->debugHubFlush([
+            'period'       => $period,
+            'period_from'  => $periodFrom,
+            'period_to'    => $periodTo,
+            'is_range'     => $isRange,
+            'accounts'     => count($accountIds),
+            'rows_total'   => $rowsCollection->count(),
+            'rows_page'    => $rows->count(),
+            'status'       => $status,
+            'per_page'     => $perPage,
+        ]);
 
         return view('admin.billing.statements.index', [
             'rows'         => $rows,
@@ -1506,7 +1563,11 @@ final class BillingStatementsHubController extends Controller
             $m = $mirror[$accountId];
             $total = round((float) ($m['total_cargo'] ?? 0), 2);
             $abono = round((float) ($m['total_abono'] ?? 0), 2);
-            $saldo = round((float) ($m['saldo'] ?? max(0.0, $total - $abono)), 2);
+
+            // Igual que en el grid:
+            // saldo del periodo actual sin arrastre histórico embebido.
+            $saldo = round(max(0.0, $total - $abono), 2);
+
             return [$total, $abono, $saldo];
         }
 
@@ -2581,7 +2642,7 @@ final class BillingStatementsHubController extends Controller
      * @param array<int|string> $accountIds
      * @return array<string, array<string,mixed>>
      */
-    private function loadBillingStatementsMirrorMap(array $accountIds, string $period): array
+        private function loadBillingStatementsMirrorMap(array $accountIds, string $period): array
     {
         $out = [];
 
@@ -2628,6 +2689,8 @@ final class BillingStatementsHubController extends Controller
                 'updated_at',
             ]);
 
+        $bucket = [];
+
         foreach ($rows as $row) {
             $ref = trim((string) ($row->account_id ?? ''));
             if ($ref === '' || !isset($refToAdmin[$ref])) {
@@ -2636,19 +2699,98 @@ final class BillingStatementsHubController extends Controller
 
             $adminId = $refToAdmin[$ref];
 
-            if (!isset($out[$adminId])) {
-                $out[$adminId] = [
+            $cargo  = round((float) ($row->total_cargo ?? 0), 2);
+            $abono  = round((float) ($row->total_abono ?? 0), 2);
+
+            // IMPORTANTE:
+            // el saldo del HUB para el periodo actual NO debe depender del saldo acumulado
+            // guardado en billing_statements.saldo; aquí lo reconstruimos solo del periodo.
+            $saldoPeriodo = round(max(0.0, $cargo - $abono), 2);
+
+            $status = strtolower(trim((string) ($row->status ?? 'pending')));
+            $paidAt = $row->paid_at ?? null;
+
+            $isPaid = false;
+            if ($paidAt) {
+                $isPaid = true;
+            }
+            if (in_array($status, ['paid', 'pagado'], true)) {
+                $isPaid = true;
+            }
+            if ($saldoPeriodo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) {
+                $isPaid = true;
+            }
+            if ($cargo > 0.0001 && $abono >= $cargo) {
+                $isPaid = true;
+            }
+
+            if (!isset($bucket[$adminId])) {
+                $bucket[$adminId] = [
+                    'id'          => 0,
+                    'account_ref' => $ref,
+                    'period'      => (string) ($row->period ?? ''),
+                    'status'      => 'pending',
+                    'total_cargo' => 0.0,
+                    'total_abono' => 0.0,
+                    'saldo'       => 0.0,
+                    'paid_at'     => null,
+                    'updated_at'  => null,
+                    'has_paid'    => false,
+                    'best_ts'     => 0,
+                ];
+            }
+
+            $ts = 0;
+            try {
+                $ts = $row->updated_at ? Carbon::parse((string) $row->updated_at)->timestamp : 0;
+            } catch (\Throwable $e) {
+                $ts = 0;
+            }
+
+            if ($isPaid) {
+                if (!$bucket[$adminId]['has_paid'] || $ts >= (int) $bucket[$adminId]['best_ts']) {
+                    $bucket[$adminId] = [
+                        'id'          => (int) ($row->id ?? 0),
+                        'account_ref' => $ref,
+                        'period'      => (string) ($row->period ?? ''),
+                        'status'      => 'paid',
+                        'total_cargo' => round($cargo, 2),
+                        'total_abono' => round(max($abono, $cargo), 2),
+                        'saldo'       => 0.0,
+                        'paid_at'     => $paidAt,
+                        'updated_at'  => $row->updated_at ?? null,
+                        'has_paid'    => true,
+                        'best_ts'     => $ts,
+                    ];
+                }
+
+                continue;
+            }
+
+            if ($bucket[$adminId]['has_paid']) {
+                continue;
+            }
+
+            if ($ts >= (int) $bucket[$adminId]['best_ts']) {
+                $bucket[$adminId] = [
                     'id'          => (int) ($row->id ?? 0),
                     'account_ref' => $ref,
                     'period'      => (string) ($row->period ?? ''),
-                    'status'      => strtolower(trim((string) ($row->status ?? 'pending'))),
-                    'total_cargo' => round((float) ($row->total_cargo ?? 0), 2),
-                    'total_abono' => round((float) ($row->total_abono ?? 0), 2),
-                    'saldo'       => round((float) ($row->saldo ?? 0), 2),
-                    'paid_at'     => $row->paid_at ?? null,
+                    'status'      => $status,
+                    'total_cargo' => round($cargo, 2),
+                    'total_abono' => round($abono, 2),
+                    'saldo'       => round($saldoPeriodo, 2),
+                    'paid_at'     => $paidAt,
                     'updated_at'  => $row->updated_at ?? null,
+                    'has_paid'    => false,
+                    'best_ts'     => $ts,
                 ];
             }
+        }
+
+        foreach ($bucket as $adminId => $item) {
+            unset($item['has_paid'], $item['best_ts']);
+            $out[$adminId] = $item;
         }
 
         return $out;
@@ -2658,7 +2800,7 @@ final class BillingStatementsHubController extends Controller
      * @param array<int|string> $accountIds
      * @return array<string, array{prev_balance: float, prev_period: ?string}>
      */
-    private function loadPreviousOpenStatementsMap(array $accountIds, string $period): array
+        private function loadPreviousOpenStatementsMap(array $accountIds, string $period): array
     {
         $out = [];
 
@@ -2705,7 +2847,14 @@ final class BillingStatementsHubController extends Controller
                 'updated_at',
             ]);
 
-        $seen = [];
+        // =========================================================
+        // REGLA CORRECTA:
+        // consolidar por adminId + period.
+        // Si CUALQUIER ref del mismo periodo ya quedó pagada/cerrada,
+        // ese periodo NO debe contarse como pendiente anterior.
+        // Si no hay ninguna cerrada, usar un solo saldo consolidado.
+        // =========================================================
+        $bucket = [];
 
         foreach ($rows as $row) {
             $ref = trim((string) ($row->account_id ?? ''));
@@ -2719,17 +2868,11 @@ final class BillingStatementsHubController extends Controller
                 continue;
             }
 
-            $key = $adminId . '|' . $p;
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-
-            $saldo  = round((float) ($row->saldo ?? 0), 2);
-            $status = strtolower(trim((string) ($row->status ?? 'pending')));
-            $paidAt = $row->paid_at ?? null;
             $cargo  = round((float) ($row->total_cargo ?? 0), 2);
             $abono  = round((float) ($row->total_abono ?? 0), 2);
+            $saldo  = round((float) ($row->saldo ?? max(0.0, $cargo - $abono)), 2);
+            $status = strtolower(trim((string) ($row->status ?? 'pending')));
+            $paidAt = $row->paid_at ?? null;
 
             $isPaid = false;
             if ($paidAt) {
@@ -2741,8 +2884,84 @@ final class BillingStatementsHubController extends Controller
             if ($saldo <= 0.0001 && ($cargo > 0.0001 || $abono > 0.0001)) {
                 $isPaid = true;
             }
+            if ($cargo > 0.0001 && $abono >= $cargo) {
+                $isPaid = true;
+            }
+
+            $key = $adminId . '|' . $p;
+
+            if (!isset($bucket[$key])) {
+                $bucket[$key] = [
+                    'admin_id'    => $adminId,
+                    'period'      => $p,
+                    'has_paid'    => false,
+                    'max_saldo'   => 0.0,
+                    'latest_paid' => null,
+                    'latest_open' => null,
+                ];
+            }
 
             if ($isPaid) {
+                $bucket[$key]['has_paid'] = true;
+
+                $ts = null;
+                try {
+                    $ts = $row->updated_at ? Carbon::parse((string) $row->updated_at)->timestamp : null;
+                } catch (\Throwable $e) {
+                    $ts = null;
+                }
+
+                if (
+                    $bucket[$key]['latest_paid'] === null
+                    || (($ts ?? 0) >= ($bucket[$key]['latest_paid']['ts'] ?? 0))
+                ) {
+                    $bucket[$key]['latest_paid'] = [
+                        'ts'    => $ts ?? 0,
+                        'saldo' => $saldo,
+                    ];
+                }
+
+                continue;
+            }
+
+            $bucket[$key]['max_saldo'] = max(
+                (float) $bucket[$key]['max_saldo'],
+                max(0.0, $saldo)
+            );
+
+            $ts = null;
+            try {
+                $ts = $row->updated_at ? Carbon::parse((string) $row->updated_at)->timestamp : null;
+            } catch (\Throwable $e) {
+                $ts = null;
+            }
+
+            if (
+                $bucket[$key]['latest_open'] === null
+                || (($ts ?? 0) >= ($bucket[$key]['latest_open']['ts'] ?? 0))
+            ) {
+                $bucket[$key]['latest_open'] = [
+                    'ts'    => $ts ?? 0,
+                    'saldo' => $saldo,
+                ];
+            }
+        }
+
+        foreach ($bucket as $item) {
+            $adminId = (string) ($item['admin_id'] ?? '');
+            $p       = (string) ($item['period'] ?? '');
+            if ($adminId === '' || $p === '') {
+                continue;
+            }
+
+            // Si cualquier versión del periodo ya está pagada/cerrada,
+            // NO debe arrastrarse como pendiente anterior.
+            if (($item['has_paid'] ?? false) === true) {
+                continue;
+            }
+
+            $saldoToUse = round((float) ($item['max_saldo'] ?? 0.0), 2);
+            if ($saldoToUse <= 0.0001) {
                 continue;
             }
 
@@ -2753,7 +2972,7 @@ final class BillingStatementsHubController extends Controller
                 ];
             }
 
-            $out[$adminId]['prev_balance'] += max(0.0, $saldo);
+            $out[$adminId]['prev_balance'] += $saldoToUse;
 
             if (empty($out[$adminId]['prev_period'])) {
                 $out[$adminId]['prev_period'] = $p;
@@ -2761,7 +2980,7 @@ final class BillingStatementsHubController extends Controller
         }
 
         foreach ($out as $aid => $vals) {
-            $out[$aid]['prev_balance'] = round((float) ($vals['prev_balance'] ?? 0), 2);
+            $out[$aid]['prev_balance'] = round((float) ($vals['prev_balance'] ?? 0.0), 2);
         }
 
         return $out;
@@ -3481,5 +3700,100 @@ final class BillingStatementsHubController extends Controller
             'failed_ids'    => array_values($failedIds),
             'pending_ids'   => array_values($pendingIds),
         ];
+    }
+
+        private function debugHubLog(string $event, array $payload = []): void
+    {
+        if (!$this->debugHub) {
+            return;
+        }
+
+        Log::info('[BILLING_HUB_DEBUG] ' . $event, $payload);
+    }
+
+    private function debugHubCaptureRow(
+        string $accountId,
+        string $period,
+        float $expected,
+        ?array $statement,
+        array $prevInfo,
+        float $payPaid,
+        ?array $ov,
+        object $row
+    ): void {
+        if (!$this->debugHub) {
+            return;
+        }
+
+        $key = $accountId . '|' . $period;
+
+        $this->debugHubBuffer[$key] = [
+            'account_id'        => $accountId,
+            'period'            => $period,
+            'expected_total'    => round($expected, 2),
+
+            'statement' => [
+                'exists'       => $statement !== null,
+                'account_ref'  => $statement['account_ref'] ?? null,
+                'status'       => $statement['status'] ?? null,
+                'total_cargo'  => isset($statement['total_cargo']) ? round((float) $statement['total_cargo'], 2) : null,
+                'total_abono'  => isset($statement['total_abono']) ? round((float) $statement['total_abono'], 2) : null,
+                'saldo'        => isset($statement['saldo']) ? round((float) $statement['saldo'], 2) : null,
+                'paid_at'      => $statement['paid_at'] ?? null,
+                'updated_at'   => $statement['updated_at'] ?? null,
+            ],
+
+            'previous_open' => [
+                'prev_balance' => round((float) ($prevInfo['prev_balance'] ?? 0.0), 2),
+                'prev_period'  => $prevInfo['prev_period'] ?? null,
+            ],
+
+            'payments' => [
+                'paid_period'  => round($payPaid, 2),
+            ],
+
+            'override' => [
+                'exists'           => $ov !== null,
+                'status_override'  => $ov['status_override'] ?? null,
+                'pay_method'       => $ov['pay_method'] ?? null,
+                'pay_provider'     => $ov['pay_provider'] ?? null,
+                'pay_status'       => $ov['pay_status'] ?? null,
+                'paid_at'          => $ov['paid_at'] ?? null,
+                'updated_at'       => $ov['updated_at'] ?? null,
+            ],
+
+            'final_row' => [
+                'cargo'            => round((float) ($row->cargo ?? 0.0), 2),
+                'abono'            => round((float) ($row->abono ?? 0.0), 2),
+                'abono_edo'        => round((float) ($row->abono_edo ?? 0.0), 2),
+                'abono_pay'        => round((float) ($row->abono_pay ?? 0.0), 2),
+                'saldo_current'    => round((float) ($row->saldo_current ?? 0.0), 2),
+                'saldo'            => round((float) ($row->saldo ?? 0.0), 2),
+                'prev_balance'     => round((float) ($row->prev_balance ?? 0.0), 2),
+                'total_due'        => round((float) ($row->total_due ?? 0.0), 2),
+                'status_pago'      => (string) ($row->status_pago ?? ''),
+                'status_auto'      => (string) ($row->status_auto ?? ''),
+                'pay_method'       => $row->pay_method ?? null,
+                'pay_provider'     => $row->pay_provider ?? null,
+                'pay_status'       => $row->pay_status ?? null,
+                'pay_last_paid_at' => $row->pay_last_paid_at ?? null,
+            ],
+        ];
+    }
+
+    private function debugHubFlush(array $summary = []): void
+    {
+        if (!$this->debugHub) {
+            return;
+        }
+
+        $this->debugHubLog('summary', $summary);
+
+        foreach ($this->debugHubBuffer as $key => $payload) {
+            Log::info('[BILLING_HUB_DEBUG] row', [
+                'key' => $key,
+                'row' => $payload,
+            ]);
+        }
     }
 }

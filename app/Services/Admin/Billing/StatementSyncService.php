@@ -110,13 +110,15 @@ final class StatementSyncService
             $disabledInfo = $this->resolveAccountBillingDisabledInfo($acc, $admAcc, $metaCli, $metaAdm);
 
             if (($disabledInfo['disabled'] ?? false) === true) {
-                $disabledAt = (string)($disabledInfo['disabled_at'] ?? '');
+                $disabledAt = (string) ($disabledInfo['disabled_at'] ?? '');
                 $disabledPeriod = $disabledAt !== ''
                     ? $this->toYearMonth($disabledAt)
                     : null;
 
+                // Solo cortar si existe deleted_at real.
+                // Si hay marca deleted pero no fecha, no destruimos flujo todavía.
                 if ($disabledPeriod !== null && strcmp($period, $disabledPeriod) > 0) {
-                    if ((bool)($opts['cleanup_disabled_statement'] ?? false)) {
+                    if ((bool) ($opts['cleanup_disabled_statement'] ?? false)) {
                         $this->deleteStatementForAccountPeriod($connAdmin, $canonicalAccountId, $period);
                     }
 
@@ -809,37 +811,28 @@ final class StatementSyncService
 
     private function resolveAccountBillingDisabledInfo(object $accCli, ?object $accAdm, array $metaCli, array $metaAdm): array
     {
+        // =========================================================
+        // REGLA CORRECTA:
+        // - SOLO tomar como baja real cuando existe marca deleted
+        // - NO usar is_blocked (porque también aplica a cuentas activas impagadas)
+        // - NO usar cancelled por sí solo como baja definitiva
+        // - la fuente fuerte es deleted + deleted_at
+        // =========================================================
+
         $admDeleted = false;
-        $admBlocked = false;
-        $admCancelled = false;
-
-        $cliBlocked = false;
-        $cliCancelled = false;
         $cliDeleted = false;
-
         $disabledAtCandidates = [];
 
         if ($accAdm) {
-            $admBlocked = (int)($accAdm->is_blocked ?? 0) === 1;
-
-            $admBillingStatus = strtolower(trim((string)($accAdm->billing_status ?? '')));
-            $admEstadoCuenta  = strtolower(trim((string)($accAdm->estado_cuenta ?? '')));
-
-            $admCancelled =
-                in_array($admBillingStatus, ['cancelled', 'cancelada'], true)
-                || in_array($admEstadoCuenta, ['cancelled', 'cancelada', 'deleted', 'eliminado', 'eliminada'], true);
-
             $admDeleted =
-                (bool)(data_get($metaAdm, 'deleted', false))
-                || (bool)(data_get($metaAdm, 'account.deleted', false))
-                || strtolower(trim((string)(data_get($metaAdm, 'account.status', '')))) === 'deleted';
+                (bool) data_get($metaAdm, 'deleted', false)
+                || (bool) data_get($metaAdm, 'account.deleted', false)
+                || strtolower(trim((string) data_get($metaAdm, 'account.status', ''))) === 'deleted';
 
             foreach ([
                 data_get($metaAdm, 'deleted_at'),
                 data_get($metaAdm, 'account.deleted_at'),
-                data_get($metaAdm, 'account.status_changed_at'),
                 data_get($metaAdm, 'billing.deleted_at'),
-                data_get($metaAdm, 'billing.cancelled_at'),
             ] as $candidate) {
                 $dt = $this->normalizeDateTimeString($candidate);
                 if ($dt !== null) {
@@ -848,32 +841,15 @@ final class StatementSyncService
             }
         }
 
-        $cliBlocked = (int)($accCli->is_blocked ?? 0) === 1;
-
-        $cliEstadoCuenta = strtolower(trim((string)($accCli->estado_cuenta ?? '')));
-        $cliCancelled = in_array($cliEstadoCuenta, [
-            'cancelled',
-            'cancelada',
-            'deleted',
-            'eliminado',
-            'eliminada',
-            'archived',
-            'archive',
-            'borrado',
-            'borrada',
-        ], true);
-
         $cliDeleted =
-            (bool)(data_get($metaCli, 'deleted', false))
-            || (bool)(data_get($metaCli, 'account.deleted', false))
-            || strtolower(trim((string)(data_get($metaCli, 'account.status', '')))) === 'deleted';
+            (bool) data_get($metaCli, 'deleted', false)
+            || (bool) data_get($metaCli, 'account.deleted', false)
+            || strtolower(trim((string) data_get($metaCli, 'account.status', ''))) === 'deleted';
 
         foreach ([
             data_get($metaCli, 'deleted_at'),
             data_get($metaCli, 'account.deleted_at'),
-            data_get($metaCli, 'account.status_changed_at'),
             data_get($metaCli, 'billing.deleted_at'),
-            data_get($metaCli, 'billing.cancelled_at'),
         ] as $candidate) {
             $dt = $this->normalizeDateTimeString($candidate);
             if ($dt !== null) {
@@ -881,7 +857,7 @@ final class StatementSyncService
             }
         }
 
-        $disabled = $admDeleted || $admBlocked || $admCancelled || $cliBlocked || $cliCancelled || $cliDeleted;
+        $disabled = $admDeleted || $cliDeleted;
 
         $disabledAt = null;
         if (!empty($disabledAtCandidates)) {
@@ -890,14 +866,10 @@ final class StatementSyncService
         }
 
         return [
-            'disabled'     => $disabled,
-            'disabled_at'  => $disabledAt,
-            'adm_deleted'  => $admDeleted,
-            'adm_blocked'  => $admBlocked,
-            'adm_cancelled'=> $admCancelled,
-            'cli_deleted'  => $cliDeleted,
-            'cli_blocked'  => $cliBlocked,
-            'cli_cancelled'=> $cliCancelled,
+            'disabled'    => $disabled,
+            'disabled_at' => $disabledAt,
+            'adm_deleted' => $admDeleted,
+            'cli_deleted' => $cliDeleted,
         ];
     }
 
