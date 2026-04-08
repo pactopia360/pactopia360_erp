@@ -191,8 +191,19 @@ final class BillingStatementsHubController extends Controller
             }
 
             $meta = $this->decodeMeta($acc->meta ?? null);
+            $disabledInfo = $this->resolveAccountDisabledInfo($acc, $meta);
+            $disabledCutoffPeriod = $disabledInfo['cutoff_period'] ?? null;
+            $isDeletedAccount = (bool) ($disabledInfo['disabled'] ?? false);
 
             foreach ($months as $month) {
+                // =====================================================
+                // SOLO cortar si realmente hay mes de baja conocido.
+                // Si no hay deleted_at/cutoff_period, no ocultamos meses.
+                // =====================================================
+                if ($isDeletedAccount && $disabledCutoffPeriod !== null && strcmp($month, $disabledCutoffPeriod) > 0) {
+                    continue;
+                }
+
                 $custom = $this->extractCustomAmountMxn($acc, $meta);
                 [$expected, $tarifaLabel, $tarifaPill] = $custom !== null && $custom > 0.00001
                     ? [round($custom, 2), 'PERSONALIZADO', 'info']
@@ -1285,43 +1296,11 @@ final class BillingStatementsHubController extends Controller
         $qb->select($select);
 
         // =========================================================
-        // EXCLUSIÓN FUERTE: cuentas eliminadas / archivadas / bajas
+        // IMPORTANTE:
+        // NO excluimos aquí cuentas eliminadas/canceladas/bloqueadas
+        // porque el histórico se debe conservar.
+        // El corte correcto se hace por fila/periodo usando deleted_at.
         // =========================================================
-        if ($has('estado_cuenta')) {
-            $qb->where(function ($w) {
-                $w->whereNull('accounts.estado_cuenta')
-                ->orWhere('accounts.estado_cuenta', '')
-                ->orWhereRaw("
-                        LOWER(TRIM(accounts.estado_cuenta)) NOT IN (
-                            'eliminado',
-                            'eliminada',
-                            'deleted',
-                            'archived',
-                            'archive',
-                            'borrado',
-                            'borrada'
-                        )
-                ");
-            });
-        }
-
-        if ($has('billing_status')) {
-            $qb->where(function ($w) {
-                $w->whereNull('accounts.billing_status')
-                ->orWhere('accounts.billing_status', '')
-                ->orWhereRaw("
-                        LOWER(TRIM(accounts.billing_status)) NOT IN (
-                            'eliminado',
-                            'eliminada',
-                            'deleted',
-                            'archived',
-                            'archive',
-                            'borrado',
-                            'borrada'
-                        )
-                ");
-            });
-        }
 
         // =========================================================
         // FILTROS BASE
@@ -3196,6 +3175,84 @@ final class BillingStatementsHubController extends Controller
         }
 
         return $out;
+    }
+
+        /**
+     * @param object $acc
+     * @param array<string,mixed> $meta
+     * @return array{disabled: bool, disabled_at: ?string, cutoff_period: ?string}
+     */
+        private function resolveAccountDisabledInfo(object $acc, array $meta): array
+    {
+        // =========================================================
+        // REGLA CORRECTA:
+        // - SOLO considerar baja real cuando existe marca de deleted
+        // - NO usar is_blocked (porque también aplica a cuentas activas impagadas)
+        // - NO usar updated_at como fecha de corte
+        // - billing_status/estado_cuenta solo apoyan, pero la fuente fuerte es deleted/deleted_at
+        // =========================================================
+
+        $billingStatus = strtolower(trim((string) ($acc->billing_status ?? '')));
+        $estadoCuenta  = strtolower(trim((string) ($acc->estado_cuenta ?? '')));
+
+        $isDeletedByMeta =
+            (bool) data_get($meta, 'deleted', false)
+            || (bool) data_get($meta, 'account.deleted', false)
+            || strtolower(trim((string) data_get($meta, 'account.status', ''))) === 'deleted';
+
+        $deletedAt = $this->firstValidDateTime([
+            data_get($meta, 'deleted_at'),
+            data_get($meta, 'account.deleted_at'),
+            data_get($meta, 'billing.deleted_at'),
+            data_get($meta, 'billing.cancelled_at'),
+        ]);
+
+        $hasDeletedStatusOnly =
+            in_array($billingStatus, ['deleted', 'eliminado', 'eliminada'], true)
+            || in_array($estadoCuenta, ['deleted', 'eliminado', 'eliminada'], true);
+
+        // Solo consideramos baja efectiva si:
+        // 1) hay marca deleted en meta, o
+        // 2) hay deleted_at real, o
+        // 3) hay estatus explícito deleted
+        $disabled = $isDeletedByMeta || $deletedAt !== null || $hasDeletedStatusOnly;
+
+        $cutoffPeriod = $deletedAt ? $this->parseToPeriod($deletedAt) : null;
+
+        return [
+            'disabled'      => $disabled,
+            'disabled_at'   => $deletedAt,
+            'cutoff_period' => $cutoffPeriod,
+        ];
+    }
+
+    /**
+     * @param array<int,mixed> $candidates
+     */
+    private function firstValidDateTime(array $candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            if ($candidate === null) {
+                continue;
+            }
+
+            try {
+                if ($candidate instanceof \DateTimeInterface) {
+                    return Carbon::instance($candidate)->format('Y-m-d H:i:s');
+                }
+
+                $s = trim((string) $candidate);
+                if ($s === '') {
+                    continue;
+                }
+
+                return Carbon::parse($s)->format('Y-m-d H:i:s');
+            } catch (\Throwable $e) {
+                continue;
+            }
+        }
+
+        return null;
     }
 
 

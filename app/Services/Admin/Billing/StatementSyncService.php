@@ -21,19 +21,22 @@ final class StatementSyncService
 
     public function syncForAccountAndPeriod(string $accountId, string $period, array $opts = []): BillingStatement
     {
-        $opts = array_merge([
+         $opts = array_merge([
             'force_rebuild_license_line' => false,
             'lock_if_paid'               => true,
             'actor'                      => 'system',
             'notes'                      => null,
 
-            // ✅ NUEVO: repara automáticamente "paid+locked con saldo/cargo 0"
-            // cuando el meta de HUB dice que sí hay que cobrar.
+            // ✅ repara automáticamente "paid+locked con saldo/cargo 0"
             'repair_locked_zero'         => true,
 
-            // ✅ NUEVO: por defecto NO facturamos ANUAL fuera de su mes de renovación
-            // (si necesitas forzar, pasa ['allow_yearly_offcycle'=>true])
+            // ✅ por defecto NO facturamos ANUAL fuera de su mes de renovación
             'allow_yearly_offcycle'      => false,
+
+            // ✅ si la cuenta ya fue eliminada/cancelada/bloqueada,
+            // no se sincroniza para periodos posteriores a la baja.
+            // Por regla histórica NO borramos automáticamente el histórico.
+            'cleanup_disabled_statement' => false,
         ], $opts);
 
         // ✅ Compat proyecto: p360.conn.clientes (pero dejamos fallback)
@@ -58,25 +61,70 @@ final class StatementSyncService
             // ===== 1.1) Meta (clientes + admin/accounts)
             $metaCli = $this->decodeMeta($acc->meta ?? null);
 
-            $accountsTable  = Schema::connection($connAdmin)->hasTable('accounts') ? 'accounts' : null;
+                        $accountsTable   = Schema::connection($connAdmin)->hasTable('accounts') ? 'accounts' : null;
             $accountsMetaCol = $accountsTable ? $this->pickFirstMetaCol($connAdmin, $accountsTable) : null;
 
             $metaAdm = [];
             $admAccCreatedAt = null;
+            $admAcc = null;
 
-            if ($adminAccountId > 0 && $accountsTable && $accountsMetaCol) {
+            if ($adminAccountId > 0 && $accountsTable) {
+                $accountSelect = ['id', 'created_at'];
+
+                if ($accountsMetaCol) {
+                    $accountSelect[] = $accountsMetaCol;
+                }
+                if (Schema::connection($connAdmin)->hasColumn($accountsTable, 'is_blocked')) {
+                    $accountSelect[] = 'is_blocked';
+                }
+                if (Schema::connection($connAdmin)->hasColumn($accountsTable, 'billing_status')) {
+                    $accountSelect[] = 'billing_status';
+                }
+                if (Schema::connection($connAdmin)->hasColumn($accountsTable, 'estado_cuenta')) {
+                    $accountSelect[] = 'estado_cuenta';
+                }
+
                 $admAcc = DB::connection($connAdmin)->table($accountsTable)
                     ->where('id', $adminAccountId)
-                    ->first(['id', $accountsMetaCol, 'created_at']);
+                    ->first($accountSelect);
 
                 if ($admAcc) {
-                    $metaAdm = $this->decodeMeta($admAcc->{$accountsMetaCol} ?? null);
+                    $metaAdm = $accountsMetaCol
+                        ? $this->decodeMeta($admAcc->{$accountsMetaCol} ?? null)
+                        : [];
+
                     $admAccCreatedAt = $admAcc->created_at ?? null;
                 }
             }
 
             // Admin meta gana (override/amount_mxn viven ahí)
             $meta = array_replace_recursive($metaCli, $metaAdm);
+
+                        // =========================================================
+            // ✅ RULE: conservar histórico hasta la fecha de baja/eliminación
+            // - si la cuenta fue eliminada/cancelada/bloqueada:
+            //   * se conserva histórico anterior
+            //   * se permite el mismo mes de la baja
+            //   * se bloquean solo periodos posteriores al mes de baja
+            // =========================================================
+            $disabledInfo = $this->resolveAccountBillingDisabledInfo($acc, $admAcc, $metaCli, $metaAdm);
+
+            if (($disabledInfo['disabled'] ?? false) === true) {
+                $disabledAt = (string)($disabledInfo['disabled_at'] ?? '');
+                $disabledPeriod = $disabledAt !== ''
+                    ? $this->toYearMonth($disabledAt)
+                    : null;
+
+                if ($disabledPeriod !== null && strcmp($period, $disabledPeriod) > 0) {
+                    if ((bool)($opts['cleanup_disabled_statement'] ?? false)) {
+                        $this->deleteStatementForAccountPeriod($connAdmin, $canonicalAccountId, $period);
+                    }
+
+                    throw new \RuntimeException(
+                        "SKIP_ACCOUNT_DISABLED_AFTER_DELETION: account={$canonicalAccountId} period={$period} disabled_period={$disabledPeriod}"
+                    );
+                }
+            }
 
             // ===== 1.2) Perfil licencia canónico
             $planKey = (string)(
@@ -513,11 +561,18 @@ final class StatementSyncService
 
                 $msg = (string) $e->getMessage();
 
-                // ✅ SKIP esperado (yearly offcycle / not due)
-                if (str_contains($msg, 'SKIP_YEARLY_NOT_DUE') || str_contains($msg, 'SKIP_BEFORE_ACCOUNT_START')) {
+                // ✅ SKIP esperado:
+                // - yearly offcycle
+                // - before account start
+                // - account deleted / cancelled / blocked
+                if (
+                    str_contains($msg, 'SKIP_YEARLY_NOT_DUE')
+                    || str_contains($msg, 'SKIP_BEFORE_ACCOUNT_START')
+                    || str_contains($msg, 'SKIP_ACCOUNT_DISABLED')
+                    || str_contains($msg, 'SKIP_ACCOUNT_DISABLED_AFTER_DELETION')
+                ) {
                     $skipped++;
 
-                    // Lo dejamos como INFO (no ERROR) para que no contamine alertas
                     $logSkipped = (bool)($opts['log_skipped_yearly'] ?? false);
 
                     if ($logSkipped) {
@@ -749,6 +804,148 @@ final class StatementSyncService
             return ($diff % 12) === 0;
         } catch (\Throwable $e) {
             return false;
+        }
+    }
+
+    private function resolveAccountBillingDisabledInfo(object $accCli, ?object $accAdm, array $metaCli, array $metaAdm): array
+    {
+        $admDeleted = false;
+        $admBlocked = false;
+        $admCancelled = false;
+
+        $cliBlocked = false;
+        $cliCancelled = false;
+        $cliDeleted = false;
+
+        $disabledAtCandidates = [];
+
+        if ($accAdm) {
+            $admBlocked = (int)($accAdm->is_blocked ?? 0) === 1;
+
+            $admBillingStatus = strtolower(trim((string)($accAdm->billing_status ?? '')));
+            $admEstadoCuenta  = strtolower(trim((string)($accAdm->estado_cuenta ?? '')));
+
+            $admCancelled =
+                in_array($admBillingStatus, ['cancelled', 'cancelada'], true)
+                || in_array($admEstadoCuenta, ['cancelled', 'cancelada', 'deleted', 'eliminado', 'eliminada'], true);
+
+            $admDeleted =
+                (bool)(data_get($metaAdm, 'deleted', false))
+                || (bool)(data_get($metaAdm, 'account.deleted', false))
+                || strtolower(trim((string)(data_get($metaAdm, 'account.status', '')))) === 'deleted';
+
+            foreach ([
+                data_get($metaAdm, 'deleted_at'),
+                data_get($metaAdm, 'account.deleted_at'),
+                data_get($metaAdm, 'account.status_changed_at'),
+                data_get($metaAdm, 'billing.deleted_at'),
+                data_get($metaAdm, 'billing.cancelled_at'),
+            ] as $candidate) {
+                $dt = $this->normalizeDateTimeString($candidate);
+                if ($dt !== null) {
+                    $disabledAtCandidates[] = $dt;
+                }
+            }
+        }
+
+        $cliBlocked = (int)($accCli->is_blocked ?? 0) === 1;
+
+        $cliEstadoCuenta = strtolower(trim((string)($accCli->estado_cuenta ?? '')));
+        $cliCancelled = in_array($cliEstadoCuenta, [
+            'cancelled',
+            'cancelada',
+            'deleted',
+            'eliminado',
+            'eliminada',
+            'archived',
+            'archive',
+            'borrado',
+            'borrada',
+        ], true);
+
+        $cliDeleted =
+            (bool)(data_get($metaCli, 'deleted', false))
+            || (bool)(data_get($metaCli, 'account.deleted', false))
+            || strtolower(trim((string)(data_get($metaCli, 'account.status', '')))) === 'deleted';
+
+        foreach ([
+            data_get($metaCli, 'deleted_at'),
+            data_get($metaCli, 'account.deleted_at'),
+            data_get($metaCli, 'account.status_changed_at'),
+            data_get($metaCli, 'billing.deleted_at'),
+            data_get($metaCli, 'billing.cancelled_at'),
+        ] as $candidate) {
+            $dt = $this->normalizeDateTimeString($candidate);
+            if ($dt !== null) {
+                $disabledAtCandidates[] = $dt;
+            }
+        }
+
+        $disabled = $admDeleted || $admBlocked || $admCancelled || $cliBlocked || $cliCancelled || $cliDeleted;
+
+        $disabledAt = null;
+        if (!empty($disabledAtCandidates)) {
+            sort($disabledAtCandidates);
+            $disabledAt = $disabledAtCandidates[0];
+        }
+
+        return [
+            'disabled'     => $disabled,
+            'disabled_at'  => $disabledAt,
+            'adm_deleted'  => $admDeleted,
+            'adm_blocked'  => $admBlocked,
+            'adm_cancelled'=> $admCancelled,
+            'cli_deleted'  => $cliDeleted,
+            'cli_blocked'  => $cliBlocked,
+            'cli_cancelled'=> $cliCancelled,
+        ];
+    }
+
+        private function normalizeDateTimeString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        try {
+            if ($value instanceof \DateTimeInterface) {
+                return Carbon::instance($value)->format('Y-m-d H:i:s');
+            }
+
+            $s = trim((string)$value);
+            if ($s === '') {
+                return null;
+            }
+
+            return Carbon::parse($s)->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function toYearMonth(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        try {
+            if ($value instanceof \DateTimeInterface) {
+                return Carbon::instance($value)->format('Y-m');
+            }
+
+            $s = trim((string)$value);
+            if ($s === '') {
+                return null;
+            }
+
+            if (preg_match('/^\d{4}\-\d{2}$/', $s)) {
+                return $s;
+            }
+
+            return Carbon::parse($s)->format('Y-m');
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 
