@@ -1185,33 +1185,66 @@ Route::middleware([
         });
 
         Route::prefix('vault-access')->name('vault_access.')->group(function () use ($thrAdminPosts, $isLocal) {
-                Route::get('/', [SatOpsVaultAccessController::class, 'index'])->name('index');
+            Route::get('/', [SatOpsVaultAccessController::class, 'index'])->name('index');
 
-                $vaultV1Update = Route::post('account/{cuentaId}/v1', [SatOpsVaultAccessController::class, 'updateV1'])
-                    ->where('cuentaId', '[A-Za-z0-9\-]+')
-                    ->middleware($thrAdminPosts)
-                    ->name('v1.update');
+            $vaultV1Update = Route::post('account/{cuentaId}/v1', [SatOpsVaultAccessController::class, 'updateV1'])
+                ->where('cuentaId', '[A-Za-z0-9\-]+')
+                ->middleware($thrAdminPosts)
+                ->name('v1.update');
 
-                $vaultV2ModuleUpdate = Route::post('account/{cuentaId}/v2-module', [SatOpsVaultAccessController::class, 'updateV2Module'])
-                    ->where('cuentaId', '[A-Za-z0-9\-]+')
-                    ->middleware($thrAdminPosts)
-                    ->name('v2_module.update');
+            $vaultV2ModuleUpdate = Route::post('account/{cuentaId}/v2-module', [SatOpsVaultAccessController::class, 'updateV2Module'])
+                ->where('cuentaId', '[A-Za-z0-9\-]+')
+                ->middleware($thrAdminPosts)
+                ->name('v2_module.update');
 
-                $vaultV2UsersUpdate = Route::post('account/{cuentaId}/v2-users', [SatOpsVaultAccessController::class, 'updateV2Users'])
-                    ->where('cuentaId', '[A-Za-z0-9\-]+')
-                    ->middleware($thrAdminPosts)
-                    ->name('v2_users.update');
+            $vaultV2UsersUpdate = Route::post('account/{cuentaId}/v2-users', [SatOpsVaultAccessController::class, 'updateV2Users'])
+                ->where('cuentaId', '[A-Za-z0-9\-]+')
+                ->middleware($thrAdminPosts)
+                ->name('v2_users.update');
 
-                if ($isLocal) {
-                    foreach ([
-                        $vaultV1Update,
-                        $vaultV2ModuleUpdate,
-                        $vaultV2UsersUpdate,
-                    ] as $rt) {
-                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
-                    }
+            $vaultV2UserStore = Route::post(
+                'account/{cuentaId}/users',
+                [SatOpsVaultAccessController::class, 'storeAccountUser']
+            )
+                ->where('cuentaId', '[A-Za-z0-9\-]+')
+                ->middleware($thrAdminPosts)
+                ->name('users.store');
+
+            $vaultV2UserUpdate = Route::post(
+                'account/{cuentaId}/users/{usuarioId}/update',
+                [SatOpsVaultAccessController::class, 'updateAccountUser']
+            )
+                ->where([
+                    'cuentaId'  => '[A-Za-z0-9\-]+',
+                    'usuarioId' => '[A-Za-z0-9\-]+',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('users.update');
+
+            $vaultV2UserDelete = Route::post(
+                'account/{cuentaId}/v2-users/{usuarioId}/delete',
+                [SatOpsVaultAccessController::class, 'deleteV2UserAccess']
+            )
+                ->where([
+                    'cuentaId'  => '[A-Za-z0-9\-]+',
+                    'usuarioId' => '[A-Za-z0-9\-]+',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('v2_users.delete');
+
+            if ($isLocal) {
+                foreach ([
+                    $vaultV1Update,
+                    $vaultV2ModuleUpdate,
+                    $vaultV2UsersUpdate,
+                    $vaultV2UserStore,
+                    $vaultV2UserUpdate,
+                    $vaultV2UserDelete,
+                ] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
-            });
+            }
+        });
 
         // SAT admin dentro de billing
         Route::prefix('sat')->name('sat.')->group(function () use ($thrAdminPosts, $isLocal) {

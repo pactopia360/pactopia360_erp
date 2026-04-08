@@ -7,19 +7,22 @@ namespace App\Http\Controllers\Admin\Sat\Ops;
 use App\Http\Controllers\Controller;
 use App\Models\Cliente\CuentaCliente;
 use App\Models\Cliente\SatUserAccess;
+use App\Models\Cliente\UsuarioCuenta;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 final class SatOpsVaultAccessController extends Controller
 {
     private const CONN_CLIENTES = 'mysql_clientes';
     private const CONN_ADMIN    = 'mysql_admin';
+    private const ROUTE_INDEX   = 'admin.billing.vault_access.index';
 
     public function index(Request $request): View
     {
@@ -64,14 +67,12 @@ final class SatOpsVaultAccessController extends Controller
         $account = CuentaCliente::query()->where('id', $cuentaId)->first();
 
         if (!$account) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index')
+            return $this->redirectToIndex($request)
                 ->with('error', 'La cuenta solicitada no existe.');
         }
 
         if (!Schema::connection(self::CONN_CLIENTES)->hasColumn('cuentas_cliente', 'vault_active')) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+            return $this->redirectToIndex($request)
                 ->with('error', 'La columna cuentas_cliente.vault_active no existe en esta base.');
         }
 
@@ -80,8 +81,7 @@ final class SatOpsVaultAccessController extends Controller
         $account->vault_active = $enabled ? 1 : 0;
         $account->save();
 
-        return redirect()
-            ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+        return $this->redirectToIndex($request)
             ->with('success', 'Acceso a Bóveda v1 actualizado para la cuenta.');
     }
 
@@ -94,27 +94,23 @@ final class SatOpsVaultAccessController extends Controller
         $account = CuentaCliente::query()->where('id', $cuentaId)->first();
 
         if (!$account) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index')
+            return $this->redirectToIndex($request)
                 ->with('error', 'La cuenta solicitada no existe.');
         }
 
         $adminAccountId = (int) ($account->admin_account_id ?? 0);
         if ($adminAccountId <= 0) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+            return $this->redirectToIndex($request)
                 ->with('error', 'La cuenta no tiene admin_account_id vinculado.');
         }
 
         if (!Schema::connection(self::CONN_ADMIN)->hasTable('accounts')) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+            return $this->redirectToIndex($request)
                 ->with('error', 'La tabla accounts no existe en mysql_admin.');
         }
 
         if (!Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'meta')) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+            return $this->redirectToIndex($request)
                 ->with('error', 'La columna accounts.meta no existe en mysql_admin.');
         }
 
@@ -124,8 +120,7 @@ final class SatOpsVaultAccessController extends Controller
             ->first();
 
         if (!$row) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+            return $this->redirectToIndex($request)
                 ->with('error', 'La cuenta admin vinculada no existe.');
         }
 
@@ -145,8 +140,7 @@ final class SatOpsVaultAccessController extends Controller
                 'updated_at' => now(),
             ]);
 
-        return redirect()
-            ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+        return $this->redirectToIndex($request)
             ->with('success', 'Módulo SAT Bóveda v2 actualizado a nivel cuenta.');
     }
 
@@ -158,8 +152,7 @@ final class SatOpsVaultAccessController extends Controller
             ->first();
 
         if (!$account) {
-            return redirect()
-                ->route('admin.sat.ops.vault_access.index')
+            return $this->redirectToIndex($request)
                 ->with('error', 'La cuenta solicitada no existe.');
         }
 
@@ -183,6 +176,15 @@ final class SatOpsVaultAccessController extends Controller
                 ? (isset($row['can_export']) && (string) $row['can_export'] === '1')
                 : false;
 
+            if (!$canAccessVault && !$canUploadMetadata && !$canUploadXml && !$canExport) {
+                SatUserAccess::query()
+                    ->where('cuenta_id', (string) $account->id)
+                    ->where('usuario_id', (string) $user->id)
+                    ->delete();
+
+                continue;
+            }
+
             SatUserAccess::query()->updateOrCreate(
                 [
                     'cuenta_id'  => (string) $account->id,
@@ -194,19 +196,253 @@ final class SatOpsVaultAccessController extends Controller
                     'can_upload_xml'      => $canUploadXml,
                     'can_export'          => $canExport,
                     'meta'                => [
-                        'updated_from'    => 'admin_sat_ops_vault_access',
-                        'updated_by'      => $adminId,
-                        'updated_at'      => now()->toDateTimeString(),
-                        'usuario_email'   => (string) ($user->email ?? ''),
-                        'usuario_nombre'  => (string) ($user->nombre ?? ''),
+                        'updated_from'   => 'admin_sat_ops_vault_access',
+                        'updated_by'     => $adminId,
+                        'updated_at'     => now()->toDateTimeString(),
+                        'usuario_email'  => (string) ($user->email ?? ''),
+                        'usuario_nombre' => (string) ($user->nombre ?? ''),
                     ],
                 ]
             );
         }
 
-        return redirect()
-            ->route('admin.sat.ops.vault_access.index', ['q' => $request->query('q', '')])
+        return $this->redirectToIndex($request)
             ->with('success', 'Permisos de SAT Bóveda v2 actualizados para los usuarios de la cuenta.');
+    }
+
+    public function storeAccountUser(Request $request, string $cuentaId): RedirectResponse
+    {
+        $account = CuentaCliente::query()
+            ->withCount('usuarios')
+            ->where('id', $cuentaId)
+            ->first();
+
+        if (!$account) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'La cuenta solicitada no existe.');
+        }
+
+        $validated = $request->validate([
+            'nombre'              => ['required', 'string', 'max:160'],
+            'email'               => [
+                'required',
+                'string',
+                'email:rfc',
+                'max:190',
+                Rule::unique(self::CONN_CLIENTES . '.usuarios_cuenta', 'email'),
+            ],
+            'rol'                 => ['nullable', 'string', 'max:80'],
+            'tipo'                => ['nullable', 'string', 'max:80'],
+            'activo'              => ['nullable', 'in:0,1'],
+            'must_change_password'=> ['nullable', 'in:0,1'],
+            'password'            => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_vault'    => ['nullable', 'in:0,1'],
+            'can_upload_metadata' => ['nullable', 'in:0,1'],
+            'can_upload_xml'      => ['nullable', 'in:0,1'],
+            'can_export'          => ['nullable', 'in:0,1'],
+        ]);
+
+        $maxUsuarios = (int) ($account->max_usuarios ?? 0);
+        if ($maxUsuarios > 0 && (int) $account->usuarios_count >= $maxUsuarios) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'La cuenta ya alcanzó el máximo de usuarios permitidos.');
+        }
+
+        $plainPassword = trim((string) ($validated['password'] ?? ''));
+        if ($plainPassword === '') {
+            $plainPassword = Str::random(12);
+        }
+
+        $user = new UsuarioCuenta();
+        $user->cuenta_id = (string) $account->id;
+        $user->nombre = trim((string) $validated['nombre']);
+        $user->email = Str::lower(trim((string) $validated['email']));
+        $user->rol = trim((string) ($validated['rol'] ?? 'usuario')) ?: 'usuario';
+        $user->tipo = trim((string) ($validated['tipo'] ?? 'usuario')) ?: 'usuario';
+        $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
+        $user->must_change_password = ((string) ($validated['must_change_password'] ?? '1')) === '1';
+        $user->password = $plainPassword;
+        $user->password_temp = $plainPassword;
+        $user->save();
+
+        $this->syncUserVaultAccess(
+            cuentaId: (string) $account->id,
+            usuarioId: (string) $user->id,
+            usuarioNombre: (string) $user->nombre,
+            usuarioEmail: (string) $user->email,
+            adminId: (string) (Auth::guard('admin')->id() ?? ''),
+            canAccessVault: ((string) ($validated['can_access_vault'] ?? '0')) === '1',
+            canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
+            canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
+            canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
+        );
+
+        return $this->redirectToIndex($request)
+            ->with('success', 'Usuario agregado correctamente a la cuenta.');
+    }
+
+    public function updateAccountUser(Request $request, string $cuentaId, string $usuarioId): RedirectResponse
+    {
+        $account = CuentaCliente::query()
+            ->with('usuarios')
+            ->where('id', $cuentaId)
+            ->first();
+
+        if (!$account) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'La cuenta solicitada no existe.');
+        }
+
+        $user = UsuarioCuenta::query()
+            ->where('cuenta_id', (string) $account->id)
+            ->where('id', (string) $usuarioId)
+            ->first();
+
+        if (!$user) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'El usuario solicitado no existe dentro de la cuenta.');
+        }
+
+        $validated = $request->validate([
+            'nombre'              => ['required', 'string', 'max:160'],
+            'email'               => [
+                'required',
+                'string',
+                'email:rfc',
+                'max:190',
+                Rule::unique(self::CONN_CLIENTES . '.usuarios_cuenta', 'email')->ignore((string) $user->id, 'id'),
+            ],
+            'rol'                 => ['nullable', 'string', 'max:80'],
+            'tipo'                => ['nullable', 'string', 'max:80'],
+            'activo'              => ['nullable', 'in:0,1'],
+            'must_change_password'=> ['nullable', 'in:0,1'],
+            'password'            => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_vault'    => ['nullable', 'in:0,1'],
+            'can_upload_metadata' => ['nullable', 'in:0,1'],
+            'can_upload_xml'      => ['nullable', 'in:0,1'],
+            'can_export'          => ['nullable', 'in:0,1'],
+        ]);
+
+        $plainPassword = trim((string) ($validated['password'] ?? ''));
+
+        $user->nombre = trim((string) $validated['nombre']);
+        $user->email = Str::lower(trim((string) $validated['email']));
+        $user->rol = trim((string) ($validated['rol'] ?? $user->rol)) ?: 'usuario';
+        $user->tipo = trim((string) ($validated['tipo'] ?? $user->tipo)) ?: 'usuario';
+        $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
+        $user->must_change_password = ((string) ($validated['must_change_password'] ?? '0')) === '1';
+
+        if ($plainPassword !== '') {
+            $user->password = $plainPassword;
+            $user->password_temp = $plainPassword;
+        }
+
+        $user->save();
+
+        $this->syncUserVaultAccess(
+            cuentaId: (string) $account->id,
+            usuarioId: (string) $user->id,
+            usuarioNombre: (string) $user->nombre,
+            usuarioEmail: (string) $user->email,
+            adminId: (string) (Auth::guard('admin')->id() ?? ''),
+            canAccessVault: ((string) ($validated['can_access_vault'] ?? '0')) === '1',
+            canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
+            canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
+            canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
+        );
+
+        return $this->redirectToIndex($request)
+            ->with('success', 'Usuario actualizado correctamente.');
+    }
+
+    public function deleteV2UserAccess(Request $request, string $cuentaId, string $usuarioId): RedirectResponse
+    {
+        $account = CuentaCliente::query()
+            ->with('usuarios')
+            ->where('id', $cuentaId)
+            ->first();
+
+        if (!$account) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'La cuenta solicitada no existe.');
+        }
+
+        $userExistsInAccount = $account->usuarios->contains(function ($user) use ($usuarioId) {
+            return (string) $user->id === (string) $usuarioId;
+        });
+
+        if (!$userExistsInAccount) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'El usuario no pertenece a la cuenta seleccionada.');
+        }
+
+        $deleted = SatUserAccess::query()
+            ->where('cuenta_id', (string) $account->id)
+            ->where('usuario_id', (string) $usuarioId)
+            ->delete();
+
+        if ($deleted <= 0) {
+            return $this->redirectToIndex($request)
+                ->with('error', 'El usuario no tenía un acceso registrado para eliminar.');
+        }
+
+        return $this->redirectToIndex($request)
+            ->with('success', 'Acceso del usuario a SAT Bóveda v2 eliminado correctamente.');
+    }
+
+    private function redirectToIndex(Request $request): RedirectResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        return redirect()->route(
+            self::ROUTE_INDEX,
+            $q !== '' ? ['q' => $q] : []
+        );
+    }
+
+    private function syncUserVaultAccess(
+        string $cuentaId,
+        string $usuarioId,
+        string $usuarioNombre,
+        string $usuarioEmail,
+        string $adminId,
+        bool $canAccessVault,
+        bool $canUploadMetadata,
+        bool $canUploadXml,
+        bool $canExport
+    ): void {
+        $canUploadMetadata = $canAccessVault ? $canUploadMetadata : false;
+        $canUploadXml = $canAccessVault ? $canUploadXml : false;
+        $canExport = $canAccessVault ? $canExport : false;
+
+        if (!$canAccessVault && !$canUploadMetadata && !$canUploadXml && !$canExport) {
+            SatUserAccess::query()
+                ->where('cuenta_id', $cuentaId)
+                ->where('usuario_id', $usuarioId)
+                ->delete();
+
+            return;
+        }
+
+        SatUserAccess::query()->updateOrCreate(
+            [
+                'cuenta_id'  => $cuentaId,
+                'usuario_id' => $usuarioId,
+            ],
+            [
+                'can_access_vault'    => $canAccessVault,
+                'can_upload_metadata' => $canUploadMetadata,
+                'can_upload_xml'      => $canUploadXml,
+                'can_export'          => $canExport,
+                'meta'                => [
+                    'updated_from'   => 'admin_sat_ops_vault_access',
+                    'updated_by'     => $adminId,
+                    'updated_at'     => now()->toDateTimeString(),
+                    'usuario_email'  => $usuarioEmail,
+                    'usuario_nombre' => $usuarioNombre,
+                ],
+            ]
+        );
     }
 
     /**

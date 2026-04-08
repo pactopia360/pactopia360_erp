@@ -20,8 +20,6 @@ use Illuminate\View\View;
 use Stripe\Checkout\Session as StripeSession;
 use Stripe\Stripe;
 
-
-
 final class SatCartController extends Controller
 {
     public function __construct(
@@ -46,8 +44,11 @@ final class SatCartController extends Controller
     {
         try {
             $u = auth('cliente')->user();
-            if ($u) return $u;
-        } catch (\Throwable) {}
+            if ($u) {
+                return $u;
+            }
+        } catch (\Throwable) {
+        }
 
         try {
             return auth('web')->user();
@@ -59,23 +60,32 @@ final class SatCartController extends Controller
     protected function cuentaId(): ?string
     {
         $u = $this->cu();
-        if (!$u) return null;
+        if (!$u) {
+            return null;
+        }
 
         // directo
         $cid = (string) ($u->cuenta_id ?? $u->account_id ?? '');
-        if ($cid !== '') return $cid;
+        if ($cid !== '') {
+            return $cid;
+        }
 
         // relación/prop cuenta
         try {
             if (isset($u->cuenta)) {
                 $c = $u->cuenta;
-                if (is_array($c))  $c = (object) $c;
+                if (is_array($c)) {
+                    $c = (object) $c;
+                }
                 if (is_object($c)) {
                     $cid = (string) ($c->id ?? $c->cuenta_id ?? '');
-                    if ($cid !== '') return $cid;
+                    if ($cid !== '') {
+                        return $cid;
+                    }
                 }
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+        }
 
         // fallbacks por sesión (si existen)
         foreach ([
@@ -89,12 +99,13 @@ final class SatCartController extends Controller
             'client_account_id',
         ] as $k) {
             $v = (string) session($k, '');
-            if ($v !== '') return $v;
+            if ($v !== '') {
+                return $v;
+            }
         }
 
         return null;
     }
-
 
     protected function cartKey(): string
     {
@@ -109,6 +120,7 @@ final class SatCartController extends Controller
     protected function getCartIds(): Collection
     {
         $raw = Session::get($this->cartKey(), []);
+
         return collect($raw)
             ->filter()
             ->map(fn ($v) => (string) $v)
@@ -146,7 +158,9 @@ final class SatCartController extends Controller
         sort($allowed);
 
         foreach ($allowed as $val) {
-            if ($gb <= $val) return $val;
+            if ($gb <= $val) {
+                return $val;
+            }
         }
 
         return 1024;
@@ -164,7 +178,9 @@ final class SatCartController extends Controller
                 ->where('cuenta_id', $cuentaId)
                 ->value('rfc');
 
-            if ($rfc) return strtoupper(trim((string) $rfc));
+            if ($rfc) {
+                return strtoupper(trim((string) $rfc));
+            }
         }
 
         return 'XAXX010101000';
@@ -195,25 +211,47 @@ final class SatCartController extends Controller
         // ID string seguro
         $dl->id = (string) Str::uuid();
 
-        if ($schema->hasColumn($table, 'cuenta_id')) $dl->cuenta_id = $cuentaId;
-        if ($schema->hasColumn($table, 'tipo'))      $dl->tipo      = 'VAULT';
-        if ($schema->hasColumn($table, 'status'))    $dl->status    = 'PENDING';
-        if ($schema->hasColumn($table, 'rfc'))       $dl->rfc       = $this->resolveVaultRfc();
-        if ($schema->hasColumn($table, 'origen'))    $dl->origen    = 'VAULT';
+        if ($schema->hasColumn($table, 'cuenta_id')) {
+            $dl->cuenta_id = $cuentaId;
+        }
+        if ($schema->hasColumn($table, 'tipo')) {
+            $dl->tipo = 'VAULT';
+        }
+        if ($schema->hasColumn($table, 'status')) {
+            $dl->status = 'PENDING';
+        }
+        if ($schema->hasColumn($table, 'rfc')) {
+            $dl->rfc = $this->resolveVaultRfc();
+        }
+        if ($schema->hasColumn($table, 'origen')) {
+            $dl->origen = 'VAULT';
+        }
 
-        if ($schema->hasColumn($table, 'vault_gb')) $dl->vault_gb = $gbNorm;
+        if ($schema->hasColumn($table, 'vault_gb')) {
+            $dl->vault_gb = $gbNorm;
+        }
 
         // Costo (VAULT sí es por tarifa fija)
-        if ($schema->hasColumn($table, 'costo'))     $dl->costo     = $price;
-        if ($schema->hasColumn($table, 'costo_mxn')) $dl->costo_mxn = $price;
+        if ($schema->hasColumn($table, 'costo')) {
+            $dl->costo = $price;
+        }
+        if ($schema->hasColumn($table, 'costo_mxn')) {
+            $dl->costo_mxn = $price;
+        }
 
         // Label
         $label = "Bóveda fiscal {$gbNorm} GB (nube)";
-        if ($schema->hasColumn($table, 'alias'))  $dl->alias  = $label;
-        if (!$schema->hasColumn($table, 'alias') && $schema->hasColumn($table, 'nombre')) $dl->nombre = $label;
+        if ($schema->hasColumn($table, 'alias')) {
+            $dl->alias = $label;
+        }
+        if (!$schema->hasColumn($table, 'alias') && $schema->hasColumn($table, 'nombre')) {
+            $dl->nombre = $label;
+        }
 
         // Peso estimado 0 MB (no aplica)
-        if ($schema->hasColumn($table, 'peso_mb')) $dl->peso_mb = 0;
+        if ($schema->hasColumn($table, 'peso_mb')) {
+            $dl->peso_mb = 0;
+        }
 
         $dl->save();
 
@@ -234,7 +272,9 @@ final class SatCartController extends Controller
      */
     protected function addVaultItemToCartFromGb(int $gb, string $mode = 'activate'): ?SatDownload
     {
-        if ($gb <= 0) return null;
+        if ($gb <= 0) {
+            return null;
+        }
 
         $cuentaId = $this->cuentaId();
         $userId   = optional($this->cu())->id ?? null;
@@ -243,7 +283,9 @@ final class SatCartController extends Controller
             $dl = $this->createVaultDownload($gb, $mode);
 
             $ids = $this->getCartIds();
-            if (!$ids->contains((string) $dl->id)) $ids->push((string) $dl->id);
+            if (!$ids->contains((string) $dl->id)) {
+                $ids->push((string) $dl->id);
+            }
             $this->saveCartIds($ids);
 
             Log::info('[SAT:CART] vault item added to cart', [
@@ -263,6 +305,7 @@ final class SatCartController extends Controller
                 'mode'      => $mode,
                 'error'     => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -293,7 +336,9 @@ final class SatCartController extends Controller
 
         try {
             $dl = $this->addVaultItemToCartFromGb($requestedGb, $mode);
-            if (!$dl) throw new \RuntimeException('No se pudo crear el item de bóveda.');
+            if (!$dl) {
+                throw new \RuntimeException('No se pudo crear el item de bóveda.');
+            }
 
             $cart = $this->buildCartData();
 
@@ -323,14 +368,17 @@ final class SatCartController extends Controller
     }
 
     /**
-     * Marca un conjunto de SatDownload como pagados y registra:
-     * - uso de bóveda por ZIP (descargas reales)
-     * - cuota de bóveda por items tipo VAULT
+     * Deja estampado el stripe_session_id desde que se crea el checkout,
+     * para que el módulo admin de pagos ya lo vea "en vivo" como pendiente.
      */
-    protected function markDownloadsAsPaid(array $downloadIds, ?string $stripeSessionId = null): void
+    protected function stampStripeSessionOnDownloads(array $downloadIds, string $stripeSessionId): void
     {
-        $downloadIds = array_values(array_unique(array_filter($downloadIds)));
-        if (empty($downloadIds)) return;
+        $downloadIds = array_values(array_unique(array_filter(array_map('strval', $downloadIds))));
+        $stripeSessionId = trim($stripeSessionId);
+
+        if (empty($downloadIds) || $stripeSessionId === '') {
+            return;
+        }
 
         $cuentaId = $this->cuentaId();
         $userId   = optional($this->cu())->id ?? null;
@@ -340,13 +388,98 @@ final class SatCartController extends Controller
         $table   = $model->getTable();
         $schema  = Schema::connection($conn);
 
-        $hasIsPaid        = $schema->hasColumn($table, 'is_paid'); // ojo: en tu schema NO existe, queda false
+        $hasCuentaId     = $schema->hasColumn($table, 'cuenta_id');
+        $hasStatus       = $schema->hasColumn($table, 'status');
+        $hasPaidAt       = $schema->hasColumn($table, 'paid_at');
+        $hasStripeSessId = $schema->hasColumn($table, 'stripe_session_id');
+
+        if (!$hasStripeSessId) {
+            return;
+        }
+
+        try {
+            DB::connection($conn)->transaction(function () use (
+                $model,
+                $downloadIds,
+                $cuentaId,
+                $hasCuentaId,
+                $hasStatus,
+                $hasPaidAt,
+                $stripeSessionId
+            ): void {
+                $query = $model->newQuery()->whereIn('id', $downloadIds);
+
+                if ($hasCuentaId && $cuentaId) {
+                    $query->where('cuenta_id', $cuentaId);
+                }
+
+                $rows = $query->get();
+
+                foreach ($rows as $row) {
+                    if ($hasPaidAt && !empty($row->paid_at)) {
+                        continue;
+                    }
+
+                    $currentSessionId = trim((string) ($row->stripe_session_id ?? ''));
+                    if ($currentSessionId === '') {
+                        $row->stripe_session_id = $stripeSessionId;
+                    }
+
+                    if ($hasStatus) {
+                        $current = strtolower(trim((string) ($row->status ?? '')));
+                        if ($current === '') {
+                            $row->status = 'PENDING';
+                        }
+                    }
+
+                    $row->save();
+                }
+            });
+
+            Log::info('[SAT:CART] stamped stripe session on downloads', [
+                'cuenta_id'    => $cuentaId,
+                'user_id'      => $userId,
+                'session_id'   => $stripeSessionId,
+                'download_ids' => $downloadIds,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[SAT:CART] failed stamping stripe session on downloads', [
+                'cuenta_id'    => $cuentaId,
+                'user_id'      => $userId,
+                'session_id'   => $stripeSessionId,
+                'download_ids' => $downloadIds,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Marca un conjunto de SatDownload como pagados y registra:
+     * - uso de bóveda por ZIP (descargas reales)
+     * - cuota de bóveda por items tipo VAULT
+     */
+    protected function markDownloadsAsPaid(array $downloadIds, ?string $stripeSessionId = null): void
+    {
+        $downloadIds = array_values(array_unique(array_filter($downloadIds)));
+        if (empty($downloadIds)) {
+            return;
+        }
+
+        $cuentaId = $this->cuentaId();
+        $userId   = optional($this->cu())->id ?? null;
+
+        $model   = new SatDownload();
+        $conn    = $model->getConnectionName();
+        $table   = $model->getTable();
+        $schema  = Schema::connection($conn);
+
+        $hasIsPaid        = $schema->hasColumn($table, 'is_paid');
         $hasPaidAt        = $schema->hasColumn($table, 'paid_at');
         $hasStatus        = $schema->hasColumn($table, 'status');
         $hasCuentaId      = $schema->hasColumn($table, 'cuenta_id');
         $hasExpiresAt     = $schema->hasColumn($table, 'expires_at');
         $hasIsExpired     = $schema->hasColumn($table, 'is_expired');
-        $hasStripeSessId  = $schema->hasColumn($table, 'stripe_session_id'); // ✅ en tu schema SÍ existe
+        $hasStripeSessId  = $schema->hasColumn($table, 'stripe_session_id');
 
         $now  = now();
         $rows = collect();
@@ -361,11 +494,12 @@ final class SatCartController extends Controller
             $hasCuentaId,
             $hasExpiresAt,
             $hasIsExpired,
+            $hasStripeSessId,
             $now,
             $stripeSessionId,
             $userId,
             &$rows
-        ) {
+        ): void {
             $query = $model->newQuery()->whereIn('id', $downloadIds);
 
             if ($hasCuentaId && $cuentaId) {
@@ -374,22 +508,21 @@ final class SatCartController extends Controller
 
             /**
              * Idempotencia:
-             * - Si hay stripe_session_id en tabla y tenemos $stripeSessionId,
-             *   SOLO procesamos filas que NO tengan esa sesión ya aplicada.
-             * - Si NO tenemos sessionId, seguimos el flujo clásico.
+             * - Si ya traen la misma sesión Stripe, no reprocesamos.
              */
             if ($hasStripeSessId && $stripeSessionId) {
                 $query->where(function ($qq) use ($stripeSessionId) {
                     $qq->whereNull('stripe_session_id')
-                    ->orWhere('stripe_session_id', '!=', $stripeSessionId);
+                        ->orWhere('stripe_session_id', '!=', $stripeSessionId)
+                        ->orWhereNull('paid_at');
                 });
             }
 
             $rowsToUpdate = $query->get();
 
-            // Si no hay nada por actualizar, dejamos $rows vacío para que NO vuelva a sumar bóveda/uso.
             if ($rowsToUpdate->isEmpty()) {
                 $rows = collect();
+
                 Log::info('[SAT:CART] marked paid (idempotent no-op)', [
                     'cuenta_id'    => $cuentaId,
                     'user_id'      => $userId,
@@ -397,6 +530,7 @@ final class SatCartController extends Controller
                     'session_id'   => $stripeSessionId,
                     'rows_updated' => [],
                 ]);
+
                 return;
             }
 
@@ -412,11 +546,11 @@ final class SatCartController extends Controller
                 if ($hasExpiresAt) {
                     $row->expires_at = $now->copy()->addDays(15);
                 }
+
                 if ($hasIsExpired) {
                     $row->is_expired = 0;
                 }
 
-                // Candado por sesión
                 if ($hasStripeSessId && $stripeSessionId) {
                     $row->stripe_session_id = $stripeSessionId;
                 }
@@ -431,7 +565,6 @@ final class SatCartController extends Controller
                 $row->save();
             }
 
-            // IMPORTANTE: aquí $rows solo contiene las filas recién actualizadas.
             $rows = $rowsToUpdate;
 
             Log::info('[SAT:CART] marked paid', [
@@ -441,22 +574,15 @@ final class SatCartController extends Controller
                 'session_id'   => $stripeSessionId,
                 'rows_updated' => $rowsToUpdate->pluck('id')->all(),
             ]);
-
-
-            Log::info('[SAT:CART] marked paid', [
-                'cuenta_id'    => $cuentaId,
-                'user_id'      => $userId,
-                'download_ids' => $downloadIds,
-                'session_id'   => $stripeSessionId,
-                'rows_updated' => $rowsFound->pluck('id')->all(),
-            ]);
         });
 
         // 1) Uso bóveda por descargas con ZIP
         if ($rows->isNotEmpty()) {
             try {
                 $zipRows = $rows->filter(fn ($r) => !empty($r->zip_path));
-                if ($zipRows->isNotEmpty()) $this->service->registerVaultUsageForDownloads($zipRows);
+                if ($zipRows->isNotEmpty()) {
+                    $this->service->registerVaultUsageForDownloads($zipRows);
+                }
             } catch (\Throwable $e) {
                 Log::warning('[SAT:CART] Error registrando uso de bóveda tras pago', [
                     'download_ids' => $downloadIds,
@@ -471,7 +597,11 @@ final class SatCartController extends Controller
 
             foreach ($rows as $row) {
                 $tipoLower = strtolower((string) ($row->tipo ?? $row->origen ?? ''));
-                if (!str_contains($tipoLower, 'vault') && !str_contains($tipoLower, 'boveda') && !str_contains($tipoLower, 'bóveda')) {
+                if (
+                    !str_contains($tipoLower, 'vault')
+                    && !str_contains($tipoLower, 'boveda')
+                    && !str_contains($tipoLower, 'bóveda')
+                ) {
                     continue;
                 }
 
@@ -480,6 +610,7 @@ final class SatCartController extends Controller
                 try {
                     $rowConn  = $row->getConnectionName();
                     $rowTable = $row->getTable();
+
                     if (Schema::connection($rowConn)->hasColumn($rowTable, 'vault_gb')) {
                         $gb = (int) ($row->vault_gb ?? 0);
                     }
@@ -489,17 +620,23 @@ final class SatCartController extends Controller
 
                 if ($gb <= 0) {
                     $source = (string) ($row->alias ?? $row->nombre ?? '');
-                    if (preg_match('/(\d+)\s*gb/i', $source, $m)) $gb = (int) $m[1];
+                    if (preg_match('/(\d+)\s*gb/i', $source, $m)) {
+                        $gb = (int) $m[1];
+                    }
                 }
 
-                if ($gb > 0) $totalVaultGb += $gb;
+                if ($gb > 0) {
+                    $totalVaultGb += $gb;
+                }
             }
 
             if ($totalVaultGb > 0) {
                 $user   = $this->cu();
                 $cuenta = null;
 
-                if ($user && method_exists($user, 'cuenta')) $cuenta = $user->cuenta;
+                if ($user && method_exists($user, 'cuenta')) {
+                    $cuenta = $user->cuenta;
+                }
 
                 if ($cuenta) {
                     try {
@@ -511,8 +648,8 @@ final class SatCartController extends Controller
                             $cuenta->vault_quota_gb = $current + $totalVaultGb;
 
                             if (
-                                Schema::connection($connCuenta)->hasColumn($tableCuenta, 'vault_activated_at') &&
-                                empty($cuenta->vault_activated_at)
+                                Schema::connection($connCuenta)->hasColumn($tableCuenta, 'vault_activated_at')
+                                && empty($cuenta->vault_activated_at)
                             ) {
                                 $cuenta->vault_activated_at = now();
                             }
@@ -521,7 +658,7 @@ final class SatCartController extends Controller
 
                             Log::info('[SAT:CART] vault quota updated', [
                                 'cuenta_id'    => $cuenta->id ?? null,
-                                'user_id'      => $user ?->id ?? null,
+                                'user_id'      => $user?->id ?? null,
                                 'added_gb'     => $totalVaultGb,
                                 'new_quota_gb' => $cuenta->vault_quota_gb,
                             ]);
@@ -567,6 +704,7 @@ final class SatCartController extends Controller
             $conn   = $model->getConnectionName();
             $table  = $model->getTable();
             $schema = Schema::connection($conn);
+
             if ($cuentaId && $schema->hasColumn($table, 'cuenta_id')) {
                 $q->where('cuenta_id', $cuentaId);
             }
@@ -605,10 +743,14 @@ final class SatCartController extends Controller
                     ?? $r->bytes
                     ?? 0
                 );
-                if ($bytes > 0) $mb = $bytes / 1024 / 1024;
+                if ($bytes > 0) {
+                    $mb = $bytes / 1024 / 1024;
+                }
             }
 
-            if ($mb < 0) $mb = 0.0;
+            if ($mb < 0) {
+                $mb = 0.0;
+            }
 
             // ===== Costo (SOT: DB / servicio de cotización) =====
             $cost = (float) (
@@ -619,7 +761,6 @@ final class SatCartController extends Controller
                 ?? 0
             );
 
-            // Si falta costo, intentamos cotizar vía servicio SI EXISTE (sin romper deploy)
             if ($cost <= 0) {
                 try {
                     if (method_exists($this->service, 'quoteDownloadCostMxn')) {
@@ -751,7 +892,9 @@ final class SatCartController extends Controller
     {
         // Flujo especial bóveda
         $type = (string) $request->input('type', '');
-        if ($type === 'vault') return $this->addVaultToCart($request);
+        if ($type === 'vault') {
+            return $this->addVaultToCart($request);
+        }
 
         $cuentaId = $this->cuentaId();
         $userId   = optional($this->cu())->id ?? null;
@@ -787,7 +930,9 @@ final class SatCartController extends Controller
         }
 
         $ids = $this->getCartIds();
-        if (!$ids->contains($downloadId)) $ids->push($downloadId);
+        if (!$ids->contains($downloadId)) {
+            $ids->push($downloadId);
+        }
 
         $this->saveCartIds($ids);
 
@@ -951,6 +1096,9 @@ final class SatCartController extends Controller
                 ],
             ]);
 
+            // Reflejo en vivo: desde aquí ya dejamos trazada la sesión Stripe
+            $this->stampStripeSessionOnDownloads($cart['ids'], (string) $session->id);
+
             if ($request->expectsJson()) {
                 return response()->json([
                     'ok'           => true,
@@ -960,7 +1108,6 @@ final class SatCartController extends Controller
             }
 
             return redirect()->away($session->url);
-
         } catch (\Throwable $e) {
             Log::error('[SAT:CART] checkout error', ['error' => $e->getMessage()]);
 
@@ -983,24 +1130,26 @@ final class SatCartController extends Controller
     public function success(Request $request)
     {
         $sessionId = trim((string) $request->query('session_id', ''));
+        $confirmedPaid = false;
 
         if ($sessionId !== '') {
             try {
-            $stripeSecret = (string) config('services.stripe.secret', '');
-            if (trim($stripeSecret) === '') {
-                Log::error('[SAT:CART] stripe secret missing (services.stripe.secret)');
-                if ($request->expectsJson()) {
-                    return response()->json([
-                        'ok'  => false,
-                        'msg' => 'Pago no disponible: falta configuración de Stripe.',
-                    ], 503);
+                $stripeSecret = (string) config('services.stripe.secret', '');
+                if (trim($stripeSecret) === '') {
+                    Log::error('[SAT:CART] stripe secret missing (services.stripe.secret)');
+
+                    if ($request->expectsJson()) {
+                        return response()->json([
+                            'ok'  => false,
+                            'msg' => 'Pago no disponible: falta configuración de Stripe.',
+                        ], 503);
+                    }
+
+                    return redirect()->route('cliente.sat.cart.index')
+                        ->with('error', 'Pago no disponible: falta configuración de Stripe.');
                 }
-                return redirect()->route('cliente.sat.cart.index')
-                    ->with('error', 'Pago no disponible: falta configuración de Stripe.');
-            }
 
-            Stripe::setApiKey($stripeSecret);
-
+                Stripe::setApiKey($stripeSecret);
 
                 $session = StripeSession::retrieve($sessionId);
 
@@ -1016,12 +1165,13 @@ final class SatCartController extends Controller
                 }
 
                 $isPaid = (
-                    ($status && in_array($status, ['complete', 'completed'], true)) ||
-                    ($paymentStatus && strtolower((string) $paymentStatus) === 'paid')
+                    ($status && in_array($status, ['complete', 'completed'], true))
+                    || ($paymentStatus && strtolower((string) $paymentStatus) === 'paid')
                 );
 
                 if ($type === 'sat_cart' && $isPaid && !empty($ids)) {
                     $this->markDownloadsAsPaid($ids, $sessionId);
+                    $confirmedPaid = true;
                 }
 
                 Log::info('[SAT:CART] success', [
@@ -1032,7 +1182,6 @@ final class SatCartController extends Controller
                     'ids'            => $ids,
                     'is_paid'        => $isPaid,
                 ]);
-
             } catch (\Throwable $e) {
                 Log::error('[SAT:CART] success stripe error', [
                     'session_id' => $sessionId,
@@ -1041,11 +1190,17 @@ final class SatCartController extends Controller
             }
         }
 
-        $this->saveCartIds(collect());
+        if ($confirmedPaid) {
+            $this->saveCartIds(collect());
+
+            return redirect()
+                ->route('cliente.sat.index')
+                ->with('success', 'Pago realizado correctamente. Tus paquetes quedarán listos para descarga.');
+        }
 
         return redirect()
-            ->route('cliente.sat.index')
-            ->with('success', 'Pago realizado correctamente. Tus paquetes quedarán listos para descarga.');
+            ->route('cliente.sat.cart.index')
+            ->with('info', 'El pago aún no pudo confirmarse. Si ya pagaste, recarga en unos segundos o contacta soporte.');
     }
 
     public function cancel(Request $request)

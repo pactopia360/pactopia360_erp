@@ -11,7 +11,7 @@
       <div class="vaKicker">ADMIN · SAT OPS</div>
       <h1 class="vaTitle">Acceso a bóvedas</h1>
       <div class="vaSub">
-        Administra Bóveda v1 por cuenta y Bóveda v2 por usuario, respetando la arquitectura actual.
+        Vista simplificada por líneas. Solo se muestra lo esencial y toda la administración se hace desde emergentes.
       </div>
     </div>
 
@@ -32,23 +32,25 @@
       <div class="vaAlert vaAlert--error">{{ session('error') }}</div>
     @endif
 
-    <div class="vaSearchCard">
-      <form method="GET" action="{{ route('admin.sat.ops.vault_access.index') }}" class="vaSearchForm">
-        <div class="vaField">
-          <label for="q">Buscar cuenta</label>
-          <input
-            id="q"
-            name="q"
-            type="text"
-            value="{{ $q }}"
-            placeholder="RFC, razón social, email, código cliente, UUID de cuenta">
-        </div>
+    <div class="vaToolbar">
+      <div class="vaSearchCard">
+        <form method="GET" action="{{ route('admin.billing.vault_access.index') }}" class="vaSearchForm">
+          <div class="vaField">
+            <label for="q">Buscar cuenta</label>
+            <input
+              id="q"
+              name="q"
+              type="text"
+              value="{{ $q }}"
+              placeholder="RFC, razón social, email, código cliente, UUID de cuenta">
+          </div>
 
-        <div class="vaSearchActions">
-          <button type="submit" class="vaBtn vaBtn--primary">Buscar</button>
-          <a href="{{ route('admin.sat.ops.vault_access.index') }}" class="vaBtn vaBtn--ghost">Limpiar</a>
-        </div>
-      </form>
+          <div class="vaSearchActions">
+            <button type="submit" class="vaBtn vaBtn--primary">Buscar</button>
+            <a href="{{ route('admin.billing.vault_access.index') }}" class="vaBtn vaBtn--ghost">Limpiar</a>
+          </div>
+        </form>
+      </div>
     </div>
 
     @if($accounts->count() === 0)
@@ -59,6 +61,13 @@
     @endif
 
     <div class="vaList">
+      <div class="vaListHead">
+        <div>Cuenta</div>
+        <div>Resumen</div>
+        <div>Estado</div>
+        <div>Acciones</div>
+      </div>
+
       @foreach($accounts as $account)
         @php
           $module = $moduleMap[$account->id] ?? ['enabled' => false, 'state' => 'inactive', 'admin_account_id' => 0];
@@ -66,180 +75,448 @@
           $vaultV1Enabled = (int)($account->vault_active ?? 0) === 1;
           $quotaBytes = (int)($account->vault_quota_bytes ?? 0);
           $planLabel = strtoupper((string)($account->plan_actual ?? $account->plan ?? 'FREE'));
+          $displayName = $account->razon_social ?: ($account->nombre_comercial ?: 'Cuenta sin nombre');
+          $usersCount = $account->usuarios->count();
+
+          $enabledUsersCount = collect($account->usuarios)->filter(function ($user) use ($usersAccess) {
+              $ua = $usersAccess[$user->id] ?? null;
+              return $ua && (bool) $ua->can_access_vault;
+          })->count();
+
+          $modalV1Id = 'va-modal-v1-' . $account->id;
+          $modalV2Id = 'va-modal-v2-' . $account->id;
+          $modalUsersId = 'va-modal-users-' . $account->id;
+          $modalAddUserId = 'va-modal-add-user-' . $account->id;
         @endphp
 
-        <section class="vaCard">
-          <div class="vaCardTop">
-            <div class="vaIdentity">
-              <div class="vaIdentityTop">
-                <h2>{{ $account->razon_social ?: ($account->nombre_comercial ?: 'Cuenta sin nombre') }}</h2>
-                <span class="vaPill">{{ $planLabel }}</span>
+        <article class="vaRow">
+          <div class="vaCell vaCell--account">
+            <div class="vaAccountMain">
+              <div class="vaAccountTitleRow">
+                <h2 class="vaAccountTitle">{{ $displayName }}</h2>
+                <span class="vaPlan">{{ $planLabel }}</span>
               </div>
 
-              <div class="vaMeta">
-                <span><strong>Cuenta:</strong> {{ $account->id }}</span>
+              <div class="vaAccountMeta">
                 <span><strong>RFC:</strong> {{ $account->rfc_padre ?: '—' }}</span>
                 <span><strong>Email:</strong> {{ $account->email ?: '—' }}</span>
-                <span><strong>Admin account:</strong> {{ (int)($account->admin_account_id ?? 0) > 0 ? $account->admin_account_id : '—' }}</span>
               </div>
             </div>
           </div>
 
-          <div class="vaGrids">
-            <div class="vaBlock">
-              <div class="vaBlockHead">
-                <div>
-                  <div class="vaBlockTitle">Bóveda v1 · Acceso por cuenta</div>
-                  <div class="vaBlockSub">Controla el acceso general de la cuenta cliente a la bóveda tradicional.</div>
-                </div>
-                <span class="vaStatus {{ $vaultV1Enabled ? 'is-on' : 'is-off' }}">
-                  {{ $vaultV1Enabled ? 'Activa' : 'Inactiva' }}
-                </span>
+          <div class="vaCell vaCell--summary">
+            <div class="vaSummaryLine">
+              <span><strong>Cuenta:</strong> {{ $account->id }}</span>
+              <span><strong>Admin:</strong> {{ (int)($account->admin_account_id ?? 0) > 0 ? $account->admin_account_id : '—' }}</span>
+              <span><strong>Cuota:</strong> {{ number_format($quotaBytes) }}</span>
+              <span><strong>Usuarios:</strong> {{ $enabledUsersCount }}/{{ $usersCount }}</span>
+            </div>
+          </div>
+
+          <div class="vaCell vaCell--status">
+            <div class="vaStatusStack">
+              <span class="vaBadge {{ $vaultV1Enabled ? 'is-on' : 'is-off' }}">
+                V1 {{ $vaultV1Enabled ? 'activa' : 'inactiva' }}
+              </span>
+
+              <span class="vaBadge {{ $module['enabled'] ? 'is-on' : 'is-off' }}">
+                V2 {{ $module['enabled'] ? 'activa' : 'inactiva' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="vaCell vaCell--actions">
+            <div class="vaActions">
+              <button
+                type="button"
+                class="vaBtn vaBtn--primary"
+                data-va-open="{{ $modalV1Id }}">
+                V1
+              </button>
+
+              <button
+                type="button"
+                class="vaBtn vaBtn--primary"
+                data-va-open="{{ $modalV2Id }}">
+                V2
+              </button>
+
+              <button
+                type="button"
+                class="vaBtn vaBtn--ghost"
+                data-va-open="{{ $modalUsersId }}">
+                Usuarios
+              </button>
+            </div>
+          </div>
+        </article>
+
+        {{-- Modal V1 --}}
+        <div class="vaModal" id="{{ $modalV1Id }}" aria-hidden="true">
+          <div class="vaModalBackdrop" data-va-close="{{ $modalV1Id }}"></div>
+          <div class="vaModalDialog">
+            <div class="vaModalHead">
+              <div>
+                <div class="vaModalKicker">BÓVEDA V1</div>
+                <h3 class="vaModalTitle">{{ $displayName }}</h3>
+                <div class="vaModalSub">Control general por cuenta para la bóveda tradicional.</div>
               </div>
 
-              <div class="vaFacts">
+              <button type="button" class="vaIconBtn" data-va-close="{{ $modalV1Id }}">×</button>
+            </div>
+
+            <div class="vaModalBody">
+              <div class="vaModalFacts">
+                <div class="vaFact">
+                  <span class="k">Estado actual</span>
+                  <span class="v">{{ $vaultV1Enabled ? 'Activa' : 'Inactiva' }}</span>
+                </div>
+
                 <div class="vaFact">
                   <span class="k">vault_active</span>
                   <span class="v">{{ $vaultV1Enabled ? '1' : '0' }}</span>
                 </div>
+
                 <div class="vaFact">
                   <span class="k">vault_quota_bytes</span>
                   <span class="v">{{ number_format($quotaBytes) }}</span>
                 </div>
               </div>
+            </div>
 
-              <form method="POST" action="{{ route('admin.sat.ops.vault_access.v1.update', ['cuentaId' => $account->id, 'q' => $q]) }}" class="vaInlineForm">
+            <div class="vaModalFoot">
+              <form method="POST" action="{{ route('admin.billing.vault_access.v1.update', ['cuentaId' => $account->id, 'q' => $q]) }}" class="vaInlineForm">
                 @csrf
                 <input type="hidden" name="enabled" value="{{ $vaultV1Enabled ? '0' : '1' }}">
                 <button type="submit" class="vaBtn {{ $vaultV1Enabled ? 'vaBtn--danger' : 'vaBtn--primary' }}">
                   {{ $vaultV1Enabled ? 'Desactivar v1' : 'Activar v1' }}
                 </button>
               </form>
-            </div>
 
-            <div class="vaBlock">
-              <div class="vaBlockHead">
-                <div>
-                  <div class="vaBlockTitle">SAT Bóveda v2 · Módulo de cuenta</div>
-                  <div class="vaBlockSub">Primero debe estar activo el módulo en la cuenta admin; luego se habilita por usuario.</div>
-                </div>
-                <span class="vaStatus {{ $module['enabled'] ? 'is-on' : 'is-off' }}">
-                  {{ $module['enabled'] ? 'Activo' : 'Inactivo' }}
-                </span>
+              <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $modalV1Id }}">Cerrar</button>
+            </div>
+          </div>
+        </div>
+
+        {{-- Modal V2 módulo --}}
+        <div class="vaModal" id="{{ $modalV2Id }}" aria-hidden="true">
+          <div class="vaModalBackdrop" data-va-close="{{ $modalV2Id }}"></div>
+          <div class="vaModalDialog">
+            <div class="vaModalHead">
+              <div>
+                <div class="vaModalKicker">MÓDULO SAT BÓVEDA V2</div>
+                <h3 class="vaModalTitle">{{ $displayName }}</h3>
+                <div class="vaModalSub">Activa o desactiva el módulo a nivel cuenta administradora.</div>
               </div>
 
-              <div class="vaFacts">
+              <button type="button" class="vaIconBtn" data-va-close="{{ $modalV2Id }}">×</button>
+            </div>
+
+            <div class="vaModalBody">
+              <div class="vaModalFacts">
+                <div class="vaFact">
+                  <span class="k">Estado actual</span>
+                  <span class="v">{{ $module['enabled'] ? 'Activo' : 'Inactivo' }}</span>
+                </div>
+
                 <div class="vaFact">
                   <span class="k">modules_state.sat_boveda_v2</span>
                   <span class="v">{{ $module['state'] ?: 'inactive' }}</span>
                 </div>
+
                 <div class="vaFact">
                   <span class="k">admin_account_id</span>
                   <span class="v">{{ $module['admin_account_id'] > 0 ? $module['admin_account_id'] : '—' }}</span>
                 </div>
               </div>
+            </div>
 
-              <form method="POST" action="{{ route('admin.sat.ops.vault_access.v2_module.update', ['cuentaId' => $account->id, 'q' => $q]) }}" class="vaInlineForm">
+            <div class="vaModalFoot">
+              <form method="POST" action="{{ route('admin.billing.vault_access.v2_module.update', ['cuentaId' => $account->id, 'q' => $q]) }}" class="vaInlineForm">
                 @csrf
                 <input type="hidden" name="enabled" value="{{ $module['enabled'] ? '0' : '1' }}">
                 <button type="submit" class="vaBtn {{ $module['enabled'] ? 'vaBtn--danger' : 'vaBtn--primary' }}">
                   {{ $module['enabled'] ? 'Desactivar módulo v2' : 'Activar módulo v2' }}
                 </button>
               </form>
+
+              <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $modalV2Id }}">Cerrar</button>
             </div>
           </div>
+        </div>
 
-          <div class="vaUsersBlock">
-            <div class="vaBlockHead">
+        {{-- Modal agregar usuario --}}
+        <div class="vaModal" id="{{ $modalAddUserId }}" aria-hidden="true">
+          <div class="vaModalBackdrop" data-va-close="{{ $modalAddUserId }}"></div>
+          <div class="vaModalDialog">
+            <div class="vaModalHead">
               <div>
-                <div class="vaBlockTitle">SAT Bóveda v2 · Permisos por usuario</div>
-                <div class="vaBlockSub">Estos permisos alimentan la tabla <code>sat_user_access</code>.</div>
+                <div class="vaModalKicker">AGREGAR USUARIO</div>
+                <h3 class="vaModalTitle">{{ $displayName }}</h3>
+                <div class="vaModalSub">Crea un usuario nuevo y, si quieres, asígnale acceso a bóvedas desde aquí mismo.</div>
               </div>
+
+              <button type="button" class="vaIconBtn" data-va-close="{{ $modalAddUserId }}">×</button>
             </div>
 
-            <form method="POST" action="{{ route('admin.sat.ops.vault_access.v2_users.update', ['cuentaId' => $account->id, 'q' => $q]) }}">
+            <form method="POST" action="{{ route('admin.billing.vault_access.users.store', ['cuentaId' => $account->id, 'q' => $q]) }}">
               @csrf
 
-              <div class="vaUsersTableWrap">
-                <table class="vaUsersTable">
-                  <thead>
-                    <tr>
-                      <th>Usuario</th>
-                      <th>Email</th>
-                      <th>Acceso v2</th>
-                      <th>Metadata</th>
-                      <th>XML</th>
-                      <th>Exportar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @forelse($account->usuarios as $user)
-                      @php
-                        $ua = $usersAccess[$user->id] ?? null;
-                      @endphp
-                      <tr>
-                        <td>
-                          <div class="vaUserName">{{ $user->nombre ?: 'Usuario sin nombre' }}</div>
-                          <div class="vaUserRole">
-                            {{ $user->rol ?: '—' }}
-                            @if(method_exists($user, 'isOwner') && $user->isOwner())
-                              · owner
-                            @endif
-                          </div>
-                        </td>
-                        <td>{{ $user->email ?: '—' }}</td>
+              <div class="vaModalBody">
+                <div class="vaFormGrid">
+                  <div class="vaField">
+                    <label>Nombre</label>
+                    <input type="text" name="nombre" required>
+                  </div>
 
-                        <td>
-                          <label class="vaCheck">
-                            <input type="hidden" name="users[{{ $user->id }}][can_access_vault]" value="0">
-                            <input type="checkbox" name="users[{{ $user->id }}][can_access_vault]" value="1" {{ ($ua && $ua->can_access_vault) ? 'checked' : '' }}>
-                            <span>Permitir</span>
-                          </label>
-                        </td>
+                  <div class="vaField">
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                  </div>
 
-                        <td>
-                          <label class="vaCheck">
-                            <input type="hidden" name="users[{{ $user->id }}][can_upload_metadata]" value="0">
-                            <input type="checkbox" name="users[{{ $user->id }}][can_upload_metadata]" value="1" {{ ($ua && $ua->can_upload_metadata) ? 'checked' : '' }}>
-                            <span>Metadata</span>
-                          </label>
-                        </td>
+                  <div class="vaField">
+                    <label>Rol</label>
+                    <input type="text" name="rol" value="usuario">
+                  </div>
 
-                        <td>
-                          <label class="vaCheck">
-                            <input type="hidden" name="users[{{ $user->id }}][can_upload_xml]" value="0">
-                            <input type="checkbox" name="users[{{ $user->id }}][can_upload_xml]" value="1" {{ ($ua && $ua->can_upload_xml) ? 'checked' : '' }}>
-                            <span>XML</span>
-                          </label>
-                        </td>
+                  <div class="vaField">
+                    <label>Tipo</label>
+                    <input type="text" name="tipo" value="usuario">
+                  </div>
 
-                        <td>
-                          <label class="vaCheck">
-                            <input type="hidden" name="users[{{ $user->id }}][can_export]" value="0">
-                            <input type="checkbox" name="users[{{ $user->id }}][can_export]" value="1" {{ ($ua && $ua->can_export) ? 'checked' : '' }}>
-                            <span>Exportar</span>
-                          </label>
-                        </td>
-                      </tr>
-                    @empty
-                      <tr>
-                        <td colspan="6">
-                          <div class="vaNoUsers">Esta cuenta no tiene usuarios cargados.</div>
-                        </td>
-                      </tr>
-                    @endforelse
-                  </tbody>
-                </table>
+                  <div class="vaField">
+                    <label>Password</label>
+                    <input type="text" name="password" placeholder="Opcional, si lo dejas vacío se genera una temporal">
+                  </div>
+                </div>
+
+                <div class="vaChecksGrid">
+                  <label class="vaCheck"><input type="checkbox" name="activo" value="1" checked> <span>Activo</span></label>
+                  <label class="vaCheck"><input type="checkbox" name="must_change_password" value="1" checked> <span>Forzar cambio de password</span></label>
+                  <label class="vaCheck"><input type="checkbox" name="can_access_vault" value="1"> <span>Acceso v2</span></label>
+                  <label class="vaCheck"><input type="checkbox" name="can_upload_metadata" value="1"> <span>Metadata</span></label>
+                  <label class="vaCheck"><input type="checkbox" name="can_upload_xml" value="1"> <span>XML</span></label>
+                  <label class="vaCheck"><input type="checkbox" name="can_export" value="1"> <span>Exportar</span></label>
+                </div>
               </div>
 
-              @if($account->usuarios->count() > 0)
-                <div class="vaUsersActions">
-                  <button type="submit" class="vaBtn vaBtn--primary">Guardar permisos v2</button>
-                </div>
-              @endif
+              <div class="vaModalFoot">
+                <button type="submit" class="vaBtn vaBtn--primary">Agregar usuario</button>
+                <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $modalAddUserId }}">Cerrar</button>
+              </div>
             </form>
           </div>
-        </section>
+        </div>
+
+        {{-- Modal usuarios --}}
+        <div class="vaModal" id="{{ $modalUsersId }}" aria-hidden="true">
+          <div class="vaModalBackdrop" data-va-close="{{ $modalUsersId }}"></div>
+          <div class="vaModalDialog vaModalDialog--xl">
+            <div class="vaModalHead">
+              <div>
+                <div class="vaModalKicker">PERMISOS POR USUARIO</div>
+                <h3 class="vaModalTitle">{{ $displayName }}</h3>
+                <div class="vaModalSub">Permisos de acceso para SAT Bóveda v2 y administración de usuarios.</div>
+              </div>
+
+              <div class="vaModalHeadActions">
+                <button type="button" class="vaBtn vaBtn--primary" data-va-open="{{ $modalAddUserId }}" data-va-close-current="{{ $modalUsersId }}">
+                  Agregar usuario
+                </button>
+                <button type="button" class="vaIconBtn" data-va-close="{{ $modalUsersId }}">×</button>
+              </div>
+            </div>
+
+            <form method="POST" action="{{ route('admin.billing.vault_access.v2_users.update', ['cuentaId' => $account->id, 'q' => $q]) }}">
+              @csrf
+
+              <div class="vaModalBody">
+                @if($account->usuarios->count() > 0)
+                  <div class="vaUsersCards">
+                    @foreach($account->usuarios as $user)
+                      @php
+                        $ua = $usersAccess[$user->id] ?? null;
+                        $hasAnyAccess = $ua && (
+                          $ua->can_access_vault ||
+                          $ua->can_upload_metadata ||
+                          $ua->can_upload_xml ||
+                          $ua->can_export
+                        );
+                        $editModalId = 'va-modal-edit-user-' . $account->id . '-' . $user->id;
+                      @endphp
+
+                      <div class="vaUserCard">
+                        <div class="vaUserCardMain">
+                          <div class="vaUserCardTitleRow">
+                            <div>
+                              <div class="vaUserName">{{ $user->nombre ?: 'Usuario sin nombre' }}</div>
+                              <div class="vaUserRole">
+                                {{ $user->rol ?: '—' }}
+                                @if(method_exists($user, 'isOwner') && $user->isOwner())
+                                  · owner
+                                @endif
+                                · {{ $user->email ?: '—' }}
+                              </div>
+                            </div>
+
+                            <div class="vaUserActions">
+                              <button
+                                type="button"
+                                class="vaBtn vaBtn--ghost vaBtn--sm"
+                                data-va-open="{{ $editModalId }}"
+                                data-va-close-current="{{ $modalUsersId }}">
+                                Editar
+                              </button>
+
+                              @if($hasAnyAccess)
+                                <form
+                                  method="POST"
+                                  action="{{ route('admin.billing.vault_access.v2_users.delete', ['cuentaId' => $account->id, 'usuarioId' => $user->id, 'q' => $q]) }}"
+                                  class="vaDeleteInlineForm"
+                                  onsubmit="return confirm('¿Seguro que deseas eliminar el acceso de este usuario a la bóveda?');">
+                                  @csrf
+                                  <button type="submit" class="vaBtn vaBtn--danger vaBtn--sm">
+                                    Eliminar acceso
+                                  </button>
+                                </form>
+                              @else
+                                <span class="vaMutedAction">Sin acceso</span>
+                              @endif
+                            </div>
+                          </div>
+
+                          <div class="vaPermissionRow">
+                            <label class="vaCheck">
+                              <input type="hidden" name="users[{{ $user->id }}][can_access_vault]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_access_vault]" value="1" {{ ($ua && $ua->can_access_vault) ? 'checked' : '' }}>
+                              <span>Acceso v2</span>
+                            </label>
+
+                            <label class="vaCheck">
+                              <input type="hidden" name="users[{{ $user->id }}][can_upload_metadata]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_upload_metadata]" value="1" {{ ($ua && $ua->can_upload_metadata) ? 'checked' : '' }}>
+                              <span>Metadata</span>
+                            </label>
+
+                            <label class="vaCheck">
+                              <input type="hidden" name="users[{{ $user->id }}][can_upload_xml]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_upload_xml]" value="1" {{ ($ua && $ua->can_upload_xml) ? 'checked' : '' }}>
+                              <span>XML</span>
+                            </label>
+
+                            <label class="vaCheck">
+                              <input type="hidden" name="users[{{ $user->id }}][can_export]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_export]" value="1" {{ ($ua && $ua->can_export) ? 'checked' : '' }}>
+                              <span>Exportar</span>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {{-- Modal editar usuario --}}
+                      <div class="vaModal" id="{{ $editModalId }}" aria-hidden="true">
+                        <div class="vaModalBackdrop" data-va-close="{{ $editModalId }}"></div>
+                        <div class="vaModalDialog">
+                          <div class="vaModalHead">
+                            <div>
+                              <div class="vaModalKicker">EDITAR USUARIO</div>
+                              <h3 class="vaModalTitle">{{ $user->nombre ?: 'Usuario sin nombre' }}</h3>
+                              <div class="vaModalSub">Actualiza datos del usuario y sus permisos base.</div>
+                            </div>
+
+                            <button type="button" class="vaIconBtn" data-va-close="{{ $editModalId }}">×</button>
+                          </div>
+
+                          <form method="POST" action="{{ route('admin.billing.vault_access.users.update', ['cuentaId' => $account->id, 'usuarioId' => $user->id, 'q' => $q]) }}">
+                            @csrf
+
+                            <div class="vaModalBody">
+                              <div class="vaFormGrid">
+                                <div class="vaField">
+                                  <label>Nombre</label>
+                                  <input type="text" name="nombre" value="{{ $user->nombre }}" required>
+                                </div>
+
+                                <div class="vaField">
+                                  <label>Email</label>
+                                  <input type="email" name="email" value="{{ $user->email }}" required>
+                                </div>
+
+                                <div class="vaField">
+                                  <label>Rol</label>
+                                  <input type="text" name="rol" value="{{ $user->rol }}">
+                                </div>
+
+                                <div class="vaField">
+                                  <label>Tipo</label>
+                                  <input type="text" name="tipo" value="{{ $user->tipo }}">
+                                </div>
+
+                                <div class="vaField">
+                                  <label>Password nueva</label>
+                                  <input type="text" name="password" placeholder="Opcional, solo si deseas cambiarla">
+                                </div>
+                              </div>
+
+                              <div class="vaChecksGrid">
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="activo" value="1" {{ $user->activo ? 'checked' : '' }}>
+                                  <span>Activo</span>
+                                </label>
+
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="must_change_password" value="1" {{ $user->must_change_password ? 'checked' : '' }}>
+                                  <span>Forzar cambio de password</span>
+                                </label>
+
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="can_access_vault" value="1" {{ ($ua && $ua->can_access_vault) ? 'checked' : '' }}>
+                                  <span>Acceso v2</span>
+                                </label>
+
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="can_upload_metadata" value="1" {{ ($ua && $ua->can_upload_metadata) ? 'checked' : '' }}>
+                                  <span>Metadata</span>
+                                </label>
+
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="can_upload_xml" value="1" {{ ($ua && $ua->can_upload_xml) ? 'checked' : '' }}>
+                                  <span>XML</span>
+                                </label>
+
+                                <label class="vaCheck">
+                                  <input type="checkbox" name="can_export" value="1" {{ ($ua && $ua->can_export) ? 'checked' : '' }}>
+                                  <span>Exportar</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            <div class="vaModalFoot">
+                              <button type="submit" class="vaBtn vaBtn--primary">Guardar cambios</button>
+                              <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $editModalId }}">Cerrar</button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    @endforeach
+                  </div>
+                @else
+                  <div class="vaNoUsersCard">
+                    Esta cuenta no tiene usuarios cargados.
+                  </div>
+                @endif
+              </div>
+
+              <div class="vaModalFoot">
+                @if($account->usuarios->count() > 0)
+                  <button type="submit" class="vaBtn vaBtn--primary">Guardar permisos v2</button>
+                @endif
+
+                <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $modalUsersId }}">Cerrar</button>
+              </div>
+            </form>
+          </div>
+        </div>
       @endforeach
     </div>
 
@@ -253,75 +530,96 @@
 
 @push('styles')
 <style>
-  .page-admin-sat-vault-access .page-container{ padding-top: 14px; }
+  .page-admin-sat-vault-access .page-container{ padding-top:14px; }
 
-  .vaWrap{ display:grid; gap:16px; }
+  .vaWrap{
+    display:grid;
+    gap:16px;
+  }
 
   .vaHead{
     display:flex;
     justify-content:space-between;
     align-items:flex-end;
-    gap:14px;
+    gap:16px;
     padding:14px 16px;
   }
+
   .vaKicker{
     font:900 11px/1 system-ui;
     letter-spacing:.12em;
     color:var(--muted);
   }
+
   .vaTitle{
     margin:6px 0 0;
-    font:950 24px/1.1 system-ui;
-    letter-spacing:-.02em;
+    font:950 26px/1.05 system-ui;
+    letter-spacing:-.03em;
+    color:var(--text);
   }
+
   .vaSub{
-    margin-top:6px;
+    margin-top:8px;
     color:var(--muted);
-    font:650 13px/1.45 system-ui;
+    font:650 13px/1.5 system-ui;
+    max-width:860px;
   }
 
   .vaSearchCard,
-  .vaCard{
+  .vaEmpty,
+  .vaList{
     border:1px solid var(--bd);
     background:var(--card-bg);
     border-radius:18px;
     box-shadow:var(--shadow-1);
   }
 
-  .vaSearchCard{ padding:16px; }
+  .vaSearchCard{
+    padding:16px;
+  }
 
   .vaSearchForm{
     display:grid;
-    grid-template-columns:minmax(260px, 1fr) auto;
+    grid-template-columns:minmax(280px, 1fr) auto;
     gap:12px;
     align-items:end;
   }
-  .vaField{ display:grid; gap:8px; }
+
+  .vaField{
+    display:grid;
+    gap:8px;
+  }
+
   .vaField label{
     font:800 12px/1 system-ui;
     color:var(--muted);
   }
+
   .vaField input{
     width:100%;
-    min-height:44px;
+    min-height:46px;
     border:1px solid var(--bd);
-    border-radius:12px;
+    border-radius:14px;
     background:color-mix(in oklab, var(--panel-bg) 78%, transparent);
     color:var(--text);
     padding:12px 14px;
     outline:none;
   }
+
   .vaField input:focus{
-    border-color:color-mix(in oklab, #8b5cf6 40%, var(--bd));
+    border-color:color-mix(in oklab, #8b5cf6 42%, var(--bd));
     box-shadow:0 0 0 4px color-mix(in oklab, #8b5cf6 14%, transparent);
   }
 
   .vaSearchActions,
   .vaHeadActions,
+  .vaActions,
+  .vaModalFoot,
   .vaInlineForm,
-  .vaUsersActions{
+  .vaUserActions,
+  .vaModalHeadActions{
     display:flex;
-    gap:10px;
+    gap:8px;
     flex-wrap:wrap;
   }
 
@@ -329,7 +627,7 @@
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    min-height:42px;
+    min-height:40px;
     padding:10px 14px;
     border-radius:12px;
     border:1px solid var(--bd);
@@ -338,32 +636,49 @@
     font:850 13px/1 system-ui;
     color:var(--text);
     background:color-mix(in oklab, var(--card-bg) 88%, transparent);
+    transition:transform .16s ease, filter .16s ease;
   }
-  .vaBtn:hover{ filter:brightness(.98); }
+
+  .vaBtn:hover{
+    filter:brightness(.98);
+    transform:translateY(-1px);
+  }
+
   .vaBtn--primary{
     background:#8b5cf6;
     border-color:#8b5cf6;
     color:#fff;
   }
+
   .vaBtn--danger{
     background:#ef4444;
     border-color:#ef4444;
     color:#fff;
   }
+
   .vaBtn--ghost{
     background:color-mix(in oklab, var(--card-bg) 88%, transparent);
+  }
+
+  .vaBtn--sm{
+    min-height:34px;
+    padding:8px 10px;
+    border-radius:10px;
+    font:800 12px/1 system-ui;
   }
 
   .vaAlert{
     padding:12px 14px;
     border-radius:14px;
     border:1px solid var(--bd);
-    font:700 13px/1.4 system-ui;
+    font:700 13px/1.45 system-ui;
   }
+
   .vaAlert--ok{
     background:color-mix(in oklab, #10b981 13%, var(--card-bg));
     border-color:color-mix(in oklab, #10b981 35%, var(--bd));
   }
+
   .vaAlert--error{
     background:color-mix(in oklab, #ef4444 10%, var(--card-bg));
     border-color:color-mix(in oklab, #ef4444 35%, var(--bd));
@@ -371,165 +686,284 @@
 
   .vaEmpty{
     padding:28px 18px;
-    border:1px dashed var(--bd);
-    border-radius:18px;
-    background:color-mix(in oklab, var(--panel-bg) 70%, transparent);
   }
+
   .vaEmptyTitle{
     font:900 16px/1 system-ui;
     margin-bottom:8px;
   }
+
   .vaEmptyText{
     color:var(--muted);
     font:650 13px/1.5 system-ui;
   }
 
-  .vaList{ display:grid; gap:16px; }
-
-  .vaCard{ padding:16px; }
-
-  .vaCardTop{
-    display:flex;
-    justify-content:space-between;
-    gap:14px;
-    margin-bottom:14px;
+  .vaList{
+    overflow:hidden;
   }
 
-  .vaIdentityTop{
+  .vaListHead,
+  .vaRow{
+    display:grid;
+    grid-template-columns:minmax(260px, 1.2fr) minmax(300px, 1.3fr) minmax(170px, .8fr) minmax(220px, .9fr);
+    gap:14px;
+    align-items:center;
+  }
+
+  .vaListHead{
+    padding:14px 16px;
+    border-bottom:1px solid var(--bd);
+    background:color-mix(in oklab, var(--panel-bg) 82%, transparent);
+    font:850 12px/1 system-ui;
+    color:var(--muted);
+  }
+
+  .vaRow{
+    padding:14px 16px;
+    border-bottom:1px solid var(--bd);
+  }
+
+  .vaRow:last-child{
+    border-bottom:0;
+  }
+
+  .vaRow:hover{
+    background:color-mix(in oklab, var(--panel-bg) 50%, transparent);
+  }
+
+  .vaCell{
+    min-width:0;
+  }
+
+  .vaAccountTitleRow,
+  .vaUserCardTitleRow{
     display:flex;
     align-items:center;
+    justify-content:space-between;
     gap:10px;
     flex-wrap:wrap;
   }
-  .vaIdentityTop h2{
+
+  .vaAccountTitle{
     margin:0;
-    font:900 18px/1.1 system-ui;
+    font:900 18px/1.08 system-ui;
+    letter-spacing:-.02em;
+    color:var(--text);
   }
 
-  .vaPill{
+  .vaPlan{
+    display:inline-flex;
+    align-items:center;
+    min-height:24px;
+    padding:5px 9px;
+    border-radius:999px;
+    border:1px solid var(--bd);
+    background:color-mix(in oklab, var(--panel-bg) 78%, transparent);
+    font:850 11px/1 system-ui;
+    color:var(--text);
+  }
+
+  .vaAccountMeta,
+  .vaSummaryLine{
+    margin-top:6px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px 14px;
+    color:var(--muted);
+    font:650 12px/1.45 system-ui;
+  }
+
+  .vaStatusStack{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .vaBadge{
     display:inline-flex;
     align-items:center;
     min-height:28px;
     padding:6px 10px;
     border-radius:999px;
-    border:1px solid var(--bd);
-    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
     font:800 12px/1 system-ui;
-  }
-
-  .vaMeta{
-    margin-top:8px;
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px 14px;
-    color:var(--muted);
-    font:650 12px/1.45 system-ui;
-  }
-
-  .vaGrids{
-    display:grid;
-    grid-template-columns:repeat(2, minmax(0, 1fr));
-    gap:14px;
-    margin-bottom:14px;
-  }
-
-  .vaBlock,
-  .vaUsersBlock{
     border:1px solid var(--bd);
-    border-radius:16px;
-    background:color-mix(in oklab, var(--card-bg) 94%, transparent);
-    padding:14px;
+    white-space:nowrap;
   }
 
-  .vaBlockHead{
+  .vaBadge.is-on{
+    background:color-mix(in oklab, #10b981 12%, var(--card-bg));
+    border-color:color-mix(in oklab, #10b981 34%, var(--bd));
+    color:color-mix(in oklab, #065f46 78%, var(--text));
+  }
+
+  .vaBadge.is-off{
+    background:color-mix(in oklab, #ef4444 10%, var(--card-bg));
+    border-color:color-mix(in oklab, #ef4444 32%, var(--bd));
+    color:color-mix(in oklab, #991b1b 72%, var(--text));
+  }
+
+  .vaPagination{
+    display:flex;
+    justify-content:center;
+    padding-top:4px;
+  }
+
+  .vaModal{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:1900;
+    padding:18px;
+  }
+
+  .vaModal.is-open{
+    display:flex;
+  }
+
+  .vaModalBackdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(15,23,42,.46);
+    backdrop-filter:blur(3px);
+  }
+
+  .vaModalDialog{
+    position:relative;
+    z-index:1;
+    width:min(720px, calc(100vw - 24px));
+    max-height:calc(100vh - 36px);
+    overflow:auto;
+    border:1px solid var(--bd);
+    background:var(--card-bg);
+    border-radius:22px;
+    box-shadow:0 28px 70px rgba(15,23,42,.26);
+  }
+
+  .vaModalDialog--lg{
+    width:min(1240px, calc(100vw - 24px));
+  }
+
+  .vaModalDialog--xl{
+    width:min(1320px, calc(100vw - 24px));
+  }
+
+  .vaModalHead{
     display:flex;
     justify-content:space-between;
     align-items:flex-start;
     gap:12px;
-    margin-bottom:12px;
+    padding:18px 18px 14px;
+    border-bottom:1px solid var(--bd);
+    position:sticky;
+    top:0;
+    background:color-mix(in oklab, var(--card-bg) 94%, transparent);
+    backdrop-filter:blur(10px);
+    z-index:2;
   }
 
-  .vaBlockTitle{
-    font:900 14px/1.15 system-ui;
-  }
-  .vaBlockSub{
-    margin-top:5px;
+  .vaModalKicker{
+    font:900 10px/1 system-ui;
+    letter-spacing:.12em;
     color:var(--muted);
-    font:650 12px/1.45 system-ui;
   }
 
-  .vaStatus{
-    display:inline-flex;
-    align-items:center;
-    min-height:28px;
-    padding:6px 10px;
-    border-radius:999px;
-    font:850 12px/1 system-ui;
+  .vaModalTitle{
+    margin:6px 0 0;
+    font:900 22px/1.08 system-ui;
+    letter-spacing:-.02em;
+    color:var(--text);
+  }
+
+  .vaModalSub{
+    margin-top:6px;
+    color:var(--muted);
+    font:650 13px/1.45 system-ui;
+  }
+
+  .vaIconBtn{
+    width:38px;
+    height:38px;
+    min-width:38px;
+    border-radius:12px;
     border:1px solid var(--bd);
-    white-space:nowrap;
-  }
-  .vaStatus.is-on{
-    background:color-mix(in oklab, #10b981 12%, var(--card-bg));
-    border-color:color-mix(in oklab, #10b981 35%, var(--bd));
-  }
-  .vaStatus.is-off{
-    background:color-mix(in oklab, #ef4444 10%, var(--card-bg));
-    border-color:color-mix(in oklab, #ef4444 35%, var(--bd));
+    background:color-mix(in oklab, var(--panel-bg) 82%, transparent);
+    color:var(--text);
+    font:900 20px/1 system-ui;
+    cursor:pointer;
   }
 
-  .vaFacts{
+  .vaModalBody{
+    padding:18px;
     display:grid;
-    grid-template-columns:repeat(2, minmax(0, 1fr));
-    gap:10px;
-    margin-bottom:14px;
+    gap:14px;
   }
+
+  .vaModalFacts,
+  .vaFormGrid{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:12px;
+  }
+
   .vaFact{
     border:1px solid var(--bd);
-    border-radius:12px;
-    padding:10px 12px;
-    background:color-mix(in oklab, var(--panel-bg) 70%, transparent);
+    border-radius:14px;
+    padding:12px 13px;
+    background:color-mix(in oklab, var(--panel-bg) 74%, transparent);
     display:grid;
     gap:6px;
+    min-width:0;
   }
+
   .vaFact .k{
     font:750 11px/1 system-ui;
     color:var(--muted);
   }
+
   .vaFact .v{
-    font:900 13px/1.1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font:900 13px/1.15 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color:var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
 
-  .vaUsersTableWrap{
-    overflow:auto;
+  .vaChecksGrid,
+  .vaPermissionRow{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px 18px;
+    align-items:center;
+  }
+
+  .vaModalFoot{
+    padding:0 18px 18px;
+    justify-content:flex-end;
+  }
+
+  .vaUsersCards{
+    display:grid;
+    gap:12px;
+  }
+
+  .vaUserCard{
     border:1px solid var(--bd);
-    border-radius:14px;
+    border-radius:16px;
+    background:color-mix(in oklab, var(--panel-bg) 70%, transparent);
+    padding:14px;
   }
 
-  .vaUsersTable{
-    width:100%;
-    border-collapse:collapse;
-    min-width:860px;
-    background:var(--card-bg);
-  }
-  .vaUsersTable th,
-  .vaUsersTable td{
-    padding:12px 12px;
-    border-bottom:1px solid var(--bd);
-    text-align:left;
-    vertical-align:middle;
-  }
-  .vaUsersTable thead th{
-    background:color-mix(in oklab, var(--panel-bg) 78%, transparent);
-    font:850 12px/1 system-ui;
-    color:var(--muted);
-  }
-  .vaUsersTable tbody tr:hover{
-    background:color-mix(in oklab, var(--panel-bg) 50%, transparent);
+  .vaUserCardMain{
+    display:grid;
+    gap:12px;
   }
 
   .vaUserName{
     font:800 13px/1.2 system-ui;
+    color:var(--text);
   }
+
   .vaUserRole{
     margin-top:4px;
     color:var(--muted);
@@ -542,43 +976,169 @@
     gap:8px;
     font:700 12px/1 system-ui;
     cursor:pointer;
+    color:var(--text);
   }
+
   .vaCheck input[type="checkbox"]{
     width:16px;
     height:16px;
   }
 
-  .vaNoUsers{
-    padding:10px 0;
+  .vaDeleteInlineForm{
+    display:inline-flex;
+  }
+
+  .vaMutedAction{
     color:var(--muted);
-    font:650 13px/1.4 system-ui;
+    font:700 12px/1 system-ui;
   }
 
-  .vaUsersActions{
-    margin-top:14px;
-    justify-content:flex-end;
+  .vaNoUsersCard{
+    border:1px dashed var(--bd);
+    border-radius:16px;
+    padding:18px;
+    color:var(--muted);
+    font:650 13px/1.45 system-ui;
+    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
   }
 
-  .vaPagination{
-    display:flex;
-    justify-content:center;
-    padding-top:6px;
-  }
+  @media (max-width: 1180px){
+    .vaListHead{
+      display:none;
+    }
 
-  @media (max-width: 1100px){
-    .vaGrids{
+    .vaRow{
       grid-template-columns:1fr;
+      gap:10px;
+      align-items:flex-start;
     }
   }
 
-  @media (max-width: 860px){
-    .vaSearchForm{
+  @media (max-width: 920px){
+    .vaSearchForm,
+    .vaModalFacts,
+    .vaFormGrid{
       grid-template-columns:1fr;
     }
-    .vaHead{
+
+    .vaHead,
+    .vaModalHead{
       flex-direction:column;
       align-items:flex-start;
     }
   }
+
+  @media (max-width: 640px){
+    .vaActions,
+    .vaSearchActions,
+    .vaModalFoot,
+    .vaUserActions,
+    .vaModalHeadActions{
+      flex-direction:column;
+      align-items:stretch;
+    }
+
+    .vaBtn{
+      width:100%;
+    }
+
+    .vaBtn--sm{
+      width:auto;
+    }
+
+    .vaModal{
+      padding:10px;
+    }
+
+    .vaModalDialog,
+    .vaModalDialog--lg,
+    .vaModalDialog--xl{
+      width:100%;
+      max-height:calc(100vh - 20px);
+    }
+  }
 </style>
+@endpush
+
+@push('scripts')
+<script>
+(function () {
+  'use strict';
+
+  const body = document.body;
+  const openButtons = document.querySelectorAll('[data-va-open]');
+  const closeButtons = document.querySelectorAll('[data-va-close]');
+  const modals = document.querySelectorAll('.vaModal');
+
+  function openModal(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    body.style.overflow = 'hidden';
+  }
+
+  function closeModal(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+
+    const hasOpen = document.querySelector('.vaModal.is-open');
+    if (!hasOpen) {
+      body.style.overflow = '';
+    }
+  }
+
+  openButtons.forEach((button) => {
+    button.addEventListener('click', function () {
+      const currentModal = this.getAttribute('data-va-close-current');
+      const targetModal = this.getAttribute('data-va-open');
+
+      if (currentModal) {
+        closeModal(currentModal);
+      }
+
+      openModal(targetModal);
+    });
+  });
+
+  closeButtons.forEach((button) => {
+    button.addEventListener('click', function () {
+      closeModal(this.getAttribute('data-va-close'));
+    });
+  });
+
+  modals.forEach((modal) => {
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
+      const hasOpen = document.querySelector('.vaModal.is-open');
+      if (!hasOpen) {
+        body.style.overflow = '';
+      }
+    });
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+
+    const modal = document.querySelector('.vaModal.is-open');
+    if (!modal) return;
+
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+
+    const hasOpen = document.querySelector('.vaModal.is-open');
+    if (!hasOpen) {
+      body.style.overflow = '';
+    }
+  });
+})();
+</script>
 @endpush
