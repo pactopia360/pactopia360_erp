@@ -440,115 +440,241 @@
                                         </div>
                                     </div>
 
-                                    {{-- MODAL EDITAR --}}
+                                                                        {{-- MODAL EDITAR --}}
                                     <div class="satq-modal" id="{{ $modalEditId }}" aria-hidden="true">
                                         <div class="satq-modal-backdrop" data-modal-close></div>
-                                        <div class="satq-modal-dialog">
+                                        <div class="satq-modal-dialog satq-modal-dialog-xl">
                                             <div class="satq-modal-head">
                                                 <div>
                                                     <h3>Editar cotización</h3>
-                                                    <p>Actualiza importes, concepto, XML y notas internas.</p>
+                                                    <p>Recotiza la solicitud con un flujo parecido a creación y recalcula antes de guardar.</p>
                                                 </div>
                                                 <button type="button" class="satq-modal-close" data-modal-close>&times;</button>
                                             </div>
 
                                             <div class="satq-modal-body">
-                                                <form method="POST" action="{{ route('admin.sat.ops.quotes.update', ['id' => $row['id']]) }}" class="satq-mini-form">
+                                                @php
+                                                    $editDiscountCode = (string) data_get($row, 'discount_code', data_get($row, 'meta.discount_code', ''));
+                                                    $editIvaRate = (int) data_get($row, 'iva_rate', data_get($row, 'meta.iva_rate', 16));
+                                                    $editTipoSolicitud = (string) ($row['tipo_solicitud'] ?? 'emitidos');
+                                                    $editNotesCliente = (string) ($row['notes'] ?? '');
+                                                @endphp
+
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('admin.sat.ops.quotes.update', ['id' => $row['id']]) }}"
+                                                    class="satq-quote-form"
+                                                    data-admin-quote-edit-form="true"
+                                                    data-row-id="{{ $rowId }}"
+                                                >
                                                     @csrf
 
-                                                    <div class="satq-mini-grid">
-                                                        <div class="satq-field">
-                                                            <label>Subtotal</label>
-                                                            <input
-                                                                type="number"
-                                                                name="subtotal"
-                                                                step="0.01"
-                                                                min="0"
-                                                                class="satq-input"
-                                                                value="{{ number_format((float) ($row['subtotal'] ?? 0), 2, '.', '') }}"
-                                                                required
-                                                            >
+                                                    <input type="hidden" name="subtotal" value="{{ number_format((float) ($row['subtotal'] ?? 0), 2, '.', '') }}">
+                                                    <input type="hidden" name="iva" value="{{ number_format((float) ($row['iva'] ?? 0), 2, '.', '') }}">
+                                                    <input type="hidden" name="total" value="{{ number_format((float) ($row['total'] ?? 0), 2, '.', '') }}">
+
+                                                    <div class="satq-quote-section">
+                                                        <div class="satq-quote-section-head">
+                                                            <h4>RFC para cotizar</h4>
+                                                            <p>Base informativa de la solicitud recibida desde portal cliente.</p>
                                                         </div>
 
-                                                        <div class="satq-field">
-                                                            <label>IVA</label>
-                                                            <input
-                                                                type="number"
-                                                                name="iva"
-                                                                step="0.01"
-                                                                min="0"
-                                                                class="satq-input"
-                                                                value="{{ number_format((float) ($row['iva'] ?? 0), 2, '.', '') }}"
-                                                                required
-                                                            >
-                                                        </div>
+                                                        <div class="satq-quote-grid satq-quote-grid-3">
+                                                            <div class="satq-field">
+                                                                <label>Folio</label>
+                                                                <input
+                                                                    type="text"
+                                                                    class="satq-input"
+                                                                    value="{{ $row['folio'] ?? '' }}"
+                                                                    readonly
+                                                                >
+                                                            </div>
 
-                                                        <div class="satq-field">
-                                                            <label>Total</label>
-                                                            <input
-                                                                type="number"
-                                                                name="total"
-                                                                step="0.01"
-                                                                min="0"
-                                                                class="satq-input"
-                                                                value="{{ number_format((float) ($row['total'] ?? 0), 2, '.', '') }}"
-                                                                required
-                                                            >
-                                                        </div>
-                                                    </div>
+                                                            <div class="satq-field">
+                                                                <label>RFC</label>
+                                                                <input
+                                                                    type="text"
+                                                                    name="rfc"
+                                                                    class="satq-input"
+                                                                    value="{{ $row['rfc'] ?? '' }}"
+                                                                    readonly
+                                                                >
+                                                            </div>
 
-                                                    <div class="satq-mini-grid">
-                                                        <div class="satq-field">
-                                                            <label>XML estimados</label>
-                                                            <input
-                                                                type="number"
-                                                                name="xml_count"
-                                                                min="0"
-                                                                class="satq-input"
-                                                                value="{{ (int) ($row['xml_count'] ?? 0) }}"
-                                                            >
-                                                        </div>
-
-                                                        <div class="satq-field">
-                                                            <label>Desde</label>
-                                                            <input
-                                                                type="date"
-                                                                name="date_from"
-                                                                class="satq-input"
-                                                                value="{{ $row['date_from'] ?? '' }}"
-                                                            >
-                                                        </div>
-
-                                                        <div class="satq-field">
-                                                            <label>Hasta</label>
-                                                            <input
-                                                                type="date"
-                                                                name="date_to"
-                                                                class="satq-input"
-                                                                value="{{ $row['date_to'] ?? '' }}"
-                                                            >
+                                                            <div class="satq-field">
+                                                                <label>Razón social</label>
+                                                                <input
+                                                                    type="text"
+                                                                    class="satq-input"
+                                                                    value="{{ $row['razon_social'] ?? '' }}"
+                                                                    readonly
+                                                                >
+                                                            </div>
                                                         </div>
                                                     </div>
 
-                                                    <div class="satq-field">
-                                                        <label>Concepto</label>
-                                                        <textarea name="concepto" class="satq-textarea">{{ $row['concepto'] ?? '' }}</textarea>
-                                                    </div>
+                                                    <div class="satq-quote-section">
+                                                        <div class="satq-quote-section-head">
+                                                            <h4>Datos de la solicitud</h4>
+                                                            <p>Estos campos deben alimentar la recotización en admin.</p>
+                                                        </div>
 
-                                                    <div class="satq-mini-grid-2">
+                                                        <div class="satq-quote-grid satq-quote-grid-3">
+                                                            <div class="satq-field">
+                                                                <label>Tipo de solicitud</label>
+                                                                <select name="tipo_solicitud" class="satq-select" required>
+                                                                    <option value="emitidos" @selected($editTipoSolicitud === 'emitidos')>Emitidos</option>
+                                                                    <option value="recibidos" @selected($editTipoSolicitud === 'recibidos')>Recibidos</option>
+                                                                    <option value="ambos" @selected($editTipoSolicitud === 'ambos')>Ambos</option>
+                                                                </select>
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>Fecha inicial</label>
+                                                                <input
+                                                                    type="date"
+                                                                    name="date_from"
+                                                                    class="satq-input"
+                                                                    value="{{ $row['date_from'] ?? '' }}"
+                                                                    required
+                                                                >
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>Fecha final</label>
+                                                                <input
+                                                                    type="date"
+                                                                    name="date_to"
+                                                                    class="satq-input"
+                                                                    value="{{ $row['date_to'] ?? '' }}"
+                                                                    required
+                                                                >
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>XML estimados</label>
+                                                                <input
+                                                                    type="number"
+                                                                    name="xml_count"
+                                                                    min="1"
+                                                                    step="1"
+                                                                    class="satq-input"
+                                                                    value="{{ (int) ($row['xml_count'] ?? 0) }}"
+                                                                    required
+                                                                >
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>Código de descuento</label>
+                                                                <input
+                                                                    type="text"
+                                                                    name="discount_code"
+                                                                    class="satq-input"
+                                                                    value="{{ $editDiscountCode }}"
+                                                                    placeholder="Opcional"
+                                                                >
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>IVA %</label>
+                                                                <input
+                                                                    type="number"
+                                                                    name="iva_rate"
+                                                                    min="0"
+                                                                    max="100"
+                                                                    step="1"
+                                                                    class="satq-input"
+                                                                    value="{{ $editIvaRate }}"
+                                                                    required
+                                                                >
+                                                            </div>
+                                                        </div>
+
                                                         <div class="satq-field">
-                                                            <label>Notas admin</label>
-                                                            <textarea name="admin_notes" class="satq-textarea">{{ $row['admin_notes'] ?? '' }}</textarea>
+                                                            <label>Concepto</label>
+                                                            <textarea name="concepto" class="satq-textarea" rows="4">{{ $row['concepto'] ?? '' }}</textarea>
+                                                        </div>
+
+                                                        <div class="satq-mini-grid-2">
+                                                            <div class="satq-field">
+                                                                <label>Notas del cliente</label>
+                                                                <textarea class="satq-textarea" rows="5" readonly>{{ $editNotesCliente !== '' ? $editNotesCliente : 'Sin notas del cliente' }}</textarea>
+                                                            </div>
+
+                                                            <div class="satq-field">
+                                                                <label>Notas admin</label>
+                                                                <textarea name="admin_notes" class="satq-textarea" rows="5">{{ $row['admin_notes'] ?? '' }}</textarea>
+                                                            </div>
                                                         </div>
 
                                                         <div class="satq-field">
                                                             <label>Notas comerciales</label>
-                                                            <textarea name="commercial_notes" class="satq-textarea">{{ $row['commercial_notes'] ?? '' }}</textarea>
+                                                            <textarea name="commercial_notes" class="satq-textarea" rows="4">{{ $row['commercial_notes'] ?? '' }}</textarea>
                                                         </div>
                                                     </div>
 
-                                                    <div class="satq-inline-actions">
-                                                        <button type="submit" class="satq-btn satq-btn-soft">Guardar cambios</button>
+                                                    <div class="satq-quote-section satq-quote-section-soft">
+                                                        <div class="satq-quote-section-head">
+                                                            <h4>Resumen de recotización</h4>
+                                                            <p>Después de editar, este bloque debe recalcular subtotal, IVA y total.</p>
+                                                        </div>
+
+                                                        <div class="satq-quote-summary-grid">
+                                                            <div class="satq-quote-summary-card">
+                                                                <span>RFC</span>
+                                                                <strong>{{ $row['rfc'] ?? 'Pendiente' }}</strong>
+                                                            </div>
+
+                                                            <div class="satq-quote-summary-card">
+                                                                <span>Tipo</span>
+                                                                <strong>{{ ucfirst($editTipoSolicitud) }}</strong>
+                                                            </div>
+
+                                                            <div class="satq-quote-summary-card">
+                                                                <span>Periodo</span>
+                                                                <strong>{{ ($row['date_from'] ?? '—') }} al {{ ($row['date_to'] ?? '—') }}</strong>
+                                                            </div>
+
+                                                            <div class="satq-quote-summary-card">
+                                                                <span>XML estimados</span>
+                                                                <strong>{{ number_format((int) ($row['xml_count'] ?? 0)) }}</strong>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="satq-quote-money-grid">
+                                                            <div class="satq-quote-money-card">
+                                                                <span>Subtotal</span>
+                                                                <strong>{{ $money($row['subtotal'] ?? 0) }}</strong>
+                                                            </div>
+
+                                                            <div class="satq-quote-money-card">
+                                                                <span>IVA</span>
+                                                                <strong>{{ $money($row['iva'] ?? 0) }}</strong>
+                                                            </div>
+
+                                                            <div class="satq-quote-money-card is-total">
+                                                                <span>Total</span>
+                                                                <strong>{{ $money($row['total'] ?? 0) }}</strong>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="satq-note-box">
+                                                            <strong>Importante:</strong>
+                                                            este modal ya queda preparado para editar con la misma lógica funcional de creación.
+                                                            En el siguiente paso conectamos el recálculo real para que admin no capture importes manuales.
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="satq-inline-actions satq-inline-actions-between">
+                                                        <button type="button" class="satq-btn satq-btn-light" data-modal-close>Cancelar</button>
+                                                        <div class="satq-inline-actions">
+                                                            <button type="button" class="satq-btn satq-btn-warning" data-admin-quote-recalc="true">
+                                                                Recalcular cotización
+                                                            </button>
+                                                            <button type="submit" class="satq-btn satq-btn-soft">
+                                                                Guardar cambios
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </form>
                                             </div>

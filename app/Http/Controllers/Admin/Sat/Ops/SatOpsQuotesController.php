@@ -14,9 +14,14 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
+use App\Services\Sat\Client\SatQuoteService;
 
 final class SatOpsQuotesController extends Controller
 {
+    public function __construct(
+        private readonly SatQuoteService $quoteService,
+    ) {}
+
     public function index(Request $request): View
     {
         $filters = [
@@ -187,65 +192,150 @@ final class SatOpsQuotesController extends Controller
         $row = SatDownload::query()->findOrFail($id);
 
         $data = $request->validate([
-            'subtotal'      => ['required', 'numeric', 'min:0'],
-            'iva'           => ['required', 'numeric', 'min:0'],
-            'total'         => ['required', 'numeric', 'min:0'],
-            'xml_count'     => ['nullable', 'integer', 'min:0'],
-            'date_from'     => ['nullable', 'date'],
-            'date_to'       => ['nullable', 'date', 'after_or_equal:date_from'],
-            'concepto'      => ['nullable', 'string', 'max:1000'],
-            'admin_notes'   => ['nullable', 'string', 'max:5000'],
+            'rfc'              => ['required', 'string', 'min:12', 'max:13'],
+            'tipo_solicitud'   => ['required', 'string', 'in:emitidos,recibidos,ambos'],
+            'xml_count'        => ['required', 'integer', 'min:1', 'max:50000000'],
+            'date_from'        => ['required', 'date'],
+            'date_to'          => ['required', 'date', 'after_or_equal:date_from'],
+            'discount_code'    => ['nullable', 'string', 'max:64'],
+            'iva_rate'         => ['nullable'],
+            'concepto'         => ['nullable', 'string', 'max:1000'],
+            'admin_notes'      => ['nullable', 'string', 'max:5000'],
             'commercial_notes' => ['nullable', 'string', 'max:5000'],
+
+            /* se aceptan pero ya no se usan como fuente de verdad */
+            'subtotal'         => ['nullable'],
+            'iva'              => ['nullable'],
+            'total'            => ['nullable'],
         ]);
 
         $meta = is_array($row->meta ?? null) ? $row->meta : [];
 
-        $row->subtotal  = (float) $data['subtotal'];
-        $row->iva       = (float) $data['iva'];
-        $row->total     = (float) $data['total'];
+        $rfc = strtoupper(trim((string) $data['rfc']));
+        $tipoSolicitud = strtolower(trim((string) $data['tipo_solicitud']));
+        $xmlCount = (int) $data['xml_count'];
+        $discountCode = trim((string) ($data['discount_code'] ?? ''));
+        $ivaRate = $this->quoteService->normalizeIvaRate($data['iva_rate'] ?? data_get($meta, 'iva_rate', 16));
 
-        if (array_key_exists('xml_count', $data) && $data['xml_count'] !== null) {
-            $row->xml_count  = (int) $data['xml_count'];
-            $row->cfdi_count = (int) $data['xml_count'];
-            $meta['xml_count'] = (int) $data['xml_count'];
+        $dateFrom = Carbon::parse((string) $data['date_from'])->startOfDay();
+        $dateTo = Carbon::parse((string) $data['date_to'])->endOfDay();
+
+        $cuentaId = trim((string) ($row->cuenta_id ?? ''));
+        if ($cuentaId === '') {
+            return back()->with('error', 'La cotización no tiene cuenta asociada para recalcular.');
         }
 
-        if (!empty($data['date_from'])) {
-            $row->date_from = Carbon::parse((string) $data['date_from'])->startOfDay();
-            $meta['date_from'] = $row->date_from->toDateString();
+        try {
+            $payload = $this->quoteService->buildSatQuotePayload(
+                user: auth()->user(),
+                cuentaId: $cuentaId,
+                xmlCount: $xmlCount,
+                discountCode: $discountCode,
+                ivaRate: $ivaRate,
+                useAdminPrice: true
+            );
+        } catch (\Throwable $e) {
+            Log::error('[SAT:adminQuotes] Error recalculando cotización en edición admin', [
+                'quote_id'       => $id,
+                'cuenta_id'      => $cuentaId,
+                'rfc'            => $rfc,
+                'tipo_solicitud' => $tipoSolicitud,
+                'xml_count'      => $xmlCount,
+                'discount_code'  => $discountCode,
+                'iva_rate'       => $ivaRate,
+                'err'            => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'No se pudo recalcular la cotización con la lista de precios.');
         }
 
-        if (!empty($data['date_to'])) {
-            $row->date_to = Carbon::parse((string) $data['date_to'])->endOfDay();
-            $meta['date_to'] = $row->date_to->toDateString();
+        $concepto = trim((string) ($data['concepto'] ?? ''));
+        if ($concepto === '') {
+            $concepto = $this->buildAdminQuoteConcept(
+                tipoSolicitud: $tipoSolicitud,
+                dateFrom: $dateFrom,
+                dateTo: $dateTo
+            );
         }
 
-        if (array_key_exists('concepto', $data)) {
-            $meta['concepto'] = trim((string) ($data['concepto'] ?? ''));
-        }
+        $adminNotes = trim((string) ($data['admin_notes'] ?? ''));
+        $commercialNotes = trim((string) ($data['commercial_notes'] ?? ''));
 
-        if (array_key_exists('admin_notes', $data)) {
-            $meta['admin_notes'] = trim((string) ($data['admin_notes'] ?? ''));
-        }
+        $row->rfc = $rfc;
+        $row->date_from = $dateFrom;
+        $row->date_to = $dateTo;
+        $row->xml_count = $xmlCount;
+        $row->cfdi_count = $xmlCount;
 
-        if (array_key_exists('commercial_notes', $data)) {
-            $meta['commercial_notes'] = trim((string) ($data['commercial_notes'] ?? ''));
-        }
+        /* fuente de verdad: recálculo */
+        $row->subtotal = (float) ($payload['subtotal'] ?? 0);
+        $row->iva = (float) ($payload['ivaAmount'] ?? 0);
+        $row->total = (float) ($payload['total'] ?? 0);
+        $row->costo = (float) ($payload['base'] ?? 0);
+
+        $meta['rfc'] = $rfc;
+        $meta['tipo'] = $tipoSolicitud;
+        $meta['tipo_solicitud'] = $tipoSolicitud;
+        $meta['date_from'] = $dateFrom->toDateString();
+        $meta['date_to'] = $dateTo->toDateString();
+        $meta['concepto'] = $concepto;
+
+        $meta['xml_count'] = $xmlCount;
+        $meta['base'] = (float) ($payload['base'] ?? 0);
+        $meta['subtotal'] = (float) ($payload['subtotal'] ?? 0);
+        $meta['iva_rate'] = (int) ($payload['ivaRate'] ?? $ivaRate);
+        $meta['iva_amount'] = (float) ($payload['ivaAmount'] ?? 0);
+        $meta['total'] = (float) ($payload['total'] ?? 0);
+
+        $meta['discount_code'] = (string) ($payload['discountCode'] ?? $discountCode);
+        $meta['discount_code_applied'] = (string) ($payload['discountCodeApplied'] ?? '');
+        $meta['discount_label'] = (string) ($payload['discountLabel'] ?? '');
+        $meta['discount_reason'] = (string) ($payload['discountReason'] ?? '');
+        $meta['discount_type'] = (string) ($payload['discountType'] ?? '');
+        $meta['discount_value'] = $payload['discountValue'] ?? null;
+        $meta['discount_pct'] = (float) ($payload['discountPct'] ?? 0);
+        $meta['discount_amount'] = (float) ($payload['discountAmount'] ?? 0);
+        $meta['price_source'] = (string) ($payload['priceSource'] ?? 'admin');
+
+        $meta['admin_notes'] = $adminNotes;
+        $meta['commercial_notes'] = $commercialNotes;
+        $meta['updated_from_admin_quote_editor_at'] = now()->toIso8601String();
 
         $quote = is_array(data_get($meta, 'quote')) ? data_get($meta, 'quote') : [];
-        $quote['subtotal'] = (float) $row->subtotal;
-        $quote['iva_amount'] = (float) $row->iva;
-        $quote['total'] = (float) $row->total;
-        $quote['xml_count'] = (int) ($row->xml_count ?? 0);
-        $quote['concepto'] = (string) ($meta['concepto'] ?? '');
-        $quote['admin_notes'] = (string) ($meta['admin_notes'] ?? '');
-        $quote['commercial_notes'] = (string) ($meta['commercial_notes'] ?? '');
+        $quote['rfc'] = $rfc;
+        $quote['tipo'] = $tipoSolicitud;
+        $quote['tipo_solicitud'] = $tipoSolicitud;
+        $quote['date_from'] = $dateFrom->toDateString();
+        $quote['date_to'] = $dateTo->toDateString();
+        $quote['concepto'] = $concepto;
+
+        $quote['xml_count'] = $xmlCount;
+        $quote['base'] = (float) ($payload['base'] ?? 0);
+        $quote['subtotal'] = (float) ($payload['subtotal'] ?? 0);
+        $quote['iva_rate'] = (int) ($payload['ivaRate'] ?? $ivaRate);
+        $quote['iva_amount'] = (float) ($payload['ivaAmount'] ?? 0);
+        $quote['total'] = (float) ($payload['total'] ?? 0);
+
+        $quote['discount_code'] = (string) ($payload['discountCode'] ?? $discountCode);
+        $quote['discount_code_applied'] = (string) ($payload['discountCodeApplied'] ?? '');
+        $quote['discount_label'] = (string) ($payload['discountLabel'] ?? '');
+        $quote['discount_reason'] = (string) ($payload['discountReason'] ?? '');
+        $quote['discount_type'] = (string) ($payload['discountType'] ?? '');
+        $quote['discount_value'] = $payload['discountValue'] ?? null;
+        $quote['discount_pct'] = (float) ($payload['discountPct'] ?? 0);
+        $quote['discount_amount'] = (float) ($payload['discountAmount'] ?? 0);
+        $quote['price_source'] = (string) ($payload['priceSource'] ?? 'admin');
+
+        $quote['admin_notes'] = $adminNotes;
+        $quote['commercial_notes'] = $commercialNotes;
+        $quote['updated_from_admin_quote_editor_at'] = now()->toIso8601String();
+
         $meta['quote'] = $quote;
 
         $row->meta = $meta;
         $row->save();
 
-        return back()->with('success', 'Cotización actualizada correctamente.');
+        return back()->with('success', 'Cotización actualizada correctamente y recalculada con la lista de precios.');
     }
 
     public function confirmQuote(Request $request, string $id): RedirectResponse
@@ -884,5 +974,19 @@ final class SatOpsQuotesController extends Controller
             ->get()
             ->filter(fn (SatDownload $row) => $this->normalizeQuoteUiStatus($row) === $statusUi)
             ->count();
+    }
+
+    private function buildAdminQuoteConcept(
+        string $tipoSolicitud,
+        Carbon $dateFrom,
+        Carbon $dateTo
+    ): string {
+        $label = match ($tipoSolicitud) {
+            'recibidos' => 'Cotización SAT recibidos',
+            'ambos'     => 'Cotización SAT ambos',
+            default     => 'Cotización SAT emitidos',
+        };
+
+        return $label . ' · ' . $dateFrom->format('d/m/Y') . ' al ' . $dateTo->format('d/m/Y');
     }
 }

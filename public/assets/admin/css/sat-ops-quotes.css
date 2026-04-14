@@ -959,3 +959,266 @@
         width:100%;
     }
 }
+
+/* =========================================================
+   REDISEÑO MODAL EDITAR COTIZACION ADMIN
+========================================================= */
+
+.satq-modal-dialog-xl{
+    width:min(1120px, 100%);
+}
+
+.satq-modal-dialog{
+    display:flex;
+    flex-direction:column;
+    max-height:calc(100vh - 40px);
+    overflow:hidden;
+}
+
+.satq-modal-head{
+    flex:0 0 auto;
+    padding:16px 18px 14px;
+}
+
+.satq-modal-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow:auto;
+    padding:16px 18px 18px;
+    gap:12px;
+    background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);
+}
+
+.satq-modal-body::-webkit-scrollbar{
+    width:10px;
+    height:10px;
+}
+
+.satq-modal-body::-webkit-scrollbar-thumb{
+    background:#d7deea;
+    border-radius:999px;
+    border:2px solid #f8fbff;
+}
+
+.satq-modal-body::-webkit-scrollbar-track{
+    background:#f8fbff;
+}
+
+.satq-quote-form{
+    display:grid;
+    gap:12px;
+}
+
+.satq-quote-section{
+    border:1px solid #e7edf5;
+    border-radius:18px;
+    background:#ffffff;
+    padding:14px;
+    box-shadow:0 4px 14px rgba(15,23,42,.04);
+}
+
+.satq-quote-section-soft{
+    background:#f8fbff;
+}
+
+.satq-quote-section-head{
+    margin-bottom:10px;
+}
+
+.satq-quote-section-head h4{
+    margin:0 0 4px;
+    font-size:15px;
+    font-weight:900;
+    color:#0f172a;
+    letter-spacing:-.02em;
+}
+
+.satq-quote-section-head p{
+    margin:0;
+    font-size:12px;
+    color:#64748b;
+    line-height:1.5;
+}
+
+.satq-quote-grid{
+    display:grid;
+    gap:10px;
+}
+
+.satq-quote-grid-3{
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+}
+
+.satq-quote-summary-grid{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:10px;
+    margin-bottom:12px;
+}
+
+.satq-quote-summary-card{
+    min-height:76px;
+    border:1px solid #e4eaf3;
+    border-radius:16px;
+    background:#ffffff;
+    padding:12px 14px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:6px;
+}
+
+.satq-quote-summary-card span{
+    font-size:11px;
+    color:#64748b;
+    font-weight:900;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    line-height:1.1;
+}
+
+.satq-quote-summary-card strong{
+    font-size:18px;
+    line-height:1.15;
+    color:#0f172a;
+    font-weight:900;
+    letter-spacing:-.02em;
+    word-break:break-word;
+}
+
+.satq-quote-money-grid{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:10px;
+    margin-bottom:12px;
+}
+
+.satq-quote-money-card{
+    min-height:88px;
+    border:1px solid #dfe7f2;
+    border-radius:16px;
+    background:#ffffff;
+    padding:12px 14px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:8px;
+}
+
+.satq-quote-money-card span{
+    font-size:11px;
+    color:#64748b;
+    font-weight:900;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+}
+
+.satq-quote-money-card strong{
+    font-size:24px;
+    line-height:1;
+    color:#0f172a;
+    font-weight:900;
+    letter-spacing:-.03em;
+}
+
+.satq-quote-money-card.is-total{
+    background:linear-gradient(180deg,#eef2ff 0%,#f8faff 100%);
+    border-color:#c7d2fe;
+}
+
+.satq-inline-actions-between{
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding-top:4px;
+    position:sticky;
+    bottom:0;
+    background:linear-gradient(180deg, rgba(251,253,255,0) 0%, #fbfdff 18%, #fbfdff 100%);
+}
+
+.satq-inline-actions-between > .satq-inline-actions{
+    justify-content:flex-end;
+}
+
+.satq-quote-form .satq-field label{
+    font-size:11px;
+    margin-bottom:1px;
+}
+
+.satq-quote-form .satq-input,
+.satq-quote-form .satq-select{
+    height:40px;
+    border-radius:12px;
+}
+
+.satq-quote-form .satq-textarea{
+    min-height:78px;
+    border-radius:14px;
+}
+
+.satq-quote-form textarea[readonly],
+.satq-quote-form input[readonly]{
+    background:#f8fafc;
+    color:#475569;
+}
+
+@media (max-width: 1180px){
+    .satq-modal-dialog-xl{
+        width:min(980px, 100%);
+    }
+
+    .satq-quote-grid-3{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
+    .satq-quote-summary-grid{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
+    .satq-quote-money-grid{
+        grid-template-columns:repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 820px){
+    .satq-modal{
+        padding:10px;
+    }
+
+    .satq-modal-dialog,
+    .satq-modal-dialog-xl{
+        width:100%;
+        max-height:calc(100vh - 20px);
+        border-radius:18px;
+    }
+
+    .satq-modal-head{
+        padding:14px 14px 12px;
+    }
+
+    .satq-modal-body{
+        padding:14px;
+    }
+
+    .satq-quote-grid-3,
+    .satq-quote-summary-grid,
+    .satq-quote-money-grid,
+    .satq-mini-grid-2{
+        grid-template-columns:1fr;
+    }
+
+    .satq-inline-actions-between{
+        flex-direction:column;
+        align-items:stretch;
+    }
+
+    .satq-inline-actions-between > .satq-inline-actions{
+        width:100%;
+        justify-content:stretch;
+        flex-direction:column;
+    }
+
+    .satq-inline-actions-between .satq-btn{
+        width:100%;
+    }
+}
