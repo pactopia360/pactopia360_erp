@@ -6,6 +6,9 @@ namespace App\Http\Controllers\Admin\Sat\Ops;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cliente\SatCredential;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\File;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -134,6 +137,8 @@ final class SatOpsRfcsController extends Controller
             'tipo_origen' => ['required', 'string', 'in:interno,externo,admin'],
             'origen_detalle' => ['nullable', 'string', 'max:40'],
             'source_label' => ['nullable', 'string', 'max:120'],
+            'fiel_password_plain' => ['nullable', 'string', 'max:255'],
+            'csd_password_plain' => ['nullable', 'string', 'max:255'],
         ]);
 
         $rfc = strtoupper(trim((string) $validated['rfc']));
@@ -179,6 +184,9 @@ final class SatOpsRfcsController extends Controller
         $meta = is_array($row->meta) ? $row->meta : [];
         $meta['is_active'] = true;
         $meta['updated_from'] = 'admin_sat_rfc_master';
+        $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? ''));
+        $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? ''));
+        $meta['operational_ready'] = true;
         $row->meta = $meta;
 
         if ($this->hasColumn('sat_credentials', 'deleted_at')) {
@@ -207,6 +215,8 @@ final class SatOpsRfcsController extends Controller
             'tipo_origen' => ['required', 'string', 'in:interno,externo,admin'],
             'origen_detalle' => ['nullable', 'string', 'max:40'],
             'source_label' => ['nullable', 'string', 'max:120'],
+            'fiel_password_plain' => ['nullable', 'string', 'max:255'],
+            'csd_password_plain' => ['nullable', 'string', 'max:255'],
         ]);
 
         $rfc = strtoupper(trim((string) $validated['rfc']));
@@ -250,6 +260,9 @@ final class SatOpsRfcsController extends Controller
         $meta = is_array($row->meta) ? $row->meta : [];
         $meta['is_active'] = true;
         $meta['updated_from'] = 'admin_sat_rfc_master';
+        $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? ($meta['fiel_password_plain'] ?? '')));
+        $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? ($meta['csd_password_plain'] ?? '')));
+        $meta['operational_ready'] = true;
         $row->meta = $meta;
 
         if ($this->hasColumn('sat_credentials', 'deleted_at')) {
@@ -287,6 +300,159 @@ final class SatOpsRfcsController extends Controller
         $row->save();
 
         return redirect()->route('admin.sat.ops.rfcs.index')->with('ok', 'RFC dado de baja correctamente.');
+    }
+
+        public function show(string $id): JsonResponse
+    {
+        /** @var SatCredential|null $row */
+        $row = SatCredential::query()->where('id', $id)->first();
+
+        if (!$row || $this->isLogicallyDeleted($row)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'No se encontró el RFC solicitado.',
+            ], 404);
+        }
+
+        $meta = is_array($row->meta) ? $row->meta : [];
+
+        $tipoOrigen = strtolower((string) (
+            $row->tipo_origen
+            ?? ($meta['tipo_origen'] ?? '')
+        ));
+        if ($tipoOrigen === '') {
+            $tipoOrigen = 'interno';
+        }
+
+        $estatusOperativo = strtolower((string) (
+            $row->estatus_operativo
+            ?? ($meta['estatus_operativo'] ?? '')
+        ));
+
+        $estatusRaw = strtolower((string) ($row->estatus ?? ''));
+        $isValidated = !empty($row->validado)
+            || !empty($row->validated_at)
+            || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
+            || in_array($estatusOperativo, ['validated', 'validado', 'activo'], true);
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'id' => (string) $row->id,
+                'cuenta_id' => (string) ($row->cuenta_id ?? ''),
+                'account_id' => (string) ($row->account_id ?? ''),
+                'rfc' => strtoupper((string) $row->rfc),
+                'razon_social' => (string) ($row->razon_social ?? ''),
+                'tipo_origen' => $tipoOrigen,
+                'origen_detalle' => (string) ($row->origen_detalle ?? ''),
+                'source_label' => (string) ($row->source_label ?? ''),
+                'sat_status_ui' => $isValidated ? 'validado' : 'pendiente',
+                'estatus_operativo' => (string) ($row->estatus_operativo ?? ''),
+                'has_fiel' => (
+                    (
+                        filled($row->fiel_cer_path ?? null)
+                        && filled($row->fiel_key_path ?? null)
+                        && filled($row->fiel_password_enc ?? null)
+                    ) || (
+                        filled($row->cer_path ?? null)
+                        && filled($row->key_path ?? null)
+                    )
+                ),
+                'has_csd' => (
+                    filled($row->csd_cer_path ?? null)
+                    && filled($row->csd_key_path ?? null)
+                ),
+                'files' => [
+                    'fiel_cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
+                    'fiel_key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
+                    'csd_cer_path'  => (string) ($row->csd_cer_path ?? ''),
+                    'csd_key_path'  => (string) ($row->csd_key_path ?? ''),
+                ],
+                'passwords' => [
+                    'fiel_password' => (string) ($meta['fiel_password_plain'] ?? ''),
+                    'csd_password'  => (string) ($meta['csd_password_plain'] ?? ''),
+                ],
+                'meta' => $meta,
+                'created_at' => optional($row->created_at)?->toDateTimeString(),
+                'updated_at' => optional($row->updated_at)?->toDateTimeString(),
+            ],
+        ]);
+    }
+
+    public function operationalData(string $id): JsonResponse
+    {
+        /** @var SatCredential|null $row */
+        $row = SatCredential::query()->where('id', $id)->first();
+
+        if (!$row || $this->isLogicallyDeleted($row)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'No se encontró el RFC solicitado.',
+            ], 404);
+        }
+
+        $meta = is_array($row->meta) ? $row->meta : [];
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'credential_id' => (string) $row->id,
+                'cuenta_id' => (string) ($row->cuenta_id ?? ''),
+                'account_id' => (string) ($row->account_id ?? ''),
+                'rfc' => strtoupper((string) $row->rfc),
+                'razon_social' => (string) ($row->razon_social ?? ''),
+                'fiel' => [
+                    'cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
+                    'key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
+                    'password' => (string) ($meta['fiel_password_plain'] ?? ''),
+                    'download_cer_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']),
+                    'download_key_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']),
+                ],
+                'csd' => [
+                    'cer_path' => (string) ($row->csd_cer_path ?? ''),
+                    'key_path' => (string) ($row->csd_key_path ?? ''),
+                    'password' => (string) ($meta['csd_password_plain'] ?? ''),
+                    'download_cer_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_cer']),
+                    'download_key_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_key']),
+                ],
+                'sat_ready_payload' => [
+                    'rfc' => strtoupper((string) $row->rfc),
+                    'razon_social' => (string) ($row->razon_social ?? ''),
+                    'cuenta_id' => (string) ($row->cuenta_id ?? ''),
+                    'account_id' => (string) ($row->account_id ?? ''),
+                    'source_label' => (string) ($row->source_label ?? ''),
+                    'tipo_origen' => (string) ($row->tipo_origen ?? ''),
+                ],
+            ],
+        ]);
+    }
+
+    public function download(string $id, string $kind): BinaryFileResponse|RedirectResponse
+    {
+        /** @var SatCredential|null $row */
+        $row = SatCredential::query()->where('id', $id)->first();
+
+        if (!$row || $this->isLogicallyDeleted($row)) {
+            return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'No se encontró el RFC solicitado.');
+        }
+
+        $path = match ($kind) {
+            'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
+            'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
+            'csd_cer'  => (string) ($row->csd_cer_path ?? ''),
+            'csd_key'  => (string) ($row->csd_key_path ?? ''),
+            default    => '',
+        };
+
+        if ($path === '') {
+            return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'No existe archivo para descargar.');
+        }
+
+        if (!File::exists($path)) {
+            return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'El archivo no existe físicamente en el servidor.');
+        }
+
+        return response()->download($path);
     }
 
     private function isLogicallyDeleted(SatCredential $credential): bool

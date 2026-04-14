@@ -93,10 +93,12 @@
   $rtFact        = $resolveRoute(['cliente.facturacion.index','cliente.facturacion','cliente.facturacion.home'], null);
   $rtFactNew     = $resolveRoute(['cliente.facturacion.nuevo','cliente.facturacion.new','cliente.facturacion.create'], null);
 
-  $rtSat         = $resolveRoute(['cliente.sat.index','cliente.sat','cliente.sat.home'], null);
-  $rtDescargas   = $resolveRoute(['cliente.sat.descargas.index','cliente.sat.descargas','cliente.sat.descargas.home'], null);
-
-  $rtVault       = $resolveRoute(['cliente.vault.index','cliente.vault','cliente.boveda.index','cliente.boveda'], null);
+  $rtSatPortal   = $resolveRoute(['cliente.sat.index','cliente.sat','cliente.sat.home'], null);
+  $rtSatCenter   = $resolveRoute(['cliente.sat.v2.index'], null);
+  $rtSatRfcs     = $resolveRoute(['cliente.sat.rfcs.index'], null);
+  $rtSatVault    = $resolveRoute(['cliente.sat.vault'], null);
+  $rtSatReport   = $resolveRoute(['cliente.sat.report'], null);
+  $rtSatCart     = $resolveRoute(['cliente.sat.cart.index'], null);
 
   $rtCrm         = $resolveRoute(['cliente.crm.index','cliente.crm'], null);
   $rtNomina      = $resolveRoute(['cliente.nomina.index','cliente.nomina'], null);
@@ -114,10 +116,13 @@
   $isMiCuenta = request()->routeIs('cliente.mi_cuenta.*') || request()->is('cliente/mi-cuenta*');
   $isEstado   = request()->routeIs('cliente.estado_cuenta') || request()->is('cliente/estado-de-cuenta*');
 
-  $isFact     = request()->routeIs('cliente.facturacion.*') || request()->is('cliente/facturacion*');
-  $isSat      = request()->routeIs('cliente.sat.*') || request()->is('cliente/sat*');
-  $isDown     = request()->routeIs('cliente.sat.descargas.*') || request()->is('cliente/sat/descargas*');
-  $isVault    = request()->routeIs('cliente.vault.*') || request()->is('cliente/vault*') || request()->is('cliente/boveda*');
+  $isFact        = request()->routeIs('cliente.facturacion.*') || request()->is('cliente/facturacion*');
+  $isSatPortal   = request()->routeIs('cliente.sat.index') || request()->path() === 'cliente/sat';
+  $isSatCenter   = request()->routeIs('cliente.sat.v2.*') || request()->is('cliente/sat/v2*');
+  $isSatRfcs     = request()->routeIs('cliente.sat.rfcs.*') || request()->is('cliente/sat/rfcs*');
+  $isSatVault    = request()->routeIs('cliente.sat.vault*') || request()->is('cliente/sat/vault*');
+  $isSatReport   = request()->routeIs('cliente.sat.report*') || request()->is('cliente/sat/reporte*');
+  $isSatCart     = request()->routeIs('cliente.sat.cart.*') || request()->is('cliente/sat/cart*');
 
   $isCfg      = request()->is('cliente/config*') || request()->is('cliente/configuracion*') || request()->routeIs('cliente.mi_cuenta.*');
 
@@ -149,9 +154,10 @@
     'Facturas' => 'Descarga y gestión',
     'Facturación' => 'CFDI y administración',
     'Nuevo CFDI' => 'Crear comprobante',
-    'SAT (Descarga)' => 'Detecta y procesa CFDI',
-    'Descargas' => 'Historial SAT',
-    'Bóveda Fiscal' => 'Archivos y resguardo',
+    'Portal SAT' => 'Vista general del módulo SAT',
+    'Centro SAT' => 'Flujo operativo SAT',
+    'RFC' => 'Administración de RFC SAT',
+    'Carrito SAT' => 'Carrito y paquetes SAT',
     'CRM' => 'Clientes y oportunidades',
     'Nómina' => 'Recibos y timbrado',
     'Punto de venta' => 'Ventas y tickets',
@@ -233,9 +239,18 @@
   $htmlModulos = '';
   $htmlModulos .= $renderItem('facturacion','Facturación',$rtFact,$isFact,$svgBill,false);
   $htmlModulos .= $renderItem('facturacion','Nuevo CFDI',$rtFactNew,(request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),$svgPlus,false);
-  $htmlModulos .= $renderItem('sat_descargas','SAT (Descarga)',$rtSat,($isSat && !$isDown),$svgSat,false);
-  $htmlModulos .= $renderItem('sat_descargas','Descargas',$rtDescargas,$isDown,$svgDown,false);
-  $htmlModulos .= $renderItem('boveda_fiscal','Bóveda Fiscal',$rtVault,$isVault,$svgBox,false);
+    $htmlModulos .= $renderItem(
+    'sat_descargas',
+    'Portal SAT',
+    $rtSatPortal,
+    ($isSatPortal || $isSatCenter || $isSatRfcs || $isSatCart),
+    $svgSat,
+    false
+  );
+
+  $htmlModulos .= $renderItem('sat_descargas','Centro SAT',$rtSatCenter,$isSatCenter,$svgSat,false);
+  $htmlModulos .= $renderItem('sat_descargas','RFC',$rtSatRfcs,$isSatRfcs,$svgDoc,false);
+  $htmlModulos .= $renderItem('sat_descargas','Carrito SAT',$rtSatCart,$isSatCart,$svgDown,false);
   $htmlModulos .= $renderItem('crm','CRM',$rtCrm,(request()->routeIs('cliente.crm.*') || request()->is('cliente/crm*')),$svgUsers,false);
   $htmlModulos .= $renderItem('nomina','Nómina',$rtNomina,(request()->routeIs('cliente.nomina.*') || request()->is('cliente/nomina*')),$svgUsers,false);
   $htmlModulos .= $renderItem('pos','Punto de venta',$rtPos,(request()->routeIs('cliente.pos.*') || request()->is('cliente/pos*')),$svgStore,false);
@@ -249,7 +264,13 @@
   $htmlConfigAdv = '';
 
   $openCuenta  = (bool) ($isMiCuenta || $isEstado || request()->is('cliente/mi-cuenta*') || request()->is('cliente/estado-de-cuenta*'));
-  $openModulos = (bool) ($isFact || $isSat || $isDown || $isVault);
+  $openModulos = (bool) (
+    $isFact ||
+    $isSatPortal ||
+    $isSatCenter ||
+    $isSatRfcs ||
+    $isSatCart
+  );
 @endphp
 
 @once

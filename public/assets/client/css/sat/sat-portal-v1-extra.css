@@ -1,0 +1,1177 @@
+/* C:\wamp64\www\pactopia360_erp\public\assets\client\css\sat\sat-portal-v1-extra.css */
+
+/* =========================================================
+   PORTAL SAT V1 · EXTRA UI / HOTFIX
+   ========================================================= */
+
+:root{
+    --satx-bg-soft:#f7faff;
+    --satx-border:#d8e1f0;
+    --satx-border-strong:#cfd9eb;
+    --satx-text:#20304f;
+    --satx-text-soft:#62708d;
+    --satx-text-strong:#12213f;
+    --satx-primary:#244a96;
+    --satx-primary-2:#5f8fff;
+    --satx-primary-soft:#eef4ff;
+    --satx-white:#ffffff;
+    --satx-shadow-focus:0 0 0 3px rgba(78,119,255,.10);
+}
+
+/* =========================================================
+   ESTRUCTURA GENERAL / ESPACIADOS
+   ========================================================= */
+
+.sat-clean-shell .sat-clean-container > .sat-clean-hero{
+    margin-bottom:18px;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion{
+    margin:0 0 26px 0 !important;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion:last-of-type{
+    margin-bottom:0 !important;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion .sat-clean-accordion__item{
+    margin:0 !important;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion .sat-clean-accordion__summary{
+    margin:0 !important;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion .sat-clean-accordion__content{
+    margin-top:0 !important;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion details{
+    display:block;
+}
+
+.sat-clean-shell .sat-clean-container > .sat-clean-accordion + .sat-clean-accordion{
+    margin-top:0 !important;
+}
+
+/* =========================================================
+   HERO PORTAL DESCARGAS
+   ========================================================= */
+
+.sat-clean-hero--portal{
+    min-height:200px;
+}
+
+.sat-clean-hero__content--portal{
+    display:flex;
+    align-items:stretch;
+    justify-content:space-between;
+    gap:28px;
+    padding:14px 16px 14px 16px;
+}
+
+.sat-clean-hero__main{
+    flex:1 1 auto;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:center;
+    padding:10px 0 8px 0;
+}
+
+.sat-clean-hero__eyebrow{
+    display:inline-flex;
+    align-items:center;
+    min-height:28px;
+    padding:0 12px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.14);
+    color:rgba(255,255,255,.96);
+    font-size:11px;
+    line-height:1;
+    font-weight:800;
+    letter-spacing:.04em;
+    margin:0 0 14px 0;
+    backdrop-filter:blur(4px);
+}
+
+.sat-clean-hero__title--portal{
+    margin:0 0 10px 0;
+    font-size:clamp(31px, 2.5vw, 45px);
+    line-height:.98;
+    letter-spacing:-.045em;
+    font-weight:800;
+    color:#ffffff;
+    text-wrap:balance;
+}
+
+.sat-clean-hero__text--portal{
+    max-width:780px;
+    margin:0;
+    color:rgba(255,255,255,.92);
+    font-size:15px;
+    line-height:1.45;
+    font-weight:500;
+}
+
+.sat-clean-hero__chips{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:16px;
+}
+
+.sat-clean-hero__chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:30px;
+    padding:0 13px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.14);
+    color:#ffffff;
+    font-size:12px;
+    line-height:1;
+    font-weight:700;
+    backdrop-filter:blur(4px);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+.sat-clean-hero__panel--portal{
+    flex:0 0 282px;
+    width:282px;
+    border-radius:20px;
+    padding:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.08) 100%);
+    border:1px solid rgba(255,255,255,.15);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter:blur(4px);
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-start;
+    min-height:168px;
+}
+
+.sat-clean-hero__panel-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:12px;
+}
+
+.sat-clean-hero__panel-title{
+    margin:0;
+    color:#ffffff;
+    font-size:26px;
+    line-height:1.02;
+    letter-spacing:-.04em;
+    font-weight:800;
+    text-wrap:balance;
+}
+
+.sat-clean-hero__panel-icon{
+    width:30px;
+    height:30px;
+    min-width:30px;
+    border-radius:10px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    color:#ffffff;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.16);
+    text-decoration:none;
+    transition:transform .18s ease, background-color .18s ease, border-color .18s ease;
+}
+
+.sat-clean-hero__panel-icon:hover{
+    transform:translateY(-1px);
+    background:rgba(255,255,255,.16);
+    border-color:rgba(255,255,255,.22);
+}
+
+.sat-clean-hero__panel-badges{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+}
+
+.sat-clean-hero__panel-badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 10px;
+    border-radius:999px;
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.14);
+    color:#ffffff;
+    font-size:11px;
+    line-height:1;
+    font-weight:700;
+}
+
+.sat-clean-hero__panel-stats{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:10px;
+    margin-bottom:14px;
+}
+
+.sat-clean-hero__panel-stat{
+    min-width:0;
+    padding:10px 10px 11px 10px;
+    border-radius:14px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.10);
+}
+
+.sat-clean-hero__panel-stat-label{
+    display:block;
+    color:rgba(255,255,255,.82);
+    font-size:10px;
+    line-height:1.2;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:6px;
+}
+
+.sat-clean-hero__panel-stat-value{
+    display:block;
+    color:#ffffff;
+    font-size:20px;
+    line-height:1;
+    font-weight:800;
+    letter-spacing:-.03em;
+}
+
+.sat-clean-hero__panel-actions{
+    margin-top:auto;
+}
+
+.sat-clean-hero__panel-btn{
+    width:100%;
+    min-height:38px;
+    border-radius:13px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+    color:#ffffff;
+    font-size:13px;
+    font-weight:800;
+    background:linear-gradient(135deg, #2c63d8 0%, #4a89ff 100%);
+    box-shadow:0 10px 20px rgba(27,76,180,.20);
+    transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+
+.sat-clean-hero__panel-btn:hover{
+    transform:translateY(-1px);
+    box-shadow:0 12px 24px rgba(27,76,180,.24);
+    opacity:.98;
+}
+
+/* =========================================================
+   TOOLBAR COTIZACIONES
+   ========================================================= */
+
+.sat-clean-quote-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    flex-wrap:wrap;
+    margin-bottom:16px;
+}
+
+.sat-clean-quote-toolbar__left,
+.sat-clean-quote-toolbar__right{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+}
+
+.sat-clean-quote-toolbar__title-wrap{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+.sat-clean-quote-toolbar__title{
+    margin:0;
+    font-size:1.02rem;
+    font-weight:800;
+    color:var(--satx-text-strong);
+    line-height:1.2;
+}
+
+.sat-clean-quote-toolbar__count{
+    display:inline-flex;
+    align-items:center;
+    padding:5px 10px;
+    border-radius:999px;
+    background:var(--satx-primary-soft);
+    color:#3c5aa8;
+    font-size:.82rem;
+    font-weight:700;
+    line-height:1;
+}
+
+.sat-clean-quote-search{
+    min-width:280px;
+    max-width:420px;
+    width:100%;
+}
+
+.sat-clean-quote-search input{
+    width:100%;
+    height:40px;
+    border:1px solid var(--satx-border);
+    border-radius:12px;
+    padding:0 14px;
+    outline:none;
+    background:var(--satx-white);
+    font-size:.92rem;
+    color:var(--satx-text);
+    transition:border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+.sat-clean-quote-search input:focus{
+    border-color:#7ea2ff;
+    box-shadow:var(--satx-shadow-focus);
+}
+
+.sat-clean-quote-summary{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+.sat-clean-quote-meta{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:.84rem;
+    color:var(--satx-text-soft);
+    font-weight:600;
+}
+
+.sat-clean-quote-folio{
+    font-weight:800;
+    color:#17306b;
+    letter-spacing:.01em;
+}
+
+.sat-clean-quote-rfc{
+    font-weight:700;
+    color:#1e2f55;
+}
+
+.sat-clean-quote-amount{
+    font-weight:800;
+    color:#13254b;
+}
+
+.sat-clean-quote-progress{
+    min-width:120px;
+}
+
+.sat-clean-quote-progress__bar{
+    position:relative;
+    width:100%;
+    height:8px;
+    border-radius:999px;
+    background:#e7edf8;
+    overflow:hidden;
+}
+
+.sat-clean-quote-progress__fill{
+    position:absolute;
+    inset:0 auto 0 0;
+    height:100%;
+    border-radius:999px;
+    background:linear-gradient(90deg, var(--satx-primary) 0%, var(--satx-primary-2) 100%);
+}
+
+.sat-clean-quote-progress__text{
+    display:inline-block;
+    margin-top:6px;
+    font-size:.78rem;
+    font-weight:700;
+    color:#5f6f90;
+}
+
+.sat-clean-quote-empty-note{
+    max-width:760px;
+    margin:10px auto 0;
+    text-align:center;
+    color:#64748b;
+    font-size:.92rem;
+    line-height:1.55;
+}
+
+.sat-clean-quote-table-wrap{
+    overflow-x:auto;
+}
+
+/* =========================================================
+   ACCORDION VISUAL TUNING
+   ========================================================= */
+
+.sat-clean-accordion__summary--bar{
+    min-height:54px;
+}
+
+.sat-clean-accordion__bar-title{
+    font-weight:800;
+}
+
+.sat-clean-accordion__bar-text{
+    color:var(--satx-text-soft);
+}
+
+.sat-clean-accordion__bar-action{
+    transition:transform .18s ease, background-color .18s ease, border-color .18s ease;
+}
+
+.sat-clean-accordion__item[open] > .sat-clean-accordion__summary .sat-clean-accordion__bar-action{
+    transform:rotate(45deg);
+}
+
+/* =========================================================
+   MODAL ACTIONS LINKED
+   ========================================================= */
+
+.sat-clean-modal__actions--linked{
+    margin-top:0;
+    padding-top:0;
+    border-top:none;
+    justify-content:flex-start;
+}
+
+/* =========================================================
+   CENTRO SAT / BOVEDA
+   ========================================================= */
+
+.sat-vault-summary{
+    margin-top:0 !important;
+}
+
+.vault-card{
+    overflow:hidden;
+}
+
+.vault-header{
+    gap:16px;
+}
+
+.vault-header h3{
+    margin:0;
+    line-height:1.2;
+}
+
+.vault-header small{
+    display:inline-block;
+    margin-top:4px;
+}
+
+.vault-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+.sat-clean-btn--icon-only{
+    min-width:46px;
+    width:46px;
+    height:40px;
+    padding:0 !important;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.sat-clean-btn--icon-only svg{
+    flex:0 0 auto;
+}
+
+.vault-stats > div{
+    transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.vault-stats > div:hover{
+    transform:translateY(-1px);
+}
+
+/* =========================================================
+   CONSISTENCIA EN TABLAS / FILTROS
+   ========================================================= */
+
+.sat-clean-rfc-toolbar-v2__filters,
+#satQuoteFilterGroup{
+    row-gap:8px;
+}
+
+.sat-clean-filter-chip{
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.sat-clean-filter-chip:hover{
+    transform:translateY(-1px);
+}
+
+.sat-clean-rfc-table-wrap,
+.sat-clean-quote-table-wrap{
+    width:100%;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width:1200px){
+    .vault-actions{
+        justify-content:flex-end;
+    }
+
+    .sat-clean-hero__content--portal{
+        gap:18px;
+    }
+
+    .sat-clean-hero__panel--portal{
+        flex-basis:260px;
+        width:260px;
+    }
+}
+
+@media (max-width:992px){
+    .sat-clean-quote-toolbar{
+        align-items:stretch;
+    }
+
+    .sat-clean-quote-toolbar__left,
+    .sat-clean-quote-toolbar__right{
+        width:100%;
+    }
+
+    .sat-clean-quote-search{
+        max-width:none;
+    }
+
+    .vault-header{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .vault-actions{
+        width:100%;
+        justify-content:flex-start;
+    }
+
+    .sat-clean-hero--portal{
+        min-height:auto;
+    }
+
+    .sat-clean-hero__content--portal{
+        flex-direction:column;
+        align-items:stretch;
+        gap:18px;
+    }
+
+    .sat-clean-hero__main{
+        padding:4px 0 0 0;
+    }
+
+    .sat-clean-hero__panel--portal{
+        width:100%;
+        flex:1 1 auto;
+        min-height:unset;
+    }
+}
+
+@media (max-width:768px){
+    .sat-clean-shell .sat-clean-container > .sat-clean-accordion{
+        margin-bottom:18px !important;
+    }
+
+    .sat-clean-quote-toolbar{
+        gap:12px;
+    }
+
+    .sat-clean-quote-toolbar__title{
+        font-size:.98rem;
+    }
+
+    .sat-clean-quote-toolbar__count{
+        font-size:.78rem;
+    }
+
+    .sat-clean-btn--icon-only{
+        min-width:42px;
+        width:42px;
+        height:38px;
+    }
+
+    .sat-clean-hero__eyebrow{
+        min-height:26px;
+        padding:0 11px;
+        font-size:10px;
+        margin-bottom:12px;
+    }
+
+    .sat-clean-hero__title--portal{
+        font-size:clamp(26px, 8vw, 34px);
+    }
+
+    .sat-clean-hero__text--portal{
+        font-size:14px;
+        line-height:1.45;
+    }
+
+    .sat-clean-hero__chips{
+        gap:8px;
+        margin-top:14px;
+    }
+
+    .sat-clean-hero__chip{
+        min-height:28px;
+        padding:0 11px;
+        font-size:11px;
+    }
+
+    .sat-clean-hero__panel-title{
+        font-size:22px;
+    }
+
+    .sat-clean-hero__panel-stats{
+        grid-template-columns:1fr 1fr;
+    }
+}
+
+@media (max-width:576px){
+    .sat-clean-quote-search input{
+        height:38px;
+        font-size:.9rem;
+    }
+
+    .sat-clean-quote-progress{
+        min-width:100px;
+    }
+
+    .sat-clean-hero__content--portal{
+        padding:12px 12px 12px 12px;
+    }
+
+    .sat-clean-hero__panel--portal{
+        padding:12px;
+        border-radius:18px;
+    }
+
+    .sat-clean-hero__panel-title{
+        font-size:20px;
+    }
+
+    .sat-clean-hero__panel-stat-value{
+        font-size:18px;
+    }
+
+    .sat-clean-hero__panel-btn{
+        min-height:36px;
+        font-size:12px;
+    }
+}
+
+/* =========================================================
+   CENTRO SAT · REDISENO PRO
+   ========================================================= */
+
+.sat-vault-summary--pro{
+    margin-top:0 !important;
+}
+
+.sat-vault-pro-card{
+    position:relative;
+    overflow:hidden;
+    border:1px solid #dfe8f6;
+    border-radius:26px;
+    background:
+        radial-gradient(circle at top right, rgba(95,143,255,.10), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(36,74,150,.06), transparent 26%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow:0 18px 44px rgba(15,23,42,.06);
+    padding:20px;
+}
+
+.sat-vault-pro-card::before{
+    content:"";
+    position:absolute;
+    inset:auto -70px -70px auto;
+    width:180px;
+    height:180px;
+    border-radius:50%;
+    background:radial-gradient(circle, rgba(95,143,255,.12) 0%, rgba(95,143,255,0) 70%);
+    pointer-events:none;
+}
+
+.sat-vault-pro-card__top{
+    position:relative;
+    z-index:1;
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:18px;
+    margin-bottom:18px;
+}
+
+.sat-vault-pro-card__copy{
+    display:grid;
+    gap:6px;
+    min-width:0;
+    max-width:740px;
+}
+
+.sat-vault-pro-card__eyebrow{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 10px;
+    width:max-content;
+    border-radius:999px;
+    background:#eef4ff;
+    border:1px solid #dbe8ff;
+    color:#244a96;
+    font-size:10px;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+}
+
+.sat-vault-pro-card__title{
+    margin:0;
+    color:#12213f;
+    font-size:clamp(26px, 2vw, 34px);
+    line-height:1;
+    letter-spacing:-.045em;
+    font-weight:900;
+}
+
+.sat-vault-pro-card__text{
+    margin:0;
+    color:#62708d;
+    font-size:14px;
+    line-height:1.5;
+    font-weight:500;
+    max-width:760px;
+}
+
+.sat-vault-pro-card__actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    flex:0 0 auto;
+}
+
+.sat-vault-pro-iconbtn{
+    width:46px;
+    height:46px;
+    min-width:46px;
+    border-radius:15px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+    transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+
+.sat-vault-pro-iconbtn:hover{
+    transform:translateY(-1px);
+}
+
+.sat-vault-pro-iconbtn--primary{
+    color:#ffffff;
+    background:linear-gradient(135deg, #2563eb 0%, #4f8dff 100%);
+    box-shadow:0 14px 26px rgba(37,99,235,.22);
+}
+
+.sat-vault-pro-pillbtn{
+    min-height:42px;
+    padding:0 16px;
+    border-radius:14px;
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    background:#edf4ff;
+    border:1px solid #dbe8ff;
+    color:#244a96;
+    font-size:13px;
+    font-weight:900;
+    transition:transform .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+.sat-vault-pro-pillbtn:hover{
+    transform:translateY(-1px);
+    background:#e5efff;
+}
+
+.sat-vault-pro-grid{
+    position:relative;
+    z-index:1;
+    display:grid;
+    grid-template-columns:minmax(300px, .92fr) minmax(0, 1.08fr);
+    gap:18px;
+    align-items:stretch;
+}
+
+.sat-vault-pro-storage{
+    border:1px solid #e3ebf8;
+    border-radius:22px;
+    background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    padding:18px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:280px;
+    box-shadow:0 10px 26px rgba(15,23,42,.035);
+}
+
+.sat-vault-pro-storage__chartWrap{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.sat-vault-pro-donut{
+    --sat-vault-size:176px;
+    --sat-vault-ring:18px;
+    width:var(--sat-vault-size);
+    height:var(--sat-vault-size);
+    border-radius:50%;
+    position:relative;
+    display:grid;
+    place-items:center;
+    background:
+        conic-gradient(
+            #2563eb 0deg,
+            #5f8fff var(--sat-vault-used-deg, 0deg),
+            #e8eef8 var(--sat-vault-used-deg, 0deg),
+            #e8eef8 360deg
+        );
+    box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,.55),
+        0 18px 34px rgba(37,99,235,.14);
+}
+
+.sat-vault-pro-donut::before{
+    content:"";
+    position:absolute;
+    inset:var(--sat-vault-ring);
+    border-radius:50%;
+    background:radial-gradient(circle at top, #ffffff 0%, #f8fbff 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+}
+
+.sat-vault-pro-donut__inner{
+    position:relative;
+    z-index:1;
+    display:grid;
+    gap:4px;
+    text-align:center;
+    justify-items:center;
+}
+
+.sat-vault-pro-donut__inner strong{
+    display:block;
+    font-size:29px;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:-.05em;
+    color:#12213f;
+}
+
+.sat-vault-pro-donut__inner span{
+    display:block;
+    font-size:11px;
+    line-height:1.2;
+    font-weight:800;
+    color:#6a7894;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+}
+
+.sat-vault-pro-donut__inner--stacked{
+    width:100%;
+    max-width:150px;
+    gap:6px;
+}
+
+.sat-vault-pro-donut__legend{
+    display:grid;
+    gap:6px;
+    margin-top:4px;
+}
+
+.sat-vault-pro-donut__legendItem{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    text-align:center;
+}
+
+.sat-vault-pro-donut__legendItem small{
+    color:#6a7894;
+    font-size:10px;
+    line-height:1.2;
+    font-weight:800;
+}
+
+.sat-vault-pro-storage__dot{
+    width:12px;
+    height:12px;
+    min-width:12px;
+    border-radius:999px;
+    display:inline-block;
+    box-shadow:0 0 0 4px rgba(15,23,42,.03);
+}
+
+.sat-vault-pro-storage__dot--used{
+    background:#2563eb;
+}
+
+.sat-vault-pro-storage__dot--available{
+    background:#10b981;
+}
+
+.sat-vault-pro-storage__dot--total{
+    background:#7c3aed;
+}
+
+.sat-vault-pro-stats{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:12px;
+}
+
+.sat-vault-pro-stat{
+    position:relative;
+    min-height:132px;
+    padding:16px 16px 14px;
+    border-radius:20px;
+    border:1px solid #e3ebf8;
+    background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    box-shadow:0 10px 26px rgba(15,23,42,.035);
+    display:grid;
+    gap:8px;
+    overflow:hidden;
+}
+
+.sat-vault-pro-stat::before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:0;
+    bottom:0;
+    width:4px;
+    border-radius:10px;
+}
+
+.sat-vault-pro-stat--rfc::before{
+    background:linear-gradient(180deg, #2563eb 0%, #60a5fa 100%);
+}
+
+.sat-vault-pro-stat--quotes::before{
+    background:linear-gradient(180deg, #10b981 0%, #6ee7b7 100%);
+}
+
+.sat-vault-pro-stat--files::before{
+    background:linear-gradient(180deg, #7c3aed 0%, #c4b5fd 100%);
+}
+
+.sat-vault-pro-stat--capacity::before{
+    background:linear-gradient(180deg, #f59e0b 0%, #fde68a 100%);
+}
+
+.sat-vault-pro-stat__label{
+    color:#75849f;
+    font-size:10px;
+    line-height:1.2;
+    font-weight:900;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+}
+
+.sat-vault-pro-stat__value{
+    display:block;
+    color:#12213f;
+    font-size:30px;
+    line-height:1;
+    font-weight:900;
+    letter-spacing:-.055em;
+}
+
+.sat-vault-pro-stat__hint{
+    color:#62708d;
+    font-size:12px;
+    line-height:1.4;
+    font-weight:600;
+}
+
+.sat-vault-pro-bottom{
+    position:relative;
+    z-index:1;
+    margin-top:18px;
+    padding-top:16px;
+    border-top:1px solid #e5edf8;
+}
+
+.sat-vault-pro-bottom__rail{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0,1fr));
+    gap:10px;
+}
+
+.sat-vault-pro-bottom__item{
+    min-height:66px;
+    padding:12px 14px;
+    border-radius:16px;
+    border:1px solid #e5edf8;
+    background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    display:grid;
+    gap:5px;
+}
+
+.sat-vault-pro-bottom__item span{
+    display:block;
+    color:#75849f;
+    font-size:10px;
+    line-height:1.15;
+    font-weight:900;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+}
+
+.sat-vault-pro-bottom__item strong{
+    display:block;
+    color:#12213f;
+    font-size:18px;
+    line-height:1.05;
+    font-weight:900;
+    letter-spacing:-.03em;
+}
+
+/* oculta visual vieja del centro sat */
+.vault-card,
+.vault-header,
+.vault-body,
+.vault-stats,
+.vault-progress{
+    all:unset;
+}
+
+/* =========================================================
+   RESPONSIVE · CENTRO SAT PRO
+   ========================================================= */
+
+@media (max-width: 1200px){
+    .sat-vault-pro-grid{
+        grid-template-columns:1fr;
+    }
+}
+
+@media (max-width: 992px){
+    .sat-vault-pro-card{
+        padding:16px;
+        border-radius:22px;
+    }
+
+    .sat-vault-pro-card__top{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .sat-vault-pro-grid{
+        gap:14px;
+    }
+
+    .sat-vault-pro-storage{
+    min-height:auto;
+    justify-content:flex-start;
+    }
+
+    .sat-vault-pro-storage__chartWrap{
+        justify-content:flex-start;
+    }
+}
+
+@media (max-width: 768px){
+    .sat-vault-pro-card__title{
+        font-size:clamp(22px, 7vw, 28px);
+    }
+
+    .sat-vault-pro-card__text{
+        font-size:13px;
+    }
+
+    .sat-vault-pro-donut{
+        --sat-vault-size:152px;
+        --sat-vault-ring:16px;
+    }
+
+    .sat-vault-pro-donut__inner strong{
+        font-size:24px;
+    }
+
+    .sat-vault-pro-stats{
+        grid-template-columns:1fr;
+    }
+
+    .sat-vault-pro-bottom__rail{
+        grid-template-columns:1fr 1fr;
+    }
+
+    .sat-vault-pro-stat{
+        min-height:auto;
+    }
+}
+
+@media (max-width: 520px){
+    .sat-vault-pro-card{
+        padding:14px;
+    }
+
+    .sat-vault-pro-storage{
+        padding:14px;
+    }
+
+    .sat-vault-pro-storage__legendItem strong{
+        font-size:16px;
+    }
+
+    .sat-vault-pro-stat__value{
+        font-size:24px;
+    }
+
+    .sat-vault-pro-bottom__rail{
+        grid-template-columns:1fr;
+    }
+
+    .sat-vault-pro-bottom__item strong{
+        font-size:16px;
+    }
+}

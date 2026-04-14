@@ -63,6 +63,7 @@ use App\Http\Controllers\Admin\Billing\ReceptoresController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsCredentialsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsDownloadsController;
+use App\Http\Controllers\Admin\Sat\Ops\SatOpsQuotesController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsManualRequestsController;
 use App\Http\Controllers\Admin\Sat\Ops\SatOpsPaymentsController;
 
@@ -847,9 +848,79 @@ Route::middleware([
             $bulkPay->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
         }
 
-        // Statements index principal -> HUB moderno
-        Route::get('statements', [BillingStatementsHubController::class, 'index'])
-            ->name('statements.index');
+        // Statements legacy deshabilitado visualmente -> redirección obligatoria a V2
+        Route::get('statements', function () {
+            return redirect()->route('admin.billing.statements_v2.index', [
+                'period' => now()->format('Y-m'),
+            ]);
+        })->name('statements.index');
+        
+               // Statements V2 (nuevo, aislado del legacy y del HUB actual)
+        Route::prefix('statements-v2')->name('statements_v2.')->group(function () use ($thrAdminPosts, $isLocal) {
+            Route::get('/', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'index'])
+                ->name('index');
+
+            $statementsV2BulkSend = Route::post('bulk/send', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'sendBulk'])
+                ->middleware($thrAdminPosts)
+                ->name('bulk.send');
+
+            $statementsV2AdvancePayments = Route::post('payments/advance', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'registerAdvancePayments'])
+                ->middleware($thrAdminPosts)
+                ->name('payments.advance');
+
+            $statementsV2BulkPayments = Route::post('payments/bulk', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'registerBulkPayments'])
+                ->middleware($thrAdminPosts)
+                ->name('payments.bulk');
+
+            Route::get('{accountId}/{period}/preview', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'preview'])
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->name('preview');
+
+            Route::get('{accountId}/{period}/download', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'download'])
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->name('download');
+
+            Route::get('{accountId}/{period}/email/preview', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'emailPreview'])
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->name('email.preview');
+
+            $statementsV2StatusUpdate = Route::post('{accountId}/{period}/status', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'updateStatus'])
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('status.update');
+
+            $statementsV2EmailSend = Route::post('{accountId}/{period}/email/send', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'sendEmail'])
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('email.send');
+
+            if ($isLocal) {
+                foreach ([
+                    $statementsV2BulkSend,
+                    $statementsV2AdvancePayments,
+                    $statementsV2BulkPayments,
+                    $statementsV2StatusUpdate,
+                    $statementsV2EmailSend,
+                ] as $rt) {
+                    $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                }
+            }
+        });
 
         // Email Estados
         Route::get('statement-emails', [BillingStatementEmailsController::class, 'index'])
@@ -1282,6 +1353,7 @@ Route::middleware([
                 }
             });
 
+
             Route::prefix('discounts')->name('discounts.')->group(function () use ($thrAdminPosts, $isLocal) {
                 Route::get('/', [AdminSatDiscountCodesController::class, 'index'])->name('index');
                 Route::get('create', [AdminSatDiscountCodesController::class, 'create'])->name('create');
@@ -1427,6 +1499,21 @@ Route::middleware([
             Route::prefix('rfcs')->name('rfcs.')->group(function () use ($thrAdminPosts, $isLocal) {
                 Route::get('/', [SatOpsRfcsController::class, 'index'])->name('index');
 
+                Route::get('{id}', [SatOpsRfcsController::class, 'show'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('show');
+
+                Route::get('{id}/operational-data', [SatOpsRfcsController::class, 'operationalData'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('operational_data');
+
+                Route::get('{id}/download/{kind}', [SatOpsRfcsController::class, 'download'])
+                    ->where([
+                        'id'   => '[A-Za-z0-9\-]+',
+                        'kind' => 'fiel_cer|fiel_key|csd_cer|csd_key',
+                    ])
+                    ->name('download');
+
                 $store = Route::post('/', [SatOpsRfcsController::class, 'store'])
                     ->middleware($thrAdminPosts)
                     ->name('store');
@@ -1470,6 +1557,27 @@ Route::middleware([
 
             Route::prefix('downloads')->name('downloads.')->group(function () use ($isLocal, $thrAdminPosts) {
                 Route::get('/', [SatOpsDownloadsController::class, 'index'])->name('index');
+
+                $manualUploadFromQuote = Route::post(
+                    'upload-from-quote',
+                    [SatOpsDownloadsController::class, 'uploadFromPaidQuote']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->name('upload_from_quote');
+
+                $manualUploadFromProfile = Route::post(
+                    'upload-from-profile',
+                    [SatOpsDownloadsController::class, 'uploadFromProfile']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->name('upload_from_profile');
+
+                $manualReplaceUpload = Route::post(
+                    'replace-upload',
+                    [SatOpsDownloadsController::class, 'replaceUpload']
+                )
+                    ->middleware($thrAdminPosts)
+                    ->name('replace_upload');
 
                 Route::get('download/{type}/{id}', [SatOpsDownloadsController::class, 'download'])
                     ->where([
@@ -1680,8 +1788,11 @@ Route::middleware([
                     ->middleware($thrAdminPosts)
                     ->name('cfdi.purge');
 
-                 if ($isLocal) {
+                if ($isLocal) {
                     foreach ([
+                        $manualUploadFromQuote,
+                        $manualUploadFromProfile,
+                        $manualReplaceUpload,
                         $delete,
                         $bulkDeleteFiles,
 
@@ -1714,7 +1825,6 @@ Route::middleware([
                         $metadataBatchDestroy,
                         $reportBatchDestroy,
 
-
                         $cfdiDelete,
                         $bulkDeleteCfdi,
                         $cfdiPurge,
@@ -1724,7 +1834,68 @@ Route::middleware([
                 }
             });
 
+            Route::prefix('quotes')->name('quotes.')->group(function () use ($isLocal, $thrAdminPosts) {
+                Route::get('/', [SatOpsQuotesController::class, 'index'])->name('index');
 
+                $quotesStatusUpdate = Route::post('{id}/status', [SatOpsQuotesController::class, 'updateStatus'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('status.update');
+
+                $quotesUpdate = Route::post('{id}/update', [SatOpsQuotesController::class, 'updateQuote'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('update');
+
+                $quotesConfirm = Route::post('{id}/confirm', [SatOpsQuotesController::class, 'confirmQuote'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('confirm');
+
+                $quotesReject = Route::post('{id}/reject', [SatOpsQuotesController::class, 'rejectQuote'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('reject');
+
+                Route::get('{id}/operational-data', [SatOpsQuotesController::class, 'showOperationalData'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->name('operational_data');
+
+                $quotesMarkSatRequested = Route::post('{id}/sat-request', [SatOpsQuotesController::class, 'markSatRequested'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('sat_request');
+
+                $quotesComplete = Route::post('{id}/complete', [SatOpsQuotesController::class, 'completeQuote'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('complete');
+                
+                $quotesApproveTransfer = Route::post('{id}/transfer/approve', [SatOpsQuotesController::class, 'approveTransfer'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('transfer.approve');
+
+                $quotesRejectTransfer = Route::post('{id}/transfer/reject', [SatOpsQuotesController::class, 'rejectTransfer'])
+                    ->where('id', '[A-Za-z0-9\-]+')
+                    ->middleware($thrAdminPosts)
+                    ->name('transfer.reject');
+
+                if ($isLocal) {
+                    foreach ([
+                        $quotesStatusUpdate,
+                        $quotesUpdate,
+                        $quotesConfirm,
+                        $quotesReject,
+                        $quotesMarkSatRequested,
+                        $quotesComplete,
+                        $quotesApproveTransfer,
+                        $quotesRejectTransfer,
+                    ] as $rt) {
+                        $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+                    }
+                }
+            });
             Route::prefix('manual')->name('manual.')->group(function () {
                 Route::get('/', [SatOpsManualRequestsController::class, 'index'])->name('index');
             });

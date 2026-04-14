@@ -5236,35 +5236,53 @@ body.sv2-modal-open{
 }
 
 /* =========================================================
-   HOTFIX · DOCK CON 2 ESTADOS REALES
-   1) normal: separado del hero
-   2) sticky: pegado arriba con placa que sí cubre detrás
+   HOTFIX FINAL REAL · HERO + DOCK ESTABLES
    ========================================================= */
 
+/* restaura el hero para que vuelva a verse completo */
+.sv2Hero{
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
+  min-height: 180px !important;
+  display: block !important;
+  visibility: visible !important;
+}
+
+.sv2Hero__grid{
+  position: relative !important;
+  z-index: 1 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0,1fr) 320px !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+}
+
+.sv2Hero__content{
+  min-height: 170px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+}
+
+/* dock limpio, sin placas, sin offsets negativos */
 .sv2DockWrap{
   position: sticky !important;
   top: 0 !important;
-  z-index: 95 !important;
-  margin: -4px 0 14px !important;
+  z-index: 90 !important;
+  margin: 0 0 12px !important;
   padding: 0 !important;
   isolation: isolate !important;
+  background: transparent !important;
+  left: auto !important;
+  right: auto !important;
 }
 
-.sv2DockWrap::before{
-  content: "" !important;
-  position: absolute !important;
-  left: -16px !important;
-  right: -16px !important;
-  top: -16px !important;
-  bottom: -10px !important;
-  z-index: 0 !important;
+.sv2DockWrap::before,
+body.sv2DockPinned .sv2DockWrap::before{
+  content: none !important;
+  display: none !important;
   opacity: 0 !important;
-  pointer-events: none !important;
-  border-radius: 0 !important;
-  background:#f8fbff !important;
-  border:0 !important;
-  box-shadow:none !important;
-  transition: opacity .18s ease !important;
 }
 
 .sv2Dock{
@@ -5272,43 +5290,41 @@ body.sv2-modal-open{
   z-index: 1 !important;
   margin: 0 !important;
   padding: 10px 12px !important;
-  border-radius: 18px !important;
-  background: rgba(255,255,255,.98) !important;
-  border: 1px solid rgba(219,231,251,.98) !important;
+  border-radius: 16px !important;
+  background: rgba(255,255,255,.96) !important;
+  border: 1px solid rgba(219,231,251,.96) !important;
   box-shadow: 0 10px 24px rgba(15,23,42,.07) !important;
-  transition: border-radius .18s ease, box-shadow .18s ease, background .18s ease !important;
-}
-
-/* -------------------------
-   ESTADO CUANDO YA QUEDA ARRIBA
-   ------------------------- */
-body.sv2DockPinned .sv2DockWrap{
-  margin: -18px 0 12px !important;
-  padding: 0 0 14px !important;
-}
-
-body.sv2DockPinned .sv2DockWrap::before{
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
   opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+
+body.sv2DockPinned .sv2DockWrap{
+  top: 0 !important;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
 }
 
 body.sv2DockPinned .sv2Dock{
   border-radius: 16px !important;
-  background: rgba(255,255,255,.992) !important;
-  box-shadow: 0 10px 20px rgba(15,23,42,.06) !important;
+  background: rgba(255,255,255,.98) !important;
+  border: 1px solid rgba(219,231,251,.98) !important;
+  box-shadow: 0 10px 24px rgba(15,23,42,.07) !important;
 }
 
-/* Subimos un poco más solo cuando está sticky */
-body.sv2DockPinned .sv2DockWrap{
-  top: -16px !important;
-}
-
-/* Ajuste de anclas */
+/* offsets correctos */
+#centerSatSection,
+#toggleCenterSat,
 #toggleDataLoad,
 #toggleMetadata,
 #toggleXml,
 #toggleReport,
 #toggleFiscal,
 #toggleDownloads,
+#dataLoadSection,
 #metadataBlock,
 #xmlBlock,
 #reportBlock,
@@ -5320,34 +5336,539 @@ body.sv2DockPinned .sv2DockWrap{
   scroll-margin-top: 118px !important;
 }
 
+/* móvil */
+@media (max-width: 1280px){
+  .sv2Hero__grid{
+    grid-template-columns: 1fr !important;
+  }
+
+  .sv2HeroCard,
+  .sv2HeroCard--v2,
+  .sv2HeroCard--v3{
+    max-width: 420px !important;
+  }
+}
+
 @media (max-width: 768px){
+  .sv2Hero{
+    margin-top: 0 !important;
+    margin-bottom: 10px !important;
+    min-height: auto !important;
+    padding: 12px !important;
+    border-radius: 18px !important;
+  }
+
+  .sv2Hero__grid{
+    grid-template-columns: 1fr !important;
+  }
+
+  .sv2Hero__content{
+    min-height: auto !important;
+    gap: 10px !important;
+  }
+
+  .sv2HeroCard,
+  .sv2HeroCard--v2,
+  .sv2HeroCard--v3{
+    max-width: none !important;
+    width: 100% !important;
+    justify-self: stretch !important;
+  }
+
   .sv2DockWrap{
     top: 68px !important;
     margin: 0 0 10px !important;
+    padding: 0 !important;
+    left: auto !important;
+    right: auto !important;
   }
 
-  .sv2DockWrap::before{
-  content: "" !important;
-  position: absolute !important;
-  left: -16px !important;
-  right: -16px !important;
-  top: -6px !important;
-  bottom: -10px !important;
+  .sv2DockWrap::before,
+  body.sv2DockPinned .sv2DockWrap::before{
+    content: none !important;
+    display: none !important;
   }
 
   .sv2Dock{
     padding: 9px 10px !important;
-    border-radius: 16px !important;
+    border-radius: 14px !important;
+    background: rgba(255,255,255,.98) !important;
   }
 
   body.sv2DockPinned .sv2DockWrap{
-    top: 66px !important;
-    margin: -8px 0 10px !important;
-    padding: 6px 0 10px !important;
+    top: 68px !important;
+    margin: 0 0 10px !important;
+    padding: 0 !important;
   }
 
   body.sv2DockPinned .sv2Dock{
     border-radius: 14px !important;
+    background: rgba(255,255,255,.98) !important;
+  }
+}
+
+.sv2Dock__link--back{
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+}
+
+.sv2Dock__link--back::before{
+    content:"←";
+    font-size:13px;
+    line-height:1;
+    font-weight:700;
+}
+
+/* =========================================================
+   DESCARGAS · CENTRO SAT / BOVEDA V1 / BOVEDA V2
+   ========================================================= */
+
+.sv2Section--downloads .sv2MetaBar{
+  border-color:#dbe7f6;
+  background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%);
+}
+
+.sv2DownloadsShell{
+  display:grid;
+  gap:12px;
+  margin-top:12px;
+}
+
+.sv2DownloadsTop{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);
+  gap:12px;
+  align-items:stretch;
+}
+
+.sv2DownloadsStorageCard,
+.sv2DownloadsOriginCard{
+  padding:14px;
+  border:1px solid #dfe8f6;
+  background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);
+  box-shadow:0 8px 24px rgba(15,23,42,.04);
+  border-radius:18px;
+}
+
+.sv2DownloadsStorageCard__head,
+.sv2DownloadsOriginCard__head,
+.sv2DownloadsTableHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+.sv2DownloadsStorageCard__body{
+  display:grid;
+  grid-template-columns:220px minmax(0,1fr);
+  gap:16px;
+  align-items:center;
+}
+
+.sv2DownloadsDonutWrap{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px;
+}
+
+.sv2DownloadsDonut{
+  --sv2-donut-size:178px;
+  --sv2-donut-ring:18px;
+  width:var(--sv2-donut-size);
+  height:var(--sv2-donut-size);
+  border-radius:50%;
+  position:relative;
+  display:grid;
+  place-items:center;
+  background:
+    conic-gradient(
+      #2563eb 0deg,
+      #60a5fa var(--sv2-donut-deg, 0deg),
+      #e7eef8 var(--sv2-donut-deg, 0deg),
+      #e7eef8 360deg
+    );
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.55),
+    0 16px 34px rgba(37,99,235,.12);
+}
+
+.sv2DownloadsDonut::before{
+  content:"";
+  position:absolute;
+  inset:var(--sv2-donut-ring);
+  border-radius:50%;
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.98), rgba(248,251,255,.98));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+.sv2DownloadsDonut__inner{
+  position:relative;
+  z-index:1;
+  display:grid;
+  gap:4px;
+  text-align:center;
+  justify-items:center;
+}
+
+.sv2DownloadsDonut__inner strong{
+  display:block;
+  font-size:28px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.05em;
+  color:#0f172a;
+}
+
+.sv2DownloadsDonut__inner span{
+  display:block;
+  font-size:11px;
+  line-height:1.2;
+  font-weight:800;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+
+.sv2DownloadsMetrics{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:10px;
+}
+
+.sv2DownloadsMetric{
+  min-height:82px;
+  padding:12px 12px 11px;
+  border-radius:16px;
+  border:1px solid #e5edf8;
+  background:linear-gradient(180deg,#ffffff 0%,#f9fbff 100%);
+  box-shadow:0 4px 12px rgba(15,23,42,.03);
+  display:grid;
+  gap:6px;
+  position:relative;
+  overflow:hidden;
+}
+
+.sv2DownloadsMetric::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:3px;
+  border-radius:8px;
+}
+
+.sv2DownloadsMetric--used::before{
+  background:linear-gradient(180deg,#2563eb 0%,#60a5fa 100%);
+}
+
+.sv2DownloadsMetric--available::before{
+  background:linear-gradient(180deg,#10b981 0%,#6ee7b7 100%);
+}
+
+.sv2DownloadsMetric--total::before{
+  background:linear-gradient(180deg,#7c3aed 0%,#c4b5fd 100%);
+}
+
+.sv2DownloadsMetric__label{
+  font-size:10px;
+  line-height:1.2;
+  font-weight:900;
+  color:#64748b;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.sv2DownloadsMetric__value{
+  display:block;
+  font-size:20px;
+  line-height:1.05;
+  font-weight:900;
+  letter-spacing:-.04em;
+  color:#0f172a;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.sv2DownloadsOriginGrid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:10px;
+}
+
+.sv2DownloadsOriginItem{
+  min-height:84px;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid #e5edf8;
+  background:linear-gradient(180deg,#ffffff 0%,#f9fbff 100%);
+  display:grid;
+  gap:6px;
+  align-content:start;
+  box-shadow:0 4px 12px rgba(15,23,42,.03);
+  position:relative;
+  overflow:hidden;
+}
+
+.sv2DownloadsOriginItem::before{
+  content:"";
+  position:absolute;
+  inset:auto -18px -18px auto;
+  width:72px;
+  height:72px;
+  border-radius:50%;
+  pointer-events:none;
+  opacity:.18;
+}
+
+.sv2DownloadsOriginItem--sat::before{
+  background:radial-gradient(circle, #60a5fa 0%, transparent 70%);
+}
+
+.sv2DownloadsOriginItem--v1::before{
+  background:radial-gradient(circle, #34d399 0%, transparent 70%);
+}
+
+.sv2DownloadsOriginItem--v2::before{
+  background:radial-gradient(circle, #a78bfa 0%, transparent 70%);
+}
+
+.sv2DownloadsOriginItem__label{
+  font-size:10px;
+  line-height:1.2;
+  font-weight:900;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+
+.sv2DownloadsOriginItem__value{
+  display:block;
+  font-size:24px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.05em;
+  color:#0f172a;
+}
+
+.sv2DownloadsOriginFoot{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:12px;
+}
+
+.sv2DownloadsOriginFoot__item{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  padding:0 10px;
+  border-radius:999px;
+  background:#f8fbff;
+  border:1px solid #e3edf9;
+  color:#475569;
+  font-size:11px;
+  font-weight:800;
+}
+
+/* Tabla */
+.sv2DownloadsTableHead{
+  padding:14px 14px 0;
+  margin-bottom:0;
+}
+
+.sv2DownloadsTable{
+  min-width:1180px;
+}
+
+.sv2DownloadsTable thead th{
+  background:linear-gradient(180deg,#f8fbff 0%,#f3f7ff 100%);
+  color:#64748b;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  border-bottom:1px solid #e4ecf8;
+}
+
+.sv2DownloadsTable tbody td{
+  vertical-align:middle;
+}
+
+.sv2DownloadsTable tbody tr:hover td{
+  background:#f9fbff;
+}
+
+.sv2DownloadsOriginBadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:24px;
+  padding:0 10px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:900;
+  white-space:nowrap;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  border:1px solid transparent;
+}
+
+.sv2DownloadsOriginBadge--centro_sat{
+  background:#eff6ff;
+  border-color:#dbeafe;
+  color:#1d4ed8;
+}
+
+.sv2DownloadsOriginBadge--boveda_v1{
+  background:#ecfdf5;
+  border-color:#a7f3d0;
+  color:#065f46;
+}
+
+.sv2DownloadsOriginBadge--boveda_v2{
+  background:#f5f3ff;
+  border-color:#ddd6fe;
+  color:#6d28d9;
+}
+
+.sv2DownloadsFileCell{
+  display:grid;
+  gap:4px;
+  min-width:0;
+}
+
+.sv2DownloadsFileCell__name{
+  display:block;
+  font-size:13px;
+  line-height:1.25;
+  font-weight:900;
+  color:#0f172a;
+  word-break:break-word;
+}
+
+.sv2DownloadsFileCell__status{
+  display:block;
+  font-size:11px;
+  line-height:1.35;
+  color:#64748b;
+  font-weight:700;
+}
+
+/* Ajustes finos del bloque */
+.sv2Section--downloads .sv2MetaTableCard{
+  overflow:hidden;
+  border:1px solid #dfe8f6;
+  background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);
+  box-shadow:0 8px 24px rgba(15,23,42,.04);
+}
+
+/* Responsive */
+@media (max-width: 1200px){
+  .sv2DownloadsTop{
+    grid-template-columns:1fr;
   }
 
+  .sv2DownloadsStorageCard__body{
+    grid-template-columns:180px minmax(0,1fr);
+  }
+
+  .sv2DownloadsMetrics{
+    grid-template-columns:repeat(3, minmax(0,1fr));
+  }
+}
+
+@media (max-width: 980px){
+  .sv2DownloadsStorageCard__body{
+    grid-template-columns:1fr;
+  }
+
+  .sv2DownloadsDonutWrap{
+    justify-content:flex-start;
+  }
+
+  .sv2DownloadsOriginGrid{
+    grid-template-columns:repeat(3, minmax(0,1fr));
+  }
+}
+
+@media (max-width: 768px){
+  .sv2DownloadsShell{
+    gap:10px;
+    margin-top:10px;
+  }
+
+  .sv2DownloadsStorageCard,
+  .sv2DownloadsOriginCard{
+    padding:12px;
+    border-radius:16px;
+  }
+
+  .sv2DownloadsStorageCard__head,
+  .sv2DownloadsOriginCard__head,
+  .sv2DownloadsTableHead{
+    gap:10px;
+  }
+
+  .sv2DownloadsDonut{
+    --sv2-donut-size:156px;
+    --sv2-donut-ring:16px;
+  }
+
+  .sv2DownloadsDonut__inner strong{
+    font-size:24px;
+  }
+
+  .sv2DownloadsMetrics{
+    grid-template-columns:1fr;
+  }
+
+  .sv2DownloadsOriginGrid{
+    grid-template-columns:1fr;
+  }
+
+  .sv2DownloadsMetric,
+  .sv2DownloadsOriginItem{
+    min-height:auto;
+  }
+
+  .sv2DownloadsOriginFoot{
+    gap:8px;
+  }
+
+  .sv2DownloadsOriginFoot__item{
+    font-size:10px;
+  }
+
+  .sv2DownloadsTable{
+    min-width:1020px;
+  }
+}
+
+@media (max-width: 520px){
+  .sv2DownloadsDonut{
+    --sv2-donut-size:142px;
+    --sv2-donut-ring:15px;
+  }
+
+  .sv2DownloadsDonut__inner strong{
+    font-size:22px;
+  }
+
+  .sv2DownloadsMetric__value{
+    font-size:18px;
+  }
+
+  .sv2DownloadsOriginItem__value{
+    font-size:22px;
+  }
 }

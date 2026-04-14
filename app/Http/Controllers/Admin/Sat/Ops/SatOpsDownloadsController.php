@@ -15,12 +15,15 @@ use App\Models\Cliente\SatUserMetadataItem;
 use App\Models\Cliente\SatUserReportItem;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 final class SatOpsDownloadsController extends Controller
@@ -55,6 +58,7 @@ final class SatOpsDownloadsController extends Controller
 
         $reportRecordFilters = $this->resolveReportRecordFilters($request);
         $reportRecordItems   = $this->buildReportRecordItems($reportRecordFilters);
+        $paidQuotesForUpload = $this->getPaidQuotesForUpload();
 
         return view('admin.sat.ops.downloads.index', [
             'title'                 => 'SAT · Operación · Descargas',
@@ -73,19 +77,44 @@ final class SatOpsDownloadsController extends Controller
             'metadataRecordFilters' => $metadataRecordFilters,
             'reportRecordItems'     => $reportRecordItems,
             'reportRecordFilters'   => $reportRecordFilters,
+            'paidQuotesForUpload'   => $paidQuotesForUpload,
         ]);
     }
 
-    public function download(string $type, string $id)
+        public function download(string $type, string $id)
     {
         $model = $this->resolveModel($type, $id);
-        abort_unless($model !== null, 404);
+
+        if ($model === null) {
+            return redirect()
+                ->route('admin.sat.ops.downloads.index')
+                ->with('error', 'El registro de descarga no existe.');
+        }
 
         $file = $this->resolveFilePayload($type, $model);
-        abort_unless($file['disk'] !== '' && $file['path'] !== '', 404, 'Archivo no configurado');
+
+        if ($file['path'] === '') {
+            return redirect()
+                ->route('admin.sat.ops.downloads.index')
+                ->with('error', $this->buildDownloadUnavailableMessage($type, $model, 'missing_path'));
+        }
+
+        if ($file['disk'] === '') {
+            return redirect()
+                ->route('admin.sat.ops.downloads.index')
+                ->with('error', $this->buildDownloadUnavailableMessage($type, $model, 'missing_disk'));
+        }
+
+        if (!config('filesystems.disks.' . $file['disk'])) {
+            return redirect()
+                ->route('admin.sat.ops.downloads.index')
+                ->with('error', 'El disco configurado para esta descarga no existe: ' . $file['disk']);
+        }
 
         if (!Storage::disk($file['disk'])->exists($file['path'])) {
-            abort(404, 'Archivo no encontrado');
+            return redirect()
+                ->route('admin.sat.ops.downloads.index')
+                ->with('error', $this->buildDownloadUnavailableMessage($type, $model, 'missing_file'));
         }
 
         return Storage::disk($file['disk'])->download($file['path'], $file['name']);
@@ -98,6 +127,274 @@ final class SatOpsDownloadsController extends Controller
         return back()->with(
             $deleted ? 'success' : 'error',
             $deleted ? 'Archivo eliminado correctamente' : 'No se pudo eliminar el archivo.'
+        );
+    }
+
+    public function uploadFromProfile(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'manual_mode'   => ['nullable', 'in:profile'],
+            'upload_type'   => ['required', 'in:xml,metadata,report'],
+            'target_vault'  => ['required', 'in:v1,v2'],
+            'direction'     => ['nullable', 'in:emitidos,recibidos'],
+            'customer_rfc'  => ['required', 'string', 'max:20'],
+            'files'         => ['required', 'array', 'min:1'],
+            'files.*'       => ['required', 'file', 'max:51200'],
+            'admin_notes'   => ['nullable', 'string', 'max:1000'],
+        ], [
+            'customer_rfc.required' => 'Debes indicar el RFC destino para la carga directa al perfil.',
+            'upload_type.required'  => 'Debes seleccionar el tipo de carga.',
+            'target_vault.required' => 'Debes seleccionar la bóveda destino.',
+            'files.required'        => 'Debes seleccionar al menos un archivo.',
+        ]);
+
+        $rfc = strtoupper(trim((string) $validated['customer_rfc']));
+        if ($rfc === '') {
+            return back()->with('error', 'El RFC destino es obligatorio.');
+        }
+
+        $context = $this->findProfileContextByRfc($rfc);
+        if (!$context) {
+            return back()->with('error', 'No se encontró una cuenta/perfil para el RFC indicado.');
+        }
+
+        $uploadType  = (string) $validated['upload_type'];
+        $targetVault = (string) $validated['target_vault'];
+        $direction   = (string) ($validated['direction'] ?? '');
+        $adminNotes  = trim((string) ($validated['admin_notes'] ?? 'Carga manual directa al perfil'));
+        $files       = $request->file('files', []);
+
+        $created = 0;
+        $errors  = 0;
+
+        DB::connection(self::CONN)->beginTransaction();
+
+        try {
+            foreach ($files as $file) {
+                if (!$file instanceof UploadedFile) {
+                    $errors++;
+                    continue;
+                }
+
+                $this->storeManualUpload(
+                    uploadType: $uploadType,
+                    targetVault: $targetVault,
+                    sourceType: 'replacement',
+                    sourceRef: $replaceType . ':' . $replaceId,
+                    sourceLabel: 'replace:' . $replaceType . ':' . $replaceId,
+                    context: $context,
+                    rfc: $rfc,
+                    direction: $direction,
+                    file: $file,
+                    adminNotes: $reason
+                );
+
+                $created++;
+            }
+
+            DB::connection(self::CONN)->commit();
+
+        } catch (\Throwable $e) {
+            DB::connection(self::CONN)->rollBack();
+
+            return back()->with(
+                'error',
+                'No se pudo completar la carga directa al perfil. Detalle: ' . $e->getMessage()
+            );
+        }
+
+        return back()->with(
+            $created > 0 ? 'success' : 'error',
+            $created > 0
+                ? 'Carga al perfil completada. Archivos registrados: ' . number_format($created)
+                    . ($errors > 0 ? ' · omitidos: ' . number_format($errors) : '')
+                : 'No se pudo registrar ningún archivo en el perfil.'
+        );
+    }
+
+        public function replaceUpload(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'manual_mode'        => ['nullable', 'in:replace'],
+            'replace_type'       => ['required', 'in:metadata,xml,report,vault,satdownload'],
+            'replace_id'         => ['required', 'string', 'max:100'],
+            'upload_type'        => ['required', 'in:xml,metadata,report'],
+            'target_vault'       => ['required', 'in:v1,v2'],
+            'direction'          => ['nullable', 'in:emitidos,recibidos'],
+            'customer_rfc'       => ['required', 'string', 'max:20'],
+            'files'              => ['required', 'array', 'min:1'],
+            'files.*'            => ['required', 'file', 'max:51200'],
+            'replacement_reason' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'replace_type.required' => 'Debes indicar el tipo de carga a reemplazar.',
+            'replace_id.required'   => 'Debes indicar el registro que será reemplazado.',
+            'customer_rfc.required' => 'Debes indicar el RFC destino.',
+            'files.required'        => 'Debes seleccionar al menos un archivo.',
+        ]);
+
+        $replaceType = (string) $validated['replace_type'];
+        $replaceId   = (string) $validated['replace_id'];
+        $rfc         = strtoupper(trim((string) $validated['customer_rfc']));
+        $uploadType  = (string) $validated['upload_type'];
+        $targetVault = (string) $validated['target_vault'];
+        $direction   = (string) ($validated['direction'] ?? '');
+        $reason      = trim((string) ($validated['replacement_reason'] ?? 'Reemplazo administrativo de carga'));
+        $files       = $request->file('files', []);
+
+        $existing = $this->resolveModel($replaceType, $replaceId);
+        if (!$existing) {
+            return back()->with('error', 'La carga origen a reemplazar no existe.');
+        }
+
+        $context = $this->buildReplacementContext($existing, $replaceType, $rfc);
+
+        $created = 0;
+        $errors  = 0;
+
+        DB::connection(self::CONN)->beginTransaction();
+
+        try {
+            foreach ($files as $file) {
+                if (!$file instanceof UploadedFile) {
+                    $errors++;
+                    continue;
+                }
+
+                $this->storeManualUpload(
+                    uploadType: $uploadType,
+                    targetVault: $targetVault,
+                    sourceType: 'paid_quote',
+                    sourceRef: (string) ($quote['id'] ?? ''),
+                    sourceLabel: (string) ($quote['folio'] ?? ''),
+                    context: $quote,
+                    rfc: $rfc,
+                    direction: $direction,
+                    file: $file,
+                    adminNotes: 'Carga manual desde cotización pagada'
+                );
+
+                $created++;
+            }
+
+            $this->syncQuoteAfterManualUpload(
+                quoteId: (string) ($quote['id'] ?? ''),
+                created: $created
+            );
+
+            DB::connection(self::CONN)->commit();
+
+        } catch (\Throwable $e) {
+            DB::connection(self::CONN)->rollBack();
+
+            return back()->with(
+                'error',
+                'No se pudo completar el reemplazo administrativo. Detalle: ' . $e->getMessage()
+            );
+        }
+
+        return back()->with(
+            $created > 0 ? 'success' : 'error',
+            $created > 0
+                ? 'Reemplazo registrado correctamente. Archivos nuevos: ' . number_format($created)
+                    . ($errors > 0 ? ' · omitidos: ' . number_format($errors) : '')
+                : 'No se pudo registrar el reemplazo.'
+        );
+    }
+
+    public function uploadFromPaidQuote(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'manual_mode'    => ['nullable', 'in:quote,profile,replace'],
+            'quote_id'       => ['required', 'string', 'max:100'],
+            'upload_type'    => ['required', 'in:xml,metadata,report'],
+            'target_vault'   => ['required', 'in:v1,v2'],
+            'direction'      => ['nullable', 'in:emitidos,recibidos'],
+            'customer_rfc'   => ['nullable', 'string', 'max:20'],
+            'files'          => ['required', 'array', 'min:1'],
+            'files.*'        => ['required', 'file', 'max:51200'],
+        ], [
+            'quote_id.required'     => 'Debes seleccionar una cotización pagada.',
+            'upload_type.required'  => 'Debes seleccionar el tipo de carga.',
+            'target_vault.required' => 'Debes seleccionar la bóveda destino.',
+            'files.required'        => 'Debes seleccionar al menos un archivo.',
+            'files.*.max'           => 'Cada archivo debe pesar máximo 50 MB.',
+        ]);
+
+        $manualMode = (string) ($validated['manual_mode'] ?? 'quote');
+
+        if ($manualMode !== 'quote') {
+            return back()->with(
+                'error',
+                $manualMode === 'profile'
+                    ? 'La carga directa al perfil aún no está conectada en backend desde este endpoint.'
+                    : 'El reemplazo de carga aún no está conectado en backend desde este endpoint.'
+            );
+        }
+
+        $quote = $this->findPaidQuoteContext((string) $validated['quote_id']);
+
+        if (!$quote) {
+            return back()->with('error', 'La cotización no existe o no está marcada como pagada.');
+        }
+
+        $uploadType  = (string) $validated['upload_type'];
+        $targetVault = (string) $validated['target_vault'];
+        $direction   = (string) ($validated['direction'] ?? '');
+        $files       = $request->file('files', []);
+
+        $rfc = strtoupper(trim((string) ($validated['customer_rfc'] ?? '')));
+        if ($rfc === '') {
+            $rfc = strtoupper(trim((string) ($quote['rfc'] ?? '')));
+        }
+
+        if ($rfc === '') {
+            return back()->with('error', 'No se pudo determinar el RFC del cliente para esta carga.');
+        }
+
+        $created = 0;
+        $errors  = 0;
+
+        DB::connection(self::CONN)->beginTransaction();
+
+        try {
+            foreach ($files as $file) {
+                if (!$file instanceof UploadedFile) {
+                    $errors++;
+                    continue;
+                }
+
+                $this->storeManualUpload(
+                    uploadType: $uploadType,
+                    targetVault: $targetVault,
+                    sourceType: 'paid_quote',
+                    sourceRef: (string) ($quote['id'] ?? ''),
+                    sourceLabel: (string) ($quote['folio'] ?? ''),
+                    context: $quote,
+                    rfc: $rfc,
+                    direction: $direction,
+                    file: $file,
+                    adminNotes: 'Carga manual desde cotización pagada'
+                );
+
+                $created++;
+            }
+
+            DB::connection(self::CONN)->commit();
+        } catch (\Throwable $e) {
+            DB::connection(self::CONN)->rollBack();
+
+            return back()->with(
+                'error',
+                'No se pudo completar la carga manual desde cotización pagada. Detalle: ' . $e->getMessage()
+            );
+        }
+
+        return back()->with(
+            $created > 0 ? 'success' : 'error',
+            $created > 0
+                ? 'Carga completada correctamente. Archivos registrados: ' . number_format($created)
+                    . ($errors > 0 ? ' · omitidos: ' . number_format($errors) : '')
+                : 'No se pudo registrar ningún archivo.'
         );
     }
 
@@ -868,20 +1165,27 @@ final class SatOpsDownloadsController extends Controller
 
     private function mapSatDownload(SatDownload $row): array
     {
-        $file = $this->resolveFilePayload('satdownload', $row);
+        $file      = $this->resolveFilePayload('satdownload', $row);
+        $status    = strtolower(trim((string) ($row->status ?? '')));
+        $hasPath   = trim((string) $file['path']) !== '';
+        $hasDisk   = trim((string) $file['disk']) !== '';
+        $isReady   = in_array($status, ['ready', 'done', 'listo', 'completed', 'finished', 'terminado', 'downloaded', 'paid'], true);
+        $canDownload = $hasPath && $hasDisk && $isReady;
 
         return [
-            'id'         => (string) $row->getKey(),
-            'type'       => 'satdownload',
-            'cuenta_id'  => $row->cuenta_id ?? null,
-            'rfc'        => $row->rfc ?? null,
-            'name'       => $file['name'],
-            'disk'       => $file['disk'],
-            'path'       => $file['path'],
-            'bytes'      => (int) $file['bytes'],
-            'status'     => (string) ($row->status ?? ''),
-            'direction'  => (string) ($row->tipo ?? ''),
-            'created_at' => $row->created_at ?? null,
+            'id'             => (string) $row->getKey(),
+            'type'           => 'satdownload',
+            'cuenta_id'      => $row->cuenta_id ?? null,
+            'rfc'            => $row->rfc ?? null,
+            'name'           => $file['name'],
+            'disk'           => $file['disk'],
+            'path'           => $file['path'],
+            'bytes'          => (int) $file['bytes'],
+            'status'         => (string) ($row->status ?? ''),
+            'direction'      => (string) ($row->tipo ?? ''),
+            'created_at'     => $row->created_at ?? null,
+            'can_download'   => $canDownload,
+            'download_issue' => $this->detectSatDownloadIssue($row, $file, $isReady),
         ];
     }
 
@@ -923,23 +1227,19 @@ final class SatOpsDownloadsController extends Controller
         }
 
         if ($type === 'satdownload') {
-            $zipDisk   = (string) ($model->zip_disk ?? '');
-            $zipPath   = (string) ($model->zip_path ?? '');
-            $vaultPath = (string) ($model->vault_path ?? '');
+            $zipDisk   = trim((string) ($model->zip_disk ?? ''));
+            $zipPath   = trim((string) ($model->zip_path ?? ''));
+            $vaultPath = trim((string) ($model->vault_path ?? ''));
 
-            $disk = $zipDisk;
-            $path = $zipPath;
+            $disk = '';
+            $path = '';
 
-            if ($path === '' && $vaultPath !== '') {
-                $path = $vaultPath;
-            }
-
-            if ($disk === '' && isset($model->disk)) {
-                $disk = (string) $model->disk;
-            }
-
-            if ($disk === '') {
-                $disk = (string) config('filesystems.default', 'local');
+            if ($zipPath !== '') {
+                $path = ltrim($zipPath, '/');
+                $disk = $zipDisk !== '' ? $zipDisk : 'private';
+            } elseif ($vaultPath !== '') {
+                $path = ltrim($vaultPath, '/');
+                $disk = $zipDisk !== '' ? $zipDisk : 'private';
             }
 
             $name = basename($path);
@@ -950,9 +1250,6 @@ final class SatOpsDownloadsController extends Controller
             $bytes = (int) ($model->zip_bytes ?? 0);
             if ($bytes <= 0) {
                 $bytes = (int) ($model->size_bytes ?? 0);
-            }
-            if ($bytes <= 0) {
-                $bytes = (int) ($model->bytes ?? 0);
             }
 
             return [
@@ -1703,4 +2000,646 @@ public function destroyReportBatch(int $uploadId): RedirectResponse
     );
 }
 
+    private function getPaidQuotesForUpload(): Collection
+    {
+        return SatDownload::query()
+            ->where('tipo', 'quote')
+            ->where(function ($q) {
+                $q->where('status', 'paid')
+                ->orWhereNotNull('paid_at');
+            })
+            ->orderByDesc('updated_at')
+            ->orderByDesc('created_at')
+            ->limit(100)
+            ->get()
+            ->map(function (SatDownload $row) {
+                $meta = is_array($row->meta ?? null) ? $row->meta : [];
+
+                $folio = trim((string) (
+                    data_get($meta, 'folio')
+                    ?: data_get($meta, 'quote_no')
+                    ?: ''
+                ));
+
+                if ($folio === '') {
+                    $rawId = (string) $row->getKey();
+                    $folio = 'COT-' . str_pad(
+                        substr(preg_replace('/[^A-Za-z0-9]/', '', $rawId) ?: '0', -6),
+                        6,
+                        '0',
+                        STR_PAD_LEFT
+                    );
+                }
+
+                $rfc = strtoupper(trim((string) (
+                    $row->rfc
+                    ?: data_get($meta, 'rfc')
+                    ?: ''
+                )));
+
+                $name = trim((string) (
+                    data_get($meta, 'razon_social')
+                    ?: data_get($meta, 'empresa')
+                    ?: ''
+                ));
+
+                $total = is_numeric($row->total ?? null)
+                    ? '$' . number_format((float) $row->total, 2, '.', ',')
+                    : '—';
+
+                $labelParts = array_filter([
+                    $folio !== '' ? $folio : ('ID ' . (string) $row->getKey()),
+                    $rfc !== '' ? $rfc : null,
+                    $name !== '' ? $name : null,
+                    $total !== '—' ? $total : null,
+                ]);
+
+                return [
+                    'id'           => (string) $row->getKey(),
+                    'source_table' => 'sat_downloads',
+                    'folio'        => $folio,
+                    'rfc'          => $rfc,
+                    'customer'     => $name,
+                    'label'        => implode(' · ', $labelParts),
+                    'created_at'   => $row->created_at,
+                ];
+            })
+            ->values();
+    }
+
+    private function findPaidQuoteContext(string $quoteId): ?array
+    {
+        $quoteId = trim($quoteId);
+        if ($quoteId === '') {
+            return null;
+        }
+
+        $row = SatDownload::query()
+            ->where('id', $quoteId)
+            ->where('tipo', 'quote')
+            ->first();
+
+        if (!$row) {
+            return null;
+        }
+
+        $isPaid = strtolower(trim((string) ($row->status ?? ''))) === 'paid'
+            || !empty($row->paid_at);
+
+        if (!$isPaid) {
+            return null;
+        }
+
+        $meta = is_array($row->meta ?? null) ? $row->meta : [];
+
+        $folio = trim((string) (
+            data_get($meta, 'folio')
+            ?: data_get($meta, 'quote_no')
+            ?: ''
+        ));
+
+        if ($folio === '') {
+            $rawId = (string) $row->getKey();
+            $folio = 'COT-' . str_pad(
+                substr(preg_replace('/[^A-Za-z0-9]/', '', $rawId) ?: '0', -6),
+                6,
+                '0',
+                STR_PAD_LEFT
+            );
+        }
+
+        return [
+            'id'           => (string) $row->getKey(),
+            'source_table' => 'sat_downloads',
+            'folio'        => $folio,
+            'rfc'          => strtoupper(trim((string) (
+                $row->rfc
+                ?: data_get($meta, 'rfc')
+                ?: ''
+            ))),
+            'razon_social' => trim((string) (
+                data_get($meta, 'razon_social')
+                ?: data_get($meta, 'empresa')
+                ?: ''
+            )),
+            'cuenta_id'    => (string) ($row->cuenta_id ?? ''),
+            'total'        => (float) ($row->total ?? data_get($meta, 'total', 0)),
+            'raw'          => [
+                'id'     => (string) $row->getKey(),
+                'status' => (string) ($row->status ?? ''),
+                'meta'   => $meta,
+            ],
+        ];
+    }
+
+    private function storeManualUpload(
+        string $uploadType,
+        string $targetVault,
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        array $context,
+        string $rfc,
+        string $direction,
+        UploadedFile $file,
+        string $adminNotes = ''
+    ): void {
+        $disk      = $this->resolveManualUploadDisk($targetVault);
+        $extension = strtolower((string) $file->getClientOriginalExtension());
+        $baseName  = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $safeName  = Str::slug($baseName) ?: 'archivo';
+        $stamp     = now()->format('Ymd_His');
+        $random    = Str::lower(Str::random(6));
+        $filename  = $safeName . '_' . $stamp . '_' . $random . ($extension !== '' ? '.' . $extension : '');
+
+        $folder = 'sat/manual/' . $targetVault . '/' . $uploadType . '/' . strtoupper($rfc) . '/' . now()->format('Y/m');
+        $path   = $file->storeAs($folder, $filename, $disk);
+
+        if ($targetVault === 'v1') {
+            $this->storeManualUploadInVaultV1(
+                uploadType: $uploadType,
+                sourceType: $sourceType,
+                sourceRef: $sourceRef,
+                sourceLabel: $sourceLabel,
+                context: $context,
+                rfc: $rfc,
+                direction: $direction,
+                file: $file,
+                disk: $disk,
+                path: $path,
+                adminNotes: $adminNotes
+            );
+
+            return;
+        }
+
+        $this->storeManualUploadInVaultV2(
+            uploadType: $uploadType,
+            sourceType: $sourceType,
+            sourceRef: $sourceRef,
+            sourceLabel: $sourceLabel,
+            context: $context,
+            rfc: $rfc,
+            direction: $direction,
+            file: $file,
+            disk: $disk,
+            path: $path,
+            adminNotes: $adminNotes
+        );
+    }
+
+    private function storeManualUploadInVaultV1(
+        string $uploadType,
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        array $context,
+        string $rfc,
+        string $direction,
+        UploadedFile $file,
+        string $disk,
+        string $path,
+        string $adminNotes = ''
+    ): void {
+        $vault = new VaultFile();
+
+        $this->fillModelBySchema($vault, [
+            'cuenta_id'   => $context['cuenta_id'] ?? null,
+            'rfc'         => strtoupper($rfc),
+            'filename'    => $file->getClientOriginalName(),
+            'disk'        => $disk,
+            'path'        => $path,
+            'mime'        => (string) $file->getClientMimeType(),
+            'bytes'       => (int) $file->getSize(),
+            'size_bytes'  => (int) $file->getSize(),
+            'tipo'        => $direction !== '' ? $direction : null,
+            'source'      => $sourceType . '_manual_' . $uploadType,
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
+
+        $vault->save();
+
+        $this->attachSourceContextToRecord(
+            model: $vault,
+            sourceType: $sourceType,
+            sourceRef: $sourceRef,
+            sourceLabel: $sourceLabel,
+            uploadType: $uploadType,
+            vaultVersion: 'v1',
+            context: $context,
+            adminNotes: $adminNotes
+        );
+    }
+
+       private function storeManualUploadInVaultV2(
+        string $uploadType,
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        array $context,
+        string $rfc,
+        string $direction,
+        UploadedFile $file,
+        string $disk,
+        string $path,
+        string $adminNotes = ''
+    ): void {
+        $model = match ($uploadType) {
+            'metadata' => new SatUserMetadataUpload(),
+            'xml'      => new SatUserXmlUpload(),
+            'report'   => new SatUserReportUpload(),
+            default    => throw new \RuntimeException('Tipo de upload no soportado: ' . $uploadType),
+        };
+
+        $baseData = [
+            'cuenta_id'           => $context['cuenta_id'] ?? null,
+            'rfc_owner'           => strtoupper($rfc),
+            'original_name'       => $file->getClientOriginalName(),
+            'disk'                => $disk,
+            'path'                => $path,
+            'bytes'               => (int) $file->getSize(),
+            'status'              => 'uploaded',
+            'direction_detected'  => $direction !== '' ? $direction : null,
+            'created_at'          => now(),
+            'updated_at'          => now(),
+        ];
+
+        if ($uploadType === 'metadata') {
+            $baseData['rows_count'] = 0;
+        }
+
+        if ($uploadType === 'xml') {
+            $baseData['files_count'] = 0;
+        }
+
+        if ($uploadType === 'report') {
+            $baseData['rows_count']  = 0;
+            $baseData['report_type'] = $this->detectReportTypeFromExtension((string) $file->getClientOriginalExtension());
+        }
+
+        $this->fillModelBySchema($model, $baseData);
+
+        $model->save();
+
+        $this->attachSourceContextToRecord(
+            model: $model,
+            sourceType: $sourceType,
+            sourceRef: $sourceRef,
+            sourceLabel: $sourceLabel,
+            uploadType: $uploadType,
+            vaultVersion: 'v2',
+            context: $context,
+            adminNotes: $adminNotes
+        );
+    }
+
+        private function attachSourceContextToRecord(
+        Model $model,
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        string $uploadType,
+        string $vaultVersion,
+        array $context,
+        string $adminNotes = ''
+    ): void {
+        $table  = $model->getTable();
+        $conn   = $model->getConnectionName() ?: self::CONN;
+        $schema = Schema::connection($conn);
+
+        $updates = [];
+
+        if ($schema->hasColumn($table, 'quote_id') && $sourceType === 'paid_quote') {
+            $updates['quote_id'] = $sourceRef !== '' ? $sourceRef : null;
+        }
+
+        if ($schema->hasColumn($table, 'source_type')) {
+            $updates['source_type'] = $sourceType;
+        }
+
+        if ($schema->hasColumn($table, 'source_ref')) {
+            $updates['source_ref'] = $sourceRef;
+        }
+
+        if ($schema->hasColumn($table, 'source')) {
+            $updates['source'] = $sourceType . '_' . $vaultVersion . '_' . $uploadType;
+        }
+
+        if ($schema->hasColumn($table, 'notes')) {
+            $updates['notes'] = $this->buildSourceContextText(
+                sourceType: $sourceType,
+                sourceRef: $sourceRef,
+                sourceLabel: $sourceLabel,
+                uploadType: $uploadType,
+                vaultVersion: $vaultVersion,
+                context: $context,
+                adminNotes: $adminNotes
+            );
+        }
+
+        if ($schema->hasColumn($table, 'meta_json')) {
+            $updates['meta_json'] = json_encode(
+                $this->buildSourceContextMeta(
+                    sourceType: $sourceType,
+                    sourceRef: $sourceRef,
+                    sourceLabel: $sourceLabel,
+                    uploadType: $uploadType,
+                    vaultVersion: $vaultVersion,
+                    context: $context
+                ),
+                JSON_UNESCAPED_UNICODE
+            );
+        }
+
+        if ($schema->hasColumn($table, 'meta')) {
+            $updates['meta'] = json_encode(
+                $this->buildSourceContextMeta(
+                    sourceType: $sourceType,
+                    sourceRef: $sourceRef,
+                    sourceLabel: $sourceLabel,
+                    uploadType: $uploadType,
+                    vaultVersion: $vaultVersion,
+                    context: $context
+                ),
+                JSON_UNESCAPED_UNICODE
+            );
+        }
+
+        if ($schema->hasColumn($table, 'updated_at')) {
+            $updates['updated_at'] = now();
+        }
+
+        if ($updates !== []) {
+            DB::connection($conn)
+                ->table($table)
+                ->where('id', $model->getKey())
+                ->update($updates);
+        }
+    }
+
+    private function buildSourceContextMeta(
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        string $uploadType,
+        string $vaultVersion,
+        array $context
+    ): array {
+        return [
+            'source_type'   => $sourceType,
+            'source_ref'    => $sourceRef,
+            'source_label'  => $sourceLabel,
+            'vault_version' => $vaultVersion,
+            'upload_type'   => $uploadType,
+            'rfc'           => (string) ($context['rfc'] ?? ''),
+            'cuenta_id'     => (string) ($context['cuenta_id'] ?? ''),
+            'folio'         => (string) ($context['folio'] ?? ''),
+            'created_from'  => 'admin_sat_ops_downloads',
+        ];
+    }
+
+    private function buildSourceContextText(
+        string $sourceType,
+        string $sourceRef,
+        string $sourceLabel,
+        string $uploadType,
+        string $vaultVersion,
+        array $context,
+        string $adminNotes = ''
+    ): string {
+        $parts = array_filter([
+            'Carga manual administrativa',
+            'origen: ' . $sourceType,
+            $sourceRef !== '' ? 'ref: ' . $sourceRef : null,
+            $sourceLabel !== '' ? 'label: ' . $sourceLabel : null,
+            'tipo: ' . $uploadType,
+            'bóveda: ' . $vaultVersion,
+            !empty($context['rfc']) ? 'rfc: ' . (string) $context['rfc'] : null,
+            !empty($context['folio']) ? 'folio: ' . (string) $context['folio'] : null,
+            $adminNotes !== '' ? 'nota: ' . $adminNotes : null,
+        ]);
+
+        return implode(' · ', $parts);
+    }
+
+    private function resolveManualUploadDisk(string $targetVault): string
+    {
+        if ($targetVault === 'v2' && config('filesystems.disks.sat_vault')) {
+            return 'sat_vault';
+        }
+
+        if ($targetVault === 'v1' && config('filesystems.disks.private')) {
+            return 'private';
+        }
+
+        return (string) config('filesystems.default', 'local');
+    }
+
+    private function detectReportTypeFromExtension(string $extension): string
+    {
+        return match (strtolower(trim($extension))) {
+            'xlsx' => 'xlsx_report',
+            'xls'  => 'xls_report',
+            'txt'  => 'txt_report',
+            default => 'csv_report',
+        };
+    }
+
+    private function fillModelBySchema(Model $model, array $values): void
+    {
+        $table  = $model->getTable();
+        $conn   = $model->getConnectionName() ?: self::CONN;
+        $schema = Schema::connection($conn);
+
+        foreach ($values as $column => $value) {
+            if ($schema->hasColumn($table, $column)) {
+                $model->setAttribute($column, $value);
+            }
+        }
+    }
+
+    private function firstExistingColumn(string $table, array $candidates): ?string
+    {
+        $schema = Schema::connection(self::CONN);
+
+        foreach ($candidates as $column) {
+            if ($schema->hasColumn($table, $column)) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    private function firstValueFromRow(array $row, array $candidates): mixed
+    {
+        foreach ($candidates as $column) {
+            if (array_key_exists($column, $row) && $row[$column] !== null && $row[$column] !== '') {
+                return $row[$column];
+            }
+        }
+
+        return null;
+    }
+
+        private function findProfileContextByRfc(string $rfc): ?array
+    {
+        $rfc = strtoupper(trim($rfc));
+        if ($rfc === '') {
+            return null;
+        }
+
+        $tables = [
+            'cuentas_cliente',
+            'clientes',
+            'sat_profiles',
+        ];
+
+        foreach ($tables as $table) {
+            if (!$this->clientesTableExists($table)) {
+                continue;
+            }
+
+            $schema = Schema::connection(self::CONN);
+            $conn   = DB::connection(self::CONN);
+
+            $rfcColumn = $this->firstExistingColumn($table, ['rfc', 'rfc_padre', 'rfc_cliente', 'customer_rfc']);
+            if ($rfcColumn === null) {
+                continue;
+            }
+
+            $row = $conn->table($table)
+                ->whereRaw('UPPER(COALESCE(' . $rfcColumn . ', "")) = ?', [$rfc])
+                ->first();
+
+            if (!$row) {
+                continue;
+            }
+
+            return [
+                'source_table' => $table,
+                'cuenta_id'    => $this->firstValueFromRow((array) $row, ['id', 'cuenta_id', 'account_id']),
+                'rfc'          => $rfc,
+                'razon_social' => (string) $this->firstValueFromRow((array) $row, ['razon_social', 'nombre_comercial', 'customer_name', 'cliente_nombre']),
+                'folio'        => '',
+                'raw'          => (array) $row,
+            ];
+        }
+
+        return null;
+    }
+
+    private function buildReplacementContext(object $existing, string $replaceType, string $rfc): array
+    {
+        return [
+            'source_table' => method_exists($existing, 'getTable') ? $existing->getTable() : $replaceType,
+            'cuenta_id'    => $existing->cuenta_id ?? null,
+            'rfc'          => $rfc,
+            'razon_social' => '',
+            'folio'        => '',
+            'raw'          => [
+                'replace_type' => $replaceType,
+                'replace_id'   => method_exists($existing, 'getKey') ? (string) $existing->getKey() : '',
+            ],
+        ];
+    }
+
+        private function detectSatDownloadIssue(SatDownload $row, array $file, bool $isReady): string
+    {
+        if (!$isReady) {
+            return 'not_ready';
+        }
+
+        if (trim((string) ($file['path'] ?? '')) === '') {
+            return 'missing_path';
+        }
+
+        if (trim((string) ($file['disk'] ?? '')) === '') {
+            return 'missing_disk';
+        }
+
+        if (!config('filesystems.disks.' . (string) $file['disk'])) {
+            return 'invalid_disk';
+        }
+
+        try {
+            if (!Storage::disk((string) $file['disk'])->exists((string) $file['path'])) {
+                return 'missing_file';
+            }
+        } catch (\Throwable) {
+            return 'invalid_disk';
+        }
+
+        return '';
+    }
+
+    private function buildDownloadUnavailableMessage(string $type, object $model, string $reason): string
+    {
+        if ($type === 'satdownload') {
+            $status = strtolower(trim((string) ($model->status ?? '')));
+
+            return match ($reason) {
+                'missing_path' => in_array($status, ['pending', 'requested', 'processing', 'created'], true)
+                    ? 'La descarga SAT todavía no genera archivo. El estatus actual es: ' . ($model->status ?? 'pending') . '.'
+                    : 'La descarga SAT no tiene ruta de archivo configurada.',
+                'missing_disk' => 'La descarga SAT no tiene disco configurado para el archivo.',
+                'missing_file' => 'La descarga SAT sí tiene referencia, pero el archivo físico ya no existe en almacenamiento.',
+                default => 'La descarga SAT no está disponible para descargar.',
+            };
+        }
+
+        return match ($reason) {
+            'missing_path' => 'El registro no tiene archivo configurado.',
+            'missing_disk' => 'El registro no tiene disco configurado.',
+            'missing_file' => 'El archivo físico ya no existe en almacenamiento.',
+            default => 'La descarga no está disponible.',
+        };
+    }
+
+       private function syncQuoteAfterManualUpload(string $quoteId, int $created = 0): void
+    {
+        $quoteId = trim($quoteId);
+        if ($quoteId === '') {
+            return;
+        }
+
+        $row = SatDownload::query()
+            ->where('id', $quoteId)
+            ->where('tipo', 'quote')
+            ->first();
+
+        if (!$row) {
+            return;
+        }
+
+        $meta = is_array($row->meta ?? null) ? $row->meta : [];
+
+        $currentProgress = (int) data_get($meta, 'progress', 90);
+        $nextProgress = $created > 0 ? max(90, $currentProgress) : $currentProgress;
+        $uploadedFilesCount = (int) data_get($meta, 'uploaded_files_count', 0) + max(0, $created);
+
+        $meta['status_ui'] = 'en_descarga';
+        $meta['progress'] = min(99, $nextProgress);
+        $meta['customer_action'] = 'download_in_progress';
+        $meta['download_stage'] = 'manual_upload_started';
+        $meta['download_started_at'] = (string) (data_get($meta, 'download_started_at') ?: now()->toIso8601String());
+        $meta['uploaded_files_count'] = $uploadedFilesCount;
+        $meta['last_manual_upload_at'] = now()->toIso8601String();
+
+        $quoteMeta = is_array(data_get($meta, 'quote')) ? data_get($meta, 'quote') : [];
+        $quoteMeta['status_ui'] = 'en_descarga';
+        $quoteMeta['progress'] = min(99, $nextProgress);
+        $quoteMeta['uploaded_files_count'] = $uploadedFilesCount;
+        $meta['quote'] = $quoteMeta;
+
+        // Mantener paid para no romper el flujo de negocio ya pagado,
+        // pero dejar la UI en modo "en descarga".
+        if (strtolower(trim((string) $row->status)) !== 'done') {
+            $row->status = 'paid';
+        }
+
+        $row->meta = $meta;
+        $row->save();
+    }
 }

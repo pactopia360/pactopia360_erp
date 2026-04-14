@@ -54,9 +54,7 @@ class P360SendStatements extends Command
 
         $baseQuery = BillingStatement::query()->where('period', $period);
 
-        if ($status !== 'all') {
-            $baseQuery->where('status', $status);
-        }
+        $this->applyStatusFilter($baseQuery, $status);
 
         $totalMatching = (clone $baseQuery)->count();
 
@@ -179,7 +177,6 @@ class P360SendStatements extends Command
     {
         $conn = 'mysql_admin';
 
-        // snapshot debe existir y no ser null/vacío
         if (Schema::connection($conn)->hasColumn('billing_statements', 'snapshot')) {
             $query->whereNotNull('snapshot')
                 ->where('snapshot', '<>', '')
@@ -192,20 +189,83 @@ class P360SendStatements extends Command
         $hasAbono = Schema::connection($conn)->hasColumn('billing_statements', 'total_abono');
         $hasSaldo = Schema::connection($conn)->hasColumn('billing_statements', 'saldo');
 
-        // En modo reminder para pending:
-        // SOLO reenviar si realmente sigue con saldo > 0
-        if ($reminder && $status === 'pending' && $hasSaldo) {
+        // Regla principal del negocio:
+        // si se pide pending, solo deben salir estados con saldo real > 0.
+        // Esto evita enviar cuentas ya cubiertas por prepago, pago anual
+        // o cualquier statement que ya no tenga adeudo aunque el status esté desfasado.
+        if ($status === 'pending' && $hasSaldo) {
             $query->where('saldo', '>', 0);
             return;
         }
 
-        // Envío normal: no encolar statements totalmente vacíos
+        // En otros estatus, no permitir statements totalmente vacíos.
         if ($hasCargo && $hasAbono && $hasSaldo) {
             $query->where(function (Builder $q) {
                 $q->where('total_cargo', '>', 0)
                   ->orWhere('total_abono', '>', 0)
                   ->orWhere('saldo', '>', 0);
             });
+
+            return;
         }
+
+        if ($hasSaldo) {
+            $query->where('saldo', '>', 0);
+        }
+    }
+
+        private function applyStatusFilter(Builder $query, string $status): void
+    {
+        if ($status === 'all') {
+            return;
+        }
+
+        $values = $this->resolveStatusValues($status);
+
+        if (empty($values)) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($values) {
+            foreach ($values as $index => $value) {
+                if ($index === 0) {
+                    $q->where('status', $value);
+                    continue;
+                }
+
+                $q->orWhere('status', $value);
+            }
+        });
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function resolveStatusValues(string $status): array
+    {
+        return match ($status) {
+            'pending' => [
+                'pending',
+                'pendiente',
+                'overdue',
+                'vencido',
+                'late',
+                'partial',
+                'parcial',
+            ],
+            'paid' => [
+                'paid',
+                'pagado',
+            ],
+            'credit' => [
+                'credit',
+                'credito',
+                'crédito',
+                'sin_mov',
+                'sin movimiento',
+            ],
+            default => [],
+        };
     }
 }

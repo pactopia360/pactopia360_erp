@@ -7,13 +7,17 @@ namespace App\Http\Controllers\Cliente\Sat;
 use App\Http\Controllers\Controller;
 use App\Models\Cliente\SatCredential;
 use App\Services\Sat\Client\SatClientContext;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 final class SatRfcController extends Controller
@@ -275,13 +279,164 @@ final class SatRfcController extends Controller
             ->with('ok', 'RFC dado de baja correctamente.');
     }
 
+    public function downloadAsset(Request $request, string $id, string $type)
+    {
+        $user = $this->user();
+        if (!$user) {
+            abort(401, 'Sesión expirada.');
+        }
+
+        $credential = $this->resolveOwnedCredential($id);
+        if (!$credential) {
+            abort(404, 'RFC no encontrado.');
+        }
+
+        $type = strtolower(trim($type));
+
+        $map = [
+            'fiel_cer' => [
+                'column' => 'fiel_cer_path',
+                'fallback_column' => 'cer_path',
+                'download_name' => 'fiel',
+                'extension' => 'cer',
+            ],
+            'fiel_key' => [
+                'column' => 'fiel_key_path',
+                'fallback_column' => 'key_path',
+                'download_name' => 'fiel',
+                'extension' => 'key',
+            ],
+            'csd_cer' => [
+                'column' => 'csd_cer_path',
+                'fallback_column' => null,
+                'download_name' => 'csd',
+                'extension' => 'cer',
+            ],
+            'csd_key' => [
+                'column' => 'csd_key_path',
+                'fallback_column' => null,
+                'download_name' => 'csd',
+                'extension' => 'key',
+            ],
+        ];
+
+        if (!array_key_exists($type, $map)) {
+            abort(404, 'Tipo de archivo no válido.');
+        }
+
+        $def = $map[$type];
+
+        $storedPath = trim((string) ($credential->{$def['column']} ?? ''));
+        if ($storedPath === '' && !empty($def['fallback_column'])) {
+            $fallback = (string) $def['fallback_column'];
+            $storedPath = trim((string) ($credential->{$fallback} ?? ''));
+        }
+
+        if ($storedPath === '') {
+            abort(404, 'Archivo no configurado para este RFC.');
+        }
+
+        [$disk, $realPath] = $this->resolveStoredPath($storedPath);
+        if ($disk === null || $realPath === null) {
+            abort(404, 'Archivo no encontrado en almacenamiento.');
+        }
+
+        $rfc = strtoupper(trim((string) $credential->rfc));
+        $downloadName = $def['download_name'] . '_' . $rfc . '.' . $def['extension'];
+
+        try {
+            $stream = Storage::disk($disk)->readStream($realPath);
+            if (!$stream) {
+                abort(404, 'No se pudo abrir el archivo.');
+            }
+
+            return response()->streamDownload(function () use ($stream) {
+                fpassthru($stream);
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }, $downloadName, [
+                'Content-Type' => 'application/octet-stream',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[SAT RFC] downloadAsset failed', [
+                'trace_id' => $this->trace(),
+                'id' => $id,
+                'type' => $type,
+                'disk' => $disk,
+                'path' => $realPath,
+                'err' => $e->getMessage(),
+            ]);
+
+            abort(500, 'No se pudo descargar el archivo.');
+        }
+    }
+
+    public function revealPassword(Request $request, string $id, string $scope): JsonResponse
+    {
+        $user = $this->user();
+        if (!$user) {
+            return response()->json(['ok' => false, 'msg' => 'No autorizado.'], 401);
+        }
+
+        $credential = $this->resolveOwnedCredential($id);
+        if (!$credential) {
+            return response()->json(['ok' => false, 'msg' => 'RFC no encontrado.'], 404);
+        }
+
+        $scope = strtolower(trim($scope));
+
+        $encrypted = match ($scope) {
+            'fiel' => $this->resolveEncryptedPasswordValue($credential, ['fiel_password_enc', 'key_password']),
+            'csd'  => $this->resolveEncryptedPasswordValue($credential, ['csd_password_enc']),
+            default => null,
+        };
+
+        if ($encrypted === null || trim($encrypted) === '') {
+            return response()->json([
+                'ok' => true,
+                'password' => null,
+                'msg' => 'No hay contraseña guardada para este bloque.',
+            ], 200);
+        }
+
+        $plain = $this->decryptStoredValue($encrypted);
+
+        if ($plain === null) {
+            Log::warning('[SAT RFC] revealPassword decrypt failed', [
+                'trace_id' => $this->trace(),
+                'id' => $id,
+                'scope' => $scope,
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'msg' => 'No se pudo descifrar la contraseña.',
+            ], 500);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'password' => $plain,
+        ], 200);
+    }
+
     private function persistCredentialFromRequest(
         SatCredential $credential,
         Request $request,
         bool $requireFiel,
         bool $allowRfcChange
     ): void {
-        $validated = $request->validated();
+        $validated = [
+            'rfc' => (string) $request->input('rfc', ''),
+            'razon_social' => (string) $request->input('razon_social', ''),
+            'tipo_origen' => (string) $request->input('tipo_origen', 'interno'),
+            'origen_detalle' => (string) $request->input('origen_detalle', ''),
+            'source_label' => (string) $request->input('source_label', ''),
+            'fiel_password' => (string) $request->input('fiel_password', ''),
+            'csd_password' => (string) $request->input('csd_password', ''),
+        ];
 
         $rfc = strtoupper(trim((string) $validated['rfc']));
         $razonSocial = trim((string) ($validated['razon_social'] ?? ''));
@@ -562,6 +717,98 @@ final class SatRfcController extends Controller
 
             return collect();
         }
+    }
+
+    private function resolveOwnedCredential(string $id): ?SatCredential
+    {
+        $cuentaId = $this->cuentaId();
+        if ($cuentaId === '') {
+            return null;
+        }
+
+        /** @var SatCredential|null $credential */
+        $credential = SatCredential::query()
+            ->where(function ($q) use ($cuentaId) {
+                $q->where('cuenta_id', $cuentaId)
+                    ->orWhere('account_id', $cuentaId);
+            })
+            ->where('id', $id)
+            ->first();
+
+        if (!$credential || $this->isLogicallyDeleted($credential)) {
+            return null;
+        }
+
+        return $credential;
+    }
+
+    private function resolveStoredPath(string $storedPath): array
+    {
+        $storedPath = ltrim(trim($storedPath), '/');
+
+        $candidates = array_values(array_unique(array_filter([
+            $storedPath,
+            str_starts_with($storedPath, 'private/') ? substr($storedPath, 8) : null,
+            str_starts_with($storedPath, 'public/') ? substr($storedPath, 7) : null,
+        ])));
+
+        foreach (['private', 'public'] as $disk) {
+            foreach ($candidates as $candidate) {
+                try {
+                    if (Storage::disk($disk)->exists($candidate)) {
+                        return [$disk, $candidate];
+                    }
+                } catch (\Throwable) {
+                    // ignore
+                }
+            }
+        }
+
+        return [null, null];
+    }
+
+    private function resolveEncryptedPasswordValue(SatCredential $credential, array $columns): ?string
+    {
+        foreach ($columns as $column) {
+            try {
+                $value = $credential->{$column} ?? null;
+                if (is_string($value) && trim($value) !== '') {
+                    return $value;
+                }
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
+
+        return null;
+    }
+
+    private function decryptStoredValue(string $encrypted): ?string
+    {
+        $encrypted = trim($encrypted);
+        if ($encrypted === '') {
+            return null;
+        }
+
+        try {
+            $value = decrypt($encrypted);
+            return is_string($value) ? $value : null;
+        } catch (\Throwable) {
+            // continue
+        }
+
+        try {
+            return Crypt::decryptString($encrypted);
+        } catch (\Throwable) {
+            // continue
+        }
+
+        $decoded = base64_decode($encrypted, true);
+        if (is_string($decoded) && $decoded !== '') {
+            return $decoded;
+        }
+
+        return null;
     }
 
     private function isLogicallyDeleted(SatCredential $credential): bool

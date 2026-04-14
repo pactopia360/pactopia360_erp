@@ -23,14 +23,28 @@
     $metadataRecordFilters = $metadataRecordFilters ?? [];
     $reportRecordItems     = $reportRecordItems ?? collect();
     $reportRecordFilters   = $reportRecordFilters ?? [];
+    $paidQuotesForUpload   = $paidQuotesForUpload ?? collect();
 
-    $totalItems    = count($items);
-    $countMetadata = collect($items)->where('type', 'metadata')->count();
-    $countXml      = collect($items)->where('type', 'xml')->count();
-    $countReport   = collect($items)->where('type', 'report')->count();
-    $countVault    = collect($items)->where('type', 'vault')->count();
-    $countSatDl    = collect($items)->where('type', 'satdownload')->count();
+    $paidQuotesForUpload = collect($paidQuotesForUpload)->map(function ($quote) {
+        $quote = (array) $quote;
 
+        $quote['search_blob'] = mb_strtolower(trim(implode(' ', array_filter([
+            (string) ($quote['folio'] ?? ''),
+            (string) ($quote['rfc'] ?? ''),
+            (string) ($quote['customer'] ?? ''),
+            (string) ($quote['label'] ?? ''),
+        ]))));
+
+        return $quote;
+    })->values();
+
+    $manualUploadModes = [
+        'quote'   => 'Desde cotización pagada',
+        'profile' => 'Carga directa al perfil',
+        'replace' => 'Reemplazo de carga existente',
+    ];
+
+    $totalItems  = count($items);
     $totalCfdi   = count($cfdiItems);
     $countCfdiV1 = (int) ($cfdiCounts['v1'] ?? 0);
     $countCfdiV2 = (int) ($cfdiCounts['v2'] ?? 0);
@@ -42,8 +56,6 @@
     $totalReportRecords = method_exists($reportRecordItems, 'total')
         ? (int) $reportRecordItems->total()
         : count($reportRecordItems);
-
-    $typeFilterUi = !empty($filters['type']) ? strtoupper((string) $filters['type']) : 'ALL';
 
     $statusOptions = [
         ''                => '—',
@@ -99,23 +111,6 @@
     ])->filter(fn($v) => filled($v))->count();
 @endphp
 
-@section('page-header')
-    <div class="p360-ph">
-        <div class="p360-ph-left">
-            <div class="p360-ph-kicker">ADMIN · SAT OPS</div>
-            <h1 class="p360-ph-title">Descargas</h1>
-            <div class="p360-ph-sub">
-                Centro de administración para archivos SAT, CFDI indexados, metadata y reportes derivados del portal cliente.
-            </div>
-        </div>
-
-        <div class="p360-ph-right">
-            <a class="p360-btn" href="{{ $backUrl }}">← Volver</a>
-            <button type="button" class="p360-btn" onclick="location.reload()">Refrescar</button>
-        </div>
-    </div>
-@endsection
-
 @section('content')
     <div class="ops-shell ops-shell--redesign">
 
@@ -131,112 +126,68 @@
             </div>
         @endif
 
-        {{-- HERO / RESUMEN --}}
-        <section class="ops-hero">
-            <div class="ops-hero__main">
-                <div class="ops-hero__eyebrow">Centro de administración SAT</div>
-                <h2 class="ops-hero__title">Operación consolidada de descargas y datos derivados</h2>
-                <p class="ops-hero__text">
-                    Gestiona archivos cargados, CFDI indexados, metadata del portal y reportes desde una sola vista con bloques separados,
-                    filtros rápidos y acciones masivas mejor distribuidas.
+       {{-- CABECERA LIMPIA DEL MÓDULO --}}
+       <section class="ops-module-strip">
+            <div class="ops-module-strip__main">
+                <div class="ops-module-strip__eyebrow">Centro de administración SAT</div>
+                <h2 class="ops-module-strip__title">Operación de descargas</h2>
+                <p class="ops-module-strip__text">
+                    Administra archivos SAT, CFDI indexados, metadata y reportes desde una sola vista, con acceso rápido a cada bloque operativo.
                 </p>
+            </div>
 
-                <div class="ops-hero__chips">
-                    <span class="ops-pill">Archivos {{ number_format($totalItems) }}</span>
-                    <span class="ops-pill">CFDI {{ number_format($totalCfdi) }}</span>
-                    <span class="ops-pill">Metadata {{ number_format($totalMetadataRecords) }}</span>
-                    <span class="ops-pill">Reportes {{ number_format($totalReportRecords) }}</span>
-                    <span class="ops-pill">Filtro {{ $typeFilterUi }}</span>
+            <div class="ops-module-strip__stats">
+                <div class="ops-module-stat">
+                    <span class="ops-module-stat__label">Archivos</span>
+                    <strong class="ops-module-stat__value">{{ number_format($totalItems) }}</strong>
+                </div>
+
+                <div class="ops-module-stat">
+                    <span class="ops-module-stat__label">CFDI</span>
+                    <strong class="ops-module-stat__value">{{ number_format($totalCfdi) }}</strong>
+                </div>
+
+                <div class="ops-module-stat">
+                    <span class="ops-module-stat__label">Metadata</span>
+                    <strong class="ops-module-stat__value">{{ number_format($totalMetadataRecords) }}</strong>
+                </div>
+
+                <div class="ops-module-stat">
+                    <span class="ops-module-stat__label">Reportes</span>
+                    <strong class="ops-module-stat__value">{{ number_format($totalReportRecords) }}</strong>
                 </div>
             </div>
 
-            <div class="ops-hero__aside">
-                <div class="ops-summary-card">
-                    <div class="ops-summary-card__label">Total operativo</div>
-                    <div class="ops-summary-card__value">
-                        {{ number_format($totalItems + $totalCfdi + $totalMetadataRecords + $totalReportRecords) }}
-                    </div>
-                    <div class="ops-summary-card__hint">registros entre módulos</div>
-                </div>
+            <div class="ops-module-strip__actions">
+                <a class="p360-btn" href="{{ $backUrl }}">← Volver</a>
+                <button type="button" class="p360-btn" onclick="location.reload()">Refrescar</button>
             </div>
         </section>
 
-        {{-- KPIS --}}
-        <section class="ops-kpi-grid ops-kpi-grid--top">
-            <article class="ops-kpi-card ops-kpi-card--primary">
-                <div class="ops-kpi-card__label">Archivos SAT</div>
-                <div class="ops-kpi-card__value">{{ number_format($totalItems) }}</div>
-                <div class="ops-kpi-card__hint">Cargas registradas</div>
-            </article>
+        {{-- NAVEGACIÓN LIMPIA --}}
+        <section class="ops-quick-nav ops-quick-nav--compact">
+            <a href="#panel-upload-from-quote" class="ops-quick-nav__item">
+                <span class="ops-quick-nav__title">Carga</span>
+            </a>
 
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">Metadata</div>
-                <div class="ops-kpi-card__value">{{ number_format($countMetadata) }}</div>
-                <div class="ops-kpi-card__hint">Lotes metadata</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">XML</div>
-                <div class="ops-kpi-card__value">{{ number_format($countXml) }}</div>
-                <div class="ops-kpi-card__hint">Lotes XML</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">Reportes</div>
-                <div class="ops-kpi-card__value">{{ number_format($countReport) }}</div>
-                <div class="ops-kpi-card__hint">Lotes de reporte</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">CFDI indexados</div>
-                <div class="ops-kpi-card__value">{{ number_format($totalCfdi) }}</div>
-                <div class="ops-kpi-card__hint">Índices disponibles</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">CFDI v2</div>
-                <div class="ops-kpi-card__value">{{ number_format($countCfdiV2) }}</div>
-                <div class="ops-kpi-card__hint">Bóveda v2</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">Bóveda v1</div>
-                <div class="ops-kpi-card__value">{{ number_format($countVault) }}</div>
-                <div class="ops-kpi-card__hint">Heredados</div>
-            </article>
-
-            <article class="ops-kpi-card">
-                <div class="ops-kpi-card__label">SAT v1</div>
-                <div class="ops-kpi-card__value">{{ number_format($countSatDl) }}</div>
-                <div class="ops-kpi-card__hint">Descargas históricas</div>
-            </article>
-        </section>
-
-        {{-- NAVEGACIÓN --}}
-        <section class="ops-quick-nav ops-quick-nav--modern">
             <a href="#panel-files" class="ops-quick-nav__item">
-                <span class="ops-quick-nav__title">Archivos cargados</span>
-                <span class="ops-quick-nav__meta">{{ number_format($totalItems) }}</span>
+                <span class="ops-quick-nav__title">Archivos</span>
             </a>
 
             <a href="#panel-purge" class="ops-quick-nav__item">
-                <span class="ops-quick-nav__title">Limpieza avanzada</span>
-                <span class="ops-quick-nav__meta">CFDI</span>
+                <span class="ops-quick-nav__title">Limpieza</span>
             </a>
 
             <a href="#panel-cfdi" class="ops-quick-nav__item">
-                <span class="ops-quick-nav__title">CFDI indexados</span>
-                <span class="ops-quick-nav__meta">{{ number_format($totalCfdi) }}</span>
+                <span class="ops-quick-nav__title">CFDI</span>
             </a>
 
             <a href="#panel-metadata" class="ops-quick-nav__item">
-                <span class="ops-quick-nav__title">Metadata portal</span>
-                <span class="ops-quick-nav__meta">{{ number_format($totalMetadataRecords) }}</span>
+                <span class="ops-quick-nav__title">Metadata</span>
             </a>
 
             <a href="#panel-reports" class="ops-quick-nav__item">
-                <span class="ops-quick-nav__title">Reportes portal</span>
-                <span class="ops-quick-nav__meta">{{ number_format($totalReportRecords) }}</span>
+                <span class="ops-quick-nav__title">Reportes</span>
             </a>
 
             <button type="button" class="ops-quick-nav__item ops-quick-nav__item--button" data-expand-all>
@@ -247,6 +198,311 @@
                 Contraer todo
             </button>
         </section>
+
+                {{-- CENTRO DE CARGA ADMINISTRATIVA --}}
+        <details class="ops-accordion ops-card ops-card--upload-quote" id="panel-upload-from-quote" open>
+            <summary class="ops-accordion__summary">
+                <div class="ops-accordion__head">
+                    <div class="ops-accordion__intro">
+                        <div class="ops-card__eyebrow">Centro de carga</div>
+                        <div class="ops-card__title">Administración de cargas SAT</div>
+                        <div class="ops-card__sub">
+                            Registra archivos por cotización, por perfil o como reemplazo administrativo desde una sola zona operativa.
+                        </div>
+                    </div>
+
+                    <div class="ops-card__side">
+                        <div class="ops-counter">{{ number_format(count($paidQuotesForUpload)) }} cotización(es)</div>
+                        <div class="ops-counter ops-counter--soft">XML · Metadata · Reporte</div>
+                        <div class="ops-accordion__toggle">Expandir / contraer</div>
+                    </div>
+                </div>
+            </summary>
+
+            <div class="ops-accordion__body">
+                <div class="ops-upload-admin">
+                    <div class="ops-upload-admin__top">
+                        <div class="ops-upload-admin__modes">
+                            @foreach($manualUploadModes as $modeKey => $modeLabel)
+                                <button
+                                    type="button"
+                                    class="ops-upload-mode {{ $modeKey === 'quote' ? 'is-active' : '' }}"
+                                    data-upload-mode="{{ $modeKey }}"
+                                >
+                                    {{ $modeLabel }}
+                                </button>
+                            @endforeach
+                        </div>
+
+                        <div class="ops-upload-admin__help">
+                            <strong>Uso recomendado:</strong>
+                            usa cotización cuando exista pago confirmado; usa perfil para cargas manuales sin cotización; usa reemplazo cuando el archivo anterior ya no deba ser el vigente.
+                        </div>
+                    </div>
+
+                    <form
+                        method="POST"
+                        action="{{ route('admin.sat.ops.downloads.upload_from_quote') }}"
+                        data-action-quote="{{ route('admin.sat.ops.downloads.upload_from_quote') }}"
+                        data-action-profile="{{ route('admin.sat.ops.downloads.upload_from_profile') }}"
+                        data-action-replace="{{ route('admin.sat.ops.downloads.replace_upload') }}"
+                        enctype="multipart/form-data"
+                        class="ops-upload-admin__form"
+                        id="paidQuoteUploadForm"
+                    >
+                        @csrf
+
+                        <input type="hidden" name="manual_mode" id="manual_mode" value="quote">
+
+                                                <div class="ops-upload-admin__section">
+                            <div class="ops-upload-admin__section-head">
+                                <div class="ops-upload-admin__section-title">1. Origen de la carga</div>
+                                <div class="ops-upload-admin__section-sub">
+                                    Define si esta carga pertenece a una cotización pagada, a una carga directa al perfil o a un reemplazo administrativo.
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__grid ops-upload-admin__grid--origin">
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow" data-mode-scope="quote">
+                                    <label class="ops-label" for="quote_search">Buscar cotización</label>
+                                    <input
+                                        id="quote_search"
+                                        type="search"
+                                        class="ops-input"
+                                        placeholder="Buscar por folio, RFC o cliente"
+                                        autocomplete="off"
+                                    >
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow" data-mode-scope="quote">
+                                    <label class="ops-label" for="quote_id">Cotización pagada</label>
+                                    <select id="quote_id" name="quote_id" class="ops-select" required>
+                                        <option value="">Seleccionar cotización pagada</option>
+                                        @foreach($paidQuotesForUpload as $quote)
+                                            <option
+                                                value="{{ $quote['id'] ?? '' }}"
+                                                data-rfc="{{ $quote['rfc'] ?? '' }}"
+                                                data-folio="{{ $quote['folio'] ?? '' }}"
+                                                data-customer="{{ $quote['customer'] ?? '' }}"
+                                                data-source-table="{{ $quote['source_table'] ?? '' }}"
+                                                data-search="{{ $quote['search_blob'] ?? '' }}"
+                                            >
+                                                {{ $quote['label'] ?? (($quote['folio'] ?? 'Sin folio') . ' · ' . ($quote['rfc'] ?? 'Sin RFC')) }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
+                                <div class="ops-upload-admin__field" data-mode-scope="quote">
+                                    <label class="ops-label">Origen admin</label>
+                                    <div class="ops-upload-admin__readonly" id="manualOriginReadonly">
+                                        Cotización pagada
+                                    </div>
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow ops-upload-admin__is-hidden" data-mode-scope="profile">
+                                    <label class="ops-label" for="profile_reference">Perfil / referencia</label>
+                                    <input
+                                        id="profile_reference"
+                                        class="ops-input"
+                                        type="text"
+                                        name="profile_reference"
+                                        value=""
+                                        placeholder="RFC, razón social o referencia interna"
+                                    >
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__is-hidden" data-mode-scope="profile">
+                                    <label class="ops-label" for="admin_notes">Nota admin</label>
+                                    <input
+                                        id="admin_notes"
+                                        class="ops-input"
+                                        type="text"
+                                        name="admin_notes"
+                                        value=""
+                                        placeholder="Motivo de carga directa"
+                                    >
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__is-hidden" data-mode-scope="replace">
+                                    <label class="ops-label" for="replace_type">Tipo a reemplazar</label>
+                                    <select id="replace_type" name="replace_type" class="ops-select">
+                                        <option value="">Seleccionar tipo</option>
+                                        <option value="metadata">Metadata</option>
+                                        <option value="xml">XML</option>
+                                        <option value="report">Reporte</option>
+                                        <option value="vault">Bóveda v1</option>
+                                        <option value="satdownload">Descarga SAT v1</option>
+                                    </select>
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow ops-upload-admin__is-hidden" data-mode-scope="replace">
+                                    <label class="ops-label" for="replace_id">ID a reemplazar</label>
+                                    <input
+                                        id="replace_id"
+                                        class="ops-input"
+                                        type="text"
+                                        name="replace_id"
+                                        value=""
+                                        placeholder="ID del registro existente"
+                                    >
+                                </div>
+
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow ops-upload-admin__is-hidden" data-mode-scope="replace">
+                                    <label class="ops-label" for="replacement_reason">Motivo del reemplazo</label>
+                                    <input
+                                        id="replacement_reason"
+                                        class="ops-input"
+                                        type="text"
+                                        name="replacement_reason"
+                                        value=""
+                                        placeholder="Describe por qué reemplazas esta carga"
+                                    >
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__notice" id="manualModeNotice">
+                                Modo cotización: selecciona una cotización pagada válida antes de registrar la carga.
+                            </div>
+                        </div>
+
+                        <div class="ops-upload-admin__section">
+                            <div class="ops-upload-admin__section-head">
+                                <div class="ops-upload-admin__section-title">2. Destino y tipo</div>
+                                <div class="ops-upload-admin__section-sub">
+                                    Define qué vas a cargar y hacia qué bóveda se va a registrar.
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__grid ops-upload-admin__grid--config">
+                                <div class="ops-upload-admin__field">
+                                    <label class="ops-label" for="upload_type">Tipo</label>
+                                    <select id="upload_type" name="upload_type" class="ops-select" required>
+                                        <option value="">Tipo</option>
+                                        <option value="xml">XML</option>
+                                        <option value="metadata">Metadata</option>
+                                        <option value="report">Reporte</option>
+                                    </select>
+                                </div>
+
+                                <div class="ops-upload-admin__field">
+                                    <label class="ops-label" for="target_vault">Bóveda</label>
+                                    <select id="target_vault" name="target_vault" class="ops-select" required>
+                                        <option value="">Destino</option>
+                                        <option value="v1">V1</option>
+                                        <option value="v2">V2</option>
+                                    </select>
+                                </div>
+
+                                <div class="ops-upload-admin__field">
+                                    <label class="ops-label" for="direction">Dirección</label>
+                                    <select id="direction" name="direction" class="ops-select">
+                                        <option value="">Sin definir</option>
+                                        <option value="emitidos">Emitidos</option>
+                                        <option value="recibidos">Recibidos</option>
+                                    </select>
+                                </div>
+
+                                <div class="ops-upload-admin__field">
+                                    <label class="ops-label" for="customer_rfc">RFC destino</label>
+                                    <input
+                                        id="customer_rfc"
+                                        class="ops-input"
+                                        type="text"
+                                        name="customer_rfc"
+                                        value=""
+                                        placeholder="Auto / manual"
+                                    >
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="ops-upload-admin__section">
+                            <div class="ops-upload-admin__section-head">
+                                <div class="ops-upload-admin__section-title">3. Archivos y confirmación</div>
+                                <div class="ops-upload-admin__section-sub">
+                                    Sube uno o varios archivos y valida el resumen antes de registrar.
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__grid ops-upload-admin__grid--files">
+                                <div class="ops-upload-admin__field ops-upload-admin__field--grow">
+                                    <label class="ops-label" for="files">Archivos</label>
+                                    <input
+                                        id="files"
+                                        class="ops-input"
+                                        type="file"
+                                        name="files[]"
+                                        multiple
+                                        required
+                                    >
+                                </div>
+
+                                <button
+                                        type="submit"
+                                        class="p360-btn p360-btn--primary"
+                                        id="manualUploadSubmit"
+                                        onclick="return confirm('¿Confirmas registrar esta carga administrativa con la configuración seleccionada?');"
+                                    >
+                                        Registrar carga
+                                </button>
+                            </div>
+
+                            <div id="quoteUploadSummary" class="ops-upload-admin__summary">
+                                Selecciona una cotización pagada para ver el resumen.
+                            </div>
+                        </div>
+
+                                                <div class="ops-upload-admin__footer">
+                            <div class="ops-upload-admin__footer-card">
+                                <div class="ops-upload-admin__footer-title">Flujos disponibles</div>
+                                <div class="ops-upload-admin__footer-text">
+                                    Cotización pagada, carga directa al perfil y reemplazo administrativo ya quedan amarrados a rutas separadas.
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__footer-card">
+                                <div class="ops-upload-admin__footer-title">Cierre de entrega</div>
+                                <div class="ops-upload-admin__footer-text">
+                                    Cuando la carga ya esté completa en metadata, XML y/o reportes, aquí debe cerrarse la solicitud como completada para reflejarlo en cliente v2.
+                                </div>
+
+                                <div class="ops-actions-inline" style="margin-top:10px;">
+                                    <select id="complete_quote_id" class="ops-select">
+                                        <option value="">Seleccionar cotización a finalizar</option>
+                                        @foreach($paidQuotesForUpload as $quote)
+                                            <option value="{{ $quote['id'] ?? '' }}">
+                                                {{ $quote['label'] ?? (($quote['folio'] ?? 'Sin folio') . ' · ' . ($quote['rfc'] ?? 'Sin RFC')) }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+
+                                    <button
+                                        type="button"
+                                        class="p360-btn p360-btn--primary"
+                                        id="markQuoteCompletedBtn"
+                                        disabled
+                                    >
+                                        Finalizar entrega
+                                    </button>
+                                </div>
+
+                                <div class="ops-upload-admin__footer-text" style="margin-top:8px;">
+                                    Este botón queda listo para conectarse al endpoint que marcará la cotización como <strong>completada</strong>.
+                                </div>
+                            </div>
+
+                            <div class="ops-upload-admin__footer-card">
+                                <div class="ops-upload-admin__footer-title">Siguiente mejora útil</div>
+                                <div class="ops-upload-admin__footer-text">
+                                    Lo siguiente recomendable es agregar una tabla de cargas recientes con editar, reemplazar y eliminar lote completo desde este mismo panel.
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </details>
 
         {{-- ARCHIVOS --}}
         <details class="ops-accordion ops-card ops-card--files" id="panel-files" open>
@@ -369,9 +625,13 @@
                                         ? Carbon::parse($item['created_at'])->format('d/m/Y H:i')
                                         : '—';
 
-                                    $isMetadata = $type === 'metadata';
-                                    $isXml      = $type === 'xml';
-                                    $isReport   = $type === 'report';
+                                    $isMetadata    = $type === 'metadata';
+                                    $isXml         = $type === 'xml';
+                                    $isReport      = $type === 'report';
+                                    $isSatDownload = $type === 'satdownload';
+
+                                    $canDownload   = (bool) ($item['can_download'] ?? true);
+                                    $downloadIssue = (string) ($item['download_issue'] ?? '');
 
                                     $counterLabel = '—';
                                     if ($isMetadata) {
@@ -406,14 +666,33 @@
                                     </td>
 
                                     <td>
-                                        <div class="ops-file">
-                                            <div class="ops-file__name">{{ $item['name'] ?: 'Sin nombre' }}</div>
-                                            <div class="ops-file__meta">
+                                        <div class="ops-file__meta">
                                                 ID #{{ $item['id'] }}
                                                 @if($direction !== '')
                                                     · {{ strtoupper($direction) }}
                                                 @endif
-                                            </div>
+                                                @if($isSatDownload && !$canDownload)
+                                                    ·
+                                                    @switch($downloadIssue)
+                                                        @case('not_ready')
+                                                            aún no lista
+                                                            @break
+                                                        @case('missing_path')
+                                                            sin ruta
+                                                            @break
+                                                        @case('missing_disk')
+                                                            sin disco
+                                                            @break
+                                                        @case('missing_file')
+                                                            archivo faltante
+                                                            @break
+                                                        @case('invalid_disk')
+                                                            disco inválido
+                                                            @break
+                                                        @default
+                                                            no disponible
+                                                    @endswitch
+                                                @endif
                                         </div>
                                     </td>
 
@@ -435,12 +714,18 @@
 
                                     <td class="ta-right">
                                         <div class="ops-row-actions">
-                                            <a
-                                                class="p360-btn p360-btn--sm"
-                                                href="{{ route('admin.sat.ops.downloads.download', [$type, $item['id']]) }}"
-                                            >
-                                                Descargar
-                                            </a>
+                                            @if(!$isSatDownload || $canDownload)
+                                                <a
+                                                    class="p360-btn p360-btn--sm"
+                                                    href="{{ route('admin.sat.ops.downloads.download', [$type, $item['id']]) }}"
+                                                >
+                                                    Descargar
+                                                </a>
+                                            @else
+                                                <span class="p360-btn p360-btn--sm is-disabled" aria-disabled="true" title="Esta descarga aún no está disponible">
+                                                    No disponible
+                                                </span>
+                                            @endif
 
                                             @if($isMetadata)
                                                 <details class="ops-inline-editor">
@@ -840,7 +1125,7 @@
 
                     <div class="ops-card__side">
                         <div class="ops-counter">{{ number_format($totalCfdi) }} registro(s)</div>
-                        <div class="ops-counter ops-counter--soft">v1 {{ number_format($countCfdiV1) }} · v2 {{ number_format($countCfdiV2) }}</div>
+                        <div class="ops-counter ops-counter--soft">índices listos</div>
                         <div class="ops-accordion__toggle">Expandir / contraer</div>
                     </div>
                 </div>
@@ -996,9 +1281,38 @@
                                     <td>{{ $row['fecha'] ?: '—' }}</td>
 
                                     <td>
-                                        <span class="ops-status">
-                                            {{ $row['direction'] ?: ($row['tipo'] ?: '—') }}
-                                        </span>
+                                        @if($isSatDownload && !$canDownload)
+                                            <span class="ops-status ops-status--warning">
+                                                @switch($downloadIssue)
+                                                    @case('not_ready')
+                                                        Pendiente
+                                                        @break
+
+                                                    @case('missing_path')
+                                                        Sin archivo
+                                                        @break
+
+                                                    @case('missing_disk')
+                                                        Sin disco
+                                                        @break
+
+                                                    @case('missing_file')
+                                                        Archivo faltante
+                                                        @break
+
+                                                    @case('invalid_disk')
+                                                        Disco inválido
+                                                        @break
+
+                                                    @default
+                                                        No disponible
+                                                @endswitch
+                                            </span>
+                                        @else
+                                            <span class="ops-status">
+                                                {{ $counterLabel }}
+                                            </span>
+                                        @endif
                                     </td>
 
                                     <td>
@@ -1606,8 +1920,30 @@ window.p360SatOpsDownloads = {
     bulkFilesDeleteUrl: @json(route('admin.sat.ops.downloads.bulk.files.delete')),
     bulkCfdiDeleteUrl: @json(route('admin.sat.ops.downloads.bulk.cfdi.delete')),
     bulkMetadataRecordsDeleteUrl: @json(route('admin.sat.ops.downloads.metadata.records.bulk_delete')),
-    bulkReportRecordsDeleteUrl: @json(route('admin.sat.ops.downloads.report.records.bulk_delete'))
+    bulkReportRecordsDeleteUrl: @json(route('admin.sat.ops.downloads.report.records.bulk_delete')),
+    uploadFromQuoteUrl: @json(route('admin.sat.ops.downloads.upload_from_quote')),
+    uploadFromProfileUrl: @json(route('admin.sat.ops.downloads.upload_from_profile')),
+    replaceUploadUrl: @json(route('admin.sat.ops.downloads.replace_upload')),
+    paidQuotes: @json(collect($paidQuotesForUpload ?? [])->values())
 };
 </script>
 <script src="{{ asset('assets/admin/js/pages/sat-ops-downloads.js') }}?v={{ filemtime(public_path('assets/admin/js/pages/sat-ops-downloads.js')) }}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const completeSelect = document.getElementById('complete_quote_id');
+    const completeBtn = document.getElementById('markQuoteCompletedBtn');
+
+    if (!completeSelect || !completeBtn) {
+        return;
+    }
+
+    const syncCompleteState = () => {
+        completeBtn.disabled = String(completeSelect.value || '').trim() === '';
+    };
+
+    completeSelect.addEventListener('change', syncCompleteState);
+    syncCompleteState();
+});
+</script>
 @endpush

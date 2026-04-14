@@ -723,7 +723,7 @@ final class StatementSyncService
         }
     }
 
-    private function recalcStatement(int $statementId): void
+        private function recalcStatement(int $statementId): void
     {
         $st = BillingStatement::query()->where('id', $statementId)->lockForUpdate()->firstOrFail();
 
@@ -732,35 +732,114 @@ final class StatementSyncService
             ->get(['amount']);
 
         $cargo = 0.0;
-        $abono = 0.0;
+        $abonoItems = 0.0;
 
         foreach ($items as $it) {
-            $a = (float)$it->amount;
-            if ($a >= 0) $cargo += $a;
-            else $abono += abs($a);
+            $a = (float) $it->amount;
+            if ($a >= 0) {
+                $cargo += $a;
+            } else {
+                $abonoItems += abs($a);
+            }
         }
+
+        $cargo = round($cargo, 2);
+        $abonoItems = round($abonoItems, 2);
+
+        $accountId = trim((string) ($st->account_id ?? ''));
+        $period    = trim((string) ($st->period ?? ''));
+
+        $paidFromPayments = $this->sumPaidPaymentsMxnForPeriod($accountId, $period);
 
         // roll-forward: prev_saldo desde meta
         $meta = $this->decodeMeta($st->meta ?? null);
-        $prev = (float)($meta['prev_saldo'] ?? 0);
+        $prev = round((float) ($meta['prev_saldo'] ?? 0), 2);
 
-        $saldo = round(max(0.0, $prev + $cargo - $abono), 2);
+        $totalAbono = round($abonoItems + $paidFromPayments, 2);
+        $saldo = round(max(0.0, $prev + $cargo - $totalAbono), 2);
 
         $status = 'pending';
-        if ($saldo <= 0.00001) $status = 'paid';
 
-        $st->total_cargo = round($cargo, 2);
-        $st->total_abono = round($abono, 2);
+        if ($cargo <= 0.00001 && $prev <= 0.00001 && $totalAbono <= 0.00001) {
+            $status = 'void';
+        } elseif ($saldo <= 0.00001 && $totalAbono > 0.00001) {
+            $status = 'paid';
+        } elseif ($totalAbono > 0.00001 && $saldo > 0.00001) {
+            $status = 'partial';
+        }
+
+        $st->total_cargo = $cargo;
+        $st->total_abono = $totalAbono;
         $st->saldo       = $saldo;
         $st->status      = $status;
 
-        // Si queda pending, nunca debe mantener paid_at/lock
-        if ($status !== 'paid') {
+        if ($status === 'paid') {
+            $st->paid_at = $st->paid_at ?: now();
+        } else {
             $st->paid_at   = null;
             $st->is_locked = false;
         }
 
         $st->save();
+    }
+
+        private function sumPaidPaymentsMxnForPeriod(string $accountId, string $period): float
+    {
+        $accountId = trim($accountId);
+        $period    = trim($period);
+
+        if ($accountId === '' || $period === '') {
+            return 0.0;
+        }
+
+        if (!Schema::connection('mysql_admin')->hasTable('payments')) {
+            return 0.0;
+        }
+
+        $cols = Schema::connection('mysql_admin')->getColumnListing('payments');
+        $lc   = array_map('strtolower', $cols);
+        $has  = fn (string $c): bool => in_array(strtolower($c), $lc, true);
+
+        if (!$has('account_id') || !$has('period') || !$has('status')) {
+            return 0.0;
+        }
+
+        $q = DB::connection('mysql_admin')->table('payments')
+            ->where('account_id', $accountId)
+            ->where(function ($w) use ($period) {
+                $w->where('period', $period)
+                    ->orWhere('period', 'like', $period . '%');
+            })
+            ->whereIn(DB::raw('LOWER(status)'), [
+                'paid',
+                'pagado',
+                'succeeded',
+                'success',
+                'completed',
+                'complete',
+                'captured',
+                'authorized',
+                'paid_ok',
+                'ok',
+            ]);
+
+        if ($has('amount_mxn')) {
+            return round((float) ($q->sum('amount_mxn') ?? 0), 2);
+        }
+
+        if ($has('monto_mxn')) {
+            return round((float) ($q->sum('monto_mxn') ?? 0), 2);
+        }
+
+        if ($has('amount_cents')) {
+            return round(((float) ($q->sum('amount_cents') ?? 0)) / 100, 2);
+        }
+
+        if ($has('amount')) {
+            return round(((float) ($q->sum('amount') ?? 0)) / 100, 2);
+        }
+
+        return 0.0;
     }
 
     private function resolveYearlyAnchorPeriod(array $meta, string $fallbackPeriod): string

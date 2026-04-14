@@ -9,16 +9,17 @@
 
     $generatedAt = $generated_at ?? null;
     if ($generatedAt instanceof \DateTimeInterface) {
-        $generatedAtStr = Carbon::instance($generatedAt)->format('Y-m-d H:i');
+        $generatedAtStr = Carbon::instance($generatedAt)->format('d/m/Y H:i');
     } else {
-        try { $generatedAtStr = Carbon::parse((string)$generatedAt)->format('Y-m-d H:i'); }
+        try { $generatedAtStr = Carbon::parse((string)$generatedAt)->format('d/m/Y H:i'); }
         catch (\Throwable) { $generatedAtStr = (string) $generatedAt; }
     }
 
     $validUntilStr = '';
-    if (($valid_until ?? null) instanceof \DateTimeInterface) $validUntilStr = Carbon::instance($valid_until)->format('Y-m-d');
-    else {
-        try { $validUntilStr = Carbon::parse((string)($valid_until ?? ''))->format('Y-m-d'); }
+    if (($valid_until ?? null) instanceof \DateTimeInterface) {
+        $validUntilStr = Carbon::instance($valid_until)->format('d/m/Y');
+    } else {
+        try { $validUntilStr = Carbon::parse((string)($valid_until ?? ''))->format('d/m/Y'); }
         catch (\Throwable) { $validUntilStr = (string) ($valid_until ?? ''); }
     }
 
@@ -44,22 +45,41 @@
         $hasLogo  = false;
     }
 
-    // Strings defensivos
     $empresa = (string) ($empresa ?? '—');
     $plan    = (string) ($plan ?? '—');
     $folio   = (string) ($folio ?? '—');
     $cuenta  = (string) ($cuenta_id ?? '—');
-
-    $xmlCount = (int) ($xml_count ?? 0);
-    $ivaRate  = (int) ($iva_rate ?? 0);
-
+    $rfc     = trim((string) ($rfc ?? ''));
+    $razonSocial = trim((string) ($razon_social ?? ''));
+    $tipoLabel = trim((string) ($tipo_label ?? 'Emitidos'));
+    $periodoLabel = trim((string) ($periodo_label ?? 'Periodo no definido'));
+    $conceptoTxt = trim((string) ($concepto ?? 'Cotización SAT'));
+    $notesTxt = trim((string) ($notes ?? ''));
     $noteTxt = trim((string) ($note ?? ''));
-
     $hash = (string) ($quote_hash ?? '');
 
     $site  = trim((string)($issuer['website'] ?? ''));
     $email = trim((string)($issuer['email'] ?? ''));
     $phone = trim((string)($issuer['phone'] ?? ''));
+
+    $xmlCount = (int) ($xml_count ?? 0);
+    $ivaRate  = (float) ($iva_rate ?? 0);
+
+    $protection = is_array($protection ?? null) ? $protection : [];
+    $isSimulation = (bool) ($is_simulation ?? false);
+    $isFormalQuote = (bool) ($is_formal_quote ?? false);
+
+    $watermark = (string) ($protection['watermark'] ?? ($isSimulation ? 'SIMULACIÓN / SIN VALIDEZ COMERCIAL' : 'COTIZACIÓN PACTOPIA'));
+    $documentTitle = (string) ($protection['document_title'] ?? ($isSimulation ? 'Simulación de cotización SAT' : 'Cotización de servicio SAT'));
+    $documentSubtitle = (string) ($protection['document_subtitle'] ?? '');
+    $legalNotice = (string) ($protection['legal_notice'] ?? '');
+    $pricingNotice = (string) ($protection['pricing_notice'] ?? '');
+    $satDependencyNotice = (string) ($protection['sat_dependency_notice'] ?? '');
+    $footerNotice = (string) ($protection['footer_notice'] ?? '');
+    $showNoValidityBadge = (bool) ($protection['show_no_validity_badge'] ?? false);
+
+    $discountCodeApplied = trim((string) ($discount_code_applied ?? $discount_code ?? ''));
+    $discountLabel = trim((string) ($discount_label ?? ''));
 @endphp
 
 <!doctype html>
@@ -68,38 +88,52 @@
     <meta charset="utf-8">
     <title>Cotización · Descarga SAT</title>
     <style>
-        /* PDF base (compacto, no “gigante”) */
-        @page { margin: 16mm 14mm 18mm 14mm; }
+        @page { margin: 15mm 14mm 18mm 14mm; }
         * { box-sizing: border-box; }
+
         body {
             font-family: DejaVu Sans, Arial, sans-serif;
-            color: #0b1220;
-            font-size: 11px;
-            line-height: 1.35;
+            color: #142033;
+            font-size: 10.6px;
+            line-height: 1.45;
         }
 
         :root{
-            --ink:#0b1220;
-            --mut:#5b667a;
-            --bd:#e5e7eb;
-            --soft:#f8fafc;
+            --ink:#142033;
+            --mut:#607086;
+            --bd:#dce5ef;
+            --soft:#f6f9fc;
             --soft2:#fbfdff;
-            --accent:#0f172a; /* navy */
+            --accent:#0f172a;
+            --accent2:#1f3b73;
+            --warn:#c77a00;
         }
 
-        /* Top accent bar */
-        .bar {
+        .wm {
+            position: fixed;
+            top: 40%;
+            left: -8%;
+            right: -8%;
+            text-align: center;
+            font-size: 52px;
+            font-weight: 900;
+            color: rgba(15, 23, 42, 0.05);
+            transform: rotate(-20deg);
+            z-index: -1;
+            letter-spacing: 1px;
+        }
+
+        .topbar {
             height: 10px;
             border-radius: 999px;
             background: var(--accent);
             margin-bottom: 10px;
         }
 
-        /* Header card */
-        .card {
+        .hero {
             border: 1px solid var(--bd);
-            border-radius: 12px;
-            padding: 12px 14px;
+            border-radius: 14px;
+            padding: 14px 15px;
             background: #fff;
         }
 
@@ -107,123 +141,232 @@
             display: table;
             width: 100%;
         }
+
         .col {
             display: table-cell;
             vertical-align: top;
         }
+
         .colL { width: 58%; }
         .colR { width: 42%; text-align: right; }
 
-        /* Identity block */
-        .idWrap {
+        .brandWrap {
             display: table;
             width: 100%;
         }
-        .idLogo, .idText {
+
+        .brandLogo,
+        .brandText {
             display: table-cell;
             vertical-align: middle;
         }
-        .idLogo { width: 190px; }
-        .idLogo img { width: 176px; height: auto; }
 
+        .brandLogo { width: 190px; }
+        .brandLogo img { width: 176px; height: auto; }
 
-        .idText .sub {
-            font-size: 10px;
-            color: var(--mut);
-            margin-top: 2px;
-        }
-
-        /* If no logo, show name as wordmark */
         .wordmark {
-            font-size: 16px;
+            font-size: 18px;
             font-weight: 900;
-            letter-spacing: .2px;
             margin: 0;
+            color: var(--accent);
         }
 
-        /* Document title and badge */
+        .brandSub {
+            margin-top: 3px;
+            color: var(--mut);
+            font-size: 9.5px;
+            line-height: 1.45;
+        }
+
         .docTitle {
             margin: 0;
-            font-size: 15px;
+            font-size: 16px;
             font-weight: 900;
-        }
-        .badge {
-            display: inline-block;
-            margin-top: 6px;
-            padding: 4px 10px;
-            border-radius: 999px;
-            border: 1px solid #dbe2ea;
-            background: var(--soft);
-            color: #263244;
-            font-size: 10px;
-            font-weight: 700;
+            color: var(--accent);
         }
 
-        /* Key/Value */
-        .kv {
+        .docSubtitle {
+            margin: 5px 0 0;
+            font-size: 10px;
+            color: var(--mut);
+            line-height: 1.45;
+        }
+
+        .badge {
+            display: inline-block;
+            margin-top: 7px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid #d9e3ef;
+            background: var(--soft);
+            color: #25364f;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: .03em;
+        }
+
+        .badgeWarn {
+            background: #fff7e8;
+            border-color: #ffd798;
+            color: #a76300;
+        }
+
+        .meta {
             margin-top: 8px;
             padding-top: 8px;
             border-top: 1px solid var(--bd);
         }
-        .kv .line {
-            margin: 2px 0;
-            font-size: 10px;
+
+        .meta .line {
+            margin: 3px 0;
+            font-size: 9.8px;
             color: var(--mut);
         }
-        .kv .line b { color: var(--ink); }
 
-        /* Sections */
+        .meta .line b {
+            color: var(--ink);
+        }
+
         .section {
             margin-top: 10px;
             border: 1px solid var(--bd);
-            border-radius: 12px;
-            padding: 10px 12px;
+            border-radius: 14px;
+            padding: 11px 12px;
             background: #fff;
         }
+
         .sectionTitle {
             margin: 0 0 8px;
-            font-size: 12px;
+            font-size: 11.6px;
             font-weight: 900;
+            color: var(--accent);
         }
 
-        /* Table */
-        table { width: 100%; border-collapse: collapse; }
+        .lead {
+            margin: 0;
+            color: #4f6078;
+            font-size: 9.8px;
+            line-height: 1.55;
+        }
+
+        .miniGrid {
+            display: table;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .miniCell {
+            display: table-cell;
+            width: 25%;
+            vertical-align: top;
+            padding-right: 8px;
+        }
+
+        .miniCard {
+            min-height: 62px;
+            padding: 9px 10px;
+            border: 1px solid var(--bd);
+            border-radius: 12px;
+            background: var(--soft2);
+        }
+
+        .miniLabel {
+            display: block;
+            color: var(--mut);
+            font-size: 8.9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: 4px;
+        }
+
+        .miniVal {
+            color: var(--ink);
+            font-size: 10.5px;
+            font-weight: 800;
+            line-height: 1.45;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
         th, td {
             padding: 8px 8px;
-            border-bottom: 1px solid #eef2f7;
+            border-bottom: 1px solid #ebf0f5;
             vertical-align: top;
         }
+
         th {
             background: var(--soft);
             border-bottom: 1px solid var(--bd);
             text-align: left;
-            font-size: 10px;
+            font-size: 9px;
             color: #334155;
             font-weight: 900;
         }
-        td.num, th.num { text-align: right; white-space: nowrap; }
-        .muted { color: var(--mut); font-size: 10px; }
-        .conceptTitle { font-weight: 900; font-size: 11px; }
-        .conceptDesc  { margin-top: 2px; }
 
-        /* Totals grid */
+        td.num, th.num {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .conceptTitle {
+            font-weight: 900;
+            font-size: 10.8px;
+            color: var(--ink);
+        }
+
+        .conceptDesc {
+            margin-top: 3px;
+            color: var(--mut);
+            font-size: 9.5px;
+            line-height: 1.5;
+        }
+
         .totalsGrid {
             display: table;
             width: 100%;
             margin-top: 10px;
         }
+
         .tL, .tR {
             display: table-cell;
             vertical-align: top;
         }
+
         .tL { width: 58%; padding-right: 10px; }
         .tR { width: 42%; }
+
+        .noticeBox {
+            border: 1px solid #e4ebf3;
+            border-radius: 12px;
+            background: #fbfdff;
+            padding: 10px 11px;
+            margin-bottom: 8px;
+        }
+
+        .noticeBox strong {
+            color: var(--accent);
+        }
+
+        .noticeWarn {
+            background: #fff8ed;
+            border-color: #ffd9a8;
+        }
+
+        .noticeText {
+            color: #576983;
+            font-size: 9.6px;
+            line-height: 1.55;
+        }
 
         .sumBox {
             border: 1px solid var(--bd);
             border-radius: 12px;
             background: var(--soft2);
-            padding: 10px 10px;
+            padding: 10px;
         }
 
         .sumLine {
@@ -231,118 +374,222 @@
             width: 100%;
             margin: 4px 0;
         }
-        .sumLabel, .sumVal { display: table-cell; }
-        .sumLabel { color: var(--mut); font-size: 10px; }
-        .sumVal { text-align: right; font-size: 10px; font-weight: 800; }
+
+        .sumLabel,
+        .sumVal {
+            display: table-cell;
+        }
+
+        .sumLabel {
+            color: var(--mut);
+            font-size: 9.6px;
+        }
+
+        .sumVal {
+            text-align: right;
+            font-size: 9.8px;
+            font-weight: 800;
+        }
 
         .grand {
             margin-top: 8px;
             padding-top: 8px;
             border-top: 2px solid var(--accent);
         }
-        .grand .sumLabel, .grand .sumVal {
-            font-size: 12px;
+
+        .grand .sumLabel,
+        .grand .sumVal {
+            font-size: 11.2px;
             font-weight: 900;
             color: var(--ink);
         }
 
-        /* Terms */
         .terms {
             margin-top: 10px;
-            border: 1px dashed #cbd5e1;
-            border-radius: 12px;
+            border: 1px dashed #c9d6e4;
+            border-radius: 13px;
             background: #fff;
             padding: 10px 12px;
         }
-        .termsTitle { font-weight: 900; font-size: 11px; margin: 0 0 6px; }
-        .terms ul { margin: 0 0 0 18px; padding: 0; }
-        .terms li { margin: 4px 0; color: var(--mut); font-size: 10px; }
 
-        /* Watermark subtle */
-        .wm {
-            position: fixed;
-            top: 46%;
-            left: 0;
-            right: 0;
-            text-align: center;
-            font-size: 60px;
+        .termsTitle {
+            margin: 0 0 6px;
+            font-size: 10.8px;
             font-weight: 900;
-            color: rgba(15, 23, 42, 0.035);
-            transform: rotate(-18deg);
-            z-index: -1;
+            color: var(--accent);
         }
 
-        /* Footer */
+        .terms ul {
+            margin: 0 0 0 16px;
+            padding: 0;
+        }
+
+        .terms li {
+            margin: 4px 0;
+            color: #586a83;
+            font-size: 9.5px;
+            line-height: 1.5;
+        }
+
+        .signBlock {
+            margin-top: 10px;
+            border: 1px solid var(--bd);
+            border-radius: 13px;
+            background: #fff;
+            padding: 10px 12px;
+        }
+
+        .signTitle {
+            margin: 0 0 10px;
+            font-size: 10.8px;
+            font-weight: 900;
+            color: var(--accent);
+        }
+
+        .signRow {
+            display: table;
+            width: 100%;
+            margin-top: 18px;
+        }
+
+        .signCell {
+            display: table-cell;
+            width: 50%;
+            vertical-align: bottom;
+            padding-right: 14px;
+        }
+
+        .signLine {
+            height: 1px;
+            background: #9fb0c3;
+            margin-bottom: 4px;
+        }
+
+        .signLabel {
+            color: var(--mut);
+            font-size: 9.3px;
+        }
+
         .footer {
             position: fixed;
-            bottom: 10mm;
+            bottom: 8mm;
             left: 14mm;
             right: 14mm;
-            color: #6b7280;
-            font-size: 9px;
+            color: #69788f;
+            font-size: 8.8px;
         }
-        .footerRow { display: table; width: 100%; }
-        .footerL, .footerR { display: table-cell; vertical-align: top; }
-        .footerR { text-align: right; }
-        .hash { font-family: DejaVu Sans, monospace; letter-spacing: .5px; }
+
+        .footerRow {
+            display: table;
+            width: 100%;
+        }
+
+        .footerL,
+        .footerR {
+            display: table-cell;
+            vertical-align: top;
+        }
+
+        .footerR {
+            text-align: right;
+        }
+
+        .hash {
+            font-family: DejaVu Sans, monospace;
+            letter-spacing: .4px;
+        }
     </style>
 </head>
 <body>
-    <div class="wm">COTIZACIÓN</div>
+    <div class="wm">{{ $watermark }}</div>
 
-    <div class="bar"></div>
+    <div class="topbar"></div>
 
-    <div class="card">
+    <div class="hero">
         <div class="row">
             <div class="col colL">
-                <div class="idWrap">
-                    <div class="idLogo">
+                <div class="brandWrap">
+                    <div class="brandLogo">
                         @if($hasLogo)
                             <img src="{{ $logoData }}" alt="Logo">
                         @else
                             <p class="wordmark">{{ $appName }}</p>
                         @endif
                     </div>
-                    <div class="idText">
-                        {{-- ✅ NO duplicar nombre grande cuando hay logo (el logo ya trae wordmark) --}}
-                        @if($hasLogo)
-                            <div class="sub">
-                                {{ $site !== '' ? $site : (string) (config('app.url') ?: '') }}
-                                @if($email !== '') · {{ $email }} @endif
-                                @if($phone !== '') · {{ $phone }} @endif
-                            </div>
-                        @else
-                            <div class="sub">
-                                {{ $site !== '' ? $site : (string) (config('app.url') ?: '') }}
-                                @if($email !== '') · {{ $email }} @endif
-                                @if($phone !== '') · {{ $phone }} @endif
-                            </div>
-                        @endif
+                    <div class="brandText">
+                        <div class="brandSub">
+                            {{ $site !== '' ? $site : (string) (config('app.url') ?: '') }}
+                            @if($email !== '') · {{ $email }} @endif
+                            @if($phone !== '') · {{ $phone }} @endif
+                        </div>
                     </div>
                 </div>
 
-                <div class="kv">
+                <div class="meta">
                     <div class="line"><b>Cliente:</b> {{ $empresa }}</div>
                     <div class="line"><b>Cuenta:</b> {{ $cuenta }}</div>
-                    <div class="line"><b>Plan:</b> {{ $plan }}</div>
+                    <div class="line"><b>RFC:</b> {{ $rfc !== '' ? $rfc : 'N/D' }}</div>
+                    <div class="line"><b>Razón social:</b> {{ $razonSocial !== '' ? $razonSocial : 'N/D' }}</div>
                 </div>
             </div>
 
             <div class="col colR">
-                <p class="docTitle">Cotización · Descarga SAT</p>
-                <span class="badge">Documento informativo</span>
+                <p class="docTitle">{{ $documentTitle }}</p>
+                <p class="docSubtitle">{{ $documentSubtitle }}</p>
 
-                <div class="kv" style="text-align:right">
+                @if($showNoValidityBadge)
+                    <span class="badge badgeWarn">SIN VALIDEZ COMERCIAL</span>
+                @else
+                    <span class="badge">DOCUMENTO COMERCIAL CONTROLADO</span>
+                @endif
+
+                <div class="meta" style="text-align:right">
                     <div class="line"><b>Folio:</b> {{ $folio }}</div>
                     <div class="line"><b>Generado:</b> {{ $generatedAtStr }}</div>
-                    <div class="line"><b>Vigencia:</b> {{ $validUntilStr }}</div>
+                    <div class="line"><b>Vigencia:</b> {{ $validUntilStr !== '' ? $validUntilStr : 'N/D' }}</div>
+                    <div class="line"><b>Plan:</b> {{ $plan }}</div>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="section">
-        <p class="sectionTitle">Detalle</p>
+        <p class="sectionTitle">Resumen de la solicitud</p>
+        <p class="lead">
+            Propuesta técnica y económica para el servicio de descarga de CFDI desde el portal del SAT mediante la plataforma Pactopia.
+            El alcance se limita a procesos de extracción, organización y entrega de información conforme al periodo y volumen estimado solicitados.
+        </p>
+
+        <div class="miniGrid">
+            <div class="miniCell">
+                <div class="miniCard">
+                    <span class="miniLabel">Tipo de solicitud</span>
+                    <div class="miniVal">{{ $tipoLabel }}</div>
+                </div>
+            </div>
+            <div class="miniCell">
+                <div class="miniCard">
+                    <span class="miniLabel">Periodo</span>
+                    <div class="miniVal">{{ $periodoLabel }}</div>
+                </div>
+            </div>
+            <div class="miniCell">
+                <div class="miniCard">
+                    <span class="miniLabel">XML estimados</span>
+                    <div class="miniVal">{{ number_format($xmlCount, 0, '.', ',') }}</div>
+                </div>
+            </div>
+            <div class="miniCell">
+                <div class="miniCard">
+                    <span class="miniLabel">Documento</span>
+                    <div class="miniVal">{{ $isSimulation ? 'Simulación' : 'Cotización formal' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <p class="sectionTitle">Detalle económico</p>
 
         <table>
             <thead>
@@ -356,13 +603,13 @@
             <tbody>
                 <tr>
                     <td>
-                        <div class="conceptTitle">Descarga de CFDI (XML)</div>
-                        <div class="muted conceptDesc">
-                            Descarga y armado de paquete. El volumen final se confirma con el conteo definitivo.
+                        <div class="conceptTitle">{{ $conceptoTxt }}</div>
+                        <div class="conceptDesc">
+                            Servicio técnico de descarga y organización de CFDI desde el SAT. No incluye análisis contable, fiscal, conciliación, interpretación de datos ni retrabajos posteriores no contratados.
                         </div>
                     </td>
                     <td class="num">{{ number_format($xmlCount, 0, '.', ',') }}</td>
-                    <td class="num muted">—</td>
+                    <td class="num">—</td>
                     <td class="num"><b>{{ $money($base ?? 0) }}</b></td>
                 </tr>
             </tbody>
@@ -370,18 +617,45 @@
 
         <div class="totalsGrid">
             <div class="tL">
-                <div class="muted">
-                    <b>Nota de precio:</b>
-                    @if($noteTxt !== '')
-                        {{ $noteTxt }}
-                    @else
-                        Los precios pueden variar según validaciones, disponibilidad y políticas vigentes.
-                    @endif
-                </div>
-                <div class="muted" style="margin-top:6px">
-                    * Esta cotización es referencial. No garantiza disponibilidad del SAT ni volumen final.
-                    El total final puede cambiar con el conteo definitivo.
-                </div>
+                @if($pricingNotice !== '')
+                    <div class="noticeBox {{ $isSimulation ? 'noticeWarn' : '' }}">
+                        <div class="noticeText">
+                            <strong>Condición comercial:</strong> {{ $pricingNotice }}
+                        </div>
+                    </div>
+                @endif
+
+                @if($legalNotice !== '')
+                    <div class="noticeBox">
+                        <div class="noticeText">
+                            <strong>Alcance y exclusiones:</strong> {{ $legalNotice }}
+                        </div>
+                    </div>
+                @endif
+
+                @if($satDependencyNotice !== '')
+                    <div class="noticeBox">
+                        <div class="noticeText">
+                            <strong>Dependencia SAT:</strong> {{ $satDependencyNotice }}
+                        </div>
+                    </div>
+                @endif
+
+                @if($notesTxt !== '')
+                    <div class="noticeBox">
+                        <div class="noticeText">
+                            <strong>Notas de la solicitud:</strong> {{ $notesTxt }}
+                        </div>
+                    </div>
+                @endif
+
+                @if($noteTxt !== '')
+                    <div class="noticeBox">
+                        <div class="noticeText">
+                            <strong>Nota comercial:</strong> {{ $noteTxt }}
+                        </div>
+                    </div>
+                @endif
             </div>
 
             <div class="tR">
@@ -390,16 +664,28 @@
                         <div class="sumLabel">Base</div>
                         <div class="sumVal">{{ $money($base ?? 0) }}</div>
                     </div>
-                    <div class="sumLine">
-                        <div class="sumLabel">Descuento</div>
-                        <div class="sumVal">- {{ $money($discount_amount ?? 0) }}</div>
-                    </div>
+
+                    @if(($discount_amount ?? 0) > 0 || $discountLabel !== '' || $discountCodeApplied !== '')
+                        <div class="sumLine">
+                            <div class="sumLabel">
+                                Descuento
+                                @if($discountLabel !== '')
+                                    · {{ $discountLabel }}
+                                @elseif($discountCodeApplied !== '')
+                                    · {{ $discountCodeApplied }}
+                                @endif
+                            </div>
+                            <div class="sumVal">- {{ $money($discount_amount ?? 0) }}</div>
+                        </div>
+                    @endif
+
                     <div class="sumLine">
                         <div class="sumLabel">Subtotal</div>
                         <div class="sumVal">{{ $money($subtotal ?? 0) }}</div>
                     </div>
+
                     <div class="sumLine">
-                        <div class="sumLabel">IVA {{ $ivaRate }}%</div>
+                        <div class="sumLabel">IVA {{ number_format($ivaRate, 2, '.', '') }}%</div>
                         <div class="sumVal">{{ $money($iva_amount ?? 0) }}</div>
                     </div>
 
@@ -413,20 +699,43 @@
     </div>
 
     <div class="terms">
-        <p class="termsTitle">Condiciones y alcance</p>
+        <p class="termsTitle">Condiciones y protección comercial</p>
         <ul>
-            <li>Vigencia: hasta <b>{{ $validUntilStr }}</b>. Después de esa fecha, la tarifa puede cambiar.</li>
-            <li>Los precios pueden variar por validaciones, conteo definitivo, cambios de catálogo y/o disponibilidad.</li>
-            <li>No es factura ni comprobante fiscal. Para contratar/confirmar, se genera orden/pago correspondiente.</li>
-            <li>La descarga depende de la disponibilidad del SAT y de las credenciales configuradas.</li>
-            <li>En caso de incidencias del SAT o bloqueo temporal, los tiempos de entrega pueden variar.</li>
+            <li>La presente propuesta contempla únicamente el alcance técnico aquí descrito.</li>
+            <li>No incluye validaciones fiscales, contables, conciliaciones, interpretación de información, reprocesos, retrabajos ni desarrollos adicionales no expresamente contratados.</li>
+            <li>Los tiempos y resultados dependen del portal del SAT, sus límites operativos, disponibilidad, mantenimientos, bloqueos o intermitencias.</li>
+            <li>El cliente es responsable del uso, resguardo, análisis y explotación de la información entregada.</li>
+            <li>Cualquier requerimiento fuera de este alcance será considerado como servicio adicional sujeto a nueva cotización.</li>
+            @if($isSimulation)
+                <li>Este documento corresponde a una simulación informativa y el costo final puede variar conforme al volumen definitivo, validaciones operativas y condiciones comerciales vigentes.</li>
+            @else
+                <li>La aceptación de esta cotización implica conformidad con el alcance, exclusiones, condiciones comerciales y vigencia aquí señalados.</li>
+            @endif
         </ul>
     </div>
+
+    @if(!$isSimulation)
+        <div class="signBlock">
+            <p class="signTitle">Autorización de propuesta económica</p>
+
+            <div class="signRow">
+                <div class="signCell">
+                    <div class="signLine"></div>
+                    <div class="signLabel">Nombre y firma de autorización</div>
+                </div>
+                <div class="signCell">
+                    <div class="signLine"></div>
+                    <div class="signLabel">Fecha de autorización</div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <div class="footer">
         <div class="footerRow">
             <div class="footerL">
-                {{ $appName }} · Cotización de referencia
+                {{ $appName }}
+                @if($footerNotice !== '') · {{ $footerNotice }} @endif
                 @if($email !== '') · {{ $email }} @endif
             </div>
             <div class="footerR">

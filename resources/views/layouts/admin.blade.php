@@ -201,13 +201,13 @@
     }
 
     /* Page wrapper */
-    .page-container{
+        .page-container{
       width:100%;
       min-width:0;
       max-width:100%;
-      padding: 12px 14px 16px;
+      padding: 10px 12px 14px;
       flex:1 1 auto;
-      overflow-x:hidden;
+      overflow:visible;
     }
 
     .page-shell{
@@ -215,7 +215,7 @@
       min-width:0;
       max-width:100%;
       margin:0;
-      overflow-x:hidden;
+      overflow:visible;
     }
 
     .page-shell > *{
@@ -255,6 +255,21 @@
     }
     html[data-layout="contained"] .page-shell{
       margin-inline:auto;
+    }
+
+    /* Página SAT cotizaciones: más ancho útil y mejor respiración visual */
+    body.page-sat-quotes-admin .page-container{
+      padding: 8px 10px 12px;
+    }
+
+    body.page-sat-quotes-admin .page-shell{
+      max-width: 100%;
+    }
+
+    @media (max-width: 1099.98px){
+      body.page-sat-quotes-admin .page-container{
+        padding: 8px 8px 12px;
+      }
     }
 
     /* Footer */

@@ -83,27 +83,44 @@ class Kernel extends ConsoleKernel
         // ============================
         // ✅ Estados de cuenta (nuevo)
         // ============================
-        // Regla:
-        // 1) Día 1 del mes: sincroniza y envía el periodo actual.
-        // 2) Día 15 del mes: reenvía SOLO pendientes.
-        // 3) Último día del mes: reenvía SOLO pendientes.
+        // Regla operativa:
+        // 1) Día 1 del mes: sincroniza el periodo actual y envía únicamente los estados
+        //    realmente pendientes del mes en curso.
+        //    No deben salir cuentas ya cubiertas por pagos anticipados ni anuales fuera de ciclo.
+        // 2) Recordatorios cada 5 días posteriores al día 5:
+        //    días 10, 15, 20, 25 y último día del mes.
+        // 3) Todos los recordatorios van solo a pendientes.
         $schedule->command('p360:statements:sync --actor=system')
             ->monthlyOn(1, '00:05')
             ->withoutOverlapping()
             ->runInBackground();
 
-        $schedule->command('p360:statements:send --status=all --actor=system')
+        $schedule->command('p360:statements:send --status=pending --actor=system')
             ->monthlyOn(1, '00:15')
             ->withoutOverlapping()
             ->runInBackground();
 
-        // Reenvío SOLO de pendientes el día 15
+        // Recordatorios cada 5 días después del día 5
+        $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
+            ->monthlyOn(10, '09:00')
+            ->withoutOverlapping()
+            ->runInBackground();
+
         $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
             ->monthlyOn(15, '09:00')
             ->withoutOverlapping()
             ->runInBackground();
 
-        // Reenvío SOLO de pendientes el último día del mes
+        $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
+            ->monthlyOn(20, '09:00')
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
+            ->monthlyOn(25, '09:00')
+            ->withoutOverlapping()
+            ->runInBackground();
+
         $schedule->command('p360:statements:send --status=pending --actor=system --reminder=1')
             ->lastDayOfMonth('18:00')
             ->withoutOverlapping()

@@ -10,9 +10,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Mail;
 use Stripe\StripeClient;
 use Stripe\Webhook;
 use App\Services\Admin\Billing\AccountBillingStateService;
+use App\Models\Cliente\SatDownload;
 
 class StripeController extends Controller
 {
@@ -60,8 +62,11 @@ class StripeController extends Controller
             $key     = ($cycle === 'anual') ? 'pro_anual' : 'pro_mensual';
             $priceId = $this->resolveStripePriceIdOrFailByKey($key);
 
-            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
-            $cancelUrl  = route('cliente.checkout.cancel');
+            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}&flow=sat_quote&rfc=' . urlencode((string) ($quote->rfc ?? ''));
+            $cancelUrl  = route('cliente.checkout.cancel', [
+                'flow' => 'sat_quote',
+                'rfc'  => (string) ($quote->rfc ?? ''),
+            ]);
 
             $customerEmail = $validated['email'] ?? ($account->email ?? null);
 
@@ -197,6 +202,131 @@ class StripeController extends Controller
         }
     }
 
+        /* =========================================================
+     |  SAT QUOTE (pago único)
+     * ========================================================= */
+
+    public function checkoutSatQuote(Request $request)
+    {
+        try {
+            $user = auth('web')->user();
+            if (!$user) {
+                throw ValidationException::withMessages([
+                    'sat_quote' => 'Tu sesión expiró. Inicia sesión nuevamente.',
+                ]);
+            }
+
+            $validated = $request->validate([
+                'sat_download_id' => ['required', 'integer', 'min:1'],
+            ]);
+
+            $satDownloadId = (int) $validated['sat_download_id'];
+            $cuentaId = (string) ($user->cuenta_id ?? ($user->cuenta->id ?? ''));
+
+            /** @var SatDownload|null $quote */
+            $quote = SatDownload::query()
+                ->where('id', $satDownloadId)
+                ->where('cuenta_id', $cuentaId)
+                ->first();
+
+            if (!$quote) {
+                throw ValidationException::withMessages([
+                    'sat_quote' => 'No se encontró la cotización SAT indicada.',
+                ]);
+            }
+
+            $status = strtolower(trim((string) $quote->status));
+            $meta = is_array($quote->meta) ? $quote->meta : [];
+
+            if ($status !== 'ready' || !((bool) ($meta['can_pay'] ?? false))) {
+                throw ValidationException::withMessages([
+                    'sat_quote' => 'La cotización todavía no está disponible para pago.',
+                ]);
+            }
+
+            $amountMxn = round((float) ($quote->total ?? 0), 2);
+            $amountCents = (int) round($amountMxn * 100);
+
+            if ($amountCents <= 0) {
+                throw ValidationException::withMessages([
+                    'sat_quote' => 'La cotización no tiene un monto válido para cobro.',
+                ]);
+            }
+
+            $folio = trim((string) (
+                $meta['folio']
+                ?? ('SAT-' . str_pad((string) $quote->id, 6, '0', STR_PAD_LEFT))
+            ));
+
+            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
+            $cancelUrl  = route('cliente.checkout.cancel');
+
+            $customerEmail = (string) ($user->email ?? '');
+
+            $idempotencyKey = 'checkout:sat_quote:' . $quote->id . ':' . md5($folio . '|' . $amountCents);
+
+            $session = $this->stripe->checkout->sessions->create([
+                'mode'                 => 'payment',
+                'payment_method_types' => ['card'],
+                'line_items' => [[
+                    'price_data' => [
+                        'currency'     => 'mxn',
+                        'unit_amount'  => $amountCents,
+                        'product_data' => [
+                            'name'        => 'Cotización SAT ' . $folio,
+                            'description' => 'Pago de solicitud SAT para RFC ' . (string) ($quote->rfc ?? ''),
+                        ],
+                    ],
+                    'quantity' => 1,
+                ]],
+                'customer_email'      => $customerEmail !== '' ? $customerEmail : null,
+                'client_reference_id' => (string) $quote->id,
+                'success_url'         => $successUrl,
+                'cancel_url'          => $cancelUrl,
+                'metadata' => [
+                    'type'            => 'sat_quote',
+                    'sat_download_id' => (string) $quote->id,
+                    'cuenta_id'       => (string) $quote->cuenta_id,
+                    'rfc'             => (string) ($quote->rfc ?? ''),
+                    'folio'           => $folio,
+                    'amount_mxn'      => (string) $amountMxn,
+                    'amount_cents'    => (string) $amountCents,
+                ],
+            ], [
+                'idempotency_key' => $idempotencyKey,
+            ]);
+
+            $meta['last_checkout_started_at'] = now()->toDateTimeString();
+            $meta['last_checkout_amount_mxn'] = $amountMxn;
+            $meta['last_checkout_folio'] = $folio;
+
+            $quote->stripe_session_id = (string) ($session->id ?? '');
+            $quote->meta = $meta;
+            $quote->save();
+
+            Log::info('Stripe checkout SAT quote creada', [
+                'sat_download_id' => $quote->id,
+                'folio'           => $folio,
+                'rfc'             => $quote->rfc,
+                'amount_mxn'      => $amountMxn,
+                'session_id'      => $session->id ?? null,
+            ]);
+
+            return redirect($session->url);
+        } catch (ValidationException $ve) {
+            throw $ve;
+        } catch (\Throwable $e) {
+            Log::error('Error creando Stripe Checkout SAT quote', [
+                'error'           => $e->getMessage(),
+                'sat_download_id' => $request->get('sat_download_id'),
+            ]);
+
+            return back()->withErrors([
+                'sat_quote' => 'No se pudo iniciar el checkout de la cotización SAT.',
+            ]);
+        }
+    }
+
     /* =========================================================
      |  Success / Cancel
      * ========================================================= */
@@ -234,8 +364,24 @@ class StripeController extends Controller
                 'mode'           => $session->mode ?? null,
             ]);
 
+            // ===== SAT QUOTE =====
+            if ($type === 'sat_quote') {
+                $satDownloadId = (int) ($session->metadata->sat_download_id ?? $session->client_reference_id ?? 0);
+
+                if ($satDownloadId > 0) {
+                    $this->syncSatQuoteFromCheckoutSession($satDownloadId, $session);
+                }
+
+                $rfc = (string) ($session->metadata->rfc ?? $request->query('rfc', ''));
+
+                return redirect()
+                    ->route('cliente.sat.v2.index', $rfc !== '' ? ['rfc' => $rfc] : [])
+                    ->with('success', 'Pago SAT confirmado. Tu solicitud ya pasó a proceso de descarga.');
+            }
+
             // ===== VAULT =====
             if ($type === 'vault') {
+
                 $cuentaId = (string) ($session->metadata->cuenta_id ?? $session->client_reference_id ?? '');
                 if ($cuentaId !== '') {
                     $this->syncVaultFromCheckoutSession($cuentaId, $session);
@@ -282,8 +428,17 @@ class StripeController extends Controller
         }
     }
 
-    public function cancel()
+    public function cancel(Request $request)
     {
+        $flow = strtolower(trim((string) $request->query('flow', '')));
+        $rfc  = strtoupper(trim((string) $request->query('rfc', '')));
+
+        if ($flow === 'sat_quote') {
+            return redirect()
+                ->route('cliente.sat.v2.index', $rfc !== '' ? ['rfc' => $rfc] : [])
+                ->with('error', 'El pago de la cotización SAT fue cancelado.');
+        }
+
         return redirect()->route('cliente.login')->withErrors([
             'plan' => 'El pago fue cancelado. Puedes intentarlo de nuevo.',
         ]);
@@ -365,6 +520,26 @@ class StripeController extends Controller
                     return;
                 }
                 Cache::put($lockKey, 1, now()->addMinutes(5));
+            }
+
+            // 0) SAT QUOTE
+            if ($type === 'sat_quote') {
+                $satDownloadId = (int) ($session->metadata->sat_download_id ?? $session->client_reference_id ?? 0);
+
+                if ($satDownloadId <= 0) {
+                    Log::warning('checkout.session.completed SAT quote sin sat_download_id', [
+                        'session_id' => $session->id ?? null,
+                    ]);
+                    return;
+                }
+
+                $this->syncSatQuoteFromCheckoutSession($satDownloadId, $session);
+
+                Log::info('Stripe webhook SAT quote checkout.session.completed OK', [
+                    'sat_download_id' => $satDownloadId,
+                    'session_id'      => $session->id ?? null,
+                ]);
+                return;
             }
 
             // 1) VAULT
@@ -1361,130 +1536,215 @@ class StripeController extends Controller
         }
     }
 
+        /* =========================================================
+     |  SAT QUOTE SYNC (idempotente)
+     * ========================================================= */
+
+    private function syncSatQuoteFromCheckoutSession(int $satDownloadId, $session): void
+    {
+        $paymentStatus = strtolower((string) ($session->payment_status ?? ''));
+
+        if ($paymentStatus !== 'paid') {
+            Log::warning('[SAT:SYNC] session no pagada, no aplica', [
+                'sat_download_id' => $satDownloadId,
+                'session_id'      => $session->id ?? null,
+                'payment_status'  => $paymentStatus ?: null,
+            ]);
+            return;
+        }
+
+        /** @var SatDownload|null $quote */
+        $quote = SatDownload::query()->where('id', $satDownloadId)->first();
+
+        if (!$quote) {
+            Log::warning('[SAT:SYNC] cotización no encontrada', [
+                'sat_download_id' => $satDownloadId,
+                'session_id'      => $session->id ?? null,
+            ]);
+            return;
+        }
+
+        $currentStatus = strtolower(trim((string) $quote->status));
+        if (in_array($currentStatus, ['paid', 'done'], true)) {
+            Log::info('[SAT:SYNC] cotización ya sincronizada', [
+                'sat_download_id' => $satDownloadId,
+                'status'          => $currentStatus,
+                'session_id'      => $session->id ?? null,
+            ]);
+            return;
+        }
+
+        $meta = is_array($quote->meta) ? $quote->meta : [];
+
+        $meta['status_ui'] = 'en_descarga';
+        $meta['progress'] = max((int) ($meta['progress'] ?? 0), 90);
+        $meta['customer_action'] = 'download_in_progress';
+        $meta['paid_via'] = 'stripe';
+        $meta['can_pay'] = false;
+        $meta['paid_session_id'] = (string) ($session->id ?? '');
+        $meta['paid_payment_intent'] = (string) ($session->payment_intent ?? '');
+        $meta['paid_amount_mxn'] = round(((float) (($session->amount_total ?? 0) / 100)), 2);
+        $meta['paid_confirmed_at'] = now()->toDateTimeString();
+
+        $quote->status = 'paid';
+        $quote->paid_at = now();
+        $quote->stripe_session_id = (string) ($session->id ?? $quote->stripe_session_id);
+        $quote->meta = $meta;
+        $quote->save();
+
+        try {
+            Mail::raw(
+                "Pago SAT confirmado.\n\n"
+                . "Folio: " . (string) ($session->metadata->folio ?? ('SAT-' . $quote->id)) . "\n"
+                . "RFC: " . (string) ($quote->rfc ?? '') . "\n"
+                . "Cotización ID: " . $quote->id . "\n"
+                . "Monto: $" . number_format((float) ($quote->total ?? 0), 2) . " MXN\n"
+                . "Session ID: " . (string) ($session->id ?? '') . "\n"
+                . "Estado nuevo: en_descarga\n",
+                function ($message) use ($quote, $session) {
+                    $message->to('soporte@pactopia.com')
+                        ->subject('Pago SAT confirmado · Cotización #' . $quote->id . ' · ' . (string) ($session->metadata->folio ?? 'SAT'));
+                }
+            );
+        } catch (\Throwable $mailError) {
+            Log::warning('[SAT:SYNC] no se pudo enviar correo a soporte', [
+                'sat_download_id' => $satDownloadId,
+                'session_id'      => $session->id ?? null,
+                'error'           => $mailError->getMessage(),
+            ]);
+        }
+
+        Log::info('[SAT:SYNC] cotización marcada como pagada', [
+            'sat_download_id' => $satDownloadId,
+            'session_id'      => $session->id ?? null,
+            'rfc'             => $quote->rfc,
+        ]);
+    }
+
     /* =========================================================
      |  Resolve Stripe Price (por price_key estable)
      * ========================================================= */
 
     private function resolveStripePriceIdOrFailByKey(string $priceKey): string
-{
-    $priceKey = strtolower(trim($priceKey));
-    if ($priceKey === '') {
-        throw ValidationException::withMessages(['plan' => 'price_key inválido.']);
-    }
-
-    $cacheKey = "p360:stripe_price_id:key:{$priceKey}";
-
-    // 1) Resolver desde DB (como hoy)
-    $priceId = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($priceKey) {
-        $row = DB::connection('mysql_admin')
-            ->table('stripe_price_list')
-            ->where('is_active', 1)
-            ->whereRaw('LOWER(price_key)=?', [$priceKey])
-            ->orderByDesc('id')
-            ->first();
-
-        return $row->stripe_price_id ?? null;
-    });
-
-    if (!$priceId) {
-        throw ValidationException::withMessages([
-            'plan' => "Precio Stripe no disponible (stripe_price_list) para price_key={$priceKey}.",
-        ]);
-    }
-
-    $priceId = (string) $priceId;
-
-    // 2) Verificar que el Price exista en Stripe (mismo entorno/cuenta del secret actual)
-    try {
-        $this->stripe->prices->retrieve($priceId, []);
-        return $priceId; // OK
-    } catch (\Stripe\Exception\InvalidRequestException $e) {
-        $msg = (string) $e->getMessage();
-
-        // Si Stripe dice "No such price", intentamos auto-reparar usando lookup_key
-        if (stripos($msg, 'No such price') !== false || stripos($msg, 'no such price') !== false) {
-
-            // 3) Buscar en Stripe por lookup_key = priceKey (requiere que configures lookup_key en Stripe)
-            try {
-                $found = $this->stripe->prices->all([
-                    'active'      => true,
-                    'limit'       => 10,
-                    'lookup_keys' => [$priceKey],
-                    'expand'      => ['data.product'],
-                ]);
-
-                $newId = null;
-                if ($found && isset($found->data) && is_array($found->data) && count($found->data) > 0) {
-                    // Tomamos el primer match activo
-                    $newId = (string) ($found->data[0]->id ?? '');
-                }
-
-                if ($newId) {
-                    // 4) Persistir en DB como el nuevo activo (y desactivar anteriores)
-                    DB::connection('mysql_admin')->beginTransaction();
-                    try {
-                        DB::connection('mysql_admin')
-                            ->table('stripe_price_list')
-                            ->whereRaw('LOWER(price_key)=?', [$priceKey])
-                            ->update([
-                                'is_active'   => 0,
-                                'updated_at'  => now(),
-                            ]);
-
-                        DB::connection('mysql_admin')
-                            ->table('stripe_price_list')
-                            ->insert([
-                                'price_key'        => $priceKey,
-                                'stripe_price_id'  => $newId,
-                                'is_active'        => 1,
-                                'created_at'       => now(),
-                                'updated_at'       => now(),
-                            ]);
-
-                        DB::connection('mysql_admin')->commit();
-                    } catch (\Throwable $tx) {
-                        DB::connection('mysql_admin')->rollBack();
-                        throw $tx;
-                    }
-
-                    // 5) Limpiar cache para que no se quede el viejo
-                    Cache::forget($cacheKey);
-
-                    Log::warning('Stripe price reparado por lookup_key', [
-                        'price_key'     => $priceKey,
-                        'old_price_id'  => $priceId,
-                        'new_price_id'  => $newId,
-                    ]);
-
-                    return $newId;
-                }
-
-                // No se pudo reparar: no existe lookup_key configurado o no hay price activo
-                throw ValidationException::withMessages([
-                    'plan' => "Stripe price inválido para price_key={$priceKey}. En DB={$priceId} pero Stripe no lo reconoce. " .
-                              "Configura en Stripe el lookup_key='{$priceKey}' o actualiza stripe_price_list con un price_id válido del mismo entorno (test/live).",
-                ]);
-
-            } catch (ValidationException $ve) {
-                throw $ve;
-            } catch (\Throwable $inner) {
-                throw ValidationException::withMessages([
-                    'plan' => "Stripe price inválido para price_key={$priceKey}. En DB={$priceId} pero Stripe no lo reconoce y no se pudo auto-reparar. " .
-                              "Detalle: " . $inner->getMessage(),
-                ]);
-            }
+    {
+        $priceKey = strtolower(trim($priceKey));
+        if ($priceKey === '') {
+            throw ValidationException::withMessages(['plan' => 'price_key inválido.']);
         }
 
-        // Otro error de Stripe distinto a "No such price"
-        throw ValidationException::withMessages([
-            'plan' => "No se pudo validar el precio Stripe ({$priceKey}). Detalle: {$msg}",
-        ]);
-    } catch (\Throwable $e) {
-        throw ValidationException::withMessages([
-            'plan' => "No se pudo validar el precio Stripe ({$priceKey}). Detalle: " . $e->getMessage(),
-        ]);
+        $cacheKey = "p360:stripe_price_id:key:{$priceKey}";
+
+        // 1) Resolver desde DB (como hoy)
+        $priceId = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($priceKey) {
+            $row = DB::connection('mysql_admin')
+                ->table('stripe_price_list')
+                ->where('is_active', 1)
+                ->whereRaw('LOWER(price_key)=?', [$priceKey])
+                ->orderByDesc('id')
+                ->first();
+
+            return $row->stripe_price_id ?? null;
+        });
+
+        if (!$priceId) {
+            throw ValidationException::withMessages([
+                'plan' => "Precio Stripe no disponible (stripe_price_list) para price_key={$priceKey}.",
+            ]);
+        }
+
+        $priceId = (string) $priceId;
+
+        // 2) Verificar que el Price exista en Stripe (mismo entorno/cuenta del secret actual)
+        try {
+            $this->stripe->prices->retrieve($priceId, []);
+            return $priceId; // OK
+        } catch (\Stripe\Exception\InvalidRequestException $e) {
+            $msg = (string) $e->getMessage();
+
+            // Si Stripe dice "No such price", intentamos auto-reparar usando lookup_key
+            if (stripos($msg, 'No such price') !== false || stripos($msg, 'no such price') !== false) {
+
+                // 3) Buscar en Stripe por lookup_key = priceKey (requiere que configures lookup_key en Stripe)
+                try {
+                    $found = $this->stripe->prices->all([
+                        'active'      => true,
+                        'limit'       => 10,
+                        'lookup_keys' => [$priceKey],
+                        'expand'      => ['data.product'],
+                    ]);
+
+                    $newId = null;
+                    if ($found && isset($found->data) && is_array($found->data) && count($found->data) > 0) {
+                        // Tomamos el primer match activo
+                        $newId = (string) ($found->data[0]->id ?? '');
+                    }
+
+                    if ($newId) {
+                        // 4) Persistir en DB como el nuevo activo (y desactivar anteriores)
+                        DB::connection('mysql_admin')->beginTransaction();
+                        try {
+                            DB::connection('mysql_admin')
+                                ->table('stripe_price_list')
+                                ->whereRaw('LOWER(price_key)=?', [$priceKey])
+                                ->update([
+                                    'is_active'   => 0,
+                                    'updated_at'  => now(),
+                                ]);
+
+                            DB::connection('mysql_admin')
+                                ->table('stripe_price_list')
+                                ->insert([
+                                    'price_key'        => $priceKey,
+                                    'stripe_price_id'  => $newId,
+                                    'is_active'        => 1,
+                                    'created_at'       => now(),
+                                    'updated_at'       => now(),
+                                ]);
+
+                            DB::connection('mysql_admin')->commit();
+                        } catch (\Throwable $tx) {
+                            DB::connection('mysql_admin')->rollBack();
+                            throw $tx;
+                        }
+
+                        // 5) Limpiar cache para que no se quede el viejo
+                        Cache::forget($cacheKey);
+
+                        Log::warning('Stripe price reparado por lookup_key', [
+                            'price_key'     => $priceKey,
+                            'old_price_id'  => $priceId,
+                            'new_price_id'  => $newId,
+                        ]);
+
+                        return $newId;
+                    }
+
+                    // No se pudo reparar: no existe lookup_key configurado o no hay price activo
+                    throw ValidationException::withMessages([
+                        'plan' => "Stripe price inválido para price_key={$priceKey}. En DB={$priceId} pero Stripe no lo reconoce. " .
+                                "Configura en Stripe el lookup_key='{$priceKey}' o actualiza stripe_price_list con un price_id válido del mismo entorno (test/live).",
+                    ]);
+
+                } catch (ValidationException $ve) {
+                    throw $ve;
+                } catch (\Throwable $inner) {
+                    throw ValidationException::withMessages([
+                        'plan' => "Stripe price inválido para price_key={$priceKey}. En DB={$priceId} pero Stripe no lo reconoce y no se pudo auto-reparar. " .
+                                "Detalle: " . $inner->getMessage(),
+                    ]);
+                }
+            }
+
+            // Otro error de Stripe distinto a "No such price"
+            throw ValidationException::withMessages([
+                'plan' => "No se pudo validar el precio Stripe ({$priceKey}). Detalle: {$msg}",
+            ]);
+        } catch (\Throwable $e) {
+            throw ValidationException::withMessages([
+                'plan' => "No se pudo validar el precio Stripe ({$priceKey}). Detalle: " . $e->getMessage(),
+            ]);
+        }
     }
-}
 
 
     /* =========================================================

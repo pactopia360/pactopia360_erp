@@ -217,7 +217,7 @@
                 'admin.sat.*'
               ],
               'children'=>[
-                ['text'=>'Estados de cuenta','route'=>'admin.billing.statements.index','active_when'=>['admin.billing.statements.*']],
+                ['text'=>'Estados de cuenta','route'=>'admin.billing.statements_v2.index','params'=>['period'=>now()->format('Y-m')],'active_when'=>['admin.billing.statements_v2.*','admin.billing.statements.*']],
                 ['text'=>'Email Estados','route'=>'admin.billing.statement_emails.index','active_when'=>['admin.billing.statement_emails.*']],
                 ['text'=>'Pagos','route'=>'admin.billing.payments.index','active_when'=>['admin.billing.payments.*']],
                 ['text'=>'Solicitudes de factura','route'=>'admin.billing.invoices.requests.index','active_when'=>['admin.billing.invoices.requests.*']],
@@ -254,12 +254,12 @@
               ],
               'children'=>[
                 ['text'=>'Dashboard SAT','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.index']],
-                ['text'=>'RFC maestro','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.rfcs.*']],
+                ['text'=>'RFC maestro','route'=>'admin.sat.ops.rfcs.index','active_when'=>['admin.sat.ops.rfcs.*']],
                 ['text'=>'Lista de precios','route'=>'admin.sat.prices.index','active_when'=>['admin.sat.prices.*']],
                 ['text'=>'Códigos descuento','route'=>'admin.sat.discounts.index','active_when'=>['admin.sat.discounts.*']],
-                ['text'=>'Operación SAT','route'=>'admin.sat.ops.index','active_when'=>['admin.sat.ops.*']],
-                ['text'=>'Cotizaciones SAT','route'=>'#','active_when'=>['admin.sat.quotes.*']],
-                ['text'=>'Descargas SAT','route'=>'#','active_when'=>['admin.sat.downloads.*']],
+                ['text'=>'Cotizaciones SAT','route'=>'admin.sat.ops.quotes.index','active_when'=>['admin.sat.ops.quotes.*']],
+                ['text'=>'Descargas SAT','route'=>'admin.sat.ops.downloads.index','active_when'=>['admin.sat.ops.downloads.*']],
+                ['text'=>'Pagos SAT','route'=>'admin.sat.ops.payments.index','active_when'=>['admin.sat.ops.payments.*']],
               ],
             ],
           ],

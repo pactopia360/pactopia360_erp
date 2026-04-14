@@ -71,7 +71,7 @@
             <form method="POST" action="{{ route('admin.sat.ops.rfcs.store') }}" class="satAdmForm">
                 @csrf
 
-                <div class="satAdmForm__grid">
+                                <div class="satAdmForm__grid">
                     <div class="satAdmField">
                         <label for="cuenta_id">Cuenta UUID</label>
                         <input type="text" id="cuenta_id" name="cuenta_id" value="{{ old('cuenta_id') }}" required>
@@ -109,6 +109,16 @@
                     <div class="satAdmField">
                         <label for="source_label">Etiqueta visual</label>
                         <input type="text" id="source_label" name="source_label" value="{{ old('source_label') }}">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="fiel_password_plain">Contraseña operativa FIEL</label>
+                        <input type="text" id="fiel_password_plain" name="fiel_password_plain" value="{{ old('fiel_password_plain') }}">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="csd_password_plain">Contraseña operativa CSD</label>
+                        <input type="text" id="csd_password_plain" name="csd_password_plain" value="{{ old('csd_password_plain') }}">
                     </div>
                 </div>
 
@@ -184,7 +194,8 @@
                         <th>FIEL</th>
                         <th>CSD</th>
                         <th>Estado</th>
-                        <th>Acciones</th>
+                        <th>Detalle</th>
+                        <th>Acciones operativas</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -201,57 +212,90 @@
                             <td><span class="satAdmBadge satAdmBadge--neutral">{{ strtoupper($row->tipo_origen_ui) }}</span></td>
                             <td><span class="satAdmBadge {{ $row->has_fiel ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ $row->has_fiel ? 'CARGADA' : 'PENDIENTE' }}</span></td>
                             <td><span class="satAdmBadge {{ $row->has_csd ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ $row->has_csd ? 'CARGADA' : 'OPCIONAL' }}</span></td>
-                            <td><span class="satAdmBadge {{ $row->sat_status_ui === 'validado' ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ strtoupper($row->sat_status_ui) }}</span></td>
+                                                        <td><span class="satAdmBadge {{ $row->sat_status_ui === 'validado' ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ strtoupper($row->sat_status_ui) }}</span></td>
+
+                            <td>
+                                <div class="satAdmStack">
+                                    <span>{{ $row->source_label !== '' ? $row->source_label : '—' }}</span>
+                                    <small>{{ $row->origen_detalle !== '' ? $row->origen_detalle : 'Sin detalle de origen' }}</small>
+                                </div>
+                            </td>
+
                             <td class="satAdmActionsCell">
-                                <details class="satAdmEdit">
-                                    <summary>Editar</summary>
-                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm satAdmForm--compact">
+                                <div class="satAdmActionGrid">
+                                    <div class="satAdmActionRow">
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.show', ['id' => $row->id]) }}" target="_blank">Ver detalle</a>
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.operational_data', ['id' => $row->id]) }}" target="_blank">Ver JSON operativo</a>
+                                    </div>
+
+                                    <div class="satAdmActionRow">
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']) }}">Descargar FIEL CER</a>
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']) }}">Descargar FIEL KEY</a>
+                                    </div>
+
+                                    <div class="satAdmActionRow">
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_cer']) }}">Descargar CSD CER</a>
+                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_key']) }}">Descargar CSD KEY</a>
+                                    </div>
+
+                                    <details class="satAdmEdit">
+                                        <summary>Editar RFC</summary>
+                                        <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm satAdmForm--compact">
+                                            @csrf
+                                            <div class="satAdmForm__grid">
+                                                <div class="satAdmField">
+                                                    <label>Cuenta UUID</label>
+                                                    <input type="text" name="cuenta_id" value="{{ $row->cuenta_id }}" required>
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Account ID</label>
+                                                    <input type="text" name="account_id" value="{{ $row->account_id }}">
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>RFC</label>
+                                                    <input type="text" name="rfc" value="{{ $row->rfc }}" required>
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Origen</label>
+                                                    <select name="tipo_origen" required>
+                                                        <option value="admin" {{ $row->tipo_origen_ui === 'admin' ? 'selected' : '' }}>Admin</option>
+                                                        <option value="interno" {{ $row->tipo_origen_ui === 'interno' ? 'selected' : '' }}>Interno</option>
+                                                        <option value="externo" {{ $row->tipo_origen_ui === 'externo' ? 'selected' : '' }}>Externo</option>
+                                                    </select>
+                                                </div>
+                                                <div class="satAdmField satAdmField--full">
+                                                    <label>Razón social</label>
+                                                    <input type="text" name="razon_social" value="{{ $row->razon_social }}">
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Detalle origen</label>
+                                                    <input type="text" name="origen_detalle" value="{{ $row->origen_detalle }}">
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Etiqueta visual</label>
+                                                    <input type="text" name="source_label" value="{{ $row->source_label }}">
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Contraseña operativa FIEL</label>
+                                                    <input type="text" name="fiel_password_plain" value="">
+                                                </div>
+                                                <div class="satAdmField">
+                                                    <label>Contraseña operativa CSD</label>
+                                                    <input type="text" name="csd_password_plain" value="">
+                                                </div>
+                                            </div>
+
+                                            <div class="satAdmForm__actions">
+                                                <button type="submit" class="satAdmBtn satAdmBtn--primary">Guardar cambios</button>
+                                            </div>
+                                        </form>
+                                    </details>
+
+                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}" onsubmit="return confirm('¿Deseas dar de baja este RFC?');">
                                         @csrf
-                                        <div class="satAdmForm__grid">
-                                            <div class="satAdmField">
-                                                <label>Cuenta UUID</label>
-                                                <input type="text" name="cuenta_id" value="{{ $row->cuenta_id }}" required>
-                                            </div>
-                                            <div class="satAdmField">
-                                                <label>Account ID</label>
-                                                <input type="text" name="account_id" value="{{ $row->account_id }}">
-                                            </div>
-                                            <div class="satAdmField">
-                                                <label>RFC</label>
-                                                <input type="text" name="rfc" value="{{ $row->rfc }}" required>
-                                            </div>
-                                            <div class="satAdmField">
-                                                <label>Origen</label>
-                                                <select name="tipo_origen" required>
-                                                    <option value="admin" {{ $row->tipo_origen_ui === 'admin' ? 'selected' : '' }}>Admin</option>
-                                                    <option value="interno" {{ $row->tipo_origen_ui === 'interno' ? 'selected' : '' }}>Interno</option>
-                                                    <option value="externo" {{ $row->tipo_origen_ui === 'externo' ? 'selected' : '' }}>Externo</option>
-                                                </select>
-                                            </div>
-                                            <div class="satAdmField satAdmField--full">
-                                                <label>Razón social</label>
-                                                <input type="text" name="razon_social" value="{{ $row->razon_social }}">
-                                            </div>
-                                            <div class="satAdmField">
-                                                <label>Detalle origen</label>
-                                                <input type="text" name="origen_detalle" value="{{ $row->origen_detalle }}">
-                                            </div>
-                                            <div class="satAdmField">
-                                                <label>Etiqueta visual</label>
-                                                <input type="text" name="source_label" value="{{ $row->source_label }}">
-                                            </div>
-                                        </div>
-
-                                        <div class="satAdmForm__actions">
-                                            <button type="submit" class="satAdmBtn satAdmBtn--primary">Guardar cambios</button>
-                                        </div>
+                                        <button type="submit" class="satAdmBtn satAdmBtn--danger">Dar de baja</button>
                                     </form>
-                                </details>
-
-                                <form method="POST" action="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}" onsubmit="return confirm('¿Deseas dar de baja este RFC?');">
-                                    @csrf
-                                    <button type="submit" class="satAdmBtn satAdmBtn--danger">Dar de baja</button>
-                                </form>
+                                </div>
                             </td>
                         </tr>
                     @empty
@@ -449,10 +493,11 @@
     .satAdmTableWrap{ overflow:auto; }
     .satAdmTable{
         width:100%;
-        min-width:1200px;
+        min-width:1560px;
         border-collapse:separate;
         border-spacing:0;
     }
+    
     .satAdmTable th{
         text-align:left;
         padding:14px 12px;
@@ -524,6 +569,22 @@
     .satAdmEmpty{
         padding:24px 16px;
         color:var(--muted);
+    }
+
+    .satAdmActionGrid{
+        display:grid;
+        gap:10px;
+        min-width:420px;
+    }
+
+    .satAdmActionRow{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+    }
+
+    .satAdmActionsCell .satAdmBtn{
+        min-height:40px;
     }
 
     @media (max-width: 1180px){

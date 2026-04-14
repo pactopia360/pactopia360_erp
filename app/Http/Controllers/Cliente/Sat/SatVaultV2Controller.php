@@ -16,6 +16,10 @@ use App\Models\Cliente\SatUserMetadataUpload;
 use App\Models\Cliente\SatUserVault;
 use App\Models\Cliente\SatUserXmlUpload;
 use App\Models\Cliente\SatUserReportUpload;
+use App\Models\Cliente\SatDownload;
+use App\Models\Cliente\VaultFile;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -24,6 +28,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
 use ZipArchive;
 
@@ -66,14 +71,48 @@ class SatVaultV2Controller extends Controller
 
         $metadataUploads  = collect();
         $xmlUploads       = collect();
-        $reportUploads    = collect();
-        $downloadItems    = collect();
-        $metadataItems    = collect();
-        $metadataCount    = 0;
-        $cfdiCount        = 0;
-        $reportCount      = 0;
-        $reconPending     = 0;
-        $metadataStatuses = collect();
+        $reportUploads        = collect();
+        $downloadItems        = collect();
+        $unifiedDownloadItems = collect();
+        $downloadSources      = [
+            'centro_sat' => 0,
+            'boveda_v1'  => 0,
+            'boveda_v2'  => 0,
+        ];
+        $storageBreakdown     = [
+            'used_bytes'      => 0,
+            'available_bytes' => 0,
+            'quota_bytes'     => 0,
+            'used_gb'         => 0.0,
+            'available_gb'    => 0.0,
+            'quota_gb'        => 0.0,
+            'used_pct'        => 0.0,
+            'available_pct'   => 0.0,
+            'chart'           => [
+                'series' => [0, 0],
+                'labels' => ['Usado', 'Disponible'],
+            ],
+        ];
+        $metadataItems        = collect();
+        $metadataCount        = 0;
+        $cfdiCount            = 0;
+        $reportCount          = 0;
+        $reconPending         = 0;
+        $metadataStatuses     = collect();
+
+        $quoteItems           = collect();
+        $quoteStats           = [
+            'total'           => 0,
+            'draft'           => 0,
+            'requested'       => 0,
+            'ready'           => 0,
+            'paid'            => 0,
+            'in_progress'     => 0,
+            'done'            => 0,
+            'canceled'        => 0,
+            'payable'         => 0,
+        ];
+        $quoteActive          = null;
 
         $metadataSummary = [
             'emitidos'       => 0,
@@ -134,67 +173,86 @@ class SatVaultV2Controller extends Controller
                 ->get();
 
             $downloadItems = collect()
-                ->merge(
-                    $metadataUploads->map(function ($upload) {
-                        return [
-                            'kind'          => 'metadata',
-                            'id'            => (int) $upload->id,
-                            'rfc_owner'     => (string) $upload->rfc_owner,
-                            'direction'     => (string) ($upload->direction_detected ?? ''),
-                            'source_type'   => (string) ($upload->source_type ?? 'metadata'),
-                            'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('metadata_' . $upload->id)),
-                            'stored_name'   => (string) ($upload->stored_name ?? ''),
-                            'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
-                            'bytes'         => (int) ($upload->bytes ?? 0),
-                            'rows_count'    => (int) ($upload->rows_count ?? 0),
-                            'files_count'   => 0,
-                            'status'        => (string) ($upload->status ?? ''),
-                            'created_at'    => $upload->created_at,
-                        ];
-                    })
-                )
-                ->merge(
-                    $xmlUploads->map(function ($upload) {
-                        return [
-                            'kind'          => 'xml',
-                            'id'            => (int) $upload->id,
-                            'rfc_owner'     => (string) $upload->rfc_owner,
-                            'direction'     => (string) ($upload->direction_detected ?? ''),
-                            'source_type'   => (string) ($upload->source_type ?? 'xml'),
-                            'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('xml_' . $upload->id)),
-                            'stored_name'   => (string) ($upload->stored_name ?? ''),
-                            'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
-                            'bytes'         => (int) ($upload->bytes ?? 0),
-                            'rows_count'    => 0,
-                            'files_count'   => (int) ($upload->files_count ?? 0),
-                            'status'        => (string) ($upload->status ?? ''),
-                            'created_at'    => $upload->created_at,
-                        ];
-                    })
-                )
-                ->merge(
-                    $reportUploads->map(function ($upload) {
-                        return [
-                            'kind'          => 'report',
-                            'id'            => (int) $upload->id,
-                            'rfc_owner'     => (string) $upload->rfc_owner,
-                            'direction'     => (string) data_get($upload->meta, 'report_direction', ''),
-                            'source_type'   => (string) ($upload->report_type ?? 'report'),
-                            'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('reporte_' . $upload->id)),
-                            'stored_name'   => (string) ($upload->stored_name ?? ''),
-                            'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
-                            'bytes'         => (int) ($upload->bytes ?? 0),
-                            'rows_count'    => (int) ($upload->rows_count ?? 0),
-                            'files_count'   => 0,
-                            'status'        => (string) ($upload->status ?? ''),
-                            'created_at'    => $upload->created_at,
-                        ];
-                    })
-                )
-                ->sortByDesc(function (array $row) {
-                    return optional($row['created_at'] ?? null)?->timestamp ?? 0;
+            ->merge(
+                $metadataUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'metadata',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) ($upload->direction_detected ?? ''),
+                        'source_type'   => (string) ($upload->source_type ?? 'metadata'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('metadata_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => (int) ($upload->rows_count ?? 0),
+                        'files_count'   => 0,
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
                 })
-                ->values();
+            )
+            ->merge(
+                $xmlUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'xml',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) ($upload->direction_detected ?? ''),
+                        'source_type'   => (string) ($upload->source_type ?? 'xml'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('xml_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => 0,
+                        'files_count'   => (int) ($upload->files_count ?? 0),
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
+                })
+            )
+            ->merge(
+                $reportUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'report',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) data_get($upload->meta, 'report_direction', ''),
+                        'source_type'   => (string) ($upload->report_type ?? 'report'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('reporte_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => (int) ($upload->rows_count ?? 0),
+                        'files_count'   => 0,
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
+                })
+            )
+            ->sortByDesc(function (array $row) {
+                return optional($row['created_at'] ?? null)?->timestamp ?? 0;
+            })
+            ->values();
+
+            $unifiedDownloadItems = $this->buildUnifiedDownloadItems(
+                cuentaId: $cuentaId,
+                usuarioId: $usuarioId,
+                selectedRfc: $selectedRfc,
+                v2Items: $downloadItems
+            );
+
+            $downloadSources = [
+                'centro_sat' => (int) $unifiedDownloadItems->where('origin', 'centro_sat')->count(),
+                'boveda_v1'  => (int) $unifiedDownloadItems->where('origin', 'boveda_v1')->count(),
+                'boveda_v2'  => (int) $unifiedDownloadItems->where('origin', 'boveda_v2')->count(),
+            ];
+
+            $storageBreakdown = $this->buildUnifiedStorageBreakdown(
+                cuentaId: $cuentaId,
+                selectedRfc: $selectedRfc,
+                unifiedItems: $unifiedDownloadItems
+            );
 
             $metadataCount = SatUserMetadataItem::query()
                 ->where('cuenta_id', $cuentaId)
@@ -213,6 +271,23 @@ class SatVaultV2Controller extends Controller
                 ->where('usuario_id', $usuarioId)
                 ->where('rfc_owner', $selectedRfc)
                 ->count();
+            
+            $quoteItems = $this->buildQuoteItems(
+                cuentaId: $cuentaId,
+                usuarioId: $usuarioId,
+                selectedRfc: $selectedRfc
+            );
+
+            $quoteStats = $this->buildQuoteStats($quoteItems);
+
+            $quoteActive = $quoteItems
+                ->first(function (array $item) {
+                    return in_array((string) ($item['status_ui'] ?? ''), ['en_descarga', 'cotizada', 'pagada', 'en_proceso'], true);
+                });
+
+            if ($quoteActive === null) {
+                $quoteActive = $quoteItems->first();
+            }
 
             $baseItemsQuery = SatUserMetadataItem::query()
                 ->where('cuenta_id', $cuentaId)
@@ -384,22 +459,28 @@ class SatVaultV2Controller extends Controller
         }
 
         return view('cliente.sat.v2.index', [
-            'access'           => $access,
-            'rfcs'             => $rfcs,
-            'vaults'           => $vaults,
-            'selectedRfc'      => $selectedRfc,
-            'metadataUploads'  => $metadataUploads,
-            'xmlUploads'       => $xmlUploads,
-            'reportUploads'    => $reportUploads,
-            'downloadItems'    => $downloadItems,
-            'metadataCount'    => $metadataCount,
-            'cfdiCount'        => $cfdiCount,
-            'reportCount'      => $reportCount,
-            'reconPending'     => $reconPending,
-            'metadataItems'    => $metadataItems,
-            'metadataSummary'  => $metadataSummary,
-            'metadataFilters'  => $metadataFilters,
-            'metadataStatuses' => $metadataStatuses,
+            'access'               => $access,
+            'rfcs'                 => $rfcs,
+            'vaults'               => $vaults,
+            'selectedRfc'          => $selectedRfc,
+            'metadataUploads'      => $metadataUploads,
+            'xmlUploads'           => $xmlUploads,
+            'reportUploads'        => $reportUploads,
+            'downloadItems'        => $downloadItems,
+            'unifiedDownloadItems' => $unifiedDownloadItems,
+            'downloadSources'      => $downloadSources,
+            'storageBreakdown'     => $storageBreakdown,
+            'metadataCount'        => $metadataCount,
+            'cfdiCount'            => $cfdiCount,
+            'reportCount'          => $reportCount,
+            'reconPending'         => $reconPending,
+            'metadataItems'        => $metadataItems,
+            'metadataSummary'      => $metadataSummary,
+            'metadataFilters'      => $metadataFilters,
+            'metadataStatuses'     => $metadataStatuses,
+            'quoteItems'           => $quoteItems,
+            'quoteStats'           => $quoteStats,
+            'quoteActive'          => $quoteActive,
         ]);
     }
 
@@ -3653,5 +3734,567 @@ class SatVaultV2Controller extends Controller
         $best = (string) array_key_first($scores);
 
         return $scores[$best] > 0 ? $best : ',';
+    }
+
+    private function buildUnifiedDownloadItems(
+    string $cuentaId,
+    string $usuarioId,
+    string $selectedRfc,
+    Collection $v2Items
+): Collection {
+    $items = collect();
+
+    /*
+    |--------------------------------------------------------------------------
+    | BÓVEDA V2
+    |--------------------------------------------------------------------------
+    */
+    $items = $items->merge(
+        $v2Items->map(function (array $item) use ($selectedRfc) {
+            $bytes = (int) ($item['bytes'] ?? 0);
+
+            return [
+                'origin'         => 'boveda_v2',
+                'origin_label'   => 'Bóveda v2',
+                'origin_badge'   => 'V2',
+                'kind'           => (string) ($item['kind'] ?? 'archivo'),
+                'id'             => (string) ($item['id'] ?? ''),
+                'rfc_owner'      => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                'direction'      => (string) ($item['direction'] ?? ''),
+                'original_name'  => (string) ($item['original_name'] ?? 'Archivo'),
+                'stored_name'    => (string) ($item['stored_name'] ?? ''),
+                'mime'           => (string) ($item['mime'] ?? 'application/octet-stream'),
+                'bytes'          => $bytes,
+                'bytes_human'    => $this->formatBytesHuman($bytes),
+                'detail'         => $this->resolveV2DetailLabel($item),
+                'status'         => (string) ($item['status'] ?? ''),
+                'created_at'     => $item['created_at'] ?? null,
+                'download_url'   => route('cliente.sat.v2.download', [
+                    'type' => (string) ($item['kind'] ?? 'metadata'),
+                    'id'   => (int) ($item['id'] ?? 0),
+                    'rfc'  => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                ]),
+                'view_url'       => route('cliente.sat.v2.download', [
+                    'type' => (string) ($item['kind'] ?? 'metadata'),
+                    'id'   => (int) ($item['id'] ?? 0),
+                    'rfc'  => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                    'view' => 1,
+                ]),
+            ];
+        })
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | BÓVEDA V1
+    |--------------------------------------------------------------------------
+    */
+    if (Schema::connection('mysql_clientes')->hasTable('sat_vault_files')) {
+        $vaultFilesQuery = DB::connection('mysql_clientes')
+            ->table('sat_vault_files')
+            ->where('cuenta_id', $cuentaId)
+            ->orderByDesc('id');
+
+        if ($selectedRfc !== '') {
+            $vaultFilesQuery->where('rfc', $selectedRfc);
+        }
+
+        $vaultFiles = $vaultFilesQuery->limit(300)->get();
+
+        $items = $items->merge(
+            collect($vaultFiles)->map(function ($row) {
+                $bytes = (int) ($row->bytes ?? $row->size_bytes ?? 0);
+                $filename = trim((string) ($row->original_name ?? $row->filename ?? ''));
+                if ($filename === '') {
+                    $filename = basename((string) ($row->path ?? 'archivo'));
+                }
+
+                return [
+                    'origin'         => 'boveda_v1',
+                    'origin_label'   => 'Bóveda v1',
+                    'origin_badge'   => 'V1',
+                    'kind'           => $this->resolveKindFromFilename($filename, (string) ($row->mime ?? '')),
+                    'id'             => (string) ($row->id ?? ''),
+                    'rfc_owner'      => strtoupper((string) ($row->rfc ?? '')),
+                    'direction'      => '',
+                    'original_name'  => $filename,
+                    'stored_name'    => (string) ($row->filename ?? ''),
+                    'mime'           => (string) ($row->mime ?? 'application/octet-stream'),
+                    'bytes'          => $bytes,
+                    'bytes_human'    => $this->formatBytesHuman($bytes),
+                    'detail'         => 'Archivo de bóveda',
+                    'status'         => 'disponible',
+                    'created_at'     => $row->created_at ?? null,
+                    'download_url'   => route('cliente.sat.vault.file', ['id' => (string) ($row->id ?? '')]),
+                    'view_url'       => route('cliente.sat.vault.file', ['id' => (string) ($row->id ?? '')]),
+                ];
+            })
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CENTRO SAT (descargas reales con ZIP)
+    |--------------------------------------------------------------------------
+    */
+    if (Schema::connection('mysql_clientes')->hasTable('sat_downloads')) {
+            $satDownloadsQuery = DB::connection('mysql_clientes')
+                ->table('sat_downloads')
+                ->where('cuenta_id', $cuentaId)
+                ->whereNotNull('zip_path')
+                ->where('zip_path', '<>', '')
+                ->orderByDesc('created_at');
+
+            if (Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'usuario_id')) {
+                $satDownloadsQuery->where('usuario_id', $usuarioId);
+            }
+
+            if ($selectedRfc !== '' && Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'rfc')) {
+                $satDownloadsQuery->where('rfc', $selectedRfc);
+            }
+
+            $satDownloads = $satDownloadsQuery->limit(300)->get();
+
+            $items = $items->merge(
+                collect($satDownloads)->map(function ($row) {
+                    $bytes = 0;
+                    if (isset($row->bytes) && is_numeric($row->bytes)) {
+                        $bytes = (int) $row->bytes;
+                    } elseif (isset($row->size_bytes) && is_numeric($row->size_bytes)) {
+                        $bytes = (int) $row->size_bytes;
+                    }
+
+                    $filename = trim((string) ($row->zip_filename ?? $row->filename ?? ''));
+                    if ($filename === '') {
+                        $filename = basename((string) ($row->zip_path ?? 'descarga.zip'));
+                    }
+
+                    return [
+                        'origin'         => 'centro_sat',
+                        'origin_label'   => 'Centro SAT',
+                        'origin_badge'   => 'SAT',
+                        'kind'           => 'zip',
+                        'id'             => (string) ($row->id ?? ''),
+                        'rfc_owner'      => strtoupper((string) ($row->rfc ?? '')),
+                        'direction'      => strtolower((string) ($row->tipo ?? '')),
+                        'original_name'  => $filename,
+                        'stored_name'    => (string) ($row->zip_path ?? ''),
+                        'mime'           => 'application/zip',
+                        'bytes'          => $bytes,
+                        'bytes_human'    => $this->formatBytesHuman($bytes),
+                        'detail'         => 'Paquete SAT',
+                        'status'         => (string) ($row->status ?? 'disponible'),
+                        'created_at'     => $row->created_at ?? null,
+                        'download_url'   => null,
+                        'view_url'       => null,
+                    ];
+                })
+            );
+        }
+
+        return $items
+            ->filter(function (array $item) {
+                return trim((string) ($item['original_name'] ?? '')) !== '';
+            })
+            ->sortByDesc(function (array $item) {
+                return optional($item['created_at'] ?? null)->timestamp ?? 0;
+            })
+            ->values();
+    }
+
+    private function buildUnifiedStorageBreakdown(
+        string $cuentaId,
+        string $selectedRfc,
+        Collection $unifiedItems
+    ): array {
+        $usedBytes = (int) $unifiedItems->sum(function (array $item) {
+            return (int) ($item['bytes'] ?? 0);
+        });
+
+        $quotaBytes = 0;
+
+        if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+            $cuenta = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuentaId)
+                ->first();
+
+            if ($cuenta) {
+                if (property_exists($cuenta, 'vault_quota_bytes') && is_numeric($cuenta->vault_quota_bytes)) {
+                    $quotaBytes = (int) $cuenta->vault_quota_bytes;
+                } elseif (property_exists($cuenta, 'espacio_asignado_mb') && is_numeric($cuenta->espacio_asignado_mb)) {
+                    $quotaBytes = (int) round(((float) $cuenta->espacio_asignado_mb) * 1024 * 1024);
+                }
+            }
+        }
+
+        if ($quotaBytes < $usedBytes) {
+            $quotaBytes = $usedBytes;
+        }
+
+        $availableBytes = max(0, $quotaBytes - $usedBytes);
+
+        $usedGb = $usedBytes / 1073741824;
+        $availableGb = $availableBytes / 1073741824;
+        $quotaGb = $quotaBytes / 1073741824;
+
+        $usedPct = $quotaBytes > 0 ? round(($usedBytes / $quotaBytes) * 100, 2) : 0.0;
+        $availablePct = $quotaBytes > 0 ? round(($availableBytes / $quotaBytes) * 100, 2) : 0.0;
+
+        return [
+            'used_bytes'      => $usedBytes,
+            'available_bytes' => $availableBytes,
+            'quota_bytes'     => $quotaBytes,
+            'used_gb'         => round($usedGb, 2),
+            'available_gb'    => round($availableGb, 2),
+            'quota_gb'        => round($quotaGb, 2),
+            'used_pct'        => $usedPct,
+            'available_pct'   => $availablePct,
+            'chart'           => [
+                'series' => [
+                    round($usedGb, 2),
+                    round($availableGb, 2),
+                ],
+                'labels' => ['Usado', 'Disponible'],
+            ],
+        ];
+    }
+
+    private function resolveV2DetailLabel(array $item): string
+    {
+        $kind = strtolower((string) ($item['kind'] ?? ''));
+
+        return match ($kind) {
+            'metadata' => number_format((int) ($item['rows_count'] ?? 0)) . ' registros',
+            'xml'      => number_format((int) ($item['files_count'] ?? 0)) . ' archivo(s)',
+            'report'   => number_format((int) ($item['rows_count'] ?? 0)) . ' filas',
+            default    => 'Archivo',
+        };
+    }
+
+    private function resolveKindFromFilename(string $filename, string $mime = ''): string
+    {
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        if ($ext !== '') {
+            return $ext;
+        }
+
+        $mime = strtolower(trim($mime));
+
+        return match ($mime) {
+            'application/zip' => 'zip',
+            'application/xml', 'text/xml' => 'xml',
+            'text/csv', 'application/csv' => 'csv',
+            'application/pdf' => 'pdf',
+            default => 'archivo',
+        };
+    }
+
+    private function formatBytesHuman(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $power = (int) floor(log($bytes, 1024));
+        $power = min($power, count($units) - 1);
+
+        $value = $bytes / (1024 ** $power);
+
+        return number_format($value, $power === 0 ? 0 : 2) . ' ' . $units[$power];
+    }
+
+    private function buildQuoteItems(
+    string $cuentaId,
+    string $usuarioId,
+    string $selectedRfc
+    ): Collection {
+        $rows = SatDownload::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('rfc', $selectedRfc)
+            ->when(
+                Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'usuario_id'),
+                fn ($q) => $q->where('usuario_id', $usuarioId)
+            )
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get();
+
+        return $rows
+            ->filter(fn (SatDownload $row) => $this->isQuoteLikeDownload($row))
+            ->map(fn (SatDownload $row) => $this->transformQuoteItem($row))
+            ->values();
+    }
+
+    private function buildQuoteStats(Collection $quoteItems): array
+    {
+        $stats = [
+            'total'       => (int) $quoteItems->count(),
+            'draft'       => 0,
+            'requested'   => 0,
+            'ready'       => 0,
+            'paid'        => 0,
+            'in_progress' => 0,
+            'done'        => 0,
+            'canceled'    => 0,
+            'payable'     => 0,
+        ];
+
+        foreach ($quoteItems as $item) {
+            $status = (string) ($item['status_db'] ?? '');
+
+            switch ($status) {
+                case 'pending':
+                    $stats['draft']++;
+                    break;
+                case 'requested':
+                    $stats['requested']++;
+                    break;
+                case 'ready':
+                    $stats['ready']++;
+                    break;
+                case 'paid':
+                    $stats['paid']++;
+                    break;
+                case 'done':
+                    $stats['done']++;
+                    break;
+                case 'canceled':
+                    $stats['canceled']++;
+                    break;
+            }
+
+            if (($item['status_ui'] ?? '') === 'en_descarga') {
+                $stats['in_progress']++;
+            }
+
+            if ((bool) ($item['can_pay'] ?? false) === true) {
+                $stats['payable']++;
+            }
+        }
+
+        return $stats;
+    }
+
+    private function isQuoteLikeDownload(SatDownload $row): bool
+    {
+        $meta = is_array($row->meta) ? $row->meta : [];
+        $payload = is_array($row->payload) ? $row->payload : [];
+        $response = is_array($row->response) ? $row->response : [];
+
+        $type = strtolower(trim((string) (
+            $meta['flow_type']
+            ?? $meta['type']
+            ?? $payload['flow_type']
+            ?? $payload['type']
+            ?? ''
+        )));
+
+        if (in_array($type, ['quote', 'quotation', 'cotizacion', 'cotización'], true)) {
+            return true;
+        }
+
+        if (Arr::has($meta, 'quote') || Arr::has($payload, 'quote') || Arr::has($response, 'quote')) {
+            return true;
+        }
+
+        if (Arr::has($meta, 'quote_breakdown') || Arr::has($response, 'quote_breakdown')) {
+            return true;
+        }
+
+        if (
+            isset($row->subtotal) || isset($row->iva) || isset($row->total)
+        ) {
+            $status = strtolower(trim((string) $row->status));
+            if (in_array($status, ['pending', 'requested', 'ready', 'paid', 'done', 'canceled'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function transformQuoteItem(SatDownload $row): array
+    {
+        $meta = is_array($row->meta) ? $row->meta : [];
+        $payload = is_array($row->payload) ? $row->payload : [];
+        $response = is_array($row->response) ? $row->response : [];
+
+        $statusDb = strtolower(trim((string) $row->status));
+        $statusUi = $this->resolveQuoteStatusUi($row, $meta);
+
+        $subtotal = (float) ($row->subtotal ?? data_get($response, 'subtotal', 0) ?? 0);
+        $iva      = (float) ($row->iva ?? data_get($response, 'iva', 0) ?? 0);
+        $total    = (float) ($row->total ?? data_get($response, 'total', 0) ?? 0);
+
+        $progress = (int) (
+            $meta['progress']
+            ?? $this->resolveQuoteProgress($statusDb, $statusUi)
+        );
+
+        if ($statusUi === 'en_descarga') {
+            $progress = max($progress, 90);
+        } elseif ($statusUi === 'pagada') {
+            $progress = max($progress, 82);
+        } elseif ($statusUi === 'completada') {
+            $progress = 100;
+        } elseif ($statusUi === 'cancelada') {
+            $progress = 0;
+        }
+
+        $folio = trim((string) (
+            $meta['folio']
+            ?? $payload['folio']
+            ?? $response['folio']
+            ?? ('SAT-' . str_pad((string) $row->id, 6, '0', STR_PAD_LEFT))
+        ));
+
+        $typeLabel = trim((string) (
+            $meta['quote_type_label']
+            ?? $payload['tipo_label']
+            ?? $payload['tipo']
+            ?? $response['tipo_label']
+            ?? $response['tipo']
+            ?? 'Cotización SAT'
+        ));
+
+        $canPay = (bool) ($meta['can_pay'] ?? false);
+
+        return [
+            'id'                => (int) $row->id,
+            'folio'             => $folio,
+            'rfc'               => (string) ($row->rfc ?? ''),
+            'status_db'         => $statusDb,
+            'status_ui'         => $statusUi,
+            'status_label'      => $this->resolveQuoteStatusLabel($statusUi),
+            'progress'          => max(0, min(100, $progress)),
+            'can_pay'           => $canPay && $statusDb === 'ready' && $statusUi === 'cotizada',
+            'is_paid'           => $statusUi === 'pagada',
+            'is_in_progress'    => $statusUi === 'en_descarga',
+            'is_done'           => $statusDb === 'done' || $statusUi === 'completada',
+            'is_canceled'       => $statusDb === 'canceled' || $statusUi === 'cancelada',
+            'type_label'        => $typeLabel,
+            'subtotal'          => round($subtotal, 2),
+            'iva'               => round($iva, 2),
+            'total'             => round($total, 2),
+            'notes'             => (string) (
+                $meta['notes']
+                ?? $payload['notes']
+                ?? $response['notes']
+                ?? ''
+            ),
+            'xml_count'         => (int) (
+                $meta['xml_count']
+                ?? $payload['xml_count']
+                ?? $response['xml_count']
+                ?? 0
+            ),
+            'date_from'         => (string) (
+                $meta['date_from']
+                ?? $payload['date_from']
+                ?? $response['date_from']
+                ?? ''
+            ),
+            'date_to'           => (string) (
+                $meta['date_to']
+                ?? $payload['date_to']
+                ?? $response['date_to']
+                ?? ''
+            ),
+            'paid_at'           => $row->paid_at,
+            'created_at'        => $row->created_at,
+            'updated_at'        => $row->updated_at,
+            'stripe_session_id' => (string) ($row->stripe_session_id ?? ''),
+        ];
+    }
+
+    private function resolveQuoteStatusUi(SatDownload $row, array $meta): string
+    {
+        $statusDb = strtolower(trim((string) $row->status));
+        $customerAction = strtolower(trim((string) ($meta['customer_action'] ?? '')));
+        $paidVia = strtolower(trim((string) ($meta['paid_via'] ?? '')));
+
+        if ($statusDb === 'pending') {
+            return 'borrador';
+        }
+
+        if ($statusDb === 'requested') {
+            return 'en_proceso';
+        }
+
+        if ($statusDb === 'ready') {
+            return 'cotizada';
+        }
+
+        if (
+            $statusDb === 'paid'
+            && in_array($customerAction, ['download_in_progress', 'processing_download', 'download_started'], true)
+        ) {
+            return 'en_descarga';
+        }
+
+        if ($statusDb === 'paid' && $paidVia !== '') {
+            return 'pagada';
+        }
+
+        if ($statusDb === 'paid') {
+            return 'pagada';
+        }
+
+        if ($statusDb === 'done') {
+            return 'completada';
+        }
+
+        if ($statusDb === 'canceled') {
+            return 'cancelada';
+        }
+
+        return 'en_proceso';
+    }
+
+    private function resolveQuoteStatusLabel(string $statusUi): string
+    {
+        return match ($statusUi) {
+            'borrador'    => 'Borrador',
+            'en_proceso'  => 'En proceso',
+            'cotizada'    => 'Cotizada',
+            'pagada'      => 'Pagada',
+            'en_descarga' => 'En descarga',
+            'completada'  => 'Completada',
+            'cancelada'   => 'Cancelada',
+            default       => 'En proceso',
+        };
+    }
+
+    private function resolveQuoteProgress(string $statusDb, string $statusUi): int
+    {
+        if ($statusUi === 'en_descarga') {
+            return 90;
+        }
+
+        if ($statusUi === 'pagada') {
+            return 82;
+        }
+
+        if ($statusUi === 'completada') {
+            return 100;
+        }
+
+        if ($statusUi === 'cancelada') {
+            return 0;
+        }
+
+        return match ($statusDb) {
+            'pending'   => 10,
+            'requested' => 35,
+            'ready'     => 65,
+            'paid'      => 82,
+            'done'      => 100,
+            'canceled'  => 0,
+            default     => 20,
+        };
     }
 }

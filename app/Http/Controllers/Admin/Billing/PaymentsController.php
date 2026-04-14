@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Throwable;
 
 final class PaymentsController extends Controller
 {
@@ -158,7 +159,7 @@ final class PaymentsController extends Controller
         ]);
     }
 
-    public function manual(Request $req): RedirectResponse
+       public function manual(Request $req): RedirectResponse
     {
         if (!Schema::connection($this->adm)->hasTable('payments')) {
             return back()->withErrors(['payments' => 'No existe la tabla payments.']);
@@ -170,12 +171,12 @@ final class PaymentsController extends Controller
             'currency'             => 'nullable|string|max:10',
             'concept'              => 'nullable|string|max:255',
             'period'               => ['nullable', 'regex:/^\d{4}\-(0[1-9]|1[0-2])$/'],
+            'period_to'            => ['nullable', 'regex:/^\d{4}\-(0[1-9]|1[0-2])$/'],
             'also_apply_statement' => 'nullable|boolean',
         ]);
 
         $accountId   = (int) $data['account_id'];
         $amountPesos = round((float) $data['amount_pesos'], 2);
-        $amountCents = (int) round($amountPesos * 100);
 
         $currency = strtoupper(trim((string) ($data['currency'] ?? 'MXN')));
         if ($currency === '') {
@@ -186,9 +187,22 @@ final class PaymentsController extends Controller
         $lc   = array_map('strtolower', $cols);
         $has  = fn (string $c): bool => in_array(strtolower($c), $lc, true);
 
-        $period  = $data['period'] ?? now()->format('Y-m');
-        $concept = trim((string) ($data['concept'] ?? '')) ?: 'Pago recibido (manual)';
-        $also    = (bool) ($data['also_apply_statement'] ?? false);
+        $period   = $data['period'] ?? now()->format('Y-m');
+        $periodTo = trim((string) ($data['period_to'] ?? ''));
+        $concept  = trim((string) ($data['concept'] ?? '')) ?: 'Pago recibido (manual)';
+        $also     = (bool) ($data['also_apply_statement'] ?? false);
+
+        if ($periodTo === '') {
+            $periodTo = $period;
+        }
+
+        if (!$this->isValidPeriod($period) || !$this->isValidPeriod($periodTo)) {
+            return back()->withErrors(['period' => 'El periodo o rango de periodos no es válido.'])->withInput();
+        }
+
+        if (strcmp($periodTo, $period) < 0) {
+            return back()->withErrors(['period_to' => 'El periodo final no puede ser menor al periodo inicial.'])->withInput();
+        }
 
         if (Schema::connection($this->adm)->hasTable('accounts')) {
             $existsAccount = DB::connection($this->adm)->table('accounts')
@@ -200,75 +214,96 @@ final class PaymentsController extends Controller
             }
         }
 
-        $now = now();
-
-        $row = [
-            'account_id' => $accountId,
-            'amount'     => $amountCents,
-            'currency'   => $currency,
-            'status'     => 'paid',
-            'paid_at'    => $now,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ];
-
-        if ($has('due_date')) {
-            $row['due_date'] = $now;
+        $periods = $this->buildPeriodRange($period, $periodTo);
+        if (empty($periods)) {
+            return back()->withErrors(['period' => 'No se pudo construir el rango de periodos a cubrir.'])->withInput();
         }
 
-        if ($has('reference')) {
-            $row['reference'] = $this->buildManualReference($accountId, $period);
-        }
+        $groupReference = $this->buildManualReference($accountId, $period);
+        $affectedPeriods = [];
 
-        if ($has('provider')) {
-            $row['provider'] = 'manual';
-        }
+        DB::connection($this->adm)->transaction(function () use (
+            $accountId,
+            $amountPesos,
+            $currency,
+            $concept,
+            $also,
+            $periods,
+            $has,
+            $groupReference,
+            &$affectedPeriods
+        ) {
+            $distribution = $this->resolveManualPaymentDistribution(
+                $accountId,
+                $periods,
+                $amountPesos
+            );
 
-        if ($has('method')) {
-            $row['method'] = 'transfer';
-        }
-
-        if ($has('concept')) {
-            $row['concept'] = $concept;
-        }
-
-        if ($has('period')) {
-            $row['period'] = $period;
-        }
-
-        if ($has('amount_mxn')) {
-            $row['amount_mxn'] = $amountPesos;
-        }
-
-        if ($has('monto_mxn')) {
-            $row['monto_mxn'] = $amountPesos;
-        }
-
-        if ($has('meta')) {
-            $row['meta'] = json_encode([
-                'type'                 => 'manual',
-                'source'               => 'admin.payments.manual',
-                'concept'              => $concept,
-                'period'               => $period,
-                'amount_pesos'         => $amountPesos,
-                'also_apply_statement' => $also,
-                'captured_at'          => $now->toDateTimeString(),
-            ], JSON_UNESCAPED_UNICODE);
-        }
-
-        DB::connection($this->adm)->transaction(function () use ($also, $row, $accountId, $period, $concept, $amountPesos) {
-            DB::connection($this->adm)->table('payments')->insert($row);
-
-            if ($also) {
-                $this->applyManualCreditToEstadoCuenta($accountId, $period, $concept, $amountPesos);
+            if (empty($distribution['rows'])) {
+                throw new \RuntimeException('No se pudo distribuir el pago manual entre los periodos indicados.');
             }
 
-            $this->rebuildBillingStatementForPeriod((string) $accountId, $period);
+            foreach ($distribution['rows'] as $rowData) {
+                $periodItem = (string) $rowData['period'];
+                $appliedPesos = round((float) $rowData['amount_pesos'], 2);
+
+                if ($appliedPesos <= 0.00001) {
+                    continue;
+                }
+
+                $insert = $this->buildManualPaymentInsertRow(
+                    $accountId,
+                    $periodItem,
+                    $appliedPesos,
+                    $currency,
+                    $concept,
+                    $has,
+                    $groupReference,
+                    [
+                        'type'                 => 'manual',
+                        'source'               => 'admin.payments.manual',
+                        'concept'              => $concept,
+                        'period'               => $periodItem,
+                        'period_from'          => $periods[0],
+                        'period_to'            => end($periods),
+                        'amount_pesos'         => $appliedPesos,
+                        'distribution_group'   => $groupReference,
+                        'distribution_kind'    => (string) ($rowData['kind'] ?? 'coverage'),
+                        'distribution_due'     => (float) ($rowData['due'] ?? 0),
+                        'distribution_notes'   => (string) ($rowData['notes'] ?? ''),
+                        'also_apply_statement' => $also,
+                        'captured_at'          => now()->toDateTimeString(),
+                    ]
+                );
+
+                DB::connection($this->adm)->table('payments')->insert($insert);
+
+                if ($also) {
+                    $this->applyManualCreditToEstadoCuenta(
+                        $accountId,
+                        $periodItem,
+                        $concept . ' · ' . $periodItem,
+                        $appliedPesos
+                    );
+                }
+
+                $affectedPeriods[] = $periodItem;
+            }
+
+            $affectedPeriods = array_values(array_unique(array_filter($affectedPeriods)));
+
+            foreach ($affectedPeriods as $affectedPeriod) {
+                $this->rebuildBillingStatementForPeriod((string) $accountId, $affectedPeriod);
+            }
         });
 
-        AccountBillingStateService::sync($accountId, 'admin.payments.manual');
+        AccountBillingStateService::sync($accountId, 'admin.payments.manual.multi_period');
 
-        return back()->with('ok', 'Pago manual registrado.');
+        $coveredText = count($affectedPeriods) > 1
+            ? ('Pago manual registrado y distribuido en ' . count($affectedPeriods) . ' periodos.')
+            : 'Pago manual registrado.';
+
+        return back()->with('ok', $coveredText);
     }
 
     public function update(Request $req, int $id): RedirectResponse
@@ -617,6 +652,221 @@ final class PaymentsController extends Controller
                     'updated_at' => now(),
                 ]);
         }
+    }
+
+        /**
+     * @param array<int,string> $periods
+     * @return array{
+     *     rows: array<int,array<string,mixed>>,
+     *     remaining: float
+     * }
+     */
+    private function resolveManualPaymentDistribution(int $accountId, array $periods, float $totalAmountPesos): array
+    {
+        $remaining = round($totalAmountPesos, 2);
+        $rows = [];
+
+        if ($remaining <= 0.00001) {
+            return ['rows' => [], 'remaining' => 0.0];
+        }
+
+        $fallbackMonthlyCharge = $this->resolveFallbackMonthlyCharge($accountId);
+
+        foreach ($periods as $index => $period) {
+            if ($remaining <= 0.00001) {
+                break;
+            }
+
+            $existingDue = $this->resolveOutstandingForPeriod($accountId, $period);
+            $targetDue   = $existingDue > 0.00001 ? $existingDue : $fallbackMonthlyCharge;
+
+            if ($targetDue <= 0.00001) {
+                if ($index === array_key_last($periods)) {
+                    $targetDue = $remaining;
+                } else {
+                    continue;
+                }
+            }
+
+            $apply = round(min($remaining, $targetDue), 2);
+
+            if ($apply <= 0.00001) {
+                continue;
+            }
+
+            $rows[] = [
+                'period'       => $period,
+                'amount_pesos' => $apply,
+                'due'          => $targetDue,
+                'kind'         => $existingDue > 0.00001 ? 'open_statement' : 'prepaid_future_period',
+                'notes'        => $existingDue > 0.00001
+                    ? 'Aplicado a saldo abierto del periodo.'
+                    : 'Aplicado como prepago de periodo futuro.',
+            ];
+
+            $remaining = round($remaining - $apply, 2);
+        }
+
+        if ($remaining > 0.00001 && !empty($rows)) {
+            $lastIndex = array_key_last($rows);
+            $rows[$lastIndex]['amount_pesos'] = round(((float) $rows[$lastIndex]['amount_pesos']) + $remaining, 2);
+            $rows[$lastIndex]['notes'] = trim(((string) $rows[$lastIndex]['notes']) . ' Incluye excedente/prepago acumulado.');
+            $remaining = 0.0;
+        }
+
+        return [
+            'rows'      => $rows,
+            'remaining' => $remaining,
+        ];
+    }
+
+    private function resolveOutstandingForPeriod(int $accountId, string $period): float
+    {
+        if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+            return 0.0;
+        }
+
+        $statement = DB::connection($this->adm)->table('billing_statements')
+            ->where('account_id', (string) $accountId)
+            ->where('period', $period)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->first([
+                'id',
+                'total_cargo',
+                'saldo',
+            ]);
+
+        if (!$statement) {
+            return 0.0;
+        }
+
+        $saldo = round((float) ($statement->saldo ?? 0), 2);
+        if ($saldo > 0.00001) {
+            return $saldo;
+        }
+
+        $cargo = round((float) ($statement->total_cargo ?? 0), 2);
+        $paid  = $this->sumPaidPaymentsMxnForPeriod((string) $accountId, $period);
+
+        return round(max(0.0, $cargo - $paid), 2);
+    }
+
+    private function resolveFallbackMonthlyCharge(int $accountId): float
+    {
+        if (!Schema::connection($this->adm)->hasTable('billing_statements')) {
+            return 0.0;
+        }
+
+        $row = DB::connection($this->adm)->table('billing_statements')
+            ->where('account_id', (string) $accountId)
+            ->where('total_cargo', '>', 0)
+            ->orderByDesc('period')
+            ->orderByDesc('id')
+            ->first(['total_cargo']);
+
+        return round((float) ($row->total_cargo ?? 0), 2);
+    }
+
+    /**
+     * @param array<string,bool> $has
+     * @param array<string,mixed> $meta
+     * @return array<string,mixed>
+     */
+    private function buildManualPaymentInsertRow(
+        int $accountId,
+        string $period,
+        float $amountPesos,
+        string $currency,
+        string $concept,
+        callable $has,
+        string $groupReference,
+        array $meta = []
+    ): array {
+        $amountCents = (int) round($amountPesos * 100);
+        $now = now();
+
+        $row = [
+            'account_id' => $accountId,
+            'amount'     => $amountCents,
+            'currency'   => $currency,
+            'status'     => 'paid',
+            'paid_at'    => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        if ($has('due_date')) {
+            $row['due_date'] = $now;
+        }
+
+        if ($has('reference')) {
+            $row['reference'] = $groupReference . ':' . $period;
+        }
+
+        if ($has('provider')) {
+            $row['provider'] = 'manual';
+        }
+
+        if ($has('method')) {
+            $row['method'] = 'transfer';
+        }
+
+        if ($has('concept')) {
+            $row['concept'] = $concept;
+        }
+
+        if ($has('period')) {
+            $row['period'] = $period;
+        }
+
+        if ($has('amount_mxn')) {
+            $row['amount_mxn'] = $amountPesos;
+        }
+
+        if ($has('monto_mxn')) {
+            $row['monto_mxn'] = $amountPesos;
+        }
+
+        if ($has('meta')) {
+            $row['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE);
+        }
+
+        return $row;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function buildPeriodRange(string $periodFrom, string $periodTo): array
+    {
+        $periodFrom = trim($periodFrom);
+        $periodTo   = trim($periodTo);
+
+        if (!$this->isValidPeriod($periodFrom) || !$this->isValidPeriod($periodTo)) {
+            return [];
+        }
+
+        try {
+            $start = Carbon::createFromFormat('Y-m', $periodFrom)->startOfMonth();
+            $end   = Carbon::createFromFormat('Y-m', $periodTo)->startOfMonth();
+        } catch (Throwable) {
+            return [];
+        }
+
+        if ($end->lt($start)) {
+            return [];
+        }
+
+        $out = [];
+        $cursor = $start->copy();
+
+        while ($cursor->lte($end)) {
+            $out[] = $cursor->format('Y-m');
+            $cursor->addMonth();
+        }
+
+        return $out;
     }
 
     private function buildManualReference(int $accountId, string $period): string

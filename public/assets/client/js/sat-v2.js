@@ -3,6 +3,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
     const loading = $('#sv2Loading');
+
+    const toggleCenterSatBtn = $('#toggleCenterSat');
+    const centerSatBlock = $('#centerSatBlock');
+
+    const toggleQuotesBtn = $('#toggleQuotes');
+    const quotesBlock = $('#quotesBlock');
+    const quotesSection = $('#quotesSection');
+
     const toggleBtn = $('#toggleMetadata');
     const metadataBlock = $('#metadataBlock');
     const toggleXmlBtn = $('#toggleXml');
@@ -41,6 +49,9 @@ document.addEventListener('DOMContentLoaded', function () {
         icon.textContent = block.classList.contains('sv2Section--collapsed') ? '+' : '−';
     }
 
+    syncCollapsedIcon(toggleCenterSatBtn, centerSatBlock);
+    syncCollapsedIcon(toggleQuotesBtn, quotesBlock);
+    syncCollapsedIcon(toggleDataLoadBtn, dataLoadBlock);
     syncCollapsedIcon(toggleBtn, metadataBlock);
     syncCollapsedIcon(toggleXmlBtn, xmlBlock);
     syncCollapsedIcon(toggleReportBtn, reportBlock);
@@ -820,45 +831,57 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-            const sectionRegistry = [
+    const sectionRegistry = [
+        {
+            key: 'quotes',
+            button: toggleQuotesBtn,
+            panel: quotesBlock,
+            section: quotesSection
+        },
+        {
+            key: 'centerSat',
+            button: toggleCenterSatBtn,
+            panel: centerSatBlock,
+            section: $('#centerSatSection')
+        },
         {
             key: 'dataLoad',
             button: toggleDataLoadBtn,
             panel: dataLoadBlock,
-            mode: 'hidden'
+            section: $('#dataLoadSection')
         },
         {
             key: 'metadata',
             button: toggleBtn,
             panel: metadataBlock,
-            mode: 'collapsed'
+            section: metadataBlock ? metadataBlock.closest('.sv2Section') : null
         },
         {
             key: 'xml',
             button: toggleXmlBtn,
             panel: xmlBlock,
-            mode: 'collapsed'
+            section: xmlBlock ? xmlBlock.closest('.sv2Section') : null
         },
         {
             key: 'report',
             button: toggleReportBtn,
             panel: reportBlock,
-            mode: 'collapsed'
+            section: reportBlock ? reportBlock.closest('.sv2Section') : null
         },
         {
             key: 'fiscal',
             button: toggleFiscalBtn,
             panel: fiscalBlock,
-            mode: 'collapsed'
+            section: fiscalBlock ? fiscalBlock.closest('.sv2Section') : null
         },
         {
             key: 'downloads',
             button: toggleDownloadsBtn,
             panel: downloadsBlock,
-            mode: 'collapsed'
+            section: downloadsBlock ? downloadsBlock.closest('.sv2Section') : null
         }
     ].filter(function (entry) {
-        return !!entry.button && !!entry.panel;
+        return !!entry.button && !!entry.panel && !!entry.section;
     });
 
     const sectionMap = sectionRegistry.reduce(function (acc, entry) {
@@ -867,47 +890,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }, {});
 
     function isSectionCollapsed(entry) {
-        if (!entry || !entry.panel) return true;
-
-        if (entry.mode === 'hidden') {
-            return entry.panel.hasAttribute('hidden');
-        }
-
-        return entry.panel.classList.contains('sv2Section--collapsed');
+        if (!entry || !entry.section) return true;
+        return entry.section.classList.contains('sv2Section--collapsed');
     }
 
-        function getSectionAnchor(entry) {
+    function getSectionAnchor(entry) {
         if (!entry) return null;
-
-        const explicitAnchors = {
-            dataLoad: '#dataLoadSection',
-            metadata: '#toggleMetadata',
-            xml: '#toggleXml',
-            report: '#toggleReport',
-            fiscal: '#toggleFiscal',
-            downloads: '#toggleDownloads'
-        };
-
-        const explicitSelector = explicitAnchors[entry.key] || null;
-        if (explicitSelector) {
-            const explicitNode = $(explicitSelector);
-            if (explicitNode) {
-                const explicitSection = explicitNode.closest('.sv2Section');
-                if (explicitSection) return explicitSection;
-                return explicitNode;
-            }
-        }
-
-        const panelSection = entry.panel?.closest('.sv2Section');
-        if (panelSection) return panelSection;
-
-        const buttonSection = entry.button?.closest('.sv2Section');
-        if (buttonSection) return buttonSection;
-
-        const buttonBar = entry.button?.closest('.sv2MetaBar');
-        if (buttonBar) return buttonBar;
-
-        return entry.button || entry.panel || null;
+        return entry.section || entry.button || entry.panel || null;
     }
 
     function syncSectionState(entry) {
@@ -934,17 +923,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function setSectionCollapsed(entry, collapsed) {
-        if (!entry || !entry.panel) return;
+        if (!entry || !entry.section || !entry.panel) return;
 
-        if (entry.mode === 'hidden') {
-            if (collapsed) {
-                entry.panel.setAttribute('hidden', 'hidden');
-            } else {
-                entry.panel.removeAttribute('hidden');
-            }
-        } else {
-            entry.panel.classList.toggle('sv2Section--collapsed', collapsed);
-        }
+        entry.section.classList.toggle('sv2Section--collapsed', collapsed);
+        entry.panel.classList.toggle('is-collapsed', collapsed);
 
         syncSectionState(entry);
 
@@ -955,8 +937,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function collapseAllSections() {
         sectionRegistry.forEach(function (entry) {
+            if (entry.key === 'centerSat' || entry.key === 'quotes') return;
             setSectionCollapsed(entry, true);
         });
+
+        if (sectionMap.quotes) {
+            setSectionCollapsed(sectionMap.quotes, false);
+        }
+
+        if (sectionMap.centerSat) {
+            setSectionCollapsed(sectionMap.centerSat, false);
+        }
     }
 
     function expandAllSections() {
@@ -984,13 +975,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function isDockPinned() {
-        return true;
-    }
+        if (!sectionDock) return false;
 
+        const wrap = sectionDock.closest('.sv2DockWrap');
+        const target = wrap || sectionDock;
+        const rect = target.getBoundingClientRect();
+
+        return rect.top <= 0;
+    }
+    
     function syncDockPinnedState() {
-        document.body.classList.add('sv2DockPinned');
         updateDockOffsetVar();
-        return true;
+
+        const pinned = isDockPinned();
+        document.body.classList.toggle('sv2DockPinned', pinned);
+
+        return pinned;
     }
 
     function scrollToEntry(entry) {
@@ -1023,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function resolveVisibleSection() {
-        let bestKey = 'dataLoad';
+        let bestKey = 'centerSat';
         let bestDistance = Number.POSITIVE_INFINITY;
         const dockCompensation = (document.body.classList.contains('sv2DockPinned') ? getDockHeight() : 0) + 72;
 
@@ -1045,6 +1045,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function handleViewportSync() {
         syncDockPinnedState();
+        updateDockOffsetVar();
         resolveVisibleSection();
     }
 
@@ -1059,8 +1060,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     collapseAllSections();
-    handleViewportSync();
-    setActiveDockLink('dataLoad');
+    updateDockOffsetVar();
+    syncDockPinnedState();
+    resolveVisibleSection();
+    setActiveDockLink(sectionMap.quotes ? 'quotes' : 'centerSat');
 
     sectionDockLinks.forEach(function (link) {
         link.addEventListener('click', function (e) {
@@ -1149,109 +1152,9 @@ document.addEventListener('DOMContentLoaded', function () {
         sync();
     });
 
-    const chooser = document.getElementById('sv2RfcChooser');
-    const control = document.getElementById('sv2RfcChooserControl');
-    const menu = document.getElementById('sv2RfcChooserMenu');
-    const search = document.getElementById('sv2RfcChooserSearch');
-    const list = document.getElementById('sv2RfcChooserList');
-    const value = document.getElementById('sv2RfcChooserValue');
-    const hidden = document.getElementById('sv2RfcHiddenInput');
+    
 
-    if (chooser && control && menu && search && list && value && hidden) {
-        const options = Array.from(list.querySelectorAll('.sv2RfcOption'));
-
-        const openMenu = function () {
-            chooser.classList.add('is-open');
-            menu.hidden = false;
-            control.setAttribute('aria-expanded', 'true');
-            setTimeout(function () {
-                search.focus();
-                search.select();
-            }, 20);
-        };
-
-        const closeMenu = function () {
-            chooser.classList.remove('is-open');
-            menu.hidden = true;
-            control.setAttribute('aria-expanded', 'false');
-        };
-
-        const normalize = function (text) {
-            return (text || '')
-                .toString()
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '');
-        };
-
-        const filterOptions = function () {
-            const term = normalize(search.value);
-
-            options.forEach(function (option) {
-                const haystack = normalize(option.getAttribute('data-search') || '');
-                const show = term === '' || haystack.includes(term);
-                option.hidden = !show;
-            });
-        };
-
-        const setSelected = function (option) {
-            const selectedRfc = option.getAttribute('data-rfc') || '';
-            const selectedName = option.getAttribute('data-name') || selectedRfc || 'Selecciona un RFC de trabajo';
-
-            hidden.value = selectedRfc;
-            value.textContent = selectedName;
-
-            options.forEach(function (item) {
-                item.classList.remove('is-active');
-                item.setAttribute('aria-selected', 'false');
-
-                const badge = item.querySelector('.sv2RfcOption__badge');
-                if (badge) badge.remove();
-            });
-
-            option.classList.add('is-active');
-            option.setAttribute('aria-selected', 'true');
-
-            if (!option.querySelector('.sv2RfcOption__badge')) {
-                const badge = document.createElement('span');
-                badge.className = 'sv2RfcOption__badge';
-                badge.textContent = 'Activo';
-                option.appendChild(badge);
-            }
-
-            closeMenu();
-        };
-
-        control.addEventListener('click', function () {
-            if (chooser.classList.contains('is-open')) {
-                closeMenu();
-            } else {
-                openMenu();
-            }
-        });
-
-        search.addEventListener('input', filterOptions);
-
-        options.forEach(function (option) {
-            option.addEventListener('click', function () {
-                setSelected(option);
-            });
-        });
-
-        document.addEventListener('click', function (event) {
-            if (!chooser.contains(event.target)) {
-                closeMenu();
-            }
-        });
-
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape') {
-                closeMenu();
-            }
-        });
-    }
-
-       document.querySelectorAll('[data-sv2-reprocess-smart]').forEach(function (btn) {
+    document.querySelectorAll('[data-sv2-reprocess-smart]').forEach(function (btn) {
         btn.addEventListener('click', async function () {
             if (reprocessAdvancedForm) {
                 const rfcInput = reprocessAdvancedForm.querySelector('input[name="rfc_owner"]');
@@ -1284,6 +1187,31 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    handleViewportSync();
+    const hash = String(window.location.hash || '').replace('#', '').trim();
+    const hashToSectionKey = {
+        quotesSection: 'quotes',
+        quotesBlock: 'quotes',
+        centerSatSection: 'centerSat',
+        centerSatBlock: 'centerSat',
+        dataLoadSection: 'dataLoad',
+        dataLoadBlock: 'dataLoad',
+        metadataBlock: 'metadata',
+        xmlBlock: 'xml',
+        reportBlock: 'report',
+        fiscalBlock: 'fiscal',
+        downloadsBlock: 'downloads'
+    };
+
+    if (hash && hashToSectionKey[hash] && sectionMap[hashToSectionKey[hash]]) {
+        const initialKey = hashToSectionKey[hash];
+        expandSectionByKey(initialKey);
+        setActiveDockLink(initialKey);
+
+        window.setTimeout(function () {
+            scrollToEntry(sectionMap[initialKey]);
+        }, 180);
+    }
+
     refreshFiscalChartsVisibility(true);
+
 });

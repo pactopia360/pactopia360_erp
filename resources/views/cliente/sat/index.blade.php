@@ -1,1102 +1,1782 @@
-{{-- resources/views/cliente/sat/index.blade.php (v4.1 · MODAL-FIRST · Minimal UI · NO FOOTER PILLS) --}}
+{{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\sat\index.blade.php --}}
 @extends('layouts.cliente')
-@section('title','SAT · Descargas masivas CFDI')
-@section('pageClass','page-sat')
 
-@php
-  use Illuminate\Support\Carbon;
-  use Illuminate\Support\Str;
-  use Illuminate\Support\Facades\Route;
-
-  // ======================================================
-  // Base user/account
-  // ======================================================
-  $user   = $user   ?? auth('web')->user();
-  $cuenta = $cuenta ?? ($user?->cuenta ?? null);
-
-  // Summary unificado
-  $summary = $summary ?? app(\App\Http\Controllers\Cliente\HomeController::class)->buildAccountSummary();
-
-  // RFC externo (Admin)
-  $externalRfc      = strtoupper(trim((string) data_get($summary, 'rfc_externo', data_get($summary, 'rfc', ''))));
-  $externalVerified = (bool) data_get($summary, 'rfc_external_verified', false);
-
-  // Plan / PRO
-  $planFromSummary = strtoupper((string)($summary['plan'] ?? 'FREE'));
-  $isProSummary    = (bool)($summary['is_pro'] ?? in_array(strtolower($planFromSummary), ['pro','premium','empresa','business'], true));
-  $plan      = $planFromSummary;
-  $isProPlan = $isProSummary;
-
-  // Mode DEMO/PROD
-  $cookieMode  = request()->cookie('sat_mode');
-  $driver      = config('services.sat.download.driver','satws');
-  $isLocalDemo = app()->environment(['local','development','testing']) && $driver !== 'satws';
-  $mode      = $cookieMode ? strtolower($cookieMode) : ($isLocalDemo ? 'demo' : 'prod');
-  $modeSafe  = $mode ?: 'prod';
-
-  // Cuotas SAT
-  $asigDefault = $isProPlan ? 12 : 1;
-  $asig        = (int)($cuenta->sat_quota_assigned ?? $asigDefault);
-  $usadas      = (int)($cuenta->sat_quota_used ?? 0);
-
-  // Dataset descargas (SOT para modals)
-  $downloadsPaginator = $downloadsPaginator ?? null;
-  $rowsInit = $initialRows
-      ?? ($downloadsPaginator ? $downloadsPaginator->items() : null)
-      ?? ($rows ?? $downloads ?? $lista ?? []);
-
-  $rowsColl = collect($rowsInit ?? [])
-      ->map(fn($r) => is_array($r) ? (object)$r : $r)
-      ->filter(function ($row) {
-        $tipoRaw = strtolower((string) data_get($row, 'tipo', data_get($row, 'origen', '')));
-        if (str_contains($tipoRaw, 'vault') || str_contains($tipoRaw, 'boveda') || str_contains($tipoRaw, 'bóveda')) return false;
-        return true;
-      })
-      ->values();
-
-  // KPIs simples
-  $periodFrom = now()->subDays(30);
-  $downloads30 = (int)($summary['sat_files_period'] ?? $rowsColl->filter(function($row) use($periodFrom){
-      $created = data_get($row,'created_at', data_get($row,'createdAt', null));
-      if (!$created) return false;
-      try { return Carbon::parse($created)->greaterThanOrEqualTo($periodFrom); }
-      catch (\Throwable) { return false; }
-  })->count());
-
-  $downloadsTotal = (int)($summary['sat_files_total'] ?? $rowsColl->count());
-
-  $reqStart     = (int)($summary['sat_req_start']     ?? $asig);
-  $reqDone      = (int)($summary['sat_req_done']      ?? $downloadsTotal);
-  $reqAvailable = (int)($summary['sat_req_available'] ?? max(0, $reqStart - $reqDone));
-
-  // Credenciales/RFCs
-  $credList = collect($credList ?? []);
-
-  // RFC options: visibles (incluye externo) + validos
-  $rfcOptions = $rfcOptions ?? (function () use ($credList, $externalRfc) {
-      $out = [];
-      foreach ($credList as $c) {
-          $r = strtoupper(trim((string)($c->rfc ?? '')));
-          if ($r === '') continue;
-
-          $estatusRaw = strtolower((string)($c->estatus ?? ''));
-          $isValidated =
-              !empty($c->validado ?? null)
-              || !empty($c->validated_at ?? null)
-              || in_array($estatusRaw, ['ok','valido','válido','validado','valid'], true);
-
-          $alias = trim((string)($c->razon_social ?? $c->alias ?? ''));
-          $out[$r] = [
-              'rf'        => $r,
-              'alias'     => $alias !== '' ? $alias : null,
-              'validated' => (bool)$isValidated,
-              'source'    => 'sat_credentials',
-          ];
-      }
-
-      if ($externalRfc !== '') {
-          $r = strtoupper($externalRfc);
-          if (!isset($out[$r])) {
-              $out[$r] = [
-                  'rf'        => $r,
-                  'alias'     => 'Registro externo',
-                  'validated' => false,
-                  'source'    => 'external_registry',
-                  'external'  => true,
-              ];
-          }
-      }
-
-      $list = array_values($out);
-      usort($list, fn($a,$b)=>strcmp((string)$a['rf'], (string)$b['rf']));
-      return $list;
-  })();
-
-  $rfcOptionsAll   = is_array($rfcOptions) ? $rfcOptions : collect($rfcOptions)->values()->all();
-  $rfcOptionsValid = collect($rfcOptionsAll)->filter(fn($o)=>!empty($o['validated']))->values()->all();
-  $kRfcValid = (int) count($rfcOptionsValid);
-
-  // ------------------------------------------------------
-  // Rutas (defensivas)
-  // ------------------------------------------------------
-  $rtMode       = Route::has('cliente.sat.mode')               ? route('cliente.sat.mode')               : null;
-  $rtVerify     = Route::has('cliente.sat.verify')             ? route('cliente.sat.verify')             : '#';
-  $rtReqCreate  = Route::has('cliente.sat.request')            ? route('cliente.sat.request')            : '#';
-  $rtZipGet     = Route::has('cliente.sat.zip')                ? route('cliente.sat.zip',['id'=>'__ID__']) : '';
-
-  $rtManualIndex  = Route::has('cliente.sat.manual.index')  ? route('cliente.sat.manual.index')  : null;
-  $rtManualQuote  = Route::has('cliente.sat.manual.quote')  ? route('cliente.sat.manual.quote')  : null;
-
-  $rtQuoteCalc = Route::has('cliente.sat.quote.calc') ? route('cliente.sat.quote.calc') : null;
-  $rtQuotePdf  = Route::has('cliente.sat.quote.pdf')  ? route('cliente.sat.quote.pdf')  : null;
-
-  $rtQuickCalc = Route::has('cliente.sat.quick.calc') ? route('cliente.sat.quick.calc') : null;
-  $rtQuickPdf  = Route::has('cliente.sat.quick.pdf')  ? route('cliente.sat.quick.pdf')  : null;
-
-  // FIEL externo preferido
-  $hasFielList = Route::has('cliente.sat.fiel.external.list');
-
-  $rtFielList     = $hasFielList ? route('cliente.sat.fiel.external.list') : '';
-  $rtFielInvite   = Route::has('cliente.sat.fiel.external.invite') ? route('cliente.sat.fiel.external.invite') : null;
-
-  // ✅ Invitación ZIP “oficial” (backend actual)
-  // - Si existe named route, úsala.
-  // - Si no existe, fallback duro al path.
-  $rtExternalInvite = Route::has('cliente.sat.external.invite')
-    ? route('cliente.sat.external.invite')
-    : url('/cliente/sat/external/invite');
-
-  // ✅ Invitación INDIVIDUAL (solo si existe; sin fallback duro)
-  $rtExternalInviteIndividual = Route::has('cliente.sat.external.invite.individual')
-    ? route('cliente.sat.external.invite.individual')
-    : '';
-
-
-  $rtFielDownload = Route::has('cliente.sat.fiel.external.download') ? route('cliente.sat.fiel.external.download',['id'=>'__ID__']) : '';
-  $rtFielUpdate   = Route::has('cliente.sat.fiel.external.update')   ? route('cliente.sat.fiel.external.update',['id'=>'__ID__'])   : '';
-  $rtFielDestroy  = Route::has('cliente.sat.fiel.external.destroy')  ? route('cliente.sat.fiel.external.destroy',['id'=>'__ID__'])  : '';
-  $rtFielPassword = Route::has('cliente.sat.fiel.external.password') ? route('cliente.sat.fiel.external.password',['id'=>'__ID__']) : '';
-
-  // External ZIP (fallback si no hay FIEL externo)
-  $rtExternalZipList = (!$hasFielList && Route::has('cliente.sat.external.zip.list')) ? route('cliente.sat.external.zip.list') : '';
-  $rtExternalZipRegister = Route::has('cliente.sat.external.zip.register') ? route('cliente.sat.external.zip.register') : '';
-
-  // Conexiones SAT
-  $rtCsdStore   = Route::has('cliente.sat.credenciales.store') ? route('cliente.sat.credenciales.store') : '#';
-  $rtAlias      = Route::has('cliente.sat.alias')              ? route('cliente.sat.alias')              : '#';
-  $rtRfcReg     = Route::has('cliente.sat.rfc.register')       ? route('cliente.sat.rfc.register')       : '#';
-  $rtRfcDelete  = Route::has('cliente.sat.rfc.delete')         ? route('cliente.sat.rfc.delete')         : '#';
-
-  // Vault
-  $rtVault      = Route::has('cliente.sat.vault') ? route('cliente.sat.vault') : '#';
-
-  // Carrito existe, pero NO debe secuestrar la navegación del botón "Bóveda"
-  // El upsell/ampliación se gestiona dentro de la pantalla de Bóveda.
-  $rtCartIndex  = Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : null;
-  $rtCartPay    = Route::has('cliente.sat.cart.checkout') ? route('cliente.sat.cart.checkout') : null;
-
-  // ✅ Siempre ir a la Bóveda SAT
-  $vaultCtaUrl  = $rtVault;
-
-
-  // Vault cfg (defensivo)
-  $vaultCfg = $vault ?? [];
-  $vaultQuotaGb = (float)($vaultCfg['quota_gb'] ?? 0.0);
-  $vaultUsedGb  = (float)($vaultCfg['used_gb'] ?? 0.0);
-  if ($vaultUsedGb < 0) $vaultUsedGb = 0.0;
-  $vaultActive = (bool)($vaultCfg['enabled'] ?? ($vaultQuotaGb > 0));
-  $vault = array_merge([
-      'enabled' => $vaultActive,
-      'quota_gb' => $vaultQuotaGb,
-      'used_gb'  => $vaultUsedGb,
-  ], $vaultCfg);
-
-  // Config JS (SOT)
-  $p360SatCfg = [
-    'csrf'      => csrf_token(),
-    'isProPlan' => (bool) $isProPlan,
-    'plan'      => (string) $plan,
-    'mode'      => (string) $modeSafe,
-    'baseUrl'   => url('/'),
-
-    'kpi' => [
-      'reqAvailable' => (int)$reqAvailable,
-      'downloads30'  => (int)$downloads30,
-      'downloadsAll' => (int)$downloadsTotal,
-      'rfcsValid'    => (int)$kRfcValid,
-    ],
-
-    'rfcOptions'      => $rfcOptionsAll,
-    'rfcOptionsValid' => $rfcOptionsValid,
-
-    'downloads' => $rowsColl->values()->all(),
-
-    'routes' => [
-      'mode'      => $rtMode ?: '',
-      'verify'    => $rtVerify ?: '',
-      'request'   => $rtReqCreate ?: '',
-      'zipPattern'=> $rtZipGet ?: '',
-
-      'manualIndex' => $rtManualIndex ?: '',
-      'manualQuote' => $rtManualQuote ?: '',
-
-      'quoteCalc' => $rtQuoteCalc ?: '',
-      'quotePdf'  => $rtQuotePdf  ?: '',
-
-      'quickCalc' => $rtQuickCalc ?: '',
-      'quickPdf'  => $rtQuickPdf  ?: '',
-
-      'fielList'     => $rtFielList ?: '',
-      'fielInvite'   => $rtFielInvite ?: '',
-      'externalZipInvite' => $rtExternalInvite ?: '',
-      'externalInviteIndividual' => $rtExternalInviteIndividual ?: '',
-      'fielDownload' => $rtFielDownload ?: '',
-      'fielUpdate'   => $rtFielUpdate ?: '',
-      'fielDestroy'  => $rtFielDestroy ?: '',
-      'fielPassword' => $rtFielPassword ?: '',
-
-      'externalZipList'     => $rtExternalZipList ?: '',
-      'externalZipRegister' => $rtExternalZipRegister ?: '',
-
-      'vaultUrl' => $rtVault ?: '',
-      'vaultCta' => $vaultCtaUrl ?: '',
-      'cartIndex' => $rtCartIndex ?: '',
-      'cartCheckout' => $rtCartPay ?: '',
-
-      'csdStore' => $rtCsdStore ?: '',
-      'alias'    => $rtAlias ?: '',
-      'rfcReg'   => $rtRfcReg ?: '',
-      'rfcDelete'=> $rtRfcDelete ?: '',
-    ],
-
-    'external' => [
-      'rfc' => (string)($externalRfc ?: ''),
-      'verified' => (bool)$externalVerified,
-    ],
-
-    'vault' => $vault,
-  ];
-@endphp
+@section('title', 'Portal Descargas SAT')
+@section('pageClass', 'page-sat page-sat-clean')
 
 @push('styles')
 @php
-  $CSS_REL = 'assets/client/css/sat/sat-portal-v1.css';
-  $CSS_ABS = public_path($CSS_REL);
-  $CSS_V   = is_file($CSS_ABS) ? (string) filemtime($CSS_ABS) : null;
+    $CSS_REL = 'assets/client/css/sat/sat-portal-v1.css';
+    $CSS_ABS = public_path($CSS_REL);
+    $CSS_V   = is_file($CSS_ABS) ? (string) filemtime($CSS_ABS) : null;
+
+    $CSS_EXTRA_REL = 'assets/client/css/sat/sat-portal-v1-extra.css';
+    $CSS_EXTRA_ABS = public_path($CSS_EXTRA_REL);
+    $CSS_EXTRA_V   = is_file($CSS_EXTRA_ABS) ? (string) filemtime($CSS_EXTRA_ABS) : null;
 @endphp
+
 <link rel="stylesheet" href="{{ asset($CSS_REL) }}{{ $CSS_V ? ('?v='.$CSS_V) : '' }}">
+<link rel="stylesheet" href="{{ asset($CSS_EXTRA_REL) }}{{ $CSS_EXTRA_V ? ('?v='.$CSS_EXTRA_V) : '' }}">
 @endpush
-
-@section('content')
-<div class="sat4" id="sat4App"
-  data-plan="{{ $plan }}"
-  data-mode="{{ $modeSafe }}"
->
-    {{-- Header v2 --}}
-  <section class="sat4-hero">
-    <div class="sat4-hero-main">
-      <div class="sat4-hero-copy">
-        <div class="sat4-hero-kicker">
-          <span class="sat4-dot {{ $modeSafe === 'demo' ? 'is-demo' : 'is-prod' }}"></span>
-          <span>SAT · Descargas masivas CFDI</span>
-        </div>
-
-        <h1 class="sat4-hero-title">Portal de descargas</h1>
-
-        <p class="sat4-hero-subtitle">
-          Consulta, resguarda y descarga archivos de metadata, XML CFDI y reportes asociados a tu RFC de trabajo.
-        </p>
-
-        <div class="sat4-hero-chips">
-          <span class="sat4-hero-chip">Metadata</span>
-          <span class="sat4-hero-chip">XML CFDI</span>
-          <span class="sat4-hero-chip">Conciliación</span>
-          <span class="sat4-hero-chip">Descargas</span>
-        </div>
-      </div>
-
-      <aside class="sat4-hero-side">
-        <div class="sat4-hero-side-head">
-          <div>
-            <div class="sat4-hero-side-kicker">Acceso</div>
-            <div class="sat4-hero-side-title">RFC de trabajo</div>
-          </div>
-
-          <button class="sat4-hero-gear" type="button" data-open="sat4ModalConnections">⚙️</button>
-        </div>
-
-        <div class="sat4-hero-side-tags">
-          <span class="sat4-hero-tag">{{ $kRfcValid }} RFC</span>
-          @if($externalRfc !== '')
-            <span class="sat4-hero-tag mono">{{ $externalRfc }}</span>
-          @endif
-        </div>
-
-        <div class="sat4-hero-side-form">
-          <select class="sat4-in" id="sat4HeroRfc">
-            <option value="">Selecciona RFC</option>
-            @foreach($rfcOptionsAll as $opt)
-              @php
-                $rf = (string)($opt['rf'] ?? '');
-                $al = trim((string)($opt['alias'] ?? ''));
-                $ok = (bool)($opt['validated'] ?? false);
-              @endphp
-              <option value="{{ $rf }}" {{ $ok ? '' : 'disabled' }}>
-                {{ $rf }}{{ $al !== '' ? ' · '.$al : '' }}{{ $ok ? '' : ' (pendiente)' }}
-              </option>
-            @endforeach
-          </select>
-
-          <button class="sat4-btn sat4-btn-primary sat4-btn-block" type="button" data-open="sat4ModalRequest">
-            Entrar
-          </button>
-        </div>
-      </aside>
-    </div>
-  </section>
-
-  {{-- Navegación superior del módulo --}}
-  <section class="sat4-toolbar">
-    <div class="sat4-toolbar-left">
-      <div class="sat4-toolbar-title">Descargas</div>
-
-      <div class="sat4-toolbar-rfc">
-        <span class="sat4-toolbar-rfc-label">RFC activo</span>
-        <span class="sat4-toolbar-rfc-value mono">{{ $externalRfc !== '' ? $externalRfc : 'Sin RFC' }}</span>
-      </div>
-
-      <div class="sat4-toolbar-tabs">
-        <button class="sat4-toolbar-tab is-active" type="button">Carga de datos</button>
-        <button class="sat4-toolbar-tab" type="button">Metadata</button>
-        <button class="sat4-toolbar-tab" type="button">XML CFDI</button>
-        <button class="sat4-toolbar-tab" type="button">Reportes</button>
-        <button class="sat4-toolbar-tab" type="button">Resumen fiscal</button>
-        <button class="sat4-toolbar-tab" type="button">Descargas</button>
-      </div>
-    </div>
-
-    <div class="sat4-toolbar-actions">
-      <button class="sat4-btn sat4-btn-primary" type="button">Expandir todo</button>
-      <button class="sat4-btn" type="button">Contraer todo</button>
-    </div>
-  </section>
-
-  {{-- KPIs --}}
-  <section class="sat4-kpis2 sat4-kpis2--v2" aria-label="Indicadores SAT">
-    <div class="sat4-kpi2 sat4-kpi2--metric is-accent">
-      <div class="sat4-kpi2-ico">🛰️</div>
-      <div class="sat4-kpi2-meta">
-        <div class="sat4-kpi2-l">Peticiones</div>
-        <div class="sat4-kpi2-n mono" id="kpiReq">{{ number_format((int)$reqAvailable) }}</div>
-        <div class="sat4-kpi2-h">Disponibles</div>
-      </div>
-    </div>
-
-    <div class="sat4-kpi2 sat4-kpi2--metric">
-      <div class="sat4-kpi2-ico">📦</div>
-      <div class="sat4-kpi2-meta">
-        <div class="sat4-kpi2-l">30 días</div>
-        <div class="sat4-kpi2-n mono" id="kpi30">{{ number_format((int)$downloads30) }}</div>
-        <div class="sat4-kpi2-h">Descargas</div>
-      </div>
-    </div>
-
-    <div class="sat4-kpi2 sat4-kpi2--metric">
-      <div class="sat4-kpi2-ico">✅</div>
-      <div class="sat4-kpi2-meta">
-        <div class="sat4-kpi2-l">RFCs OK</div>
-        <div class="sat4-kpi2-n mono" id="kpiRfcs">{{ number_format((int)$kRfcValid) }}</div>
-        <div class="sat4-kpi2-h">{{ $kRfcValid > 0 ? 'Verificado' : 'Pendiente' }}</div>
-      </div>
-    </div>
-
-    <div class="sat4-kpi2 sat4-kpi2--metric">
-      <div class="sat4-kpi2-ico">📦</div>
-      <div class="sat4-kpi2-meta">
-        <div class="sat4-kpi2-l">Plan</div>
-        <div class="sat4-kpi2-n">{{ $isProPlan ? 'PRO' : 'FREE' }}</div>
-        <div class="sat4-kpi2-h">{{ $isProPlan ? 'Acceso completo' : 'Limitado' }}</div>
-      </div>
-    </div>
-  </section>
-
-  {{-- Workspace principal --}}
-  <section class="sat4-workspace sat4-workspace--v2" aria-label="Nueva descarga">
-    <div class="sat4-work-card">
-      <div class="sat4-work-head">
-        <div class="sat4-work-titles">
-          <div class="sat4-work-ttl">Nueva descarga</div>
-          <div class="sat4-work-sub">Emitidos / Recibidos / Ambos</div>
-        </div>
-
-        <div class="sat4-work-actions">
-          <button class="sat4-btn sat4-btn-ghost" type="button" data-open="sat4ModalConnections">Conexiones</button>
-          <button class="sat4-btn" type="button" data-open="sat4ModalExtInviteIndividual">RFC externo</button>
-          <button class="sat4-btn sat4-btn-primary" type="button" data-open="sat4ModalDownloads">Ver todas</button>
-        </div>
-      </div>
-
-      <div class="sat4-work-grid sat4-work-grid--v2">
-        <button class="sat4-work-cta" type="button" data-open="sat4ModalRequest">
-          <div class="sat4-work-cta-ico">⬇️</div>
-          <div class="sat4-work-cta-t">
-            <div class="sat4-work-cta-ttl">Crear solicitud</div>
-            <div class="sat4-work-cta-sub">Selecciona tipo, fechas y RFC</div>
-          </div>
-        </button>
-
-        <button class="sat4-work-tile" type="button" data-open="sat4ModalQuote">
-          <div class="sat4-work-tile-ico">🧮</div>
-          <div class="sat4-work-tile-ttl">Cotizar</div>
-          <div class="sat4-work-tile-sub">Costo + PDF</div>
-        </button>
-
-        <button class="sat4-work-tile" type="button" data-open="sat4ModalExternal">
-          <div class="sat4-work-tile-ico">🧾</div>
-          <div class="sat4-work-tile-ttl">RFC externo</div>
-          <div class="sat4-work-tile-sub">ZIP / Invitación</div>
-        </button>
-
-        <a class="sat4-work-tile" href="{{ $vaultCtaUrl ?: '#' }}" style="text-decoration:none;">
-          <div class="sat4-work-tile-ico">📚</div>
-          <div class="sat4-work-tile-ttl">Bóveda</div>
-          <div class="sat4-work-tile-sub">Abrir / Ampliar</div>
-        </a>
-      </div>
-    </div>
-  </section>
-
-  {{-- Portal de descarga --}}
-  <section class="sat4-portal sat4-portal--v2" aria-label="Portal Descarga SAT">
-    <div class="sat4-portal-card">
-      <div class="sat4-portal-head">
-        <div>
-          <div class="sat4-portal-ttl">DESCARGA SAT</div>
-          <div class="sat4-portal-sub">Progreso y estado de la descarga actual</div>
-        </div>
-
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="sat4-btn sat4-btn-primary" type="button" id="sat4StartPortal">Iniciar descarga</button>
-          <button class="sat4-btn" type="button" data-open="sat4ModalDownloads">Ver descargas</button>
-        </div>
-      </div>
-
-      <div class="sat4-portal-body">
-        <div class="sat4-ring">
-          <div class="sat4-ring-wrap" id="sat4RingWrap" style="--p:0;">
-            <div class="sat4-ring-center">
-              <div class="sat4-ring-p" id="sat4RingP">0%</div>
-              <div class="sat4-ring-l" id="sat4RingL">Sin proceso</div>
-            </div>
-          </div>
-
-          <div class="sat4-ring-actions">
-            <button class="sat4-btn sat4-btn-ghost" type="button" id="sat4RingRefresh">Actualizar</button>
-            <button class="sat4-btn" type="button" data-open="sat4ModalRequest">Avanzado</button>
-          </div>
-
-          <div class="sat4-help">
-            Tip: “Iniciar descarga” abre el selector de <b>Mes/Año</b> como portal. El modo <b>Avanzado</b> usa rango de fechas y Multi-RFC.
-          </div>
-        </div>
-
-        <div class="sat4-status">
-          <div class="sat4-status-ttl">Estado de la descarga actual</div>
-
-          <div class="sat4-status-grid">
-            <div class="sat4-stat">
-              <div class="sat4-stat-n mono" id="sat4StatSat">0</div>
-              <div class="sat4-stat-l">Comprobantes SAT</div>
-            </div>
-
-            <div class="sat4-stat">
-              <div class="sat4-stat-n mono" id="sat4StatNew">0</div>
-              <div class="sat4-stat-l">Comprobantes nuevos</div>
-            </div>
-
-            <div class="sat4-stat">
-              <div class="sat4-stat-n mono" id="sat4StatFail">0</div>
-              <div class="sat4-stat-l">Comprobantes fallidos</div>
-            </div>
-
-            <div class="sat4-stat">
-              <div class="sat4-stat-n mono" id="sat4StatReg">0</div>
-              <div class="sat4-stat-l">Comprobantes registrados</div>
-            </div>
-          </div>
-
-          <div class="sat4-mini" id="sat4StatusHint">—</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-
-  {{-- Actividad reciente (tabla abajo, sin cortes) --}}
-  <section class="sat4-activity2" aria-label="Actividad reciente">
-    <div class="sat4-activity2-head">
-      <div>
-        <div class="sat4-activity2-ttl">Actividad reciente</div>
-        <div class="sat4-activity2-sub">Últimas descargas · estado + acción contextual</div>
-      </div>
-      <button class="sat4-btn sat4-btn-primary" type="button" data-open="sat4ModalDownloads">Ver todas</button>
-    </div>
-
-    <div class="sat4-activity2-card">
-      <div class="sat4-tablewrap">
-        <table class="sat4-table2" aria-label="Tabla de actividad">
-          <thead>
-            <tr>
-              <th>RFC</th>
-              <th>Periodo</th>
-              <th>Estado</th>
-              <th class="sat4-th-act">Acción</th>
-            </tr>
-          </thead>
-          <tbody id="sat4ActivityBody">
-            <tr><td colspan="4" class="sat4-td-empty">Cargando…</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="sat4-activity2-foot">
-        <button class="sat4-btn" type="button" data-open="sat4ModalDownloads">Ver todas</button>
-      </div>
-    </div>
-  </section>
-
-</div>
-
-{{-- =========================
-   MODALS / DRAWERS
-========================= --}}
-
-<div class="sat4-backdrop" id="sat4Backdrop" style="display:none;"></div>
-
-{{-- Modal: Nueva solicitud --}}
-<div class="sat4-modal" id="sat4ModalRequest" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Nueva descarga</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <form id="sat4ReqForm" method="post" action="{{ $rtReqCreate }}">
-      @csrf
-
-      <div class="sat4-form">
-        <div class="sat4-row">
-          <select class="sat4-in" name="tipo" aria-label="Tipo">
-            <option value="emitidos">Emitidos</option>
-            <option value="recibidos">Recibidos</option>
-            <option value="ambos">Ambos</option>
-          </select>
-          <input class="sat4-in" type="date" name="from" required aria-label="Desde">
-          <input class="sat4-in" type="date" name="to" required aria-label="Hasta">
-        </div>
-
-        <div class="sat4-row sat4-row--tight">
-            <div class="sat4-field sat4-field--grow">
-              <div class="sat4-label">RFC</div>
-
-              {{-- ✅ Lista integrada: muestra TODOS (válidos + pendientes).
-                  - Los no validados van deshabilitados y marcados como (pendiente)
-                  - Si no hay válidos, el select NO se bloquea: se ve la lista pero no permite seleccionar inválidos
-              --}}
-              <select class="sat4-in" name="rfc_single" id="sat4RfcSingle" aria-label="RFC">
-                <option value="">{{ $kRfcValid > 0 ? 'Selecciona RFC…' : 'No tienes RFC verificados (revisa Conexiones)' }}</option>
-
-                @foreach($rfcOptionsAll as $opt)
-                  @php
-                    $rf   = (string)($opt['rf'] ?? '');
-                    $al   = (string)($opt['alias'] ?? '');
-                    $ok   = (bool)($opt['validated'] ?? false);
-
-                    // externo
-                    $isExt = !empty($opt['external'] ?? false) || (($opt['source'] ?? '') === 'external_registry');
-
-                    $suffix = $ok ? '' : ' (pendiente)';
-                    if ($isExt && !$ok) $suffix = ' (externo · pendiente)';
-                    if ($isExt && $ok)  $suffix = ' (externo)';
-                  @endphp
-
-                  <option value="{{ $rf }}" {{ $ok ? '' : 'disabled' }}>
-                    {{ $rf }}{{ $al !== '' ? ' · '.$al : '' }}{{ $suffix }}
-                  </option>
-                @endforeach
-              </select>
-
-              @if($kRfcValid <= 0)
-                <div class="sat4-help2">
-                  Para poder solicitar descargas, primero valida tu RFC en <b>Conexiones</b>.
-                </div>
-              @else
-                <div class="sat4-help2">
-                  Solo puedes seleccionar RFCs <b>verificados</b>. Los pendientes aparecen deshabilitados.
-                </div>
-              @endif
-            </div>
-
-            <div class="sat4-field sat4-field--auto">
-              <div class="sat4-label">&nbsp;</div>
-              <button class="sat4-btn sat4-btn-ghost" type="button" id="sat4ReqMultiBtn" {{ $kRfcValid>0 ? '' : 'disabled' }}>
-                Multi-RFC
-              </button>
-            </div>
-
-            <div class="sat4-field sat4-field--auto">
-              <div class="sat4-label">&nbsp;</div>
-              <button class="sat4-btn sat4-btn-primary" type="submit" {{ $kRfcValid>0 ? '' : 'disabled' }}>
-                Solicitar
-              </button>
-            </div>
-          </div>
-
-
-        {{-- Multi RFC --}}
-        <div class="sat4-multi" id="sat4MultiWrap" style="display:none;">
-          <div class="sat4-multi-head">
-            <div class="sat4-mini">Selecciona RFCs</div>
-            <button type="button" class="sat4-btn sat4-btn-ghost" id="sat4MultiAll">Todos</button>
-          </div>
-
-          <div class="sat4-multi-list" id="sat4MultiList">
-            @foreach($rfcOptionsAll as $opt)
-              @php
-                $rf = (string)($opt['rf'] ?? '');
-                $ok = (bool)($opt['validated'] ?? false);
-                $al = trim((string)($opt['alias'] ?? ''));
-              @endphp
-
-              <label class="sat4-check {{ $ok ? '' : 'is-disabled' }}">
-                <input type="checkbox"
-                      class="sat4-rfc-item"
-                      value="{{ $rf }}"
-                      {{ $ok ? 'checked' : '' }}
-                      {{ $ok ? '' : 'disabled' }}>
-                <span class="sat4-check-t mono">{{ $rf }}</span>
-                <span class="sat4-check-sub">{{ $ok ? 'Verificado' : 'Pendiente' }}{{ $al!=='' ? ' · '.$al : '' }}</span>
-              </label>
-            @endforeach
-          </div>
-
-          <select name="rfcs[]" id="sat4RfcsHidden" multiple hidden>
-            @foreach($rfcOptionsValid as $opt)
-              <option value="{{ $opt['rf'] }}" selected>{{ $opt['rf'] }}</option>
-            @endforeach
-          </select>
-
-          <div class="sat4-mini" style="margin-top:8px;">
-            (Si usas Multi-RFC, el selector “RFC…” se ignora.)
-          </div>
-        </div>
-      </div>
-    </form>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-      <button type="button" class="sat4-btn sat4-btn-ghost" id="sat4Verify" data-url="{{ $rtVerify }}">Verificar</button>
-    </div>
-  </div>
-</div>
-
-{{-- Modal: Cotizador --}}
-<div class="sat4-modal" id="sat4ModalQuote" style="display:none;" role="dialog" aria-modal="true" aria-label="Cotizador SAT">
-  <div class="sat4-modal-card sat4-modal-card--quote">
-    <div class="sat4-modal-head">
-      <div>
-        <div class="sat4-modal-title">Cotizar</div>
-        <div class="sat4-mini" style="margin-top:4px;">Calcula costo por XML y aplica código de descuento (si existe).</div>
-      </div>
-      <button type="button" class="sat4-x" data-close aria-label="Cerrar">✕</button>
-    </div>
-
-    <div class="sat4-form">
-      <div class="sat4-row sat4-quote-grid">
-        <div class="sat4-qfield">
-          <div class="sat4-label">XML</div>
-          <input class="sat4-in mono" id="qXml" type="number" min="1" step="1" placeholder="Ej. 1000" value="1000">
-        </div>
-
-        <div class="sat4-qfield sat4-qfield--code">
-          <div class="sat4-label">Código de descuento</div>
-          <input class="sat4-in mono" id="qDisc" type="text" placeholder="Ej. SOCIO20">
-        </div>
-
-        <div class="sat4-qfield sat4-qfield--iva">
-          <div class="sat4-label">IVA</div>
-          <select class="sat4-in" id="qIva">
-            <option value="16" selected>IVA 16%</option>
-            <option value="0">IVA 0%</option>
-          </select>
-        </div>
-
-        <div class="sat4-qfield sat4-qfield--applied">
-          <div class="sat4-mini sat4-mini-inline">
-            Aplicado: <b class="mono" id="qDiscApplied">—</b>
-          </div>
-        </div>
-      </div>
-
-
-      <div class="sat4-row sat4-row-actions">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="qCalc" {{ $rtQuickCalc ? '' : 'disabled' }}>Calcular</button>
-        <button class="sat4-btn" type="button" id="qPdf" {{ $rtQuickPdf ? '' : 'disabled' }}>PDF</button>
-        <div class="sat4-mini" id="qNote" style="margin-left:auto;">—</div>
-      </div>
-
-      <div class="sat4-quote-card" id="qOut" aria-label="Resultado cotización">
-        <div class="sat4-quote-row">
-          <span class="sat4-quote-k">Base</span>
-          <b class="sat4-quote-v mono" id="qBase">$0.00</b>
-        </div>
-
-        <div class="sat4-quote-row">
-          <span class="sat4-quote-k mono" id="qDiscLabel">Descuento</span>
-          <b class="sat4-quote-v mono" id="qDesc">-$0.00</b>
-        </div>
-
-        <div class="sat4-quote-row">
-          <span class="sat4-quote-k">IVA</span>
-          <b class="sat4-quote-v mono" id="qIvaV">$0.00</b>
-        </div>
-
-        <div class="sat4-quote-divider"></div>
-
-        <div class="sat4-quote-row sat4-quote-total">
-          <span class="sat4-quote-k">Total</span>
-          <b class="sat4-quote-v mono" id="qTotal">$0.00</b>
-        </div>
-
-        <div class="sat4-quote-foot">
-          <span class="sat4-mini" id="qTariffNote">—</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-
-{{-- Modal: Mis descargas --}}
-<div class="sat4-modal sat4-modal-xl" id="sat4ModalDownloads" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Mis descargas</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-form">
-      <div class="sat4-row">
-        <input class="sat4-in" id="dSearch" type="text" placeholder="Buscar…">
-        <select class="sat4-in" id="dStatus">
-          <option value="">Estado</option>
-          <option value="pending">Pendiente</option>
-          <option value="processing">Proceso</option>
-          <option value="done">Listo</option>
-          <option value="paid">Pagado</option>
-          <option value="expired">Expirado</option>
-        </select>
-        <button class="sat4-btn sat4-btn-primary" type="button" id="dRender">Aplicar</button>
-      </div>
-    </div>
-
-    <div class="sat4-table" id="dTable">
-      <div class="sat4-mini" style="padding:12px;">Cargando…</div>
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-{{-- Modal: RFC externo --}}
-<div class="sat4-modal sat4-modal-xl" id="sat4ModalExternal" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div>
-        <div class="sat4-modal-title">RFC externo</div>
-       <div class="sat4-mini" style="margin-top:4px;">
-         Individual / ZIP · Admin-like · acciones por registro
-       </div>
-      </div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-form">
-      {{-- ✅ Selector: Individual | ZIP --}}
-      <div class="sat4-row sat4-row--ext-actions" style="gap:10px; align-items:center;">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="exModeIndividual">Individual</button>
-        <button class="sat4-btn" type="button" id="exModeZip">ZIP</button>
-
-        <button class="sat4-btn sat4-btn-ghost" type="button" id="exRefresh" style="margin-left:auto;">Actualizar</button>
-
-        <div class="sat4-ext-hint">
-          <span class="sat4-mini">RFCs OK:</span>
-          <b class="mono">{{ number_format((int)$kRfcValid) }}</b>
-        </div>
-      </div>
-
-      {{-- ✅ Pane: Individual --}}
-      <div id="exPaneIndividual" style="margin-top:10px; display:none;">
-        <div class="sat4-mini" style="margin-bottom:8px;">
-          Envía una invitación para alta <b>individual</b> (CSD / RFC externo).
-        </div>
-
-        <div class="sat4-row">
-          <button class="sat4-btn sat4-btn-primary" type="button" id="exOpenInviteIndividual">
-            Invitar (Individual)
-          </button>
-        </div>
-
-        <div class="sat4-mini" style="margin-top:6px;">
-          *Esta opción es la misma que el botón “RFC externo” de arriba.
-        </div>
-      </div>
-
-      {{-- ✅ Pane: ZIP --}}
-      <div id="exPaneZip" style="margin-top:10px;">
-        <div class="sat4-row">
-          <button class="sat4-btn sat4-btn-primary" type="button" id="exOpenUpload">Subir ZIP</button>
-          <button class="sat4-btn" type="button" id="exOpenInvite" {{ $rtFielInvite ? '' : 'disabled' }}>Invitar (ZIP)</button>
-        </div>
-      </div>
-    </div>
-
-
-    {{-- ✅ RFCs válidos integrados (server-side, no depende de JS) --}}
-    <div class="sat4-ext">
-      <div class="sat4-ext-sec">
-        <div class="sat4-ext-sec-head">
-          <div class="sat4-ext-sec-ttl">RFCs verificados</div>
-          <div class="sat4-mini">Disponibles para operar</div>
-        </div>
-
-        <div class="sat4-ext-chips" aria-label="RFCs verificados">
-          @if(!empty($rfcOptionsValid) && count($rfcOptionsValid) > 0)
-            @foreach($rfcOptionsValid as $opt)
-              @php
-                $rf = (string)($opt['rf'] ?? '');
-                $al = trim((string)($opt['alias'] ?? ''));
-                $isExt = !empty($opt['external'] ?? false) || (($opt['source'] ?? '') === 'external_registry');
-              @endphp
-              <div class="sat4-ext-chip" title="{{ $al !== '' ? $al : $rf }}">
-                <span class="sat4-ext-chip-dot {{ $isExt ? 'is-ext' : 'is-ok' }}"></span>
-                <span class="sat4-ext-chip-rfc mono">{{ $rf }}</span>
-                @if($al !== '')
-                  <span class="sat4-ext-chip-al">{{ $al }}</span>
-                @endif
-                @if($isExt)
-                  <span class="sat4-ext-chip-tag">externo</span>
-                @endif
-              </div>
-            @endforeach
-          @else
-            <div class="sat4-ext-empty">
-              <div class="sat4-mini">
-                No tienes RFCs verificados aún. Ve a <b>Conexiones</b> y valida tu RFC.
-              </div>
-            </div>
-          @endif
-        </div>
-      </div>
-
-      {{-- Lista dinámica (JS) --}}
-      <div class="sat4-ext-sec">
-        <div class="sat4-ext-sec-head">
-          <div class="sat4-ext-sec-ttl">Archivos / registros externos</div>
-          <div class="sat4-mini">Aquí aparecen ZIPs/FIEL externos y sus acciones</div>
-        </div>
-
-        <div class="sat4-ext-list" id="exTable">
-          <div class="sat4-mini" style="padding:12px;">Cargando…</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-
-{{-- Modal: Conexiones --}}
-<div class="sat4-modal sat4-modal-xl" id="sat4ModalConnections" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Conexiones</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-pad">
-      @include('cliente.sat._partials.connections_clean', [
-        'externalRfc'      => $externalRfc ?? '',
-        'externalVerified' => (bool)($externalVerified ?? false),
-        'credList'         => $credList ?? collect(),
-        'plan'             => $plan ?? 'FREE',
-        'rtCsdStore'       => $rtCsdStore ?? '#',
-        'rtAlias'          => $rtAlias ?? '#',
-        'rtRfcReg'         => $rtRfcReg ?? '#',
-        'rtRfcDelete'      => $rtRfcDelete ?? '#',
-        'rtExternalInvite' => $rtFielInvite ?? null,
-      ])
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-{{-- Submodal: Upload ZIP externo --}}
-<div class="sat4-modal" id="sat4ModalExtUpload" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Subir ZIP</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <form id="exUploadForm" class="sat4-form" enctype="multipart/form-data">
-      @csrf
-
-      <input type="hidden" name="cuenta_id" value="{{ (string)($cuenta->id ?? '') }}">
-      <input type="hidden" name="admin_account_id" value="{{ (string)($cuenta->admin_account_id ?? '') }}">
-      <input type="hidden" name="email" value="{{ (string)($user->email ?? '') }}">       
-      <input type="hidden" name="cuenta_id" value="{{ (string)($cuenta->id ?? '') }}">
-      <input type="hidden" name="admin_account_id" value="{{ (string)($cuenta->admin_account_id ?? '') }}">
-
-      <div class="sat4-row">
-        <input class="sat4-in mono" name="rfc" id="exRfc" placeholder="RFC" value="{{ $externalRfc ?: '' }}">
-        <input class="sat4-in" type="password" name="fiel_password" id="exPass" placeholder="Password FIEL">
-        <input class="sat4-in" type="file" name="zip" id="exZip" accept=".zip,application/zip">
-      </div>
-
-      <div class="sat4-row">
-        <input class="sat4-in" name="reference" id="exRef" placeholder="Referencia">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="exSend">Enviar</button>
-      </div>
-
-      <div class="sat4-mini" id="exStatus">—</div>
-    </form>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-{{-- Submodal: Invitar externo --}}
-<div class="sat4-modal" id="sat4ModalExtInvite" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Invitar</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-form">
-      <div class="sat4-row">
-        <input class="sat4-in" id="invEmail" type="email" placeholder="correo@ejemplo.com">
-        <input class="sat4-in" id="invRef" type="text" placeholder="Referencia">
-      </div>
-
-      <div class="sat4-row">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="invSend" {{ $rtExternalInvite ? '' : 'disabled' }}>Enviar</button>
-      </div>
-
-      <div class="sat4-mini" id="invStatus">—</div>
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-{{-- Submodal: Invitar externo (INDIVIDUAL) --}}
-<div class="sat4-modal" id="sat4ModalExtInviteIndividual" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Invitar (Individual)</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-form">
-      <div class="sat4-row">
-        <input class="sat4-in" id="invEmailInd" type="email" placeholder="correo@ejemplo.com">
-        <input class="sat4-in" id="invRefInd" type="text" placeholder="Referencia">
-      </div>
-
-      <div class="sat4-row">
-        <button class="sat4-btn sat4-btn-primary" type="button" id="invSendInd" {{ $rtExternalInviteIndividual ? '' : 'disabled' }}>
-          Enviar
-        </button>
-      </div>
-
-      <div class="sat4-mini" id="invStatusInd">—</div>
-
-      @if(!$rtExternalInviteIndividual)
-        <div class="sat4-mini" style="margin-top:8px;color:#64748b;">
-          Nota: falta la ruta <b>cliente.sat.external.invite.individual</b> (se agrega en routes/cliente_sat.php).
-        </div>
-      @endif
-    </div>
-
-    <div class="sat4-modal-foot">
-      <button type="button" class="sat4-btn" data-close>Cerrar</button>
-    </div>
-  </div>
-</div>
-
-
-{{-- Modal: Iniciar descarga (Mes/Año) --}}
-<div class="sat4-modal" id="sat4ModalYm" style="display:none;" role="dialog" aria-modal="true">
-  <div class="sat4-modal-card">
-    <div class="sat4-modal-head">
-      <div class="sat4-modal-title">Iniciar descarga portal SAT</div>
-      <button type="button" class="sat4-x" data-close>✕</button>
-    </div>
-
-    <div class="sat4-form">
-      <div class="sat4-ym">
-        <div>
-          <div class="sat4-mini" style="margin:0 0 6px;">Año</div>
-          <input class="sat4-in mono" id="sat4YmYear" type="number" min="2015" max="2100" step="1">
-        </div>
-        <div>
-          <div class="sat4-mini" style="margin:0 0 6px;">Mes</div>
-          <select class="sat4-in" id="sat4YmMonth">
-            <option value="1">ENERO</option>
-            <option value="2">FEBRERO</option>
-            <option value="3">MARZO</option>
-            <option value="4">ABRIL</option>
-            <option value="5">MAYO</option>
-            <option value="6">JUNIO</option>
-            <option value="7">JULIO</option>
-            <option value="8">AGOSTO</option>
-            <option value="9">SEPTIEMBRE</option>
-            <option value="10">OCTUBRE</option>
-            <option value="11">NOVIEMBRE</option>
-            <option value="12">DICIEMBRE</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="sat4-help">
-        Por defecto se muestra el mes y año en curso. Al continuar, se abrirá la descarga avanzada con el rango del mes seleccionado.
-      </div>
-
-      <div class="sat4-row" style="margin-top:12px;">
-        <button class="sat4-btn" type="button" data-close>Cancelar</button>
-        <button class="sat4-btn sat4-btn-primary" type="button" id="sat4YmContinue">Continuar</button>
-      </div>
-
-      <div class="sat4-mini" id="sat4YmStatus" style="margin-top:10px;">—</div>
-    </div>
-  </div>
-</div>
-
-
-@endsection
 
 @push('scripts')
 @php
-  $JS_REL = 'assets/client/js/sat/sat-v4.js';
-  $JS_ABS = public_path($JS_REL);
-  $JS_V   = is_file($JS_ABS) ? (string) filemtime($JS_ABS) : null;
+    $JS_REL = 'assets/client/js/sat/sat-portal-v1.js';
+    $JS_ABS = public_path($JS_REL);
+    $JS_V   = is_file($JS_ABS) ? (string) filemtime($JS_ABS) : null;
+
+    $JS_EXTRA_REL = 'assets/client/js/sat/sat-portal-v1-extra.js';
+    $JS_EXTRA_ABS = public_path($JS_EXTRA_REL);
+    $JS_EXTRA_V   = is_file($JS_EXTRA_ABS) ? (string) filemtime($JS_EXTRA_ABS) : null;
+
+    $rfcOptionsForJs = collect($rfcs ?? [])->map(function ($item) {
+        $meta = $item->meta ?? [];
+
+        if (is_string($meta)) {
+            $decoded = json_decode($meta, true);
+            $meta = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($meta)) {
+            $meta = [];
+        }
+
+        return [
+            'id'           => (string) ($item->id ?? ''),
+            'rfc'          => strtoupper(trim((string) ($item->rfc ?? ''))),
+            'razon_social' => trim((string) ($item->razon_social ?? '')),
+            'label'        => trim((string) ($item->razon_social ?? '')) !== ''
+                ? strtoupper(trim((string) ($item->rfc ?? ''))) . ' · ' . trim((string) ($item->razon_social ?? ''))
+                : strtoupper(trim((string) ($item->rfc ?? ''))),
+            'is_active'    => (bool) ($meta['is_active'] ?? true),
+        ];
+    })->values();
 @endphp
 
 <script>
-(function(){
-  'use strict';
-  if (!window.P360_SAT || typeof window.P360_SAT !== 'object') window.P360_SAT = {};
-  const CFG = @json($p360SatCfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-  window.P360_SAT = Object.assign({}, window.P360_SAT, CFG);
-})();
+    window.P360_SAT = Object.assign({}, window.P360_SAT || {}, {
+        quickCalcUrl: @json(route('cliente.sat.quick.calc')),
+        quickPdfUrl: @json(route('cliente.sat.quick.pdf')),
+        quoteCalcUrl: @json(route('cliente.sat.quote.calc')),
+        externalInviteUrl: @json(route('cliente.sat.external.invite')),
+        rfcStoreUrl: @json(route('cliente.sat.rfcs.store')),
+        rfcOptions: @json($rfcOptionsForJs),
+        vaultV2Url: @json(route('cliente.sat.v2.index')),
+        vaultV1Url: @json(route('cliente.sat.vault')),
+    });
 </script>
 
-<script src="{{ asset($JS_REL) }}{{ $JS_V ? ('?v='.$JS_V) : '' }}" defer></script>
+<script src="{{ asset($JS_REL) }}{{ $JS_V ? ('?v='.$JS_V) : '' }}"></script>
+<script src="{{ asset($JS_EXTRA_REL) }}{{ $JS_EXTRA_V ? ('?v='.$JS_EXTRA_V) : '' }}"></script>
 @endpush
+
+@section('content')
+<div class="sat-clean-shell">
+    <div class="sat-clean-container">
+
+        <section class="sat-clean-hero sat-clean-hero--portal sat-clean-hero--portal-simple" aria-label="Portal Descargas SAT">
+            <div class="sat-clean-hero__content sat-clean-hero__content--portal sat-clean-hero__content--portal-simple">
+                <div class="sat-clean-hero__main sat-clean-hero__main--portal-simple">
+                    <span class="sat-clean-hero__eyebrow">PORTAL SAT · DESCARGAS</span>
+
+                    <h1 class="sat-clean-hero__title sat-clean-hero__title--portal">
+                        Portal Descargas SAT
+                    </h1>
+
+                    <p class="sat-clean-hero__text sat-clean-hero__text--portal">
+                        Administra tus RFC, da seguimiento a cotizaciones y consulta el estado general de tu centro SAT desde un solo lugar.
+                    </p>
+
+                    <div class="sat-clean-hero__chips">
+                        <span class="sat-clean-hero__chip">RFC</span>
+                        <span class="sat-clean-hero__chip">Cotizaciones</span>
+                        <span class="sat-clean-hero__chip">Centro SAT</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="sat-clean-accordion" aria-label="Administración de RFC">
+            <details class="sat-clean-accordion__item">
+                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+                    <div class="sat-clean-accordion__bar-left">
+                        <span class="sat-clean-accordion__bar-title">RFC</span>
+                        <span class="sat-clean-accordion__bar-text">
+                            Administración de accesos SAT
+                        </span>
+                    </div>
+
+                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                </summary>
+
+                <div class="sat-clean-accordion__content">
+                    <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact">
+
+                        @php
+                            $totalRfcs = isset($rfcs) ? count($rfcs) : 0;
+                        @endphp
+
+                        <div class="sat-clean-rfc-toolbar-v2">
+                            <div class="sat-clean-rfc-toolbar-v2__left">
+                                <div class="sat-clean-rfc-toolbar-v2__title-wrap">
+                                    <h2 class="sat-clean-rfc-toolbar-v2__title">Listado de RFC</h2>
+                                    <span class="sat-clean-rfc-toolbar-v2__count">{{ $totalRfcs }} registro(s)</span>
+                                </div>
+
+                                <div class="sat-clean-rfc-toolbar-v2__filters" role="group" aria-label="Filtros de RFC">
+                                    <button type="button" class="sat-clean-filter-chip is-active" data-filter="todos">Todos</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-filter="activos">Activos</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-filter="con-fiel">Con FIEL</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-filter="con-csd">Con CSD</button>
+                                </div>
+                            </div>
+
+                            <div class="sat-clean-rfc-toolbar-v2__right">
+                                <button
+                                    type="button"
+                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                    data-rfc-open-modal="create"
+                                    aria-label="Agregar RFC"
+                                    title="Agregar RFC"
+                                >
+                                    + RFC
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
+                            <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
+                                <thead>
+                                    <tr>
+                                        <th>RFC</th>
+                                        <th>Razón social</th>
+                                        <th>Estado</th>
+                                        <th>FIEL</th>
+                                        <th>CSD</th>
+                                        <th>Accesos</th>
+                                        <th class="text-end">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse(($rfcs ?? []) as $item)
+                                        @php
+                                            $itemId = (string) ($item->id ?? '');
+                                            $itemRfc = strtoupper(trim((string) ($item->rfc ?? '')));
+                                            $itemRazonSocial = trim((string) ($item->razon_social ?? ''));
+                                            $itemMeta = $item->meta ?? [];
+
+                                            if (is_string($itemMeta)) {
+                                                $decoded = json_decode($itemMeta, true);
+                                                $itemMeta = is_array($decoded) ? $decoded : [];
+                                            }
+
+                                            if (!is_array($itemMeta)) {
+                                                $itemMeta = [];
+                                            }
+
+                                            $isActive = (bool) ($itemMeta['is_active'] ?? true);
+
+                                            $tipoOrigen = trim((string) ($item->tipo_origen ?? ($itemMeta['tipo_origen'] ?? 'interno')));
+                                            $contactEmail = trim((string) ($item->contact_email ?? ($itemMeta['contact_email'] ?? '')));
+                                            $contactPhone = trim((string) ($item->contact_phone ?? ($itemMeta['contact_phone'] ?? '')));
+                                            $contactName = trim((string) ($item->contact_name ?? ($itemMeta['contact_name'] ?? '')));
+                                            $sourceLabel = trim((string) ($item->source_label ?? ($itemMeta['source_label'] ?? '')));
+                                            $notes = trim((string) ($item->notes ?? ($itemMeta['notes'] ?? '')));
+
+                                            $fielCerPath = (string) ($item->fiel_cer_path ?? $item->cer_path ?? '');
+                                            $fielKeyPath = (string) ($item->fiel_key_path ?? $item->key_path ?? '');
+                                            $fielPasswordConfigured = !empty($item->fiel_password_enc ?? null) || !empty($item->key_password ?? null);
+                                            $hasFielCer = $fielCerPath !== '' || !empty($itemMeta['fiel_cer']) || !empty($itemMeta['fiel']['cer']);
+                                            $hasFielKey = $fielKeyPath !== '' || !empty($itemMeta['fiel_key']) || !empty($itemMeta['fiel']['key']);
+                                            $hasFiel = $hasFielCer || $hasFielKey || $fielPasswordConfigured;
+
+                                            $csdCerPath = (string) ($item->csd_cer_path ?? '');
+                                            $csdKeyPath = (string) ($item->csd_key_path ?? '');
+                                            $csdPasswordConfigured = !empty($item->csd_password_enc ?? null) || !empty($itemMeta['csd_password']) || !empty($itemMeta['csd']['password']);
+                                            $hasCsdCer = $csdCerPath !== '' || !empty($itemMeta['csd_cer']) || !empty($itemMeta['csd']['cer']);
+                                            $hasCsdKey = $csdKeyPath !== '' || !empty($itemMeta['csd_key']) || !empty($itemMeta['csd']['key']);
+                                            $hasCsd = $hasCsdCer || $hasCsdKey || $csdPasswordConfigured;
+                                        @endphp
+
+                                        <tr
+                                            data-rfc-row="true"
+                                            data-filter-active="{{ $isActive ? '1' : '0' }}"
+                                            data-filter-fiel="{{ $hasFiel ? '1' : '0' }}"
+                                            data-filter-csd="{{ $hasCsd ? '1' : '0' }}"
+                                        >
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-main">
+                                                    <span class="sat-clean-rfc-inline-main__rfc">
+                                                        {{ $itemRfc !== '' ? $itemRfc : 'RFC sin definir' }}
+                                                    </span>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-text">
+                                                    {{ $itemRazonSocial !== '' ? $itemRazonSocial : 'Sin razón social registrada' }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span class="sat-clean-status-badge {{ $isActive ? 'is-success' : 'is-muted' }}">
+                                                    {{ $isActive ? 'Activo' : 'Inactivo' }}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-inline-status-group">
+                                                    <span class="sat-clean-status-dot {{ $hasFiel ? 'is-success' : 'is-warning' }}"></span>
+                                                    <span class="sat-clean-inline-status-text">
+                                                        {{ $hasFiel ? 'Lista' : 'Pendiente' }}
+                                                    </span>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-inline-status-group">
+                                                    <span class="sat-clean-status-dot {{ $hasCsd ? 'is-success' : 'is-warning' }}"></span>
+                                                    <span class="sat-clean-inline-status-text">
+                                                        {{ $hasCsd ? 'Lista' : 'Pendiente' }}
+                                                    </span>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-passwords-inline">
+                                                    <div class="sat-clean-password-pill">
+                                                        <span class="sat-clean-password-pill__label">FIEL</span>
+
+                                                        @if($fielPasswordConfigured)
+                                                            <button
+                                                                type="button"
+                                                                class="sat-clean-password-pill__action"
+                                                                title="Ver contraseña FIEL"
+                                                                aria-label="Ver contraseña FIEL"
+                                                                data-password-reveal-url="{{ route('cliente.sat.rfcs.password.reveal', ['id' => $itemId, 'scope' => 'fiel']) }}"
+                                                                data-password-label="FIEL"
+                                                                data-rfc="{{ $itemRfc }}"
+                                                            >
+                                                                ••••••
+                                                            </button>
+                                                        @else
+                                                            <span class="sat-clean-password-pill__empty">—</span>
+                                                        @endif
+                                                    </div>
+
+                                                    <div class="sat-clean-password-pill">
+                                                        <span class="sat-clean-password-pill__label">CSD</span>
+
+                                                        @if($csdPasswordConfigured)
+                                                            <button
+                                                                type="button"
+                                                                class="sat-clean-password-pill__action"
+                                                                title="Ver contraseña CSD"
+                                                                aria-label="Ver contraseña CSD"
+                                                                data-password-reveal-url="{{ route('cliente.sat.rfcs.password.reveal', ['id' => $itemId, 'scope' => 'csd']) }}"
+                                                                data-password-label="CSD"
+                                                                data-rfc="{{ $itemRfc }}"
+                                                            >
+                                                                ••••••
+                                                            </button>
+                                                        @else
+                                                            <span class="sat-clean-password-pill__empty">—</span>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            </td>
+
+                                            <td class="text-end">
+                                                <div class="sat-clean-icon-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="sat-clean-icon-btn"
+                                                        data-rfc-open-modal="edit"
+                                                        data-rfc-id="{{ $itemId }}"
+                                                        data-rfc-value="{{ $itemRfc }}"
+                                                        data-rfc-razon-social="{{ e($itemRazonSocial) }}"
+                                                        data-rfc-tipo-origen="{{ e($tipoOrigen) }}"
+                                                        data-rfc-contact-email="{{ e($contactEmail) }}"
+                                                        data-rfc-contact-phone="{{ e($contactPhone) }}"
+                                                        data-rfc-contact-name="{{ e($contactName) }}"
+                                                        data-rfc-source-label="{{ e($sourceLabel) }}"
+                                                        data-rfc-notes="{{ e($notes) }}"
+                                                        title="Editar RFC"
+                                                        aria-label="Editar RFC"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                            <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                        </svg>
+                                                    </button>
+
+                                                    <form
+                                                        method="POST"
+                                                        action="{{ route('cliente.sat.rfcs.delete', ['id' => $itemId]) }}"
+                                                        class="sat-clean-inline-form"
+                                                        data-rfc-delete-form="true"
+                                                    >
+                                                        @csrf
+                                                        <input type="hidden" name="id" value="{{ $itemId }}">
+                                                        <input type="hidden" name="rfc" value="{{ $itemRfc }}">
+
+                                                        <button
+                                                            type="submit"
+                                                            class="sat-clean-icon-btn sat-clean-icon-btn--danger"
+                                                            title="Eliminar RFC"
+                                                            aria-label="Eliminar RFC"
+                                                        >
+                                                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                                <path d="M5 7H19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                <path d="M9 7V5.8C9 5.35817 9.35817 5 9.8 5H14.2C14.6418 5 15 5.35817 15 5.8V7" stroke="currentColor" stroke-width="1.8"/>
+                                                                <path d="M8 10V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                <path d="M12 10V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                <path d="M16 10V18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                <path d="M6 7L6.7 18.2C6.76429 19.2286 7.61716 20 8.64778 20H15.3522C16.3828 20 17.2357 19.2286 17.3 18.2L18 7" stroke="currentColor" stroke-width="1.8"/>
+                                                            </svg>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="7">
+                                                <div class="sat-clean-empty-state sat-clean-empty-state--compact">
+                                                    <div class="sat-clean-empty-state__title">
+                                                        No hay RFC registrados todavía
+                                                    </div>
+                                                    <div class="sat-clean-empty-state__text">
+                                                        Agrega un RFC para comenzar a administrar accesos SAT.
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                        data-rfc-open-modal="create"
+                                                        aria-label="Agregar RFC"
+                                                        title="Agregar RFC"
+                                                    >
+                                                        + RFC
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+            </details>
+        </section>
+
+        <section class="sat-clean-accordion" id="satQuotesSection" aria-label="Cotizaciones SAT">
+            <details class="sat-clean-accordion__item">
+                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+                    <div class="sat-clean-accordion__bar-left">
+                        <span class="sat-clean-accordion__bar-title">Cotizaciones</span>
+                        <span class="sat-clean-accordion__bar-text">
+                            Solicitudes de cotización y seguimiento del proceso
+                        </span>
+                    </div>
+
+                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                </summary>
+
+                <div class="sat-clean-accordion__content">
+                    <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact" id="satQuotesPanel">
+                        @php
+                            $cotizacionesCollection = collect($cotizaciones ?? []);
+                            $totalCotizaciones = $cotizacionesCollection->count();
+                        @endphp
+
+                        <div class="sat-clean-quote-toolbar" id="satQuotesToolbar">
+                            <div class="sat-clean-quote-toolbar__left">
+                                <div class="sat-clean-quote-toolbar__title-wrap">
+                                    <h2 class="sat-clean-quote-toolbar__title" id="satQuotesTitle">Listado de cotizaciones</h2>
+                                    <span class="sat-clean-quote-toolbar__count" id="satQuotesVisibleBadge">
+                                        <span id="satQuoteVisibleCount">{{ $totalCotizaciones }}</span> visibles
+                                    </span>
+                                </div>
+
+                                <div class="sat-clean-rfc-toolbar-v2__filters" id="satQuoteFilterGroup" role="group" aria-label="Filtros de cotizaciones">
+                                    <button type="button" class="sat-clean-filter-chip is-active" data-quote-filter="todos">Todas</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="borrador">Borrador</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="en_proceso">En proceso</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="cotizada">Cotizada</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="pagada">Pagada</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="completada">Completada</button>
+                                    <button type="button" class="sat-clean-filter-chip" data-quote-filter="cancelada">Cancelada</button>
+                                </div>
+                            </div>
+
+                            <div class="sat-clean-quote-toolbar__right">
+                                <div class="sat-clean-quote-search">
+                                    <input
+                                        type="text"
+                                        id="satQuoteSearchInput"
+                                        placeholder="Buscar por folio, RFC, razón social o estatus..."
+                                        autocomplete="off"
+                                    >
+                                </div>
+
+                                <button
+                                    type="button"
+                                    id="satNewQuoteButton"
+                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                    title="Nueva cotización"
+                                    aria-label="Nueva cotización"
+                                >
+                                    + Cotización
+                                </button>
+                            </div>
+                        </div>
+
+                        <div
+                            class="sat-clean-rfc-table-wrap sat-clean-quote-table-wrap sat-clean-rfc-table-wrap--minimal"
+                            id="satQuotesTableWrap"
+                        >
+                            <table
+                                class="sat-clean-rfc-table sat-clean-rfc-table--minimal"
+                                id="satQuotesTable"
+                            >
+                                <thead>
+                                    <tr>
+                                        <th>Folio</th>
+                                        <th>RFC / Razón social</th>
+                                        <th>Concepto</th>
+                                        <th>Estatus</th>
+                                        <th>Importe estimado</th>
+                                        <th>Avance</th>
+                                        <th>Actualizado</th>
+                                        <th class="text-end">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="satQuotesTableBody">
+                                    @forelse($cotizacionesCollection as $cotizacion)
+                                        @php
+                                            $quote = is_array($cotizacion) ? (object) $cotizacion : $cotizacion;
+
+                                            $quoteId = (string) ($quote->id ?? '');
+                                            $quoteMeta = $quote->meta ?? [];
+
+                                            if (is_string($quoteMeta)) {
+                                                $decodedQuoteMeta = json_decode($quoteMeta, true);
+                                                $quoteMeta = is_array($decodedQuoteMeta) ? $decodedQuoteMeta : [];
+                                            }
+
+                                            if (!is_array($quoteMeta)) {
+                                                $quoteMeta = [];
+                                            }
+
+                                            $quoteFolio = trim((string) ($quote->folio ?? $quote->codigo ?? $quote->quote_no ?? $quoteMeta['folio'] ?? ''));
+                                            $quoteRfc = strtoupper(trim((string) ($quote->rfc ?? $quote->customer_rfc ?? $quoteMeta['rfc'] ?? '')));
+                                            $quoteRazonSocial = trim((string) ($quote->razon_social ?? $quote->cliente_nombre ?? $quote->customer_name ?? $quoteMeta['razon_social'] ?? ''));
+                                            $quoteConcepto = trim((string) ($quote->concepto ?? $quote->descripcion ?? $quote->tipo_descarga ?? $quoteMeta['concepto'] ?? 'Cotización SAT'));
+                                            $quoteStatusRaw = trim((string) ($quote->status ?? $quote->estatus ?? $quote->estado ?? $quoteMeta['status'] ?? 'borrador'));
+                                            $quoteStatus = strtolower(str_replace([' ', '-'], '_', $quoteStatusRaw));
+
+                                            $quoteAmountRaw = $quote->importe_estimado
+                                                ?? $quote->monto_estimado
+                                                ?? $quote->total_estimado
+                                                ?? $quote->amount
+                                                ?? $quoteMeta['importe_estimado']
+                                                ?? null;
+
+                                            $quoteAmount = is_numeric($quoteAmountRaw) ? (float) $quoteAmountRaw : null;
+
+                                            $quoteProgressRaw = $quote->progress
+                                                ?? $quote->porcentaje
+                                                ?? $quote->avance
+                                                ?? $quoteMeta['progress']
+                                                ?? $quoteMeta['porcentaje']
+                                                ?? 0;
+
+                                            $quoteProgress = max(0, min(100, (int) $quoteProgressRaw));
+
+                                            $quoteUpdatedAt = $quote->updated_at
+                                                ?? $quote->fecha_actualizacion
+                                                ?? $quote->created_at
+                                                ?? null;
+
+                                            $quoteUpdatedLabel = 'Sin fecha';
+                                            if (!empty($quoteUpdatedAt)) {
+                                                try {
+                                                    $quoteUpdatedLabel = \Illuminate\Support\Carbon::parse($quoteUpdatedAt)->format('d/m/Y H:i');
+                                                } catch (\Throwable $e) {
+                                                    $quoteUpdatedLabel = (string) $quoteUpdatedAt;
+                                                }
+                                            }
+
+                                            $statusLabelMap = [
+                                                'borrador'       => 'Borrador',
+                                                'simulada'       => 'Simulada',
+                                                'en_proceso'     => 'En proceso',
+                                                'cotizada'       => 'Cotizada',
+                                                'pendiente_pago' => 'Pendiente de pago',
+                                                'pagada'         => 'Pagada',
+                                                'en_descarga'    => 'En proceso de descarga',
+                                                'completada'     => 'Completada',
+                                                'cancelada'      => 'Cancelada',
+                                            ];
+
+                                            $quoteStatusLabel = $statusLabelMap[$quoteStatus] ?? ucwords(str_replace('_', ' ', $quoteStatus));
+
+                                            $statusBadgeClass = 'is-muted';
+                                            if (in_array($quoteStatus, ['completada'], true)) {
+                                                $statusBadgeClass = 'is-success';
+                                            } elseif (in_array($quoteStatus, ['pagada', 'cotizada', 'en_proceso', 'pendiente_pago', 'en_descarga'], true)) {
+                                                $statusBadgeClass = 'is-warning';
+                                            } elseif (in_array($quoteStatus, ['cancelada'], true)) {
+                                                $statusBadgeClass = 'is-muted';
+                                            }
+
+                                            $searchIndex = implode(' ', [
+                                                $quoteFolio,
+                                                $quoteRfc,
+                                                $quoteRazonSocial,
+                                                $quoteConcepto,
+                                                $quoteStatusLabel,
+                                            ]);
+
+                                            $quoteDateFrom = (string) ($quote->date_from ?? $quoteMeta['date_from'] ?? '');
+                                            $quoteDateTo = (string) ($quote->date_to ?? $quoteMeta['date_to'] ?? '');
+                                            $quoteTipo = (string) ($quote->tipo ?? $quoteMeta['tipo'] ?? $quoteMeta['tipo_solicitud'] ?? '');
+                                        @endphp
+
+                                        <tr
+                                            id="satQuoteRow-{{ $quoteId !== '' ? e($quoteId) : 'row-'.$loop->iteration }}"
+                                            data-quote-row="true"
+                                            data-quote-id="{{ $quoteId }}"
+                                            data-status="{{ $quoteStatus }}"
+                                            data-search="{{ e($searchIndex) }}"
+                                            data-folio="{{ e($quoteFolio) }}"
+                                            data-rfc="{{ e($quoteRfc) }}"
+                                            data-razon-social="{{ e($quoteRazonSocial) }}"
+                                            data-concepto="{{ e($quoteConcepto) }}"
+                                            data-progress="{{ $quoteProgress }}"
+                                            data-total="{{ $quoteAmount !== null ? e(number_format($quoteAmount, 2, '.', '')) : '' }}"
+                                            data-date-from="{{ e($quoteDateFrom) }}"
+                                            data-date-to="{{ e($quoteDateTo) }}"
+                                            data-tipo="{{ e($quoteTipo) }}"
+                                        >
+                                            <td>
+                                                <div class="sat-clean-quote-summary">
+                                                    <span class="sat-clean-quote-folio" data-quote-field="folio">
+                                                        {{ $quoteFolio !== '' ? $quoteFolio : ('COT-' . str_pad((string) ($loop->iteration), 4, '0', STR_PAD_LEFT)) }}
+                                                    </span>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-main">
+                                                    <span class="sat-clean-rfc-inline-main__rfc" data-quote-field="rfc">
+                                                        {{ $quoteRfc !== '' ? $quoteRfc : 'RFC pendiente' }}
+                                                    </span>
+                                                </div>
+                                                <div class="sat-clean-rfc-inline-text" data-quote-field="razon_social">
+                                                    {{ $quoteRazonSocial !== '' ? $quoteRazonSocial : 'Razón social pendiente' }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-text" data-quote-field="concepto">
+                                                    {{ $quoteConcepto }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span
+                                                    class="sat-clean-status-badge {{ $statusBadgeClass }}"
+                                                    data-quote-field="status_badge"
+                                                >
+                                                    {{ $quoteStatusLabel }}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <span class="sat-clean-quote-amount" data-quote-field="importe_estimado">
+                                                    {{ $quoteAmount !== null ? ('$' . number_format($quoteAmount, 2)) : 'Pendiente' }}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-quote-progress">
+                                                    <div class="sat-clean-quote-progress__bar">
+                                                        <span
+                                                            class="sat-clean-quote-progress__fill"
+                                                            data-quote-field="progress_fill"
+                                                            style="width: {{ $quoteProgress }}%;"
+                                                        ></span>
+                                                    </div>
+                                                    <span class="sat-clean-quote-progress__text" data-quote-field="progress_text">{{ $quoteProgress }}%</span>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span class="sat-clean-quote-meta" data-quote-field="updated_at">{{ $quoteUpdatedLabel }}</span>
+                                            </td>
+
+                                            <td class="text-end">
+                                                <div class="sat-clean-icon-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="sat-clean-icon-btn"
+                                                        data-quote-action="view"
+                                                        data-quote-id="{{ $quoteId }}"
+                                                        title="Ver detalle"
+                                                        aria-label="Ver detalle"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
+                                                            <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.8"/>
+                                                        </svg>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        class="sat-clean-icon-btn"
+                                                        data-quote-action="edit"
+                                                        data-quote-id="{{ $quoteId }}"
+                                                        title="Editar cotización"
+                                                        aria-label="Editar cotización"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                            <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                        </svg>
+                                                    </button>
+
+                                                    @if(in_array($quoteStatus, ['cotizada', 'pendiente_pago'], true))
+                                                        <button
+                                                            type="button"
+                                                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                            data-quote-action="pay"
+                                                            data-quote-id="{{ $quoteId }}"
+                                                            title="Pagar cotización"
+                                                            aria-label="Pagar cotización"
+                                                        >
+                                                            Pagar
+                                                        </button>
+                                                    @elseif($quoteStatus === 'pagada')
+                                                        <span class="sat-clean-status-badge is-warning">En descarga</span>
+                                                    @elseif($quoteStatus === 'completada')
+                                                        <a
+                                                            href="{{ route('cliente.sat.v2.index') }}"
+                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                                            title="Abrir bóveda v2"
+                                                            aria-label="Abrir bóveda v2"
+                                                        >
+                                                            Ver entrega
+                                                        </a>
+                                                    @endif
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr id="satQuotesEmptyRow">
+                                            <td colspan="8">
+                                                <div class="sat-clean-empty-state sat-clean-empty-state--compact" id="satQuotesEmptyState">
+                                                    <div class="sat-clean-empty-state__title">
+                                                        Aún no hay cotizaciones registradas
+                                                    </div>
+                                                    <div class="sat-clean-empty-state__text">
+                                                        Aquí se mostrarán las solicitudes de cotización, su estatus, importe estimado y avance de procesamiento.
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        id="satEmptyNewQuoteButton"
+                                                        class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                        title="Nueva cotización"
+                                                        aria-label="Nueva cotización"
+                                                    >
+                                                        + Cotización
+                                                    </button>
+                                                </div>
+
+                                                <div class="sat-clean-quote-empty-note">
+                                                    En el siguiente paso conectamos este bloque con el emergente de cotización, selección de RFC y flujo hacia administración.
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </section>
+
+        <section class="sat-clean-accordion" aria-label="Centro SAT">
+            <details class="sat-clean-accordion__item">
+                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+                    <div class="sat-clean-accordion__bar-left">
+                        <span class="sat-clean-accordion__bar-title">Centro SAT</span>
+                        <span class="sat-clean-accordion__bar-text">
+                            Vista rápida de almacenamiento, archivos y accesos de bóveda
+                        </span>
+                    </div>
+
+                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                </summary>
+
+                <div class="sat-clean-accordion__content">
+                    @php
+                        $vaultUsedPct = max(0, min(100, (float) ($vaultSummary['used_pct'] ?? 0)));
+                        $vaultAvailablePct = max(0, 100 - $vaultUsedPct);
+                        $vaultUsedDeg = round(($vaultUsedPct / 100) * 360, 2);
+
+                        $vaultFilesCount = (int) ($vaultSummary['files_count'] ?? 0);
+                        $vaultUsedGb = (float) ($vaultSummary['used_gb'] ?? 0);
+                        $vaultAvailableGb = (float) ($vaultSummary['available_gb'] ?? 0);
+                        $vaultQuotaGb = (float) ($vaultSummary['quota_gb'] ?? 0);
+                    @endphp
+
+                    <div class="sat-vault-summary sat-vault-summary--pro">
+                        <div class="sat-vault-pro-card">
+                            <div class="sat-vault-pro-card__top">
+                                <div class="sat-vault-pro-card__copy">
+                                    <p class="sat-vault-pro-card__text">
+                                        Visualiza el estado general de tus archivos, uso de espacio y accesos a bóveda desde un solo panel.
+                                    </p>
+                                </div>
+
+                                <div class="sat-vault-pro-card__actions">
+                                    @if(($vault['enabled'] ?? false))
+                                        <a
+                                            href="{{ route('cliente.sat.v2.index') }}"
+                                            class="sat-vault-pro-iconbtn sat-vault-pro-iconbtn--primary"
+                                            title="Abrir Bóveda v2"
+                                            aria-label="Abrir Bóveda v2"
+                                        >
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                <path d="M8.5 10.5 12 8l3.5 2.5v4L12 17l-3.5-2.5v-4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            </svg>
+                                        </a>
+
+                                        <a
+                                            href="{{ route('cliente.sat.vault') }}"
+                                            class="sat-vault-pro-pillbtn"
+                                            title="Abrir bóveda v1"
+                                            aria-label="Abrir bóveda v1"
+                                        >
+                                            BV1
+                                        </a>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div class="sat-vault-pro-grid">
+                                <div class="sat-vault-pro-storage">
+                                    <div class="sat-vault-pro-storage__chartWrap">
+                                        <div
+                                            class="sat-vault-pro-donut"
+                                            style="--sat-vault-used-deg: {{ $vaultUsedDeg }}deg;"
+                                            aria-label="Uso de almacenamiento"
+                                        >
+                                            <div class="sat-vault-pro-donut__inner sat-vault-pro-donut__inner--stacked">
+                                                <strong>{{ number_format($vaultUsedPct, 1) }}%</strong>
+                                                <span>utilizado</span>
+
+                                                <div class="sat-vault-pro-donut__legend">
+                                                    <div class="sat-vault-pro-donut__legendItem">
+                                                        <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--used"></span>
+                                                        <small>Usado · {{ number_format($vaultUsedGb, 2) }} GB</small>
+                                                    </div>
+
+                                                    <div class="sat-vault-pro-donut__legendItem">
+                                                        <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--available"></span>
+                                                        <small>Disponible · {{ number_format($vaultAvailableGb, 2) }} GB</small>
+                                                    </div>
+
+                                                    <div class="sat-vault-pro-donut__legendItem">
+                                                        <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--total"></span>
+                                                        <small>Total · {{ number_format($vaultQuotaGb, 2) }} GB</small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="sat-vault-pro-stats">
+                                    <div class="sat-vault-pro-stat sat-vault-pro-stat--rfc">
+                                        <span class="sat-vault-pro-stat__label">RFC registrados</span>
+                                        <strong class="sat-vault-pro-stat__value">{{ number_format(count($rfcs ?? [])) }}</strong>
+                                        <small class="sat-vault-pro-stat__hint">Credenciales disponibles</small>
+                                    </div>
+
+                                    <div class="sat-vault-pro-stat sat-vault-pro-stat--quotes">
+                                        <span class="sat-vault-pro-stat__label">Cotizaciones</span>
+                                        <strong class="sat-vault-pro-stat__value">{{ number_format($totalCotizaciones ?? 0) }}</strong>
+                                        <small class="sat-vault-pro-stat__hint">Solicitudes visibles</small>
+                                    </div>
+
+                                    <div class="sat-vault-pro-stat sat-vault-pro-stat--files">
+                                        <span class="sat-vault-pro-stat__label">Archivos en bóveda</span>
+                                        <strong class="sat-vault-pro-stat__value">{{ number_format($vaultFilesCount) }}</strong>
+                                        <small class="sat-vault-pro-stat__hint">Archivos almacenados</small>
+                                    </div>
+
+                                    <div class="sat-vault-pro-stat sat-vault-pro-stat--capacity">
+                                        <span class="sat-vault-pro-stat__label">Estado de capacidad</span>
+                                        <strong class="sat-vault-pro-stat__value">{{ number_format($vaultAvailablePct, 1) }}%</strong>
+                                        <small class="sat-vault-pro-stat__hint">Disponible para nuevos archivos</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="sat-vault-pro-bottom">
+                                <div class="sat-vault-pro-bottom__rail">
+                                    <div class="sat-vault-pro-bottom__item">
+                                        <span>Usado</span>
+                                        <strong>{{ number_format($vaultUsedGb, 2) }} GB</strong>
+                                    </div>
+                                    <div class="sat-vault-pro-bottom__item">
+                                        <span>Disponible</span>
+                                        <strong>{{ number_format($vaultAvailableGb, 2) }} GB</strong>
+                                    </div>
+                                    <div class="sat-vault-pro-bottom__item">
+                                        <span>Total</span>
+                                        <strong>{{ number_format($vaultQuotaGb, 2) }} GB</strong>
+                                    </div>
+                                    <div class="sat-vault-pro-bottom__item">
+                                        <span>Archivos</span>
+                                        <strong>{{ number_format($vaultFilesCount) }}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </section>
+
+        <section class="sat-clean-accordion" aria-label="Descargas SAT">
+    <details class="sat-clean-accordion__item">
+        <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+            <div class="sat-clean-accordion__bar-left">
+                <span class="sat-clean-accordion__bar-title">Descargas</span>
+                <span class="sat-clean-accordion__bar-text">
+                    Vista rápida de archivos, almacenamiento y accesos de bóveda
+                </span>
+            </div>
+
+            <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+            </span>
+        </summary>
+
+        <div class="sat-clean-accordion__content">
+            @php
+                $portalFilesCount = (int) ($vaultSummary['files_count'] ?? 0);
+                $portalUsedGb = (float) ($vaultSummary['used_gb'] ?? 0);
+                $portalAvailableGb = (float) ($vaultSummary['available_gb'] ?? 0);
+                $portalQuotaGb = (float) ($vaultSummary['quota_gb'] ?? 0);
+                $portalUsedPct = max(0, min(100, (float) ($vaultSummary['used_pct'] ?? 0)));
+                $portalUsedDeg = round(($portalUsedPct / 100) * 360, 2);
+                $recentDownloads = collect($downloads ?? [])->take(6)->values();
+            @endphp
+
+            <div class="sat-vault-summary sat-vault-summary--pro">
+                <div class="sat-vault-pro-card">
+                    <div class="sat-vault-pro-card__top">
+                        <div class="sat-vault-pro-card__copy">
+                            <p class="sat-vault-pro-card__text">
+                                Consulta rápidamente el almacenamiento disponible y los archivos recientes visibles en tu portal.
+                            </p>
+                        </div>
+
+                        <div class="sat-vault-pro-card__actions">
+                            <a
+                                href="{{ route('cliente.sat.v2.index') }}"
+                                class="sat-vault-pro-iconbtn sat-vault-pro-iconbtn--primary"
+                                title="Abrir Descargas SAT v2"
+                                aria-label="Abrir Descargas SAT v2"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M12 16V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    <path d="M7 11l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </a>
+
+                            <a
+                                href="{{ route('cliente.sat.vault') }}"
+                                class="sat-vault-pro-pillbtn"
+                                title="Abrir bóveda v1"
+                                aria-label="Abrir bóveda v1"
+                            >
+                                BV1
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="sat-vault-pro-grid">
+                        <div class="sat-vault-pro-storage">
+                            <div class="sat-vault-pro-storage__chartWrap">
+                                <div
+                                    class="sat-vault-pro-donut"
+                                    style="--sat-vault-used-deg: {{ $portalUsedDeg }}deg;"
+                                    aria-label="Uso de almacenamiento"
+                                >
+                                    <div class="sat-vault-pro-donut__inner sat-vault-pro-donut__inner--stacked">
+                                        <strong>{{ number_format($portalUsedPct, 1) }}%</strong>
+                                        <span>utilizado</span>
+
+                                        <div class="sat-vault-pro-donut__legend">
+                                            <div class="sat-vault-pro-donut__legendItem">
+                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--used"></span>
+                                                <small>Usado · {{ number_format($portalUsedGb, 2) }} GB</small>
+                                            </div>
+
+                                            <div class="sat-vault-pro-donut__legendItem">
+                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--available"></span>
+                                                <small>Disponible · {{ number_format($portalAvailableGb, 2) }} GB</small>
+                                            </div>
+
+                                            <div class="sat-vault-pro-donut__legendItem">
+                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--total"></span>
+                                                <small>Total · {{ number_format($portalQuotaGb, 2) }} GB</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sat-vault-pro-stats">
+                            <div class="sat-vault-pro-stat sat-vault-pro-stat--files">
+                                <span class="sat-vault-pro-stat__label">Archivos visibles</span>
+                                <strong class="sat-vault-pro-stat__value">{{ number_format($portalFilesCount) }}</strong>
+                                <small class="sat-vault-pro-stat__hint">Archivos en bóveda y descargas</small>
+                            </div>
+
+                            <div class="sat-vault-pro-stat sat-vault-pro-stat--capacity">
+                                <span class="sat-vault-pro-stat__label">Capacidad total</span>
+                                <strong class="sat-vault-pro-stat__value">{{ number_format($portalQuotaGb, 2) }} GB</strong>
+                                <small class="sat-vault-pro-stat__hint">Espacio asignado a tu cuenta</small>
+                            </div>
+
+                            <div class="sat-vault-pro-stat sat-vault-pro-stat--rfc">
+                                <span class="sat-vault-pro-stat__label">RFC registrados</span>
+                                <strong class="sat-vault-pro-stat__value">{{ number_format(count($rfcs ?? [])) }}</strong>
+                                <small class="sat-vault-pro-stat__hint">RFC listos para operar</small>
+                            </div>
+
+                            <div class="sat-vault-pro-stat sat-vault-pro-stat--quotes">
+                                <span class="sat-vault-pro-stat__label">Descargas totales</span>
+                                <strong class="sat-vault-pro-stat__value">{{ number_format((int) ($downloadsTotalAll ?? 0)) }}</strong>
+                                <small class="sat-vault-pro-stat__hint">Registros generados en portal</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sat-vault-pro-bottom">
+                        <div class="sat-vault-pro-bottom__rail">
+                            <div class="sat-vault-pro-bottom__item">
+                                <span>Usado</span>
+                                <strong>{{ number_format($portalUsedGb, 2) }} GB</strong>
+                            </div>
+                            <div class="sat-vault-pro-bottom__item">
+                                <span>Disponible</span>
+                                <strong>{{ number_format($portalAvailableGb, 2) }} GB</strong>
+                            </div>
+                            <div class="sat-vault-pro-bottom__item">
+                                <span>Total</span>
+                                <strong>{{ number_format($portalQuotaGb, 2) }} GB</strong>
+                            </div>
+                            <div class="sat-vault-pro-bottom__item">
+                                <span>Archivos</span>
+                                <strong>{{ number_format($portalFilesCount) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal" style="margin-top:16px;">
+                        <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
+                            <thead>
+                                <tr>
+                                    <th>Archivo / folio</th>
+                                    <th>RFC</th>
+                                    <th>Tipo</th>
+                                    <th>Estatus</th>
+                                    <th>Actualizado</th>
+                                    <th class="text-end">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($recentDownloads as $row)
+                                    @php
+                                        $rowObj = is_array($row) ? (object) $row : $row;
+                                        $folio = trim((string) ($rowObj->folio ?? $rowObj->codigo ?? $rowObj->quote_no ?? ''));
+                                        $rfcValue = strtoupper(trim((string) ($rowObj->rfc ?? $rowObj->customer_rfc ?? '')));
+                                        $tipoValue = trim((string) ($rowObj->tipo ?? $rowObj->tipo_descarga ?? $rowObj->concepto ?? 'Descarga SAT'));
+                                        $statusValue = trim((string) ($rowObj->status ?? $rowObj->estatus ?? $rowObj->estado ?? 'Disponible'));
+                                        $updatedValue = $rowObj->updated_at ?? $rowObj->created_at ?? null;
+
+                                        $updatedLabel = 'Sin fecha';
+                                        if (!empty($updatedValue)) {
+                                            try {
+                                                $updatedLabel = \Illuminate\Support\Carbon::parse($updatedValue)->format('d/m/Y H:i');
+                                            } catch (\Throwable $e) {
+                                                $updatedLabel = (string) $updatedValue;
+                                            }
+                                        }
+                                    @endphp
+
+                                    <tr>
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-main">
+                                                <span class="sat-clean-rfc-inline-main__rfc">
+                                                    {{ $folio !== '' ? $folio : 'Registro SAT' }}
+                                                </span>
+                                            </div>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                {{ $tipoValue !== '' ? $tipoValue : 'Descarga SAT' }}
+                                            </div>
+                                        </td>
+
+                                        <td>{{ $rfcValue !== '' ? $rfcValue : '—' }}</td>
+
+                                        <td>{{ $tipoValue !== '' ? $tipoValue : '—' }}</td>
+
+                                        <td>
+                                            <span class="sat-clean-status-badge is-warning">
+                                                {{ ucfirst(str_replace('_', ' ', $statusValue)) }}
+                                            </span>
+                                        </td>
+
+                                        <td>{{ $updatedLabel }}</td>
+
+                                        <td class="text-end">
+                                            <a
+                                                href="{{ route('cliente.sat.v2.index') }}"
+                                                class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                                title="Abrir módulo de descargas"
+                                                aria-label="Abrir módulo de descargas"
+                                            >
+                                                Ver módulo
+                                            </a>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6">
+                                            <div class="sat-clean-empty-state sat-clean-empty-state--compact">
+                                                <div class="sat-clean-empty-state__title">
+                                                    Aún no hay descargas visibles
+                                                </div>
+                                                <div class="sat-clean-empty-state__text">
+                                                    Abre el módulo de SAT Bóveda v2 para consultar el almacenamiento y los archivos del usuario actual.
+                                                </div>
+                                                <a
+                                                    href="{{ route('cliente.sat.v2.index') }}"
+                                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                >
+                                                    Abrir SAT Bóveda v2
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </details>
+</section>
+
+    </div>
+</div>
+
+{{-- MODAL: AGREGAR RFC --}}
+<div class="sat-clean-modal" id="satRfcCreateModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-rfc-close-modal></div>
+    <div class="sat-clean-modal__dialog sat-clean-modal__dialog--xl" role="dialog" aria-modal="true" aria-labelledby="satRfcCreateTitle">
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satRfcCreateTitle">Agregar RFC</h2>
+                <p class="sat-clean-modal__subtitle">
+                    Registra un RFC completo para operación SAT.
+                </p>
+            </div>
+
+            <button type="button" class="sat-clean-modal__close" data-rfc-close-modal aria-label="Cerrar">
+                ✕
+            </button>
+        </div>
+
+        <div class="sat-clean-modal__body-scroll">
+            <form method="POST" action="{{ route('cliente.sat.rfcs.store') }}" class="sat-clean-modal__form" enctype="multipart/form-data">
+                @csrf
+
+                <section class="sat-clean-form-section">
+                    <div class="sat-clean-form-section__head">
+                        <h3 class="sat-clean-form-section__title">Datos del RFC</h3>
+                        <p class="sat-clean-form-section__text">Alta completa del registro.</p>
+                    </div>
+
+                    <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_rfc">RFC</label>
+                            <input
+                                type="text"
+                                id="sat_create_rfc"
+                                name="rfc"
+                                maxlength="13"
+                                placeholder="Ej. XAXX010101000"
+                                required
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_tipo_origen">Tipo de origen</label>
+                            <select id="sat_create_tipo_origen" name="tipo_origen" required>
+                                <option value="interno">Interno</option>
+                                <option value="externo">Externo</option>
+                            </select>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_origen_detalle">Origen detalle</label>
+                            <input
+                                type="text"
+                                id="sat_create_origen_detalle"
+                                name="origen_detalle"
+                                maxlength="60"
+                                placeholder="Ej. cliente_interno / cliente_externo"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field sat-clean-form-field--span-2">
+                            <label for="sat_create_razon_social">Razón social</label>
+                            <input
+                                type="text"
+                                id="sat_create_razon_social"
+                                name="razon_social"
+                                maxlength="190"
+                                placeholder="Razón social"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_source_label">Etiqueta origen</label>
+                            <input
+                                type="text"
+                                id="sat_create_source_label"
+                                name="source_label"
+                                maxlength="120"
+                                placeholder="Ej. Registro interno"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_contact_name">Nombre de contacto</label>
+                            <input
+                                type="text"
+                                id="sat_create_contact_name"
+                                name="contact_name"
+                                maxlength="190"
+                                placeholder="Nombre del responsable"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_contact_email">Correo de contacto</label>
+                            <input
+                                type="email"
+                                id="sat_create_contact_email"
+                                name="contact_email"
+                                maxlength="190"
+                                placeholder="correo@empresa.com"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_contact_phone">Teléfono</label>
+                            <input
+                                type="text"
+                                id="sat_create_contact_phone"
+                                name="contact_phone"
+                                maxlength="40"
+                                placeholder="Teléfono"
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field sat-clean-form-field--full">
+                            <label for="sat_create_notes">Notas internas</label>
+                            <textarea
+                                id="sat_create_notes"
+                                name="notes"
+                                rows="3"
+                                placeholder="Notas internas del RFC"
+                            ></textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="sat-clean-form-section">
+                    <div class="sat-clean-form-section__head">
+                        <h3 class="sat-clean-form-section__title">FIEL obligatoria</h3>
+                    </div>
+
+                    <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_fiel_cer">FIEL certificado (.cer)</label>
+                            <input type="file" id="sat_create_fiel_cer" name="fiel_cer" accept=".cer" required>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_fiel_key">FIEL llave (.key)</label>
+                            <input type="file" id="sat_create_fiel_key" name="fiel_key" accept=".key" required>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_fiel_password">Contraseña FIEL</label>
+                            <input
+                                type="password"
+                                id="sat_create_fiel_password"
+                                name="fiel_password"
+                                maxlength="190"
+                                placeholder="Contraseña FIEL"
+                                required
+                            >
+                        </div>
+                    </div>
+                </section>
+
+                <section class="sat-clean-form-section">
+                    <div class="sat-clean-form-section__head">
+                        <h3 class="sat-clean-form-section__title">CSD opcional</h3>
+                    </div>
+
+                    <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_csd_cer">CSD certificado (.cer)</label>
+                            <input type="file" id="sat_create_csd_cer" name="csd_cer" accept=".cer">
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_csd_key">CSD llave (.key)</label>
+                            <input type="file" id="sat_create_csd_key" name="csd_key" accept=".key">
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_create_csd_password">Contraseña CSD</label>
+                            <input
+                                type="password"
+                                id="sat_create_csd_password"
+                                name="csd_password"
+                                maxlength="190"
+                                placeholder="Contraseña CSD"
+                            >
+                        </div>
+                    </div>
+                </section>
+
+                <section class="sat-clean-form-section sat-clean-form-section--soft">
+                    <div class="sat-clean-form-section__head">
+                        <h3 class="sat-clean-form-section__title">Opciones de invitación</h3>
+                        <p class="sat-clean-form-section__text">Usa un emergente separado para enviar invitaciones externas.</p>
+                    </div>
+
+                    <div class="sat-clean-modal__actions sat-clean-modal__actions--compact sat-clean-modal__actions--linked">
+                        <button
+                            type="button"
+                            class="sat-clean-btn sat-clean-btn--ghost"
+                            data-open-linked-modal="invite-single"
+                        >
+                            Invitación individual
+                        </button>
+
+                        <button
+                            type="button"
+                            class="sat-clean-btn sat-clean-btn--ghost"
+                            data-open-linked-modal="invite-zip"
+                        >
+                            Invitación ZIP
+                        </button>
+                    </div>
+                </section>
+
+                <div class="sat-clean-modal__actions">
+                    <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-rfc-close-modal>
+                        Cancelar
+                    </button>
+
+                    <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                        Guardar RFC
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL: INVITACIÓN INDIVIDUAL --}}
+<div class="sat-clean-modal" id="satInviteSingleModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-rfc-close-modal></div>
+    <div class="sat-clean-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="satInviteSingleTitle">
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satInviteSingleTitle">Invitación individual</h2>
+                <p class="sat-clean-modal__subtitle">Envía una liga segura al correo del emisor.</p>
+            </div>
+
+            <button type="button" class="sat-clean-modal__close" data-rfc-close-modal aria-label="Cerrar">
+                ✕
+            </button>
+        </div>
+
+        <form method="POST" action="{{ route('cliente.sat.external.invite') }}" class="sat-clean-modal__form">
+            @csrf
+
+            <div class="sat-clean-form-grid sat-clean-form-grid--2">
+                <div class="sat-clean-form-field">
+                    <label for="sat_invite_email">Correo del emisor</label>
+                    <input
+                        type="email"
+                        id="sat_invite_email"
+                        name="email"
+                        maxlength="190"
+                        placeholder="correo@empresa.com"
+                        required
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_invite_note">Nota</label>
+                    <input
+                        type="text"
+                        id="sat_invite_note"
+                        name="note"
+                        maxlength="500"
+                        placeholder="Ej. Registro para CFDI / descarga SAT"
+                    >
+                </div>
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-back-to-create-modal>
+                    Volver
+                </button>
+
+                <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                    Enviar invitación
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- MODAL: INVITACIÓN ZIP --}}
+<div class="sat-clean-modal" id="satInviteZipModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-rfc-close-modal></div>
+    <div class="sat-clean-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="satInviteZipTitle">
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satInviteZipTitle">Invitación ZIP</h2>
+                <p class="sat-clean-modal__subtitle">Prepara el flujo para carga externa por ZIP.</p>
+            </div>
+
+            <button type="button" class="sat-clean-modal__close" data-rfc-close-modal aria-label="Cerrar">
+                ✕
+            </button>
+        </div>
+
+        <form method="POST" action="{{ route('cliente.sat.external.invite') }}" class="sat-clean-modal__form">
+            @csrf
+
+            <div class="sat-clean-form-grid sat-clean-form-grid--2">
+                <div class="sat-clean-form-field">
+                    <label for="sat_zip_email">Correo para flujo ZIP</label>
+                    <input
+                        type="email"
+                        id="sat_zip_email"
+                        name="email"
+                        maxlength="190"
+                        placeholder="correo@empresa.com"
+                        required
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_zip_note">Nota para flujo ZIP</label>
+                    <input
+                        type="text"
+                        id="sat_zip_note"
+                        name="note"
+                        maxlength="500"
+                        placeholder="Ej. Carga ZIP FIEL del emisor"
+                    >
+                </div>
+            </div>
+
+            <div class="sat-clean-inline-note">
+                Usa esta opción cuando el emisor entregará sus archivos mediante flujo ZIP externo.
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-back-to-create-modal>
+                    Volver
+                </button>
+
+                <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                    Enviar invitación
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- MODAL: EDITAR RFC --}}
+<div class="sat-clean-modal" id="satRfcEditModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-rfc-close-modal></div>
+    <div class="sat-clean-modal__dialog sat-clean-modal__dialog--xl" role="dialog" aria-modal="true" aria-labelledby="satRfcEditTitle">
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satRfcEditTitle">Editar RFC</h2>
+                <p class="sat-clean-modal__subtitle">Actualiza la información del RFC seleccionado.</p>
+            </div>
+
+            <button type="button" class="sat-clean-modal__close" data-rfc-close-modal aria-label="Cerrar">
+                ✕
+            </button>
+        </div>
+
+        <form
+            method="POST"
+            action=""
+            class="sat-clean-modal__form"
+            id="satRfcEditForm"
+            data-action-template="{{ route('cliente.sat.rfcs.update', ['id' => '__ID__']) }}"
+        >
+            @csrf
+
+            <input type="hidden" name="id" id="sat_edit_id" value="">
+
+            <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_rfc">RFC</label>
+                    <input
+                        type="text"
+                        id="sat_edit_rfc"
+                        name="rfc"
+                        value=""
+                        readonly
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_tipo_origen">Tipo de origen</label>
+                    <select id="sat_edit_tipo_origen" name="tipo_origen">
+                        <option value="interno">Interno</option>
+                        <option value="externo">Externo</option>
+                    </select>
+                </div>
+
+                <div class="sat-clean-form-field sat-clean-form-field--span-2">
+                    <label for="sat_edit_razon_social">Razón social</label>
+                    <input
+                        type="text"
+                        id="sat_edit_razon_social"
+                        name="razon_social"
+                        maxlength="190"
+                        placeholder="Razón social"
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_contact_name">Nombre de contacto</label>
+                    <input
+                        type="text"
+                        id="sat_edit_contact_name"
+                        name="contact_name"
+                        maxlength="190"
+                        placeholder="Nombre del responsable"
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_contact_email">Correo de contacto</label>
+                    <input
+                        type="email"
+                        id="sat_edit_contact_email"
+                        name="contact_email"
+                        maxlength="190"
+                        placeholder="correo@empresa.com"
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_contact_phone">Teléfono</label>
+                    <input
+                        type="text"
+                        id="sat_edit_contact_phone"
+                        name="contact_phone"
+                        maxlength="40"
+                        placeholder="Teléfono"
+                    >
+                </div>
+
+                <div class="sat-clean-form-field">
+                    <label for="sat_edit_source_label">Etiqueta origen</label>
+                    <input
+                        type="text"
+                        id="sat_edit_source_label"
+                        name="source_label"
+                        maxlength="120"
+                        placeholder="Etiqueta origen"
+                    >
+                </div>
+
+                <div class="sat-clean-form-field sat-clean-form-field--full">
+                    <label for="sat_edit_notes">Notas internas</label>
+                    <textarea
+                        id="sat_edit_notes"
+                        name="notes"
+                        rows="3"
+                        placeholder="Notas internas del RFC"
+                    ></textarea>
+                </div>
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-rfc-close-modal>
+                    Cancelar
+                </button>
+
+                <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                    Guardar cambios
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- MODAL: DETALLE COTIZACIÓN --}}
+<div class="sat-clean-modal" id="satQuoteDetailModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-quote-detail-close></div>
+    <div
+        class="sat-clean-modal__dialog sat-clean-modal__dialog--xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="satQuoteDetailTitle"
+    >
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satQuoteDetailTitle">Detalle de cotización</h2>
+                <p class="sat-clean-modal__subtitle">
+                    Revisión completa de la cotización seleccionada.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                class="sat-clean-modal__close"
+                data-quote-detail-close
+                aria-label="Cerrar"
+            >
+                ✕
+            </button>
+        </div>
+
+        <div class="sat-clean-modal__body-scroll">
+            <div class="sat-clean-form-section">
+                <div class="sat-clean-form-section__head">
+                    <h3 class="sat-clean-form-section__title">Información general</h3>
+                </div>
+
+                <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                    <div class="sat-clean-form-field">
+                        <label>Folio</label>
+                        <input type="text" id="satQuoteDetailFolio" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>RFC</label>
+                        <input type="text" id="satQuoteDetailRfc" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Estatus</label>
+                        <input type="text" id="satQuoteDetailStatus" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field sat-clean-form-field--span-2">
+                        <label>Razón social</label>
+                        <input type="text" id="satQuoteDetailRazonSocial" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Tipo</label>
+                        <input type="text" id="satQuoteDetailTipo" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Fecha inicial</label>
+                        <input type="text" id="satQuoteDetailDateFrom" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Fecha final</label>
+                        <input type="text" id="satQuoteDetailDateTo" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Avance</label>
+                        <input type="text" id="satQuoteDetailProgress" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Importe estimado</label>
+                        <input type="text" id="satQuoteDetailTotal" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field sat-clean-form-field--full">
+                        <label>Concepto</label>
+                        <textarea id="satQuoteDetailConcepto" rows="3" readonly></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-quote-detail-close>
+                    Cerrar
+                </button>
+
+                <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satQuoteDetailEditBtn">
+                    Editar cotización
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL: EDICIÓN RÁPIDA COTIZACIÓN --}}
+<div class="sat-clean-modal" id="satQuoteEditModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-quote-edit-close></div>
+    <div
+        class="sat-clean-modal__dialog sat-clean-modal__dialog--xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="satQuoteEditTitle"
+    >
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satQuoteEditTitle">Editar cotización</h2>
+                <p class="sat-clean-modal__subtitle">
+                    Actualiza los datos del borrador o de la cotización seleccionada.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                class="sat-clean-modal__close"
+                data-quote-edit-close
+                aria-label="Cerrar"
+            >
+                ✕
+            </button>
+        </div>
+
+        <div class="sat-clean-modal__body-scroll">
+            <form id="satQuoteEditForm" class="sat-clean-modal__form" autocomplete="off">
+                <input type="hidden" id="satQuoteEditId" value="">
+                <input type="hidden" id="satQuoteEditDraftId" value="">
+
+                <section class="sat-clean-form-section">
+                    <div class="sat-clean-form-section__head">
+                        <h3 class="sat-clean-form-section__title">Datos editables</h3>
+                    </div>
+
+                    <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditFolio">Folio</label>
+                            <input type="text" id="satQuoteEditFolio" readonly>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditRfc">RFC</label>
+                            <input type="text" id="satQuoteEditRfc" readonly>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditTipo">Tipo</label>
+                            <select id="satQuoteEditTipo">
+                                <option value="emitidos">Emitidos</option>
+                                <option value="recibidos">Recibidos</option>
+                                <option value="ambos">Ambos</option>
+                            </select>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditDateFrom">Fecha inicial</label>
+                            <input type="date" id="satQuoteEditDateFrom">
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditDateTo">Fecha final</label>
+                            <input type="date" id="satQuoteEditDateTo">
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditTotal">Importe estimado</label>
+                            <input type="text" id="satQuoteEditTotal" readonly>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditProgress">Avance</label>
+                            <input type="text" id="satQuoteEditProgress" readonly>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="satQuoteEditStatus">Estatus</label>
+                            <input type="text" id="satQuoteEditStatus" readonly>
+                        </div>
+
+                        <div class="sat-clean-form-field sat-clean-form-field--full">
+                            <label for="satQuoteEditConcepto">Concepto</label>
+                            <textarea id="satQuoteEditConcepto" rows="3"></textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="sat-clean-modal__actions">
+                    <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-quote-edit-close>
+                        Cancelar
+                    </button>
+
+                    <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satQuoteEditLoadMainModalBtn">
+                        Cargar al cotizador
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endsection

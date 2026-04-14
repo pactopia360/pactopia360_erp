@@ -22,6 +22,7 @@ use App\Http\Controllers\Cliente\Sat\SatExternalPublicController;
 use App\Http\Controllers\Cliente\Sat\FielExternalController;
 use App\Http\Controllers\Cliente\Sat\SatVaultV2Controller;
 use App\Http\Controllers\Cliente\Sat\SatRfcController;
+use App\Http\Controllers\Cliente\StripeController;
 
 $isLocal = app()->environment(['local', 'development', 'testing']);
 
@@ -189,6 +190,18 @@ Route::middleware(['auth:web', 'account.active'])
             ->name('rfcs.delete');
         $noCsrfLocal($rfcDeleteMaster);
 
+        Route::get('/rfcs/asset/{id}/{type}', [SatRfcController::class, 'downloadAsset'])
+            ->where('id', '[A-Za-z0-9\-_]+')
+            ->where('type', 'fiel_cer|fiel_key|csd_cer|csd_key')
+            ->middleware($thrDownload)
+            ->name('rfcs.asset.download');
+
+        Route::get('/rfcs/password/{id}/{scope}', [SatRfcController::class, 'revealPassword'])
+            ->where('id', '[A-Za-z0-9\-_]+')
+            ->where('scope', 'fiel|csd')
+            ->middleware($thrVerify)
+            ->name('rfcs.password.reveal');
+
         Route::get('/dashboard/stats', [SatDescargaController::class, 'dashboardStats'])
             ->middleware($thrVerify)
             ->name('dashboard.stats');
@@ -204,9 +217,22 @@ Route::middleware(['auth:web', 'account.active'])
 
         /*
         |----------------------------------------------------------------------
-        | ✅ CALCULADORA RÁPIDA (quick.*)
+        | ✅ COTIZADOR / CALCULADORA RÁPIDA
         |----------------------------------------------------------------------
         */
+        $onlyIfMethod(SatDescargaController::class, 'quoteCalc', function () use ($thrRequest) {
+            return Route::post('/quote/calc', [SatDescargaController::class, 'quoteCalc'])
+                ->middleware($thrRequest)
+                ->name('quote.calc');
+        });
+
+        $onlyIfMethod(SatDescargaController::class, 'quoteDetail', function () use ($thrVerify) {
+            return Route::get('/quote/{id}', [SatDescargaController::class, 'quoteDetail'])
+                ->where('id', '[A-Za-z0-9\-_]+')
+                ->middleware($thrVerify)
+                ->name('quote.detail');
+        }, applyNoCsrfLocal: false);
+
         $onlyIfMethod(SatDescargaController::class, 'quickCalc', function () use ($thrRequest) {
             return Route::post('/quick/calc', [SatDescargaController::class, 'quickCalc'])
                 ->middleware($thrRequest)
@@ -622,4 +648,26 @@ Route::middleware(['auth:web', 'account.active'])
             return Route::get('/pay/cancel', [SatDescargaController::class, 'payCancel'])
                 ->name('pay.cancel');
         }, applyNoCsrfLocal: false);
+
+        /*
+        |----------------------------------------------------------------------
+        | SAT QUOTE CHECKOUT (Stripe real para cotizaciones SAT en v2)
+        |----------------------------------------------------------------------
+        */
+        $satQuoteCheckout = Route::post('/quote/pay', [StripeController::class, 'checkoutSatQuote'])
+            ->middleware($thrDownload)
+            ->name('quote.pay');
+
+        $noCsrfLocal($satQuoteCheckout);
+
+        /*
+        |----------------------------------------------------------------------
+        | SAT QUOTE TRANSFER PROOF (comprobante por transferencia)
+        |----------------------------------------------------------------------
+        */
+        $onlyIfMethod(SatDescargaController::class, 'submitTransferProof', function () use ($thrDownload) {
+            return Route::post('/quote/transfer-proof', [SatDescargaController::class, 'submitTransferProof'])
+                ->middleware($thrDownload)
+                ->name('quote.transfer_proof');
+        });
     });
