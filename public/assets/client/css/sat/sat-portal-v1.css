@@ -1706,3 +1706,443 @@ body.sat-clean-modal-open{
             padding:14px;
         }
     }
+
+    /* =========================================================
+   DESCARGAS / CENTRO SAT · CARD PRO UNIFICADA
+========================================================= */
+.sat-vault-summary--pro{
+  margin-top:8px;
+}
+
+.sat-vault-pro-card{
+  background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border:1px solid #e5edf8;
+  border-radius:22px;
+  padding:14px;
+  box-shadow:0 12px 28px rgba(15,34,64,.06);
+}
+
+.sat-vault-pro-card__top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:14px;
+}
+
+.sat-vault-pro-card__copy{
+  min-width:0;
+  flex:1 1 auto;
+}
+
+.sat-vault-pro-card__text{
+  margin:0;
+  color:var(--sat-clean-text-soft);
+  font-size:12px;
+  line-height:1.55;
+  font-weight:600;
+  max-width:780px;
+}
+
+.sat-vault-pro-card__actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex:0 0 auto;
+}
+
+.sat-vault-pro-iconbtn{
+  width:48px;
+  height:48px;
+  border-radius:16px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  border:1px solid #dbe6f7;
+  background:#f5f8fe;
+  color:#2954a3;
+  transition:all .18s ease;
+  box-shadow:0 8px 18px rgba(39,79,157,.08);
+}
+
+.sat-vault-pro-iconbtn:hover{
+  transform:translateY(-1px);
+  border-color:#c9daf8;
+  background:#edf4ff;
+}
+
+.sat-vault-pro-iconbtn--primary{
+  background:linear-gradient(135deg, #2b5ed3 0%, #4d85ff 100%);
+  color:#ffffff;
+  border-color:transparent;
+  box-shadow:0 14px 28px rgba(43,94,211,.22);
+}
+
+.sat-vault-pro-iconbtn--primary:hover{
+  box-shadow:0 16px 30px rgba(43,94,211,.28);
+}
+
+.sat-vault-pro-pillbtn{
+  min-height:40px;
+  padding:0 16px;
+  border-radius:14px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  border:1px solid #dbe6f7;
+  background:#f5f8fe;
+  color:#27488d;
+  font-size:13px;
+  font-weight:800;
+  line-height:1;
+  transition:all .18s ease;
+}
+
+.sat-vault-pro-pillbtn:hover{
+  transform:translateY(-1px);
+  background:#edf4ff;
+  border-color:#cfe0ff;
+}
+
+.sat-vault-pro-grid{
+  display:grid;
+  grid-template-columns:minmax(320px, 1.3fr) minmax(420px, 1fr);
+  gap:16px;
+  align-items:stretch;
+}
+
+.sat-vault-pro-storage{
+  min-width:0;
+  background:#fbfdff;
+  border:1px solid #e6edf7;
+  border-radius:22px;
+  padding:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:280px;
+}
+
+.sat-vault-pro-storage__chartWrap{
+  width:100%;
+  min-height:240px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.sat-vault-pro-donut{
+  --sat-vault-used-deg: 0deg;
+  width:176px;
+  height:176px;
+  border-radius:50%;
+  position:relative;
+  background:
+    radial-gradient(circle at center, #ffffff 0 53%, transparent 54% 100%),
+    conic-gradient(
+      #4c7dff 0deg,
+      #4c7dff var(--sat-vault-used-deg),
+      #e9eef8 var(--sat-vault-used-deg),
+      #e9eef8 360deg
+    );
+  box-shadow:
+    inset 0 0 0 12px rgba(255,255,255,.72),
+    0 12px 30px rgba(46,84,160,.10);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.sat-vault-pro-donut__inner{
+  width:118px;
+  min-height:118px;
+  border-radius:50%;
+  background:#ffffff;
+  border:1px solid #edf2fa;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:14px;
+}
+
+.sat-vault-pro-donut__inner--stacked{
+  width:132px;
+  min-height:132px;
+  border-radius:50%;
+  flex-direction:column;
+  gap:2px;
+}
+
+.sat-vault-pro-donut__inner strong{
+  color:#172b57;
+  font-size:20px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.03em;
+}
+
+.sat-vault-pro-donut__inner span{
+  color:#5d7190;
+  font-size:11px;
+  line-height:1.2;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+}
+
+.sat-vault-pro-donut__legend{
+  margin-top:8px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  width:100%;
+}
+
+.sat-vault-pro-donut__legendItem{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:6px;
+  min-width:0;
+}
+
+.sat-vault-pro-donut__legendItem small{
+  color:#627791;
+  font-size:10.5px;
+  line-height:1.2;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.sat-vault-pro-storage__dot{
+  width:11px;
+  height:11px;
+  border-radius:999px;
+  flex:0 0 auto;
+}
+
+.sat-vault-pro-storage__dot--used{
+  background:#3f74f6;
+}
+
+.sat-vault-pro-storage__dot--available{
+  background:#1fbd74;
+}
+
+.sat-vault-pro-storage__dot--total{
+  background:#8b5cf6;
+}
+
+.sat-vault-pro-stats{
+  min-width:0;
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:14px;
+}
+
+.sat-vault-pro-stat{
+  position:relative;
+  min-height:132px;
+  background:#ffffff;
+  border:1px solid #e6edf7;
+  border-radius:18px;
+  padding:16px 16px 14px 16px;
+  box-shadow:0 8px 18px rgba(15,34,64,.04);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+}
+
+.sat-vault-pro-stat::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:4px;
+  border-radius:18px 0 0 18px;
+  background:#dbe6f7;
+}
+
+.sat-vault-pro-stat--rfc::before{
+  background:#3f74f6;
+}
+
+.sat-vault-pro-stat--quotes::before{
+  background:#31c48d;
+}
+
+.sat-vault-pro-stat--files::before{
+  background:#8b5cf6;
+}
+
+.sat-vault-pro-stat--capacity::before{
+  background:#f5a524;
+}
+
+.sat-vault-pro-stat__label{
+  display:block;
+  color:#71819a;
+  font-size:11px;
+  line-height:1.2;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+}
+
+.sat-vault-pro-stat__value{
+  display:block;
+  color:#12275a;
+  font-size:24px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:-.03em;
+  margin-bottom:14px;
+}
+
+.sat-vault-pro-stat__hint{
+  color:#677c98;
+  font-size:12px;
+  line-height:1.45;
+  font-weight:700;
+  margin-top:auto;
+}
+
+.sat-vault-pro-bottom{
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid #edf2fa;
+}
+
+.sat-vault-pro-bottom__rail{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:12px;
+}
+
+.sat-vault-pro-bottom__item{
+  min-height:66px;
+  background:#ffffff;
+  border:1px solid #e6edf7;
+  border-radius:16px;
+  padding:12px 14px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:6px;
+}
+
+.sat-vault-pro-bottom__item span{
+  color:#73839b;
+  font-size:11px;
+  line-height:1.1;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.sat-vault-pro-bottom__item strong{
+  color:#132955;
+  font-size:16px;
+  line-height:1.1;
+  font-weight:900;
+  letter-spacing:-.02em;
+}
+
+/* tabla del bloque descargas */
+.sat-vault-pro-card .sat-clean-rfc-table-wrap{
+  margin-top:16px;
+}
+
+.sat-vault-pro-card .sat-clean-rfc-table{
+  min-width:1180px;
+}
+
+.sat-vault-pro-card .sat-clean-rfc-table thead th{
+  background:#f7faff;
+}
+
+.sat-vault-pro-card .sat-clean-rfc-table tbody td{
+  background:#ffffff;
+}
+
+.sat-vault-pro-card .sat-clean-rfc-table tbody tr:hover td{
+  background:#fbfdff;
+}
+
+/* responsive */
+@media (max-width: 1180px){
+  .sat-vault-pro-grid{
+    grid-template-columns:1fr;
+  }
+
+  .sat-vault-pro-storage{
+    min-height:240px;
+  }
+
+  .sat-vault-pro-stats{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+
+  .sat-vault-pro-bottom__rail{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px){
+  .sat-vault-pro-card{
+    padding:12px;
+    border-radius:18px;
+  }
+
+  .sat-vault-pro-card__top{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .sat-vault-pro-card__actions{
+    width:100%;
+    justify-content:flex-start;
+  }
+
+  .sat-vault-pro-storage{
+    padding:14px;
+    min-height:220px;
+  }
+
+  .sat-vault-pro-donut{
+    width:152px;
+    height:152px;
+  }
+
+  .sat-vault-pro-donut__inner--stacked{
+    width:116px;
+    min-height:116px;
+  }
+
+  .sat-vault-pro-donut__inner strong{
+    font-size:18px;
+  }
+
+  .sat-vault-pro-donut__legendItem small{
+    font-size:10px;
+  }
+
+  .sat-vault-pro-stats{
+    grid-template-columns:1fr;
+  }
+
+  .sat-vault-pro-stat{
+    min-height:118px;
+  }
+
+  .sat-vault-pro-bottom__rail{
+    grid-template-columns:1fr;
+  }
+}

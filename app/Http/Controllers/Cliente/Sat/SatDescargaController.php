@@ -24,6 +24,14 @@ use App\Services\Sat\External\ExternalStoreService;
 use App\Services\Sat\External\SatExternalZipService;
 use App\Services\Sat\Stats\DashboardStatsService;
 
+use App\Models\Cliente\SatUserMetadataUpload;
+use App\Models\Cliente\SatUserXmlUpload;
+use App\Models\Cliente\SatUserReportUpload;
+use App\Models\Cliente\VaultFile;
+
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
+
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -138,14 +146,36 @@ final class SatDescargaController extends Controller
 
         [$vaultSummary, $vaultForJs] = $this->presenter->buildVaultSummaries($cuentaId, $cuentaCliente);
 
-        $credList          = collect();
-        $credMap           = [];
-        $rfcOptions        = [];
-        $initialRows       = [];
-        $cartIds           = [];
-        $downloadsPage     = null;
-        $downloadsTotalAll = 0;
-        $cotizaciones      = collect();
+        $credList             = collect();
+        $credMap              = [];
+        $rfcOptions           = [];
+        $initialRows          = [];
+        $cartIds              = [];
+        $downloadsPage        = null;
+        $downloadsTotalAll    = 0;
+        $cotizaciones         = collect();
+
+        $selectedRfc          = strtoupper(trim((string) $request->query('rfc', '')));
+        $unifiedDownloadItems = collect();
+        $downloadSources      = [
+            'centro_sat' => 0,
+            'boveda_v1'  => 0,
+            'boveda_v2'  => 0,
+        ];
+        $storageBreakdown     = [
+            'used_bytes'      => 0,
+            'available_bytes' => 0,
+            'quota_bytes'     => 0,
+            'used_gb'         => 0.0,
+            'available_gb'    => 0.0,
+            'quota_gb'        => 0.0,
+            'used_pct'        => 0.0,
+            'available_pct'   => 0.0,
+            'chart'           => [
+                'series' => [0, 0],
+                'labels' => ['Usado', 'Disponible'],
+            ],
+        ];
 
         if ($cuentaId !== '') {
             try {
@@ -156,6 +186,32 @@ final class SatDescargaController extends Controller
                 $credList   = $this->rfcOptionsSvc->loadCredentials($cuentaId, $conn);
                 $credMap    = $this->rfcOptionsSvc->buildCredMap($credList);
                 $rfcOptions = $this->rfcOptionsSvc->buildRfcOptionsSmart($credList, $conn);
+
+                if ($selectedRfc === '') {
+                    $activeCred = $credList->first(function ($item) {
+                        $meta = $item->meta ?? [];
+
+                        if (is_string($meta)) {
+                            $decoded = json_decode($meta, true);
+                            $meta = is_array($decoded) ? $decoded : [];
+                        }
+
+                        if (!is_array($meta)) {
+                            $meta = [];
+                        }
+
+                        return (bool) ($meta['is_active'] ?? true) === true
+                            && trim((string) ($item->rfc ?? '')) !== '';
+                    });
+
+                    if (!$activeCred) {
+                        $activeCred = $credList->first(function ($item) {
+                            return trim((string) ($item->rfc ?? '')) !== '';
+                        });
+                    }
+
+                    $selectedRfc = strtoupper(trim((string) ($activeCred->rfc ?? '')));
+                }
 
                 $perPage = (int) $request->query('per', 20);
                 $perPage = max(5, min(100, $perPage));
@@ -185,20 +241,31 @@ final class SatDescargaController extends Controller
                 $downloadsPage->setCollection($rowsH);
                 $initialRows = $rowsH->all();
 
-                $cotizaciones = SatDownload::query()
-                    ->where('cuenta_id', $cuentaId)
-                    ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
-                    ->orderByDesc('updated_at')
-                    ->orderByDesc('created_at')
-                    ->limit(150)
-                    ->get()
-                    ->filter(function (SatDownload $d) {
-                        return $this->isCotizacionLikeDownload($d);
-                    })
-                    ->map(function (SatDownload $d) use ($credList) {
-                        return $this->transformCotizacionRow($d, $credList);
-                    })
-                    ->values();
+                $usuarioId = (string) ($user->id ?? '');
+
+                $v2Items = $this->buildSatV2LikeItems(
+                    cuentaId: $cuentaId,
+                    usuarioId: $usuarioId,
+                    selectedRfc: $selectedRfc
+                );
+
+                $unifiedDownloadItems = $this->buildUnifiedDownloadItemsForPortal(
+                    cuentaId: $cuentaId,
+                    usuarioId: $usuarioId,
+                    selectedRfc: $selectedRfc,
+                    v2Items: $v2Items
+                );
+
+                $downloadSources = [
+                    'centro_sat' => (int) $unifiedDownloadItems->where('origin', 'centro_sat')->count(),
+                    'boveda_v1'  => (int) $unifiedDownloadItems->where('origin', 'boveda_v1')->count(),
+                    'boveda_v2'  => (int) $unifiedDownloadItems->where('origin', 'boveda_v2')->count(),
+                ];
+
+                $storageBreakdown = $this->buildUnifiedStorageBreakdownForPortal(
+                    cuentaId: $cuentaId,
+                    unifiedItems: $unifiedDownloadItems
+                );
             } catch (\Throwable $e) {
                 Log::error('[SAT:index] Error cargando sat', [
                     'cuenta_id' => $cuentaId,
@@ -227,6 +294,10 @@ final class SatDescargaController extends Controller
             'rfcOptions'         => $rfcOptions,
             'cotizaciones'       => $cotizaciones,
             'admin_account_id'   => $this->resolveAdminAccountIdFromPortal(),
+            'selectedRfc'         => $selectedRfc,
+            'unifiedDownloadItems'=> $unifiedDownloadItems,
+            'downloadSources'     => $downloadSources,
+            'storageBreakdown'    => $storageBreakdown,
         ]);
     }
 
@@ -340,13 +411,24 @@ final class SatDescargaController extends Controller
         $razonSocial    = trim((string) ($cred->razon_social ?? ''));
         $adminAccountId = $this->resolveAdminAccountIdFromPortal();
 
+        /*
+        |--------------------------------------------------------------------------
+        | FIX: cliente siempre calcula contra lista de precios admin
+        |--------------------------------------------------------------------------
+        | Antes:
+        |   - quickCalc()  -> useAdminPrice: true
+        |   - quoteCalc()  -> useAdminPrice: false
+        |
+        | Eso provocaba importes distintos entre simulación y cotización real.
+        | Ahora ambos usan la misma fuente de precio.
+        */
         $payload = $this->quoteSvc->buildSatQuotePayload(
             user: $user,
             cuentaId: $cuentaId,
             xmlCount: $xmlCount,
             discountCode: $discountCode,
             ivaRate: $ivaRate,
-            useAdminPrice: false
+            useAdminPrice: true
         );
 
         try {
@@ -441,6 +523,7 @@ final class SatDescargaController extends Controller
                     'is_request'            => $mode === 'quote',
                     'is_draft'              => $mode === 'draft',
                     'admin_account_id'      => $adminAccountId,
+                    'price_source'          => (string) ($payload['priceSource'] ?? 'admin'),
 
                     'quote' => [
                         'mode'                  => $mode,
@@ -476,6 +559,7 @@ final class SatDescargaController extends Controller
                         'note'                  => (string) ($payload['note'] ?? ''),
                         'notes'                 => $notes,
                         'trace_id'              => $trace,
+                        'price_source'          => (string) ($payload['priceSource'] ?? 'admin'),
                     ],
                 ]);
 
@@ -536,6 +620,7 @@ final class SatDescargaController extends Controller
                     'iva_amount'            => $payload['ivaAmount'],
                     'total'                 => $payload['total'],
                     'note'                  => $payload['note'],
+                    'price_source'          => (string) ($payload['priceSource'] ?? 'admin'),
                     'status'                => $mode === 'draft' ? 'borrador' : 'en_proceso',
                     'status_label'          => $mode === 'draft' ? 'Borrador' : 'En proceso de cotización',
                     'progress'              => $mode === 'draft' ? 10 : 35,
@@ -1457,5 +1542,354 @@ final class SatDescargaController extends Controller
                 ]);
             }
         });
+    }
+
+        private function buildSatV2LikeItems(
+        string $cuentaId,
+        string $usuarioId,
+        string $selectedRfc
+    ): Collection {
+        $metadataUploads = SatUserMetadataUpload::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->when($selectedRfc !== '', fn ($q) => $q->where('rfc_owner', $selectedRfc))
+            ->latest('id')
+            ->limit(100)
+            ->get();
+
+        $xmlUploads = SatUserXmlUpload::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->when($selectedRfc !== '', fn ($q) => $q->where('rfc_owner', $selectedRfc))
+            ->latest('id')
+            ->limit(100)
+            ->get();
+
+        $reportUploads = SatUserReportUpload::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->when($selectedRfc !== '', fn ($q) => $q->where('rfc_owner', $selectedRfc))
+            ->latest('id')
+            ->limit(100)
+            ->get();
+
+        return collect()
+            ->merge(
+                $metadataUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'metadata',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) ($upload->direction_detected ?? ''),
+                        'source_type'   => (string) ($upload->source_type ?? 'metadata'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('metadata_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => (int) ($upload->rows_count ?? 0),
+                        'files_count'   => 0,
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
+                })
+            )
+            ->merge(
+                $xmlUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'xml',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) ($upload->direction_detected ?? ''),
+                        'source_type'   => (string) ($upload->source_type ?? 'xml'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('xml_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => 0,
+                        'files_count'   => (int) ($upload->files_count ?? 0),
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
+                })
+            )
+            ->merge(
+                $reportUploads->map(function ($upload) {
+                    return [
+                        'kind'          => 'report',
+                        'id'            => (int) $upload->id,
+                        'rfc_owner'     => (string) $upload->rfc_owner,
+                        'direction'     => (string) data_get($upload->meta, 'report_direction', ''),
+                        'source_type'   => (string) ($upload->report_type ?? 'report'),
+                        'original_name' => (string) ($upload->original_name ?? $upload->stored_name ?? ('reporte_' . $upload->id)),
+                        'stored_name'   => (string) ($upload->stored_name ?? ''),
+                        'mime'          => (string) ($upload->mime ?? 'application/octet-stream'),
+                        'bytes'         => (int) ($upload->bytes ?? 0),
+                        'rows_count'    => (int) ($upload->rows_count ?? 0),
+                        'files_count'   => 0,
+                        'status'        => (string) ($upload->status ?? ''),
+                        'created_at'    => $upload->created_at,
+                    ];
+                })
+            )
+            ->sortByDesc(function (array $row) {
+                return optional($row['created_at'] ?? null)?->timestamp ?? 0;
+            })
+            ->values();
+    }
+
+    private function buildUnifiedDownloadItemsForPortal(
+        string $cuentaId,
+        string $usuarioId,
+        string $selectedRfc,
+        Collection $v2Items
+    ): Collection {
+        $items = collect();
+
+        $items = $items->merge(
+            $v2Items->map(function (array $item) use ($selectedRfc) {
+                $bytes = (int) ($item['bytes'] ?? 0);
+
+                return [
+                    'origin'         => 'boveda_v2',
+                    'origin_label'   => 'Bóveda v2',
+                    'origin_badge'   => 'V2',
+                    'kind'           => (string) ($item['kind'] ?? 'archivo'),
+                    'id'             => (string) ($item['id'] ?? ''),
+                    'rfc_owner'      => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                    'direction'      => (string) ($item['direction'] ?? ''),
+                    'original_name'  => (string) ($item['original_name'] ?? 'Archivo'),
+                    'stored_name'    => (string) ($item['stored_name'] ?? ''),
+                    'mime'           => (string) ($item['mime'] ?? 'application/octet-stream'),
+                    'bytes'          => $bytes,
+                    'bytes_human'    => $this->formatBytesHumanForPortal($bytes),
+                    'detail'         => $this->resolveV2DetailLabelForPortal($item),
+                    'status'         => (string) ($item['status'] ?? ''),
+                    'created_at'     => $item['created_at'] ?? null,
+                    'download_url'   => route('cliente.sat.v2.download', [
+                        'type' => (string) ($item['kind'] ?? 'metadata'),
+                        'id'   => (int) ($item['id'] ?? 0),
+                        'rfc'  => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                    ]),
+                    'view_url'       => route('cliente.sat.v2.download', [
+                        'type' => (string) ($item['kind'] ?? 'metadata'),
+                        'id'   => (int) ($item['id'] ?? 0),
+                        'rfc'  => strtoupper((string) ($item['rfc_owner'] ?? $selectedRfc)),
+                        'view' => 1,
+                    ]),
+                ];
+            })
+        );
+
+        if (Schema::connection('mysql_clientes')->hasTable('sat_vault_files')) {
+            $vaultFilesQuery = DB::connection('mysql_clientes')
+                ->table('sat_vault_files')
+                ->where('cuenta_id', $cuentaId)
+                ->orderByDesc('id');
+
+            if ($selectedRfc !== '') {
+                $vaultFilesQuery->where('rfc', $selectedRfc);
+            }
+
+            $vaultFiles = $vaultFilesQuery->limit(300)->get();
+
+            $items = $items->merge(
+                collect($vaultFiles)->map(function ($row) {
+                    $bytes = (int) ($row->bytes ?? $row->size_bytes ?? 0);
+                    $filename = trim((string) ($row->original_name ?? $row->filename ?? ''));
+
+                    if ($filename === '') {
+                        $filename = basename((string) ($row->path ?? 'archivo'));
+                    }
+
+                    return [
+                        'origin'         => 'boveda_v1',
+                        'origin_label'   => 'Bóveda v1',
+                        'origin_badge'   => 'V1',
+                        'kind'           => $this->resolveKindFromFilenameForPortal($filename, (string) ($row->mime ?? '')),
+                        'id'             => (string) ($row->id ?? ''),
+                        'rfc_owner'      => strtoupper((string) ($row->rfc ?? '')),
+                        'direction'      => '',
+                        'original_name'  => $filename,
+                        'stored_name'    => (string) ($row->filename ?? ''),
+                        'mime'           => (string) ($row->mime ?? 'application/octet-stream'),
+                        'bytes'          => $bytes,
+                        'bytes_human'    => $this->formatBytesHumanForPortal($bytes),
+                        'detail'         => 'Archivo de bóveda',
+                        'status'         => 'disponible',
+                        'created_at'     => $row->created_at ?? null,
+                        'download_url'   => route('cliente.sat.vault.file', ['id' => (string) ($row->id ?? '')]),
+                        'view_url'       => route('cliente.sat.vault.file', ['id' => (string) ($row->id ?? '')]),
+                    ];
+                })
+            );
+        }
+
+        if (Schema::connection('mysql_clientes')->hasTable('sat_downloads')) {
+            $satDownloadsQuery = DB::connection('mysql_clientes')
+                ->table('sat_downloads')
+                ->where('cuenta_id', $cuentaId)
+                ->whereNotNull('zip_path')
+                ->where('zip_path', '<>', '')
+                ->orderByDesc('created_at');
+
+            if (Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'usuario_id')) {
+                $satDownloadsQuery->where('usuario_id', $usuarioId);
+            }
+
+            if ($selectedRfc !== '' && Schema::connection('mysql_clientes')->hasColumn('sat_downloads', 'rfc')) {
+                $satDownloadsQuery->where('rfc', $selectedRfc);
+            }
+
+            $satDownloads = $satDownloadsQuery->limit(300)->get();
+
+            $items = $items->merge(
+                collect($satDownloads)->map(function ($row) {
+                    $bytes = 0;
+
+                    if (isset($row->bytes) && is_numeric($row->bytes)) {
+                        $bytes = (int) $row->bytes;
+                    } elseif (isset($row->size_bytes) && is_numeric($row->size_bytes)) {
+                        $bytes = (int) $row->size_bytes;
+                    }
+
+                    $filename = trim((string) ($row->zip_filename ?? $row->filename ?? ''));
+                    if ($filename === '') {
+                        $filename = basename((string) ($row->zip_path ?? 'descarga.zip'));
+                    }
+
+                    return [
+                        'origin'         => 'centro_sat',
+                        'origin_label'   => 'Centro SAT',
+                        'origin_badge'   => 'SAT',
+                        'kind'           => 'zip',
+                        'id'             => (string) ($row->id ?? ''),
+                        'rfc_owner'      => strtoupper((string) ($row->rfc ?? '')),
+                        'direction'      => strtolower((string) ($row->tipo ?? '')),
+                        'original_name'  => $filename,
+                        'stored_name'    => (string) ($row->zip_path ?? ''),
+                        'mime'           => 'application/zip',
+                        'bytes'          => $bytes,
+                        'bytes_human'    => $this->formatBytesHumanForPortal($bytes),
+                        'detail'         => 'Paquete SAT',
+                        'status'         => (string) ($row->status ?? 'disponible'),
+                        'created_at'     => $row->created_at ?? null,
+                        'download_url'   => null,
+                        'view_url'       => null,
+                    ];
+                })
+            );
+        }
+
+        return $items
+            ->filter(function (array $item) {
+                return trim((string) ($item['original_name'] ?? '')) !== '';
+            })
+            ->sortByDesc(function (array $item) {
+                return optional($item['created_at'] ?? null)?->timestamp ?? 0;
+            })
+            ->values();
+    }
+
+    private function buildUnifiedStorageBreakdownForPortal(
+        string $cuentaId,
+        Collection $unifiedItems
+    ): array {
+        $usedBytes = (int) $unifiedItems->sum(function (array $item) {
+            return (int) ($item['bytes'] ?? 0);
+        });
+
+        $quotaBytes = 0;
+
+        if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+            $cuenta = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuentaId)
+                ->first();
+
+            if ($cuenta) {
+                if (property_exists($cuenta, 'vault_quota_bytes') && is_numeric($cuenta->vault_quota_bytes)) {
+                    $quotaBytes = (int) $cuenta->vault_quota_bytes;
+                } elseif (property_exists($cuenta, 'espacio_asignado_mb') && is_numeric($cuenta->espacio_asignado_mb)) {
+                    $quotaBytes = (int) round(((float) $cuenta->espacio_asignado_mb) * 1024 * 1024);
+                }
+            }
+        }
+
+        if ($quotaBytes < $usedBytes) {
+            $quotaBytes = $usedBytes;
+        }
+
+        $availableBytes = max(0, $quotaBytes - $usedBytes);
+
+        $usedGb = $usedBytes / 1073741824;
+        $availableGb = $availableBytes / 1073741824;
+        $quotaGb = $quotaBytes / 1073741824;
+
+        $usedPct = $quotaBytes > 0 ? round(($usedBytes / $quotaBytes) * 100, 2) : 0.0;
+        $availablePct = $quotaBytes > 0 ? round(($availableBytes / $quotaBytes) * 100, 2) : 0.0;
+
+        return [
+            'used_bytes'      => $usedBytes,
+            'available_bytes' => $availableBytes,
+            'quota_bytes'     => $quotaBytes,
+            'used_gb'         => round($usedGb, 2),
+            'available_gb'    => round($availableGb, 2),
+            'quota_gb'        => round($quotaGb, 2),
+            'used_pct'        => $usedPct,
+            'available_pct'   => $availablePct,
+            'chart'           => [
+                'series' => [
+                    round($usedGb, 2),
+                    round($availableGb, 2),
+                ],
+                'labels' => ['Usado', 'Disponible'],
+            ],
+        ];
+    }
+
+    private function resolveV2DetailLabelForPortal(array $item): string
+    {
+        $kind = strtolower((string) ($item['kind'] ?? ''));
+
+        return match ($kind) {
+            'metadata' => number_format((int) ($item['rows_count'] ?? 0)) . ' registros',
+            'xml'      => number_format((int) ($item['files_count'] ?? 0)) . ' archivo(s)',
+            'report'   => number_format((int) ($item['rows_count'] ?? 0)) . ' filas',
+            default    => 'Archivo',
+        };
+    }
+
+    private function resolveKindFromFilenameForPortal(string $filename, string $mime = ''): string
+    {
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        if ($ext !== '') {
+            return $ext;
+        }
+
+        $mime = strtolower(trim($mime));
+
+        return match ($mime) {
+            'application/zip' => 'zip',
+            'application/xml', 'text/xml' => 'xml',
+            'text/csv', 'application/csv' => 'csv',
+            'application/pdf' => 'pdf',
+            default => 'archivo',
+        };
+    }
+
+    private function formatBytesHumanForPortal(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $power = (int) floor(log($bytes, 1024));
+        $power = min($power, count($units) - 1);
+
+        $value = $bytes / (1024 ** $power);
+
+        return number_format($value, $power === 0 ? 0 : 2) . ' ' . $units[$power];
     }
 }

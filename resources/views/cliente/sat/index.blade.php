@@ -870,245 +870,190 @@
             </details>
         </section>
 
-        <section class="sat-clean-accordion" aria-label="Descargas SAT">
-    <details class="sat-clean-accordion__item">
-        <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
-            <div class="sat-clean-accordion__bar-left">
-                <span class="sat-clean-accordion__bar-title">Descargas</span>
-                <span class="sat-clean-accordion__bar-text">
-                    Vista rápida de archivos, almacenamiento y accesos de bóveda
-                </span>
-            </div>
-
-            <span class="sat-clean-accordion__bar-action" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                    <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                </svg>
-            </span>
-        </summary>
-
-        <div class="sat-clean-accordion__content">
-            @php
-                $portalFilesCount = (int) ($vaultSummary['files_count'] ?? 0);
-                $portalUsedGb = (float) ($vaultSummary['used_gb'] ?? 0);
-                $portalAvailableGb = (float) ($vaultSummary['available_gb'] ?? 0);
-                $portalQuotaGb = (float) ($vaultSummary['quota_gb'] ?? 0);
-                $portalUsedPct = max(0, min(100, (float) ($vaultSummary['used_pct'] ?? 0)));
-                $portalUsedDeg = round(($portalUsedPct / 100) * 360, 2);
-                $recentDownloads = collect($downloads ?? [])->take(6)->values();
-            @endphp
-
-            <div class="sat-vault-summary sat-vault-summary--pro">
-                <div class="sat-vault-pro-card">
-                    <div class="sat-vault-pro-card__top">
-                        <div class="sat-vault-pro-card__copy">
-                            <p class="sat-vault-pro-card__text">
-                                Consulta rápidamente el almacenamiento disponible y los archivos recientes visibles en tu portal.
-                            </p>
-                        </div>
-
-                        <div class="sat-vault-pro-card__actions">
-                            <a
-                                href="{{ route('cliente.sat.v2.index') }}"
-                                class="sat-vault-pro-iconbtn sat-vault-pro-iconbtn--primary"
-                                title="Abrir Descargas SAT v2"
-                                aria-label="Abrir Descargas SAT v2"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M12 16V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                                    <path d="M7 11l5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                    <path d="M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                                </svg>
-                            </a>
-
-                            <a
-                                href="{{ route('cliente.sat.vault') }}"
-                                class="sat-vault-pro-pillbtn"
-                                title="Abrir bóveda v1"
-                                aria-label="Abrir bóveda v1"
-                            >
-                                BV1
-                            </a>
-                        </div>
+               <section class="sat-clean-accordion" aria-label="Descargas SAT">
+            <details class="sat-clean-accordion__item">
+                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+                    <div class="sat-clean-accordion__bar-left">
+                        <span class="sat-clean-accordion__bar-title">Descargas</span>
+                        <span class="sat-clean-accordion__bar-text">
+                            Listado de archivos visibles del RFC activo entre Centro SAT, Bóveda v1 y Bóveda v2
+                        </span>
                     </div>
 
-                    <div class="sat-vault-pro-grid">
-                        <div class="sat-vault-pro-storage">
-                            <div class="sat-vault-pro-storage__chartWrap">
-                                <div
-                                    class="sat-vault-pro-donut"
-                                    style="--sat-vault-used-deg: {{ $portalUsedDeg }}deg;"
-                                    aria-label="Uso de almacenamiento"
-                                >
-                                    <div class="sat-vault-pro-donut__inner sat-vault-pro-donut__inner--stacked">
-                                        <strong>{{ number_format($portalUsedPct, 1) }}%</strong>
-                                        <span>utilizado</span>
+                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                </summary>
 
-                                        <div class="sat-vault-pro-donut__legend">
-                                            <div class="sat-vault-pro-donut__legendItem">
-                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--used"></span>
-                                                <small>Usado · {{ number_format($portalUsedGb, 2) }} GB</small>
-                                            </div>
+                <div class="sat-clean-accordion__content">
+                    @php
+                        $downloadItemsUnified = collect($unifiedDownloadItems ?? []);
+                    @endphp
 
-                                            <div class="sat-vault-pro-donut__legendItem">
-                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--available"></span>
-                                                <small>Disponible · {{ number_format($portalAvailableGb, 2) }} GB</small>
-                                            </div>
+                    <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact">
+                        <div class="sat-clean-rfc-toolbar-v2">
+                            <div class="sat-clean-rfc-toolbar-v2__left">
+                                <div class="sat-clean-rfc-toolbar-v2__title-wrap">
+                                    <h2 class="sat-clean-rfc-toolbar-v2__title">Archivos visibles</h2>
+                                    <span class="sat-clean-rfc-toolbar-v2__count">
+                                        {{ number_format($downloadItemsUnified->count()) }} archivo(s)
+                                    </span>
+                                </div>
 
-                                            <div class="sat-vault-pro-donut__legendItem">
-                                                <span class="sat-vault-pro-storage__dot sat-vault-pro-storage__dot--total"></span>
-                                                <small>Total · {{ number_format($portalQuotaGb, 2) }} GB</small>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div class="sat-clean-rfc-inline-text">
+                                    RFC activo:
+                                    <strong>{{ $selectedRfc !== '' ? $selectedRfc : 'Sin RFC' }}</strong>
                                 </div>
                             </div>
+
+                            <div class="sat-clean-rfc-toolbar-v2__right">
+                                <a
+                                    href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
+                                    class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                >
+                                    Abrir SAT Bóveda v2
+                                </a>
+                            </div>
                         </div>
 
-                        <div class="sat-vault-pro-stats">
-                            <div class="sat-vault-pro-stat sat-vault-pro-stat--files">
-                                <span class="sat-vault-pro-stat__label">Archivos visibles</span>
-                                <strong class="sat-vault-pro-stat__value">{{ number_format($portalFilesCount) }}</strong>
-                                <small class="sat-vault-pro-stat__hint">Archivos en bóveda y descargas</small>
-                            </div>
+                        <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
+                            <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
+                                <thead>
+                                    <tr>
+                                        <th>Origen</th>
+                                        <th>Tipo</th>
+                                        <th>Archivo</th>
+                                        <th>RFC</th>
+                                        <th>Dirección</th>
+                                        <th>Tamaño</th>
+                                        <th>Detalle</th>
+                                        <th>Fecha</th>
+                                        <th class="text-end">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @forelse($downloadItemsUnified as $item)
+                                        @php
+                                            $kindRaw = strtolower((string) ($item['kind'] ?? 'archivo'));
+                                            $kindLabel = match($kindRaw) {
+                                                'metadata' => 'Metadata',
+                                                'xml'      => 'XML',
+                                                'report'   => 'Reporte',
+                                                'zip'      => 'ZIP',
+                                                'csv'      => 'CSV',
+                                                'pdf'      => 'PDF',
+                                                default    => strtoupper($kindRaw),
+                                            };
 
-                            <div class="sat-vault-pro-stat sat-vault-pro-stat--capacity">
-                                <span class="sat-vault-pro-stat__label">Capacidad total</span>
-                                <strong class="sat-vault-pro-stat__value">{{ number_format($portalQuotaGb, 2) }} GB</strong>
-                                <small class="sat-vault-pro-stat__hint">Espacio asignado a tu cuenta</small>
-                            </div>
+                                            $originRaw = strtolower((string) ($item['origin'] ?? ''));
+                                            $originLabel = (string) ($item['origin_label'] ?? 'Origen');
+                                            $directionLabel = trim((string) ($item['direction'] ?? '')) !== ''
+                                                ? ucfirst(str_replace('_', ' ', (string) $item['direction']))
+                                                : '—';
 
-                            <div class="sat-vault-pro-stat sat-vault-pro-stat--rfc">
-                                <span class="sat-vault-pro-stat__label">RFC registrados</span>
-                                <strong class="sat-vault-pro-stat__value">{{ number_format(count($rfcs ?? [])) }}</strong>
-                                <small class="sat-vault-pro-stat__hint">RFC listos para operar</small>
-                            </div>
+                                            $statusLabel = trim((string) ($item['status'] ?? '')) !== ''
+                                                ? ucfirst(str_replace('_', ' ', (string) $item['status']))
+                                                : 'Disponible';
 
-                            <div class="sat-vault-pro-stat sat-vault-pro-stat--quotes">
-                                <span class="sat-vault-pro-stat__label">Descargas totales</span>
-                                <strong class="sat-vault-pro-stat__value">{{ number_format((int) ($downloadsTotalAll ?? 0)) }}</strong>
-                                <small class="sat-vault-pro-stat__hint">Registros generados en portal</small>
-                            </div>
-                        </div>
-                    </div>
+                                            $downloadUrl = (string) ($item['download_url'] ?? '');
+                                            $viewUrl = (string) ($item['view_url'] ?? '');
 
-                    <div class="sat-vault-pro-bottom">
-                        <div class="sat-vault-pro-bottom__rail">
-                            <div class="sat-vault-pro-bottom__item">
-                                <span>Usado</span>
-                                <strong>{{ number_format($portalUsedGb, 2) }} GB</strong>
-                            </div>
-                            <div class="sat-vault-pro-bottom__item">
-                                <span>Disponible</span>
-                                <strong>{{ number_format($portalAvailableGb, 2) }} GB</strong>
-                            </div>
-                            <div class="sat-vault-pro-bottom__item">
-                                <span>Total</span>
-                                <strong>{{ number_format($portalQuotaGb, 2) }} GB</strong>
-                            </div>
-                            <div class="sat-vault-pro-bottom__item">
-                                <span>Archivos</span>
-                                <strong>{{ number_format($portalFilesCount) }}</strong>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal" style="margin-top:16px;">
-                        <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
-                            <thead>
-                                <tr>
-                                    <th>Archivo / folio</th>
-                                    <th>RFC</th>
-                                    <th>Tipo</th>
-                                    <th>Estatus</th>
-                                    <th>Actualizado</th>
-                                    <th class="text-end">Acción</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($recentDownloads as $row)
-                                    @php
-                                        $rowObj = is_array($row) ? (object) $row : $row;
-                                        $folio = trim((string) ($rowObj->folio ?? $rowObj->codigo ?? $rowObj->quote_no ?? ''));
-                                        $rfcValue = strtoupper(trim((string) ($rowObj->rfc ?? $rowObj->customer_rfc ?? '')));
-                                        $tipoValue = trim((string) ($rowObj->tipo ?? $rowObj->tipo_descarga ?? $rowObj->concepto ?? 'Descarga SAT'));
-                                        $statusValue = trim((string) ($rowObj->status ?? $rowObj->estatus ?? $rowObj->estado ?? 'Disponible'));
-                                        $updatedValue = $rowObj->updated_at ?? $rowObj->created_at ?? null;
-
-                                        $updatedLabel = 'Sin fecha';
-                                        if (!empty($updatedValue)) {
-                                            try {
-                                                $updatedLabel = \Illuminate\Support\Carbon::parse($updatedValue)->format('d/m/Y H:i');
-                                            } catch (\Throwable $e) {
-                                                $updatedLabel = (string) $updatedValue;
+                                            $createdAtLabel = '—';
+                                            if (!empty($item['created_at'])) {
+                                                try {
+                                                    $createdAtLabel = \Illuminate\Support\Carbon::parse($item['created_at'])->format('d/m/Y H:i');
+                                                } catch (\Throwable $e) {
+                                                    $createdAtLabel = (string) $item['created_at'];
+                                                }
                                             }
-                                        }
-                                    @endphp
+                                        @endphp
 
-                                    <tr>
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-main">
-                                                <span class="sat-clean-rfc-inline-main__rfc">
-                                                    {{ $folio !== '' ? $folio : 'Registro SAT' }}
+                                        <tr>
+                                            <td>
+                                                <span class="sat-clean-status-badge {{ $originRaw === 'centro_sat' ? 'is-warning' : ($originRaw === 'boveda_v2' ? 'is-success' : 'is-muted') }}">
+                                                    {{ $originLabel }}
                                                 </span>
-                                            </div>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                {{ $tipoValue !== '' ? $tipoValue : 'Descarga SAT' }}
-                                            </div>
-                                        </td>
+                                            </td>
 
-                                        <td>{{ $rfcValue !== '' ? $rfcValue : '—' }}</td>
+                                            <td>{{ $kindLabel }}</td>
 
-                                        <td>{{ $tipoValue !== '' ? $tipoValue : '—' }}</td>
-
-                                        <td>
-                                            <span class="sat-clean-status-badge is-warning">
-                                                {{ ucfirst(str_replace('_', ' ', $statusValue)) }}
-                                            </span>
-                                        </td>
-
-                                        <td>{{ $updatedLabel }}</td>
-
-                                        <td class="text-end">
-                                            <a
-                                                href="{{ route('cliente.sat.v2.index') }}"
-                                                class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                                                title="Abrir módulo de descargas"
-                                                aria-label="Abrir módulo de descargas"
-                                            >
-                                                Ver módulo
-                                            </a>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="6">
-                                            <div class="sat-clean-empty-state sat-clean-empty-state--compact">
-                                                <div class="sat-clean-empty-state__title">
-                                                    Aún no hay descargas visibles
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-main">
+                                                    <span class="sat-clean-rfc-inline-main__rfc">
+                                                        {{ $item['original_name'] ?? 'Archivo' }}
+                                                    </span>
                                                 </div>
-                                                <div class="sat-clean-empty-state__text">
-                                                    Abre el módulo de SAT Bóveda v2 para consultar el almacenamiento y los archivos del usuario actual.
+                                                <div class="sat-clean-rfc-inline-text">
+                                                    {{ $statusLabel }}
                                                 </div>
-                                                <a
-                                                    href="{{ route('cliente.sat.v2.index') }}"
-                                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                                                >
-                                                    Abrir SAT Bóveda v2
-                                                </a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                                            </td>
+
+                                            <td>{{ $item['rfc_owner'] ?? '—' }}</td>
+                                            <td>{{ $directionLabel }}</td>
+                                            <td>{{ $item['bytes_human'] ?? '0 B' }}</td>
+                                            <td>{{ $item['detail'] ?? 'Archivo' }}</td>
+                                            <td>{{ $createdAtLabel }}</td>
+
+                                            <td class="text-end">
+                                                <div class="sat-clean-icon-actions">
+                                                    @if($viewUrl !== '')
+                                                        <a
+                                                            href="{{ $viewUrl }}"
+                                                            target="_blank"
+                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                                        >
+                                                            Ver
+                                                        </a>
+                                                    @endif
+
+                                                    @if($downloadUrl !== '')
+                                                        <a
+                                                            href="{{ $downloadUrl }}"
+                                                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                        >
+                                                            Descargar
+                                                        </a>
+                                                    @else
+                                                        <a
+                                                            href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
+                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                                        >
+                                                            Ver módulo
+                                                        </a>
+                                                    @endif
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="9">
+                                                <div class="sat-clean-empty-state sat-clean-empty-state--compact">
+                                                    <div class="sat-clean-empty-state__title">
+                                                        Aún no hay archivos visibles para este RFC
+                                                    </div>
+                                                    <div class="sat-clean-empty-state__text">
+                                                        El resumen visual se muestra solo en Centro SAT. Aquí se concentra únicamente el listado de archivos.
+                                                    </div>
+                                                    <a
+                                                        href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
+                                                        class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                    >
+                                                        Abrir SAT Bóveda v2
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </details>
-</section>
+            </details>
+        </section>
 
     </div>
 </div>
