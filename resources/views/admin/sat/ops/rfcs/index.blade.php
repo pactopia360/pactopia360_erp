@@ -36,7 +36,7 @@
         <article class="satAdmKpi">
             <div class="satAdmKpi__label">Total</div>
             <div class="satAdmKpi__value">{{ number_format((int) ($stats['total'] ?? 0)) }}</div>
-            <div class="satAdmKpi__sub">RFC activos visibles</div>
+            <div class="satAdmKpi__sub">RFC registrados en maestro</div>
         </article>
 
         <article class="satAdmKpi">
@@ -126,6 +126,7 @@
                         <th>FIEL</th>
                         <th>CSD</th>
                         <th>Estado</th>
+                        <th>Registro</th>
                         <th>Acciones</th>
                     </tr>
                 </thead>
@@ -170,6 +171,12 @@
                             <td>
                                 <span class="satAdmBadge {{ $row->sat_status_ui === 'validado' ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">
                                     {{ strtoupper($row->sat_status_ui) }}
+                                </span>
+                            </td>
+
+                            <td>
+                                <span class="satAdmBadge {{ $row->is_active_ui ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">
+                                    {{ $row->is_active_ui ? 'ACTIVO' : 'INACTIVO' }}
                                 </span>
                             </td>
 
@@ -481,7 +488,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="satAdmEmpty">No hay RFC activos registrados en el maestro SAT.</td>
+                            <td colspan="9" class="satAdmEmpty">No hay RFC registrados en el maestro SAT.</td>
                         </tr>
                     @endforelse
                 </tbody>

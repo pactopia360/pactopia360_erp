@@ -25,11 +25,10 @@ final class SatOpsRfcsController extends Controller
         $status = trim((string) $request->query('status', ''));
         $account = trim((string) $request->query('account', ''));
 
-        $rows = SatCredential::query()
-            ->orderByDesc('updated_at')
-            ->get()
-            ->reject(fn (SatCredential $row) => $this->isLogicallyDeleted($row))
-            ->map(function (SatCredential $row) {
+                $rows = SatCredential::query()
+                    ->orderByDesc('updated_at')
+                    ->get()
+                    ->map(function (SatCredential $row) {
                 $meta = is_array($row->meta) ? $row->meta : [];
 
                 $tipoOrigen = strtolower((string) (
@@ -84,6 +83,8 @@ final class SatOpsRfcsController extends Controller
                     $row->csd_password_enc ?? null
                 );
 
+                $isLogicallyDeleted = $this->isLogicallyDeleted($row);
+
                 $hasLegacyFiles = filled($row->cer_path) && filled($row->key_path);
 
                 $hasFiel = (
@@ -107,6 +108,7 @@ final class SatOpsRfcsController extends Controller
                     'source_label' => (string) ($row->source_label ?? ''),
                     'sat_status_ui' => $isValidated ? 'validado' : 'pendiente',
                     'estatus_operativo' => (string) ($row->estatus_operativo ?? ''),
+                    'is_active_ui' => !$isLogicallyDeleted,
                     'has_fiel' => $hasFiel,
                     'has_csd' => $hasCsd,
                     'fiel_password_plain' => $fielPasswordPlain,
@@ -156,6 +158,8 @@ final class SatOpsRfcsController extends Controller
 
         $stats = [
             'total' => $rows->count(),
+            'activos' => $rows->where('is_active_ui', true)->count(),
+            'inactivos' => $rows->where('is_active_ui', false)->count(),
             'internos' => $rows->where('tipo_origen_ui', 'interno')->count(),
             'externos' => $rows->where('tipo_origen_ui', 'externo')->count(),
             'validados' => $rows->where('sat_status_ui', 'validado')->count(),
