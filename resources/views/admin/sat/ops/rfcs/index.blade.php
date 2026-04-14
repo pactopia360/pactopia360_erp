@@ -376,7 +376,7 @@
                                                 <summary class="satAdmEditCollapse__summary">Editar RFC</summary>
 
                                                 <div class="satAdmEditCollapse__body">
-                                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm">
+                                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm" enctype="multipart/form-data">
                                                         @csrf
 
                                                         <div class="satAdmForm__grid satAdmForm__grid--modal">
@@ -428,13 +428,38 @@
                                                                 <label>Contraseña operativa CSD</label>
                                                                 <input type="text" name="csd_password_plain" value="{{ $row->csd_password_plain }}">
                                                             </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Reemplazar FIEL CER</label>
+                                                                <input type="file" name="fiel_cer" accept=".cer">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Reemplazar FIEL KEY</label>
+                                                                <input type="file" name="fiel_key" accept=".key">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Reemplazar CSD CER</label>
+                                                                <input type="file" name="csd_cer" accept=".cer">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Reemplazar CSD KEY</label>
+                                                                <input type="file" name="csd_key" accept=".key">
+                                                            </div>
                                                         </div>
 
                                                         <div class="satAdmModal__actions">
-                                                            <form method="POST" action="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}" onsubmit="return confirm('¿Deseas dar de baja este RFC?');" class="satAdmDangerInlineForm">
-                                                                @csrf
-                                                                <button type="submit" class="satAdmBtn satAdmBtn--danger">Dar de baja</button>
-                                                            </form>
+                                                            <button
+                                                                type="submit"
+                                                                formaction="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}"
+                                                                formmethod="POST"
+                                                                onclick="return confirm('¿Deseas dar de baja este RFC?');"
+                                                                class="satAdmBtn satAdmBtn--danger"
+                                                            >
+                                                                Dar de baja
+                                                            </button>
 
                                                             <button
                                                                 type="button"
@@ -480,7 +505,7 @@
                 >×</button>
             </div>
 
-            <form method="POST" action="{{ route('admin.sat.ops.rfcs.store') }}" class="satAdmForm">
+            <form method="POST" action="{{ route('admin.sat.ops.rfcs.store') }}" class="satAdmForm" enctype="multipart/form-data">
                 @csrf
 
                 <div class="satAdmForm__grid satAdmForm__grid--modal">
@@ -531,6 +556,26 @@
                     <div class="satAdmField">
                         <label for="csd_password_plain">Contraseña operativa CSD</label>
                         <input type="text" id="csd_password_plain" name="csd_password_plain" value="{{ old('csd_password_plain') }}">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="fiel_cer">FIEL CER</label>
+                        <input type="file" id="fiel_cer" name="fiel_cer" accept=".cer">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="fiel_key">FIEL KEY</label>
+                        <input type="file" id="fiel_key" name="fiel_key" accept=".key">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="csd_cer">CSD CER</label>
+                        <input type="file" id="csd_cer" name="csd_cer" accept=".cer">
+                    </div>
+
+                    <div class="satAdmField">
+                        <label for="csd_key">CSD KEY</label>
+                        <input type="file" id="csd_key" name="csd_key" accept=".key">
                     </div>
                 </div>
 

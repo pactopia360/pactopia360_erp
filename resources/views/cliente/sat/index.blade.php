@@ -152,16 +152,19 @@
                         <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
                             <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
                                 <thead>
-                                    <tr>
-                                        <th>RFC</th>
-                                        <th>Razón social</th>
-                                        <th>Estado</th>
-                                        <th>FIEL</th>
-                                        <th>CSD</th>
-                                        <th>Accesos</th>
-                                        <th class="text-end">Acciones</th>
-                                    </tr>
-                                </thead>
+                                    <thead>
+                                        <tr>
+                                            <th>RFC</th>
+                                            <th>Razón social</th>
+                                            <th>Origen</th>
+                                            <th>Contacto</th>
+                                            <th>Estado</th>
+                                            <th>FIEL</th>
+                                            <th>CSD</th>
+                                            <th>Accesos</th>
+                                            <th class="text-end">Acciones</th>
+                                        </tr>
+                                    </thead>
                                 <tbody>
                                     @forelse(($rfcs ?? []) as $item)
                                         @php
@@ -220,6 +223,24 @@
                                             <td>
                                                 <div class="sat-clean-rfc-inline-text">
                                                     {{ $itemRazonSocial !== '' ? $itemRazonSocial : 'Sin razón social registrada' }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-text">
+                                                    {{ $tipoOrigen !== '' ? ucfirst($tipoOrigen) : 'Interno' }}
+                                                </div>
+                                                <div class="sat-clean-rfc-inline-text text-muted">
+                                                    {{ $sourceLabel !== '' ? $sourceLabel : 'Sin etiqueta' }}
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="sat-clean-rfc-inline-text">
+                                                    {{ $contactName !== '' ? $contactName : 'Sin contacto' }}
+                                                </div>
+                                                <div class="sat-clean-rfc-inline-text text-muted">
+                                                    {{ $contactEmail !== '' ? $contactEmail : ($contactPhone !== '' ? $contactPhone : 'Sin datos') }}
                                                 </div>
                                             </td>
 
@@ -293,6 +314,35 @@
 
                                             <td class="text-end">
                                                 <div class="sat-clean-icon-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="sat-clean-icon-btn"
+                                                        data-rfc-open-detail="true"
+                                                        data-rfc-id="{{ $itemId }}"
+                                                        data-rfc-value="{{ $itemRfc }}"
+                                                        data-rfc-razon-social="{{ e($itemRazonSocial) }}"
+                                                        data-rfc-tipo-origen="{{ e($tipoOrigen) }}"
+                                                        data-rfc-contact-email="{{ e($contactEmail) }}"
+                                                        data-rfc-contact-phone="{{ e($contactPhone) }}"
+                                                        data-rfc-contact-name="{{ e($contactName) }}"
+                                                        data-rfc-source-label="{{ e($sourceLabel) }}"
+                                                        data-rfc-notes="{{ e($notes) }}"
+                                                        data-rfc-is-active="{{ $isActive ? '1' : '0' }}"
+                                                        data-rfc-has-fiel="{{ $hasFiel ? '1' : '0' }}"
+                                                        data-rfc-has-csd="{{ $hasCsd ? '1' : '0' }}"
+                                                        data-rfc-fiel-cer="{{ e($fielCerPath) }}"
+                                                        data-rfc-fiel-key="{{ e($fielKeyPath) }}"
+                                                        data-rfc-csd-cer="{{ e($csdCerPath) }}"
+                                                        data-rfc-csd-key="{{ e($csdKeyPath) }}"
+                                                        title="Ver detalle RFC"
+                                                        aria-label="Ver detalle RFC"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
+                                                            <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.8"/>
+                                                        </svg>
+                                                    </button>
+
                                                     <button
                                                         type="button"
                                                         class="sat-clean-icon-btn"
@@ -1766,4 +1816,124 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const detailModal = document.getElementById('satRfcDetailModal');
+    if (!detailModal) return;
+
+    const closeButtons = detailModal.querySelectorAll('[data-rfc-detail-close]');
+    const editBtn = document.getElementById('satRfcDetailEditBtn');
+
+    const fields = {
+        rfc: document.getElementById('satRfcDetailRfc'),
+        razon: document.getElementById('satRfcDetailRazonSocial'),
+        tipo: document.getElementById('satRfcDetailTipoOrigen'),
+        estado: document.getElementById('satRfcDetailEstado'),
+        source: document.getElementById('satRfcDetailSourceLabel'),
+        contactName: document.getElementById('satRfcDetailContactName'),
+        contactEmail: document.getElementById('satRfcDetailContactEmail'),
+        contactPhone: document.getElementById('satRfcDetailContactPhone'),
+        fiel: document.getElementById('satRfcDetailFielStatus'),
+        csd: document.getElementById('satRfcDetailCsdStatus'),
+        notes: document.getElementById('satRfcDetailNotes'),
+        fielCer: document.getElementById('satRfcDetailFielCer'),
+        fielKey: document.getElementById('satRfcDetailFielKey'),
+        csdCer: document.getElementById('satRfcDetailCsdCer'),
+        csdKey: document.getElementById('satRfcDetailCsdKey'),
+    };
+
+    const openModal = () => {
+        detailModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('sat-clean-modal-open');
+    };
+
+    const closeModal = () => {
+        detailModal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('sat-clean-modal-open');
+    };
+
+    closeButtons.forEach(btn => {
+        btn.addEventListener('click', closeModal);
+    });
+
+    document.querySelectorAll('[data-rfc-open-detail="true"]').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const ds = this.dataset;
+
+            fields.rfc.value = ds.rfcValue || '';
+            fields.razon.value = ds.rfcRazonSocial || '';
+            fields.tipo.value = ds.rfcTipoOrigen || '';
+            fields.estado.value = ds.rfcIsActive === '1' ? 'Activo' : 'Inactivo';
+            fields.source.value = ds.rfcSourceLabel || '';
+            fields.contactName.value = ds.rfcContactName || '';
+            fields.contactEmail.value = ds.rfcContactEmail || '';
+            fields.contactPhone.value = ds.rfcContactPhone || '';
+            fields.fiel.value = ds.rfcHasFiel === '1' ? 'Configurada' : 'Pendiente';
+            fields.csd.value = ds.rfcHasCsd === '1' ? 'Configurada' : 'Pendiente';
+            fields.notes.value = ds.rfcNotes || '';
+            fields.fielCer.value = ds.rfcFielCer || 'No registrado';
+            fields.fielKey.value = ds.rfcFielKey || 'No registrado';
+            fields.csdCer.value = ds.rfcCsdCer || 'No registrado';
+            fields.csdKey.value = ds.rfcCsdKey || 'No registrado';
+
+            if (editBtn) {
+                editBtn.setAttribute('data-rfc-id', ds.rfcId || '');
+                editBtn.setAttribute('data-rfc-value', ds.rfcValue || '');
+                editBtn.setAttribute('data-rfc-razon-social', ds.rfcRazonSocial || '');
+                editBtn.setAttribute('data-rfc-tipo-origen', ds.rfcTipoOrigen || '');
+                editBtn.setAttribute('data-rfc-contact-email', ds.rfcContactEmail || '');
+                editBtn.setAttribute('data-rfc-contact-phone', ds.rfcContactPhone || '');
+                editBtn.setAttribute('data-rfc-contact-name', ds.rfcContactName || '');
+                editBtn.setAttribute('data-rfc-source-label', ds.rfcSourceLabel || '');
+                editBtn.setAttribute('data-rfc-notes', ds.rfcNotes || '');
+            }
+
+            openModal();
+        });
+    });
+
+    if (editBtn) {
+        editBtn.addEventListener('click', function () {
+            closeModal();
+
+            const editTrigger = document.querySelector('#satRfcEditModal') ? this : null;
+            if (!editTrigger) return;
+
+            const editModal = document.getElementById('satRfcEditModal');
+            const editForm = document.getElementById('satRfcEditForm');
+            const actionTemplate = editForm ? editForm.dataset.actionTemplate || '' : '';
+
+            const id = this.getAttribute('data-rfc-id') || '';
+            const rfc = this.getAttribute('data-rfc-value') || '';
+            const razon = this.getAttribute('data-rfc-razon-social') || '';
+            const tipo = this.getAttribute('data-rfc-tipo-origen') || 'interno';
+            const email = this.getAttribute('data-rfc-contact-email') || '';
+            const phone = this.getAttribute('data-rfc-contact-phone') || '';
+            const name = this.getAttribute('data-rfc-contact-name') || '';
+            const source = this.getAttribute('data-rfc-source-label') || '';
+            const notes = this.getAttribute('data-rfc-notes') || '';
+
+            document.getElementById('sat_edit_id').value = id;
+            document.getElementById('sat_edit_rfc').value = rfc;
+            document.getElementById('sat_edit_razon_social').value = razon;
+            document.getElementById('sat_edit_tipo_origen').value = tipo;
+            document.getElementById('sat_edit_contact_email').value = email;
+            document.getElementById('sat_edit_contact_phone').value = phone;
+            document.getElementById('sat_edit_contact_name').value = name;
+            document.getElementById('sat_edit_source_label').value = source;
+            document.getElementById('sat_edit_notes').value = notes;
+
+            if (editForm && actionTemplate !== '') {
+                editForm.action = actionTemplate.replace('__ID__', id);
+            }
+
+            if (editModal) {
+                editModal.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('sat-clean-modal-open');
+            }
+        });
+    }
+});
+</script>
 @endsection

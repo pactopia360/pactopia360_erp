@@ -11,6 +11,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\UploadedFile;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -184,6 +186,11 @@ final class SatOpsRfcsController extends Controller
             'source_label' => ['nullable', 'string', 'max:120'],
             'fiel_password_plain' => ['nullable', 'string', 'max:255'],
             'csd_password_plain' => ['nullable', 'string', 'max:255'],
+
+            'fiel_cer' => ['nullable', 'file', 'mimes:cer'],
+            'fiel_key' => ['nullable', 'file', 'mimes:key'],
+            'csd_cer' => ['nullable', 'file', 'mimes:cer'],
+            'csd_key' => ['nullable', 'file', 'mimes:key'],
         ]);
 
         $rfc = strtoupper(trim((string) $validated['rfc']));
@@ -231,6 +238,45 @@ final class SatOpsRfcsController extends Controller
         $meta['updated_from'] = 'admin_sat_rfc_master';
         $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? ''));
         $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? ''));
+
+        if ($request->hasFile('fiel_cer')) {
+            $stored = $this->storeCredentialFile($request->file('fiel_cer'), $cuentaId, $rfc, 'certs', 'cer');
+            $row->fiel_cer_path = $stored;
+            if ($this->hasColumn('sat_credentials', 'cer_path')) {
+                $row->cer_path = $stored;
+            }
+            $meta['fiel_cer'] = $stored;
+        }
+
+        if ($request->hasFile('fiel_key')) {
+            $stored = $this->storeCredentialFile($request->file('fiel_key'), $cuentaId, $rfc, 'keys', 'key');
+            $row->fiel_key_path = $stored;
+            if ($this->hasColumn('sat_credentials', 'key_path')) {
+                $row->key_path = $stored;
+            }
+            $meta['fiel_key'] = $stored;
+        }
+
+        if ($request->hasFile('csd_cer')) {
+            $stored = $this->storeCredentialFile($request->file('csd_cer'), $cuentaId, $rfc, 'csd/certs', 'cer');
+            $row->csd_cer_path = $stored;
+            $meta['csd_cer'] = $stored;
+        }
+
+        if ($request->hasFile('csd_key')) {
+            $stored = $this->storeCredentialFile($request->file('csd_key'), $cuentaId, $rfc, 'csd/keys', 'key');
+            $row->csd_key_path = $stored;
+            $meta['csd_key'] = $stored;
+        }
+
+        if ($this->hasColumn('sat_credentials', 'fiel_password_enc') && trim((string) ($validated['fiel_password_plain'] ?? '')) !== '') {
+            $row->fiel_password_enc = Crypt::encryptString(trim((string) $validated['fiel_password_plain']));
+        }
+
+        if ($this->hasColumn('sat_credentials', 'csd_password_enc') && trim((string) ($validated['csd_password_plain'] ?? '')) !== '') {
+            $row->csd_password_enc = Crypt::encryptString(trim((string) $validated['csd_password_plain']));
+        }
+
         $meta['operational_ready'] = true;
         $row->meta = $meta;
 
@@ -262,6 +308,11 @@ final class SatOpsRfcsController extends Controller
             'source_label' => ['nullable', 'string', 'max:120'],
             'fiel_password_plain' => ['nullable', 'string', 'max:255'],
             'csd_password_plain' => ['nullable', 'string', 'max:255'],
+
+            'fiel_cer' => ['nullable', 'file', 'mimes:cer'],
+            'fiel_key' => ['nullable', 'file', 'mimes:key'],
+            'csd_cer' => ['nullable', 'file', 'mimes:cer'],
+            'csd_key' => ['nullable', 'file', 'mimes:key'],
         ]);
 
         $rfc = strtoupper(trim((string) $validated['rfc']));
@@ -334,6 +385,45 @@ final class SatOpsRfcsController extends Controller
 
         $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? $existingFielPassword));
         $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? $existingCsdPassword));
+
+        if ($request->hasFile('fiel_cer')) {
+            $stored = $this->storeCredentialFile($request->file('fiel_cer'), $cuentaId, $rfc, 'certs', 'cer');
+            $row->fiel_cer_path = $stored;
+            if ($this->hasColumn('sat_credentials', 'cer_path')) {
+                $row->cer_path = $stored;
+            }
+            $meta['fiel_cer'] = $stored;
+        }
+
+        if ($request->hasFile('fiel_key')) {
+            $stored = $this->storeCredentialFile($request->file('fiel_key'), $cuentaId, $rfc, 'keys', 'key');
+            $row->fiel_key_path = $stored;
+            if ($this->hasColumn('sat_credentials', 'key_path')) {
+                $row->key_path = $stored;
+            }
+            $meta['fiel_key'] = $stored;
+        }
+
+        if ($request->hasFile('csd_cer')) {
+            $stored = $this->storeCredentialFile($request->file('csd_cer'), $cuentaId, $rfc, 'csd/certs', 'cer');
+            $row->csd_cer_path = $stored;
+            $meta['csd_cer'] = $stored;
+        }
+
+        if ($request->hasFile('csd_key')) {
+            $stored = $this->storeCredentialFile($request->file('csd_key'), $cuentaId, $rfc, 'csd/keys', 'key');
+            $row->csd_key_path = $stored;
+            $meta['csd_key'] = $stored;
+        }
+
+        if ($this->hasColumn('sat_credentials', 'fiel_password_enc') && $meta['fiel_password_plain'] !== '') {
+            $row->fiel_password_enc = Crypt::encryptString($meta['fiel_password_plain']);
+        }
+
+        if ($this->hasColumn('sat_credentials', 'csd_password_enc') && $meta['csd_password_plain'] !== '') {
+            $row->csd_password_enc = Crypt::encryptString($meta['csd_password_plain']);
+        }
+
         $meta['operational_ready'] = true;
         $row->meta = $meta;
 
@@ -553,23 +643,27 @@ final class SatOpsRfcsController extends Controller
             return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'No se encontró el RFC solicitado.');
         }
 
-        $path = match ($kind) {
-            'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
-            'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
-            'csd_cer' => (string) ($row->csd_cer_path ?? ''),
-            'csd_key' => (string) ($row->csd_key_path ?? ''),
-            default => '',
+        $meta = is_array($row->meta) ? $row->meta : [];
+
+        $rawPath = match ($kind) {
+            'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ($meta['fiel_cer'] ?? '')),
+            'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ($meta['fiel_key'] ?? '')),
+            'csd_cer'  => (string) ($row->csd_cer_path ?? ($meta['csd_cer'] ?? '')),
+            'csd_key'  => (string) ($row->csd_key_path ?? ($meta['csd_key'] ?? '')),
+            default    => '',
         };
 
-        if ($path === '') {
+        if (trim($rawPath) === '') {
             return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'No existe archivo para descargar.');
         }
 
-        if (!File::exists($path)) {
+        $absolutePath = $this->resolveDownloadAbsolutePath($rawPath);
+
+        if ($absolutePath === null || !File::exists($absolutePath)) {
             return redirect()->route('admin.sat.ops.rfcs.index')->with('error', 'El archivo no existe físicamente en el servidor.');
         }
 
-        return response()->download($path);
+        return response()->download($absolutePath);
     }
 
     private function isLogicallyDeleted(SatCredential $credential): bool
@@ -622,6 +716,71 @@ final class SatOpsRfcsController extends Controller
         } catch (\Throwable) {
             return '';
         }
+    }
+
+        private function storeCredentialFile(UploadedFile $file, string $cuentaId, string $rfc, string $folder, string $expectedExtension): string
+    {
+        $safeRfc = strtoupper(trim($rfc));
+        $baseDir = 'sat/rfcs/' . trim($cuentaId) . '/' . trim($folder);
+
+        $filename = $safeRfc
+            . '_'
+            . now()->format('Ymd_His')
+            . '_'
+            . bin2hex(random_bytes(4))
+            . '.'
+            . $expectedExtension;
+
+        return $file->storeAs($baseDir, $filename, 'public');
+    }
+
+    private function resolveDownloadAbsolutePath(string $rawPath): ?string
+    {
+        $rawPath = trim($rawPath);
+        if ($rawPath === '') {
+            return null;
+        }
+
+        if (File::exists($rawPath)) {
+            return $rawPath;
+        }
+
+        $normalized = str_replace('\\', '/', $rawPath);
+        $normalized = preg_replace('#^/+#', '', $normalized) ?? $normalized;
+
+        $candidates = [
+            $normalized,
+            preg_replace('#^public/#', '', $normalized) ?? $normalized,
+            preg_replace('#^storage/#', '', $normalized) ?? $normalized,
+            preg_replace('#^storage/app/public/#', '', $normalized) ?? $normalized,
+            preg_replace('#^storage/app/#', '', $normalized) ?? $normalized,
+        ];
+
+        foreach (array_unique(array_filter($candidates)) as $candidate) {
+            if (Storage::disk('public')->exists($candidate)) {
+                return Storage::disk('public')->path($candidate);
+            }
+
+            if (Storage::disk('local')->exists($candidate)) {
+                return Storage::disk('local')->path($candidate);
+            }
+
+            $absoluteCandidates = [
+                storage_path('app/public/' . $candidate),
+                storage_path('app/' . $candidate),
+                public_path('storage/' . $candidate),
+                public_path($candidate),
+                base_path($candidate),
+            ];
+
+            foreach ($absoluteCandidates as $absolute) {
+                if (File::exists($absolute)) {
+                    return $absolute;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function hasColumn(string $table, string $column): bool
