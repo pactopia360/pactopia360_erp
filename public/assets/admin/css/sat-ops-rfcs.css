@@ -1,0 +1,824 @@
+.page-admin-sat-rfcs .page-container{
+    padding-top:12px;
+}
+
+.page-admin-sat-rfcs dialog{
+    border:none;
+    padding:0;
+    background:transparent;
+}
+
+.satAdmWrap{
+    display:grid;
+    gap:16px;
+}
+
+.satAdmHero{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:16px;
+    padding:18px 18px 10px;
+}
+
+.satAdmHero__main,
+.satAdmCard,
+.satAdmKpi{
+    border:1px solid var(--bd);
+    border-radius:22px;
+    background:var(--card-bg);
+    box-shadow:var(--shadow-1);
+}
+
+.satAdmHero__main{
+    padding:22px 24px;
+    background:linear-gradient(135deg, rgba(14,42,59,.98) 0%, rgba(31,78,121,.96) 52%, rgba(37,99,235,.94) 100%);
+    color:#fff;
+    border-color:rgba(37,99,235,.18);
+}
+
+.satAdmHero__eyebrow{
+    font:900 11px/1 system-ui;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    opacity:.84;
+}
+
+.satAdmHero__title{
+    margin:10px 0 0;
+    font:950 32px/1.03 system-ui;
+    letter-spacing:-.03em;
+}
+
+.satAdmHero__subtitle{
+    margin:12px 0 0;
+    font:600 14px/1.6 system-ui;
+    color:rgba(255,255,255,.86);
+    max-width:980px;
+}
+
+.satAdmKpis{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:12px;
+}
+
+.satAdmKpi{
+    padding:16px 18px;
+}
+
+.satAdmKpi__label{
+    font:900 11px/1 system-ui;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmKpi__value{
+    margin-top:10px;
+    font:950 28px/1 system-ui;
+    color:var(--text);
+}
+
+.satAdmKpi__sub{
+    margin-top:8px;
+    font:650 13px/1.45 system-ui;
+    color:var(--muted);
+}
+
+.satAdmCard{
+    padding:16px;
+}
+
+.satAdmCard--toolbar{
+    padding-bottom:14px;
+}
+
+.satAdmCard--table{
+    padding-top:10px;
+    padding-bottom:10px;
+}
+
+.satAdmToolbar{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:16px;
+    margin-bottom:14px;
+}
+
+.satAdmToolbar__left{
+    min-width:0;
+}
+
+.satAdmToolbar__right{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-shrink:0;
+}
+
+.satAdmCard__title{
+    font:950 18px/1.1 system-ui;
+    color:var(--text);
+}
+
+.satAdmCard__sub{
+    margin-top:5px;
+    font:650 13px/1.4 system-ui;
+    color:var(--muted);
+}
+
+.satAdmAlert{
+    padding:14px 16px;
+    border-radius:16px;
+    font:700 14px/1.4 system-ui;
+}
+
+.satAdmAlert--ok{
+    background:#ecfdf3;
+    color:#047857;
+    border:1px solid #a7f3d0;
+}
+
+.satAdmAlert--error{
+    background:#fff7ed;
+    color:#c2410c;
+    border:1px solid #fdba74;
+}
+
+.satAdmForm{
+    display:grid;
+    gap:14px;
+}
+
+.satAdmForm__grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px;
+}
+
+.satAdmForm__grid--modal{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+.satAdmField--span2{
+    grid-column:span 2;
+}
+
+.satAdmField label{
+    display:block;
+    margin:0 0 6px;
+    font:900 12px/1 system-ui;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmField input,
+.satAdmField select{
+    width:100%;
+    min-height:44px;
+    border-radius:14px;
+    border:1px solid var(--bd);
+    background:#fff;
+    color:#0f172a;
+    padding:0 14px;
+    font:600 14px/1.1 system-ui;
+    outline:none;
+}
+
+.satAdmModalShell .satAdmField input,
+.satAdmModalShell .satAdmField select{
+    min-height:40px;
+    padding:0 12px;
+    font-size:13px;
+}
+
+html.theme-dark .satAdmField input,
+html.theme-dark .satAdmField select{
+    background:#0f172a;
+    color:#e5e7eb;
+}
+
+.satAdmField input:focus,
+.satAdmField select:focus{
+    border-color:#93c5fd;
+    box-shadow:0 0 0 3px rgba(37,99,235,.12);
+}
+
+.satAdmInlineFilters{
+    display:grid;
+    grid-template-columns:minmax(260px,1.5fr) 160px 160px minmax(180px,1fr) auto;
+    gap:12px;
+    align-items:end;
+}
+
+.satAdmInlineFilters__actions{
+    display:flex;
+    gap:8px;
+    align-items:end;
+    justify-content:flex-end;
+}
+
+.satAdmBtn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:42px;
+    padding:0 16px;
+    border-radius:14px;
+    border:1px solid var(--bd);
+    background:color-mix(in oklab, var(--card-bg) 88%, transparent);
+    color:var(--text);
+    text-decoration:none;
+    font:850 13px/1 system-ui;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.satAdmBtn:hover{
+    transform:translateY(-1px);
+    box-shadow:0 8px 20px rgba(15,23,42,.08);
+}
+
+.satAdmBtn--icon{
+    gap:8px;
+    min-width:110px;
+}
+
+.satAdmBtn__icon{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:20px;
+    height:20px;
+    border-radius:999px;
+    background:rgba(255,255,255,.18);
+    font:900 14px/1 system-ui;
+}
+
+.satAdmBtn--primary{
+    background:#2563eb;
+    border-color:#2563eb;
+    color:#fff;
+}
+
+.satAdmBtn--danger{
+    background:#fff7ed;
+    border-color:#fdba74;
+    color:#c2410c;
+}
+
+.satAdmTableWrap{
+    overflow:auto;
+    border:1px solid color-mix(in oklab, var(--text) 8%, transparent);
+    border-radius:18px;
+}
+
+.satAdmTable{
+    width:100%;
+    min-width:1160px;
+    border-collapse:separate;
+    border-spacing:0;
+}
+
+.satAdmTable thead th{
+    position:sticky;
+    top:0;
+    z-index:1;
+    text-align:left;
+    padding:14px 12px;
+    border-bottom:1px solid var(--bd);
+    background:color-mix(in oklab, var(--panel-bg) 88%, white 12%);
+    font:900 12px/1 system-ui;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmTable td{
+    padding:12px;
+    border-bottom:1px solid color-mix(in oklab, var(--text) 8%, transparent);
+    vertical-align:middle;
+    font:600 14px/1.4 system-ui;
+    color:var(--text);
+    background:var(--card-bg);
+}
+
+.satAdmTable tbody tr:hover td{
+    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
+}
+
+.satAdmMono{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+}
+
+.satAdmCellMain{
+    font-weight:800;
+}
+
+.satAdmStack{
+    display:grid;
+    gap:4px;
+}
+
+.satAdmStack small{
+    color:var(--muted);
+    font:600 12px/1.3 system-ui;
+    word-break:break-word;
+}
+
+.satAdmBadge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:30px;
+    padding:0 10px;
+    border-radius:999px;
+    font:900 11px/1 system-ui;
+    border:1px solid transparent;
+    white-space:nowrap;
+}
+
+.satAdmBadge--ok{
+    background:#ecfdf3;
+    color:#047857;
+    border-color:#a7f3d0;
+}
+
+.satAdmBadge--warn{
+    background:#fff7ed;
+    color:#c2410c;
+    border-color:#fdba74;
+}
+
+.satAdmBadge--neutral{
+    background:#eff6ff;
+    color:#1d4ed8;
+    border-color:#bfdbfe;
+}
+
+.satAdmActionsCell{
+    width:90px;
+    min-width:90px;
+    text-align:center;
+}
+
+.satAdmIconBtn{
+    width:40px;
+    height:40px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid var(--bd);
+    border-radius:14px;
+    background:#fff;
+    color:#0f172a;
+    text-decoration:none;
+    cursor:pointer;
+    font:900 18px/1 system-ui;
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.satAdmIconBtn:hover{
+    transform:translateY(-1px);
+    box-shadow:0 8px 18px rgba(15,23,42,.08);
+}
+
+.satAdmIconBtn--main{
+    background:color-mix(in oklab, #2563eb 10%, white);
+    border-color:#bfdbfe;
+    color:#1d4ed8;
+}
+
+html.theme-dark .satAdmIconBtn{
+    background:#0f172a;
+    color:#e5e7eb;
+}
+
+.satAdmEmpty{
+    padding:24px 16px;
+    color:var(--muted);
+    text-align:center;
+}
+
+.satAdmModal{
+    width:min(1080px, calc(100vw - 24px));
+    max-width:1080px;
+    max-height:calc(100vh - 24px);
+    margin:auto;
+}
+
+.satAdmModal::backdrop{
+    background:rgba(2,6,23,.58);
+    backdrop-filter:blur(4px);
+}
+
+.satAdmModal__box{
+    border:1px solid var(--bd);
+    border-radius:24px;
+    background:var(--card-bg);
+    box-shadow:0 24px 60px rgba(2,6,23,.28);
+    padding:18px;
+}
+
+.satAdmModal__box--create{
+    max-width:900px;
+    margin:auto;
+}
+
+.satAdmModal--opsRedesign{
+    padding:0;
+    overflow:hidden;
+}
+
+.satAdmModalShell{
+    display:grid;
+    grid-template-rows:auto minmax(0,1fr);
+    height:min(88vh, 900px);
+    max-height:min(88vh, 900px);
+    border:1px solid var(--bd);
+    border-radius:24px;
+    background:var(--card-bg);
+    box-shadow:0 24px 60px rgba(2,6,23,.28);
+    overflow:hidden;
+}
+
+.satAdmModalShell__header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    padding:16px 18px;
+    border-bottom:1px solid color-mix(in oklab, var(--text) 8%, transparent);
+    background:color-mix(in oklab, var(--panel-bg) 74%, transparent);
+}
+
+.satAdmModalShell__titleWrap{
+    min-width:0;
+}
+
+.satAdmModalShell__title{
+    margin:6px 0 0;
+    font:950 20px/1.05 system-ui;
+    color:var(--text);
+    letter-spacing:-.02em;
+}
+
+.satAdmModalShell__subtitle{
+    margin:8px 0 0;
+    font:650 13px/1.4 system-ui;
+    color:var(--muted);
+}
+
+.satAdmModalShell__body{
+    padding:16px;
+    overflow-y:auto;
+    overflow-x:hidden;
+    display:grid;
+    gap:16px;
+    align-content:start;
+}
+
+.satAdmModal__head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    margin-bottom:16px;
+}
+
+.satAdmModal__eyebrow{
+    font:900 11px/1 system-ui;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmModal__title{
+    margin:8px 0 0;
+    font:950 24px/1.05 system-ui;
+    color:var(--text);
+}
+
+.satAdmModal__sub{
+    margin:8px 0 0;
+    font:650 13px/1.5 system-ui;
+    color:var(--muted);
+}
+
+.satAdmModal__close{
+    width:42px;
+    height:42px;
+    border-radius:14px;
+    border:1px solid var(--bd);
+    background:var(--card-bg);
+    color:var(--text);
+    font:900 24px/1;
+    cursor:pointer;
+    flex-shrink:0;
+}
+
+.satAdmModal__actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    margin-top:18px;
+    flex-wrap:wrap;
+}
+
+.satAdmOpsTopCards{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:10px;
+}
+
+.satAdmOpsMiniCard{
+    display:grid;
+    gap:6px;
+    padding:12px 14px;
+    border:1px solid color-mix(in oklab, var(--text) 8%, transparent);
+    border-radius:16px;
+    background:color-mix(in oklab, var(--panel-bg) 76%, transparent);
+}
+
+.satAdmOpsMiniCard__label{
+    font:900 11px/1 system-ui;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmOpsMiniCard__value{
+    font:800 13px/1.35 system-ui;
+    color:var(--text);
+    word-break:break-word;
+}
+
+.satAdmOpsQuickPanel,
+.satAdmOpsPanel{
+    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
+    border-radius:20px;
+    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
+    padding:14px;
+}
+
+.satAdmOpsSection__title{
+    margin-bottom:12px;
+    font:900 15px/1.1 system-ui;
+    color:var(--text);
+}
+
+.satAdmQuickActions{
+    display:grid;
+    gap:10px;
+}
+
+.satAdmQuickActions--compact{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    align-items:stretch;
+}
+
+.satAdmQuickAction{
+    display:grid;
+    grid-template-columns:44px minmax(0,1fr);
+    gap:12px;
+    align-items:center;
+    padding:12px;
+    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
+    border-radius:16px;
+    background:var(--card-bg);
+    text-decoration:none;
+    color:var(--text);
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.satAdmQuickAction:hover{
+    transform:translateY(-1px);
+    box-shadow:0 10px 24px rgba(15,23,42,.08);
+}
+
+.satAdmQuickAction__icon{
+    width:44px;
+    height:44px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:14px;
+    background:#eff6ff;
+    border:1px solid #bfdbfe;
+    color:#1d4ed8;
+    font:900 12px/1 system-ui;
+}
+
+.satAdmQuickAction__text{
+    display:grid;
+    gap:4px;
+}
+
+.satAdmQuickAction__text strong{
+    font:850 13px/1.2 system-ui;
+    color:var(--text);
+}
+
+.satAdmQuickAction__text small{
+    font:600 12px/1.4 system-ui;
+    color:var(--muted);
+}
+
+.satAdmOpsPanelsGrid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:16px;
+    align-items:start;
+}
+
+.satAdmDetailGrid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+}
+
+.satAdmDetailGrid--single{
+    grid-template-columns:1fr;
+}
+
+.satAdmDetailGrid--modal .satAdmDetailItem{
+    min-height:84px;
+}
+
+.satAdmDetailItem{
+    display:grid;
+    gap:6px;
+    padding:12px;
+    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
+    border-radius:16px;
+    background:var(--card-bg);
+}
+
+.satAdmDetailItem__label{
+    font:900 11px/1 system-ui;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+}
+
+.satAdmDetailItem__value{
+    font:700 14px/1.45 system-ui;
+    color:var(--text);
+    word-break:break-word;
+}
+
+.satAdmDetailItem--full{
+    grid-column:1 / -1;
+}
+
+.satAdmBreak{
+    word-break:break-all;
+    overflow-wrap:anywhere;
+}
+
+.satAdmEditCollapse{
+    border:1px solid color-mix(in oklab, var(--text) 10%, transparent);
+    border-radius:20px;
+    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
+    overflow:hidden;
+}
+
+.satAdmEditCollapse__summary{
+    list-style:none;
+    cursor:pointer;
+    padding:14px 16px;
+    font:900 14px/1 system-ui;
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+}
+
+.satAdmEditCollapse__summary::-webkit-details-marker{
+    display:none;
+}
+
+.satAdmEditCollapse__summary::after{
+    content:"+";
+    font:900 18px/1 system-ui;
+    color:var(--muted);
+}
+
+.satAdmEditCollapse[open] .satAdmEditCollapse__summary::after{
+    content:"−";
+}
+
+.satAdmEditCollapse__body{
+    padding:0 16px 16px;
+    border-top:1px solid color-mix(in oklab, var(--text) 8%, transparent);
+}
+
+.satAdmEditCollapse{
+    align-self:start;
+}
+
+.satAdmEditCollapse__body .satAdmForm{
+    gap:12px;
+}
+
+.satAdmEditCollapse__body{
+    max-height:52vh;
+    overflow:auto;
+}
+
+.satAdmDangerInlineForm{
+    display:inline-flex;
+    margin:0 auto 0 0;
+}
+
+@media (max-width: 1320px){
+    .satAdmInlineFilters{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .satAdmInlineFilters__actions{
+        grid-column:1 / -1;
+        justify-content:flex-end;
+    }
+}
+
+@media (max-width: 1180px){
+    .satAdmKpis{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .satAdmOpsTopCards{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .satAdmOpsPanelsGrid{
+        grid-template-columns:1fr;
+    }
+
+    .satAdmQuickActions--compact{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .satAdmModal{
+        width:min(940px, calc(100vw - 18px));
+    }
+}
+
+@media (max-width: 860px){
+    .satAdmKpis,
+    .satAdmForm__grid--modal,
+    .satAdmInlineFilters,
+    .satAdmDetailGrid,
+    .satAdmOpsTopCards,
+    .satAdmOpsPanelsGrid,
+    .satAdmQuickActions--compact{
+        grid-template-columns:1fr;
+    }
+
+    .satAdmField--span2,
+    .satAdmInlineFilters__actions,
+    .satAdmDetailItem--full{
+        grid-column:auto;
+    }
+
+    .satAdmToolbar{
+        flex-direction:column;
+        align-items:stretch;
+    }
+
+    .satAdmToolbar__right{
+        justify-content:flex-start;
+    }
+
+    .satAdmModal{
+        width:calc(100vw - 10px);
+        max-width:calc(100vw - 10px);
+        max-height:calc(100vh - 10px);
+    }
+
+    .satAdmModalShell{
+        height:calc(100vh - 10px);
+        max-height:calc(100vh - 10px);
+        border-radius:18px;
+    }
+
+    .satAdmModalShell__header,
+    .satAdmModalShell__body{
+        padding:12px;
+    }
+
+    .satAdmModalShell__title{
+        font-size:18px;
+    }
+
+    .satAdmModal__title{
+        font-size:20px;
+    }
+
+    .satAdmEditCollapse__body{
+        max-height:none;
+    }
+}

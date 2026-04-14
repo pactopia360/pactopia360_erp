@@ -14,10 +14,6 @@
             los RFC registrados por cuenta para preparar cotizaciones y descargas SAT.
         </p>
     </div>
-
-    <div class="satAdmHero__side">
-        <a class="satAdmBtn satAdmBtn--primary" href="{{ route('admin.sat.ops.index') }}">Volver al dashboard SAT</a>
-    </div>
 </div>
 @endsection
 
@@ -42,16 +38,19 @@
             <div class="satAdmKpi__value">{{ number_format((int) ($stats['total'] ?? 0)) }}</div>
             <div class="satAdmKpi__sub">RFC activos visibles</div>
         </article>
+
         <article class="satAdmKpi">
             <div class="satAdmKpi__label">Internos</div>
             <div class="satAdmKpi__value">{{ number_format((int) ($stats['internos'] ?? 0)) }}</div>
             <div class="satAdmKpi__sub">Origen interno</div>
         </article>
+
         <article class="satAdmKpi">
             <div class="satAdmKpi__label">Externos</div>
             <div class="satAdmKpi__value">{{ number_format((int) ($stats['externos'] ?? 0)) }}</div>
             <div class="satAdmKpi__sub">Origen externo</div>
         </article>
+
         <article class="satAdmKpi">
             <div class="satAdmKpi__label">Validados</div>
             <div class="satAdmKpi__value">{{ number_format((int) ($stats['validados'] ?? 0)) }}</div>
@@ -59,19 +58,432 @@
         </article>
     </section>
 
-    <section class="satAdmGrid">
-        <section class="satAdmCard">
-            <div class="satAdmCard__head">
+    <section class="satAdmCard satAdmCard--toolbar">
+        <div class="satAdmToolbar">
+            <div class="satAdmToolbar__left">
+                <div class="satAdmCard__title">Listado global de RFC</div>
+                <div class="satAdmCard__sub">Vista compacta, operativa y administrable para muchos registros.</div>
+            </div>
+
+            <div class="satAdmToolbar__right">
+                <button
+                    type="button"
+                    class="satAdmBtn satAdmBtn--primary satAdmBtn--icon"
+                    onclick="document.getElementById('satAdmCreateModal').showModal()"
+                >
+                    <span class="satAdmBtn__icon" aria-hidden="true">＋</span>
+                    <span>RFC</span>
+                </button>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ route('admin.sat.ops.rfcs.index') }}" class="satAdmInlineFilters">
+            <div class="satAdmField satAdmField--search">
+                <label for="q">Buscar</label>
+                <input type="text" id="q" name="q" value="{{ $q }}" placeholder="RFC, razón social o cuenta">
+            </div>
+
+            <div class="satAdmField">
+                <label for="origin">Origen</label>
+                <select id="origin" name="origin">
+                    <option value="">Todos</option>
+                    <option value="interno" {{ $origin === 'interno' ? 'selected' : '' }}>Interno</option>
+                    <option value="externo" {{ $origin === 'externo' ? 'selected' : '' }}>Externo</option>
+                    <option value="admin" {{ $origin === 'admin' ? 'selected' : '' }}>Admin</option>
+                </select>
+            </div>
+
+            <div class="satAdmField">
+                <label for="status">Estado</label>
+                <select id="status" name="status">
+                    <option value="">Todos</option>
+                    <option value="validado" {{ $status === 'validado' ? 'selected' : '' }}>Validado</option>
+                    <option value="pendiente" {{ $status === 'pendiente' ? 'selected' : '' }}>Pendiente</option>
+                </select>
+            </div>
+
+            <div class="satAdmField">
+                <label for="account">Cuenta exacta</label>
+                <input type="text" id="account" name="account" value="{{ $account }}" placeholder="UUID cuenta">
+            </div>
+
+            <div class="satAdmInlineFilters__actions">
+                <button type="submit" class="satAdmBtn satAdmBtn--primary">Aplicar</button>
+                <a href="{{ route('admin.sat.ops.rfcs.index') }}" class="satAdmBtn">Limpiar</a>
+            </div>
+        </form>
+    </section>
+
+    <section class="satAdmCard satAdmCard--table">
+        <div class="satAdmTableWrap">
+            <table class="satAdmTable">
+                <thead>
+                    <tr>
+                        <th>RFC</th>
+                        <th>Razón social</th>
+                        <th>Cuenta</th>
+                        <th>Origen</th>
+                        <th>FIEL</th>
+                        <th>CSD</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($rows as $row)
+                        @php
+                            $opsModalId = 'rfcOpsModal_' . $row->id;
+                        @endphp
+
+                        <tr>
+                            <td>
+                                <div class="satAdmCellMain satAdmMono">{{ $row->rfc }}</div>
+                            </td>
+
+                            <td>
+                                <div class="satAdmCellMain">{{ $row->razon_social !== '' ? $row->razon_social : '—' }}</div>
+                            </td>
+
+                            <td>
+                                <div class="satAdmStack">
+                                    <span class="satAdmMono satAdmCellMain">{{ $row->cuenta_id !== '' ? $row->cuenta_id : '—' }}</span>
+                                    <small>{{ $row->account_id !== '' ? $row->account_id : '—' }}</small>
+                                </div>
+                            </td>
+
+                            <td>
+                                <span class="satAdmBadge satAdmBadge--neutral">{{ strtoupper($row->tipo_origen_ui) }}</span>
+                            </td>
+
+                            <td>
+                                <span class="satAdmBadge {{ $row->has_fiel ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">
+                                    {{ $row->has_fiel ? 'CARGADA' : 'PENDIENTE' }}
+                                </span>
+                            </td>
+
+                            <td>
+                                <span class="satAdmBadge {{ $row->has_csd ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">
+                                    {{ $row->has_csd ? 'CARGADA' : 'OPCIONAL' }}
+                                </span>
+                            </td>
+
+                            <td>
+                                <span class="satAdmBadge {{ $row->sat_status_ui === 'validado' ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">
+                                    {{ strtoupper($row->sat_status_ui) }}
+                                </span>
+                            </td>
+
+                            <td class="satAdmActionsCell">
+                                <button
+                                    type="button"
+                                    class="satAdmIconBtn satAdmIconBtn--main"
+                                    onclick="document.getElementById('{{ $opsModalId }}').showModal()"
+                                    title="Abrir acciones"
+                                    aria-label="Abrir acciones"
+                                >
+                                    <span aria-hidden="true">⋯</span>
+                                </button>
+
+                                <dialog id="{{ $opsModalId }}" class="satAdmModal satAdmModal--opsRedesign">
+                                    <div class="satAdmModalShell">
+                                        <div class="satAdmModalShell__header">
+                                            <div class="satAdmModalShell__titleWrap">
+                                                <div class="satAdmModal__eyebrow">OPERACIÓN RFC</div>
+                                                <h3 class="satAdmModalShell__title">{{ $row->rfc }}</h3>
+                                                <p class="satAdmModalShell__subtitle">{{ $row->razon_social !== '' ? $row->razon_social : 'Sin razón social registrada' }}</p>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                class="satAdmModal__close"
+                                                onclick="document.getElementById('{{ $opsModalId }}').close()"
+                                                aria-label="Cerrar"
+                                            >×</button>
+                                        </div>
+
+                                        <div class="satAdmModalShell__body">
+                                            <section class="satAdmOpsTopCards">
+                                                <div class="satAdmOpsMiniCard">
+                                                    <span class="satAdmOpsMiniCard__label">Cuenta UUID</span>
+                                                    <span class="satAdmOpsMiniCard__value satAdmMono">{{ $row->cuenta_id ?: '—' }}</span>
+                                                </div>
+
+                                                <div class="satAdmOpsMiniCard">
+                                                    <span class="satAdmOpsMiniCard__label">Account ID</span>
+                                                    <span class="satAdmOpsMiniCard__value satAdmMono">{{ $row->account_id ?: '—' }}</span>
+                                                </div>
+
+                                                <div class="satAdmOpsMiniCard">
+                                                    <span class="satAdmOpsMiniCard__label">Origen</span>
+                                                    <span class="satAdmOpsMiniCard__value">{{ strtoupper($row->tipo_origen_ui) }}</span>
+                                                </div>
+
+                                                <div class="satAdmOpsMiniCard">
+                                                    <span class="satAdmOpsMiniCard__label">Estado SAT</span>
+                                                    <span class="satAdmOpsMiniCard__value">{{ strtoupper($row->sat_status_ui) }}</span>
+                                                </div>
+                                            </section>
+
+                                            <section class="satAdmOpsQuickPanel">
+                                                <div class="satAdmOpsSection__title">Acciones rápidas</div>
+
+                                                <div class="satAdmQuickActions satAdmQuickActions--compact">
+                                                    <a
+                                                        class="satAdmQuickAction"
+                                                        href="{{ route('admin.sat.ops.rfcs.operational_data', ['id' => $row->id]) }}"
+                                                        target="_blank"
+                                                    >
+                                                        <span class="satAdmQuickAction__icon">{ }</span>
+                                                        <span class="satAdmQuickAction__text">
+                                                            <strong>JSON operativo</strong>
+                                                            <small>Abrir información operativa completa.</small>
+                                                        </span>
+                                                    </a>
+
+                                                    <a
+                                                        class="satAdmQuickAction"
+                                                        href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']) }}"
+                                                    >
+                                                        <span class="satAdmQuickAction__icon">FC</span>
+                                                        <span class="satAdmQuickAction__text">
+                                                            <strong>FIEL CER</strong>
+                                                            <small>Descargar certificado FIEL.</small>
+                                                        </span>
+                                                    </a>
+
+                                                    <a
+                                                        class="satAdmQuickAction"
+                                                        href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']) }}"
+                                                    >
+                                                        <span class="satAdmQuickAction__icon">FK</span>
+                                                        <span class="satAdmQuickAction__text">
+                                                            <strong>FIEL KEY</strong>
+                                                            <small>Descargar llave FIEL.</small>
+                                                        </span>
+                                                    </a>
+
+                                                    <a
+                                                        class="satAdmQuickAction"
+                                                        href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_cer']) }}"
+                                                    >
+                                                        <span class="satAdmQuickAction__icon">CC</span>
+                                                        <span class="satAdmQuickAction__text">
+                                                            <strong>CSD CER</strong>
+                                                            <small>Descargar certificado CSD.</small>
+                                                        </span>
+                                                    </a>
+
+                                                    <a
+                                                        class="satAdmQuickAction"
+                                                        href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_key']) }}"
+                                                    >
+                                                        <span class="satAdmQuickAction__icon">CK</span>
+                                                        <span class="satAdmQuickAction__text">
+                                                            <strong>CSD KEY</strong>
+                                                            <small>Descargar llave CSD.</small>
+                                                        </span>
+                                                    </a>
+                                                </div>
+                                            </section>
+
+                                            <section class="satAdmOpsPanelsGrid">
+                                                <section class="satAdmOpsPanel satAdmOpsPanel--detail">
+                                                    <div class="satAdmOpsSection__title">Detalle general</div>
+
+                                                    <div class="satAdmDetailGrid satAdmDetailGrid--modal">
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">RFC</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono">{{ $row->rfc ?: '—' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">Razón social</span>
+                                                            <span class="satAdmDetailItem__value">{{ $row->razon_social ?: '—' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">Etiqueta visual</span>
+                                                            <span class="satAdmDetailItem__value">{{ $row->source_label ?: '—' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">Detalle origen</span>
+                                                            <span class="satAdmDetailItem__value">{{ $row->origen_detalle ?: 'Sin detalle de origen' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">FIEL</span>
+                                                            <span class="satAdmDetailItem__value">{{ $row->has_fiel ? 'Cargada' : 'Pendiente' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">CSD</span>
+                                                            <span class="satAdmDetailItem__value">{{ $row->has_csd ? 'Cargada' : 'Opcional / no cargada' }}</span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">Contraseña FIEL</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono">
+                                                                {{ $row->fiel_password_plain !== '' ? $row->fiel_password_plain : 'Sin contraseña registrada' }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem">
+                                                            <span class="satAdmDetailItem__label">Contraseña CSD</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono">
+                                                                {{ $row->csd_password_plain !== '' ? $row->csd_password_plain : 'Sin contraseña registrada' }}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                <section class="satAdmOpsPanel satAdmOpsPanel--detail">
+                                                    <div class="satAdmOpsSection__title">Rutas registradas</div>
+
+                                                    <div class="satAdmDetailGrid satAdmDetailGrid--single">
+                                                        <div class="satAdmDetailItem satAdmDetailItem--full">
+                                                            <span class="satAdmDetailItem__label">Ruta FIEL CER</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono satAdmBreak">
+                                                                {{ $row->fiel_cer_path !== '' ? $row->fiel_cer_path : 'No registrado' }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem satAdmDetailItem--full">
+                                                            <span class="satAdmDetailItem__label">Ruta FIEL KEY</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono satAdmBreak">
+                                                                {{ $row->fiel_key_path !== '' ? $row->fiel_key_path : 'No registrado' }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem satAdmDetailItem--full">
+                                                            <span class="satAdmDetailItem__label">Ruta CSD CER</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono satAdmBreak">
+                                                                {{ $row->csd_cer_path !== '' ? $row->csd_cer_path : 'No registrado' }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="satAdmDetailItem satAdmDetailItem--full">
+                                                            <span class="satAdmDetailItem__label">Ruta CSD KEY</span>
+                                                            <span class="satAdmDetailItem__value satAdmMono satAdmBreak">
+                                                                {{ $row->csd_key_path !== '' ? $row->csd_key_path : 'No registrado' }}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </section>
+                                            </section>
+
+                                            <details class="satAdmEditCollapse">
+                                                <summary class="satAdmEditCollapse__summary">Editar RFC</summary>
+
+                                                <div class="satAdmEditCollapse__body">
+                                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm">
+                                                        @csrf
+
+                                                        <div class="satAdmForm__grid satAdmForm__grid--modal">
+                                                            <div class="satAdmField">
+                                                                <label>Cuenta UUID</label>
+                                                                <input type="text" name="cuenta_id" value="{{ $row->cuenta_id }}" required>
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Account ID</label>
+                                                                <input type="text" name="account_id" value="{{ $row->account_id }}">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>RFC</label>
+                                                                <input type="text" name="rfc" value="{{ $row->rfc }}" required>
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Origen</label>
+                                                                <select name="tipo_origen" required>
+                                                                    <option value="admin" {{ $row->tipo_origen_ui === 'admin' ? 'selected' : '' }}>Admin</option>
+                                                                    <option value="interno" {{ $row->tipo_origen_ui === 'interno' ? 'selected' : '' }}>Interno</option>
+                                                                    <option value="externo" {{ $row->tipo_origen_ui === 'externo' ? 'selected' : '' }}>Externo</option>
+                                                                </select>
+                                                            </div>
+
+                                                            <div class="satAdmField satAdmField--span2">
+                                                                <label>Razón social</label>
+                                                                <input type="text" name="razon_social" value="{{ $row->razon_social }}">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Detalle origen</label>
+                                                                <input type="text" name="origen_detalle" value="{{ $row->origen_detalle }}">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Etiqueta visual</label>
+                                                                <input type="text" name="source_label" value="{{ $row->source_label }}">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Contraseña operativa FIEL</label>
+                                                                <input type="text" name="fiel_password_plain" value="{{ $row->fiel_password_plain }}">
+                                                            </div>
+
+                                                            <div class="satAdmField">
+                                                                <label>Contraseña operativa CSD</label>
+                                                                <input type="text" name="csd_password_plain" value="{{ $row->csd_password_plain }}">
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="satAdmModal__actions">
+                                                            <form method="POST" action="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}" onsubmit="return confirm('¿Deseas dar de baja este RFC?');" class="satAdmDangerInlineForm">
+                                                                @csrf
+                                                                <button type="submit" class="satAdmBtn satAdmBtn--danger">Dar de baja</button>
+                                                            </form>
+
+                                                            <button
+                                                                type="button"
+                                                                class="satAdmBtn"
+                                                                onclick="document.getElementById('{{ $opsModalId }}').close()"
+                                                            >
+                                                                Cerrar
+                                                            </button>
+
+                                                            <button type="submit" class="satAdmBtn satAdmBtn--primary">Guardar cambios</button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </details>
+                                        </div>
+                                    </div>
+                                </dialog>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="8" class="satAdmEmpty">No hay RFC activos registrados en el maestro SAT.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <dialog id="satAdmCreateModal" class="satAdmModal">
+        <div class="satAdmModal__box satAdmModal__box--create">
+            <div class="satAdmModal__head">
                 <div>
-                    <div class="satAdmCard__title">Alta rápida desde admin</div>
-                    <div class="satAdmCard__sub">Permite registrar RFC ligado o no ligado a una cuenta.</div>
+                    <div class="satAdmModal__eyebrow">ALTA RÁPIDA</div>
+                    <h3 class="satAdmModal__title">Nuevo RFC</h3>
                 </div>
+
+                <button
+                    type="button"
+                    class="satAdmModal__close"
+                    onclick="document.getElementById('satAdmCreateModal').close()"
+                    aria-label="Cerrar"
+                >×</button>
             </div>
 
             <form method="POST" action="{{ route('admin.sat.ops.rfcs.store') }}" class="satAdmForm">
                 @csrf
 
-                                <div class="satAdmForm__grid">
+                <div class="satAdmForm__grid satAdmForm__grid--modal">
                     <div class="satAdmField">
                         <label for="cuenta_id">Cuenta UUID</label>
                         <input type="text" id="cuenta_id" name="cuenta_id" value="{{ old('cuenta_id') }}" required>
@@ -96,7 +508,7 @@
                         </select>
                     </div>
 
-                    <div class="satAdmField satAdmField--full">
+                    <div class="satAdmField satAdmField--span2">
                         <label for="razon_social">Razón social</label>
                         <input type="text" id="razon_social" name="razon_social" value="{{ old('razon_social') }}">
                     </div>
@@ -122,477 +534,23 @@
                     </div>
                 </div>
 
-                <div class="satAdmForm__actions">
+                <div class="satAdmModal__actions">
+                    <button
+                        type="button"
+                        class="satAdmBtn"
+                        onclick="document.getElementById('satAdmCreateModal').close()"
+                    >
+                        Cancelar
+                    </button>
                     <button type="submit" class="satAdmBtn satAdmBtn--primary">Guardar RFC</button>
                 </div>
             </form>
-        </section>
-
-        <section class="satAdmCard">
-            <div class="satAdmCard__head">
-                <div>
-                    <div class="satAdmCard__title">Filtros</div>
-                    <div class="satAdmCard__sub">Consulta global del espejo SAT.</div>
-                </div>
-            </div>
-
-            <form method="GET" action="{{ route('admin.sat.ops.rfcs.index') }}" class="satAdmForm">
-                <div class="satAdmForm__grid">
-                    <div class="satAdmField satAdmField--full">
-                        <label for="q">Buscar</label>
-                        <input type="text" id="q" name="q" value="{{ $q }}" placeholder="RFC, razón social o cuenta">
-                    </div>
-
-                    <div class="satAdmField">
-                        <label for="origin">Origen</label>
-                        <select id="origin" name="origin">
-                            <option value="">Todos</option>
-                            <option value="interno" {{ $origin === 'interno' ? 'selected' : '' }}>Interno</option>
-                            <option value="externo" {{ $origin === 'externo' ? 'selected' : '' }}>Externo</option>
-                            <option value="admin" {{ $origin === 'admin' ? 'selected' : '' }}>Admin</option>
-                        </select>
-                    </div>
-
-                    <div class="satAdmField">
-                        <label for="status">Estado</label>
-                        <select id="status" name="status">
-                            <option value="">Todos</option>
-                            <option value="validado" {{ $status === 'validado' ? 'selected' : '' }}>Validado</option>
-                            <option value="pendiente" {{ $status === 'pendiente' ? 'selected' : '' }}>Pendiente</option>
-                        </select>
-                    </div>
-
-                    <div class="satAdmField satAdmField--full">
-                        <label for="account">Cuenta exacta</label>
-                        <input type="text" id="account" name="account" value="{{ $account }}">
-                    </div>
-                </div>
-
-                <div class="satAdmForm__actions">
-                    <button type="submit" class="satAdmBtn satAdmBtn--primary">Aplicar filtros</button>
-                </div>
-            </form>
-        </section>
-    </section>
-
-    <section class="satAdmCard">
-        <div class="satAdmCard__head">
-            <div>
-                <div class="satAdmCard__title">Listado global de RFC</div>
-                <div class="satAdmCard__sub">Espejo administrativo del maestro SAT del cliente.</div>
-            </div>
         </div>
-
-        <div class="satAdmTableWrap">
-            <table class="satAdmTable">
-                <thead>
-                    <tr>
-                        <th>RFC</th>
-                        <th>Razón social</th>
-                        <th>Cuenta</th>
-                        <th>Origen</th>
-                        <th>FIEL</th>
-                        <th>CSD</th>
-                        <th>Estado</th>
-                        <th>Detalle</th>
-                        <th>Acciones operativas</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse($rows as $row)
-                        <tr>
-                            <td class="satAdmMono">{{ $row->rfc }}</td>
-                            <td>{{ $row->razon_social !== '' ? $row->razon_social : '—' }}</td>
-                            <td>
-                                <div class="satAdmStack">
-                                    <span class="satAdmMono">{{ $row->cuenta_id !== '' ? $row->cuenta_id : '—' }}</span>
-                                    <small>{{ $row->account_id !== '' ? $row->account_id : '—' }}</small>
-                                </div>
-                            </td>
-                            <td><span class="satAdmBadge satAdmBadge--neutral">{{ strtoupper($row->tipo_origen_ui) }}</span></td>
-                            <td><span class="satAdmBadge {{ $row->has_fiel ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ $row->has_fiel ? 'CARGADA' : 'PENDIENTE' }}</span></td>
-                            <td><span class="satAdmBadge {{ $row->has_csd ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ $row->has_csd ? 'CARGADA' : 'OPCIONAL' }}</span></td>
-                                                        <td><span class="satAdmBadge {{ $row->sat_status_ui === 'validado' ? 'satAdmBadge--ok' : 'satAdmBadge--warn' }}">{{ strtoupper($row->sat_status_ui) }}</span></td>
-
-                            <td>
-                                <div class="satAdmStack">
-                                    <span>{{ $row->source_label !== '' ? $row->source_label : '—' }}</span>
-                                    <small>{{ $row->origen_detalle !== '' ? $row->origen_detalle : 'Sin detalle de origen' }}</small>
-                                </div>
-                            </td>
-
-                            <td class="satAdmActionsCell">
-                                <div class="satAdmActionGrid">
-                                    <div class="satAdmActionRow">
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.show', ['id' => $row->id]) }}" target="_blank">Ver detalle</a>
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.operational_data', ['id' => $row->id]) }}" target="_blank">Ver JSON operativo</a>
-                                    </div>
-
-                                    <div class="satAdmActionRow">
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']) }}">Descargar FIEL CER</a>
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']) }}">Descargar FIEL KEY</a>
-                                    </div>
-
-                                    <div class="satAdmActionRow">
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_cer']) }}">Descargar CSD CER</a>
-                                        <a class="satAdmBtn" href="{{ route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_key']) }}">Descargar CSD KEY</a>
-                                    </div>
-
-                                    <details class="satAdmEdit">
-                                        <summary>Editar RFC</summary>
-                                        <form method="POST" action="{{ route('admin.sat.ops.rfcs.update', ['id' => $row->id]) }}" class="satAdmForm satAdmForm--compact">
-                                            @csrf
-                                            <div class="satAdmForm__grid">
-                                                <div class="satAdmField">
-                                                    <label>Cuenta UUID</label>
-                                                    <input type="text" name="cuenta_id" value="{{ $row->cuenta_id }}" required>
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Account ID</label>
-                                                    <input type="text" name="account_id" value="{{ $row->account_id }}">
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>RFC</label>
-                                                    <input type="text" name="rfc" value="{{ $row->rfc }}" required>
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Origen</label>
-                                                    <select name="tipo_origen" required>
-                                                        <option value="admin" {{ $row->tipo_origen_ui === 'admin' ? 'selected' : '' }}>Admin</option>
-                                                        <option value="interno" {{ $row->tipo_origen_ui === 'interno' ? 'selected' : '' }}>Interno</option>
-                                                        <option value="externo" {{ $row->tipo_origen_ui === 'externo' ? 'selected' : '' }}>Externo</option>
-                                                    </select>
-                                                </div>
-                                                <div class="satAdmField satAdmField--full">
-                                                    <label>Razón social</label>
-                                                    <input type="text" name="razon_social" value="{{ $row->razon_social }}">
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Detalle origen</label>
-                                                    <input type="text" name="origen_detalle" value="{{ $row->origen_detalle }}">
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Etiqueta visual</label>
-                                                    <input type="text" name="source_label" value="{{ $row->source_label }}">
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Contraseña operativa FIEL</label>
-                                                    <input type="text" name="fiel_password_plain" value="">
-                                                </div>
-                                                <div class="satAdmField">
-                                                    <label>Contraseña operativa CSD</label>
-                                                    <input type="text" name="csd_password_plain" value="">
-                                                </div>
-                                            </div>
-
-                                            <div class="satAdmForm__actions">
-                                                <button type="submit" class="satAdmBtn satAdmBtn--primary">Guardar cambios</button>
-                                            </div>
-                                        </form>
-                                    </details>
-
-                                    <form method="POST" action="{{ route('admin.sat.ops.rfcs.delete', ['id' => $row->id]) }}" onsubmit="return confirm('¿Deseas dar de baja este RFC?');">
-                                        @csrf
-                                        <button type="submit" class="satAdmBtn satAdmBtn--danger">Dar de baja</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="8" class="satAdmEmpty">No hay RFC activos registrados en el maestro SAT.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </section>
+    </dialog>
 
 </div>
 @endsection
 
 @push('styles')
-<style>
-    .page-admin-sat-rfcs .page-container{ padding-top:12px; }
-    .satAdmWrap{ display:grid; gap:16px; }
-    .satAdmHero{
-        display:grid;
-        grid-template-columns:minmax(0,1.35fr) 280px;
-        gap:16px;
-        padding:18px 18px 14px;
-    }
-    .satAdmHero__main,.satAdmHero__side,.satAdmCard,.satAdmKpi{
-        border:1px solid var(--bd);
-        border-radius:20px;
-        background:var(--card-bg);
-        box-shadow:var(--shadow-1);
-    }
-    .satAdmHero__main{
-        padding:22px;
-        background:linear-gradient(135deg, rgba(14,42,59,.98) 0%, rgba(31,78,121,.96) 50%, rgba(37,99,235,.94) 100%);
-        color:#fff;
-        border-color:rgba(37,99,235,.18);
-    }
-    .satAdmHero__side{ padding:18px; display:grid; align-items:center; }
-    .satAdmHero__eyebrow{
-        font:900 11px/1 system-ui;
-        letter-spacing:.12em;
-        text-transform:uppercase;
-        opacity:.84;
-    }
-    .satAdmHero__title{
-        margin:10px 0 0;
-        font:950 32px/1.03 system-ui;
-        letter-spacing:-.03em;
-    }
-    .satAdmHero__subtitle{
-        margin:12px 0 0;
-        font:600 14px/1.6 system-ui;
-        color:rgba(255,255,255,.86);
-        max-width:840px;
-    }
-
-    .satAdmKpis{
-        display:grid;
-        grid-template-columns:repeat(4,minmax(0,1fr));
-        gap:12px;
-    }
-    .satAdmKpi{ padding:16px; }
-    .satAdmKpi__label{
-        font:900 11px/1 system-ui;
-        letter-spacing:.08em;
-        text-transform:uppercase;
-        color:var(--muted);
-    }
-    .satAdmKpi__value{
-        margin-top:10px;
-        font:950 28px/1 system-ui;
-        color:var(--text);
-    }
-    .satAdmKpi__sub{
-        margin-top:8px;
-        font:650 13px/1.45 system-ui;
-        color:var(--muted);
-    }
-
-    .satAdmGrid{
-        display:grid;
-        grid-template-columns:1fr 1fr;
-        gap:16px;
-    }
-
-    .satAdmCard{ padding:16px; }
-    .satAdmCard__head{
-        display:flex;
-        align-items:flex-end;
-        justify-content:space-between;
-        gap:10px;
-        margin-bottom:14px;
-    }
-    .satAdmCard__title{
-        font:950 18px/1.1 system-ui;
-        color:var(--text);
-    }
-    .satAdmCard__sub{
-        margin-top:5px;
-        font:650 13px/1.4 system-ui;
-        color:var(--muted);
-    }
-
-    .satAdmAlert{
-        padding:14px 16px;
-        border-radius:16px;
-        font:700 14px/1.4 system-ui;
-    }
-    .satAdmAlert--ok{
-        background:#ecfdf3;
-        color:#047857;
-        border:1px solid #a7f3d0;
-    }
-    .satAdmAlert--error{
-        background:#fff7ed;
-        color:#c2410c;
-        border:1px solid #fdba74;
-    }
-
-    .satAdmForm{
-        display:grid;
-        gap:14px;
-    }
-    .satAdmForm--compact{
-        margin-top:12px;
-        padding:14px;
-        border:1px solid var(--bd);
-        border-radius:16px;
-        background:color-mix(in oklab, var(--panel-bg) 74%, transparent);
-    }
-    .satAdmForm__grid{
-        display:grid;
-        grid-template-columns:repeat(2,minmax(0,1fr));
-        gap:12px;
-    }
-    .satAdmField--full{ grid-column:1 / -1; }
-
-    .satAdmField label{
-        display:block;
-        margin:0 0 6px;
-        font:900 12px/1 system-ui;
-        letter-spacing:.04em;
-        text-transform:uppercase;
-        color:var(--muted);
-    }
-    .satAdmField input,
-    .satAdmField select{
-        width:100%;
-        min-height:44px;
-        border-radius:14px;
-        border:1px solid var(--bd);
-        background:#fff;
-        color:#0f172a;
-        padding:0 14px;
-        font:600 14px/1.1 system-ui;
-        outline:none;
-    }
-    html.theme-dark .satAdmField input,
-    html.theme-dark .satAdmField select{
-        background:#0f172a;
-        color:#e5e7eb;
-    }
-
-    .satAdmForm__actions{
-        display:flex;
-        justify-content:flex-end;
-        gap:8px;
-    }
-
-    .satAdmBtn{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        min-height:44px;
-        padding:0 16px;
-        border-radius:14px;
-        border:1px solid var(--bd);
-        background:color-mix(in oklab, var(--card-bg) 88%, transparent);
-        color:var(--text);
-        text-decoration:none;
-        font:850 13px/1 system-ui;
-        cursor:pointer;
-    }
-    .satAdmBtn--primary{
-        background:#2563eb;
-        border-color:#2563eb;
-        color:#fff;
-    }
-    .satAdmBtn--danger{
-        background:#fff7ed;
-        border-color:#fdba74;
-        color:#c2410c;
-    }
-
-    .satAdmTableWrap{ overflow:auto; }
-    .satAdmTable{
-        width:100%;
-        min-width:1560px;
-        border-collapse:separate;
-        border-spacing:0;
-    }
-    
-    .satAdmTable th{
-        text-align:left;
-        padding:14px 12px;
-        border-bottom:1px solid var(--bd);
-        background:color-mix(in oklab, var(--panel-bg) 76%, transparent);
-        font:900 12px/1 system-ui;
-        letter-spacing:.04em;
-        text-transform:uppercase;
-        color:var(--muted);
-    }
-    .satAdmTable td{
-        padding:14px 12px;
-        border-bottom:1px solid color-mix(in oklab, var(--text) 8%, transparent);
-        vertical-align:top;
-        font:600 14px/1.5 system-ui;
-        color:var(--text);
-    }
-
-    .satAdmMono{
-        font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-    }
-    .satAdmStack{
-        display:grid;
-        gap:4px;
-    }
-    .satAdmStack small{
-        color:var(--muted);
-        font:600 12px/1.3 system-ui;
-    }
-
-    .satAdmBadge{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        min-height:30px;
-        padding:0 10px;
-        border-radius:999px;
-        font:900 11px/1 system-ui;
-        border:1px solid transparent;
-        white-space:nowrap;
-    }
-    .satAdmBadge--ok{
-        background:#ecfdf3;
-        color:#047857;
-        border-color:#a7f3d0;
-    }
-    .satAdmBadge--warn{
-        background:#fff7ed;
-        color:#c2410c;
-        border-color:#fdba74;
-    }
-    .satAdmBadge--neutral{
-        background:#eff6ff;
-        color:#1d4ed8;
-        border-color:#bfdbfe;
-    }
-
-    .satAdmActionsCell{
-        min-width:320px;
-    }
-    .satAdmEdit summary{
-        cursor:pointer;
-        font:900 13px/1 system-ui;
-        color:var(--text);
-        list-style:none;
-    }
-    .satAdmEdit summary::-webkit-details-marker{ display:none; }
-
-    .satAdmEmpty{
-        padding:24px 16px;
-        color:var(--muted);
-    }
-
-    .satAdmActionGrid{
-        display:grid;
-        gap:10px;
-        min-width:420px;
-    }
-
-    .satAdmActionRow{
-        display:flex;
-        flex-wrap:wrap;
-        gap:8px;
-    }
-
-    .satAdmActionsCell .satAdmBtn{
-        min-height:40px;
-    }
-
-    @media (max-width: 1180px){
-        .satAdmHero,
-        .satAdmGrid,
-        .satAdmKpis{
-            grid-template-columns:1fr;
-        }
-    }
-</style>
+<link rel="stylesheet" href="{{ asset('assets/admin/css/sat-ops-rfcs.css') }}">
 @endpush

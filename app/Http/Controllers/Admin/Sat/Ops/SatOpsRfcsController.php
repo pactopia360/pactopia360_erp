@@ -6,18 +6,17 @@ namespace App\Http\Controllers\Admin\Sat\Ops;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cliente\SatCredential;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\File;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 final class SatOpsRfcsController extends Controller
 {
-    public function index(Request $request): View
+    public function index(\Illuminate\Http\Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
         $origin = trim((string) $request->query('origin', ''));
@@ -35,6 +34,7 @@ final class SatOpsRfcsController extends Controller
                     $row->tipo_origen
                     ?? ($meta['tipo_origen'] ?? '')
                 ));
+
                 if ($tipoOrigen === '') {
                     $tipoOrigen = 'interno';
                 }
@@ -45,17 +45,48 @@ final class SatOpsRfcsController extends Controller
                 ));
 
                 $estatusRaw = strtolower((string) ($row->estatus ?? ''));
+
                 $isValidated = !empty($row->validado)
                     || !empty($row->validated_at)
                     || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
                     || in_array($estatusOperativo, ['validated', 'validado', 'activo'], true);
+
+                $fielCerPath = (string) ($row->fiel_cer_path ?? $row->cer_path ?? '');
+                $fielKeyPath = (string) ($row->fiel_key_path ?? $row->key_path ?? '');
+                $csdCerPath = (string) ($row->csd_cer_path ?? '');
+                $csdKeyPath = (string) ($row->csd_key_path ?? '');
+
+                $fielPasswordPlain = $this->resolveStoredPassword(
+                    $meta,
+                    [
+                        'fiel_password_plain',
+                        'fiel_password',
+                        'fiel_pass',
+                        'password_fiel',
+                        'contrasena_fiel',
+                        'contrasena_fiel_plain',
+                    ],
+                    $row->fiel_password_enc ?? null
+                );
+
+                $csdPasswordPlain = $this->resolveStoredPassword(
+                    $meta,
+                    [
+                        'csd_password_plain',
+                        'csd_password',
+                        'csd_pass',
+                        'password_csd',
+                        'contrasena_csd',
+                        'contrasena_csd_plain',
+                    ],
+                    $row->csd_password_enc ?? null
+                );
 
                 $hasLegacyFiles = filled($row->cer_path) && filled($row->key_path);
 
                 $hasFiel = (
                     filled($row->fiel_cer_path ?? null)
                     && filled($row->fiel_key_path ?? null)
-                    && filled($row->fiel_password_enc ?? null)
                 ) || $hasLegacyFiles;
 
                 $hasCsd = (
@@ -76,6 +107,13 @@ final class SatOpsRfcsController extends Controller
                     'estatus_operativo' => (string) ($row->estatus_operativo ?? ''),
                     'has_fiel' => $hasFiel,
                     'has_csd' => $hasCsd,
+                    'fiel_password_plain' => $fielPasswordPlain,
+                    'csd_password_plain' => $csdPasswordPlain,
+                    'fiel_cer_path' => $fielCerPath,
+                    'fiel_key_path' => $fielKeyPath,
+                    'csd_cer_path' => $csdCerPath,
+                    'csd_key_path' => $csdKeyPath,
+                    'meta' => $meta,
                     'updated_at' => $row->updated_at,
                     'created_at' => $row->created_at,
                 ];
@@ -83,11 +121,18 @@ final class SatOpsRfcsController extends Controller
 
         if ($q !== '') {
             $needle = mb_strtolower($q);
+
             $rows = $rows->filter(function ($row) use ($needle) {
                 return str_contains(mb_strtolower($row->rfc), $needle)
                     || str_contains(mb_strtolower($row->razon_social), $needle)
                     || str_contains(mb_strtolower($row->cuenta_id), $needle)
-                    || str_contains(mb_strtolower($row->account_id), $needle);
+                    || str_contains(mb_strtolower($row->account_id), $needle)
+                    || str_contains(mb_strtolower($row->fiel_password_plain), $needle)
+                    || str_contains(mb_strtolower($row->csd_password_plain), $needle)
+                    || str_contains(mb_strtolower($row->fiel_cer_path), $needle)
+                    || str_contains(mb_strtolower($row->fiel_key_path), $needle)
+                    || str_contains(mb_strtolower($row->csd_cer_path), $needle)
+                    || str_contains(mb_strtolower($row->csd_key_path), $needle);
             });
         }
 
@@ -127,7 +172,7 @@ final class SatOpsRfcsController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(\Illuminate\Http\Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'cuenta_id' => ['required', 'string', 'max:64'],
@@ -198,7 +243,7 @@ final class SatOpsRfcsController extends Controller
         return redirect()->route('admin.sat.ops.rfcs.index')->with('ok', 'RFC creado correctamente desde admin.');
     }
 
-    public function update(Request $request, string $id): RedirectResponse
+    public function update(\Illuminate\Http\Request $request, string $id): RedirectResponse
     {
         /** @var SatCredential|null $row */
         $row = SatCredential::query()->where('id', $id)->first();
@@ -260,8 +305,35 @@ final class SatOpsRfcsController extends Controller
         $meta = is_array($row->meta) ? $row->meta : [];
         $meta['is_active'] = true;
         $meta['updated_from'] = 'admin_sat_rfc_master';
-        $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? ($meta['fiel_password_plain'] ?? '')));
-        $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? ($meta['csd_password_plain'] ?? '')));
+
+        $existingFielPassword = $this->resolveStoredPassword(
+            $meta,
+            [
+                'fiel_password_plain',
+                'fiel_password',
+                'fiel_pass',
+                'password_fiel',
+                'contrasena_fiel',
+                'contrasena_fiel_plain',
+            ],
+            $row->fiel_password_enc ?? null
+        );
+
+        $existingCsdPassword = $this->resolveStoredPassword(
+            $meta,
+            [
+                'csd_password_plain',
+                'csd_password',
+                'csd_pass',
+                'password_csd',
+                'contrasena_csd',
+                'contrasena_csd_plain',
+            ],
+            $row->csd_password_enc ?? null
+        );
+
+        $meta['fiel_password_plain'] = trim((string) ($validated['fiel_password_plain'] ?? $existingFielPassword));
+        $meta['csd_password_plain'] = trim((string) ($validated['csd_password_plain'] ?? $existingCsdPassword));
         $meta['operational_ready'] = true;
         $row->meta = $meta;
 
@@ -274,7 +346,7 @@ final class SatOpsRfcsController extends Controller
         return redirect()->route('admin.sat.ops.rfcs.index')->with('ok', 'RFC actualizado correctamente desde admin.');
     }
 
-    public function destroy(Request $request, string $id): RedirectResponse
+    public function destroy(\Illuminate\Http\Request $request, string $id): RedirectResponse
     {
         /** @var SatCredential|null $row */
         $row = SatCredential::query()->where('id', $id)->first();
@@ -302,7 +374,7 @@ final class SatOpsRfcsController extends Controller
         return redirect()->route('admin.sat.ops.rfcs.index')->with('ok', 'RFC dado de baja correctamente.');
     }
 
-        public function show(string $id): JsonResponse
+    public function show(string $id): JsonResponse
     {
         /** @var SatCredential|null $row */
         $row = SatCredential::query()->where('id', $id)->first();
@@ -320,6 +392,7 @@ final class SatOpsRfcsController extends Controller
             $row->tipo_origen
             ?? ($meta['tipo_origen'] ?? '')
         ));
+
         if ($tipoOrigen === '') {
             $tipoOrigen = 'interno';
         }
@@ -330,6 +403,7 @@ final class SatOpsRfcsController extends Controller
         ));
 
         $estatusRaw = strtolower((string) ($row->estatus ?? ''));
+
         $isValidated = !empty($row->validado)
             || !empty($row->validated_at)
             || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
@@ -352,7 +426,6 @@ final class SatOpsRfcsController extends Controller
                     (
                         filled($row->fiel_cer_path ?? null)
                         && filled($row->fiel_key_path ?? null)
-                        && filled($row->fiel_password_enc ?? null)
                     ) || (
                         filled($row->cer_path ?? null)
                         && filled($row->key_path ?? null)
@@ -365,12 +438,34 @@ final class SatOpsRfcsController extends Controller
                 'files' => [
                     'fiel_cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
                     'fiel_key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
-                    'csd_cer_path'  => (string) ($row->csd_cer_path ?? ''),
-                    'csd_key_path'  => (string) ($row->csd_key_path ?? ''),
+                    'csd_cer_path' => (string) ($row->csd_cer_path ?? ''),
+                    'csd_key_path' => (string) ($row->csd_key_path ?? ''),
                 ],
                 'passwords' => [
-                    'fiel_password' => (string) ($meta['fiel_password_plain'] ?? ''),
-                    'csd_password'  => (string) ($meta['csd_password_plain'] ?? ''),
+                    'fiel_password' => $this->resolveStoredPassword(
+                        $meta,
+                        [
+                            'fiel_password_plain',
+                            'fiel_password',
+                            'fiel_pass',
+                            'password_fiel',
+                            'contrasena_fiel',
+                            'contrasena_fiel_plain',
+                        ],
+                        $row->fiel_password_enc ?? null
+                    ),
+                    'csd_password' => $this->resolveStoredPassword(
+                        $meta,
+                        [
+                            'csd_password_plain',
+                            'csd_password',
+                            'csd_pass',
+                            'password_csd',
+                            'contrasena_csd',
+                            'contrasena_csd_plain',
+                        ],
+                        $row->csd_password_enc ?? null
+                    ),
                 ],
                 'meta' => $meta,
                 'created_at' => optional($row->created_at)?->toDateTimeString(),
@@ -404,14 +499,36 @@ final class SatOpsRfcsController extends Controller
                 'fiel' => [
                     'cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
                     'key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
-                    'password' => (string) ($meta['fiel_password_plain'] ?? ''),
+                    'password' => $this->resolveStoredPassword(
+                        $meta,
+                        [
+                            'fiel_password_plain',
+                            'fiel_password',
+                            'fiel_pass',
+                            'password_fiel',
+                            'contrasena_fiel',
+                            'contrasena_fiel_plain',
+                        ],
+                        $row->fiel_password_enc ?? null
+                    ),
                     'download_cer_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']),
                     'download_key_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']),
                 ],
                 'csd' => [
                     'cer_path' => (string) ($row->csd_cer_path ?? ''),
                     'key_path' => (string) ($row->csd_key_path ?? ''),
-                    'password' => (string) ($meta['csd_password_plain'] ?? ''),
+                    'password' => $this->resolveStoredPassword(
+                        $meta,
+                        [
+                            'csd_password_plain',
+                            'csd_password',
+                            'csd_pass',
+                            'password_csd',
+                            'contrasena_csd',
+                            'contrasena_csd_plain',
+                        ],
+                        $row->csd_password_enc ?? null
+                    ),
                     'download_cer_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_cer']),
                     'download_key_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'csd_key']),
                 ],
@@ -439,9 +556,9 @@ final class SatOpsRfcsController extends Controller
         $path = match ($kind) {
             'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
             'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
-            'csd_cer'  => (string) ($row->csd_cer_path ?? ''),
-            'csd_key'  => (string) ($row->csd_key_path ?? ''),
-            default    => '',
+            'csd_cer' => (string) ($row->csd_cer_path ?? ''),
+            'csd_key' => (string) ($row->csd_key_path ?? ''),
+            default => '',
         };
 
         if ($path === '') {
@@ -473,6 +590,38 @@ final class SatOpsRfcsController extends Controller
         }
 
         return false;
+    }
+
+    private function resolveStoredPassword(array $meta, array $candidateKeys, mixed $encryptedValue = null): string
+    {
+        foreach ($candidateKeys as $key) {
+            $value = trim((string) ($meta[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $decrypted = $this->tryDecryptValue($encryptedValue);
+
+        if ($decrypted !== '') {
+            return $decrypted;
+        }
+
+        return '';
+    }
+
+    private function tryDecryptValue(mixed $value): string
+    {
+        $raw = trim((string) ($value ?? ''));
+        if ($raw === '') {
+            return '';
+        }
+
+        try {
+            return trim((string) Crypt::decryptString($raw));
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function hasColumn(string $table, string $column): bool
