@@ -368,6 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 clearPendingQuoteDraftStorage();
+                setQuoteModalEditingState(false);
                 resetQuoteModalState();
                 openQuoteModal();
             });
@@ -434,17 +435,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        document.addEventListener('click', (event) => {
+               document.addEventListener('click', (event) => {
             const editButton = event.target.closest('[data-quote-action="edit"]');
             if (editButton) {
                 const row = editButton.closest('[data-quote-row="true"]');
                 if (!row) return;
 
-                populateQuoteEditModal(row);
-                const editModal = document.getElementById('satQuoteEditModal');
-                if (editModal) {
-                    openModal(editModal);
+                const status = normalizeText(String(row.getAttribute('data-status') || '').trim());
+
+                if (!isClientQuoteEditable(status)) {
+                    showPortalNotice('Solo puedes modificar cotizaciones en proceso o borrador.', 'warning');
+                    return;
                 }
+
+                prepareMainQuoteModalForEdit(row);
+                openQuoteModal();
                 return;
             }
 
@@ -508,14 +513,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        if (detailEditBtn) {
+                if (detailEditBtn) {
             detailEditBtn.addEventListener('click', () => {
                 const detailModal = document.getElementById('satQuoteDetailModal');
                 const quoteId = String(detailEditBtn.getAttribute('data-quote-id') || '').trim();
-
-                if (detailModal) {
-                    closeModal(detailModal);
-                }
 
                 if (quoteId === '') {
                     showPortalNotice('No se encontró la cotización para editar.', 'warning');
@@ -528,11 +529,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                populateQuoteEditModal(row);
-                const editModal = document.getElementById('satQuoteEditModal');
-                if (editModal) {
-                    openModal(editModal);
+                const status = normalizeText(String(row.getAttribute('data-status') || '').trim());
+                if (!isClientQuoteEditable(status)) {
+                    showPortalNotice('Solo puedes modificar cotizaciones en proceso o borrador.', 'warning');
+                    return;
                 }
+
+                if (detailModal) {
+                    closeModal(detailModal);
+                }
+
+                prepareMainQuoteModalForEdit(row);
+                openQuoteModal();
             });
         }
 
@@ -551,13 +559,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     closeModal(editModal);
                 }
 
+                setQuoteModalEditingState(true);
                 openQuoteModal();
                 showPortalNotice('Cotización cargada al cotizador.', 'success');
             });
         }
     }
 
-        function ensureQuoteModal() {
+    function ensureQuoteModal() {
         if (document.getElementById('satQuoteModal')) {
             injectQuoteModalStyles();
             renderQuoteRfcOptions('');
@@ -860,7 +869,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateQuoteSummaryPreview();
     }
 
-    function loadQuoteRowIntoModal(row) {
+        function loadQuoteRowIntoModal(row) {
         const draftId = String(row.getAttribute('data-quote-id') || '').trim();
         const rfcId = String(row.getAttribute('data-rfc-id') || '').trim();
         const rfc = String(row.getAttribute('data-rfc') || '').trim().toUpperCase();
@@ -871,7 +880,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const total = String(row.getAttribute('data-total') || '').trim();
         const progress = String(row.getAttribute('data-progress') || '').trim();
         const status = String(row.getAttribute('data-status') || '').trim();
-        const concepto = String(row.getAttribute('data-concepto') || '').trim();
+        const concepto = decodeHtmlEntities(String(row.getAttribute('data-concepto') || '').trim());
+        const xmlCount = String(row.getAttribute('data-xml-count') || '').trim();
+        const discountCode = decodeHtmlEntities(String(row.getAttribute('data-discount-code') || '').trim());
+        const ivaRate = String(row.getAttribute('data-iva-rate') || '16').trim();
+        const notes = decodeHtmlEntities(String(row.getAttribute('data-notes') || '').trim());
 
         const draftIdInput = document.getElementById('satQuoteDraftId');
         const selectedRfcIdInput = document.getElementById('satQuoteSelectedRfcId');
@@ -895,25 +908,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tipoInput) tipoInput.value = ['emitidos', 'recibidos', 'ambos'].includes(tipo) ? tipo : 'emitidos';
         if (dateFromInput) dateFromInput.value = normalizeDateForInput(dateFrom);
         if (dateToInput) dateToInput.value = normalizeDateForInput(dateTo);
-
-        if (xmlCountInput) {
-            const currentXml = extractNumberFromText(
-                row.querySelector('[data-quote-field="concepto"]')?.textContent || concepto
-            );
-            xmlCountInput.value = currentXml > 0 ? String(currentXml) : '';
-        }
-
-        if (discountInput) {
-            discountInput.value = '';
-        }
-
-        if (notesInput) {
-            notesInput.value = '';
-        }
-
-        if (ivaInput) {
-            ivaInput.value = '16';
-        }
+        if (xmlCountInput) xmlCountInput.value = xmlCount !== '' ? xmlCount : '';
+        if (discountInput) discountInput.value = discountCode;
+        if (notesInput) notesInput.value = notes !== '' ? notes : concepto;
+        if (ivaInput) ivaInput.value = ivaRate !== '' ? ivaRate : '16';
 
         if (resultBox) {
             renderQuoteResult({
@@ -930,6 +928,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     date_from: normalizeDateForInput(dateFrom),
                     date_to: normalizeDateForInput(dateTo),
                     concepto,
+                    xml_count: xmlCount,
+                    discount_code: discountCode,
+                    iva_rate: ivaRate,
+                    notes,
                 },
                 warning: '',
             });
@@ -1092,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function handleQuoteAction(mode) {
+        async function handleQuoteAction(mode) {
         const payload = buildQuotePayload();
 
         if (!payload.ok) {
@@ -1100,21 +1102,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (mode === 'simulate') {
-            renderQuoteResult({
-                mode,
-                simulated: true,
-                data: createLocalQuoteSimulation(payload.data, mode),
-                warning: '',
-            });
-
-            showPortalNotice('Simulación generada correctamente.', 'success');
-            return;
-        }
-
         const draftId = String(document.getElementById('satQuoteDraftId')?.value || '').trim();
         const buttonMap = {
             draft: document.getElementById('satQuoteDraftBtn'),
+            simulate: document.getElementById('satQuoteSimulateBtn'),
             quote: document.getElementById('satQuoteConfirmBtn'),
         };
 
@@ -1129,7 +1120,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const originalText = button ? button.textContent : '';
         if (button) {
             button.disabled = true;
-            button.textContent = mode === 'draft' ? 'Guardando...' : 'Cotizando...';
+            button.textContent =
+                mode === 'draft'
+                    ? 'Guardando...'
+                    : mode === 'simulate'
+                        ? 'Recalculando...'
+                        : 'Cotizando...';
         }
 
         const resultBox = document.getElementById('satQuoteResultBox');
@@ -1142,26 +1138,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
+            const requestBody = {
+                mode,
+                draft_id: draftId !== '' ? draftId : null,
+                rfc_id: payload.data.rfc_id,
+                rfc: payload.data.rfc,
+                razon_social: payload.data.razon_social,
+                tipo: payload.data.tipo,
+                date_from: payload.data.date_from,
+                date_to: payload.data.date_to,
+                xml_count: payload.data.xml_count,
+                xml_count_estimated: payload.data.xml_count,
+                discount_code: payload.data.discount_code,
+                iva_rate: payload.data.iva_rate,
+                iva: payload.data.iva_rate,
+                notes: payload.data.notes,
+            };
+
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: buildAjaxHeaders(),
                 credentials: 'same-origin',
-                body: JSON.stringify({
-                mode,
-                    draft_id: draftId !== '' ? draftId : null,
-                    rfc_id: payload.data.rfc_id,
-                    rfc: payload.data.rfc,
-                    razon_social: payload.data.razon_social,
-                    tipo: payload.data.tipo,
-                    date_from: payload.data.date_from,
-                    date_to: payload.data.date_to,
-                    xml_count: payload.data.xml_count,
-                    xml_count_estimated: payload.data.xml_count,
-                    discount_code: payload.data.discount_code,
-                    iva_rate: payload.data.iva_rate,
-                    iva: payload.data.iva_rate,
-                    notes: payload.data.notes,
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             const json = await response.json().catch(() => null);
@@ -1186,28 +1184,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderQuoteResult({
                 mode,
-                simulated: false,
+                simulated: mode === 'simulate',
                 data: resultData,
-                warning: mode === 'quote'
-                    ? 'Solicitud registrada y enviada a soporte.'
-                    : '',
+                warning:
+                    mode === 'quote'
+                        ? 'Solicitud registrada y enviada a soporte.'
+                        : '',
             });
 
-            const savedId = String(resultData?.id || resultData?.draft_id || '').trim();
+            const savedId = String(resultData?.id || resultData?.draft_id || draftId || '').trim();
             const draftIdInput = document.getElementById('satQuoteDraftId');
             if (draftIdInput && savedId !== '') {
                 draftIdInput.value = savedId;
             }
 
-            upsertQuoteRow(resultData);
+            upsertQuoteRow({
+                ...payload.data,
+                ...resultData,
+                id: savedId !== '' ? savedId : (resultData?.id || ''),
+                draft_id: savedId !== '' ? savedId : (resultData?.draft_id || ''),
+            });
+
+            if (mode === 'simulate') {
+                showPortalNotice('Recalculo generado correctamente.', 'success');
+                return;
+            }
 
             if (mode === 'draft') {
-                showPortalNotice(json.msg || 'Borrador guardado correctamente.', 'success');
+                showPortalNotice(json.msg || 'Cotización actualizada correctamente.', 'success');
                 return;
             }
 
             closeQuoteModal();
             resetQuoteModalState();
+            setQuoteModalEditingState(false);
             showPortalNotice(json.msg || 'Cotización solicitada correctamente.', 'success');
         } catch (error) {
             console.error('[SAT Portal] Error procesando cotización:', error);
@@ -1228,7 +1238,66 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-        function buildQuotePayload() {
+        function isClientQuoteEditable(status) {
+        const normalized = normalizeText(status);
+
+        return normalized === 'en_proceso' || normalized === 'borrador';
+    }
+
+    function setQuoteModalEditingState(isEditing) {
+        const title = document.getElementById('satQuoteModalTitle');
+        const subtitle = document.querySelector('#satQuoteModal .sat-clean-modal__subtitle');
+        const draftBtn = document.getElementById('satQuoteDraftBtn');
+        const simulateBtn = document.getElementById('satQuoteSimulateBtn');
+        const confirmBtn = document.getElementById('satQuoteConfirmBtn');
+        const pdfBtn = document.getElementById('satQuotePdfBtn');
+
+        if (title) {
+            title.textContent = isEditing ? 'Editar cotización' : 'Nueva cotización';
+        }
+
+        if (subtitle) {
+            subtitle.textContent = isEditing
+                ? 'Modifica la cotización en proceso, recalcula y vuelve a guardar o recotizar.'
+                : 'Selecciona un RFC, captura el rango y genera la simulación, el borrador o la cotización.';
+        }
+
+        if (draftBtn) {
+            draftBtn.textContent = isEditing ? 'Guardar cambios' : 'Guardar borrador';
+        }
+
+        if (simulateBtn) {
+            simulateBtn.textContent = isEditing ? 'Recalcular cotización' : 'Simular cotización';
+        }
+
+        if (confirmBtn) {
+            confirmBtn.textContent = isEditing ? 'Recotizar' : 'Cotizar';
+        }
+
+        if (pdfBtn) {
+            pdfBtn.textContent = isEditing ? 'PDF recálculo' : 'PDF simulación';
+        }
+    }
+
+    function prepareMainQuoteModalForEdit(row) {
+        const quoteModal = document.getElementById('satQuoteModal');
+        const editModal = document.getElementById('satQuoteEditModal');
+
+        if (editModal && editModal.classList.contains('is-visible')) {
+            closeModal(editModal);
+        }
+
+        if (!quoteModal) {
+            ensureQuoteModal();
+        }
+
+        setQuoteModalEditingState(true);
+        resetQuoteModalState({ preserveRfc: false });
+        loadQuoteRowIntoModal(row);
+        updateQuoteSummaryPreview();
+    }
+
+    function buildQuotePayload() {
         const rfcId = String(document.getElementById('satQuoteSelectedRfcId')?.value || '').trim();
         const rfc = String(document.getElementById('satQuoteSelectedRfc')?.value || '').trim().toUpperCase();
         const razonSocial = String(document.getElementById('satQuoteSelectedRazonSocial')?.value || '').trim();
@@ -1571,6 +1640,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const tipo = String(data?.tipo || 'emitidos').trim().toLowerCase();
         const dateFrom = String(data?.date_from || '').trim();
         const dateTo = String(data?.date_to || '').trim();
+        const xmlCount = String(data?.xml_count || data?.xmlCount || '').trim();
+        const discountCode = String(data?.discount_code_applied || data?.discount_code || '').trim();
+        const ivaRate = String(data?.iva_rate || '16').trim();
+        const notes = String(data?.notes || '').trim();
 
         const row = document.createElement('tr');
         row.id = quoteId !== '' ? `satQuoteRow-${quoteId}` : `satQuoteRow-${Date.now()}`;
@@ -1587,6 +1660,10 @@ document.addEventListener('DOMContentLoaded', () => {
         row.setAttribute('data-date-from', dateFrom);
         row.setAttribute('data-date-to', dateTo);
         row.setAttribute('data-tipo', tipo);
+        row.setAttribute('data-xml-count', xmlCount);
+        row.setAttribute('data-discount-code', discountCode);
+        row.setAttribute('data-iva-rate', ivaRate);
+        row.setAttribute('data-notes', notes);
 
         row.innerHTML = `
             <td>
@@ -1681,6 +1758,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const tipo = String(data?.tipo || row.getAttribute('data-tipo') || 'emitidos').trim().toLowerCase();
         const dateFrom = String(data?.date_from || row.getAttribute('data-date-from') || '').trim();
         const dateTo = String(data?.date_to || row.getAttribute('data-date-to') || '').trim();
+        const xmlCount = String(data?.xml_count || data?.xmlCount || row.getAttribute('data-xml-count') || '').trim();
+        const discountCode = String(data?.discount_code_applied || data?.discount_code || row.getAttribute('data-discount-code') || '').trim();
+        const ivaRate = String(data?.iva_rate || row.getAttribute('data-iva-rate') || '16').trim();
+        const notes = String(data?.notes || row.getAttribute('data-notes') || '').trim();
 
         if (quoteId !== '') {
             row.id = `satQuoteRow-${quoteId}`;
@@ -1698,6 +1779,10 @@ document.addEventListener('DOMContentLoaded', () => {
         row.setAttribute('data-date-from', dateFrom);
         row.setAttribute('data-date-to', dateTo);
         row.setAttribute('data-tipo', tipo);
+        row.setAttribute('data-xml-count', xmlCount);
+        row.setAttribute('data-discount-code', discountCode);
+        row.setAttribute('data-iva-rate', ivaRate);
+        row.setAttribute('data-notes', notes);
 
         const folioEl = row.querySelector('[data-quote-field="folio"]');
         const rfcEl = row.querySelector('[data-quote-field="rfc"]');

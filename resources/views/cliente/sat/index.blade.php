@@ -553,6 +553,37 @@
                                             $quoteDateFrom = (string) ($quote->date_from ?? $quoteMeta['date_from'] ?? '');
                                             $quoteDateTo = (string) ($quote->date_to ?? $quoteMeta['date_to'] ?? '');
                                             $quoteTipo = (string) ($quote->tipo ?? $quoteMeta['tipo'] ?? $quoteMeta['tipo_solicitud'] ?? '');
+
+                                            /* 🔥 NUEVO - SIEMPRE DEFINIDOS */
+                                            $quoteXmlCount = (string) (
+                                                $quote->xml_count
+                                                ?? $quote->cfdi_count
+                                                ?? $quoteMeta['xml_count']
+                                                ?? data_get($quoteMeta, 'quote.xml_count')
+                                                ?? ''
+                                            );
+
+                                            $quoteDiscountCode = (string) (
+                                                $quoteMeta['discount_code_applied']
+                                                ?? $quoteMeta['discount_code']
+                                                ?? data_get($quoteMeta, 'quote.discount_code_applied')
+                                                ?? data_get($quoteMeta, 'quote.discount_code')
+                                                ?? ''
+                                            );
+
+                                            $quoteIvaRate = (string) (
+                                                $quoteMeta['iva_rate']
+                                                ?? data_get($quoteMeta, 'quote.iva_rate')
+                                                ?? '16'
+                                            );
+
+                                            $quoteNotes = (string) (
+                                                $quoteMeta['notes']
+                                                ?? data_get($quoteMeta, 'quote.notes')
+                                                ?? ''
+                                            );
+
+                                            $quoteIsEditable = in_array($quoteStatus, ['borrador', 'en_proceso'], true);
                                         @endphp
 
                                         <tr
@@ -570,6 +601,11 @@
                                             data-date-from="{{ e($quoteDateFrom) }}"
                                             data-date-to="{{ e($quoteDateTo) }}"
                                             data-tipo="{{ e($quoteTipo) }}"
+                                            data-xml-count="{{ e($quoteXmlCount ?? '') }}"
+                                            data-discount-code="{{ e($quoteDiscountCode) }}"
+                                            data-iva-rate="{{ e($quoteIvaRate) }}"
+                                            data-notes="{{ e($quoteNotes) }}"
+                                            data-editable="{{ $quoteIsEditable ? '1' : '0' }}"
                                         >
                                             <td>
                                                 <div class="sat-clean-quote-summary">
@@ -629,7 +665,7 @@
                                             </td>
 
                                             <td class="text-end">
-                                                <div class="sat-clean-icon-actions">
+                                                                                                <div class="sat-clean-icon-actions">
                                                     <button
                                                         type="button"
                                                         class="sat-clean-icon-btn"
@@ -644,19 +680,25 @@
                                                         </svg>
                                                     </button>
 
-                                                    <button
-                                                        type="button"
-                                                        class="sat-clean-icon-btn"
-                                                        data-quote-action="edit"
-                                                        data-quote-id="{{ $quoteId }}"
-                                                        title="Editar cotización"
-                                                        aria-label="Editar cotización"
-                                                    >
-                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                                            <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                                                            <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                                                        </svg>
-                                                    </button>
+                                                    @if($quoteIsEditable)
+                                                        <button
+                                                            type="button"
+                                                            class="sat-clean-icon-btn"
+                                                            data-quote-action="edit"
+                                                            data-quote-id="{{ $quoteId }}"
+                                                            title="Editar cotización"
+                                                            aria-label="Editar cotización"
+                                                        >
+                                                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                                <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                            </svg>
+                                                        </button>
+                                                    @else
+                                                        <span class="sat-clean-status-badge is-muted">
+                                                            Sin edición
+                                                        </span>
+                                                    @endif
 
                                                     @if(in_array($quoteStatus, ['cotizada', 'pendiente_pago'], true))
                                                         <button
@@ -706,7 +748,7 @@
                                                 </div>
 
                                                 <div class="sat-clean-quote-empty-note">
-                                                    En el siguiente paso conectamos este bloque con el emergente de cotización, selección de RFC y flujo hacia administración.
+                                                    Crea una cotización para comenzar el seguimiento, edición de borradores/en proceso y pago cuando la cotización sea confirmada.
                                                 </div>
                                             </td>
                                         </tr>

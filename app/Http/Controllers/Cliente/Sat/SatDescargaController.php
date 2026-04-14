@@ -216,7 +216,7 @@ final class SatDescargaController extends Controller
                 $perPage = (int) $request->query('per', 20);
                 $perPage = max(5, min(100, $perPage));
 
-                $baseQuery = SatDownload::query()
+                $baseQuery = SatDownload::on('mysql_clientes')
                     ->where('cuenta_id', $cuentaId)
                     ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
                     ->orderByDesc('created_at');
@@ -240,6 +240,21 @@ final class SatDescargaController extends Controller
 
                 $downloadsPage->setCollection($rowsH);
                 $initialRows = $rowsH->all();
+
+                $cotizaciones = SatDownload::on('mysql_clientes')
+                    ->where('cuenta_id', $cuentaId)
+                    ->whereRaw('LOWER(COALESCE(tipo,"")) NOT IN ("vault","boveda")')
+                    ->orderByDesc('updated_at')
+                    ->orderByDesc('created_at')
+                    ->limit(150)
+                    ->get()
+                    ->filter(function (SatDownload $d) {
+                        return $this->isCotizacionLikeDownload($d);
+                    })
+                    ->map(function (SatDownload $d) use ($credList) {
+                        return $this->transformCotizacionRow($d, $credList);
+                    })
+                    ->values();
 
                 $usuarioId = (string) ($user->id ?? '');
 
@@ -1239,37 +1254,49 @@ final class SatDescargaController extends Controller
     {
         $status = $download->statusNormalized();
         $meta = is_array($download->meta ?? null) ? $download->meta : [];
-        $statusUiMeta = strtolower(trim((string) data_get($meta, 'status_ui', '')));
 
-        if ($statusUiMeta === 'borrador') {
-            return 'borrador';
+        $statusUiMeta = strtolower(trim((string) data_get($meta, 'status_ui', '')));
+        $customerAction = strtolower(trim((string) data_get($meta, 'customer_action', '')));
+        $transferReviewStatus = strtolower(trim((string) data_get($meta, 'transfer_review.review_status', '')));
+
+        if ($transferReviewStatus === 'pending') {
+            return 'en_proceso';
         }
 
-        if ($download->isPaid()) {
-            return 'pagada';
+        if (
+            $status === 'paid'
+            && in_array($customerAction, ['download_in_progress', 'processing_download', 'download_started'], true)
+        ) {
+            return 'en_descarga';
+        }
+
+        if (in_array($statusUiMeta, [
+            'borrador',
+            'en_proceso',
+            'cotizada',
+            'pagada',
+            'en_descarga',
+            'completada',
+            'cancelada',
+        ], true)) {
+            return $statusUiMeta;
         }
 
         if (in_array($status, ['downloaded', 'done'], true)) {
             return 'completada';
         }
 
-        if (in_array($status, ['ready'], true)) {
-            return 'cotizada';
+        if ($status === 'paid') {
+            return 'pagada';
         }
 
-        if (in_array($status, ['processing', 'requested'], true)) {
-            return 'en_proceso';
-        }
-
-        if (in_array($status, ['canceled', 'expired', 'error'], true)) {
-            return 'cancelada';
-        }
-
-        if (in_array($status, ['pending', 'created'], true)) {
-            return 'borrador';
-        }
-
-        return 'borrador';
+        return match ($status) {
+            'pending', 'created'      => 'borrador',
+            'requested', 'processing' => 'en_proceso',
+            'ready'                   => 'cotizada',
+            'canceled', 'expired', 'error' => 'cancelada',
+            default                   => 'borrador',
+        };
     }
 
     private function resolveCotizacionProgress(SatDownload $download, string $statusUi): int
