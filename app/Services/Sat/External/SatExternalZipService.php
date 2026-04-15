@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\Cliente\Sat\ExternalZipInviteMail;
+use App\Models\Cliente\SatCredential;
 
 final class SatExternalZipService
 {
@@ -429,12 +430,29 @@ final class SatExternalZipService
 
             DB::connection($conn)->table($tableFq)->where('token', $token)->update($safeUpdate);
 
+            $externalUploadId = (int) ($inviteRow->id ?? 0);
+
+            $this->syncExternalZipToSatCredential(
+                accountId: $accountId,
+                externalUploadId: $externalUploadId,
+                rfc: $rfc,
+                razonSocial: $razonSocial,
+                emailExterno: $emailExterno,
+                reference: $ref,
+                notes: $notes,
+                zipDisk: $disk,
+                zipPath: $path,
+                originalFileName: (string) $zipFile->getClientOriginalName(),
+                encryptedPassword: Crypt::encryptString($pass),
+                trace: $trace
+            );
+
             $ms = (int) round((microtime(true) - $t0) * 1000);
 
             return [
                 'ok' => true,
                 'code' => 200,
-                'msg' => 'FIEL externa cargada correctamente.',
+                'msg' => 'FIEL externa cargada correctamente y sincronizada al RFC maestro.',
                 'data' => [
                     'account_id' => $accountId,
                     'rfc' => $rfc,
@@ -830,5 +848,142 @@ final class SatExternalZipService
         }
 
         return null;
+    }
+
+        private function syncExternalZipToSatCredential(
+        int $accountId,
+        int $externalUploadId,
+        string $rfc,
+        string $razonSocial,
+        string $emailExterno,
+        string $reference,
+        string $notes,
+        string $zipDisk,
+        string $zipPath,
+        string $originalFileName,
+        string $encryptedPassword,
+        string $trace
+    ): void {
+        $cuentaUuid = $this->resolveCuentaUuidFromAdminAccountId($accountId);
+
+        /** @var SatCredential|null $credential */
+        $credential = SatCredential::on('mysql_clientes')
+            ->whereRaw('UPPER(rfc) = ?', [strtoupper($rfc)])
+            ->where(function ($q) use ($accountId, $cuentaUuid) {
+                $q->where('account_id', (string) $accountId);
+
+                if ($cuentaUuid !== null && $cuentaUuid !== '') {
+                    $q->orWhere('cuenta_id', $cuentaUuid)
+                      ->orWhere('account_id', $cuentaUuid);
+                }
+            })
+            ->first();
+
+        if (!$credential) {
+            $credential = new SatCredential();
+            $credential->setConnection('mysql_clientes');
+            $credential->rfc = strtoupper($rfc);
+        }
+
+        if ($cuentaUuid !== null && $cuentaUuid !== '') {
+            $credential->cuenta_id = $cuentaUuid;
+        }
+
+        $credential->account_id = (string) $accountId;
+
+        if (trim($razonSocial) !== '') {
+            $credential->razon_social = trim($razonSocial);
+        }
+
+        if ($this->hasColumn('sat_credentials', 'tipo_origen')) {
+            $credential->tipo_origen = 'externo';
+        }
+
+        if ($this->hasColumn('sat_credentials', 'origen_detalle')) {
+            $credential->origen_detalle = 'external_zip';
+        }
+
+        if ($this->hasColumn('sat_credentials', 'source_label')) {
+            $credential->source_label = 'ZIP externo';
+        }
+
+        if ($this->hasColumn('sat_credentials', 'external_upload_id')) {
+            $credential->external_upload_id = $externalUploadId;
+        }
+
+        if ($this->hasColumn('sat_credentials', 'estatus_operativo')) {
+            $credential->estatus_operativo = 'pending';
+        }
+
+        $meta = is_array($credential->meta) ? $credential->meta : [];
+        $meta['is_active'] = true;
+        $meta['updated_from'] = 'external_zip_register';
+        $meta['tipo_origen'] = 'externo';
+        $meta['external_email'] = $emailExterno !== '' ? $emailExterno : null;
+        $meta['external_reference'] = $reference !== '' ? $reference : null;
+        $meta['external_notes'] = $notes !== '' ? $notes : null;
+        $meta['external_upload_id'] = $externalUploadId;
+        $meta['external_zip'] = [
+            'disk' => $zipDisk,
+            'path' => $zipPath,
+            'original_name' => $originalFileName,
+            'uploaded_at' => now()->toDateTimeString(),
+            'trace_id' => $trace,
+        ];
+        $meta['deleted_at'] = null;
+
+        $credential->meta = $meta;
+
+        if ($this->hasColumn('sat_credentials', 'key_password_enc')) {
+            $credential->key_password_enc = $encryptedPassword;
+        }
+
+        if ($this->hasColumn('sat_credentials', 'key_password')) {
+            $credential->key_password = null;
+        }
+
+        if ($this->hasColumn('sat_credentials', 'deleted_at')) {
+            $credential->deleted_at = null;
+        }
+
+        $credential->save();
+    }
+
+    private function resolveCuentaUuidFromAdminAccountId(int $accountId): ?string
+    {
+        if ($accountId <= 0) {
+            return null;
+        }
+
+        try {
+            if (!Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+                return null;
+            }
+
+            $uuid = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('admin_account_id', $accountId)
+                ->value('id');
+
+            $uuid = trim((string) ($uuid ?? ''));
+
+            return $uuid !== '' ? $uuid : null;
+        } catch (\Throwable $e) {
+            Log::warning('external_zip_sync_resolve_uuid_failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        try {
+            return Schema::connection('mysql_clientes')->hasColumn($table, $column);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }
