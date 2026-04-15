@@ -52,10 +52,19 @@ final class SatOpsRfcsController extends Controller
                     || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
                     || in_array($estatusOperativo, ['validated', 'validado', 'activo'], true);
 
+                                $externalZipMeta = is_array($meta['external_zip'] ?? null) ? $meta['external_zip'] : [];
+                $externalZipPath = trim((string) ($externalZipMeta['path'] ?? ''));
+                $externalZipOriginalName = trim((string) ($externalZipMeta['original_name'] ?? ''));
+                $externalZipDisk = trim((string) ($externalZipMeta['disk'] ?? ''));
+
                 $fielCerPath = (string) ($row->fiel_cer_path ?? $row->cer_path ?? '');
                 $fielKeyPath = (string) ($row->fiel_key_path ?? $row->key_path ?? '');
                 $csdCerPath = (string) ($row->csd_cer_path ?? '');
                 $csdKeyPath = (string) ($row->csd_key_path ?? '');
+
+                if ($fielKeyPath === '' && $externalZipPath !== '') {
+                    $fielKeyPath = $externalZipPath;
+                }
 
                 $fielPasswordPlain = $this->resolveStoredPassword(
                     $meta,
@@ -67,7 +76,7 @@ final class SatOpsRfcsController extends Controller
                         'contrasena_fiel',
                         'contrasena_fiel_plain',
                     ],
-                    $row->fiel_password_enc ?? null
+                    $row->fiel_password_enc ?? $row->key_password_enc ?? null
                 );
 
                 $csdPasswordPlain = $this->resolveStoredPassword(
@@ -90,12 +99,16 @@ final class SatOpsRfcsController extends Controller
                 $hasFiel = (
                     filled($row->fiel_cer_path ?? null)
                     && filled($row->fiel_key_path ?? null)
-                ) || $hasLegacyFiles;
+                ) || $hasLegacyFiles || $externalZipPath !== '';
 
                 $hasCsd = (
                     filled($row->csd_cer_path ?? null)
                     && filled($row->csd_key_path ?? null)
                 );
+
+                if (!$hasFiel && $externalZipPath !== '') {
+                    $hasFiel = true;
+                }
 
                 return (object) [
                     'id' => (string) $row->id,
@@ -117,6 +130,9 @@ final class SatOpsRfcsController extends Controller
                     'fiel_key_path' => $fielKeyPath,
                     'csd_cer_path' => $csdCerPath,
                     'csd_key_path' => $csdKeyPath,
+                    'external_zip_path' => $externalZipPath,
+                    'external_zip_original_name' => $externalZipOriginalName,
+                    'external_zip_disk' => $externalZipDisk,
                     'meta' => $meta,
                     'updated_at' => $row->updated_at,
                     'created_at' => $row->created_at,
@@ -503,6 +519,18 @@ final class SatOpsRfcsController extends Controller
             || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
             || in_array($estatusOperativo, ['validated', 'validado', 'activo'], true);
 
+               $externalZipMeta = is_array($meta['external_zip'] ?? null) ? $meta['external_zip'] : [];
+        $externalZipPath = trim((string) ($externalZipMeta['path'] ?? ''));
+        $externalZipOriginalName = trim((string) ($externalZipMeta['original_name'] ?? ''));
+        $externalZipDisk = trim((string) ($externalZipMeta['disk'] ?? ''));
+
+        $fielCerPath = (string) ($row->fiel_cer_path ?? $row->cer_path ?? '');
+        $fielKeyPath = (string) ($row->fiel_key_path ?? $row->key_path ?? '');
+
+        if ($fielKeyPath === '' && $externalZipPath !== '') {
+            $fielKeyPath = $externalZipPath;
+        }
+
         return response()->json([
             'ok' => true,
             'data' => [
@@ -523,17 +551,20 @@ final class SatOpsRfcsController extends Controller
                     ) || (
                         filled($row->cer_path ?? null)
                         && filled($row->key_path ?? null)
-                    )
+                    ) || $externalZipPath !== ''
                 ),
                 'has_csd' => (
                     filled($row->csd_cer_path ?? null)
                     && filled($row->csd_key_path ?? null)
                 ),
                 'files' => [
-                    'fiel_cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
-                    'fiel_key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
+                    'fiel_cer_path' => $fielCerPath,
+                    'fiel_key_path' => $fielKeyPath,
                     'csd_cer_path' => (string) ($row->csd_cer_path ?? ''),
                     'csd_key_path' => (string) ($row->csd_key_path ?? ''),
+                    'external_zip_path' => $externalZipPath,
+                    'external_zip_original_name' => $externalZipOriginalName,
+                    'external_zip_disk' => $externalZipDisk,
                 ],
                 'passwords' => [
                     'fiel_password' => $this->resolveStoredPassword(
@@ -546,7 +577,7 @@ final class SatOpsRfcsController extends Controller
                             'contrasena_fiel',
                             'contrasena_fiel_plain',
                         ],
-                        $row->fiel_password_enc ?? null
+                        $row->fiel_password_enc ?? $row->key_password_enc ?? null
                     ),
                     'csd_password' => $this->resolveStoredPassword(
                         $meta,
@@ -582,6 +613,18 @@ final class SatOpsRfcsController extends Controller
 
         $meta = is_array($row->meta) ? $row->meta : [];
 
+                $externalZipMeta = is_array($meta['external_zip'] ?? null) ? $meta['external_zip'] : [];
+        $externalZipPath = trim((string) ($externalZipMeta['path'] ?? ''));
+        $externalZipOriginalName = trim((string) ($externalZipMeta['original_name'] ?? ''));
+        $externalZipDisk = trim((string) ($externalZipMeta['disk'] ?? ''));
+
+        $fielCerPath = (string) ($row->fiel_cer_path ?? $row->cer_path ?? '');
+        $fielKeyPath = (string) ($row->fiel_key_path ?? $row->key_path ?? '');
+
+        if ($fielKeyPath === '' && $externalZipPath !== '') {
+            $fielKeyPath = $externalZipPath;
+        }
+
         return response()->json([
             'ok' => true,
             'data' => [
@@ -591,8 +634,11 @@ final class SatOpsRfcsController extends Controller
                 'rfc' => strtoupper((string) $row->rfc),
                 'razon_social' => (string) ($row->razon_social ?? ''),
                 'fiel' => [
-                    'cer_path' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ''),
-                    'key_path' => (string) ($row->fiel_key_path ?? $row->key_path ?? ''),
+                    'cer_path' => $fielCerPath,
+                    'key_path' => $fielKeyPath,
+                    'external_zip_path' => $externalZipPath,
+                    'external_zip_original_name' => $externalZipOriginalName,
+                    'external_zip_disk' => $externalZipDisk,
                     'password' => $this->resolveStoredPassword(
                         $meta,
                         [
@@ -603,8 +649,9 @@ final class SatOpsRfcsController extends Controller
                             'contrasena_fiel',
                             'contrasena_fiel_plain',
                         ],
-                        $row->fiel_password_enc ?? null
+                        $row->fiel_password_enc ?? $row->key_password_enc ?? null
                     ),
+                  
                     'download_cer_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_cer']),
                     'download_key_url' => route('admin.sat.ops.rfcs.download', ['id' => $row->id, 'kind' => 'fiel_key']),
                 ],
@@ -649,9 +696,12 @@ final class SatOpsRfcsController extends Controller
 
         $meta = is_array($row->meta) ? $row->meta : [];
 
+        $externalZipMeta = is_array($meta['external_zip'] ?? null) ? $meta['external_zip'] : [];
+        $externalZipPath = trim((string) ($externalZipMeta['path'] ?? ''));
+
         $rawPath = match ($kind) {
-            'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ($meta['fiel_cer'] ?? '')),
-            'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ($meta['fiel_key'] ?? '')),
+            'fiel_cer' => (string) ($row->fiel_cer_path ?? $row->cer_path ?? ($meta['fiel_cer'] ?? '') ?: $externalZipPath),
+            'fiel_key' => (string) ($row->fiel_key_path ?? $row->key_path ?? ($meta['fiel_key'] ?? '') ?: $externalZipPath),
             'csd_cer'  => (string) ($row->csd_cer_path ?? ($meta['csd_cer'] ?? '')),
             'csd_key'  => (string) ($row->csd_key_path ?? ($meta['csd_key'] ?? '')),
             default    => '',
