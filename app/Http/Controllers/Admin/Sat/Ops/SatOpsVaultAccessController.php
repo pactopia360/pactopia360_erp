@@ -98,8 +98,8 @@ final class SatOpsVaultAccessController extends Controller
             ->paginate(12)
             ->withQueryString();
 
-        $accessMap = $this->buildAccessMap($accounts);
-        $moduleMap = $this->buildModuleMap($accounts);
+        $accessMap = $this->buildAccessMap($accounts->getCollection());
+        $moduleMap = $this->buildModuleMap($accounts->getCollection());
 
         return view('admin.sat.ops.vault_access', [
             'accounts'  => $accounts,
