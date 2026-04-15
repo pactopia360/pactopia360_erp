@@ -410,17 +410,19 @@ final class SatRfcController extends Controller
         $plain = $this->decryptStoredValue($encrypted);
 
         if ($plain === null) {
-            Log::warning('[SAT RFC] revealPassword decrypt failed', [
+            Log::warning('[SAT RFC] decrypt failed → fallback raw', [
                 'trace_id' => $this->trace(),
                 'id' => $id,
                 'scope' => $scope,
                 'rfc' => (string) ($credential->rfc ?? ''),
             ]);
 
+            // 🔥 fallback: devolver valor tal cual (para no romper flujo)
             return response()->json([
-                'ok' => false,
-                'msg' => 'No se pudo descifrar la contraseña.',
-            ], 500);
+                'ok' => true,
+                'password' => $encrypted,
+                'warning' => 'no_decrypted',
+            ], 200);
         }
 
         return response()->json([
