@@ -78,9 +78,14 @@
           $displayName = $account->razon_social ?: ($account->nombre_comercial ?: 'Cuenta sin nombre');
           $usersCount = $account->usuarios->count();
 
-          $enabledUsersCount = collect($account->usuarios)->filter(function ($user) use ($usersAccess) {
+          $enabledUsersV1Count = collect($account->usuarios)->filter(function ($user) use ($usersAccess) {
               $ua = $usersAccess[$user->id] ?? null;
-              return $ua && (bool) $ua->can_access_vault;
+              return (bool) data_get($ua?->meta, 'vault_access.v1', false);
+          })->count();
+
+          $enabledUsersV2Count = collect($account->usuarios)->filter(function ($user) use ($usersAccess) {
+              $ua = $usersAccess[$user->id] ?? null;
+              return (bool) data_get($ua?->meta, 'vault_access.v2', (bool) ($ua?->can_access_vault ?? false));
           })->count();
 
           $modalV1Id = 'va-modal-v1-' . $account->id;
@@ -109,7 +114,9 @@
               <span><strong>Cuenta:</strong> {{ $account->id }}</span>
               <span><strong>Admin:</strong> {{ (int)($account->admin_account_id ?? 0) > 0 ? $account->admin_account_id : '—' }}</span>
               <span><strong>Cuota:</strong> {{ number_format($quotaBytes) }}</span>
-              <span><strong>Usuarios:</strong> {{ $enabledUsersCount }}/{{ $usersCount }}</span>
+              <span><strong>Usuarios:</strong> {{ $usersCount }}</span>
+              <span><strong>Acceso V1:</strong> {{ $enabledUsersV1Count }}/{{ $usersCount }}</span>
+              <span><strong>Acceso V2:</strong> {{ $enabledUsersV2Count }}/{{ $usersCount }}</span>
             </div>
           </div>
 
@@ -291,12 +298,40 @@
                 </div>
 
                 <div class="vaChecksGrid">
-                  <label class="vaCheck"><input type="checkbox" name="activo" value="1" checked> <span>Activo</span></label>
-                  <label class="vaCheck"><input type="checkbox" name="must_change_password" value="1" checked> <span>Forzar cambio de password</span></label>
-                  <label class="vaCheck"><input type="checkbox" name="can_access_vault" value="1"> <span>Acceso v2</span></label>
-                  <label class="vaCheck"><input type="checkbox" name="can_upload_metadata" value="1"> <span>Metadata</span></label>
-                  <label class="vaCheck"><input type="checkbox" name="can_upload_xml" value="1"> <span>XML</span></label>
-                  <label class="vaCheck"><input type="checkbox" name="can_export" value="1"> <span>Exportar</span></label>
+                  <label class="vaCheck">
+                    <input type="checkbox" name="activo" value="1" checked>
+                    <span>Activo</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="must_change_password" value="1" checked>
+                    <span>Forzar cambio de password</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="can_access_v1" value="1">
+                    <span>Acceso bóveda v1</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="can_access_v2" value="1">
+                    <span>Acceso bóveda v2</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="can_upload_metadata" value="1">
+                    <span>Metadata</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="can_upload_xml" value="1">
+                    <span>XML</span>
+                  </label>
+
+                  <label class="vaCheck">
+                    <input type="checkbox" name="can_export" value="1">
+                    <span>Exportar</span>
+                  </label>
                 </div>
               </div>
 
@@ -316,7 +351,7 @@
               <div>
                 <div class="vaModalKicker">PERMISOS POR USUARIO</div>
                 <h3 class="vaModalTitle">{{ $displayName }}</h3>
-                <div class="vaModalSub">Permisos de acceso para SAT Bóveda v2 y administración de usuarios.</div>
+                <div class="vaModalSub">Permisos de acceso por usuario para Bóveda v1, Bóveda v2 y acciones operativas.</div>
               </div>
 
               <div class="vaModalHeadActions">
@@ -336,12 +371,17 @@
                     @foreach($account->usuarios as $user)
                       @php
                         $ua = $usersAccess[$user->id] ?? null;
+                        $canAccessV1 = (bool) data_get($ua?->meta, 'vault_access.v1', false);
+                        $canAccessV2 = (bool) data_get($ua?->meta, 'vault_access.v2', (bool) ($ua?->can_access_vault ?? false));
+
                         $hasAnyAccess = $ua && (
-                          $ua->can_access_vault ||
-                          $ua->can_upload_metadata ||
-                          $ua->can_upload_xml ||
-                          $ua->can_export
+                          $canAccessV1 ||
+                          $canAccessV2 ||
+                          (bool) ($ua->can_upload_metadata ?? false) ||
+                          (bool) ($ua->can_upload_xml ?? false) ||
+                          (bool) ($ua->can_export ?? false)
                         );
+
                         $editModalId = 'va-modal-edit-user-' . $account->id . '-' . $user->id;
                       @endphp
 
@@ -373,7 +413,7 @@
                                   method="POST"
                                   action="{{ route('admin.billing.vault_access.v2_users.delete', ['cuentaId' => $account->id, 'usuarioId' => $user->id, 'q' => $q]) }}"
                                   class="vaDeleteInlineForm"
-                                  onsubmit="return confirm('¿Seguro que deseas eliminar el acceso de este usuario a la bóveda?');">
+                                  onsubmit="return confirm('¿Seguro que deseas eliminar todos los accesos de este usuario a las bóvedas?');">
                                   @csrf
                                   <button type="submit" class="vaBtn vaBtn--danger vaBtn--sm">
                                     Eliminar acceso
@@ -387,9 +427,15 @@
 
                           <div class="vaPermissionRow">
                             <label class="vaCheck">
-                              <input type="hidden" name="users[{{ $user->id }}][can_access_vault]" value="0">
-                              <input type="checkbox" name="users[{{ $user->id }}][can_access_vault]" value="1" {{ ($ua && $ua->can_access_vault) ? 'checked' : '' }}>
-                              <span>Acceso v2</span>
+                              <input type="hidden" name="users[{{ $user->id }}][can_access_v1]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_access_v1]" value="1" {{ $canAccessV1 ? 'checked' : '' }}>
+                              <span>Acceso bóveda v1</span>
+                            </label>
+
+                            <label class="vaCheck">
+                              <input type="hidden" name="users[{{ $user->id }}][can_access_v2]" value="0">
+                              <input type="checkbox" name="users[{{ $user->id }}][can_access_v2]" value="1" {{ $canAccessV2 ? 'checked' : '' }}>
+                              <span>Acceso bóveda v2</span>
                             </label>
 
                             <label class="vaCheck">
@@ -509,7 +555,7 @@
 
               <div class="vaModalFoot">
                 @if($account->usuarios->count() > 0)
-                  <button type="submit" class="vaBtn vaBtn--primary">Guardar permisos v2</button>
+                  <button type="submit" class="vaBtn vaBtn--primary">Guardar permisos de bóvedas</button>
                 @endif
 
                 <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $modalUsersId }}">Cerrar</button>
@@ -931,10 +977,10 @@
 
   .vaChecksGrid,
   .vaPermissionRow{
-    display:flex;
-    flex-wrap:wrap;
-    gap:12px 18px;
-    align-items:center;
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
+    gap:10px 12px;
+    align-items:start;
   }
 
   .vaModalFoot{
@@ -971,10 +1017,15 @@
   }
 
   .vaCheck{
-    display:inline-flex;
-    align-items:center;
+    display:flex;
+    align-items:flex-start;
     gap:8px;
-    font:700 12px/1 system-ui;
+    min-height:42px;
+    padding:10px 12px;
+    border:1px solid var(--bd);
+    border-radius:12px;
+    background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
+    font:700 12px/1.25 system-ui;
     cursor:pointer;
     color:var(--text);
   }
@@ -982,6 +1033,8 @@
   .vaCheck input[type="checkbox"]{
     width:16px;
     height:16px;
+    margin-top:1px;
+    flex:0 0 auto;
   }
 
   .vaDeleteInlineForm{
@@ -1000,6 +1053,13 @@
     color:var(--muted);
     font:650 13px/1.45 system-ui;
     background:color-mix(in oklab, var(--panel-bg) 72%, transparent);
+  }
+
+  .vaChecksGrid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+    gap:10px 12px;
+    align-items:start;
   }
 
   @media (max-width: 1180px){

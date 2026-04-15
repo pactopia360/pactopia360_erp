@@ -28,20 +28,67 @@ final class SatOpsVaultAccessController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
 
-        $accounts = CuentaCliente::query()
+        $accountsQuery = CuentaCliente::query()
             ->with(['usuarios' => function ($query) {
                 $query->orderBy('nombre')->orderBy('email');
-            }])
-            ->when($q !== '', function ($query) use ($q) {
-                $query->where(function ($sub) use ($q) {
-                    $sub->where('id', 'like', '%' . $q . '%')
-                        ->orWhere('rfc_padre', 'like', '%' . $q . '%')
-                        ->orWhere('razon_social', 'like', '%' . $q . '%')
-                        ->orWhere('nombre_comercial', 'like', '%' . $q . '%')
-                        ->orWhere('email', 'like', '%' . $q . '%')
-                        ->orWhere('codigo_cliente', 'like', '%' . $q . '%');
+            }]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ocultar cuentas basura / demo / duplicadas visibles en este módulo
+        |--------------------------------------------------------------------------
+        | No se borran de BD, solo se excluyen del listado administrativo.
+        */
+        $accountsQuery->where(function ($query) {
+            // Excluir registros marcados explícitamente como duplicados
+            $query->whereNull('razon_social')
+                ->orWhere('razon_social', 'not like', '[DUPLICATE]%');
+        });
+
+        $accountsQuery->where(function ($query) {
+            // Excluir nombres genéricos tipo "Cuenta 9", "Cuenta 14", etc.
+            $query->whereNull('razon_social')
+                ->orWhere('razon_social', 'not regexp', '^Cuenta[[:space:]]+[0-9]+$');
+        });
+
+        $accountsQuery->where(function ($query) {
+            $query->whereNull('nombre_comercial')
+                ->orWhere('nombre_comercial', 'not regexp', '^Cuenta[[:space:]]+[0-9]+$');
+        });
+
+        $accountsQuery->where(function ($query) {
+            // Excluir correos de pruebas internas
+            $query->whereNull('email')
+                ->orWhere('email', 'not like', '%@pactopia.test')
+                ->orWhere('email', 'not like', '%@example.com');
+        });
+
+        if ($q !== '') {
+            $searchableColumns = $this->getSearchableAccountColumns();
+
+            if (!empty($searchableColumns)) {
+                $accountsQuery->where(function ($sub) use ($q, $searchableColumns) {
+                    foreach ($searchableColumns as $index => $column) {
+                        if ($index === 0) {
+                            $sub->where($column, 'like', '%' . $q . '%');
+                        } else {
+                            $sub->orWhere($column, 'like', '%' . $q . '%');
+                        }
+                    }
                 });
-            })
+            }
+        }
+
+        $accounts = $accountsQuery
+            ->orderByRaw("
+                CASE
+                    WHEN plan_actual = 'PRO' THEN 0
+                    WHEN plan_actual = 'BASIC' THEN 1
+                    WHEN plan_actual = 'FREE' THEN 2
+                    WHEN plan_actual IS NULL THEN 3
+                    ELSE 4
+                END
+            ")
             ->orderBy('razon_social')
             ->orderBy('nombre_comercial')
             ->paginate(12)
@@ -162,52 +209,42 @@ final class SatOpsVaultAccessController extends Controller
         foreach ($account->usuarios as $user) {
             $row = (array) ($inputUsers[$user->id] ?? []);
 
-            $canAccessVault = isset($row['can_access_vault']) && (string) $row['can_access_vault'] === '1';
+            $canAccessV1 = isset($row['can_access_v1']) && (string) $row['can_access_v1'] === '1';
+            $canAccessV2 = isset($row['can_access_v2']) && (string) $row['can_access_v2'] === '1';
 
-            $canUploadMetadata = $canAccessVault
+            // Compatibilidad con versión anterior del formulario
+            if (!$canAccessV2 && isset($row['can_access_vault']) && (string) $row['can_access_vault'] === '1') {
+                $canAccessV2 = true;
+            }
+
+            $canUploadMetadata = $canAccessV2
                 ? (isset($row['can_upload_metadata']) && (string) $row['can_upload_metadata'] === '1')
                 : false;
 
-            $canUploadXml = $canAccessVault
+            $canUploadXml = $canAccessV2
                 ? (isset($row['can_upload_xml']) && (string) $row['can_upload_xml'] === '1')
                 : false;
 
-            $canExport = $canAccessVault
+            $canExport = $canAccessV2
                 ? (isset($row['can_export']) && (string) $row['can_export'] === '1')
                 : false;
 
-            if (!$canAccessVault && !$canUploadMetadata && !$canUploadXml && !$canExport) {
-                SatUserAccess::query()
-                    ->where('cuenta_id', (string) $account->id)
-                    ->where('usuario_id', (string) $user->id)
-                    ->delete();
-
-                continue;
-            }
-
-            SatUserAccess::query()->updateOrCreate(
-                [
-                    'cuenta_id'  => (string) $account->id,
-                    'usuario_id' => (string) $user->id,
-                ],
-                [
-                    'can_access_vault'    => $canAccessVault,
-                    'can_upload_metadata' => $canUploadMetadata,
-                    'can_upload_xml'      => $canUploadXml,
-                    'can_export'          => $canExport,
-                    'meta'                => [
-                        'updated_from'   => 'admin_sat_ops_vault_access',
-                        'updated_by'     => $adminId,
-                        'updated_at'     => now()->toDateTimeString(),
-                        'usuario_email'  => (string) ($user->email ?? ''),
-                        'usuario_nombre' => (string) ($user->nombre ?? ''),
-                    ],
-                ]
+            $this->syncUserVaultAccess(
+                cuentaId: (string) $account->id,
+                usuarioId: (string) $user->id,
+                usuarioNombre: (string) ($user->nombre ?? ''),
+                usuarioEmail: (string) ($user->email ?? ''),
+                adminId: $adminId,
+                canAccessV1: $canAccessV1,
+                canAccessV2: $canAccessV2,
+                canUploadMetadata: $canUploadMetadata,
+                canUploadXml: $canUploadXml,
+                canExport: $canExport,
             );
         }
 
         return $this->redirectToIndex($request)
-            ->with('success', 'Permisos de SAT Bóveda v2 actualizados para los usuarios de la cuenta.');
+            ->with('success', 'Permisos de Bóveda V1 y Bóveda V2 actualizados para los usuarios de la cuenta.');
     }
 
     public function storeAccountUser(Request $request, string $cuentaId): RedirectResponse
@@ -236,6 +273,8 @@ final class SatOpsVaultAccessController extends Controller
             'activo'              => ['nullable', 'in:0,1'],
             'must_change_password'=> ['nullable', 'in:0,1'],
             'password'            => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_v1'       => ['nullable', 'in:0,1'],
+            'can_access_v2'       => ['nullable', 'in:0,1'],
             'can_access_vault'    => ['nullable', 'in:0,1'],
             'can_upload_metadata' => ['nullable', 'in:0,1'],
             'can_upload_xml'      => ['nullable', 'in:0,1'],
@@ -265,13 +304,19 @@ final class SatOpsVaultAccessController extends Controller
         $user->password_temp = $plainPassword;
         $user->save();
 
+        $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
+        if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
+            $canAccessV2 = true;
+        }
+
         $this->syncUserVaultAccess(
             cuentaId: (string) $account->id,
             usuarioId: (string) $user->id,
             usuarioNombre: (string) $user->nombre,
             usuarioEmail: (string) $user->email,
             adminId: (string) (Auth::guard('admin')->id() ?? ''),
-            canAccessVault: ((string) ($validated['can_access_vault'] ?? '0')) === '1',
+            canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
+            canAccessV2: $canAccessV2,
             canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
             canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
             canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
@@ -317,6 +362,8 @@ final class SatOpsVaultAccessController extends Controller
             'activo'              => ['nullable', 'in:0,1'],
             'must_change_password'=> ['nullable', 'in:0,1'],
             'password'            => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_v1'       => ['nullable', 'in:0,1'],
+            'can_access_v2'       => ['nullable', 'in:0,1'],
             'can_access_vault'    => ['nullable', 'in:0,1'],
             'can_upload_metadata' => ['nullable', 'in:0,1'],
             'can_upload_xml'      => ['nullable', 'in:0,1'],
@@ -339,13 +386,19 @@ final class SatOpsVaultAccessController extends Controller
 
         $user->save();
 
+        $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
+        if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
+            $canAccessV2 = true;
+        }
+
         $this->syncUserVaultAccess(
             cuentaId: (string) $account->id,
             usuarioId: (string) $user->id,
             usuarioNombre: (string) $user->nombre,
             usuarioEmail: (string) $user->email,
             adminId: (string) (Auth::guard('admin')->id() ?? ''),
-            canAccessVault: ((string) ($validated['can_access_vault'] ?? '0')) === '1',
+            canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
+            canAccessV2: $canAccessV2,
             canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
             canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
             canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
@@ -383,11 +436,11 @@ final class SatOpsVaultAccessController extends Controller
 
         if ($deleted <= 0) {
             return $this->redirectToIndex($request)
-                ->with('error', 'El usuario no tenía un acceso registrado para eliminar.');
+                ->with('error', 'El usuario no tenía accesos registrados para eliminar.');
         }
 
         return $this->redirectToIndex($request)
-            ->with('success', 'Acceso del usuario a SAT Bóveda v2 eliminado correctamente.');
+            ->with('success', 'Accesos del usuario a Bóveda V1 y Bóveda V2 eliminados correctamente.');
     }
 
     private function redirectToIndex(Request $request): RedirectResponse
@@ -406,16 +459,17 @@ final class SatOpsVaultAccessController extends Controller
         string $usuarioNombre,
         string $usuarioEmail,
         string $adminId,
-        bool $canAccessVault,
+        bool $canAccessV1,
+        bool $canAccessV2,
         bool $canUploadMetadata,
         bool $canUploadXml,
         bool $canExport
     ): void {
-        $canUploadMetadata = $canAccessVault ? $canUploadMetadata : false;
-        $canUploadXml = $canAccessVault ? $canUploadXml : false;
-        $canExport = $canAccessVault ? $canExport : false;
+        $canUploadMetadata = $canAccessV2 ? $canUploadMetadata : false;
+        $canUploadXml = $canAccessV2 ? $canUploadXml : false;
+        $canExport = $canAccessV2 ? $canExport : false;
 
-        if (!$canAccessVault && !$canUploadMetadata && !$canUploadXml && !$canExport) {
+        if (!$canAccessV1 && !$canAccessV2 && !$canUploadMetadata && !$canUploadXml && !$canExport) {
             SatUserAccess::query()
                 ->where('cuenta_id', $cuentaId)
                 ->where('usuario_id', $usuarioId)
@@ -424,23 +478,37 @@ final class SatOpsVaultAccessController extends Controller
             return;
         }
 
+        $existing = SatUserAccess::query()
+            ->where('cuenta_id', $cuentaId)
+            ->where('usuario_id', $usuarioId)
+            ->first();
+
+        $existingMeta = $this->decodeMeta($existing?->meta);
+
+        $meta = array_replace_recursive($existingMeta, [
+            'updated_from'   => 'admin_sat_ops_vault_access',
+            'updated_by'     => $adminId,
+            'updated_at'     => now()->toDateTimeString(),
+            'usuario_email'  => $usuarioEmail,
+            'usuario_nombre' => $usuarioNombre,
+            'vault_access'   => [
+                'v1' => $canAccessV1,
+                'v2' => $canAccessV2,
+            ],
+        ]);
+
         SatUserAccess::query()->updateOrCreate(
             [
                 'cuenta_id'  => $cuentaId,
                 'usuario_id' => $usuarioId,
             ],
             [
-                'can_access_vault'    => $canAccessVault,
+                // Se conserva este campo como compatibilidad para lógica previa
+                'can_access_vault'    => $canAccessV2,
                 'can_upload_metadata' => $canUploadMetadata,
                 'can_upload_xml'      => $canUploadXml,
                 'can_export'          => $canExport,
-                'meta'                => [
-                    'updated_from'   => 'admin_sat_ops_vault_access',
-                    'updated_by'     => $adminId,
-                    'updated_at'     => now()->toDateTimeString(),
-                    'usuario_email'  => $usuarioEmail,
-                    'usuario_nombre' => $usuarioNombre,
-                ],
+                'meta'                => $meta,
             ]
         );
     }
@@ -536,6 +604,34 @@ final class SatOpsVaultAccessController extends Controller
         }
 
         return $map;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getSearchableAccountColumns(): array
+    {
+        $columns = [
+            'id',
+            'rfc_padre',
+            'razon_social',
+            'nombre_comercial',
+            'email',
+            'codigo_cliente',
+        ];
+
+        return array_values(array_filter($columns, function (string $column): bool {
+            return Schema::connection(self::CONN_CLIENTES)->hasColumn('cuentas_cliente', $column);
+        }));
+    }
+
+    /**
+     * @param mixed $meta
+     */
+    private function getUserVaultAccessFlag(mixed $meta, string $key, bool $default = false): bool
+    {
+        $decoded = $this->decodeMeta($meta);
+        return (bool) data_get($decoded, 'vault_access.' . $key, $default);
     }
 
     /**
