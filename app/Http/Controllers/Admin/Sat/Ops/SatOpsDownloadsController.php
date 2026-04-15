@@ -1033,14 +1033,13 @@ final class SatOpsDownloadsController extends Controller
     private function queryMetadata(string $search): Collection
     {
         try {
-            if (
-                !$this->clientesTableExists('sat_user_metadata_uploads') ||
-                !class_exists(\App\Models\Cliente\SatUserMetadataUpload::class)
-            ) {
+            // 🔥 protección dura (sin depender de métodos custom)
+            if (!\Illuminate\Support\Facades\Schema::connection('mysql_clientes')->hasTable('sat_user_metadata_uploads')) {
                 return collect();
             }
 
-            return SatUserMetadataUpload::query()
+            return \DB::connection('mysql_clientes')
+                ->table('sat_user_metadata_uploads')
                 ->when($search !== '', function ($q) use ($search) {
                     $q->where(function ($sub) use ($search) {
                         $sub->where('original_name', 'like', "%{$search}%")
@@ -1050,9 +1049,18 @@ final class SatOpsDownloadsController extends Controller
                     });
                 })
                 ->get()
-                ->map(fn ($row) => $this->mapV2Upload($row, 'metadata'));
+                ->map(function ($row) {
+                    return (object)[
+                        'id' => $row->id ?? null,
+                        'original_name' => $row->original_name ?? '',
+                        'rfc' => $row->rfc_owner ?? '',
+                        'status' => $row->status ?? '',
+                        'type' => 'metadata',
+                    ];
+                });
+
         } catch (\Throwable $e) {
-            report($e);
+            \Log::error('queryMetadata ERROR: ' . $e->getMessage());
             return collect();
         }
     }
