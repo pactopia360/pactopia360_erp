@@ -517,12 +517,12 @@ final class SatOpsVaultAccessController extends Controller
     }
 
     /**
-     * @param LengthAwarePaginator<int, CuentaCliente> $accounts
+     * @param \Illuminate\Support\Collection<int, CuentaCliente> $accounts
      * @return array<string, array<string, SatUserAccess>>
      */
-    private function buildAccessMap(LengthAwarePaginator $accounts): array
+    private function buildAccessMap(\Illuminate\Support\Collection $accounts): array
     {
-        $accountIds = collect($accounts->items())
+        $accountIds = $accounts
             ->pluck('id')
             ->filter()
             ->values();
@@ -552,12 +552,12 @@ final class SatOpsVaultAccessController extends Controller
     }
 
     /**
-     * @param LengthAwarePaginator<int, CuentaCliente> $accounts
+     * @param \Illuminate\Support\Collection<int, CuentaCliente> $accounts
      * @return array<string, array{enabled: bool, state: string, admin_account_id: int}>
      */
-    private function buildModuleMap(LengthAwarePaginator $accounts): array
+    private function buildModuleMap(\Illuminate\Support\Collection $accounts): array
     {
-        $adminAccountIds = collect($accounts->items())
+        $adminAccountIds = $accounts
             ->pluck('admin_account_id')
             ->filter(fn ($id) => (int) $id > 0)
             ->map(fn ($id) => (int) $id)
@@ -581,7 +581,7 @@ final class SatOpsVaultAccessController extends Controller
 
         $map = [];
 
-        foreach ($accounts->items() as $account) {
+        foreach ($accounts as $account) {
             $adminAccountId = (int) ($account->admin_account_id ?? 0);
             $enabled = false;
             $state = 'inactive';
