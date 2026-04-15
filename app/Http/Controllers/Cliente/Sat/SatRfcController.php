@@ -909,25 +909,34 @@ final class SatRfcController extends Controller
             return null;
         }
 
+        // 🔐 Intento 1: decrypt()
         try {
             $value = decrypt($encrypted);
-            return is_string($value) ? $value : null;
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
         } catch (\Throwable) {
-            // continue
+            // ignore
         }
 
+        // 🔐 Intento 2: Crypt::decryptString()
         try {
-            return Crypt::decryptString($encrypted);
+            $value = Crypt::decryptString($encrypted);
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
         } catch (\Throwable) {
-            // continue
+            // ignore
         }
 
+        // 🔐 Intento 3: base64
         $decoded = base64_decode($encrypted, true);
         if (is_string($decoded) && $decoded !== '') {
             return $decoded;
         }
 
-        return null;
+        // 🔥 NUEVO: fallback → valor plano
+        return $encrypted;
     }
 
     private function isLogicallyDeleted(SatCredential $credential): bool
