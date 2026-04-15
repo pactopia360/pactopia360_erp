@@ -44,18 +44,11 @@ final class SatRfcOptionsService
 
             $rows = $query->get();
 
+            $externalMap = $this->loadExternalUploadsMap($cuentaId, $adminAccountId, $conn);
+
             return $rows
                 ->filter(function ($row) {
-                    $meta = $row->meta ?? [];
-
-                    if (is_string($meta)) {
-                        $decoded = json_decode($meta, true);
-                        $meta = is_array($decoded) ? $decoded : [];
-                    }
-
-                    if (!is_array($meta)) {
-                        $meta = [];
-                    }
+                    $meta = $this->metaArray($row->meta ?? []);
 
                     if (isset($meta['is_active'])) {
                         $isActive = $meta['is_active'];
@@ -74,6 +67,168 @@ final class SatRfcOptionsService
                     }
 
                     return strtoupper(trim((string) ($row->rfc ?? ''))) !== '';
+                })
+                ->map(function ($row) use ($externalMap) {
+                    $meta = $this->metaArray($row->meta ?? []);
+
+                    $rfc = strtoupper(trim((string) ($row->rfc ?? '')));
+
+                    $storedCer = trim((string) data_get($meta, 'stored.cer', ''));
+                    $storedKey = trim((string) data_get($meta, 'stored.key', ''));
+
+                    $legacyCer = trim((string) ($row->cer_path ?? ''));
+                    $legacyKey = trim((string) ($row->key_path ?? ''));
+
+                    $legacyPasswordEnc = trim((string) (
+                        $row->key_password_enc
+                        ?? $row->key_password
+                        ?? ''
+                    ));
+
+                    $externalUploadId = (string) (
+                        $row->external_upload_id
+                        ?? data_get($meta, 'external_upload_id')
+                        ?? ''
+                    );
+
+                    $externalRow = $this->resolveExternalRowForCredential(
+                        externalMap: $externalMap,
+                        externalUploadId: $externalUploadId,
+                        rfc: $rfc
+                    );
+
+                    $externalFilePath = trim((string) ($externalRow['file_path'] ?? ''));
+                    $externalFileName = trim((string) ($externalRow['file_name'] ?? ''));
+                    $externalPassword = trim((string) ($externalRow['fiel_password'] ?? ''));
+                    $externalRazonSocial = trim((string) ($externalRow['razon_social'] ?? ''));
+
+                    // Normalizar razón social
+                    if (trim((string) ($row->razon_social ?? '')) === '') {
+                        $row->razon_social = trim((string) (
+                            $externalRazonSocial
+                            ?: data_get($meta, 'razon_social')
+                            ?: data_get($meta, 'quote.razon_social')
+                            ?: data_get($meta, 'empresa')
+                            ?: ''
+                        ));
+                    }
+
+                    // Normalizar origen
+                    $source = strtolower(trim((string) (
+                        data_get($meta, 'source')
+                        ?: data_get($meta, 'updated_from')
+                        ?: ''
+                    )));
+
+                    if (trim((string) ($row->tipo_origen ?? '')) === '') {
+                        $row->tipo_origen = (
+                            $source === 'external_register'
+                            || $source === 'external_zip_backfill'
+                            || $externalUploadId !== ''
+                            || $externalRow !== null
+                        ) ? 'externo' : 'interno';
+                    }
+
+                    if (trim((string) ($row->source_label ?? '')) === '') {
+                        $row->source_label = (
+                            $source === 'external_register'
+                            || $source === 'external_zip_backfill'
+                            || $externalUploadId !== ''
+                            || $externalRow !== null
+                        ) ? 'Registro externo' : 'Registro interno';
+                    }
+
+                    // Resolver mejor ruta disponible para FIEL
+                    $resolvedCerPath = '';
+                    $resolvedKeyPath = '';
+                    $resolvedPasswordEnc = '';
+
+                    if ($legacyCer !== '') {
+                        $resolvedCerPath = $legacyCer;
+                    } elseif ($storedCer !== '') {
+                        $resolvedCerPath = $storedCer;
+                    } elseif ($externalFilePath !== '') {
+                        $resolvedCerPath = $externalFilePath;
+                    }
+
+                    if ($legacyKey !== '') {
+                        $resolvedKeyPath = $legacyKey;
+                    } elseif ($storedKey !== '') {
+                        $resolvedKeyPath = $storedKey;
+                    } elseif ($externalFilePath !== '') {
+                        // En externos el archivo suele ser ZIP único
+                        $resolvedKeyPath = $externalFilePath;
+                    }
+
+                    if ($legacyPasswordEnc !== '') {
+                        $resolvedPasswordEnc = $legacyPasswordEnc;
+                    } elseif ($externalPassword !== '') {
+                        $resolvedPasswordEnc = $externalPassword;
+                    }
+
+                    if (trim((string) ($row->fiel_cer_path ?? '')) === '' && $resolvedCerPath !== '') {
+                        $row->fiel_cer_path = $resolvedCerPath;
+                    }
+
+                    if (trim((string) ($row->fiel_key_path ?? '')) === '' && $resolvedKeyPath !== '') {
+                        $row->fiel_key_path = $resolvedKeyPath;
+                    }
+
+                    if (trim((string) ($row->fiel_password_enc ?? '')) === '' && $resolvedPasswordEnc !== '') {
+                        $row->fiel_password_enc = $resolvedPasswordEnc;
+                    }
+
+                    // Compatibilidad de vista actual
+                    if (trim((string) ($row->cer_path ?? '')) === '' && $resolvedCerPath !== '') {
+                        $row->cer_path = $resolvedCerPath;
+                    }
+
+                    if (trim((string) ($row->key_path ?? '')) === '' && $resolvedKeyPath !== '') {
+                        $row->key_path = $resolvedKeyPath;
+                    }
+
+                    if (trim((string) ($row->key_password ?? '')) === '' && $resolvedPasswordEnc !== '') {
+                        $row->key_password = $resolvedPasswordEnc;
+                    }
+
+                    // Complementar meta para la UI
+                    if (!isset($meta['fiel']) || !is_array($meta['fiel'])) {
+                        $meta['fiel'] = [];
+                    }
+
+                    if (empty($meta['fiel']['cer']) && $resolvedCerPath !== '') {
+                        $meta['fiel']['cer'] = $resolvedCerPath;
+                    }
+
+                    if (empty($meta['fiel']['key']) && $resolvedKeyPath !== '') {
+                        $meta['fiel']['key'] = $resolvedKeyPath;
+                    }
+
+                    if ($externalUploadId !== '' && empty($meta['external_upload_id'])) {
+                        $meta['external_upload_id'] = $externalUploadId;
+                    }
+
+                    if ($externalFileName !== '' && empty($meta['external_file_name'])) {
+                        $meta['external_file_name'] = $externalFileName;
+                    }
+
+                    if (
+                        (!isset($meta['tipo_origen']) || trim((string) $meta['tipo_origen']) === '')
+                        && trim((string) ($row->tipo_origen ?? '')) !== ''
+                    ) {
+                        $meta['tipo_origen'] = (string) $row->tipo_origen;
+                    }
+
+                    if (
+                        (!isset($meta['source_label']) || trim((string) $meta['source_label']) === '')
+                        && trim((string) ($row->source_label ?? '')) !== ''
+                    ) {
+                        $meta['source_label'] = (string) $row->source_label;
+                    }
+
+                    $row->meta = $meta;
+
+                    return $row;
                 })
                 ->unique(function ($row) {
                     return strtoupper(trim((string) ($row->rfc ?? '')));
@@ -231,5 +386,111 @@ final class SatRfcOptionsService
         }
 
         return null;
+    }
+
+    private function loadExternalUploadsMap(string $cuentaId, ?int $adminAccountId, string $conn): array
+    {
+        try {
+            if (!Schema::connection($conn)->hasTable('external_fiel_uploads')) {
+                return [
+                    'by_id' => [],
+                    'by_rfc' => [],
+                ];
+            }
+
+            $query = DB::connection($conn)
+                ->table('external_fiel_uploads');
+
+            $hasCuentaId = Schema::connection($conn)->hasColumn('external_fiel_uploads', 'cuenta_id');
+            $hasAccountId = Schema::connection($conn)->hasColumn('external_fiel_uploads', 'account_id');
+
+            $query->where(function ($q) use ($cuentaId, $adminAccountId, $hasCuentaId, $hasAccountId) {
+                if ($hasCuentaId) {
+                    $q->orWhere('cuenta_id', $cuentaId);
+                }
+
+                if ($hasAccountId && $adminAccountId !== null) {
+                    $q->orWhere('account_id', $adminAccountId);
+                }
+            });
+
+            $rows = $query->orderByDesc('id')->get();
+
+            $byId = [];
+            $byRfc = [];
+
+            foreach ($rows as $row) {
+                $normalized = [
+                    'id' => (string) ($row->id ?? ''),
+                    'rfc' => strtoupper(trim((string) ($row->rfc ?? ''))),
+                    'razon_social' => trim((string) ($row->razon_social ?? '')),
+                    'file_path' => trim((string) (
+                        $row->file_path
+                        ?? $row->zip_path
+                        ?? $row->path
+                        ?? ''
+                    )),
+                    'file_name' => trim((string) (
+                        $row->file_name
+                        ?? $row->zip_name
+                        ?? $row->name
+                        ?? ''
+                    )),
+                    'fiel_password' => trim((string) ($row->fiel_password ?? '')),
+                    'status' => trim((string) ($row->status ?? '')),
+                ];
+
+                if ($normalized['id'] !== '') {
+                    $byId[$normalized['id']] = $normalized;
+                }
+
+                if ($normalized['rfc'] !== '' && !isset($byRfc[$normalized['rfc']])) {
+                    $byRfc[$normalized['rfc']] = $normalized;
+                }
+            }
+
+            return [
+                'by_id' => $byId,
+                'by_rfc' => $byRfc,
+            ];
+        } catch (\Throwable $e) {
+            Log::debug('[SatRfcOptionsService:loadExternalUploadsMap] fallback empty', [
+                'cuenta_id' => $cuentaId,
+                'admin_account_id' => $adminAccountId,
+                'err' => $e->getMessage(),
+            ]);
+
+            return [
+                'by_id' => [],
+                'by_rfc' => [],
+            ];
+        }
+    }
+
+    private function resolveExternalRowForCredential(array $externalMap, string $externalUploadId, string $rfc): ?array
+    {
+        if ($externalUploadId !== '' && isset($externalMap['by_id'][$externalUploadId])) {
+            return $externalMap['by_id'][$externalUploadId];
+        }
+
+        if ($rfc !== '' && isset($externalMap['by_rfc'][$rfc])) {
+            return $externalMap['by_rfc'][$rfc];
+        }
+
+        return null;
+    }
+
+    private function metaArray(mixed $meta): array
+    {
+        if (is_array($meta)) {
+            return $meta;
+        }
+
+        if (is_string($meta) && trim($meta) !== '') {
+            $decoded = json_decode($meta, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 }

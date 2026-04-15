@@ -191,19 +191,35 @@
                                             $sourceLabel = trim((string) ($item->source_label ?? ($itemMeta['source_label'] ?? '')));
                                             $notes = trim((string) ($item->notes ?? ($itemMeta['notes'] ?? '')));
 
-                                            $fielCerPath = (string) ($item->fiel_cer_path ?? $item->cer_path ?? '');
-                                            $fielKeyPath = (string) ($item->fiel_key_path ?? $item->key_path ?? '');
+                                            $fielCerPath = (string) ($item->fiel_cer_path ?? $item->cer_path ?? data_get($itemMeta, 'fiel.cer', ''));
+                                            $fielKeyPath = (string) ($item->fiel_key_path ?? $item->key_path ?? data_get($itemMeta, 'fiel.key', ''));
                                             $fielPasswordConfigured = !empty($item->fiel_password_enc ?? null) || !empty($item->key_password ?? null);
                                             $hasFielCer = $fielCerPath !== '' || !empty($itemMeta['fiel_cer']) || !empty($itemMeta['fiel']['cer']);
                                             $hasFielKey = $fielKeyPath !== '' || !empty($itemMeta['fiel_key']) || !empty($itemMeta['fiel']['key']);
                                             $hasFiel = $hasFielCer || $hasFielKey || $fielPasswordConfigured;
 
-                                            $csdCerPath = (string) ($item->csd_cer_path ?? '');
-                                            $csdKeyPath = (string) ($item->csd_key_path ?? '');
+                                            $csdCerPath = (string) ($item->csd_cer_path ?? data_get($itemMeta, 'csd.cer', ''));
+                                            $csdKeyPath = (string) ($item->csd_key_path ?? data_get($itemMeta, 'csd.key', ''));
                                             $csdPasswordConfigured = !empty($item->csd_password_enc ?? null) || !empty($itemMeta['csd_password']) || !empty($itemMeta['csd']['password']);
                                             $hasCsdCer = $csdCerPath !== '' || !empty($itemMeta['csd_cer']) || !empty($itemMeta['csd']['cer']);
                                             $hasCsdKey = $csdKeyPath !== '' || !empty($itemMeta['csd_key']) || !empty($itemMeta['csd']['key']);
                                             $hasCsd = $hasCsdCer || $hasCsdKey || $csdPasswordConfigured;
+
+                                            $fielCerDownloadUrl = $hasFielCer
+                                                ? route('cliente.sat.rfcs.asset.download', ['id' => $itemId, 'type' => 'fiel_cer'])
+                                                : '';
+
+                                            $fielKeyDownloadUrl = $hasFielKey
+                                                ? route('cliente.sat.rfcs.asset.download', ['id' => $itemId, 'type' => 'fiel_key'])
+                                                : '';
+
+                                            $csdCerDownloadUrl = $hasCsdCer
+                                                ? route('cliente.sat.rfcs.asset.download', ['id' => $itemId, 'type' => 'csd_cer'])
+                                                : '';
+
+                                            $csdKeyDownloadUrl = $hasCsdKey
+                                                ? route('cliente.sat.rfcs.asset.download', ['id' => $itemId, 'type' => 'csd_key'])
+                                                : '';
                                         @endphp
 
                                         <tr
@@ -334,6 +350,10 @@
                                                         data-rfc-fiel-key="{{ e($fielKeyPath) }}"
                                                         data-rfc-csd-cer="{{ e($csdCerPath) }}"
                                                         data-rfc-csd-key="{{ e($csdKeyPath) }}"
+                                                        data-rfc-fiel-cer-download-url="{{ e($fielCerDownloadUrl) }}"
+                                                        data-rfc-fiel-key-download-url="{{ e($fielKeyDownloadUrl) }}"
+                                                        data-rfc-csd-cer-download-url="{{ e($csdCerDownloadUrl) }}"
+                                                        data-rfc-csd-key-download-url="{{ e($csdKeyDownloadUrl) }}"
                                                         title="Ver detalle RFC"
                                                         aria-label="Ver detalle RFC"
                                                     >
@@ -1615,6 +1635,153 @@
     </div>
 </div>
 
+{{-- MODAL: DETALLE RFC --}}
+<div class="sat-clean-modal" id="satRfcDetailModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-rfc-detail-close></div>
+    <div
+        class="sat-clean-modal__dialog sat-clean-modal__dialog--xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="satRfcDetailTitle"
+    >
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satRfcDetailTitle">Detalle RFC</h2>
+                <p class="sat-clean-modal__subtitle">
+                    Revisión completa del RFC, archivos registrados y accesos configurados.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                class="sat-clean-modal__close"
+                data-rfc-detail-close
+                aria-label="Cerrar"
+            >
+                ✕
+            </button>
+        </div>
+
+        <div class="sat-clean-modal__body-scroll">
+            <div class="sat-clean-form-section">
+                <div class="sat-clean-form-section__head">
+                    <h3 class="sat-clean-form-section__title">Información general</h3>
+                </div>
+
+                <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                    <div class="sat-clean-form-field">
+                        <label>RFC</label>
+                        <input type="text" id="satRfcDetailRfc" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Tipo de origen</label>
+                        <input type="text" id="satRfcDetailTipoOrigen" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Estado</label>
+                        <input type="text" id="satRfcDetailEstado" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field sat-clean-form-field--span-2">
+                        <label>Razón social</label>
+                        <input type="text" id="satRfcDetailRazonSocial" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Etiqueta origen</label>
+                        <input type="text" id="satRfcDetailSourceLabel" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Nombre de contacto</label>
+                        <input type="text" id="satRfcDetailContactName" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Correo de contacto</label>
+                        <input type="text" id="satRfcDetailContactEmail" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Teléfono</label>
+                        <input type="text" id="satRfcDetailContactPhone" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>FIEL</label>
+                        <input type="text" id="satRfcDetailFielStatus" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>CSD</label>
+                        <input type="text" id="satRfcDetailCsdStatus" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field sat-clean-form-field--full">
+                        <label>Notas</label>
+                        <textarea id="satRfcDetailNotes" rows="3" readonly></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sat-clean-form-section">
+                <div class="sat-clean-form-section__head">
+                    <h3 class="sat-clean-form-section__title">Archivos registrados</h3>
+                </div>
+
+                <div class="sat-clean-form-grid sat-clean-form-grid--2">
+                    <div class="sat-clean-form-field">
+                        <label>FIEL .cer</label>
+                        <input type="text" id="satRfcDetailFielCer" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>FIEL .key</label>
+                        <input type="text" id="satRfcDetailFielKey" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>CSD .cer</label>
+                        <input type="text" id="satRfcDetailCsdCer" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>CSD .key</label>
+                        <input type="text" id="satRfcDetailCsdKey" readonly>
+                    </div>
+                </div>
+
+                <div class="sat-clean-modal__actions sat-clean-modal__actions--compact" style="justify-content:flex-start;">
+                    <a href="#" id="satRfcDetailFielCerDownload" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact" target="_blank" style="display:none;">
+                        Descargar FIEL .cer
+                    </a>
+                    <a href="#" id="satRfcDetailFielKeyDownload" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact" target="_blank" style="display:none;">
+                        Descargar FIEL .key
+                    </a>
+                    <a href="#" id="satRfcDetailCsdCerDownload" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact" target="_blank" style="display:none;">
+                        Descargar CSD .cer
+                    </a>
+                    <a href="#" id="satRfcDetailCsdKeyDownload" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact" target="_blank" style="display:none;">
+                        Descargar CSD .key
+                    </a>
+                </div>
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-rfc-detail-close>
+                    Cerrar
+                </button>
+
+                <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satRfcDetailEditBtn">
+                    Editar RFC
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- MODAL: DETALLE COTIZACIÓN --}}
 <div class="sat-clean-modal" id="satQuoteDetailModal" aria-hidden="true">
     <div class="sat-clean-modal__backdrop" data-quote-detail-close></div>
@@ -1843,14 +2010,40 @@ document.addEventListener('DOMContentLoaded', function () {
         csdKey: document.getElementById('satRfcDetailCsdKey'),
     };
 
+    const links = {
+        fielCer: document.getElementById('satRfcDetailFielCerDownload'),
+        fielKey: document.getElementById('satRfcDetailFielKeyDownload'),
+        csdCer: document.getElementById('satRfcDetailCsdCerDownload'),
+        csdKey: document.getElementById('satRfcDetailCsdKeyDownload'),
+    };
+
     const openModal = () => {
+        detailModal.classList.add('is-visible');
         detailModal.setAttribute('aria-hidden', 'false');
         document.body.classList.add('sat-clean-modal-open');
     };
 
     const closeModal = () => {
+        detailModal.classList.remove('is-visible');
         detailModal.setAttribute('aria-hidden', 'true');
-        document.body.classList.remove('sat-clean-modal-open');
+
+        const hasVisibleModal = document.querySelector('.sat-clean-modal.is-visible');
+        const passwordDialogVisible = document.getElementById('satPasswordDialog')?.classList.contains('is-visible');
+
+        if (!hasVisibleModal && !passwordDialogVisible) {
+            document.body.classList.remove('sat-clean-modal-open');
+        }
+    };
+
+    const syncLink = (el, url) => {
+        if (!el) return;
+        if (url && url !== '') {
+            el.href = url;
+            el.style.display = '';
+        } else {
+            el.href = '#';
+            el.style.display = 'none';
+        }
     };
 
     closeButtons.forEach(btn => {
@@ -1877,6 +2070,11 @@ document.addEventListener('DOMContentLoaded', function () {
             fields.csdCer.value = ds.rfcCsdCer || 'No registrado';
             fields.csdKey.value = ds.rfcCsdKey || 'No registrado';
 
+            syncLink(links.fielCer, ds.rfcFielCerDownloadUrl || '');
+            syncLink(links.fielKey, ds.rfcFielKeyDownloadUrl || '');
+            syncLink(links.csdCer, ds.rfcCsdCerDownloadUrl || '');
+            syncLink(links.csdKey, ds.rfcCsdKeyDownloadUrl || '');
+
             if (editBtn) {
                 editBtn.setAttribute('data-rfc-id', ds.rfcId || '');
                 editBtn.setAttribute('data-rfc-value', ds.rfcValue || '');
@@ -1896,9 +2094,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (editBtn) {
         editBtn.addEventListener('click', function () {
             closeModal();
-
-            const editTrigger = document.querySelector('#satRfcEditModal') ? this : null;
-            if (!editTrigger) return;
 
             const editModal = document.getElementById('satRfcEditModal');
             const editForm = document.getElementById('satRfcEditForm');
@@ -1929,6 +2124,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             if (editModal) {
+                editModal.classList.add('is-visible');
                 editModal.setAttribute('aria-hidden', 'false');
                 document.body.classList.add('sat-clean-modal-open');
             }

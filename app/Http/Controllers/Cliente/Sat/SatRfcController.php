@@ -639,17 +639,26 @@ final class SatRfcController extends Controller
                     || in_array($estatusRaw, ['ok', 'valido', 'válido', 'validado', 'valid', 'activo', 'active'], true)
                     || in_array($estatusOperativo, ['validated', 'validado', 'activo'], true);
 
+                $meta = is_array($row->meta) ? $row->meta : [];
+
+                // 🔥 detectar archivos desde meta (external register / zip)
+                $metaCer = data_get($meta, 'stored.cer');
+                $metaKey = data_get($meta, 'stored.key');
+
                 $hasLegacyFiles = filled($row->cer_path) && filled($row->key_path);
+                $hasMetaFiles   = filled($metaCer) && filled($metaKey);
 
                 $hasFiel = (
                     filled($row->fiel_cer_path ?? null)
                     && filled($row->fiel_key_path ?? null)
                     && filled($row->fiel_password_enc ?? null)
-                ) || $hasLegacyFiles;
+                ) || $hasLegacyFiles || $hasMetaFiles;
 
                 $hasCsd = (
                     filled($row->csd_cer_path ?? null)
                     && filled($row->csd_key_path ?? null)
+                ) || (
+                    isset($meta['csd'])
                 );
 
                 return (object) [
