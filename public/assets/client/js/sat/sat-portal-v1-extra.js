@@ -667,51 +667,9 @@
     };
 
     const bindPasswordReveal = () => {
-        qsa('[data-password-reveal-url]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const url = button.dataset.passwordRevealUrl;
-                const label = button.dataset.passwordLabel || 'Contraseña';
-                const rfc = button.dataset.rfc || '';
-
-                if (!url) {
-                    return;
-                }
-
-                const original = button.textContent;
-                button.disabled = true;
-                button.textContent = '...';
-
-                try {
-                    const response = await fetch(url, {
-                        method: 'GET',
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'Accept': 'application/json',
-                        },
-                        credentials: 'same-origin',
-                    });
-
-                    const data = await response.json().catch(() => ({}));
-
-                    if (!response.ok) {
-                        const message = data.message || `No se pudo revelar la contraseña ${label}.`;
-                        throw new Error(message);
-                    }
-
-                    const password = data.password || data.value || '';
-                    if (!password) {
-                        throw new Error(`No hay contraseña ${label} disponible.`);
-                    }
-
-                    window.alert(`${label}${rfc ? ` · ${rfc}` : ''}\n\n${password}`);
-                } catch (error) {
-                    window.alert(error.message || 'Ocurrió un error al consultar la contraseña.');
-                } finally {
-                    button.disabled = false;
-                    button.textContent = original;
-                }
-            });
-        });
+        // El reveal de contraseñas ya lo controla sat-portal-v1.js
+        // para mostrar solo el modal visual y evitar alerts duplicados.
+        return;
     };
 
     const bindRfcFilters = () => {
