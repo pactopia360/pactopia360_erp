@@ -157,13 +157,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const data = await response.json().catch(() => null);
 
-                    if (!response.ok || !data || data.ok !== true) {
-                        const msg = data && data.msg ? data.msg : `No se pudo obtener la contraseña de ${label}.`;
+                    if (!response.ok || !data) {
+                        const msg = data && (data.msg || data.message)
+                            ? (data.msg || data.message)
+                            : `No se pudo obtener la contraseña de ${label}.`;
+
                         showPortalNotice(msg, 'warning');
                         return;
                     }
 
-                    const password = typeof data.password === 'string' ? data.password.trim() : '';
+                    const password =
+                        typeof data.password === 'string'
+                            ? data.password.trim()
+                            : (typeof data.data?.password === 'string'
+                                ? data.data.password.trim()
+                                : '');
 
                     if (password === '') {
                         showPortalNotice(`No hay contraseña guardada para ${label} en ${rfc}.`, 'info');
