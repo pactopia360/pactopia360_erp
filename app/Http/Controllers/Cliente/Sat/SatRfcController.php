@@ -15,6 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -393,6 +394,11 @@ final class SatRfcController extends Controller
             default => null,
         };
 
+        // 🔥 Fallback para RFC externos: buscar en external_fiel_uploads.fiel_password
+        if (($encrypted === null || trim($encrypted) === '') && $scope === 'fiel') {
+            $encrypted = $this->resolveExternalFielPassword($credential);
+        }
+
         if ($encrypted === null || trim($encrypted) === '') {
             return response()->json([
                 'ok' => true,
@@ -408,6 +414,7 @@ final class SatRfcController extends Controller
                 'trace_id' => $this->trace(),
                 'id' => $id,
                 'scope' => $scope,
+                'rfc' => (string) ($credential->rfc ?? ''),
             ]);
 
             return response()->json([
@@ -787,6 +794,109 @@ final class SatRfcController extends Controller
             } catch (\Throwable) {
                 // ignore
             }
+        }
+
+        return null;
+    }
+
+    private function resolveExternalFielPassword(SatCredential $credential): ?string
+    {
+        try {
+            if (!Schema::connection('mysql_clientes')->hasTable('external_fiel_uploads')) {
+                return null;
+            }
+
+            if (!Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'fiel_password')) {
+                return null;
+            }
+
+            $meta = is_array($credential->meta) ? $credential->meta : [];
+            $externalUploadId = trim((string) (
+                $credential->external_upload_id
+                ?? ($meta['external_upload_id'] ?? '')
+            ));
+
+            $rfc = strtoupper(trim((string) ($credential->rfc ?? '')));
+            $cuentaId = $this->cuentaId();
+
+            $query = DB::connection('mysql_clientes')
+                ->table('external_fiel_uploads');
+
+            if ($externalUploadId !== '') {
+                $query->where('id', $externalUploadId);
+            } else {
+                $query->where(function ($q) use ($cuentaId) {
+                    if (Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'cuenta_id')) {
+                        $q->where('cuenta_id', $cuentaId);
+                    }
+
+                    if (Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'account_id')) {
+                        $adminAccountId = $this->resolveAdminAccountIdFromPortal();
+                        if ($adminAccountId !== null) {
+                            $q->orWhere('account_id', $adminAccountId);
+                        }
+                    }
+                });
+
+                if ($rfc !== '' && Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'rfc')) {
+                    $query->whereRaw('UPPER(rfc) = ?', [$rfc]);
+                } else {
+                    return null;
+                }
+            }
+
+            $row = $query->orderByDesc('id')->first();
+
+            if (!$row) {
+                return null;
+            }
+
+            $value = trim((string) ($row->fiel_password ?? ''));
+            return $value !== '' ? $value : null;
+        } catch (\Throwable $e) {
+            Log::warning('[SAT RFC] resolveExternalFielPassword failed', [
+                'trace_id' => $this->trace(),
+                'credential_id' => (string) ($credential->id ?? ''),
+                'rfc' => (string) ($credential->rfc ?? ''),
+                'err' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function resolveAdminAccountIdFromPortal(): ?int
+    {
+        $cuentaId = $this->cuentaId();
+        if ($cuentaId === '') {
+            return null;
+        }
+
+        try {
+            if (!Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+                return null;
+            }
+
+            if (!Schema::connection('mysql_clientes')->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                return null;
+            }
+
+            $row = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuentaId)
+                ->select('admin_account_id')
+                ->first();
+
+            $value = trim((string) ($row->admin_account_id ?? ''));
+            if ($value !== '' && ctype_digit($value) && (int) $value > 0) {
+                return (int) $value;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[SAT RFC] resolveAdminAccountIdFromPortal failed', [
+                'trace_id' => $this->trace(),
+                'cuenta_id' => $cuentaId,
+                'err' => $e->getMessage(),
+            ]);
         }
 
         return null;
