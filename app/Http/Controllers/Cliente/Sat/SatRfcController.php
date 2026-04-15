@@ -817,35 +817,32 @@ final class SatRfcController extends Controller
             ));
 
             $rfc = strtoupper(trim((string) ($credential->rfc ?? '')));
-            $cuentaId = $this->cuentaId();
+            if ($rfc === '') {
+                return null;
+            }
 
             $query = DB::connection('mysql_clientes')
                 ->table('external_fiel_uploads');
 
-            if ($externalUploadId !== '') {
-                $query->where('id', $externalUploadId);
-            } else {
-                $query->where(function ($q) use ($cuentaId) {
-                    if (Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'cuenta_id')) {
-                        $q->where('cuenta_id', $cuentaId);
-                    }
+            // 1) prioridad absoluta: external_upload_id
+            if ($externalUploadId !== '' && ctype_digit($externalUploadId)) {
+                $row = $query
+                    ->where('id', (int) $externalUploadId)
+                    ->orderByDesc('id')
+                    ->first();
 
-                    if (Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'account_id')) {
-                        $adminAccountId = $this->resolveAdminAccountIdFromPortal();
-                        if ($adminAccountId !== null) {
-                            $q->orWhere('account_id', $adminAccountId);
-                        }
-                    }
-                });
-
-                if ($rfc !== '' && Schema::connection('mysql_clientes')->hasColumn('external_fiel_uploads', 'rfc')) {
-                    $query->whereRaw('UPPER(rfc) = ?', [$rfc]);
-                } else {
-                    return null;
+                if ($row) {
+                    $value = trim((string) ($row->fiel_password ?? ''));
+                    return $value !== '' ? $value : null;
                 }
             }
 
-            $row = $query->orderByDesc('id')->first();
+            // 2) fallback real: buscar por RFC sin depender de cuenta_id/account_id
+            $row = DB::connection('mysql_clientes')
+                ->table('external_fiel_uploads')
+                ->whereRaw('UPPER(rfc) = ?', [$rfc])
+                ->orderByDesc('id')
+                ->first();
 
             if (!$row) {
                 return null;
@@ -864,7 +861,7 @@ final class SatRfcController extends Controller
             return null;
         }
     }
-
+    
     private function resolveAdminAccountIdFromPortal(): ?int
     {
         $cuentaId = $this->cuentaId();
