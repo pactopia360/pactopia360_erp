@@ -1030,15 +1030,16 @@ final class SatOpsDownloadsController extends Controller
         );
     }
 
-    private function queryMetadata(string $search): Collection
+    private function queryMetadata(string $search): \Illuminate\Support\Collection
     {
         try {
-            // 🔥 protección dura (sin depender de métodos custom)
+
+            // 🔥 VALIDACIÓN DIRECTA REAL (NO helpers)
             if (!\Illuminate\Support\Facades\Schema::connection('mysql_clientes')->hasTable('sat_user_metadata_uploads')) {
                 return collect();
             }
 
-            return \DB::connection('mysql_clientes')
+            return \Illuminate\Support\Facades\DB::connection('mysql_clientes')
                 ->table('sat_user_metadata_uploads')
                 ->when($search !== '', function ($q) use ($search) {
                     $q->where(function ($sub) use ($search) {
@@ -1048,19 +1049,13 @@ final class SatOpsDownloadsController extends Controller
                             ->orWhere('direction_detected', 'like', "%{$search}%");
                     });
                 })
-                ->get()
-                ->map(function ($row) {
-                    return (object)[
-                        'id' => $row->id ?? null,
-                        'original_name' => $row->original_name ?? '',
-                        'rfc' => $row->rfc_owner ?? '',
-                        'status' => $row->status ?? '',
-                        'type' => 'metadata',
-                    ];
-                });
+                ->get();
 
         } catch (\Throwable $e) {
-            \Log::error('queryMetadata ERROR: ' . $e->getMessage());
+
+            // 🔥 NUNCA vuelve a romper producción
+            \Log::error('DOWNLOADS_METADATA_ERROR: ' . $e->getMessage());
+
             return collect();
         }
     }
