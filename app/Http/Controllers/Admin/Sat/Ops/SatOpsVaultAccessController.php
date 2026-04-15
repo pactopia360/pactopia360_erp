@@ -40,27 +40,31 @@ final class SatOpsVaultAccessController extends Controller
         | No se borran de BD, solo se excluyen del listado administrativo.
         */
         $accountsQuery->where(function ($query) {
-            // Excluir registros marcados explícitamente como duplicados
             $query->whereNull('razon_social')
-                ->orWhere('razon_social', 'not like', '[DUPLICATE]%');
-        });
-
-        $accountsQuery->where(function ($query) {
-            // Excluir nombres genéricos tipo "Cuenta 9", "Cuenta 14", etc.
-            $query->whereNull('razon_social')
-                ->orWhere('razon_social', 'not regexp', '^Cuenta[[:space:]]+[0-9]+$');
+                ->orWhere(function ($q) {
+                    $q->where('razon_social', 'not like', 'Cuenta %')
+                    ->where('razon_social', 'not like', '[DUPLICATE]%')
+                    ->where('razon_social', 'not like', 'QA %')
+                    ->where('razon_social', 'not like', 'Prueba %');
+                });
         });
 
         $accountsQuery->where(function ($query) {
             $query->whereNull('nombre_comercial')
-                ->orWhere('nombre_comercial', 'not regexp', '^Cuenta[[:space:]]+[0-9]+$');
+                ->orWhere(function ($q) {
+                    $q->where('nombre_comercial', 'not like', 'Cuenta %')
+                    ->where('nombre_comercial', 'not like', '[DUPLICATE]%')
+                    ->where('nombre_comercial', 'not like', 'QA %')
+                    ->where('nombre_comercial', 'not like', 'Prueba %');
+                });
         });
 
         $accountsQuery->where(function ($query) {
-            // Excluir correos de pruebas internas
             $query->whereNull('email')
-                ->orWhere('email', 'not like', '%@pactopia.test')
-                ->orWhere('email', 'not like', '%@example.com');
+                ->orWhere(function ($q) {
+                    $q->where('email', 'not like', '%@pactopia.test')
+                    ->where('email', 'not like', '%@example.com');
+                });
         });
 
         if ($q !== '') {
@@ -104,7 +108,6 @@ final class SatOpsVaultAccessController extends Controller
             'moduleMap' => $moduleMap,
         ]);
     }
-
     public function updateV1(Request $request, string $cuentaId): RedirectResponse
     {
         $request->validate([
