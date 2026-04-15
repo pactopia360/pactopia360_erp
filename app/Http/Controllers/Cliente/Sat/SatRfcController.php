@@ -744,16 +744,62 @@ final class SatRfcController extends Controller
             return null;
         }
 
-        /** @var SatCredential|null $credential */
-        $credential = SatCredential::query()
-            ->where(function ($q) use ($cuentaId) {
+        $adminAccountId = $this->resolveAdminAccountIdFromPortal();
+
+        $query = SatCredential::query()
+            ->where(function ($q) use ($cuentaId, $adminAccountId) {
                 $q->where('cuenta_id', $cuentaId)
                     ->orWhere('account_id', $cuentaId);
-            })
+
+                if ($adminAccountId !== null) {
+                    $q->orWhere('account_id', $adminAccountId);
+                }
+            });
+
+        /** @var SatCredential|null $credential */
+        $credential = (clone $query)
             ->where('id', $id)
             ->first();
 
-        if (!$credential || $this->isLogicallyDeleted($credential)) {
+        if (!$credential && $this->hasColumn('sat_credentials', 'external_upload_id')) {
+            $credential = (clone $query)
+                ->where('external_upload_id', $id)
+                ->first();
+        }
+
+        if (!$credential && ctype_digit((string) $id)) {
+            $numericId = (int) $id;
+
+            $credential = (clone $query)
+                ->where('id', $numericId)
+                ->first();
+
+            if (!$credential && $this->hasColumn('sat_credentials', 'external_upload_id')) {
+                $credential = (clone $query)
+                    ->where('external_upload_id', $numericId)
+                    ->first();
+            }
+        }
+
+        if (!$credential) {
+            Log::warning('[SAT RFC] resolveOwnedCredential not found', [
+                'trace_id'         => $this->trace(),
+                'requested_id'     => $id,
+                'cuenta_id'        => $cuentaId,
+                'admin_account_id' => $adminAccountId,
+            ]);
+
+            return null;
+        }
+
+        if ($this->isLogicallyDeleted($credential)) {
+            Log::warning('[SAT RFC] resolveOwnedCredential logically deleted', [
+                'trace_id'     => $this->trace(),
+                'requested_id' => $id,
+                'resolved_id'  => (string) ($credential->id ?? ''),
+                'rfc'          => (string) ($credential->rfc ?? ''),
+            ]);
+
             return null;
         }
 
