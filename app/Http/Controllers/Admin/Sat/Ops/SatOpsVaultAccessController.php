@@ -95,7 +95,7 @@ final class SatOpsVaultAccessController extends Controller
             ")
             ->orderBy('razon_social')
             ->orderBy('nombre_comercial')
-            ->paginate(12)
+            ->paginate(4)
             ->withQueryString();
 
         $accessMap = $this->buildAccessMap($accounts->getCollection());

@@ -403,8 +403,8 @@
                               <button
                                 type="button"
                                 class="vaBtn vaBtn--ghost vaBtn--sm"
-                                data-va-open="{{ $editModalId }}"
-                                data-va-close-current="{{ $modalUsersId }}">
+                                disabled
+                                title="Edición detallada temporalmente deshabilitada para estabilizar el módulo">
                                 Editar
                               </button>
 
@@ -456,92 +456,6 @@
                               <span>Exportar</span>
                             </label>
                           </div>
-                        </div>
-                      </div>
-
-                      {{-- Modal editar usuario --}}
-                      <div class="vaModal" id="{{ $editModalId }}" aria-hidden="true">
-                        <div class="vaModalBackdrop" data-va-close="{{ $editModalId }}"></div>
-                        <div class="vaModalDialog">
-                          <div class="vaModalHead">
-                            <div>
-                              <div class="vaModalKicker">EDITAR USUARIO</div>
-                              <h3 class="vaModalTitle">{{ $user->nombre ?: 'Usuario sin nombre' }}</h3>
-                              <div class="vaModalSub">Actualiza datos del usuario y sus permisos base.</div>
-                            </div>
-
-                            <button type="button" class="vaIconBtn" data-va-close="{{ $editModalId }}">×</button>
-                          </div>
-
-                          <form method="POST" action="{{ route('admin.billing.vault_access.users.update', ['cuentaId' => $account->id, 'usuarioId' => $user->id, 'q' => $q]) }}">
-                            @csrf
-
-                            <div class="vaModalBody">
-                              <div class="vaFormGrid">
-                                <div class="vaField">
-                                  <label>Nombre</label>
-                                  <input type="text" name="nombre" value="{{ $user->nombre }}" required>
-                                </div>
-
-                                <div class="vaField">
-                                  <label>Email</label>
-                                  <input type="email" name="email" value="{{ $user->email }}" required>
-                                </div>
-
-                                <div class="vaField">
-                                  <label>Rol</label>
-                                  <input type="text" name="rol" value="{{ $user->rol }}">
-                                </div>
-
-                                <div class="vaField">
-                                  <label>Tipo</label>
-                                  <input type="text" name="tipo" value="{{ $user->tipo }}">
-                                </div>
-
-                                <div class="vaField">
-                                  <label>Password nueva</label>
-                                  <input type="text" name="password" placeholder="Opcional, solo si deseas cambiarla">
-                                </div>
-                              </div>
-
-                              <div class="vaChecksGrid">
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="activo" value="1" {{ $user->activo ? 'checked' : '' }}>
-                                  <span>Activo</span>
-                                </label>
-
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="must_change_password" value="1" {{ $user->must_change_password ? 'checked' : '' }}>
-                                  <span>Forzar cambio de password</span>
-                                </label>
-
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="can_access_vault" value="1" {{ ($ua && $ua->can_access_vault) ? 'checked' : '' }}>
-                                  <span>Acceso v2</span>
-                                </label>
-
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="can_upload_metadata" value="1" {{ ($ua && $ua->can_upload_metadata) ? 'checked' : '' }}>
-                                  <span>Metadata</span>
-                                </label>
-
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="can_upload_xml" value="1" {{ ($ua && $ua->can_upload_xml) ? 'checked' : '' }}>
-                                  <span>XML</span>
-                                </label>
-
-                                <label class="vaCheck">
-                                  <input type="checkbox" name="can_export" value="1" {{ ($ua && $ua->can_export) ? 'checked' : '' }}>
-                                  <span>Exportar</span>
-                                </label>
-                              </div>
-                            </div>
-
-                            <div class="vaModalFoot">
-                              <button type="submit" class="vaBtn vaBtn--primary">Guardar cambios</button>
-                              <button type="button" class="vaBtn vaBtn--ghost" data-va-close="{{ $editModalId }}">Cerrar</button>
-                            </div>
-                          </form>
                         </div>
                       </div>
                     @endforeach
