@@ -1032,65 +1032,85 @@ final class SatOpsDownloadsController extends Controller
 
     private function queryMetadata(string $search): Collection
     {
-        if (!$this->clientesTableExists('sat_user_metadata_uploads')) {
+        try {
+            if (
+                !$this->clientesTableExists('sat_user_metadata_uploads') ||
+                !class_exists(\App\Models\Cliente\SatUserMetadataUpload::class)
+            ) {
+                return collect();
+            }
+
+            return SatUserMetadataUpload::query()
+                ->when($search !== '', function ($q) use ($search) {
+                    $q->where(function ($sub) use ($search) {
+                        $sub->where('original_name', 'like', "%{$search}%")
+                            ->orWhere('rfc_owner', 'like', "%{$search}%")
+                            ->orWhere('status', 'like', "%{$search}%")
+                            ->orWhere('direction_detected', 'like', "%{$search}%");
+                    });
+                })
+                ->get()
+                ->map(fn ($row) => $this->mapV2Upload($row, 'metadata'));
+        } catch (\Throwable $e) {
+            report($e);
             return collect();
         }
-
-        return SatUserMetadataUpload::query()
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('original_name', 'like', "%{$search}%")
-                        ->orWhere('rfc_owner', 'like', "%{$search}%")
-                        ->orWhere('status', 'like', "%{$search}%")
-                        ->orWhere('direction_detected', 'like', "%{$search}%");
-                });
-            })
-            ->get()
-            ->map(fn ($row) => $this->mapV2Upload($row, 'metadata'));
     }
 
     private function queryXml(string $search): Collection
     {
-        if (
-            !$this->clientesTableExists('sat_user_xml_uploads') ||
-            !$this->clientesTableExists('sat_user_cfdis')
-        ) {
+        try {
+            if (
+                !$this->clientesTableExists('sat_user_xml_uploads') ||
+                !$this->clientesTableExists('sat_user_cfdis') ||
+                !class_exists(\App\Models\Cliente\SatUserXmlUpload::class)
+            ) {
+                return collect();
+            }
+
+            return SatUserXmlUpload::query()
+                ->when($search !== '', function ($q) use ($search) {
+                    $q->where(function ($sub) use ($search) {
+                        $sub->where('original_name', 'like', "%{$search}%")
+                            ->orWhere('rfc_owner', 'like', "%{$search}%")
+                            ->orWhere('status', 'like', "%{$search}%")
+                            ->orWhere('direction_detected', 'like', "%{$search}%");
+                    });
+                })
+                ->get()
+                ->map(fn ($row) => $this->mapV2Upload($row, 'xml'));
+        } catch (\Throwable $e) {
+            report($e);
             return collect();
         }
-
-        return SatUserXmlUpload::query()
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('original_name', 'like', "%{$search}%")
-                        ->orWhere('rfc_owner', 'like', "%{$search}%")
-                        ->orWhere('status', 'like', "%{$search}%")
-                        ->orWhere('direction_detected', 'like', "%{$search}%");
-                });
-            })
-            ->get()
-            ->map(fn ($row) => $this->mapV2Upload($row, 'xml'));
     }
 
     private function queryReport(string $search): Collection
     {
-        if (
-            !$this->clientesTableExists('sat_user_report_uploads') ||
-            !$this->clientesTableExists('sat_user_report_items')
-        ) {
+        try {
+            if (
+                !$this->clientesTableExists('sat_user_report_uploads') ||
+                !$this->clientesTableExists('sat_user_report_items') ||
+                !class_exists(\App\Models\Cliente\SatUserReportUpload::class)
+            ) {
+                return collect();
+            }
+
+            return SatUserReportUpload::query()
+                ->when($search !== '', function ($q) use ($search) {
+                    $q->where(function ($sub) use ($search) {
+                        $sub->where('original_name', 'like', "%{$search}%")
+                            ->orWhere('rfc_owner', 'like', "%{$search}%")
+                            ->orWhere('status', 'like', "%{$search}%")
+                            ->orWhere('report_type', 'like', "%{$search}%");
+                    });
+                })
+                ->get()
+                ->map(fn ($row) => $this->mapV2Upload($row, 'report'));
+        } catch (\Throwable $e) {
+            report($e);
             return collect();
         }
-
-        return SatUserReportUpload::query()
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('original_name', 'like', "%{$search}%")
-                        ->orWhere('rfc_owner', 'like', "%{$search}%")
-                        ->orWhere('status', 'like', "%{$search}%")
-                        ->orWhere('report_type', 'like', "%{$search}%");
-                });
-            })
-            ->get()
-            ->map(fn ($row) => $this->mapV2Upload($row, 'report'));
     }
 
     private function queryVaultFilesV1(string $search): Collection
@@ -1192,12 +1212,23 @@ final class SatOpsDownloadsController extends Controller
     private function resolveModel(string $type, string $id): object|null
     {
         return match ($type) {
-            'metadata'    => SatUserMetadataUpload::query()->find($id),
-            'xml'         => SatUserXmlUpload::query()->find($id),
-            'report'      => SatUserReportUpload::query()->find($id),
-            'vault'       => VaultFile::query()->find($id),
+            'metadata' => $this->clientesTableExists('sat_user_metadata_uploads')
+                ? SatUserMetadataUpload::query()->find($id)
+                : null,
+
+            'xml' => $this->clientesTableExists('sat_user_xml_uploads')
+                ? SatUserXmlUpload::query()->find($id)
+                : null,
+
+            'report' => $this->clientesTableExists('sat_user_report_uploads')
+                ? SatUserReportUpload::query()->find($id)
+                : null,
+
+            'vault' => VaultFile::query()->find($id),
+
             'satdownload' => SatDownload::query()->find($id),
-            default       => null,
+
+            default => null,
         };
     }
 
