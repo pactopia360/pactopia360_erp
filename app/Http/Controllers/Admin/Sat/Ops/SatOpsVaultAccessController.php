@@ -43,33 +43,45 @@ final class SatOpsVaultAccessController extends Controller
             |--------------------------------------------------------------------------
             | No se borran de BD, solo se excluyen del listado administrativo.
             */
-            $accountsQuery->where(function ($query) {
-                $query->whereNull('razon_social')
-                    ->orWhere(function ($q) {
-                        $q->where('razon_social', 'not like', 'Cuenta %')
-                            ->where('razon_social', 'not like', '[DUPLICATE]%')
-                            ->where('razon_social', 'not like', 'QA %')
-                            ->where('razon_social', 'not like', 'Prueba %');
-                    });
-            });
+            $accountsColumns = $this->getExistingAccountColumns([
+                'razon_social',
+                'nombre_comercial',
+                'email',
+            ]);
 
-            $accountsQuery->where(function ($query) {
-                $query->whereNull('nombre_comercial')
-                    ->orWhere(function ($q) {
-                        $q->where('nombre_comercial', 'not like', 'Cuenta %')
-                            ->where('nombre_comercial', 'not like', '[DUPLICATE]%')
-                            ->where('nombre_comercial', 'not like', 'QA %')
-                            ->where('nombre_comercial', 'not like', 'Prueba %');
-                    });
-            });
+            if (in_array('razon_social', $accountsColumns, true)) {
+                $accountsQuery->where(function ($query) {
+                    $query->whereNull('razon_social')
+                        ->orWhere(function ($q) {
+                            $q->where('razon_social', 'not like', 'Cuenta %')
+                                ->where('razon_social', 'not like', '[DUPLICATE]%')
+                                ->where('razon_social', 'not like', 'QA %')
+                                ->where('razon_social', 'not like', 'Prueba %');
+                        });
+                });
+            }
 
-            $accountsQuery->where(function ($query) {
-                $query->whereNull('email')
-                    ->orWhere(function ($q) {
-                        $q->where('email', 'not like', '%@pactopia.test')
-                            ->where('email', 'not like', '%@example.com');
-                    });
-            });
+            if (in_array('nombre_comercial', $accountsColumns, true)) {
+                $accountsQuery->where(function ($query) {
+                    $query->whereNull('nombre_comercial')
+                        ->orWhere(function ($q) {
+                            $q->where('nombre_comercial', 'not like', 'Cuenta %')
+                                ->where('nombre_comercial', 'not like', '[DUPLICATE]%')
+                                ->where('nombre_comercial', 'not like', 'QA %')
+                                ->where('nombre_comercial', 'not like', 'Prueba %');
+                        });
+                });
+            }
+
+            if (in_array('email', $accountsColumns, true)) {
+                $accountsQuery->where(function ($query) {
+                    $query->whereNull('email')
+                        ->orWhere(function ($q) {
+                            $q->where('email', 'not like', '%@pactopia.test')
+                                ->where('email', 'not like', '%@example.com');
+                        });
+                });
+            }
 
             if ($q !== '') {
                 $searchableColumns = $this->getSearchableAccountColumns();
@@ -791,5 +803,22 @@ final class SatOpsVaultAccessController extends Controller
 
             return false;
         }
+    }
+
+     /**
+     * @param array<int, string> $columns
+     * @return array<int, string>
+     */
+    private function getExistingAccountColumns(array $columns): array
+    {
+        $available = [];
+
+        foreach ($columns as $column) {
+            if ($this->safeHasColumn(self::CONN_CLIENTES, 'cuentas_cliente', $column)) {
+                $available[] = $column;
+            }
+        }
+
+        return $available;
     }
 }
