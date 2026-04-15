@@ -13,101 +13,121 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Throwable;
 
 final class SatOpsVaultAccessController extends Controller
 {
     private const CONN_CLIENTES = 'mysql_clientes';
     private const CONN_ADMIN    = 'mysql_admin';
     private const ROUTE_INDEX   = 'admin.billing.vault_access.index';
+    private const PER_PAGE      = 20;
 
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
 
-        $accountsQuery = CuentaCliente::query()
-            ->with(['usuarios' => function ($query) {
-                $query->orderBy('nombre')->orderBy('email');
-            }]);
+        try {
+            $accountsQuery = CuentaCliente::query()
+                ->with(['usuarios' => function ($query) {
+                    $query->orderBy('nombre')->orderBy('email');
+                }]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Ocultar cuentas basura / demo / duplicadas visibles en este módulo
-        |--------------------------------------------------------------------------
-        | No se borran de BD, solo se excluyen del listado administrativo.
-        */
-        $accountsQuery->where(function ($query) {
-            $query->whereNull('razon_social')
-                ->orWhere(function ($q) {
-                    $q->where('razon_social', 'not like', 'Cuenta %')
-                    ->where('razon_social', 'not like', '[DUPLICATE]%')
-                    ->where('razon_social', 'not like', 'QA %')
-                    ->where('razon_social', 'not like', 'Prueba %');
-                });
-        });
+            /*
+            |--------------------------------------------------------------------------
+            | Ocultar cuentas basura / demo / duplicadas visibles en este módulo
+            |--------------------------------------------------------------------------
+            | No se borran de BD, solo se excluyen del listado administrativo.
+            */
+            $accountsQuery->where(function ($query) {
+                $query->whereNull('razon_social')
+                    ->orWhere(function ($q) {
+                        $q->where('razon_social', 'not like', 'Cuenta %')
+                            ->where('razon_social', 'not like', '[DUPLICATE]%')
+                            ->where('razon_social', 'not like', 'QA %')
+                            ->where('razon_social', 'not like', 'Prueba %');
+                    });
+            });
 
-        $accountsQuery->where(function ($query) {
-            $query->whereNull('nombre_comercial')
-                ->orWhere(function ($q) {
-                    $q->where('nombre_comercial', 'not like', 'Cuenta %')
-                    ->where('nombre_comercial', 'not like', '[DUPLICATE]%')
-                    ->where('nombre_comercial', 'not like', 'QA %')
-                    ->where('nombre_comercial', 'not like', 'Prueba %');
-                });
-        });
+            $accountsQuery->where(function ($query) {
+                $query->whereNull('nombre_comercial')
+                    ->orWhere(function ($q) {
+                        $q->where('nombre_comercial', 'not like', 'Cuenta %')
+                            ->where('nombre_comercial', 'not like', '[DUPLICATE]%')
+                            ->where('nombre_comercial', 'not like', 'QA %')
+                            ->where('nombre_comercial', 'not like', 'Prueba %');
+                    });
+            });
 
-        $accountsQuery->where(function ($query) {
-            $query->whereNull('email')
-                ->orWhere(function ($q) {
-                    $q->where('email', 'not like', '%@pactopia.test')
-                    ->where('email', 'not like', '%@example.com');
-                });
-        });
+            $accountsQuery->where(function ($query) {
+                $query->whereNull('email')
+                    ->orWhere(function ($q) {
+                        $q->where('email', 'not like', '%@pactopia.test')
+                            ->where('email', 'not like', '%@example.com');
+                    });
+            });
 
-        if ($q !== '') {
-            $searchableColumns = $this->getSearchableAccountColumns();
+            if ($q !== '') {
+                $searchableColumns = $this->getSearchableAccountColumns();
 
-            if (!empty($searchableColumns)) {
-                $accountsQuery->where(function ($sub) use ($q, $searchableColumns) {
-                    foreach ($searchableColumns as $index => $column) {
-                        if ($index === 0) {
-                            $sub->where($column, 'like', '%' . $q . '%');
-                        } else {
-                            $sub->orWhere($column, 'like', '%' . $q . '%');
+                if (!empty($searchableColumns)) {
+                    $accountsQuery->where(function ($sub) use ($q, $searchableColumns) {
+                        foreach ($searchableColumns as $index => $column) {
+                            if ($index === 0) {
+                                $sub->where($column, 'like', '%' . $q . '%');
+                            } else {
+                                $sub->orWhere($column, 'like', '%' . $q . '%');
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
+
+            $accounts = $accountsQuery
+                ->orderByRaw("
+                    CASE
+                        WHEN plan_actual = 'PRO' THEN 0
+                        WHEN plan_actual = 'BASIC' THEN 1
+                        WHEN plan_actual = 'FREE' THEN 2
+                        WHEN plan_actual IS NULL THEN 3
+                        ELSE 4
+                    END
+                ")
+                ->orderBy('razon_social')
+                ->orderBy('nombre_comercial')
+                ->paginate(self::PER_PAGE)
+                ->withQueryString();
+
+            $accessMap = $this->buildAccessMap($accounts->getCollection());
+            $moduleMap = $this->buildModuleMap($accounts->getCollection());
+
+            return view('admin.sat.ops.vault_access', [
+                'accounts'  => $accounts,
+                'q'         => $q,
+                'accessMap' => $accessMap,
+                'moduleMap' => $moduleMap,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access index failed', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+                'q'       => $q,
+            ]);
+
+            return view('admin.sat.ops.vault_access', [
+                'accounts'  => CuentaCliente::query()->whereRaw('1 = 0')->paginate(self::PER_PAGE),
+                'q'         => $q,
+                'accessMap' => [],
+                'moduleMap' => [],
+            ])->with('error', 'No fue posible cargar el módulo de Acceso a bóvedas. Revisa configuración de conexiones/tablas en producción.');
         }
-
-        $accounts = $accountsQuery
-            ->orderByRaw("
-                CASE
-                    WHEN plan_actual = 'PRO' THEN 0
-                    WHEN plan_actual = 'BASIC' THEN 1
-                    WHEN plan_actual = 'FREE' THEN 2
-                    WHEN plan_actual IS NULL THEN 3
-                    ELSE 4
-                END
-            ")
-            ->orderBy('razon_social')
-            ->orderBy('nombre_comercial')
-            ->paginate(4)
-            ->withQueryString();
-
-        $accessMap = $this->buildAccessMap($accounts->getCollection());
-        $moduleMap = $this->buildModuleMap($accounts->getCollection());
-
-        return view('admin.sat.ops.vault_access', [
-            'accounts'  => $accounts,
-            'q'         => $q,
-            'accessMap' => $accessMap,
-            'moduleMap' => $moduleMap,
-        ]);
     }
+
     public function updateV1(Request $request, string $cuentaId): RedirectResponse
     {
         $request->validate([
@@ -121,18 +141,30 @@ final class SatOpsVaultAccessController extends Controller
                 ->with('error', 'La cuenta solicitada no existe.');
         }
 
-        if (!Schema::connection(self::CONN_CLIENTES)->hasColumn('cuentas_cliente', 'vault_active')) {
+        if (!$this->safeHasColumn(self::CONN_CLIENTES, 'cuentas_cliente', 'vault_active')) {
             return $this->redirectToIndex($request)
-                ->with('error', 'La columna cuentas_cliente.vault_active no existe en esta base.');
+                ->with('error', 'La columna cuentas_cliente.vault_active no existe o la conexión mysql_clientes no está disponible.');
         }
 
         $enabled = (int) $request->input('enabled') === 1;
 
-        $account->vault_active = $enabled ? 1 : 0;
-        $account->save();
+        try {
+            $account->vault_active = $enabled ? 1 : 0;
+            $account->save();
 
-        return $this->redirectToIndex($request)
-            ->with('success', 'Acceso a Bóveda v1 actualizado para la cuenta.');
+            return $this->redirectToIndex($request)
+                ->with('success', 'Acceso a Bóveda v1 actualizado para la cuenta.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access updateV1 failed', [
+                'cuenta_id' => $cuentaId,
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ]);
+
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible actualizar Bóveda v1.');
+        }
     }
 
     public function updateV2Module(Request $request, string $cuentaId): RedirectResponse
@@ -154,44 +186,57 @@ final class SatOpsVaultAccessController extends Controller
                 ->with('error', 'La cuenta no tiene admin_account_id vinculado.');
         }
 
-        if (!Schema::connection(self::CONN_ADMIN)->hasTable('accounts')) {
+        if (!$this->safeHasTable(self::CONN_ADMIN, 'accounts')) {
             return $this->redirectToIndex($request)
-                ->with('error', 'La tabla accounts no existe en mysql_admin.');
+                ->with('error', 'La tabla accounts no existe o la conexión mysql_admin no está disponible.');
         }
 
-        if (!Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'meta')) {
+        if (!$this->safeHasColumn(self::CONN_ADMIN, 'accounts', 'meta')) {
             return $this->redirectToIndex($request)
                 ->with('error', 'La columna accounts.meta no existe en mysql_admin.');
         }
 
-        $row = DB::connection(self::CONN_ADMIN)
-            ->table('accounts')
-            ->where('id', $adminAccountId)
-            ->first();
+        try {
+            $row = DB::connection(self::CONN_ADMIN)
+                ->table('accounts')
+                ->where('id', $adminAccountId)
+                ->first();
 
-        if (!$row) {
+            if (!$row) {
+                return $this->redirectToIndex($request)
+                    ->with('error', 'La cuenta admin vinculada no existe.');
+            }
+
+            $enabled = (int) $request->input('enabled') === 1;
+            $meta = $this->decodeMeta($row->meta ?? null);
+
+            data_set($meta, 'modules.sat_boveda_v2', $enabled);
+            data_set($meta, 'modules_state.sat_boveda_v2', $enabled ? 'active' : 'inactive');
+            data_set($meta, 'modules_updated_at.sat_boveda_v2', now()->toDateTimeString());
+            data_set($meta, 'modules_updated_by.sat_boveda_v2', (string) (Auth::guard('admin')->id() ?? ''));
+
+            DB::connection(self::CONN_ADMIN)
+                ->table('accounts')
+                ->where('id', $adminAccountId)
+                ->update([
+                    'meta'       => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'updated_at' => now(),
+                ]);
+
             return $this->redirectToIndex($request)
-                ->with('error', 'La cuenta admin vinculada no existe.');
-        }
-
-        $enabled = (int) $request->input('enabled') === 1;
-        $meta = $this->decodeMeta($row->meta ?? null);
-
-        data_set($meta, 'modules.sat_boveda_v2', $enabled);
-        data_set($meta, 'modules_state.sat_boveda_v2', $enabled ? 'active' : 'inactive');
-        data_set($meta, 'modules_updated_at.sat_boveda_v2', now()->toDateTimeString());
-        data_set($meta, 'modules_updated_by.sat_boveda_v2', (string) (Auth::guard('admin')->id() ?? ''));
-
-        DB::connection(self::CONN_ADMIN)
-            ->table('accounts')
-            ->where('id', $adminAccountId)
-            ->update([
-                'meta'       => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'updated_at' => now(),
+                ->with('success', 'Módulo SAT Bóveda v2 actualizado a nivel cuenta.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access updateV2Module failed', [
+                'cuenta_id'        => $cuentaId,
+                'admin_account_id' => $adminAccountId,
+                'message'          => $e->getMessage(),
+                'file'             => $e->getFile(),
+                'line'             => $e->getLine(),
             ]);
 
-        return $this->redirectToIndex($request)
-            ->with('success', 'Módulo SAT Bóveda v2 actualizado a nivel cuenta.');
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible actualizar el módulo SAT Bóveda v2.');
+        }
     }
 
     public function updateV2Users(Request $request, string $cuentaId): RedirectResponse
@@ -209,45 +254,56 @@ final class SatOpsVaultAccessController extends Controller
         $inputUsers = (array) $request->input('users', []);
         $adminId = (string) (Auth::guard('admin')->id() ?? '');
 
-        foreach ($account->usuarios as $user) {
-            $row = (array) ($inputUsers[$user->id] ?? []);
+        try {
+            foreach ($account->usuarios as $user) {
+                $row = (array) ($inputUsers[$user->id] ?? []);
 
-            $canAccessV1 = isset($row['can_access_v1']) && (string) $row['can_access_v1'] === '1';
-            $canAccessV2 = isset($row['can_access_v2']) && (string) $row['can_access_v2'] === '1';
+                $canAccessV1 = isset($row['can_access_v1']) && (string) $row['can_access_v1'] === '1';
+                $canAccessV2 = isset($row['can_access_v2']) && (string) $row['can_access_v2'] === '1';
 
-            // Compatibilidad con versión anterior del formulario
-            if (!$canAccessV2 && isset($row['can_access_vault']) && (string) $row['can_access_vault'] === '1') {
-                $canAccessV2 = true;
+                if (!$canAccessV2 && isset($row['can_access_vault']) && (string) $row['can_access_vault'] === '1') {
+                    $canAccessV2 = true;
+                }
+
+                $canUploadMetadata = $canAccessV2
+                    ? (isset($row['can_upload_metadata']) && (string) $row['can_upload_metadata'] === '1')
+                    : false;
+
+                $canUploadXml = $canAccessV2
+                    ? (isset($row['can_upload_xml']) && (string) $row['can_upload_xml'] === '1')
+                    : false;
+
+                $canExport = $canAccessV2
+                    ? (isset($row['can_export']) && (string) $row['can_export'] === '1')
+                    : false;
+
+                $this->syncUserVaultAccess(
+                    cuentaId: (string) $account->id,
+                    usuarioId: (string) $user->id,
+                    usuarioNombre: (string) ($user->nombre ?? ''),
+                    usuarioEmail: (string) ($user->email ?? ''),
+                    adminId: $adminId,
+                    canAccessV1: $canAccessV1,
+                    canAccessV2: $canAccessV2,
+                    canUploadMetadata: $canUploadMetadata,
+                    canUploadXml: $canUploadXml,
+                    canExport: $canExport,
+                );
             }
 
-            $canUploadMetadata = $canAccessV2
-                ? (isset($row['can_upload_metadata']) && (string) $row['can_upload_metadata'] === '1')
-                : false;
+            return $this->redirectToIndex($request)
+                ->with('success', 'Permisos de Bóveda V1 y Bóveda V2 actualizados para los usuarios de la cuenta.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access updateV2Users failed', [
+                'cuenta_id' => $cuentaId,
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ]);
 
-            $canUploadXml = $canAccessV2
-                ? (isset($row['can_upload_xml']) && (string) $row['can_upload_xml'] === '1')
-                : false;
-
-            $canExport = $canAccessV2
-                ? (isset($row['can_export']) && (string) $row['can_export'] === '1')
-                : false;
-
-            $this->syncUserVaultAccess(
-                cuentaId: (string) $account->id,
-                usuarioId: (string) $user->id,
-                usuarioNombre: (string) ($user->nombre ?? ''),
-                usuarioEmail: (string) ($user->email ?? ''),
-                adminId: $adminId,
-                canAccessV1: $canAccessV1,
-                canAccessV2: $canAccessV2,
-                canUploadMetadata: $canUploadMetadata,
-                canUploadXml: $canUploadXml,
-                canExport: $canExport,
-            );
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible actualizar los permisos de usuarios.');
         }
-
-        return $this->redirectToIndex($request)
-            ->with('success', 'Permisos de Bóveda V1 y Bóveda V2 actualizados para los usuarios de la cuenta.');
     }
 
     public function storeAccountUser(Request $request, string $cuentaId): RedirectResponse
@@ -263,25 +319,25 @@ final class SatOpsVaultAccessController extends Controller
         }
 
         $validated = $request->validate([
-            'nombre'              => ['required', 'string', 'max:160'],
-            'email'               => [
+            'nombre'               => ['required', 'string', 'max:160'],
+            'email'                => [
                 'required',
                 'string',
                 'email:rfc',
                 'max:190',
                 Rule::unique(self::CONN_CLIENTES . '.usuarios_cuenta', 'email'),
             ],
-            'rol'                 => ['nullable', 'string', 'max:80'],
-            'tipo'                => ['nullable', 'string', 'max:80'],
-            'activo'              => ['nullable', 'in:0,1'],
-            'must_change_password'=> ['nullable', 'in:0,1'],
-            'password'            => ['nullable', 'string', 'min:8', 'max:120'],
-            'can_access_v1'       => ['nullable', 'in:0,1'],
-            'can_access_v2'       => ['nullable', 'in:0,1'],
-            'can_access_vault'    => ['nullable', 'in:0,1'],
-            'can_upload_metadata' => ['nullable', 'in:0,1'],
-            'can_upload_xml'      => ['nullable', 'in:0,1'],
-            'can_export'          => ['nullable', 'in:0,1'],
+            'rol'                  => ['nullable', 'string', 'max:80'],
+            'tipo'                 => ['nullable', 'string', 'max:80'],
+            'activo'               => ['nullable', 'in:0,1'],
+            'must_change_password' => ['nullable', 'in:0,1'],
+            'password'             => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_v1'        => ['nullable', 'in:0,1'],
+            'can_access_v2'        => ['nullable', 'in:0,1'],
+            'can_access_vault'     => ['nullable', 'in:0,1'],
+            'can_upload_metadata'  => ['nullable', 'in:0,1'],
+            'can_upload_xml'       => ['nullable', 'in:0,1'],
+            'can_export'           => ['nullable', 'in:0,1'],
         ]);
 
         $maxUsuarios = (int) ($account->max_usuarios ?? 0);
@@ -290,43 +346,55 @@ final class SatOpsVaultAccessController extends Controller
                 ->with('error', 'La cuenta ya alcanzó el máximo de usuarios permitidos.');
         }
 
-        $plainPassword = trim((string) ($validated['password'] ?? ''));
-        if ($plainPassword === '') {
-            $plainPassword = Str::random(12);
+        try {
+            $plainPassword = trim((string) ($validated['password'] ?? ''));
+            if ($plainPassword === '') {
+                $plainPassword = Str::random(12);
+            }
+
+            $user = new UsuarioCuenta();
+            $user->cuenta_id = (string) $account->id;
+            $user->nombre = trim((string) $validated['nombre']);
+            $user->email = Str::lower(trim((string) $validated['email']));
+            $user->rol = trim((string) ($validated['rol'] ?? 'usuario')) ?: 'usuario';
+            $user->tipo = trim((string) ($validated['tipo'] ?? 'usuario')) ?: 'usuario';
+            $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
+            $user->must_change_password = ((string) ($validated['must_change_password'] ?? '1')) === '1';
+            $user->password = $plainPassword;
+            $user->password_temp = $plainPassword;
+            $user->save();
+
+            $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
+            if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
+                $canAccessV2 = true;
+            }
+
+            $this->syncUserVaultAccess(
+                cuentaId: (string) $account->id,
+                usuarioId: (string) $user->id,
+                usuarioNombre: (string) $user->nombre,
+                usuarioEmail: (string) $user->email,
+                adminId: (string) (Auth::guard('admin')->id() ?? ''),
+                canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
+                canAccessV2: $canAccessV2,
+                canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
+                canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
+                canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
+            );
+
+            return $this->redirectToIndex($request)
+                ->with('success', 'Usuario agregado correctamente a la cuenta.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access storeAccountUser failed', [
+                'cuenta_id' => $cuentaId,
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ]);
+
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible agregar el usuario.');
         }
-
-        $user = new UsuarioCuenta();
-        $user->cuenta_id = (string) $account->id;
-        $user->nombre = trim((string) $validated['nombre']);
-        $user->email = Str::lower(trim((string) $validated['email']));
-        $user->rol = trim((string) ($validated['rol'] ?? 'usuario')) ?: 'usuario';
-        $user->tipo = trim((string) ($validated['tipo'] ?? 'usuario')) ?: 'usuario';
-        $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
-        $user->must_change_password = ((string) ($validated['must_change_password'] ?? '1')) === '1';
-        $user->password = $plainPassword;
-        $user->password_temp = $plainPassword;
-        $user->save();
-
-        $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
-        if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
-            $canAccessV2 = true;
-        }
-
-        $this->syncUserVaultAccess(
-            cuentaId: (string) $account->id,
-            usuarioId: (string) $user->id,
-            usuarioNombre: (string) $user->nombre,
-            usuarioEmail: (string) $user->email,
-            adminId: (string) (Auth::guard('admin')->id() ?? ''),
-            canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
-            canAccessV2: $canAccessV2,
-            canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
-            canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
-            canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
-        );
-
-        return $this->redirectToIndex($request)
-            ->with('success', 'Usuario agregado correctamente a la cuenta.');
     }
 
     public function updateAccountUser(Request $request, string $cuentaId, string $usuarioId): RedirectResponse
@@ -352,63 +420,76 @@ final class SatOpsVaultAccessController extends Controller
         }
 
         $validated = $request->validate([
-            'nombre'              => ['required', 'string', 'max:160'],
-            'email'               => [
+            'nombre'               => ['required', 'string', 'max:160'],
+            'email'                => [
                 'required',
                 'string',
                 'email:rfc',
                 'max:190',
                 Rule::unique(self::CONN_CLIENTES . '.usuarios_cuenta', 'email')->ignore((string) $user->id, 'id'),
             ],
-            'rol'                 => ['nullable', 'string', 'max:80'],
-            'tipo'                => ['nullable', 'string', 'max:80'],
-            'activo'              => ['nullable', 'in:0,1'],
-            'must_change_password'=> ['nullable', 'in:0,1'],
-            'password'            => ['nullable', 'string', 'min:8', 'max:120'],
-            'can_access_v1'       => ['nullable', 'in:0,1'],
-            'can_access_v2'       => ['nullable', 'in:0,1'],
-            'can_access_vault'    => ['nullable', 'in:0,1'],
-            'can_upload_metadata' => ['nullable', 'in:0,1'],
-            'can_upload_xml'      => ['nullable', 'in:0,1'],
-            'can_export'          => ['nullable', 'in:0,1'],
+            'rol'                  => ['nullable', 'string', 'max:80'],
+            'tipo'                 => ['nullable', 'string', 'max:80'],
+            'activo'               => ['nullable', 'in:0,1'],
+            'must_change_password' => ['nullable', 'in:0,1'],
+            'password'             => ['nullable', 'string', 'min:8', 'max:120'],
+            'can_access_v1'        => ['nullable', 'in:0,1'],
+            'can_access_v2'        => ['nullable', 'in:0,1'],
+            'can_access_vault'     => ['nullable', 'in:0,1'],
+            'can_upload_metadata'  => ['nullable', 'in:0,1'],
+            'can_upload_xml'       => ['nullable', 'in:0,1'],
+            'can_export'           => ['nullable', 'in:0,1'],
         ]);
 
-        $plainPassword = trim((string) ($validated['password'] ?? ''));
+        try {
+            $plainPassword = trim((string) ($validated['password'] ?? ''));
 
-        $user->nombre = trim((string) $validated['nombre']);
-        $user->email = Str::lower(trim((string) $validated['email']));
-        $user->rol = trim((string) ($validated['rol'] ?? $user->rol)) ?: 'usuario';
-        $user->tipo = trim((string) ($validated['tipo'] ?? $user->tipo)) ?: 'usuario';
-        $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
-        $user->must_change_password = ((string) ($validated['must_change_password'] ?? '0')) === '1';
+            $user->nombre = trim((string) $validated['nombre']);
+            $user->email = Str::lower(trim((string) $validated['email']));
+            $user->rol = trim((string) ($validated['rol'] ?? $user->rol)) ?: 'usuario';
+            $user->tipo = trim((string) ($validated['tipo'] ?? $user->tipo)) ?: 'usuario';
+            $user->activo = ((string) ($validated['activo'] ?? '1')) === '1';
+            $user->must_change_password = ((string) ($validated['must_change_password'] ?? '0')) === '1';
 
-        if ($plainPassword !== '') {
-            $user->password = $plainPassword;
-            $user->password_temp = $plainPassword;
+            if ($plainPassword !== '') {
+                $user->password = $plainPassword;
+                $user->password_temp = $plainPassword;
+            }
+
+            $user->save();
+
+            $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
+            if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
+                $canAccessV2 = true;
+            }
+
+            $this->syncUserVaultAccess(
+                cuentaId: (string) $account->id,
+                usuarioId: (string) $user->id,
+                usuarioNombre: (string) $user->nombre,
+                usuarioEmail: (string) $user->email,
+                adminId: (string) (Auth::guard('admin')->id() ?? ''),
+                canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
+                canAccessV2: $canAccessV2,
+                canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
+                canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
+                canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
+            );
+
+            return $this->redirectToIndex($request)
+                ->with('success', 'Usuario actualizado correctamente.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access updateAccountUser failed', [
+                'cuenta_id'  => $cuentaId,
+                'usuario_id' => $usuarioId,
+                'message'    => $e->getMessage(),
+                'file'       => $e->getFile(),
+                'line'       => $e->getLine(),
+            ]);
+
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible actualizar el usuario.');
         }
-
-        $user->save();
-
-        $canAccessV2 = ((string) ($validated['can_access_v2'] ?? '0')) === '1';
-        if (!$canAccessV2 && ((string) ($validated['can_access_vault'] ?? '0')) === '1') {
-            $canAccessV2 = true;
-        }
-
-        $this->syncUserVaultAccess(
-            cuentaId: (string) $account->id,
-            usuarioId: (string) $user->id,
-            usuarioNombre: (string) $user->nombre,
-            usuarioEmail: (string) $user->email,
-            adminId: (string) (Auth::guard('admin')->id() ?? ''),
-            canAccessV1: ((string) ($validated['can_access_v1'] ?? '0')) === '1',
-            canAccessV2: $canAccessV2,
-            canUploadMetadata: ((string) ($validated['can_upload_metadata'] ?? '0')) === '1',
-            canUploadXml: ((string) ($validated['can_upload_xml'] ?? '0')) === '1',
-            canExport: ((string) ($validated['can_export'] ?? '0')) === '1',
-        );
-
-        return $this->redirectToIndex($request)
-            ->with('success', 'Usuario actualizado correctamente.');
     }
 
     public function deleteV2UserAccess(Request $request, string $cuentaId, string $usuarioId): RedirectResponse
@@ -432,18 +513,31 @@ final class SatOpsVaultAccessController extends Controller
                 ->with('error', 'El usuario no pertenece a la cuenta seleccionada.');
         }
 
-        $deleted = SatUserAccess::query()
-            ->where('cuenta_id', (string) $account->id)
-            ->where('usuario_id', (string) $usuarioId)
-            ->delete();
+        try {
+            $deleted = SatUserAccess::query()
+                ->where('cuenta_id', (string) $account->id)
+                ->where('usuario_id', (string) $usuarioId)
+                ->delete();
 
-        if ($deleted <= 0) {
+            if ($deleted <= 0) {
+                return $this->redirectToIndex($request)
+                    ->with('error', 'El usuario no tenía accesos registrados para eliminar.');
+            }
+
             return $this->redirectToIndex($request)
-                ->with('error', 'El usuario no tenía accesos registrados para eliminar.');
-        }
+                ->with('success', 'Accesos del usuario a Bóveda V1 y Bóveda V2 eliminados correctamente.');
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access deleteV2UserAccess failed', [
+                'cuenta_id'  => $cuentaId,
+                'usuario_id' => $usuarioId,
+                'message'    => $e->getMessage(),
+                'file'       => $e->getFile(),
+                'line'       => $e->getLine(),
+            ]);
 
-        return $this->redirectToIndex($request)
-            ->with('success', 'Accesos del usuario a Bóveda V1 y Bóveda V2 eliminados correctamente.');
+            return $this->redirectToIndex($request)
+                ->with('error', 'No fue posible eliminar los accesos del usuario.');
+        }
     }
 
     private function redirectToIndex(Request $request): RedirectResponse
@@ -506,7 +600,6 @@ final class SatOpsVaultAccessController extends Controller
                 'usuario_id' => $usuarioId,
             ],
             [
-                // Se conserva este campo como compatibilidad para lógica previa
                 'can_access_vault'    => $canAccessV2,
                 'can_upload_metadata' => $canUploadMetadata,
                 'can_upload_xml'      => $canUploadXml,
@@ -531,24 +624,34 @@ final class SatOpsVaultAccessController extends Controller
             return [];
         }
 
-        $rows = SatUserAccess::query()
-            ->whereIn('cuenta_id', $accountIds->all())
-            ->get();
+        try {
+            $rows = SatUserAccess::query()
+                ->whereIn('cuenta_id', $accountIds->all())
+                ->get();
 
-        $map = [];
+            $map = [];
 
-        foreach ($rows as $row) {
-            $cuentaId = (string) $row->cuenta_id;
-            $usuarioId = (string) $row->usuario_id;
+            foreach ($rows as $row) {
+                $cuentaId = (string) $row->cuenta_id;
+                $usuarioId = (string) $row->usuario_id;
 
-            if (!isset($map[$cuentaId])) {
-                $map[$cuentaId] = [];
+                if (!isset($map[$cuentaId])) {
+                    $map[$cuentaId] = [];
+                }
+
+                $map[$cuentaId][$usuarioId] = $row;
             }
 
-            $map[$cuentaId][$usuarioId] = $row;
-        }
+            return $map;
+        } catch (Throwable $e) {
+            Log::error('SAT Ops Vault Access buildAccessMap failed', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+            ]);
 
-        return $map;
+            return [];
+        }
     }
 
     /**
@@ -566,17 +669,25 @@ final class SatOpsVaultAccessController extends Controller
 
         $rows = collect();
 
-        if (
-            !$adminAccountIds->isEmpty()
-            && Schema::connection(self::CONN_ADMIN)->hasTable('accounts')
-            && Schema::connection(self::CONN_ADMIN)->hasColumn('accounts', 'meta')
-        ) {
-            $rows = DB::connection(self::CONN_ADMIN)
-                ->table('accounts')
-                ->select(['id', 'meta'])
-                ->whereIn('id', $adminAccountIds->all())
-                ->get()
-                ->keyBy('id');
+        try {
+            if (
+                !$adminAccountIds->isEmpty()
+                && $this->safeHasTable(self::CONN_ADMIN, 'accounts')
+                && $this->safeHasColumn(self::CONN_ADMIN, 'accounts', 'meta')
+            ) {
+                $rows = DB::connection(self::CONN_ADMIN)
+                    ->table('accounts')
+                    ->select(['id', 'meta'])
+                    ->whereIn('id', $adminAccountIds->all())
+                    ->get()
+                    ->keyBy('id');
+            }
+        } catch (Throwable $e) {
+            Log::warning('SAT Ops Vault Access buildModuleMap admin lookup skipped', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+            ]);
         }
 
         $map = [];
@@ -623,18 +734,15 @@ final class SatOpsVaultAccessController extends Controller
             'codigo_cliente',
         ];
 
-        return array_values(array_filter($columns, function (string $column): bool {
-            return Schema::connection(self::CONN_CLIENTES)->hasColumn('cuentas_cliente', $column);
-        }));
-    }
+        $available = [];
 
-    /**
-     * @param mixed $meta
-     */
-    private function getUserVaultAccessFlag(mixed $meta, string $key, bool $default = false): bool
-    {
-        $decoded = $this->decodeMeta($meta);
-        return (bool) data_get($decoded, 'vault_access.' . $key, $default);
+        foreach ($columns as $column) {
+            if ($this->safeHasColumn(self::CONN_CLIENTES, 'cuentas_cliente', $column)) {
+                $available[] = $column;
+            }
+        }
+
+        return $available;
     }
 
     /**
@@ -652,5 +760,36 @@ final class SatOpsVaultAccessController extends Controller
         }
 
         return [];
+    }
+
+    private function safeHasTable(string $connection, string $table): bool
+    {
+        try {
+            return Schema::connection($connection)->hasTable($table);
+        } catch (Throwable $e) {
+            Log::warning('safeHasTable failed', [
+                'connection' => $connection,
+                'table'      => $table,
+                'message'    => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function safeHasColumn(string $connection, string $table, string $column): bool
+    {
+        try {
+            return Schema::connection($connection)->hasColumn($table, $column);
+        } catch (Throwable $e) {
+            Log::warning('safeHasColumn failed', [
+                'connection' => $connection,
+                'table'      => $table,
+                'column'     => $column,
+                'message'    => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 }
