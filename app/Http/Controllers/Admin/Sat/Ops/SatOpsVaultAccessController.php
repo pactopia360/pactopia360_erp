@@ -10,7 +10,7 @@ use App\Models\Cliente\SatUserAccess;
 use App\Models\Cliente\UsuarioCuenta;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -517,10 +517,10 @@ final class SatOpsVaultAccessController extends Controller
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, CuentaCliente> $accounts
+     * @param Collection<int, CuentaCliente> $accounts
      * @return array<string, array<string, SatUserAccess>>
      */
-    private function buildAccessMap(\Illuminate\Support\Collection $accounts): array
+    private function buildAccessMap(Collection $accounts): array
     {
         $accountIds = $accounts
             ->pluck('id')
@@ -552,10 +552,10 @@ final class SatOpsVaultAccessController extends Controller
     }
 
     /**
-     * @param \Illuminate\Support\Collection<int, CuentaCliente> $accounts
+     * @param Collection<int, CuentaCliente> $accounts
      * @return array<string, array{enabled: bool, state: string, admin_account_id: int}>
      */
-    private function buildModuleMap(\Illuminate\Support\Collection $accounts): array
+    private function buildModuleMap(Collection $accounts): array
     {
         $adminAccountIds = $accounts
             ->pluck('admin_account_id')
