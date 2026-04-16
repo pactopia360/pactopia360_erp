@@ -374,7 +374,7 @@
 
             <div class="field">
                 <label for="erp_url">URL del ERP</label>
-                <input type="text" id="erp_url" required value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+                <input type="text" id="erp_url" required value="https://pactopia360.com" placeholder="https://pactopia360.com">
                 <div class="help">
                     Usa la URL base de tu instalación local o productiva de Pactopia360.
                 </div>
@@ -449,7 +449,7 @@
 
         if (result.data) {
             emailInput.value = result.data.email || '';
-            erpUrlInput.value = result.data.erpUrl || 'http://127.0.0.1:8000';
+            erpUrlInput.value = result.data.erpUrl || 'https://pactopia360.com';
 
             if (result.data.isLoggedIn) {
                 setStatus('success', 'Se encontró una configuración local previa. Puedes continuar o actualizar los datos.');
