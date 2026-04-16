@@ -2,6 +2,8 @@ const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const Store = require('electron-store').default;
 
+const isDev = !app.isPackaged;
+
 const store = new Store({
     name: 'p360-sat-desktop',
     clearInvalidConfig: true,
@@ -15,6 +17,29 @@ const store = new Store({
 });
 
 let mainWindow = null;
+let isQuitting = false;
+
+app.setName('PACTOPIA360 SAT Desktop');
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (!mainWindow) {
+            createMainWindow();
+            return;
+        }
+
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+
+        mainWindow.show();
+        mainWindow.focus();
+    });
+}
 
 function getRendererPath(fileName) {
     return path.join(__dirname, 'renderer', fileName);
@@ -53,7 +78,7 @@ function isHttpUrl(url) {
 function normalizeOrigin(url) {
     try {
         return new URL(url).origin;
-    } catch (error) {
+    } catch (_error) {
         return '';
     }
 }
@@ -72,24 +97,81 @@ function isAllowedInternalUrl(url) {
     return normalizeOrigin(url) === normalizeOrigin(session.erpUrl);
 }
 
+function openExternalSafely(url) {
+    if (!isHttpUrl(url)) {
+        return;
+    }
+
+    shell.openExternal(url).catch((error) => {
+        console.error('No se pudo abrir URL externa:', {
+            url,
+            message: error?.message || error
+        });
+    });
+}
+
+function loadView(view) {
+    if (!mainWindow || !view) {
+        return;
+    }
+
+    if (view.type === 'remote' && view.url) {
+        mainWindow.loadURL(view.url).catch((error) => {
+            console.error('Error al cargar vista remota:', {
+                url: view.url,
+                message: error?.message || error
+            });
+
+            if (mainWindow) {
+                mainWindow.loadFile(getRendererPath('login.html')).catch((fallbackError) => {
+                    console.error('Error al cargar vista local de respaldo:', {
+                        message: fallbackError?.message || fallbackError
+                    });
+                });
+            }
+        });
+
+        return;
+    }
+
+    if (view.type === 'local' && view.file) {
+        mainWindow.loadFile(getRendererPath(view.file)).catch((error) => {
+            console.error('Error al cargar vista local:', {
+                file: view.file,
+                message: error?.message || error
+            });
+        });
+    }
+}
+
 function handleNavigationInsideDesktop(targetUrl) {
     if (!mainWindow || !targetUrl) {
         return;
     }
 
     if (isAllowedInternalUrl(targetUrl)) {
-        if (mainWindow.webContents.getURL() !== targetUrl) {
-            mainWindow.loadURL(targetUrl);
+        const currentUrl = mainWindow.webContents.getURL();
+
+        if (currentUrl !== targetUrl) {
+            mainWindow.loadURL(targetUrl).catch((error) => {
+                console.error('Error al navegar dentro de la app:', {
+                    targetUrl,
+                    message: error?.message || error
+                });
+            });
         }
+
         return;
     }
 
-    if (isHttpUrl(targetUrl)) {
-        shell.openExternal(targetUrl);
-    }
+    openExternalSafely(targetUrl);
 }
 
 function createMainWindow() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        return mainWindow;
+    }
+
     mainWindow = new BrowserWindow({
         width: 1366,
         height: 860,
@@ -104,20 +186,14 @@ function createMainWindow() {
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: false,
-            devTools: true
+            devTools: isDev
         }
     });
 
-    const view = getInitialView();
-
-    if (view.type === 'remote') {
-        mainWindow.loadURL(view.url);
-    } else {
-        mainWindow.loadFile(getRendererPath(view.file));
-    }
+    loadView(getInitialView());
 
     mainWindow.once('ready-to-show', () => {
-        if (!mainWindow) {
+        if (!mainWindow || mainWindow.isDestroyed()) {
             return;
         }
 
@@ -132,7 +208,7 @@ function createMainWindow() {
         }
 
         if (isHttpUrl(url)) {
-            shell.openExternal(url);
+            openExternalSafely(url);
         }
 
         return { action: 'deny' };
@@ -145,15 +221,11 @@ function createMainWindow() {
 
         if (isHttpUrl(url)) {
             event.preventDefault();
-            shell.openExternal(url);
+            openExternalSafely(url);
         }
     });
 
     mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-        if (!mainWindow) {
-            return;
-        }
-
         console.error('Error al cargar URL:', {
             errorCode,
             errorDescription,
@@ -161,9 +233,17 @@ function createMainWindow() {
         });
     });
 
+    mainWindow.on('close', () => {
+        if (isQuitting) {
+            return;
+        }
+    });
+
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
+
+    return mainWindow;
 }
 
 ipcMain.handle('p360:storage:set-config', async (_event, payload = {}) => {
@@ -200,14 +280,34 @@ ipcMain.handle('p360:storage:clear-config', async () => {
     };
 });
 
+ipcMain.handle('p360:app:reload-session-view', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return { ok: false };
+    }
+
+    loadView(getInitialView());
+
+    return { ok: true };
+});
+
 app.whenReady().then(() => {
     createMainWindow();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createMainWindow();
+            return;
+        }
+
+        if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
         }
     });
+});
+
+app.on('before-quit', () => {
+    isQuitting = true;
 });
 
 app.on('window-all-closed', () => {
@@ -218,14 +318,26 @@ app.on('window-all-closed', () => {
 
 app.on('web-contents-created', (_event, contents) => {
     contents.on('before-input-event', (event, input) => {
-        const key = (input.key || '').toLowerCase();
+        const key = String(input.key || '').toLowerCase();
 
         const isReload =
             key === 'f5' ||
             (input.control && key === 'r');
 
-        if (isReload) {
+        const isDevTools =
+            key === 'f12' ||
+            ((input.control || input.meta) && input.shift && (key === 'i' || key === 'j' || key === 'c'));
+
+        if (isReload || isDevTools) {
             event.preventDefault();
         }
     });
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('uncaughtException:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('unhandledRejection:', reason);
 });

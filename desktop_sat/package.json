@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.pactopia360.satdesktop",
     "productName": "PACTOPIA360 SAT Desktop",
+    "compression": "normal",
     "directories": {
       "output": "dist"
     },
@@ -32,6 +33,7 @@
     },
     "asar": true,
     "win": {
+      "icon": "../public/assets/admin/img/p360_pro.ico",
       "target": [
         {
           "target": "nsis",
@@ -45,10 +47,19 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PACTOPIA360 SAT Desktop"
+      "shortcutName": "PACTOPIA360 SAT Desktop",
+      "installerIcon": "../public/assets/admin/img/p360_pro.ico",
+      "uninstallerIcon": "../public/assets/admin/img/p360_pro.ico",
+      "installerHeaderIcon": "../public/assets/admin/img/p360_pro.ico",
+      "artifactName": "PACTOPIA360-SAT-Desktop-Setup-${version}.${ext}",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": false,
+      "uninstallDisplayName": "PACTOPIA360 SAT Desktop"
     }
   },
   "dependencies": {
