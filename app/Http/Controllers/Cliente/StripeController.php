@@ -63,7 +63,7 @@ class StripeController extends Controller
             $key     = ($cycle === 'anual') ? 'pro_anual' : 'pro_mensual';
             $priceId = $this->resolveStripePriceIdOrFailByKey($key);
 
-                        $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}&flow=sat_quote&rfc=' . urlencode((string) ($quote->rfc ?? ''));
+            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
             $cancelUrl  = route('cliente.checkout.cancel');
 
             $customerEmail = $validated['email'] ?? ($account->email ?? null);
@@ -204,10 +204,11 @@ class StripeController extends Controller
      |  SAT QUOTE (pago único)
      * ========================================================= */
 
-        public function checkoutSatQuote(Request $request)
+    public function checkoutSatQuote(Request $request)
     {
         try {
             $user = auth('web')->user();
+
             if (!$user) {
                 throw ValidationException::withMessages([
                     'sat_quote' => 'Tu sesión expiró. Inicia sesión nuevamente.',
@@ -215,11 +216,17 @@ class StripeController extends Controller
             }
 
             $validated = $request->validate([
-                'sat_download_id' => ['required', 'integer', 'min:1'],
+                'sat_download_id' => ['required'],
             ]);
 
             $satDownloadId = (int) $validated['sat_download_id'];
             $cuentaId = (string) ($user->cuenta_id ?? ($user->cuenta->id ?? ''));
+
+            if ($satDownloadId <= 0) {
+                throw ValidationException::withMessages([
+                    'sat_quote' => 'La cotización enviada no es válida.',
+                ]);
+            }
 
             /** @var SatDownload|null $quote */
             $quote = SatDownload::query()
@@ -240,14 +247,28 @@ class StripeController extends Controller
             }
 
             $meta = is_array($quote->meta) ? $quote->meta : [];
-            $status = strtolower(trim((string) $quote->status));
+
+            $status = strtolower(trim((string) ($quote->status ?? '')));
             $statusUi = strtolower(trim((string) ($meta['status_ui'] ?? '')));
             $customerAction = strtolower(trim((string) ($meta['customer_action'] ?? '')));
             $canPayMeta = $meta['can_pay'] ?? null;
 
-            $statusAllowsPayment = in_array($status, ['ready', 'pending'], true)
-                || in_array($statusUi, ['cotizada', 'pendiente_pago'], true)
-                || in_array($customerAction, ['pay_pending'], true);
+            $statusAllowsPayment = in_array($status, [
+                'ready',
+                'pending',
+                'quoted',
+                'cotizada',
+                'pendiente_pago',
+            ], true)
+                || in_array($statusUi, [
+                    'cotizada',
+                    'pendiente_pago',
+                ], true)
+                || in_array($customerAction, [
+                    'pay_pending',
+                    'pending_payment',
+                    'pagar',
+                ], true);
 
             $canPay = filter_var($canPayMeta, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
 
@@ -257,12 +278,12 @@ class StripeController extends Controller
 
             if (!$statusAllowsPayment || !$canPay) {
                 Log::warning('[SAT:STRIPE] cotización no habilitada para pago', [
-                    'sat_download_id'  => $quote->id,
-                    'status'           => $status,
-                    'status_ui'        => $statusUi,
-                    'customer_action'  => $customerAction,
-                    'can_pay_meta'     => $canPayMeta,
-                    'meta'             => $meta,
+                    'sat_download_id' => $quote->id,
+                    'status'          => $status,
+                    'status_ui'       => $statusUi,
+                    'customer_action' => $customerAction,
+                    'can_pay_meta'    => $canPayMeta,
+                    'meta'            => $meta,
                 ]);
 
                 throw ValidationException::withMessages([
@@ -270,14 +291,35 @@ class StripeController extends Controller
                 ]);
             }
 
-            $amountMxn = round((float) ($quote->total ?? $meta['total'] ?? 0), 2);
+            $amountMxn = round((float) (
+                $quote->total
+                ?? $quote->importe_estimado
+                ?? $quote->monto_estimado
+                ?? $quote->total_estimado
+                ?? $quote->amount
+                ?? $meta['total']
+                ?? $meta['importe_estimado']
+                ?? $meta['monto_estimado']
+                ?? $meta['total_estimado']
+                ?? $meta['amount']
+                ?? 0
+            ), 2);
+
             $amountCents = (int) round($amountMxn * 100);
 
             if ($amountCents <= 0) {
                 Log::warning('[SAT:STRIPE] cotización con monto inválido', [
-                    'sat_download_id' => $quote->id,
-                    'total_db'        => $quote->total ?? null,
-                    'total_meta'      => $meta['total'] ?? null,
+                    'sat_download_id'     => $quote->id,
+                    'total_db'            => $quote->total ?? null,
+                    'importe_estimado_db' => $quote->importe_estimado ?? null,
+                    'monto_estimado_db'   => $quote->monto_estimado ?? null,
+                    'total_estimado_db'   => $quote->total_estimado ?? null,
+                    'amount_db'           => $quote->amount ?? null,
+                    'meta_total'          => $meta['total'] ?? null,
+                    'meta_importe'        => $meta['importe_estimado'] ?? null,
+                    'meta_monto'          => $meta['monto_estimado'] ?? null,
+                    'meta_total_estimado' => $meta['total_estimado'] ?? null,
+                    'meta_amount'         => $meta['amount'] ?? null,
                 ]);
 
                 throw ValidationException::withMessages([
@@ -286,24 +328,32 @@ class StripeController extends Controller
             }
 
             $folio = trim((string) (
-                $meta['folio']
+                $quote->folio
+                ?? $quote->codigo
+                ?? $quote->quote_no
+                ?? $meta['folio']
                 ?? ('SAT-' . str_pad((string) $quote->id, 6, '0', STR_PAD_LEFT))
             ));
 
-            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
+            $rfc = trim((string) (
+                $quote->rfc
+                ?? $meta['rfc']
+                ?? ''
+            ));
+
+            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}&flow=sat_quote&rfc=' . urlencode($rfc);
             $cancelUrl  = route('cliente.checkout.cancel', [
                 'flow' => 'sat_quote',
-                'rfc'  => (string) ($quote->rfc ?? ''),
+                'rfc'  => $rfc,
             ]);
 
-            $customerEmail = (string) ($user->email ?? '');
-
+            $customerEmail = trim((string) ($user->email ?? ''));
             $idempotencyKey = 'checkout:sat_quote:' . $quote->id . ':' . md5($folio . '|' . $amountCents);
 
             Log::info('[SAT:STRIPE] creando checkout session', [
                 'sat_download_id' => $quote->id,
                 'folio'           => $folio,
-                'rfc'             => $quote->rfc,
+                'rfc'             => $rfc,
                 'status'          => $status,
                 'status_ui'       => $statusUi,
                 'customer_action' => $customerAction,
@@ -321,7 +371,7 @@ class StripeController extends Controller
                         'unit_amount'  => $amountCents,
                         'product_data' => [
                             'name'        => 'Cotización SAT ' . $folio,
-                            'description' => 'Pago de solicitud SAT para RFC ' . (string) ($quote->rfc ?? ''),
+                            'description' => 'Pago de solicitud SAT para RFC ' . $rfc,
                         ],
                     ],
                     'quantity' => 1,
@@ -334,7 +384,7 @@ class StripeController extends Controller
                     'type'            => 'sat_quote',
                     'sat_download_id' => (string) $quote->id,
                     'cuenta_id'       => (string) $quote->cuenta_id,
-                    'rfc'             => (string) ($quote->rfc ?? ''),
+                    'rfc'             => $rfc,
                     'folio'           => $folio,
                     'amount_mxn'      => (string) $amountMxn,
                     'amount_cents'    => (string) $amountCents,
@@ -360,13 +410,15 @@ class StripeController extends Controller
                 'redirect_url'    => $session->url ?? null,
             ]);
 
-            return redirect($session->url);
+            return redirect()->away($session->url);
         } catch (ValidationException $ve) {
             throw $ve;
         } catch (\Throwable $e) {
             Log::error('[SAT:STRIPE] error creando checkout', [
                 'error'           => $e->getMessage(),
                 'sat_download_id' => $request->get('sat_download_id'),
+                'trace_line'      => $e->getLine(),
+                'trace_file'      => $e->getFile(),
             ]);
 
             return back()->withErrors([
