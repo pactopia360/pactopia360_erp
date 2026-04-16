@@ -19,6 +19,7 @@ use App\Models\Cliente\SatDownload;
 class StripeController extends Controller
 {
     private StripeClient $stripe;
+    private const SAT_BILLING_NOTIFICATION_EMAIL = 'facturacion@pactopia.com';
 
     public function __construct()
     {
@@ -1576,6 +1577,19 @@ class StripeController extends Controller
 
         $meta = is_array($quote->meta) ? $quote->meta : [];
 
+        $folio = trim((string) (
+            $meta['folio']
+            ?? ($session->metadata->folio ?? '')
+            ?? ('SAT-' . str_pad((string) $quote->id, 6, '0', STR_PAD_LEFT))
+        ));
+
+        $amountPaidMxn = 0.00;
+        if (isset($session->amount_total) && is_numeric($session->amount_total)) {
+            $amountPaidMxn = round(((float) $session->amount_total) / 100, 2);
+        } elseif (isset($quote->total) && is_numeric($quote->total)) {
+            $amountPaidMxn = round((float) $quote->total, 2);
+        }
+
         $meta['status_ui'] = 'en_descarga';
         $meta['progress'] = max((int) ($meta['progress'] ?? 0), 90);
         $meta['customer_action'] = 'download_in_progress';
@@ -1583,7 +1597,7 @@ class StripeController extends Controller
         $meta['can_pay'] = false;
         $meta['paid_session_id'] = (string) ($session->id ?? '');
         $meta['paid_payment_intent'] = (string) ($session->payment_intent ?? '');
-        $meta['paid_amount_mxn'] = round(((float) (($session->amount_total ?? 0) / 100)), 2);
+        $meta['paid_amount_mxn'] = $amountPaidMxn;
         $meta['paid_confirmed_at'] = now()->toDateTimeString();
 
         $quote->status = 'paid';
@@ -1595,19 +1609,22 @@ class StripeController extends Controller
         try {
             Mail::raw(
                 "Pago SAT confirmado.\n\n"
-                . "Folio: " . (string) ($session->metadata->folio ?? ('SAT-' . $quote->id)) . "\n"
+                . "Folio: " . $folio . "\n"
                 . "RFC: " . (string) ($quote->rfc ?? '') . "\n"
                 . "Cotización ID: " . $quote->id . "\n"
-                . "Monto: $" . number_format((float) ($quote->total ?? 0), 2) . " MXN\n"
+                . "Monto pagado: $" . number_format($amountPaidMxn, 2) . " MXN\n"
+                . "Método: Stripe\n"
                 . "Session ID: " . (string) ($session->id ?? '') . "\n"
-                . "Estado nuevo: en_descarga\n",
-                function ($message) use ($quote, $session) {
-                    $message->to('soporte@pactopia.com')
-                        ->subject('Pago SAT confirmado · Cotización #' . $quote->id . ' · ' . (string) ($session->metadata->folio ?? 'SAT'));
+                . "Payment Intent: " . (string) ($session->payment_intent ?? '') . "\n"
+                . "Estado nuevo: en_descarga\n"
+                . "Fecha confirmación: " . now()->format('Y-m-d H:i:s') . "\n",
+                function ($message) use ($quote, $session, $folio) {
+                    $message->to(self::SAT_BILLING_NOTIFICATION_EMAIL)
+                        ->subject('Pago SAT Stripe confirmado · Cotización #' . $quote->id . ' · ' . $folio);
                 }
             );
         } catch (\Throwable $mailError) {
-            Log::warning('[SAT:SYNC] no se pudo enviar correo a soporte', [
+            Log::warning('[SAT:SYNC] no se pudo enviar correo a facturación', [
                 'sat_download_id' => $satDownloadId,
                 'session_id'      => $session->id ?? null,
                 'error'           => $mailError->getMessage(),
@@ -1618,6 +1635,7 @@ class StripeController extends Controller
             'sat_download_id' => $satDownloadId,
             'session_id'      => $session->id ?? null,
             'rfc'             => $quote->rfc,
+            'notify_to'       => self::SAT_BILLING_NOTIFICATION_EMAIL,
         ]);
     }
 

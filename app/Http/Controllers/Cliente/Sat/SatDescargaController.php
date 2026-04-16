@@ -316,6 +316,12 @@ final class SatDescargaController extends Controller
         ]);
     }
 
+        private const SAT_TRANSFER_REVIEW_EMAIL = 'facturacion@pactopia.com';
+        private const SAT_TRANSFER_BANK_NAME = 'Fondeadora';
+        private const SAT_TRANSFER_ACCOUNT_HOLDER = 'PACTOPIA S A P I DE CV';
+        private const SAT_TRANSFER_RFC = 'PAC251010CS1';
+        private const SAT_TRANSFER_CLABE = '699180600008252099';
+
     public function saveAlias(Request $request): JsonResponse|RedirectResponse
     {
         $trace    = $this->trace();
@@ -385,17 +391,19 @@ final class SatDescargaController extends Controller
         }
 
         $data = $request->validate([
-            'mode'          => ['nullable', 'string', 'max:20'],
-            'draft_id'      => ['nullable', 'string', 'max:60'],
-            'rfc'           => ['required', 'string', 'min:12', 'max:13'],
-            'tipo'          => ['nullable', 'string', 'max:30'],
-            'date_from'     => ['required', 'date'],
-            'date_to'       => ['required', 'date', 'after_or_equal:date_from'],
-            'xml_count'     => ['required', 'integer', 'min:1', 'max:50000000'],
-            'discount_code' => ['nullable', 'string', 'max:64'],
-            'notes'         => ['nullable', 'string', 'max:3000'],
-            'iva'           => ['nullable'],
-            'iva_rate'      => ['nullable'],
+            'quote_mode'          => ['nullable', 'string', 'max:20'],
+            'output'              => ['nullable', 'string', 'max:20'],
+            'preview'             => ['nullable'],
+            'rfc'                 => ['nullable', 'string', 'min:12', 'max:13'],
+            'tipo'                => ['nullable', 'string', 'max:30'],
+            'date_from'           => ['nullable', 'date'],
+            'date_to'             => ['nullable', 'date', 'after_or_equal:date_from'],
+            'notes'               => ['nullable', 'string', 'max:3000'],
+            'xml_count'           => ['nullable', 'integer', 'min:1', 'max:50000000'],
+            'xml_count_estimated' => ['nullable', 'integer', 'min:1', 'max:50000000'],
+            'discount_code'       => ['nullable', 'string', 'max:64'],
+            'iva'                 => ['nullable'],
+            'iva_rate'            => ['nullable'],
         ]);
 
         $mode         = strtolower(trim((string) ($data['mode'] ?? 'quote')));
@@ -758,6 +766,13 @@ final class SatDescargaController extends Controller
 
         $pdfMode = $this->resolveQuotePdfMode($request);
 
+        $outputMode = strtolower(trim((string) ($data['output'] ?? '')));
+        $previewMode = filter_var($request->input('preview', false), FILTER_VALIDATE_BOOL);
+
+        if (!in_array($outputMode, ['inline', 'download'], true)) {
+            $outputMode = $previewMode ? 'inline' : 'download';
+        }
+
         $rfc = strtoupper(trim((string) ($data['rfc'] ?? '')));
         $tipo = strtolower(trim((string) ($data['tipo'] ?? 'emitidos')));
         $notes = trim((string) ($data['notes'] ?? ''));
@@ -894,7 +909,21 @@ final class SatDescargaController extends Controller
 
             $file = $prefix . '_' . $cuentaId . '_' . $p['generated']->format('Ymd_His') . '.pdf';
 
-            return $pdf->download($file);
+            if ($outputMode === 'inline') {
+                return response($pdf->output(), Response::HTTP_OK, [
+                    'Content-Type'        => 'application/pdf',
+                    'Content-Disposition' => 'inline; filename="' . $file . '"',
+                    'Cache-Control'       => 'private, max-age=0, must-revalidate',
+                    'Pragma'              => 'public',
+                ]);
+            }
+
+            return response($pdf->output(), Response::HTTP_OK, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="' . $file . '"',
+                'Cache-Control'       => 'private, max-age=0, must-revalidate',
+                'Pragma'              => 'public',
+            ]);
         } catch (\Throwable $e) {
             Log::error('[SAT:quickPdf] DomPDF error', [
                 'trace_id'   => $trace,
@@ -1335,8 +1364,6 @@ final class SatDescargaController extends Controller
 
         $data = $request->validate([
             'sat_download_id'      => ['required', 'integer', 'min:1'],
-            'bank_name'            => ['required', 'string', 'max:120'],
-            'account_holder'       => ['nullable', 'string', 'max:190'],
             'reference'            => ['required', 'string', 'max:120'],
             'transfer_date'        => ['required', 'date'],
             'transfer_amount'      => ['required', 'numeric', 'min:0.01'],
@@ -1382,6 +1409,20 @@ final class SatDescargaController extends Controller
             ], 422);
         }
 
+        $expectedReference = $this->buildTransferReference($quote);
+        $submittedReference = strtoupper(trim((string) ($data['reference'] ?? '')));
+
+        if ($submittedReference === '' || $submittedReference !== $expectedReference) {
+            return response()->json([
+                'ok'       => false,
+                'msg'      => 'La referencia de pago no coincide con la asignada por el sistema.',
+                'trace_id' => $trace,
+                'data'     => [
+                    'expected_reference' => $expectedReference,
+                ],
+            ], 422);
+        }
+
         $file = $request->file('proof_file');
         if (!$file || !$file->isValid()) {
             return response()->json([
@@ -1403,7 +1444,8 @@ final class SatDescargaController extends Controller
             $trace,
             $realTotal,
             $sentTotal,
-            $transferDate
+            $transferDate,
+            $expectedReference
         ) {
             $disk = 'public';
             $folder = 'sat/transfers/' . date('Y/m');
@@ -1427,9 +1469,11 @@ final class SatDescargaController extends Controller
             $meta['transfer_review'] = [
                 'submitted_at'      => now()->toDateTimeString(),
                 'submitted_by'      => (string) (auth('web')->id() ?? ''),
-                'bank_name'         => trim((string) $data['bank_name']),
-                'account_holder'    => trim((string) ($data['account_holder'] ?? '')),
-                'reference'         => trim((string) $data['reference']),
+                'bank_name'         => self::SAT_TRANSFER_BANK_NAME,
+                'account_holder'    => self::SAT_TRANSFER_ACCOUNT_HOLDER,
+                'receiver_rfc'      => self::SAT_TRANSFER_RFC,
+                'receiver_clabe'    => self::SAT_TRANSFER_CLABE,
+                'reference'         => $expectedReference,
                 'transfer_date'     => $transferDate->toDateString(),
                 'transfer_amount'   => $sentTotal,
                 'expected_amount'   => $realTotal,
@@ -1464,15 +1508,16 @@ final class SatDescargaController extends Controller
 
         try {
             $this->sendTransferProofEmail(
-                to: 'soporte@pactopia.com',
+                to: self::SAT_TRANSFER_REVIEW_EMAIL,
                 quote: $stored['quote'],
                 trace: $trace
             );
         } catch (\Throwable $mailError) {
-            Log::warning('[SAT:transferProof] No se pudo enviar correo a soporte', [
-                'trace_id'       => $trace,
-                'sat_download_id'=> $satDownloadId,
-                'err'            => $mailError->getMessage(),
+            Log::warning('[SAT:transferProof] No se pudo enviar correo a facturación', [
+                'trace_id'        => $trace,
+                'sat_download_id' => $satDownloadId,
+                'notify_to'       => self::SAT_TRANSFER_REVIEW_EMAIL,
+                'err'             => $mailError->getMessage(),
             ]);
         }
 
@@ -1489,6 +1534,26 @@ final class SatDescargaController extends Controller
                 'risk_flags'      => $stored['risk']['risk_flags'] ?? [],
             ],
         ], 200);
+    }
+
+    private function buildTransferReference(SatDownload $quote): string
+    {
+        $meta = is_array($quote->meta ?? null) ? $quote->meta : [];
+
+        $folio = strtoupper(trim((string) (
+            data_get($meta, 'folio')
+            ?: data_get($meta, 'quote.folio')
+            ?: data_get($meta, 'quote_no')
+            ?: ('SAT-' . $quote->id)
+        )));
+
+        $folioClean = preg_replace('/[^A-Z0-9]/', '', $folio) ?: ('SAT' . (string) $quote->id);
+        $folioLast4 = substr($folioClean, -4);
+
+        $quoteId = (string) ($quote->id ?? '0');
+        $quoteIdClean = preg_replace('/[^A-Z0-9]/', '', strtoupper($quoteId)) ?: '0';
+
+        return 'SAT-' . $folioLast4 . '-' . $quoteIdClean;
     }
 
     private function buildInitialTransferRisk(float $expectedAmount, float $sentAmount, Carbon $transferDate): array
@@ -1531,27 +1596,38 @@ final class SatDescargaController extends Controller
             ?: ('SAT-' . $quote->id)
         );
 
-        $subject = 'Comprobante de transferencia SAT por validar · ' . $folio;
+        $subject = 'Transferencia SAT por validar · ' . $folio;
 
         $proofPath = trim((string) ($transfer['proof_path'] ?? ''));
         $proofDisk = trim((string) ($transfer['proof_disk'] ?? 'public'));
+
+        $riskFlags = (array) ($transfer['risk_flags'] ?? []);
+        $riskFlagsLabel = !empty($riskFlags) ? implode(', ', $riskFlags) : 'Sin banderas detectadas';
 
         $lines = [
             'Se recibió un comprobante de pago por transferencia para revisión.',
             '',
             'Folio: ' . $folio,
             'Cotización ID: ' . (string) $quote->id,
-            'RFC: ' . (string) ($quote->rfc ?? ''),
+            'RFC cliente: ' . (string) ($quote->rfc ?? ''),
             'Monto esperado: $' . number_format((float) ($transfer['expected_amount'] ?? $quote->total ?? 0), 2) . ' MXN',
             'Monto reportado: $' . number_format((float) ($transfer['transfer_amount'] ?? 0), 2) . ' MXN',
-            'Banco: ' . (string) ($transfer['bank_name'] ?? ''),
-            'Referencia: ' . (string) ($transfer['reference'] ?? ''),
+            'Banco receptor: ' . (string) ($transfer['bank_name'] ?? self::SAT_TRANSFER_BANK_NAME),
+            'Titular receptor: ' . (string) ($transfer['account_holder'] ?? self::SAT_TRANSFER_ACCOUNT_HOLDER),
+            'CLABE receptora: ' . (string) ($transfer['receiver_clabe'] ?? self::SAT_TRANSFER_CLABE),
+            'RFC receptor: ' . (string) ($transfer['receiver_rfc'] ?? self::SAT_TRANSFER_RFC),
+            'Banco emisor: ' . (string) ($transfer['payer_bank'] ?? ''),
+            'Pagador: ' . (string) ($transfer['payer_name'] ?? ''),
+            'Referencia asignada: ' . (string) ($transfer['reference'] ?? ''),
             'Fecha transferencia: ' . (string) ($transfer['transfer_date'] ?? ''),
             'Riesgo inicial: ' . strtoupper((string) ($transfer['risk_level'] ?? 'medium')),
-            'Banderas: ' . implode(', ', (array) ($transfer['risk_flags'] ?? [])),
+            'Banderas: ' . $riskFlagsLabel,
+            'IA status: ' . strtoupper((string) ($transfer['ai_status'] ?? 'pending')),
+            'Review status: ' . strtoupper((string) ($transfer['review_status'] ?? 'pending')),
+            'Notas del cliente: ' . (string) ($transfer['notes'] ?? 'Sin notas'),
             'Trace ID: ' . $trace,
             '',
-            'Este pago quedó pendiente de validación manual/IA.',
+            'Este pago quedó pendiente de validación por facturación / revisión IA.',
         ];
 
         Mail::raw(implode("\n", $lines), function ($message) use ($to, $subject, $proofPath, $proofDisk) {

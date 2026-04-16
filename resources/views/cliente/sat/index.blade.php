@@ -58,11 +58,14 @@
         quickCalcUrl: @json(route('cliente.sat.quick.calc')),
         quickPdfUrl: @json(route('cliente.sat.quick.pdf')),
         quoteCalcUrl: @json(route('cliente.sat.quote.calc')),
+        quotePayUrl: @json(route('cliente.sat.quote.pay')),
+        quoteTransferProofUrl: @json(route('cliente.sat.quote.transfer_proof')),
         externalInviteUrl: @json(route('cliente.sat.external.invite')),
         rfcStoreUrl: @json(route('cliente.sat.rfcs.store')),
         rfcOptions: @json($rfcOptionsForJs),
         vaultV2Url: @json(route('cliente.sat.v2.index')),
         vaultV1Url: @json(route('cliente.sat.vault')),
+        billingNotificationEmail: @json('facturacion@pactopia.com')
     });
 </script>
 
@@ -551,6 +554,12 @@
                                             }
 
                                             $quoteFolio = trim((string) ($quote->folio ?? $quote->codigo ?? $quote->quote_no ?? $quoteMeta['folio'] ?? ''));
+                                            $quoteFolioMaskedBase = preg_replace('/[^A-Za-z0-9]/', '', $quoteFolio);
+                                            $quoteFolioLast4 = $quoteFolioMaskedBase !== ''
+                                                ? strtoupper(substr($quoteFolioMaskedBase, -4))
+                                                : str_pad((string) $loop->iteration, 4, '0', STR_PAD_LEFT);
+
+                                            $quoteFolioDisplay = '...' . $quoteFolioLast4;
                                             $quoteRfc = strtoupper(trim((string) ($quote->rfc ?? $quote->customer_rfc ?? $quoteMeta['rfc'] ?? '')));
                                             $quoteRazonSocial = trim((string) ($quote->razon_social ?? $quote->cliente_nombre ?? $quote->customer_name ?? $quoteMeta['razon_social'] ?? ''));
                                             $quoteConcepto = trim((string) ($quote->concepto ?? $quote->descripcion ?? $quote->tipo_descarga ?? $quoteMeta['concepto'] ?? 'Cotización SAT'));
@@ -663,6 +672,8 @@
                                             data-status="{{ $quoteStatus }}"
                                             data-search="{{ e($searchIndex) }}"
                                             data-folio="{{ e($quoteFolio) }}"
+                                            data-folio-display="{{ e($quoteFolioDisplay) }}"
+                                            data-folio-last4="{{ e($quoteFolioLast4) }}"
                                             data-rfc="{{ e($quoteRfc) }}"
                                             data-razon-social="{{ e($quoteRazonSocial) }}"
                                             data-concepto="{{ e($quoteConcepto) }}"
@@ -679,8 +690,12 @@
                                         >
                                             <td>
                                                 <div class="sat-clean-quote-summary">
-                                                    <span class="sat-clean-quote-folio" data-quote-field="folio">
-                                                        {{ $quoteFolio !== '' ? $quoteFolio : ('COT-' . str_pad((string) ($loop->iteration), 4, '0', STR_PAD_LEFT)) }}
+                                                    <span
+                                                        class="sat-clean-quote-folio"
+                                                        data-quote-field="folio"
+                                                        title="Folio completo: {{ $quoteFolio !== '' ? $quoteFolio : ('COT-' . str_pad((string) ($loop->iteration), 4, '0', STR_PAD_LEFT)) }}"
+                                                    >
+                                                        {{ $quoteFolioDisplay }}
                                                     </span>
                                                 </div>
                                             </td>
@@ -735,14 +750,14 @@
                                             </td>
 
                                             <td class="text-end">
-                                                                                                <div class="sat-clean-icon-actions">
+                                                <div class="sat-clean-icon-actions">
                                                     <button
                                                         type="button"
                                                         class="sat-clean-icon-btn"
                                                         data-quote-action="view"
                                                         data-quote-id="{{ $quoteId }}"
-                                                        title="Ver detalle"
-                                                        aria-label="Ver detalle"
+                                                        title="Vista previa PDF"
+                                                        aria-label="Vista previa PDF"
                                                     >
                                                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                                             <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
@@ -1782,7 +1797,7 @@
     </div>
 </div>
 
-{{-- MODAL: DETALLE COTIZACIÓN --}}
+{{-- MODAL: PREVIEW PDF COTIZACIÓN --}}
 <div class="sat-clean-modal" id="satQuoteDetailModal" aria-hidden="true">
     <div class="sat-clean-modal__backdrop" data-quote-detail-close></div>
     <div
@@ -1790,12 +1805,13 @@
         role="dialog"
         aria-modal="true"
         aria-labelledby="satQuoteDetailTitle"
+        style="width:min(1200px, calc(100vw - 32px));"
     >
         <div class="sat-clean-modal__header">
             <div>
-                <h2 class="sat-clean-modal__title" id="satQuoteDetailTitle">Detalle de cotización</h2>
+                <h2 class="sat-clean-modal__title" id="satQuoteDetailTitle">Vista previa de cotización</h2>
                 <p class="sat-clean-modal__subtitle">
-                    Revisión completa de la cotización seleccionada.
+                    Revisión visual del PDF de la cotización antes del pago.
                 </p>
             </div>
 
@@ -1809,12 +1825,8 @@
             </button>
         </div>
 
-        <div class="sat-clean-modal__body-scroll">
-            <div class="sat-clean-form-section">
-                <div class="sat-clean-form-section__head">
-                    <h3 class="sat-clean-form-section__title">Información general</h3>
-                </div>
-
+        <div class="sat-clean-modal__body-scroll" style="padding-top:0;">
+            <div class="sat-clean-form-section" style="padding-bottom:12px;">
                 <div class="sat-clean-form-grid sat-clean-form-grid--3">
                     <div class="sat-clean-form-field">
                         <label>Folio</label>
@@ -1830,41 +1842,26 @@
                         <label>Estatus</label>
                         <input type="text" id="satQuoteDetailStatus" readonly>
                     </div>
+                </div>
+            </div>
 
-                    <div class="sat-clean-form-field sat-clean-form-field--span-2">
-                        <label>Razón social</label>
-                        <input type="text" id="satQuoteDetailRazonSocial" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field">
-                        <label>Tipo</label>
-                        <input type="text" id="satQuoteDetailTipo" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field">
-                        <label>Fecha inicial</label>
-                        <input type="text" id="satQuoteDetailDateFrom" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field">
-                        <label>Fecha final</label>
-                        <input type="text" id="satQuoteDetailDateTo" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field">
-                        <label>Avance</label>
-                        <input type="text" id="satQuoteDetailProgress" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field">
-                        <label>Importe estimado</label>
-                        <input type="text" id="satQuoteDetailTotal" readonly>
-                    </div>
-
-                    <div class="sat-clean-form-field sat-clean-form-field--full">
-                        <label>Concepto</label>
-                        <textarea id="satQuoteDetailConcepto" rows="3" readonly></textarea>
-                    </div>
+            <div class="sat-clean-form-section" style="padding-top:0;">
+                <div
+                    style="
+                        width:100%;
+                        height:min(72vh, 820px);
+                        border:1px solid #dbe6f4;
+                        border-radius:18px;
+                        overflow:hidden;
+                        background:#f6f8fc;
+                    "
+                >
+                    <iframe
+                        id="satQuotePreviewFrame"
+                        src="about:blank"
+                        style="width:100%;height:100%;border:0;background:#fff;"
+                        title="Vista previa PDF de cotización"
+                    ></iframe>
                 </div>
             </div>
 
@@ -1873,8 +1870,163 @@
                     Cerrar
                 </button>
 
-                <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satQuoteDetailEditBtn">
-                    Editar cotización
+                <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satQuoteOpenPaymentBtn">
+                    Continuar a pago
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL: PAGO COTIZACIÓN --}}
+<div class="sat-clean-modal" id="satQuotePaymentModal" aria-hidden="true">
+    <div class="sat-clean-modal__backdrop" data-quote-payment-close></div>
+    <div
+        class="sat-clean-modal__dialog sat-clean-modal__dialog--xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="satQuotePaymentTitle"
+    >
+        <div class="sat-clean-modal__header">
+            <div>
+                <h2 class="sat-clean-modal__title" id="satQuotePaymentTitle">Pago de cotización</h2>
+                <p class="sat-clean-modal__subtitle">
+                    Elige Stripe o transferencia para pagar tu cotización SAT.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                class="sat-clean-modal__close"
+                data-quote-payment-close
+                aria-label="Cerrar"
+            >
+                ✕
+            </button>
+        </div>
+
+        <div class="sat-clean-modal__body-scroll">
+            <div class="sat-clean-form-section">
+                <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                    <div class="sat-clean-form-field">
+                        <label>Folio</label>
+                        <input type="text" id="satQuotePaymentFolio" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>RFC</label>
+                        <input type="text" id="satQuotePaymentRfc" readonly>
+                    </div>
+
+                    <div class="sat-clean-form-field">
+                        <label>Total</label>
+                        <input type="text" id="satQuotePaymentTotal" readonly>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sat-clean-form-section">
+                <div class="sat-clean-form-section__head">
+                    <h3 class="sat-clean-form-section__title">Pago con Stripe</h3>
+                    <p class="sat-clean-form-section__text">Pago inmediato con tarjeta.</p>
+                </div>
+
+                <form method="POST" action="{{ route('cliente.sat.quote.pay') }}" id="satQuoteStripePaymentForm">
+                    @csrf
+                    <input type="hidden" name="sat_download_id" id="satQuoteStripePaymentId" value="">
+
+                    <div class="sat-clean-modal__actions" style="justify-content:flex-start;">
+                        <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                            Pagar con Stripe
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="sat-clean-form-section sat-clean-form-section--soft">
+                <div class="sat-clean-form-section__head">
+                    <h3 class="sat-clean-form-section__title">Pago por transferencia</h3>
+                    <p class="sat-clean-form-section__text">
+                        Sube tu comprobante para revisión. La validación se notificará a facturación.
+                    </p>
+                </div>
+
+                <div class="sat-clean-inline-note" style="margin-bottom:14px;">
+                    <strong>Datos bancarios para transferencia:</strong><br>
+                    Banco: <strong>Fondeadora</strong><br>
+                    Razón social: <strong>PACTOPIA S A P I DE CV</strong><br>
+                    CLABE: <strong>699180600008252099</strong><br>
+                    RFC: <strong>PAC251010CS1</strong><br>
+                    <span style="display:inline-block;margin-top:8px;">
+                        Usa la <strong>referencia asignada por el sistema</strong> exactamente como aparece abajo para identificar tu pago.
+                    </span>
+                </div>
+
+                <form
+                    method="POST"
+                    action="{{ route('cliente.sat.quote.transfer_proof') }}"
+                    id="satQuoteTransferProofForm"
+                    enctype="multipart/form-data"
+                    class="sat-clean-modal__form"
+                >
+                    @csrf
+                    <input type="hidden" name="sat_download_id" id="satQuoteTransferPaymentId" value="">
+
+                                       <div class="sat-clean-form-grid sat-clean-form-grid--3">
+                        <div class="sat-clean-form-field">
+                            <label for="sat_transfer_reference">Referencia asignada</label>
+                            <input
+                                type="text"
+                                id="sat_transfer_reference"
+                                name="reference"
+                                maxlength="120"
+                                readonly
+                                required
+                            >
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_transfer_date">Fecha de transferencia</label>
+                            <input type="date" id="sat_transfer_date" name="transfer_date" required>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_transfer_amount">Monto transferido</label>
+                            <input type="number" id="sat_transfer_amount" name="transfer_amount" step="0.01" min="0.01" required>
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_transfer_payer_name">Nombre del pagador</label>
+                            <input type="text" id="sat_transfer_payer_name" name="payer_name" maxlength="190">
+                        </div>
+
+                        <div class="sat-clean-form-field">
+                            <label for="sat_transfer_payer_bank">Banco emisor</label>
+                            <input type="text" id="sat_transfer_payer_bank" name="payer_bank" maxlength="120">
+                        </div>
+
+                        <div class="sat-clean-form-field sat-clean-form-field--span-2">
+                            <label for="sat_transfer_proof_file">Comprobante</label>
+                            <input type="file" id="sat_transfer_proof_file" name="proof_file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                        </div>
+
+                        <div class="sat-clean-form-field sat-clean-form-field--full">
+                            <label for="sat_transfer_notes">Notas</label>
+                            <textarea id="sat_transfer_notes" name="notes" rows="3" placeholder="Notas del pago o datos adicionales"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="sat-clean-modal__actions" style="justify-content:flex-start;">
+                        <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
+                            Enviar comprobante
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="sat-clean-modal__actions">
+                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-quote-payment-close>
+                    Cerrar
                 </button>
             </div>
         </div>

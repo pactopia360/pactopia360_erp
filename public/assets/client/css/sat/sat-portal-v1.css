@@ -2146,3 +2146,636 @@ body.sat-clean-modal-open{
     grid-template-columns:1fr;
   }
 }
+
+/* =========================================================
+   QUOTE PAYMENT MODAL REDESIGN
+========================================================= */
+#satQuotePaymentModal .sat-clean-modal__dialog{
+  width:min(1120px, calc(100vw - 28px));
+  border-radius:26px;
+  border:1px solid #dbe5f3;
+  background:
+    radial-gradient(circle at top right, rgba(54, 103, 214, .10), transparent 26%),
+    linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow:0 30px 70px rgba(15,34,64,.20);
+  overflow:hidden;
+}
+
+#satQuotePaymentModal .sat-clean-modal__header{
+  position:sticky;
+  top:0;
+  z-index:3;
+  padding:22px 22px 18px 22px;
+  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(247,250,255,.96) 100%);
+  border-bottom:1px solid #e3ecf7;
+  backdrop-filter:blur(10px);
+}
+
+#satQuotePaymentModal .sat-clean-modal__title{
+  font-size:30px;
+  line-height:1.05;
+  font-weight:900;
+  letter-spacing:-.03em;
+  color:#10233f;
+}
+
+#satQuotePaymentModal .sat-clean-modal__subtitle{
+  margin-top:6px;
+  max-width:760px;
+  font-size:14px;
+  line-height:1.6;
+  color:#5e728f;
+  font-weight:600;
+}
+
+#satQuotePaymentModal .sat-clean-modal__close{
+  width:42px;
+  height:42px;
+  border-radius:14px;
+  background:#f1f5fb;
+  border:1px solid #d7e3f2;
+  color:#375792;
+  box-shadow:0 8px 18px rgba(34,74,150,.08);
+}
+
+#satQuotePaymentModal .sat-clean-modal__body-scroll{
+  max-height:min(88vh, 980px);
+  padding:0;
+  background:transparent;
+}
+
+/* resumen superior */
+#satQuotePaymentModal .sat-clean-form-section:first-of-type{
+  padding:18px 22px 10px 22px;
+  background:transparent;
+  border-bottom:none;
+}
+
+#satQuotePaymentModal .sat-clean-form-section:first-of-type .sat-clean-form-grid{
+  gap:12px;
+}
+
+#satQuotePaymentModal .sat-clean-form-section:first-of-type .sat-clean-form-field input{
+  height:52px;
+  border-radius:16px;
+  background:#f6f9fe;
+  border:1px solid #dce7f5;
+  color:#28466f;
+  font-size:15px;
+  font-weight:800;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+/* secciones stripe / transferencia */
+#satQuotePaymentModal .sat-clean-form-section{
+  position:relative;
+  margin:0 18px 16px 18px;
+  padding:20px 20px 18px 20px;
+  border:1px solid #e3ebf7;
+  border-radius:22px;
+  background:rgba(255,255,255,.82);
+  box-shadow:0 14px 36px rgba(22,40,79,.06);
+}
+
+#satQuotePaymentModal .sat-clean-form-section:last-of-type{
+  margin-bottom:18px;
+}
+
+#satQuotePaymentModal .sat-clean-form-section__head{
+  margin-bottom:14px;
+}
+
+#satQuotePaymentModal .sat-clean-form-section__title{
+  font-size:17px;
+  font-weight:900;
+  color:#13284c;
+  letter-spacing:-.02em;
+}
+
+#satQuotePaymentModal .sat-clean-form-section__text{
+  font-size:13px;
+  color:#667892;
+  font-weight:600;
+}
+
+/* bloque stripe */
+#satQuotePaymentModal #satQuoteStripePaymentForm{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+#satQuotePaymentModal #satQuoteStripePaymentForm .sat-clean-modal__actions{
+  margin:0;
+  padding:0;
+}
+
+#satQuotePaymentModal #satQuoteStripePaymentForm .sat-clean-btn--primary{
+  min-width:190px;
+  height:46px;
+  border-radius:15px;
+  font-size:14px;
+  font-weight:800;
+  box-shadow:0 12px 24px rgba(48,97,204,.20);
+}
+
+/* bloque transferencia */
+#satQuotePaymentModal .sat-clean-form-section--soft{
+  background:
+    linear-gradient(180deg, rgba(247,250,255,.96) 0%, rgba(255,255,255,.94) 100%);
+  border-color:#dbe7f6;
+}
+
+#satQuotePaymentModal .sat-clean-inline-note{
+  margin:0 0 16px 0;
+  padding:18px 18px 16px 18px;
+  border-radius:18px;
+  border:1px solid #d7e6f8;
+  background:
+    linear-gradient(135deg, rgba(48,97,204,.08) 0%, rgba(255,255,255,.98) 52%),
+    linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+  color:#506480;
+  font-size:13px;
+  line-height:1.7;
+  font-weight:700;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
+}
+
+#satQuotePaymentModal .sat-clean-inline-note strong{
+  color:#17356d;
+  font-weight:900;
+}
+
+/* referencia asignada destacada */
+#satQuotePaymentModal #sat_transfer_reference{
+  background:linear-gradient(180deg, #ecf4ff 0%, #f6faff 100%);
+  border:1px solid #bfd6fb;
+  color:#163e88;
+  font-weight:900;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    0 0 0 4px rgba(54,103,214,.06);
+}
+
+/* campos */
+#satQuotePaymentModal .sat-clean-form-grid{
+  gap:16px;
+}
+
+#satQuotePaymentModal .sat-clean-form-field label{
+  margin-bottom:8px;
+  color:#1a2f52;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:-.01em;
+}
+
+#satQuotePaymentModal .sat-clean-form-field input,
+#satQuotePaymentModal .sat-clean-form-field textarea{
+  border-radius:16px;
+  border:1px solid #d7e3f2;
+  background:#ffffff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+  color:#18304d;
+  font-size:14px;
+  font-weight:700;
+}
+
+#satQuotePaymentModal .sat-clean-form-field input{
+  height:50px;
+}
+
+#satQuotePaymentModal .sat-clean-form-field textarea{
+  min-height:112px;
+  padding:14px 15px;
+}
+
+#satQuotePaymentModal .sat-clean-form-field input:focus,
+#satQuotePaymentModal .sat-clean-form-field textarea:focus{
+  border-color:#8fb4ff;
+  box-shadow:
+    0 0 0 4px rgba(54,103,214,.12),
+    inset 0 1px 0 rgba(255,255,255,.8);
+  outline:none;
+}
+
+#satQuotePaymentModal .sat-clean-form-field input[type="file"]{
+  min-height:52px;
+  padding:12px 14px;
+  background:#fbfdff;
+  border:1px dashed #c9d8ee;
+  border-radius:16px;
+}
+
+/* acciones inferiores */
+#satQuotePaymentModal .sat-clean-modal__actions{
+  margin-top:14px;
+  padding-top:16px;
+  border-top:1px solid #e8eef7;
+}
+
+#satQuotePaymentModal #satQuoteTransferProofForm .sat-clean-btn--primary{
+  min-width:210px;
+  height:46px;
+  border-radius:15px;
+  font-size:14px;
+  font-weight:800;
+  box-shadow:0 12px 24px rgba(48,97,204,.18);
+}
+
+#satQuotePaymentModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+  position:sticky;
+  bottom:0;
+  z-index:2;
+  margin:0;
+  padding:18px 22px;
+  background:linear-gradient(180deg, rgba(247,250,255,.70) 0%, rgba(255,255,255,.98) 42%);
+  border-top:1px solid #e2eaf6;
+  backdrop-filter:blur(10px);
+}
+
+/* estados visuales del resumen */
+#satQuotePaymentModal #satQuotePaymentFolio,
+#satQuotePaymentModal #satQuotePaymentRfc,
+#satQuotePaymentModal #satQuotePaymentTotal{
+  color:#244570;
+  font-weight:900;
+}
+
+/* responsive */
+@media (max-width: 991px){
+  #satQuotePaymentModal .sat-clean-modal__dialog{
+    width:min(100vw - 18px, 100%);
+    border-radius:22px;
+  }
+
+  #satQuotePaymentModal .sat-clean-modal__title{
+    font-size:24px;
+  }
+
+  #satQuotePaymentModal .sat-clean-form-section{
+    margin:0 12px 12px 12px;
+    padding:16px;
+    border-radius:18px;
+  }
+
+  #satQuotePaymentModal .sat-clean-form-section:first-of-type{
+    padding:14px 12px 8px 12px;
+  }
+
+  #satQuotePaymentModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+    padding:14px 16px;
+  }
+}
+
+@media (max-width: 767px){
+  #satQuotePaymentModal .sat-clean-modal__header{
+    padding:16px 16px 14px 16px;
+  }
+
+  #satQuotePaymentModal .sat-clean-modal__title{
+    font-size:21px;
+  }
+
+  #satQuotePaymentModal .sat-clean-modal__subtitle{
+    font-size:12px;
+  }
+
+  #satQuotePaymentModal .sat-clean-form-section{
+    margin:0 10px 10px 10px;
+    padding:14px;
+    border-radius:16px;
+  }
+
+  #satQuotePaymentModal .sat-clean-inline-note{
+    padding:14px;
+    border-radius:14px;
+    font-size:12px;
+  }
+
+  #satQuotePaymentModal .sat-clean-form-field input,
+  #satQuotePaymentModal .sat-clean-form-field textarea{
+    font-size:13px;
+  }
+
+  #satQuotePaymentModal #satQuoteStripePaymentForm .sat-clean-btn--primary,
+  #satQuotePaymentModal #satQuoteTransferProofForm .sat-clean-btn--primary{
+    width:100%;
+    min-width:0;
+  }
+
+  #satQuotePaymentModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+    padding:12px 14px;
+  }
+
+  #satQuotePaymentModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions .sat-clean-btn{
+    width:100%;
+  }
+}
+
+/* =========================================================
+   QUOTE PDF PREVIEW MODAL REDESIGN
+========================================================= */
+#satQuoteDetailModal .sat-clean-modal__dialog{
+  width:min(1280px, calc(100vw - 28px));
+  border-radius:28px;
+  border:1px solid #dbe5f3;
+  background:
+    radial-gradient(circle at top right, rgba(54, 103, 214, .09), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow:0 32px 74px rgba(15,34,64,.20);
+  overflow:hidden;
+}
+
+#satQuoteDetailModal .sat-clean-modal__header{
+  position:sticky;
+  top:0;
+  z-index:4;
+  padding:22px 22px 18px 22px;
+  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(247,250,255,.96) 100%);
+  border-bottom:1px solid #e3ecf7;
+  backdrop-filter:blur(10px);
+}
+
+#satQuoteDetailModal .sat-clean-modal__title{
+  font-size:30px;
+  line-height:1.04;
+  font-weight:900;
+  letter-spacing:-.03em;
+  color:#10233f;
+}
+
+#satQuoteDetailModal .sat-clean-modal__subtitle{
+  margin-top:6px;
+  max-width:760px;
+  font-size:14px;
+  line-height:1.6;
+  color:#5e728f;
+  font-weight:600;
+}
+
+#satQuoteDetailModal .sat-clean-modal__close{
+  width:42px;
+  height:42px;
+  border-radius:14px;
+  background:#f1f5fb;
+  border:1px solid #d7e3f2;
+  color:#375792;
+  box-shadow:0 8px 18px rgba(34,74,150,.08);
+}
+
+#satQuoteDetailModal .sat-clean-modal__body-scroll{
+  max-height:min(90vh, 1000px);
+  padding:0;
+  background:transparent;
+}
+
+/* resumen superior */
+#satQuoteDetailModal .sat-clean-form-section:first-of-type{
+  padding:18px 22px 10px 22px;
+  border-bottom:none;
+  background:transparent;
+}
+
+#satQuoteDetailModal .sat-clean-form-section:first-of-type .sat-clean-form-grid{
+  gap:12px;
+}
+
+#satQuoteDetailModal .sat-clean-form-section:first-of-type .sat-clean-form-field input{
+  height:50px;
+  border-radius:16px;
+  background:#f6f9fe;
+  border:1px solid #dce7f5;
+  color:#28466f;
+  font-size:15px;
+  font-weight:800;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+/* bloque visor */
+#satQuoteDetailModal #satQuotePreviewShell{
+  margin:0 18px 16px 18px;
+}
+
+#satQuoteDetailModal #satQuotePreviewToolbar{
+  display:flex !important;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  padding:14px 16px !important;
+  border-radius:18px !important;
+  border:1px solid #dbe6f4 !important;
+  background:
+    linear-gradient(135deg, rgba(48,97,204,.08) 0%, rgba(255,255,255,.98) 50%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 100%) !important;
+  box-shadow:0 14px 34px rgba(22,40,79,.06);
+}
+
+#satQuoteDetailModal #satQuotePreviewToolbar strong{
+  font-size:14px !important;
+  color:#17356d !important;
+  font-weight:900 !important;
+  letter-spacing:-.01em;
+}
+
+#satQuoteDetailModal #satQuotePreviewToolbar span{
+  font-size:12px !important;
+  color:#667892 !important;
+  font-weight:600 !important;
+  line-height:1.55;
+}
+
+#satQuoteDetailModal #satQuotePreviewOpenTabBtn,
+#satQuoteDetailModal #satQuotePreviewDownloadBtn{
+  min-width:178px;
+  height:44px;
+  border-radius:14px;
+  font-size:13px;
+  font-weight:800;
+}
+
+#satQuoteDetailModal #satQuotePreviewOpenTabBtn{
+  background:#ffffff;
+  border:1px solid #d7e4f5;
+  color:#24456f;
+  box-shadow:0 8px 20px rgba(22,40,79,.05);
+}
+
+#satQuoteDetailModal #satQuotePreviewDownloadBtn{
+  box-shadow:0 12px 24px rgba(48,97,204,.18);
+}
+
+/* wrapper pdf */
+#satQuoteDetailModal #satQuotePreviewFrameWrap{
+  position:relative !important;
+  width:100% !important;
+  height:min(74vh, 860px) !important;
+  border:1px solid #dbe6f4 !important;
+  border-radius:22px !important;
+  overflow:hidden !important;
+  background:
+    linear-gradient(180deg, #eef3fb 0%, #f8fbff 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.85),
+    0 18px 40px rgba(15,34,64,.07);
+}
+
+#satQuoteDetailModal #satQuotePreviewFrame{
+  width:100% !important;
+  height:100% !important;
+  border:0 !important;
+  display:block;
+  background:#ffffff !important;
+}
+
+/* overlay loading */
+#satQuoteDetailModal #satQuotePreviewLoading{
+  position:absolute !important;
+  inset:0 !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center;
+  padding:24px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%) !important;
+  z-index:2 !important;
+  font-size:14px !important;
+  font-weight:800 !important;
+  color:#466284 !important;
+  letter-spacing:-.01em;
+}
+
+#satQuoteDetailModal #satQuotePreviewLoading::before{
+  content:"";
+  width:18px;
+  height:18px;
+  margin-right:10px;
+  border-radius:999px;
+  border:2px solid #3f6ed4;
+  border-right-color:transparent;
+  animation:satQuotePreviewSpin .7s linear infinite;
+}
+
+@keyframes satQuotePreviewSpin{
+  from{ transform:rotate(0deg); }
+  to{ transform:rotate(360deg); }
+}
+
+/* estado vacío */
+#satQuoteDetailModal #satQuotePreviewEmpty{
+  position:absolute !important;
+  inset:0 !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center;
+  padding:32px !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.95) 0%, rgba(246,248,252,.98) 100%) !important;
+  z-index:2 !important;
+  font-size:14px !important;
+  line-height:1.7 !important;
+  font-weight:700 !important;
+  color:#6b7c96 !important;
+}
+
+/* footer acciones */
+#satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+  position:sticky;
+  bottom:0;
+  z-index:3;
+  margin:0;
+  padding:18px 22px;
+  background:linear-gradient(180deg, rgba(247,250,255,.72) 0%, rgba(255,255,255,.98) 42%);
+  border-top:1px solid #e2eaf6;
+  backdrop-filter:blur(10px);
+}
+
+#satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions .sat-clean-btn{
+  min-width:170px;
+  height:44px;
+  border-radius:14px;
+  font-size:13px;
+  font-weight:800;
+}
+
+#satQuoteDetailModal #satQuoteOpenPaymentBtn{
+  box-shadow:0 12px 24px rgba(48,97,204,.18);
+}
+
+/* responsive */
+@media (max-width: 991px){
+  #satQuoteDetailModal .sat-clean-modal__dialog{
+    width:min(100vw - 18px, 100%);
+    border-radius:22px;
+  }
+
+  #satQuoteDetailModal .sat-clean-modal__title{
+    font-size:24px;
+  }
+
+  #satQuoteDetailModal .sat-clean-form-section:first-of-type{
+    padding:14px 12px 8px 12px;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewShell{
+    margin:0 12px 12px 12px;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewFrameWrap{
+    height:min(68vh, 760px) !important;
+    border-radius:18px !important;
+  }
+
+  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+    padding:14px 16px;
+  }
+}
+
+@media (max-width: 767px){
+  #satQuoteDetailModal .sat-clean-modal__header{
+    padding:16px 16px 14px 16px;
+  }
+
+  #satQuoteDetailModal .sat-clean-modal__title{
+    font-size:21px;
+  }
+
+  #satQuoteDetailModal .sat-clean-modal__subtitle{
+    font-size:12px;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewShell{
+    margin:0 10px 10px 10px;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewToolbar{
+    padding:12px !important;
+    border-radius:14px !important;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewOpenTabBtn,
+  #satQuoteDetailModal #satQuotePreviewDownloadBtn{
+    width:100%;
+    min-width:0;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewFrameWrap{
+    height:min(64vh, 620px) !important;
+    border-radius:16px !important;
+  }
+
+  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+    padding:12px 14px;
+  }
+
+  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions .sat-clean-btn{
+    width:100%;
+    min-width:0;
+  }
+}

@@ -443,7 +443,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-               document.addEventListener('click', (event) => {
+        document.addEventListener('click', (event) => {
             const editButton = event.target.closest('[data-quote-action="edit"]');
             if (editButton) {
                 const row = editButton.closest('[data-quote-row="true"]');
@@ -466,11 +466,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const row = viewButton.closest('[data-quote-row="true"]');
                 if (!row) return;
 
-                populateQuoteDetailModal(row);
-                const detailModal = document.getElementById('satQuoteDetailModal');
-                if (detailModal) {
-                    openModal(detailModal);
-                }
+                openQuotePdfPreviewModal(row);
+                return;
+            }
+
+            const payButton = event.target.closest('[data-quote-action="pay"]');
+            if (payButton) {
+                const row = payButton.closest('[data-quote-row="true"]');
+                if (!row) return;
+
+                openQuotePaymentModal(row);
             }
         });
 
@@ -497,11 +502,15 @@ document.addEventListener('DOMContentLoaded', () => {
         updateQuoteSummaryPreview();
     }
 
-    function initQuoteSecondaryModals() {
+        function initQuoteSecondaryModals() {
         const detailCloseButtons = document.querySelectorAll('[data-quote-detail-close]');
         const editCloseButtons = document.querySelectorAll('[data-quote-edit-close]');
-        const detailEditBtn = document.getElementById('satQuoteDetailEditBtn');
+        const paymentCloseButtons = document.querySelectorAll('[data-quote-payment-close]');
+        const openPaymentBtn = document.getElementById('satQuoteOpenPaymentBtn');
         const editLoadMainBtn = document.getElementById('satQuoteEditLoadMainModalBtn');
+        const transferForm = document.getElementById('satQuoteTransferProofForm');
+
+        ensureQuotePreviewToolbar();
 
         detailCloseButtons.forEach((button) => {
             button.addEventListener('click', () => {
@@ -521,13 +530,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-                if (detailEditBtn) {
-            detailEditBtn.addEventListener('click', () => {
-                const detailModal = document.getElementById('satQuoteDetailModal');
-                const quoteId = String(detailEditBtn.getAttribute('data-quote-id') || '').trim();
+        paymentCloseButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const modal = document.getElementById('satQuotePaymentModal');
+                if (modal) {
+                    closeModal(modal);
+                }
+            });
+        });
+
+        if (openPaymentBtn) {
+            openPaymentBtn.addEventListener('click', () => {
+                const quoteId = String(openPaymentBtn.getAttribute('data-quote-id') || '').trim();
 
                 if (quoteId === '') {
-                    showPortalNotice('No se encontró la cotización para editar.', 'warning');
+                    showPortalNotice('No se encontró la cotización para continuar al pago.', 'warning');
                     return;
                 }
 
@@ -537,18 +554,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                const status = normalizeText(String(row.getAttribute('data-status') || '').trim());
-                if (!isClientQuoteEditable(status)) {
-                    showPortalNotice('Solo puedes modificar cotizaciones en proceso o borrador.', 'warning');
-                    return;
-                }
-
+                const detailModal = document.getElementById('satQuoteDetailModal');
                 if (detailModal) {
                     closeModal(detailModal);
                 }
 
-                prepareMainQuoteModalForEdit(row);
-                openQuoteModal();
+                openQuotePaymentModal(row);
+            });
+        }
+
+        if (transferForm) {
+            transferForm.addEventListener('submit', () => {
+                showPortalNotice('Enviando comprobante de transferencia...', 'info');
             });
         }
 
@@ -1634,9 +1651,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ensureActionTooltips();
     }
 
-    function buildQuoteRow(data) {
+      function buildQuoteRow(data) {
         const quoteId = String(data?.id || data?.draft_id || '').trim();
         const folio = String(data?.folio || `COT-${Date.now().toString().slice(-6)}`).trim();
+        const folioDisplay = maskQuoteFolio(folio);
         const rfc = String(data?.rfc || '').trim().toUpperCase();
         const razonSocial = String(data?.razon_social || '').trim();
         const concepto = buildQuoteConceptoFromData(data);
@@ -1653,13 +1671,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const ivaRate = String(data?.iva_rate || '16').trim();
         const notes = String(data?.notes || '').trim();
 
-        const row = document.createElement('tr');
+        row = document.createElement('tr');
         row.id = quoteId !== '' ? `satQuoteRow-${quoteId}` : `satQuoteRow-${Date.now()}`;
         row.setAttribute('data-quote-row', 'true');
         row.setAttribute('data-quote-id', quoteId);
         row.setAttribute('data-status', status);
         row.setAttribute('data-search', `${folio} ${rfc} ${razonSocial} ${concepto} ${statusLabel}`);
         row.setAttribute('data-folio', folio);
+        row.setAttribute('data-folio-display', folioDisplay);
         row.setAttribute('data-rfc', rfc);
         row.setAttribute('data-razon-social', razonSocial);
         row.setAttribute('data-concepto', concepto);
@@ -1673,10 +1692,13 @@ document.addEventListener('DOMContentLoaded', () => {
         row.setAttribute('data-iva-rate', ivaRate);
         row.setAttribute('data-notes', notes);
 
+        const canPay = ['cotizada', 'pendiente_pago'].includes(status);
+        const canEdit = isClientQuoteEditable(status);
+
         row.innerHTML = `
             <td>
                 <div class="sat-clean-quote-summary">
-                    <span class="sat-clean-quote-folio" data-quote-field="folio">${escapeHtml(folio)}</span>
+                    <span class="sat-clean-quote-folio" data-quote-field="folio" title="Folio completo: ${escapeHtml(folio)}">${escapeHtml(folioDisplay)}</span>
                 </div>
             </td>
 
@@ -1723,8 +1745,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         class="sat-clean-icon-btn"
                         data-quote-action="view"
                         data-quote-id="${escapeHtml(quoteId)}"
-                        title="Ver detalle"
-                        aria-label="Ver detalle"
+                        title="Vista previa PDF"
+                        aria-label="Vista previa PDF"
                     >
                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                             <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
@@ -1732,19 +1754,46 @@ document.addEventListener('DOMContentLoaded', () => {
                         </svg>
                     </button>
 
-                    <button
-                        type="button"
-                        class="sat-clean-icon-btn"
-                        data-quote-action="edit"
-                        data-quote-id="${escapeHtml(quoteId)}"
-                        title="Editar cotización"
-                        aria-label="Editar cotización"
-                    >
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                            <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                        </svg>
-                    </button>
+                    ${
+                        canEdit
+                            ? `
+                                <button
+                                    type="button"
+                                    class="sat-clean-icon-btn"
+                                    data-quote-action="edit"
+                                    data-quote-id="${escapeHtml(quoteId)}"
+                                    title="Editar cotización"
+                                    aria-label="Editar cotización"
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                        <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            `
+                            : `<span class="sat-clean-status-badge is-muted">Sin edición</span>`
+                    }
+
+                    ${
+                        canPay
+                            ? `
+                                <button
+                                    type="button"
+                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                    data-quote-action="pay"
+                                    data-quote-id="${escapeHtml(quoteId)}"
+                                    title="Pagar cotización"
+                                    aria-label="Pagar cotización"
+                                >
+                                    Pagar
+                                </button>
+                            `
+                            : (
+                                status === 'pagada'
+                                    ? `<span class="sat-clean-status-badge is-warning">En descarga</span>`
+                                    : ''
+                            )
+                    }
                 </div>
             </td>
         `;
@@ -1752,9 +1801,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
-    function updateQuoteRow(row, data) {
+        function updateQuoteRow(row, data) {
         const quoteId = String(data?.id || data?.draft_id || '').trim();
         const folio = String(data?.folio || row.getAttribute('data-folio') || '').trim();
+        const folioDisplay = maskQuoteFolio(folio);
         const rfc = String(data?.rfc || row.getAttribute('data-rfc') || '').trim().toUpperCase();
         const razonSocial = String(data?.razon_social || row.getAttribute('data-razon-social') || '').trim();
         const concepto = buildQuoteConceptoFromData(data);
@@ -1779,6 +1829,7 @@ document.addEventListener('DOMContentLoaded', () => {
         row.setAttribute('data-status', status);
         row.setAttribute('data-search', `${folio} ${rfc} ${razonSocial} ${concepto} ${statusLabel}`);
         row.setAttribute('data-folio', folio);
+        row.setAttribute('data-folio-display', folioDisplay);
         row.setAttribute('data-rfc', rfc);
         row.setAttribute('data-razon-social', razonSocial);
         row.setAttribute('data-concepto', concepto);
@@ -1801,9 +1852,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const progressFillEl = row.querySelector('[data-quote-field="progress_fill"]');
         const progressTextEl = row.querySelector('[data-quote-field="progress_text"]');
         const updatedEl = row.querySelector('[data-quote-field="updated_at"]');
-        const actionButtons = row.querySelectorAll('[data-quote-id]');
+        const actionCell = row.querySelector('.sat-clean-icon-actions');
 
-        if (folioEl) folioEl.textContent = folio;
+        if (folioEl) {
+            folioEl.textContent = folioDisplay;
+            folioEl.setAttribute('title', `Folio completo: ${folio}`);
+        }
+
         if (rfcEl) rfcEl.textContent = rfc || 'RFC pendiente';
         if (razonEl) razonEl.textContent = razonSocial || 'Razón social pendiente';
         if (conceptoEl) conceptoEl.textContent = concepto;
@@ -1827,38 +1882,143 @@ document.addEventListener('DOMContentLoaded', () => {
             updatedEl.textContent = updatedAt;
         }
 
-        actionButtons.forEach((btn) => {
-            btn.setAttribute('data-quote-id', quoteId);
-        });
+        if (actionCell) {
+            const canPay = ['cotizada', 'pendiente_pago'].includes(status);
+            const canEdit = isClientQuoteEditable(status);
+
+            actionCell.innerHTML = `
+                <button
+                    type="button"
+                    class="sat-clean-icon-btn"
+                    data-quote-action="view"
+                    data-quote-id="${escapeHtml(quoteId)}"
+                    title="Vista previa PDF"
+                    aria-label="Vista previa PDF"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
+                        <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.8"/>
+                    </svg>
+                </button>
+
+                ${
+                    canEdit
+                        ? `
+                            <button
+                                type="button"
+                                class="sat-clean-icon-btn"
+                                data-quote-action="edit"
+                                data-quote-id="${escapeHtml(quoteId)}"
+                                title="Editar cotización"
+                                aria-label="Editar cotización"
+                            >
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                    <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        `
+                        : `<span class="sat-clean-status-badge is-muted">Sin edición</span>`
+                }
+
+                ${
+                    canPay
+                        ? `
+                            <button
+                                type="button"
+                                class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                data-quote-action="pay"
+                                data-quote-id="${escapeHtml(quoteId)}"
+                                title="Pagar cotización"
+                                aria-label="Pagar cotización"
+                            >
+                                Pagar
+                            </button>
+                        `
+                        : (
+                            status === 'pagada'
+                                ? `<span class="sat-clean-status-badge is-warning">En descarga</span>`
+                                : ''
+                        )
+                }
+            `;
+        }
     }
 
-    function populateQuoteDetailModal(row) {
+        function populateQuoteDetailModal(row) {
         const quoteId = String(row.getAttribute('data-quote-id') || '').trim();
         const folio = String(row.getAttribute('data-folio') || '').trim();
+        const folioDisplay = String(row.getAttribute('data-folio-display') || maskQuoteFolio(folio)).trim();
         const rfc = String(row.getAttribute('data-rfc') || '').trim();
-        const razonSocial = decodeHtmlEntities(String(row.getAttribute('data-razon-social') || '').trim());
-        const concepto = decodeHtmlEntities(String(row.getAttribute('data-concepto') || '').trim());
         const status = String(row.getAttribute('data-status') || '').trim();
-        const progress = String(row.getAttribute('data-progress') || '').trim();
-        const total = String(row.getAttribute('data-total') || '').trim();
-        const dateFrom = String(row.getAttribute('data-date-from') || '').trim();
-        const dateTo = String(row.getAttribute('data-date-to') || '').trim();
-        const tipo = String(row.getAttribute('data-tipo') || '').trim();
 
-        setInputValue('satQuoteDetailFolio', folio);
+        setInputValue('satQuoteDetailFolio', folioDisplay);
         setInputValue('satQuoteDetailRfc', rfc);
         setInputValue('satQuoteDetailStatus', mapQuoteStatusLabel(status));
-        setInputValue('satQuoteDetailRazonSocial', razonSocial || 'Sin razón social');
-        setInputValue('satQuoteDetailTipo', formatTipoSolicitudLabel(tipo || 'emitidos'));
-        setInputValue('satQuoteDetailDateFrom', dateFrom !== '' ? formatShortDate(normalizeDateForInput(dateFrom) || dateFrom) : 'Sin fecha');
-        setInputValue('satQuoteDetailDateTo', dateTo !== '' ? formatShortDate(normalizeDateForInput(dateTo) || dateTo) : 'Sin fecha');
-        setInputValue('satQuoteDetailProgress', `${progress || '0'}%`);
-        setInputValue('satQuoteDetailTotal', total !== '' ? formatMoney(total) : 'Pendiente');
-        setTextareaValue('satQuoteDetailConcepto', concepto || 'Sin concepto');
 
-        const detailEditBtn = document.getElementById('satQuoteDetailEditBtn');
-        if (detailEditBtn) {
-            detailEditBtn.setAttribute('data-quote-id', quoteId);
+        const frame = document.getElementById('satQuotePreviewFrame');
+        const loading = document.getElementById('satQuotePreviewLoading');
+        const empty = document.getElementById('satQuotePreviewEmpty');
+
+        const inlineUrl = buildQuotePdfPreviewUrl(row, 'inline');
+        const downloadUrl = buildQuotePdfPreviewUrl(row, 'download');
+        const newTabUrl = buildQuotePdfPreviewUrl(row, 'inline');
+
+        const downloadBtn = document.getElementById('satQuotePreviewDownloadBtn');
+        const newTabBtn = document.getElementById('satQuotePreviewOpenTabBtn');
+        const continueBtn = document.getElementById('satQuoteOpenPaymentBtn');
+
+        if (downloadBtn) {
+            downloadBtn.setAttribute('data-download-url', downloadUrl);
+            downloadBtn.disabled = downloadUrl === '';
+        }
+
+        if (newTabBtn) {
+            newTabBtn.setAttribute('data-open-url', newTabUrl);
+            newTabBtn.disabled = newTabUrl === '';
+        }
+
+        if (continueBtn) {
+            continueBtn.setAttribute('data-quote-id', quoteId);
+        }
+
+        if (loading) {
+            loading.hidden = false;
+        }
+
+        if (empty) {
+            empty.hidden = true;
+        }
+
+        if (frame) {
+            frame.removeAttribute('src');
+            frame.src = 'about:blank';
+
+            frame.onload = () => {
+                if (loading) {
+                    loading.hidden = true;
+                }
+            };
+
+            frame.onerror = () => {
+                if (loading) {
+                    loading.hidden = true;
+                }
+                if (empty) {
+                    empty.hidden = false;
+                }
+            };
+
+            if (inlineUrl !== '') {
+                frame.src = inlineUrl;
+            } else {
+                if (loading) {
+                    loading.hidden = true;
+                }
+                if (empty) {
+                    empty.hidden = false;
+                }
+            }
         }
     }
 
@@ -2497,6 +2657,228 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+        function maskQuoteFolio(folio) {
+        const clean = String(folio || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const last4 = clean !== '' ? clean.slice(-4) : '0000';
+        return `...${last4}`;
+    }
+
+        function buildQuotePdfPreviewUrl(row, outputMode = 'inline') {
+        const endpoint = resolveQuickPdfEndpoint();
+        if (!endpoint || !row) {
+            return '';
+        }
+
+        const url = new URL(endpoint, window.location.origin);
+
+        url.searchParams.set('quote_mode', 'formal');
+        url.searchParams.set('output', outputMode === 'download' ? 'download' : 'inline');
+        url.searchParams.set('preview', outputMode === 'download' ? '0' : '1');
+        url.searchParams.set('rfc', String(row.getAttribute('data-rfc') || '').trim());
+        url.searchParams.set('tipo', String(row.getAttribute('data-tipo') || 'emitidos').trim());
+        url.searchParams.set('date_from', String(row.getAttribute('data-date-from') || '').trim());
+        url.searchParams.set('date_to', String(row.getAttribute('data-date-to') || '').trim());
+        url.searchParams.set('xml_count', String(row.getAttribute('data-xml-count') || '0').trim());
+        url.searchParams.set('xml_count_estimated', String(row.getAttribute('data-xml-count') || '0').trim());
+        url.searchParams.set('discount_code', String(row.getAttribute('data-discount-code') || '').trim());
+        url.searchParams.set('iva_rate', String(row.getAttribute('data-iva-rate') || '16').trim());
+        url.searchParams.set('iva', String(row.getAttribute('data-iva-rate') || '16').trim());
+        url.searchParams.set('notes', String(row.getAttribute('data-notes') || '').trim());
+
+        return url.toString();
+    }
+
+    function openQuotePdfPreviewModal(row) {
+        populateQuoteDetailModal(row);
+
+        const detailModal = document.getElementById('satQuoteDetailModal');
+        if (detailModal) {
+            openModal(detailModal);
+        }
+    }
+
+    function openQuotePaymentModal(row) {
+        populateQuotePaymentModal(row);
+
+        const paymentModal = document.getElementById('satQuotePaymentModal');
+        if (paymentModal) {
+            openModal(paymentModal);
+        }
+    }
+
+    function populateQuotePaymentModal(row) {
+        const quoteId = String(row.getAttribute('data-quote-id') || '').trim();
+        const folio = String(row.getAttribute('data-folio-display') || '').trim();
+        const rfc = String(row.getAttribute('data-rfc') || '').trim();
+        const totalRaw = String(row.getAttribute('data-total') || '0').trim();
+
+        setInputValue('satQuotePaymentFolio', folio);
+        setInputValue('satQuotePaymentRfc', rfc);
+        setInputValue('satQuotePaymentTotal', formatMoney(totalRaw));
+
+        setInputValue('satQuoteStripePaymentId', quoteId);
+        setInputValue('satQuoteTransferPaymentId', quoteId);
+        setInputValue('sat_transfer_amount', toMoneyValue(totalRaw).toFixed(2));
+
+        const transferDate = document.getElementById('sat_transfer_date');
+        if (transferDate && transferDate.value === '') {
+            transferDate.value = new Date().toISOString().slice(0, 10);
+        }
+    }
+
+
+    function ensureQuotePreviewToolbar() {
+        const modal = document.getElementById('satQuoteDetailModal');
+        if (!modal) {
+            return;
+        }
+
+        const bodyScroll = modal.querySelector('.sat-clean-modal__body-scroll');
+        if (!bodyScroll) {
+            return;
+        }
+
+        let previewShell = document.getElementById('satQuotePreviewShell');
+        if (!previewShell) {
+            const iframe = document.getElementById('satQuotePreviewFrame');
+            if (!iframe) {
+                return;
+            }
+
+            const currentWrapper = iframe.parentElement;
+            if (!currentWrapper) {
+                return;
+            }
+
+            previewShell = document.createElement('div');
+            previewShell.id = 'satQuotePreviewShell';
+            previewShell.innerHTML = `
+                <div
+                    id="satQuotePreviewToolbar"
+                    style="
+                        display:flex;
+                        align-items:center;
+                        justify-content:space-between;
+                        gap:12px;
+                        flex-wrap:wrap;
+                        margin:0 0 12px 0;
+                        padding:12px 14px;
+                        border:1px solid #dbe6f4;
+                        border-radius:16px;
+                        background:linear-gradient(180deg,#f8fbff 0%,#ffffff 100%);
+                    "
+                >
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <strong style="font-size:13px;color:#17356d;">Vista previa PDF</strong>
+                        <span style="font-size:12px;color:#667892;">Puedes revisarlo aquí, descargarlo o abrirlo en otra pestaña.</span>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <button
+                            type="button"
+                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                            id="satQuotePreviewOpenTabBtn"
+                        >
+                            Abrir en nueva pestaña
+                        </button>
+
+                        <button
+                            type="button"
+                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                            id="satQuotePreviewDownloadBtn"
+                        >
+                            Descargar PDF
+                        </button>
+                    </div>
+                </div>
+
+                <div
+                    id="satQuotePreviewFrameWrap"
+                    style="
+                        position:relative;
+                        width:100%;
+                        height:min(72vh, 820px);
+                        border:1px solid #dbe6f4;
+                        border-radius:18px;
+                        overflow:hidden;
+                        background:#f6f8fc;
+                    "
+                >
+                    <div
+                        id="satQuotePreviewLoading"
+                        style="
+                            position:absolute;
+                            inset:0;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%);
+                            z-index:2;
+                            font-size:14px;
+                            font-weight:700;
+                            color:#466284;
+                        "
+                    >
+                        Cargando vista previa del PDF...
+                    </div>
+
+                    <div
+                        id="satQuotePreviewEmpty"
+                        hidden
+                        style="
+                            position:absolute;
+                            inset:0;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            text-align:center;
+                            padding:24px;
+                            background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%);
+                            z-index:2;
+                            font-size:14px;
+                            font-weight:700;
+                            color:#6b7c96;
+                        "
+                    >
+                        No se pudo mostrar la vista previa del PDF. Usa los botones para descargarlo o abrirlo en otra pestaña.
+                    </div>
+                </div>
+            `;
+
+            currentWrapper.parentNode.insertBefore(previewShell, currentWrapper);
+            document.getElementById('satQuotePreviewFrameWrap').appendChild(iframe);
+        }
+
+        const downloadBtn = document.getElementById('satQuotePreviewDownloadBtn');
+        const openTabBtn = document.getElementById('satQuotePreviewOpenTabBtn');
+
+        if (downloadBtn && !downloadBtn.dataset.bound) {
+            downloadBtn.dataset.bound = '1';
+            downloadBtn.addEventListener('click', () => {
+                const url = String(downloadBtn.getAttribute('data-download-url') || '').trim();
+                if (url === '') {
+                    showPortalNotice('No se encontró el PDF para descargar.', 'warning');
+                    return;
+                }
+
+                window.open(url, '_blank', 'noopener');
+            });
+        }
+
+        if (openTabBtn && !openTabBtn.dataset.bound) {
+            openTabBtn.dataset.bound = '1';
+            openTabBtn.addEventListener('click', () => {
+                const url = String(openTabBtn.getAttribute('data-open-url') || '').trim();
+                if (url === '') {
+                    showPortalNotice('No se encontró el PDF para abrir.', 'warning');
+                    return;
+                }
+
+                window.open(url, '_blank', 'noopener');
+            });
+        }
+    }
+    
     function decodeHtmlEntities(value) {
         const textarea = document.createElement('textarea');
         textarea.innerHTML = String(value || '');

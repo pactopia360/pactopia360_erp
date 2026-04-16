@@ -14,10 +14,13 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
+use Illuminate\Support\Facades\View as ViewFacade;
 use App\Services\Sat\Client\SatQuoteService;
 
 final class SatOpsQuotesController extends Controller
 {
+    private const QUOTE_BCC_EMAIL = 'notificaciones@pactopia.com';
+
     public function __construct(
         private readonly SatQuoteService $quoteService,
     ) {}
@@ -187,7 +190,7 @@ final class SatOpsQuotesController extends Controller
         return back()->with('success', 'Estatus de cotización actualizado correctamente.');
     }
 
-        public function updateQuote(Request $request, string $id): RedirectResponse
+    public function updateQuote(Request $request, string $id): RedirectResponse
     {
         $row = SatDownload::query()->findOrFail($id);
 
@@ -348,10 +351,12 @@ final class SatOpsQuotesController extends Controller
             'total'            => ['required', 'numeric', 'min:0'],
             'admin_notes'      => ['nullable', 'string', 'max:5000'],
             'commercial_notes' => ['nullable', 'string', 'max:5000'],
-            'customer_email'   => ['nullable', 'email', 'max:255'],
+            'customer_emails'  => ['nullable', 'string', 'max:5000'],
         ]);
 
-        DB::transaction(function () use ($row, $data) {
+        $customerEmails = $this->parseCustomerEmails((string) ($data['customer_emails'] ?? ''));
+
+        DB::transaction(function () use ($row, $data, $customerEmails) {
             $meta = is_array($row->meta ?? null) ? $row->meta : [];
 
             $row->subtotal = (float) $data['subtotal'];
@@ -366,6 +371,8 @@ final class SatOpsQuotesController extends Controller
             $meta['confirmed_at'] = now()->toIso8601String();
             $meta['can_pay'] = true;
             $meta['customer_action'] = 'pay_pending';
+            $meta['customer_emails'] = $customerEmails;
+            $meta['customer_email'] = $customerEmails[0] ?? '';
 
             $quote = is_array(data_get($meta, 'quote')) ? data_get($meta, 'quote') : [];
             $quote['subtotal'] = (float) $row->subtotal;
@@ -375,22 +382,31 @@ final class SatOpsQuotesController extends Controller
             $quote['confirmed_at'] = now()->toIso8601String();
             $quote['admin_notes'] = (string) $meta['admin_notes'];
             $quote['commercial_notes'] = (string) $meta['commercial_notes'];
+            $quote['customer_emails'] = $customerEmails;
             $meta['quote'] = $quote;
 
             $row->meta = $meta;
             $row->save();
         });
 
-        $customerEmail = trim((string) ($data['customer_email'] ?? ''));
+        $fresh = $row->fresh();
 
-        if ($customerEmail !== '') {
-            $this->sendConfirmedQuoteEmail(
-                to: $customerEmail,
-                row: $row->fresh()
-            );
+        if (!empty($customerEmails)) {
+            try {
+                $this->sendConfirmedQuoteEmail(
+                    to: $customerEmails,
+                    row: $fresh
+                );
+            } catch (\Throwable $e) {
+                Log::warning('[SAT:adminQuotes] No se pudo enviar correo de cotización confirmada', [
+                    'to'    => $customerEmails,
+                    'quote' => (string) $row->getKey(),
+                    'err'   => $e->getMessage(),
+                ]);
+            }
         }
 
-        return back()->with('success', 'Cotización confirmada correctamente y lista para pago del cliente.');
+        return back()->with('success', 'Cotización confirmada correctamente y enviada al cliente con PDF adjunto.');
     }
 
     public function rejectQuote(Request $request, string $id): RedirectResponse
@@ -434,7 +450,7 @@ final class SatOpsQuotesController extends Controller
         return back()->with('success', 'Cotización rechazada correctamente.');
     }
 
-        public function approveTransfer(Request $request, string $id): RedirectResponse
+    public function approveTransfer(Request $request, string $id): RedirectResponse
     {
         $row = SatDownload::query()->findOrFail($id);
 
@@ -593,7 +609,7 @@ final class SatOpsQuotesController extends Controller
         return back()->with('success', 'Base de solicitud SAT registrada correctamente.');
     }
 
-        public function completeQuote(Request $request, string $id): RedirectResponse
+    public function completeQuote(Request $request, string $id): RedirectResponse
     {
         $row = SatDownload::query()->findOrFail($id);
 
@@ -732,10 +748,17 @@ final class SatOpsQuotesController extends Controller
         ];
     }
 
-        private function sendConfirmedQuoteEmail(string $to, SatDownload $row): void
+    private function sendConfirmedQuoteEmail(array $to, SatDownload $row): void
     {
+        $to = $this->sanitizeEmails($to);
+
+        if (empty($to)) {
+            return;
+        }
+
         try {
             $mapped = $this->mapQuoteRow($row);
+            $pdfAttachment = $this->buildConfirmedQuotePdfAttachment($row, $mapped);
 
             $subject = 'Cotización SAT confirmada · ' . (string) ($mapped['folio'] ?? 'SIN-FOLIO');
 
@@ -758,8 +781,16 @@ final class SatOpsQuotesController extends Controller
                 'Ya puedes ingresar al portal cliente para proceder con el pago.',
             ];
 
-            Mail::raw(implode("\n", $lines), function ($message) use ($to, $subject) {
-                $message->to($to)->subject($subject);
+            Mail::raw(implode("\n", $lines), function ($message) use ($to, $subject, $pdfAttachment) {
+                $message->to($to)->bcc(self::QUOTE_BCC_EMAIL)->subject($subject);
+
+                if ($pdfAttachment !== null) {
+                    $message->attachData(
+                        $pdfAttachment['content'],
+                        $pdfAttachment['name'],
+                        ['mime' => 'application/pdf']
+                    );
+                }
             });
         } catch (\Throwable $e) {
             Log::warning('[SAT:adminQuotes] No se pudo enviar correo de cotización confirmada', [
@@ -802,7 +833,7 @@ final class SatOpsQuotesController extends Controller
         }
     }
 
-        private function sendTransferApprovedInternalEmail(SatDownload $row): void
+    private function sendTransferApprovedInternalEmail(SatDownload $row): void
     {
         try {
             $mapped = $this->mapQuoteRow($row);
@@ -895,7 +926,7 @@ final class SatOpsQuotesController extends Controller
         }
     }
 
-        private function normalizeQuoteUiStatus(SatDownload $row): string
+    private function normalizeQuoteUiStatus(SatDownload $row): string
     {
         $meta = is_array($row->meta ?? null) ? $row->meta : [];
         $statusUiMeta = strtolower(trim((string) data_get($meta, 'status_ui', '')));
@@ -988,5 +1019,181 @@ final class SatOpsQuotesController extends Controller
         };
 
         return $label . ' · ' . $dateFrom->format('d/m/Y') . ' al ' . $dateTo->format('d/m/Y');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function parseCustomerEmails(string $raw): array
+    {
+        $parts = preg_split('/[,\n;\s]+/', $raw) ?: [];
+
+        return $this->sanitizeEmails($parts);
+    }
+
+    /**
+     * @param array<int, string> $emails
+     * @return array<int, string>
+     */
+    private function sanitizeEmails(array $emails): array
+    {
+        $valid = [];
+
+        foreach ($emails as $email) {
+            $email = strtolower(trim((string) $email));
+
+            if ($email === '') {
+                continue;
+            }
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
+            }
+
+            $valid[$email] = $email;
+        }
+
+        return array_values($valid);
+    }
+
+    /**
+     * @param array<string, mixed> $mapped
+     * @return array{name:string,content:string}|null
+     */
+    private function buildConfirmedQuotePdfAttachment(SatDownload $row, array $mapped): ?array
+    {
+        if (!ViewFacade::exists('cliente.sat.pdf.quote')) {
+            Log::warning('[SAT:adminQuotes] No existe vista PDF de cotización', [
+                'quote' => (string) $row->getKey(),
+                'view'  => 'cliente.sat.pdf.quote',
+            ]);
+
+            return null;
+        }
+
+        if (!class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
+            Log::warning('[SAT:adminQuotes] DomPDF no disponible para adjuntar cotización', [
+                'quote' => (string) $row->getKey(),
+            ]);
+
+            return null;
+        }
+
+        $payload = $this->buildConfirmedQuotePdfPayload($row, $mapped);
+        $payload['quote_hash'] = $this->quoteService->quotePdfHash($payload);
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('cliente.sat.pdf.quote', $payload)
+            ->setPaper('letter', 'portrait')
+            ->setOptions([
+                'defaultFont'          => 'DejaVu Sans',
+                'isRemoteEnabled'      => false,
+                'isHtml5ParserEnabled' => true,
+                'isPhpEnabled'         => false,
+                'dpi'                  => 96,
+                'fontHeightRatio'      => 1.0,
+            ]);
+
+        $fileName = 'cotizacion_sat_' . (string) $mapped['folio'] . '.pdf';
+        $fileName = str_replace(['/', '\\', ' '], '_', $fileName);
+
+        return [
+            'name'    => $fileName,
+            'content' => $pdf->output(),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $mapped
+     * @return array<string, mixed>
+     */
+    private function buildConfirmedQuotePdfPayload(SatDownload $row, array $mapped): array
+    {
+        $meta = is_array($row->meta ?? null) ? $row->meta : [];
+
+        $dateFrom = !empty($mapped['date_from'])
+            ? Carbon::parse((string) $mapped['date_from'])->startOfDay()
+            : null;
+
+        $dateTo = !empty($mapped['date_to'])
+            ? Carbon::parse((string) $mapped['date_to'])->endOfDay()
+            : null;
+
+        $tipo = strtolower(trim((string) ($mapped['tipo_solicitud'] ?? 'emitidos')));
+        if (!in_array($tipo, ['emitidos', 'recibidos', 'ambos'], true)) {
+            $tipo = 'emitidos';
+        }
+
+        $protection = $this->buildFormalQuotePdfProtectionText();
+
+        return [
+            'trace_id'              => (string) (data_get($meta, 'trace_id') ?: ('admin-quote-' . $row->getKey())),
+            'mode'                  => 'formal',
+            'is_simulation'         => false,
+            'is_formal_quote'       => true,
+            'folio'                 => (string) ($mapped['folio'] ?? ('SAT-' . $row->getKey())),
+            'generated_at'          => $row->created_at ?? now(),
+            'valid_until'           => !empty($mapped['valid_until'])
+                ? Carbon::parse((string) $mapped['valid_until'])->endOfDay()
+                : now()->addDays(7)->endOfDay(),
+            'plan'                  => (string) data_get($meta, 'plan', ''),
+            'cuenta_id'             => (string) ($row->cuenta_id ?? ''),
+            'empresa'               => (string) (data_get($meta, 'empresa') ?: ($mapped['razon_social'] ?? '')),
+            'rfc'                   => (string) ($mapped['rfc'] ?? ''),
+            'razon_social'          => (string) ($mapped['razon_social'] ?? ''),
+            'tipo'                  => $tipo,
+            'tipo_label'            => match ($tipo) {
+                'recibidos' => 'Recibidos',
+                'ambos'     => 'Ambos',
+                default     => 'Emitidos',
+            },
+            'date_from'             => $dateFrom,
+            'date_to'               => $dateTo,
+            'periodo_label'         => ($dateFrom && $dateTo)
+                ? $dateFrom->format('d/m/Y') . ' al ' . $dateTo->format('d/m/Y')
+                : 'Periodo no definido',
+            'concepto'              => (string) ($mapped['concepto'] ?? 'Cotización SAT'),
+            'notes'                 => (string) ($mapped['notes'] ?? ''),
+            'xml_count'             => (int) ($mapped['xml_count'] ?? 0),
+            'base'                  => (float) data_get($meta, 'base', $row->costo ?? 0),
+            'discount_code'         => (string) data_get($meta, 'discount_code', ''),
+            'discount_code_applied' => (string) data_get($meta, 'discount_code_applied', ''),
+            'discount_label'        => (string) data_get($meta, 'discount_label', ''),
+            'discount_reason'       => (string) data_get($meta, 'discount_reason', ''),
+            'discount_type'         => (string) data_get($meta, 'discount_type', ''),
+            'discount_value'        => data_get($meta, 'discount_value'),
+            'discount_pct'          => (float) data_get($meta, 'discount_pct', 0),
+            'discount_amount'       => (float) data_get($meta, 'discount_amount', 0),
+            'subtotal'              => (float) ($mapped['subtotal'] ?? 0),
+            'iva_rate'              => (int) data_get($meta, 'iva_rate', 16),
+            'iva_amount'            => (float) ($mapped['iva'] ?? 0),
+            'total'                 => (float) ($mapped['total'] ?? 0),
+            'note'                  => (string) (data_get($meta, 'commercial_notes') ?: data_get($meta, 'admin_notes') ?: ''),
+            'protection'            => $protection,
+            'issuer'                => [
+                'name'             => (string) (config('app.name') ?: 'Pactopia360'),
+                'brand'            => 'Pactopia',
+                'website'          => (string) (config('app.url') ?: ''),
+                'email'            => (string) (config('mail.from.address') ?: 'notificaciones@pactopia360.com'),
+                'phone'            => (string) (config('services.pactopia.phone') ?: ''),
+                'logo_public_path' => public_path('assets/client/logp360ligjt.png'),
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildFormalQuotePdfProtectionText(): array
+    {
+        return [
+            'watermark'              => 'COTIZACIÓN PACTOPIA',
+            'document_title'         => 'Cotización de servicio SAT',
+            'document_subtitle'      => 'Propuesta técnica y económica sujeta a vigencia, alcance y condiciones operativas.',
+            'legal_notice'           => 'Esta cotización describe un alcance técnico de descarga y entrega de información. No incluye validación fiscal, contable, conciliación, interpretación ni reprocesos posteriores no contratados.',
+            'pricing_notice'         => 'Los precios están sujetos a vigencia comercial, alcance final autorizado, confirmación operativa y condiciones del portal del SAT.',
+            'sat_dependency_notice'  => 'Los tiempos de ejecución y entrega dependen del portal del SAT, sus límites operativos, intermitencias, mantenimientos y tiempos de respuesta.',
+            'footer_notice'          => 'Documento comercial de uso controlado. Pactopia se reserva ajustes por cambios de alcance, volumen final o condiciones externas de operación.',
+            'show_no_validity_badge' => false,
+        ];
     }
 }

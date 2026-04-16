@@ -688,7 +688,7 @@
                                             <div class="satq-modal-head">
                                                 <div>
                                                     <h3>Confirmar cotización para cliente</h3>
-                                                    <p>Define el importe final y registra el correo para notificación.</p>
+                                                    <p>Define el importe final y envía la cotización PDF a uno o varios correos del cliente.</p>
                                                 </div>
                                                 <button type="button" class="satq-modal-close" data-modal-close>&times;</button>
                                             </div>
@@ -738,15 +738,40 @@
                                                         </div>
                                                     </div>
 
+                                                    @php
+                                                        $quoteMeta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+                                                        $customerRecipients = data_get($quoteMeta, 'customer_emails', []);
+                                                        if (!is_array($customerRecipients)) {
+                                                            $customerRecipients = [];
+                                                        }
+
+                                                        $customerRecipientsText = implode(', ', array_values(array_filter(array_map(
+                                                            static fn ($email) => trim((string) $email),
+                                                            $customerRecipients
+                                                        ))));
+                                                    @endphp
+
                                                     <div class="satq-field">
-                                                        <label>Correo cliente</label>
-                                                        <input
-                                                            type="email"
-                                                            name="customer_email"
-                                                            class="satq-input"
-                                                            value=""
-                                                            placeholder="cliente@dominio.com"
-                                                        >
+                                                        <label>Correos del cliente</label>
+                                                        <textarea
+                                                            name="customer_emails"
+                                                            class="satq-textarea"
+                                                            rows="4"
+                                                            placeholder="correo1@dominio.com, correo2@dominio.com, correo3@dominio.com"
+                                                        >{{ $customerRecipientsText }}</textarea>
+                                                        <small class="satq-help-text">
+                                                            Puedes capturar uno o varios correos separados por coma. A esos correos se enviará la cotización con PDF adjunto.
+                                                        </small>
+                                                    </div>
+
+                                                    <div class="satq-summary-card">
+                                                        <h4>Envío al cliente</h4>
+                                                        <div class="satq-summary-list">
+                                                            <div class="satq-summary-item"><strong>RFC:</strong> {{ $row['rfc'] ?? '—' }}</div>
+                                                            <div class="satq-summary-item"><strong>Razón social:</strong> {{ $row['razon_social'] ?? 'Sin razón social' }}</div>
+                                                            <div class="satq-summary-item"><strong>Concepto:</strong> {{ $row['concepto'] ?? 'Cotización SAT' }}</div>
+                                                            <div class="satq-summary-item"><strong>Adjunto:</strong> PDF de cotización</div>
+                                                        </div>
                                                     </div>
 
                                                     <div class="satq-mini-grid-2">
@@ -761,12 +786,11 @@
                                                         </div>
                                                     </div>
 
-                                                    <button type="submit" class="satq-btn satq-btn-success">Confirmar y avisar al cliente</button>
+                                                    <button type="submit" class="satq-btn satq-btn-success">Confirmar y enviar cotización</button>
                                                 </form>
                                             </div>
                                         </div>
                                     </div>
-
                                     {{-- MODAL RECHAZAR --}}
                                     <div class="satq-modal" id="{{ $modalRejectId }}" aria-hidden="true">
                                         <div class="satq-modal-backdrop" data-modal-close></div>
