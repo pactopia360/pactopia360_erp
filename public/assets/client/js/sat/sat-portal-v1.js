@@ -510,7 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const editLoadMainBtn = document.getElementById('satQuoteEditLoadMainModalBtn');
         const transferForm = document.getElementById('satQuoteTransferProofForm');
 
-        ensureQuotePreviewToolbar();
+        bindQuotePreviewToolbarActions();
 
         detailCloseButtons.forEach((button) => {
             button.addEventListener('click', () => {
@@ -1945,28 +1945,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-        function populateQuoteDetailModal(row) {
+    function populateQuoteDetailModal(row) {
         const quoteId = String(row.getAttribute('data-quote-id') || '').trim();
         const folio = String(row.getAttribute('data-folio') || '').trim();
         const folioDisplay = String(row.getAttribute('data-folio-display') || maskQuoteFolio(folio)).trim();
         const rfc = String(row.getAttribute('data-rfc') || '').trim();
         const status = String(row.getAttribute('data-status') || '').trim();
+        const razonSocial = decodeHtmlEntities(String(row.getAttribute('data-razon-social') || '').trim());
+        const concepto = decodeHtmlEntities(String(row.getAttribute('data-concepto') || '').trim());
+        const total = String(row.getAttribute('data-total') || '').trim();
+        const tipo = String(row.getAttribute('data-tipo') || 'emitidos').trim();
+        const dateFrom = String(row.getAttribute('data-date-from') || '').trim();
+        const dateTo = String(row.getAttribute('data-date-to') || '').trim();
+        const xmlCount = String(row.getAttribute('data-xml-count') || '0').trim();
 
         setInputValue('satQuoteDetailFolio', folioDisplay);
         setInputValue('satQuoteDetailRfc', rfc);
         setInputValue('satQuoteDetailStatus', mapQuoteStatusLabel(status));
 
-        const frame = document.getElementById('satQuotePreviewFrame');
-        const loading = document.getElementById('satQuotePreviewLoading');
-        const empty = document.getElementById('satQuotePreviewEmpty');
+        const subtitle = document.getElementById('satQuoteDetailSubtitle');
+        if (subtitle) {
+            subtitle.textContent = buildQuotePreviewSubtitle({
+                rfc,
+                razonSocial,
+                concepto,
+                total,
+                tipo,
+                dateFrom,
+                dateTo,
+                xmlCount,
+            });
+        }
 
+        const frame = document.getElementById('satQuotePreviewFrame');
         const inlineUrl = buildQuotePdfPreviewUrl(row, 'inline');
         const downloadUrl = buildQuotePdfPreviewUrl(row, 'download');
         const newTabUrl = buildQuotePdfPreviewUrl(row, 'inline');
 
         const downloadBtn = document.getElementById('satQuotePreviewDownloadBtn');
         const newTabBtn = document.getElementById('satQuotePreviewOpenTabBtn');
+        const printBtn = document.getElementById('satQuotePreviewPrintBtn');
         const continueBtn = document.getElementById('satQuoteOpenPaymentBtn');
+        const toolbarPayBtn = document.getElementById('satQuotePreviewToolbarPayBtn');
 
         if (downloadBtn) {
             downloadBtn.setAttribute('data-download-url', downloadUrl);
@@ -1978,46 +1998,26 @@ document.addEventListener('DOMContentLoaded', () => {
             newTabBtn.disabled = newTabUrl === '';
         }
 
+        if (printBtn) {
+            printBtn.disabled = inlineUrl === '';
+        }
+
         if (continueBtn) {
             continueBtn.setAttribute('data-quote-id', quoteId);
+            continueBtn.disabled = quoteId === '';
         }
 
-        if (loading) {
-            loading.hidden = false;
-        }
-
-        if (empty) {
-            empty.hidden = true;
+        if (toolbarPayBtn) {
+            toolbarPayBtn.setAttribute('data-quote-id', quoteId);
+            toolbarPayBtn.disabled = quoteId === '';
         }
 
         if (frame) {
             frame.removeAttribute('src');
             frame.src = 'about:blank';
 
-            frame.onload = () => {
-                if (loading) {
-                    loading.hidden = true;
-                }
-            };
-
-            frame.onerror = () => {
-                if (loading) {
-                    loading.hidden = true;
-                }
-                if (empty) {
-                    empty.hidden = false;
-                }
-            };
-
             if (inlineUrl !== '') {
                 frame.src = inlineUrl;
-            } else {
-                if (loading) {
-                    loading.hidden = true;
-                }
-                if (empty) {
-                    empty.hidden = false;
-                }
             }
         }
     }
@@ -2726,136 +2726,62 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+        function buildQuotePreviewSubtitle(data) {
+        const parts = [];
 
-    function ensureQuotePreviewToolbar() {
-        const modal = document.getElementById('satQuoteDetailModal');
-        if (!modal) {
-            return;
+        const razonSocial = String(data?.razonSocial || '').trim();
+        const rfc = String(data?.rfc || '').trim();
+        const tipo = formatTipoSolicitudLabel(String(data?.tipo || '').trim());
+        const periodo = (String(data?.dateFrom || '').trim() !== '' && String(data?.dateTo || '').trim() !== '')
+            ? `${formatShortDate(data.dateFrom)} al ${formatShortDate(data.dateTo)}`
+            : 'periodo por confirmar';
+        const xmlCount = String(data?.xmlCount || '').trim();
+        const total = String(data?.total || '').trim();
+
+        if (razonSocial !== '' || rfc !== '') {
+            parts.push(`Documento comercial preparado para ${razonSocial !== '' ? razonSocial : rfc}.`);
         }
 
-        const bodyScroll = modal.querySelector('.sat-clean-modal__body-scroll');
-        if (!bodyScroll) {
-            return;
+        parts.push(`Corresponde a una solicitud de ${tipo.toLowerCase()} para el periodo ${periodo}.`);
+
+        if (xmlCount !== '' && xmlCount !== '0') {
+            parts.push(`Volumen estimado: ${numberFormat(xmlCount)} XML.`);
         }
 
-        let previewShell = document.getElementById('satQuotePreviewShell');
-        if (!previewShell) {
-            const iframe = document.getElementById('satQuotePreviewFrame');
-            if (!iframe) {
-                return;
-            }
-
-            const currentWrapper = iframe.parentElement;
-            if (!currentWrapper) {
-                return;
-            }
-
-            previewShell = document.createElement('div');
-            previewShell.id = 'satQuotePreviewShell';
-            previewShell.innerHTML = `
-                <div
-                    id="satQuotePreviewToolbar"
-                    style="
-                        display:flex;
-                        align-items:center;
-                        justify-content:space-between;
-                        gap:12px;
-                        flex-wrap:wrap;
-                        margin:0 0 12px 0;
-                        padding:12px 14px;
-                        border:1px solid #dbe6f4;
-                        border-radius:16px;
-                        background:linear-gradient(180deg,#f8fbff 0%,#ffffff 100%);
-                    "
-                >
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <strong style="font-size:13px;color:#17356d;">Vista previa PDF</strong>
-                        <span style="font-size:12px;color:#667892;">Puedes revisarlo aquí, descargarlo o abrirlo en otra pestaña.</span>
-                    </div>
-
-                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                        <button
-                            type="button"
-                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                            id="satQuotePreviewOpenTabBtn"
-                        >
-                            Abrir en nueva pestaña
-                        </button>
-
-                        <button
-                            type="button"
-                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                            id="satQuotePreviewDownloadBtn"
-                        >
-                            Descargar PDF
-                        </button>
-                    </div>
-                </div>
-
-                <div
-                    id="satQuotePreviewFrameWrap"
-                    style="
-                        position:relative;
-                        width:100%;
-                        height:min(72vh, 820px);
-                        border:1px solid #dbe6f4;
-                        border-radius:18px;
-                        overflow:hidden;
-                        background:#f6f8fc;
-                    "
-                >
-                    <div
-                        id="satQuotePreviewLoading"
-                        style="
-                            position:absolute;
-                            inset:0;
-                            display:flex;
-                            align-items:center;
-                            justify-content:center;
-                            background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%);
-                            z-index:2;
-                            font-size:14px;
-                            font-weight:700;
-                            color:#466284;
-                        "
-                    >
-                        Cargando vista previa del PDF...
-                    </div>
-
-                    <div
-                        id="satQuotePreviewEmpty"
-                        hidden
-                        style="
-                            position:absolute;
-                            inset:0;
-                            display:flex;
-                            align-items:center;
-                            justify-content:center;
-                            text-align:center;
-                            padding:24px;
-                            background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%);
-                            z-index:2;
-                            font-size:14px;
-                            font-weight:700;
-                            color:#6b7c96;
-                        "
-                    >
-                        No se pudo mostrar la vista previa del PDF. Usa los botones para descargarlo o abrirlo en otra pestaña.
-                    </div>
-                </div>
-            `;
-
-            currentWrapper.parentNode.insertBefore(previewShell, currentWrapper);
-            document.getElementById('satQuotePreviewFrameWrap').appendChild(iframe);
+        if (total !== '' && toMoneyValue(total) > 0) {
+            parts.push(`Importe estimado: ${formatMoney(total)}.`);
         }
 
-        const downloadBtn = document.getElementById('satQuotePreviewDownloadBtn');
+        parts.push('Revisa la propuesta antes de abrirla, descargarla, imprimirla o continuar al pago.');
+
+        return parts.join(' ');
+    }
+
+    function bindQuotePreviewToolbarActions() {
         const openTabBtn = document.getElementById('satQuotePreviewOpenTabBtn');
+        const downloadBtn = document.getElementById('satQuotePreviewDownloadBtn');
+        const printBtn = document.getElementById('satQuotePreviewPrintBtn');
+        const payToolbarBtn = document.getElementById('satQuotePreviewToolbarPayBtn');
+
+        if (openTabBtn && !openTabBtn.dataset.bound) {
+            openTabBtn.dataset.bound = '1';
+            openTabBtn.addEventListener('click', () => {
+                const url = String(openTabBtn.getAttribute('data-open-url') || '').trim();
+
+                if (url === '') {
+                    showPortalNotice('No se encontró el PDF para abrir.', 'warning');
+                    return;
+                }
+
+                window.open(url, '_blank', 'noopener');
+            });
+        }
 
         if (downloadBtn && !downloadBtn.dataset.bound) {
             downloadBtn.dataset.bound = '1';
             downloadBtn.addEventListener('click', () => {
                 const url = String(downloadBtn.getAttribute('data-download-url') || '').trim();
+
                 if (url === '') {
                     showPortalNotice('No se encontró el PDF para descargar.', 'warning');
                     return;
@@ -2865,18 +2791,54 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (openTabBtn && !openTabBtn.dataset.bound) {
-            openTabBtn.dataset.bound = '1';
-            openTabBtn.addEventListener('click', () => {
-                const url = String(openTabBtn.getAttribute('data-open-url') || '').trim();
-                if (url === '') {
-                    showPortalNotice('No se encontró el PDF para abrir.', 'warning');
+        if (printBtn && !printBtn.dataset.bound) {
+            printBtn.dataset.bound = '1';
+            printBtn.addEventListener('click', () => {
+                const frame = document.getElementById('satQuotePreviewFrame');
+
+                if (!frame || !frame.src || frame.src === 'about:blank') {
+                    showPortalNotice('No hay vista previa lista para imprimir.', 'warning');
                     return;
                 }
 
-                window.open(url, '_blank', 'noopener');
+                try {
+                    frame.contentWindow.focus();
+                    frame.contentWindow.print();
+                } catch (error) {
+                    window.open(frame.src, '_blank', 'noopener');
+                }
             });
         }
+
+        if (payToolbarBtn && !payToolbarBtn.dataset.bound) {
+            payToolbarBtn.dataset.bound = '1';
+            payToolbarBtn.addEventListener('click', () => {
+                const quoteId = String(payToolbarBtn.getAttribute('data-quote-id') || '').trim();
+
+                if (quoteId === '') {
+                    showPortalNotice('No se encontró la cotización para continuar al pago.', 'warning');
+                    return;
+                }
+
+                const row = document.querySelector(`[data-quote-row="true"][data-quote-id="${cssAttributeEscape(quoteId)}"]`);
+                if (!row) {
+                    showPortalNotice('No se encontró el registro de la cotización.', 'warning');
+                    return;
+                }
+
+                const detailModal = document.getElementById('satQuoteDetailModal');
+                if (detailModal) {
+                    closeModal(detailModal);
+                }
+
+                openQuotePaymentModal(row);
+            });
+        }
+    }
+
+
+    function ensureQuotePreviewToolbar() {
+        return;
     }
     
     function decodeHtmlEntities(value) {

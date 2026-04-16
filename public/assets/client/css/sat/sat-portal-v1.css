@@ -2477,67 +2477,74 @@ body.sat-clean-modal-open{
 }
 
 /* =========================================================
-   QUOTE PDF PREVIEW MODAL REDESIGN
+   QUOTE PDF PREVIEW MODAL · PACTOPIA TEMPLATE
 ========================================================= */
+
 #satQuoteDetailModal .sat-clean-modal__dialog{
-  width:min(1280px, calc(100vw - 28px));
-  border-radius:28px;
-  border:1px solid #dbe5f3;
+  width:min(1380px, calc(100vw - 28px));
+  min-height:min(920px, calc(100vh - 28px));
+  border-radius:30px;
+  border:1px solid #d9e5f4;
   background:
-    radial-gradient(circle at top right, rgba(54, 103, 214, .09), transparent 24%),
+    radial-gradient(circle at top right, rgba(37,99,235,.08), transparent 24%),
     linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
-  box-shadow:0 32px 74px rgba(15,34,64,.20);
+  box-shadow:0 34px 82px rgba(15,34,64,.22);
   overflow:hidden;
+  display:flex;
+  flex-direction:column;
 }
 
 #satQuoteDetailModal .sat-clean-modal__header{
   position:sticky;
   top:0;
-  z-index:4;
-  padding:22px 22px 18px 22px;
-  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(247,250,255,.96) 100%);
-  border-bottom:1px solid #e3ecf7;
+  z-index:5;
+  padding:22px 24px 18px 24px;
+  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(247,250,255,.97) 100%);
+  border-bottom:1px solid #e4edf8;
   backdrop-filter:blur(10px);
 }
 
 #satQuoteDetailModal .sat-clean-modal__title{
-  font-size:30px;
-  line-height:1.04;
+  margin:0;
+  font-size:clamp(28px, 2.3vw, 40px);
+  line-height:1.02;
   font-weight:900;
-  letter-spacing:-.03em;
+  letter-spacing:-.045em;
   color:#10233f;
 }
 
 #satQuoteDetailModal .sat-clean-modal__subtitle{
-  margin-top:6px;
-  max-width:760px;
-  font-size:14px;
-  line-height:1.6;
-  color:#5e728f;
+  margin-top:7px;
+  max-width:880px;
+  font-size:13px;
+  line-height:1.62;
+  color:#61748f;
   font-weight:600;
 }
 
 #satQuoteDetailModal .sat-clean-modal__close{
-  width:42px;
-  height:42px;
-  border-radius:14px;
-  background:#f1f5fb;
-  border:1px solid #d7e3f2;
+  width:44px;
+  height:44px;
+  border-radius:16px;
+  background:#f3f7fd;
+  border:1px solid #d9e5f4;
   color:#375792;
   box-shadow:0 8px 18px rgba(34,74,150,.08);
 }
 
 #satQuoteDetailModal .sat-clean-modal__body-scroll{
-  max-height:min(90vh, 1000px);
+  flex:1 1 auto;
+  max-height:none;
   padding:0;
   background:transparent;
+  display:flex;
+  flex-direction:column;
 }
 
-/* resumen superior */
 #satQuoteDetailModal .sat-clean-form-section:first-of-type{
-  padding:18px 22px 10px 22px;
-  border-bottom:none;
+  padding:16px 24px 12px 24px;
   background:transparent;
+  border-bottom:none;
 }
 
 #satQuoteDetailModal .sat-clean-form-section:first-of-type .sat-clean-form-grid{
@@ -2545,237 +2552,330 @@ body.sat-clean-modal-open{
 }
 
 #satQuoteDetailModal .sat-clean-form-section:first-of-type .sat-clean-form-field input{
-  height:50px;
-  border-radius:16px;
+  height:54px;
+  border-radius:18px;
   background:#f6f9fe;
   border:1px solid #dce7f5;
-  color:#28466f;
+  color:#24446d;
   font-size:15px;
   font-weight:800;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
 }
 
-/* bloque visor */
-#satQuoteDetailModal #satQuotePreviewShell{
-  margin:0 18px 16px 18px;
-}
+/* layout del visor reemplazado por .sat-clean-quote-preview-section y .sat-clean-quote-preview-stage */
 
-#satQuoteDetailModal #satQuotePreviewToolbar{
-  display:flex !important;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  flex-wrap:wrap;
-  padding:14px 16px !important;
-  border-radius:18px !important;
-  border:1px solid #dbe6f4 !important;
-  background:
-    linear-gradient(135deg, rgba(48,97,204,.08) 0%, rgba(255,255,255,.98) 50%),
-    linear-gradient(180deg, #f8fbff 0%, #ffffff 100%) !important;
-  box-shadow:0 14px 34px rgba(22,40,79,.06);
-}
-
-#satQuoteDetailModal #satQuotePreviewToolbar strong{
-  font-size:14px !important;
-  color:#17356d !important;
-  font-weight:900 !important;
-  letter-spacing:-.01em;
-}
-
-#satQuoteDetailModal #satQuotePreviewToolbar span{
-  font-size:12px !important;
-  color:#667892 !important;
-  font-weight:600 !important;
-  line-height:1.55;
-}
-
-#satQuoteDetailModal #satQuotePreviewOpenTabBtn,
-#satQuoteDetailModal #satQuotePreviewDownloadBtn{
-  min-width:178px;
-  height:44px;
-  border-radius:14px;
-  font-size:13px;
-  font-weight:800;
-}
-
-#satQuoteDetailModal #satQuotePreviewOpenTabBtn{
+#satQuotePreviewFrame{
+  width:100%;
+  height:100%;
+  border:0;
   background:#ffffff;
-  border:1px solid #d7e4f5;
-  color:#24456f;
-  box-shadow:0 8px 20px rgba(22,40,79,.05);
 }
 
-#satQuoteDetailModal #satQuotePreviewDownloadBtn{
-  box-shadow:0 12px 24px rgba(48,97,204,.18);
+#satQuoteDetailModal .sat-clean-modal__actions{
+  padding:16px 24px 22px 24px;
+  border-top:1px solid #e5edf8;
+  background:linear-gradient(180deg, rgba(255,255,255,.94) 0%, rgba(247,250,255,.98) 100%);
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:12px;
+  flex-wrap:wrap;
 }
 
-/* wrapper pdf */
-#satQuoteDetailModal #satQuotePreviewFrameWrap{
-  position:relative !important;
-  width:100% !important;
-  height:min(74vh, 860px) !important;
-  border:1px solid #dbe6f4 !important;
-  border-radius:22px !important;
-  overflow:hidden !important;
-  background:
-    linear-gradient(180deg, #eef3fb 0%, #f8fbff 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.85),
-    0 18px 40px rgba(15,34,64,.07);
-}
-
-#satQuoteDetailModal #satQuotePreviewFrame{
-  width:100% !important;
-  height:100% !important;
-  border:0 !important;
-  display:block;
-  background:#ffffff !important;
-}
-
-/* overlay loading */
-#satQuoteDetailModal #satQuotePreviewLoading{
-  position:absolute !important;
-  inset:0 !important;
-  display:flex !important;
-  align-items:center !important;
-  justify-content:center !important;
-  text-align:center;
-  padding:24px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(246,248,252,.96) 100%) !important;
-  z-index:2 !important;
-  font-size:14px !important;
-  font-weight:800 !important;
-  color:#466284 !important;
-  letter-spacing:-.01em;
-}
-
-#satQuoteDetailModal #satQuotePreviewLoading::before{
-  content:"";
-  width:18px;
-  height:18px;
-  margin-right:10px;
-  border-radius:999px;
-  border:2px solid #3f6ed4;
-  border-right-color:transparent;
-  animation:satQuotePreviewSpin .7s linear infinite;
-}
-
-@keyframes satQuotePreviewSpin{
-  from{ transform:rotate(0deg); }
-  to{ transform:rotate(360deg); }
-}
-
-/* estado vacío */
-#satQuoteDetailModal #satQuotePreviewEmpty{
-  position:absolute !important;
-  inset:0 !important;
-  display:flex !important;
-  align-items:center !important;
-  justify-content:center !important;
-  text-align:center;
-  padding:32px !important;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.95) 0%, rgba(246,248,252,.98) 100%) !important;
-  z-index:2 !important;
-  font-size:14px !important;
-  line-height:1.7 !important;
-  font-weight:700 !important;
-  color:#6b7c96 !important;
-}
-
-/* footer acciones */
-#satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
-  position:sticky;
-  bottom:0;
-  z-index:3;
-  margin:0;
-  padding:18px 22px;
-  background:linear-gradient(180deg, rgba(247,250,255,.72) 0%, rgba(255,255,255,.98) 42%);
-  border-top:1px solid #e2eaf6;
-  backdrop-filter:blur(10px);
-}
-
-#satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions .sat-clean-btn{
-  min-width:170px;
-  height:44px;
-  border-radius:14px;
+#satQuoteDetailModal .sat-clean-modal__actions .sat-clean-btn{
+  min-height:46px;
+  border-radius:16px;
+  padding:0 18px;
   font-size:13px;
   font-weight:800;
+}
+
+#satQuoteDetailModal .sat-clean-modal__actions .sat-clean-btn--ghost{
+  background:#eef4ff;
+  border:1px solid #d9e7fb;
+  color:#476484;
 }
 
 #satQuoteDetailModal #satQuoteOpenPaymentBtn{
-  box-shadow:0 12px 24px rgba(48,97,204,.18);
+  min-width:210px;
+  background:linear-gradient(135deg, #1c4aa1 0%, #3267d6 100%);
+  box-shadow:0 14px 26px rgba(35,75,146,.22);
 }
 
-/* responsive */
+#satQuoteDetailModal #satQuoteOpenPaymentBtn:hover{
+  box-shadow:0 16px 30px rgba(35,75,146,.26);
+}
+
+/* barra de acciones icon-only para vista previa */
+.sat-clean-quote-preview-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  padding:0 24px 14px 24px;
+  margin-top:-2px;
+}
+
+.sat-clean-quote-preview-icon{
+  appearance:none;
+  width:46px;
+  height:46px;
+  border-radius:16px;
+  border:1px solid #dbe6f4;
+  background:linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  color:#2c4d87;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  cursor:pointer;
+  transition:all .18s ease;
+  box-shadow:0 8px 18px rgba(15,34,64,.05);
+}
+
+.sat-clean-quote-preview-icon:hover{
+  transform:translateY(-1px);
+  background:#eef4ff;
+  border-color:#cfe0ff;
+  color:#1c4aa1;
+}
+
+.sat-clean-quote-preview-icon svg{
+  width:18px;
+  height:18px;
+}
+
+.sat-clean-quote-preview-icon--primary{
+  background:linear-gradient(135deg, #1c4aa1 0%, #3267d6 100%);
+  border-color:#2e5fc2;
+  color:#fff;
+  box-shadow:0 12px 22px rgba(35,75,146,.20);
+}
+
+.sat-clean-quote-preview-icon--primary:hover{
+  color:#fff;
+  background:linear-gradient(135deg, #153c88 0%, #285ac1 100%);
+}
+
 @media (max-width: 991px){
   #satQuoteDetailModal .sat-clean-modal__dialog{
-    width:min(100vw - 18px, 100%);
-    border-radius:22px;
+    width:min(100%, calc(100vw - 16px));
+    min-height:calc(100vh - 16px);
+    border-radius:24px;
   }
 
-  #satQuoteDetailModal .sat-clean-modal__title{
-    font-size:24px;
+  #satQuoteDetailModal .sat-clean-form-section:first-of-type,
+  #satQuoteDetailModal .sat-clean-form-section:last-of-type,
+  #satQuoteDetailModal .sat-clean-modal__actions,
+  .sat-clean-quote-preview-toolbar{
+    padding-left:18px;
+    padding-right:18px;
   }
 
-  #satQuoteDetailModal .sat-clean-form-section:first-of-type{
-    padding:14px 12px 8px 12px;
-  }
-
-  #satQuoteDetailModal #satQuotePreviewShell{
-    margin:0 12px 12px 12px;
-  }
-
-  #satQuoteDetailModal #satQuotePreviewFrameWrap{
-    height:min(68vh, 760px) !important;
-    border-radius:18px !important;
-  }
-
-  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
-    padding:14px 16px;
+  #satQuoteDetailModal .sat-clean-form-section:last-of-type > div{
+    height:min(68vh, 740px) !important;
+    border-radius:20px !important;
   }
 }
 
 @media (max-width: 767px){
   #satQuoteDetailModal .sat-clean-modal__header{
-    padding:16px 16px 14px 16px;
+    padding:18px 16px 14px 16px;
   }
 
   #satQuoteDetailModal .sat-clean-modal__title{
-    font-size:21px;
+    font-size:23px;
   }
 
   #satQuoteDetailModal .sat-clean-modal__subtitle{
     font-size:12px;
   }
 
-  #satQuoteDetailModal #satQuotePreviewShell{
-    margin:0 10px 10px 10px;
+  #satQuoteDetailModal .sat-clean-form-section:first-of-type{
+    padding:14px 16px 10px 16px;
   }
 
-  #satQuoteDetailModal #satQuotePreviewToolbar{
-    padding:12px !important;
-    border-radius:14px !important;
+  #satQuoteDetailModal .sat-clean-form-section:first-of-type .sat-clean-form-grid{
+    grid-template-columns:1fr;
   }
 
-  #satQuoteDetailModal #satQuotePreviewOpenTabBtn,
-  #satQuoteDetailModal #satQuotePreviewDownloadBtn{
+  .sat-clean-quote-preview-toolbar{
+    padding:0 16px 12px 16px;
+    justify-content:flex-start;
+    flex-wrap:wrap;
+  }
+
+  #satQuoteDetailModal .sat-clean-form-section:last-of-type{
+    padding:0 16px 14px 16px;
+  }
+
+  #satQuoteDetailModal .sat-clean-form-section:last-of-type > div{
+    height:min(58vh, 620px) !important;
+    border-radius:18px !important;
+  }
+
+  #satQuoteDetailModal .sat-clean-modal__actions{
+    padding:14px 16px 16px 16px;
+  }
+
+  #satQuoteDetailModal .sat-clean-modal__actions .sat-clean-btn{
     width:100%;
-    min-width:0;
   }
 
-  #satQuoteDetailModal #satQuotePreviewFrameWrap{
-    height:min(64vh, 620px) !important;
-    border-radius:16px !important;
+  .sat-clean-quote-preview-icon{
+    width:42px;
+    height:42px;
+    border-radius:14px;
+  }
+}
+
+/* =========================================================
+   QUOTE PAYMENT MODAL · VISUAL MATCH
+========================================================= */
+
+#satQuotePaymentModal .sat-clean-modal__dialog{
+  width:min(1220px, calc(100vw - 28px));
+  border-radius:30px;
+  border:1px solid #dbe5f3;
+  background:
+    radial-gradient(circle at top right, rgba(37,99,235,.08), transparent 24%),
+    linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow:0 34px 82px rgba(15,34,64,.22);
+  overflow:hidden;
+}
+
+#satQuotePaymentModal .sat-clean-modal__header{
+  padding:22px 24px 18px 24px;
+  border-bottom:1px solid #e4edf8;
+  background:linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(247,250,255,.96) 100%);
+}
+
+#satQuotePaymentModal .sat-clean-modal__title{
+  font-size:clamp(28px, 2vw, 36px);
+  line-height:1.03;
+  font-weight:900;
+  letter-spacing:-.04em;
+  color:#10233f;
+}
+
+#satQuotePaymentModal .sat-clean-form-section{
+  border-radius:24px;
+}
+
+#satQuotePaymentModal .sat-clean-form-section:first-of-type .sat-clean-form-field input{
+  border-radius:18px;
+}
+
+#satQuotePaymentModal #satQuoteStripePaymentForm .sat-clean-btn--primary{
+  min-width:220px;
+  height:48px;
+  border-radius:16px;
+  font-size:14px;
+  font-weight:800;
+}
+
+#satQuotePaymentModal .sat-clean-inline-note{
+  border-radius:16px;
+  background:linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
+}
+
+#satQuotePaymentModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
+  border-top:1px solid #e5edf8;
+  background:linear-gradient(180deg, rgba(255,255,255,.94) 0%, rgba(247,250,255,.98) 100%);
+}
+
+@media (max-width: 767px){
+  #satQuotePaymentModal .sat-clean-modal__header{
+    padding:18px 16px 14px 16px;
   }
 
-  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions{
-    padding:12px 14px;
+  #satQuotePaymentModal .sat-clean-modal__title{
+    font-size:23px;
   }
 
-  #satQuoteDetailModal > .sat-clean-modal__dialog .sat-clean-modal__body-scroll > .sat-clean-modal__actions .sat-clean-btn{
-    width:100%;
-    min-width:0;
+  #satQuotePaymentModal .sat-clean-form-section{
+    border-radius:18px;
+  }
+}
+
+/* =========================================================
+   FIX · QUOTE PREVIEW MODAL HEIGHT / PDF STAGE
+========================================================= */
+
+#satQuoteDetailModal .sat-clean-modal__dialog{
+  height:min(92vh, 960px);
+  min-height:min(92vh, 960px);
+}
+
+#satQuoteDetailModal .sat-clean-modal__body-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+}
+
+#satQuoteDetailModal .sat-clean-quote-preview-section{
+  flex:1 1 auto;
+  min-height:0;
+  padding:0 24px 20px 24px !important;
+  border-bottom:none;
+  display:flex;
+  flex-direction:column;
+}
+
+#satQuoteDetailModal .sat-clean-quote-preview-stage{
+  flex:1 1 auto;
+  min-height:560px;
+  height:100%;
+  border:1px solid #dbe6f4;
+  border-radius:24px;
+  overflow:hidden;
+  background:linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow:0 14px 34px rgba(15,34,64,.08);
+}
+
+#satQuoteDetailModal #satQuotePreviewFrame{
+  width:100%;
+  height:100%;
+  min-height:560px;
+  display:block;
+  border:0;
+  background:#ffffff;
+}
+
+#satQuoteDetailModal .sat-clean-modal__actions{
+  margin-top:auto;
+  flex:0 0 auto;
+}
+
+@media (max-width: 991px){
+  #satQuoteDetailModal .sat-clean-modal__dialog{
+    height:calc(100vh - 16px);
+    min-height:calc(100vh - 16px);
+  }
+
+  #satQuoteDetailModal .sat-clean-quote-preview-section{
+    padding:0 18px 16px 18px !important;
+  }
+
+  #satQuoteDetailModal .sat-clean-quote-preview-stage,
+  #satQuoteDetailModal #satQuotePreviewFrame{
+    min-height:440px;
+  }
+}
+
+@media (max-width: 767px){
+  #satQuoteDetailModal .sat-clean-quote-preview-section{
+    padding:0 16px 14px 16px !important;
+  }
+
+  #satQuoteDetailModal .sat-clean-quote-preview-stage{
+    border-radius:18px;
+    min-height:320px;
+  }
+
+  #satQuoteDetailModal #satQuotePreviewFrame{
+    min-height:320px;
   }
 }

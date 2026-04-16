@@ -154,9 +154,8 @@
 
                         <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
                             <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
-                                <thead>
                                     <thead>
-                                        <tr>
+                                         <tr>
                                             <th>RFC</th>
                                             <th>Razón social</th>
                                             <th>Origen</th>
@@ -756,8 +755,15 @@
                                                         class="sat-clean-icon-btn"
                                                         data-quote-action="view"
                                                         data-quote-id="{{ $quoteId }}"
-                                                        title="Vista previa PDF"
-                                                        aria-label="Vista previa PDF"
+                                                        data-quote-folio="{{ e($quoteFolio !== '' ? $quoteFolio : ('COT-' . str_pad((string) ($loop->iteration), 4, '0', STR_PAD_LEFT))) }}"
+                                                        data-quote-rfc="{{ e($quoteRfc) }}"
+                                                        data-quote-razon-social="{{ e($quoteRazonSocial) }}"
+                                                        data-quote-status="{{ e($quoteStatusLabel) }}"
+                                                        data-quote-status-key="{{ e($quoteStatus) }}"
+                                                        data-quote-total="{{ $quoteAmount !== null ? e(number_format($quoteAmount, 2, '.', '')) : '' }}"
+                                                        data-quote-concepto="{{ e($quoteConcepto) }}"
+                                                        title="Vista previa de cotización"
+                                                        aria-label="Vista previa de cotización"
                                                     >
                                                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                                             <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
@@ -779,33 +785,36 @@
                                                                 <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                                             </svg>
                                                         </button>
-                                                    @else
-                                                        <span class="sat-clean-status-badge is-muted">
-                                                            Sin edición
-                                                        </span>
                                                     @endif
 
                                                     @if(in_array($quoteStatus, ['cotizada', 'pendiente_pago'], true))
                                                         <button
                                                             type="button"
-                                                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                            class="sat-clean-icon-btn sat-clean-icon-btn--primary"
                                                             data-quote-action="pay"
                                                             data-quote-id="{{ $quoteId }}"
                                                             title="Pagar cotización"
                                                             aria-label="Pagar cotización"
                                                         >
-                                                            Pagar
+                                                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                                <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h11A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-7Z" stroke="currentColor" stroke-width="1.8"/>
+                                                                <path d="M4 10.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                <circle cx="16.5" cy="14.25" r="1.25" fill="currentColor"/>
+                                                            </svg>
                                                         </button>
                                                     @elseif($quoteStatus === 'pagada')
                                                         <span class="sat-clean-status-badge is-warning">En descarga</span>
                                                     @elseif($quoteStatus === 'completada')
                                                         <a
                                                             href="{{ route('cliente.sat.v2.index') }}"
-                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                                                            title="Abrir bóveda v2"
-                                                            aria-label="Abrir bóveda v2"
+                                                            class="sat-clean-icon-btn"
+                                                            title="Ver entrega"
+                                                            aria-label="Ver entrega"
                                                         >
-                                                            Ver entrega
+                                                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                                <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                <path d="M8.5 10.5 12 8l3.5 2.5v4L12 17l-3.5-2.5v-4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                            </svg>
                                                         </a>
                                                     @endif
                                                 </div>
@@ -1800,18 +1809,18 @@
 {{-- MODAL: PREVIEW PDF COTIZACIÓN --}}
 <div class="sat-clean-modal" id="satQuoteDetailModal" aria-hidden="true">
     <div class="sat-clean-modal__backdrop" data-quote-detail-close></div>
+
     <div
         class="sat-clean-modal__dialog sat-clean-modal__dialog--xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="satQuoteDetailTitle"
-        style="width:min(1200px, calc(100vw - 32px));"
     >
         <div class="sat-clean-modal__header">
             <div>
                 <h2 class="sat-clean-modal__title" id="satQuoteDetailTitle">Vista previa de cotización</h2>
-                <p class="sat-clean-modal__subtitle">
-                    Revisión visual del PDF de la cotización antes del pago.
+                <p class="sat-clean-modal__subtitle" id="satQuoteDetailSubtitle">
+                    Propuesta técnica y económica del servicio solicitado. Revisa el documento comercial antes de continuar con el pago.
                 </p>
             </div>
 
@@ -1825,8 +1834,8 @@
             </button>
         </div>
 
-        <div class="sat-clean-modal__body-scroll" style="padding-top:0;">
-            <div class="sat-clean-form-section" style="padding-bottom:12px;">
+        <div class="sat-clean-modal__body-scroll">
+            <div class="sat-clean-form-section" style="padding-bottom:10px;">
                 <div class="sat-clean-form-grid sat-clean-form-grid--3">
                     <div class="sat-clean-form-field">
                         <label>Folio</label>
@@ -1845,21 +1854,69 @@
                 </div>
             </div>
 
-            <div class="sat-clean-form-section" style="padding-top:0;">
-                <div
-                    style="
-                        width:100%;
-                        height:min(72vh, 820px);
-                        border:1px solid #dbe6f4;
-                        border-radius:18px;
-                        overflow:hidden;
-                        background:#f6f8fc;
-                    "
+            <div class="sat-clean-quote-preview-toolbar">
+                <button
+                    type="button"
+                    class="sat-clean-quote-preview-icon"
+                    id="satQuotePreviewOpenTabBtn"
+                    title="Abrir en nueva pestaña"
+                    aria-label="Abrir en nueva pestaña"
                 >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M14 5h5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M10 14 19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M19 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </button>
+
+                <button
+                    type="button"
+                    class="sat-clean-quote-preview-icon"
+                    id="satQuotePreviewDownloadBtn"
+                    title="Descargar PDF"
+                    aria-label="Descargar PDF"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M12 4v11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M8 11.5 12 15.5l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </button>
+
+                <button
+                    type="button"
+                    class="sat-clean-quote-preview-icon"
+                    id="satQuotePreviewPrintBtn"
+                    title="Imprimir"
+                    aria-label="Imprimir"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M7 14h10v6H7v-6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+
+                <button
+                    type="button"
+                    class="sat-clean-quote-preview-icon sat-clean-quote-preview-icon--primary"
+                    id="satQuotePreviewToolbarPayBtn"
+                    title="Continuar a pago"
+                    aria-label="Continuar a pago"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h11A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-7Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M4 10.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <circle cx="16.5" cy="14.25" r="1.25" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="sat-clean-form-section sat-clean-quote-preview-section">
+                <div class="sat-clean-quote-preview-stage">
                     <iframe
                         id="satQuotePreviewFrame"
                         src="about:blank"
-                        style="width:100%;height:100%;border:0;background:#fff;"
                         title="Vista previa PDF de cotización"
                     ></iframe>
                 </div>
@@ -1891,7 +1948,7 @@
             <div>
                 <h2 class="sat-clean-modal__title" id="satQuotePaymentTitle">Pago de cotización</h2>
                 <p class="sat-clean-modal__subtitle">
-                    Elige Stripe o transferencia para pagar tu cotización SAT.
+                    Selecciona la forma de pago para confirmar tu cotización. Puedes pagar en línea con Stripe o cargar tu comprobante por transferencia bancaria.
                 </p>
             </div>
 
@@ -1928,7 +1985,9 @@
             <div class="sat-clean-form-section sat-clean-payment-section sat-clean-payment-section--stripe">
                 <div class="sat-clean-form-section__head">
                     <h3 class="sat-clean-form-section__title">Pago en línea</h3>
-                    <p class="sat-clean-form-section__text">Pago inmediato y seguro con tarjeta.</p>
+                    <p class="sat-clean-form-section__text">
+                        Finaliza el pago de forma inmediata y segura. Serás redirigido a Stripe para completar la operación con tarjeta.
+                    </p>
                 </div>
 
                 <form
@@ -1963,7 +2022,7 @@
                 <div class="sat-clean-form-section__head">
                     <h3 class="sat-clean-form-section__title">Pago por transferencia</h3>
                     <p class="sat-clean-form-section__text">
-                        Sube tu comprobante para revisión. La validación se notificará a facturación.
+                        Registra tu pago por transferencia y adjunta el comprobante para validación. Una vez confirmado, el equipo de facturación continuará con el proceso correspondiente.
                     </p>
                 </div>
 
