@@ -63,11 +63,8 @@ class StripeController extends Controller
             $key     = ($cycle === 'anual') ? 'pro_anual' : 'pro_mensual';
             $priceId = $this->resolveStripePriceIdOrFailByKey($key);
 
-            $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}&flow=sat_quote&rfc=' . urlencode((string) ($quote->rfc ?? ''));
-            $cancelUrl  = route('cliente.checkout.cancel', [
-                'flow' => 'sat_quote',
-                'rfc'  => (string) ($quote->rfc ?? ''),
-            ]);
+                        $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}&flow=sat_quote&rfc=' . urlencode((string) ($quote->rfc ?? ''));
+            $cancelUrl  = route('cliente.checkout.cancel');
 
             $customerEmail = $validated['email'] ?? ($account->email ?? null);
 
@@ -207,7 +204,7 @@ class StripeController extends Controller
      |  SAT QUOTE (pago único)
      * ========================================================= */
 
-    public function checkoutSatQuote(Request $request)
+        public function checkoutSatQuote(Request $request)
     {
         try {
             $user = auth('web')->user();
@@ -231,24 +228,58 @@ class StripeController extends Controller
                 ->first();
 
             if (!$quote) {
+                Log::warning('[SAT:STRIPE] cotización no encontrada para checkout', [
+                    'sat_download_id' => $satDownloadId,
+                    'cuenta_id'       => $cuentaId,
+                    'user_id'         => $user->id ?? null,
+                ]);
+
                 throw ValidationException::withMessages([
                     'sat_quote' => 'No se encontró la cotización SAT indicada.',
                 ]);
             }
 
-            $status = strtolower(trim((string) $quote->status));
             $meta = is_array($quote->meta) ? $quote->meta : [];
+            $status = strtolower(trim((string) $quote->status));
+            $statusUi = strtolower(trim((string) ($meta['status_ui'] ?? '')));
+            $customerAction = strtolower(trim((string) ($meta['customer_action'] ?? '')));
+            $canPayMeta = $meta['can_pay'] ?? null;
 
-            if ($status !== 'ready' || !((bool) ($meta['can_pay'] ?? false))) {
+            $statusAllowsPayment = in_array($status, ['ready', 'pending'], true)
+                || in_array($statusUi, ['cotizada', 'pendiente_pago'], true)
+                || in_array($customerAction, ['pay_pending'], true);
+
+            $canPay = filter_var($canPayMeta, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+            if ($canPay === null) {
+                $canPay = $statusAllowsPayment;
+            }
+
+            if (!$statusAllowsPayment || !$canPay) {
+                Log::warning('[SAT:STRIPE] cotización no habilitada para pago', [
+                    'sat_download_id'  => $quote->id,
+                    'status'           => $status,
+                    'status_ui'        => $statusUi,
+                    'customer_action'  => $customerAction,
+                    'can_pay_meta'     => $canPayMeta,
+                    'meta'             => $meta,
+                ]);
+
                 throw ValidationException::withMessages([
                     'sat_quote' => 'La cotización todavía no está disponible para pago.',
                 ]);
             }
 
-            $amountMxn = round((float) ($quote->total ?? 0), 2);
+            $amountMxn = round((float) ($quote->total ?? $meta['total'] ?? 0), 2);
             $amountCents = (int) round($amountMxn * 100);
 
             if ($amountCents <= 0) {
+                Log::warning('[SAT:STRIPE] cotización con monto inválido', [
+                    'sat_download_id' => $quote->id,
+                    'total_db'        => $quote->total ?? null,
+                    'total_meta'      => $meta['total'] ?? null,
+                ]);
+
                 throw ValidationException::withMessages([
                     'sat_quote' => 'La cotización no tiene un monto válido para cobro.',
                 ]);
@@ -260,11 +291,26 @@ class StripeController extends Controller
             ));
 
             $successUrl = route('cliente.checkout.success') . '?session_id={CHECKOUT_SESSION_ID}';
-            $cancelUrl  = route('cliente.checkout.cancel');
+            $cancelUrl  = route('cliente.checkout.cancel', [
+                'flow' => 'sat_quote',
+                'rfc'  => (string) ($quote->rfc ?? ''),
+            ]);
 
             $customerEmail = (string) ($user->email ?? '');
 
             $idempotencyKey = 'checkout:sat_quote:' . $quote->id . ':' . md5($folio . '|' . $amountCents);
+
+            Log::info('[SAT:STRIPE] creando checkout session', [
+                'sat_download_id' => $quote->id,
+                'folio'           => $folio,
+                'rfc'             => $quote->rfc,
+                'status'          => $status,
+                'status_ui'       => $statusUi,
+                'customer_action' => $customerAction,
+                'can_pay'         => $canPay,
+                'amount_mxn'      => $amountMxn,
+                'amount_cents'    => $amountCents,
+            ]);
 
             $session = $this->stripe->checkout->sessions->create([
                 'mode'                 => 'payment',
@@ -300,30 +346,31 @@ class StripeController extends Controller
             $meta['last_checkout_started_at'] = now()->toDateTimeString();
             $meta['last_checkout_amount_mxn'] = $amountMxn;
             $meta['last_checkout_folio'] = $folio;
+            $meta['last_checkout_status_ui'] = $statusUi;
+            $meta['last_checkout_can_pay'] = $canPay;
 
             $quote->stripe_session_id = (string) ($session->id ?? '');
             $quote->meta = $meta;
             $quote->save();
 
-            Log::info('Stripe checkout SAT quote creada', [
+            Log::info('[SAT:STRIPE] checkout session creada OK', [
                 'sat_download_id' => $quote->id,
                 'folio'           => $folio,
-                'rfc'             => $quote->rfc,
-                'amount_mxn'      => $amountMxn,
                 'session_id'      => $session->id ?? null,
+                'redirect_url'    => $session->url ?? null,
             ]);
 
             return redirect($session->url);
         } catch (ValidationException $ve) {
             throw $ve;
         } catch (\Throwable $e) {
-            Log::error('Error creando Stripe Checkout SAT quote', [
+            Log::error('[SAT:STRIPE] error creando checkout', [
                 'error'           => $e->getMessage(),
                 'sat_download_id' => $request->get('sat_download_id'),
             ]);
 
             return back()->withErrors([
-                'sat_quote' => 'No se pudo iniciar el checkout de la cotización SAT.',
+                'sat_quote' => 'No se pudo iniciar el checkout de la cotización SAT. ' . $e->getMessage(),
             ]);
         }
     }

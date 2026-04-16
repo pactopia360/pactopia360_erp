@@ -321,247 +321,8 @@
         openModal(modal);
     };
 
-        const ensurePaymentChoiceModal = () => {
-        let modal = qs('#satQuotePaymentChoiceModal');
-        if (modal) {
-            return modal;
-        }
-
-        const wrapper = document.createElement('div');
-        wrapper.innerHTML = `
-            <div class="sat-clean-modal" id="satQuotePaymentChoiceModal" aria-hidden="true">
-                <div class="sat-clean-modal__backdrop" data-quote-payment-close></div>
-                <div class="sat-clean-modal__dialog sat-clean-modal__dialog--xl" role="dialog" aria-modal="true" aria-labelledby="satQuotePaymentChoiceTitle">
-                    <div class="sat-clean-modal__header">
-                        <div>
-                            <h2 class="sat-clean-modal__title" id="satQuotePaymentChoiceTitle">Selecciona método de pago</h2>
-                            <p class="sat-clean-modal__subtitle">Puedes pagar con Stripe o registrar pago por transferencia con comprobante.</p>
-                        </div>
-
-                        <button type="button" class="sat-clean-modal__close" data-quote-payment-close aria-label="Cerrar">
-                            ✕
-                        </button>
-                    </div>
-
-                    <div class="sat-clean-modal__body-scroll">
-                        <div class="sat-clean-form-section">
-                            <div class="sat-clean-form-section__head">
-                                <h3 class="sat-clean-form-section__title">Cotización seleccionada</h3>
-                            </div>
-
-                            <div class="sat-clean-form-grid sat-clean-form-grid--2">
-                                <div class="sat-clean-form-field">
-                                    <label>Folio</label>
-                                    <input type="text" id="satQuotePaymentChoiceFolio" readonly>
-                                </div>
-
-                                <div class="sat-clean-form-field">
-                                    <label>RFC</label>
-                                    <input type="text" id="satQuotePaymentChoiceRfc" readonly>
-                                </div>
-
-                                <div class="sat-clean-form-field">
-                                    <label>Total</label>
-                                    <input type="text" id="satQuotePaymentChoiceTotal" readonly>
-                                </div>
-
-                                <div class="sat-clean-form-field">
-                                    <label>Estatus</label>
-                                    <input type="text" id="satQuotePaymentChoiceStatus" readonly>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="sat-clean-form-section">
-                            <div class="sat-clean-modal__actions" style="justify-content:flex-start; gap:12px; flex-wrap:wrap;">
-                                <button type="button" class="sat-clean-btn sat-clean-btn--primary" id="satQuotePayStripeBtn">
-                                    Pagar con Stripe
-                                </button>
-
-                                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" id="satQuotePayTransferToggleBtn">
-                                    Pagar por transferencia
-                                </button>
-
-                                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" data-quote-payment-close>
-                                    Cancelar
-                                </button>
-                            </div>
-                        </div>
-
-                        <form id="satQuoteTransferForm" class="sat-clean-modal__form" style="display:none;" enctype="multipart/form-data" autocomplete="off">
-                            <input type="hidden" name="sat_download_id" id="satQuoteTransferId">
-
-                            <section class="sat-clean-form-section">
-                                <div class="sat-clean-form-section__head">
-                                    <h3 class="sat-clean-form-section__title">Pago por transferencia</h3>
-                                    <p class="sat-clean-form-section__text">Sube comprobante PDF o imagen. Este pago quedará en revisión.</p>
-                                </div>
-
-                                <div class="sat-clean-form-grid sat-clean-form-grid--3">
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_bank_name">Banco destino</label>
-                                        <input type="text" id="sat_transfer_bank_name" name="bank_name" maxlength="120" required>
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_account_holder">Beneficiario</label>
-                                        <input type="text" id="sat_transfer_account_holder" name="account_holder" maxlength="190">
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_reference">Referencia</label>
-                                        <input type="text" id="sat_transfer_reference" name="reference" maxlength="120" required>
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_date">Fecha transferencia</label>
-                                        <input type="date" id="sat_transfer_date" name="transfer_date" required>
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_amount">Monto transferido</label>
-                                        <input type="number" id="sat_transfer_amount" name="transfer_amount" min="0.01" step="0.01" required>
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_payer_name">Ordenante</label>
-                                        <input type="text" id="sat_transfer_payer_name" name="payer_name" maxlength="190">
-                                    </div>
-
-                                    <div class="sat-clean-form-field">
-                                        <label for="sat_transfer_payer_bank">Banco ordenante</label>
-                                        <input type="text" id="sat_transfer_payer_bank" name="payer_bank" maxlength="120">
-                                    </div>
-
-                                    <div class="sat-clean-form-field sat-clean-form-field--span-2">
-                                        <label for="sat_transfer_proof_file">Comprobante</label>
-                                        <input type="file" id="sat_transfer_proof_file" name="proof_file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
-                                    </div>
-
-                                    <div class="sat-clean-form-field sat-clean-form-field--full">
-                                        <label for="sat_transfer_notes">Notas</label>
-                                        <textarea id="sat_transfer_notes" name="notes" rows="3" placeholder="Comentarios adicionales del pago"></textarea>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <div class="sat-clean-modal__actions">
-                                <button type="button" class="sat-clean-btn sat-clean-btn--ghost" id="satQuoteTransferBackBtn">
-                                    Volver
-                                </button>
-
-                                <button type="submit" class="sat-clean-btn sat-clean-btn--primary" id="satQuoteTransferSubmitBtn">
-                                    Enviar comprobante
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        `.trim();
-
-        document.body.appendChild(wrapper.firstElementChild);
-        modal = qs('#satQuotePaymentChoiceModal');
-
-        qsa('[data-quote-payment-close]', modal).forEach((button) => {
-            button.addEventListener('click', () => closeModal(modal));
-        });
-
-        const toggleBtn = qs('#satQuotePayTransferToggleBtn', modal);
-        const transferForm = qs('#satQuoteTransferForm', modal);
-        const backBtn = qs('#satQuoteTransferBackBtn', modal);
-
-        if (toggleBtn && transferForm) {
-            toggleBtn.addEventListener('click', () => {
-                transferForm.style.display = 'block';
-                toggleBtn.style.display = 'none';
-            });
-        }
-
-        if (backBtn && transferForm && toggleBtn) {
-            backBtn.addEventListener('click', () => {
-                transferForm.style.display = 'none';
-                toggleBtn.style.display = 'inline-flex';
-            });
-        }
-
-        return modal;
-    };
-
-        const openPaymentChoiceModal = (row) => {
-        const modal = ensurePaymentChoiceModal();
-        if (!modal || !row) {
-            return;
-        }
-
-        const data = extractQuoteData(row);
-
-        setInputValue('#satQuotePaymentChoiceFolio', data.folio || '', modal);
-        setInputValue('#satQuotePaymentChoiceRfc', data.rfc || '', modal);
-        setInputValue('#satQuotePaymentChoiceTotal', data.totalLabel || 'Pendiente', modal);
-        setInputValue('#satQuotePaymentChoiceStatus', data.statusLabel || 'Pendiente', modal);
-        setInputValue('#satQuoteTransferId', data.id || '', modal);
-        setInputValue('#sat_transfer_amount', data.total || '', modal);
-
-        const transferForm = qs('#satQuoteTransferForm', modal);
-        const transferToggleBtn = qs('#satQuotePayTransferToggleBtn', modal);
-
-        if (transferForm) {
-            transferForm.reset();
-            setInputValue('#satQuoteTransferId', data.id || '', modal);
-            setInputValue('#sat_transfer_amount', data.total || '', modal);
-            transferForm.style.display = 'none';
-        }
-
-        if (transferToggleBtn) {
-            transferToggleBtn.style.display = 'inline-flex';
-        }
-
-        const stripeBtn = qs('#satQuotePayStripeBtn', modal);
-        if (stripeBtn) {
-            stripeBtn.onclick = () => {
-                const payUrl = APP.quotePayUrl || '/cliente/sat/quote/pay';
-                buildPostFormAndSubmit(payUrl, {
-                    sat_download_id: data.id || ''
-                });
-            };
-        }
-
-        if (transferForm) {
-            transferForm.onsubmit = async (event) => {
-                event.preventDefault();
-
-                const submitBtn = qs('#satQuoteTransferSubmitBtn', modal);
-                const originalText = submitBtn ? submitBtn.textContent : '';
-
-                try {
-                    if (submitBtn) {
-                        submitBtn.disabled = true;
-                        submitBtn.textContent = 'Enviando...';
-                    }
-
-                    const formData = new FormData(transferForm);
-                    formData.set('sat_download_id', data.id || '');
-
-                    const result = await submitMultipart(
-                        APP.quoteTransferProofUrl || '/cliente/sat/quote/transfer-proof',
-                        formData
-                    );
-
-                    window.alert(result.msg || 'Comprobante enviado correctamente.');
-                    window.location.reload();
-                } catch (error) {
-                    window.alert(error.message || 'No se pudo enviar el comprobante.');
-                } finally {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText || 'Enviar comprobante';
-                    }
-                }
-            };
-        }
-
-        openModal(modal);
+    const ensurePaymentChoiceModal = () => {
+        return qs('#satQuotePaymentModal');
     };
 
     const bindGlobalModalClosing = () => {
@@ -816,6 +577,41 @@
         openModal(modal);
     };
 
+    const openPaymentChoiceModal = (row) => {
+        const modal = ensurePaymentChoiceModal();
+        if (!modal || !row) {
+            return;
+        }
+
+        const data = extractQuoteData(row);
+
+        setInputValue('#satQuotePaymentFolio', data.folio || '', modal);
+        setInputValue('#satQuotePaymentRfc', data.rfc || '', modal);
+        setInputValue('#satQuotePaymentTotal', data.totalLabel || 'Pendiente', modal);
+        setInputValue('#satQuoteStripePaymentId', data.id || '', modal);
+        setInputValue('#satQuoteTransferPaymentId', data.id || '', modal);
+
+        const transferAmount = qs('#sat_transfer_amount', modal);
+        if (transferAmount) {
+            transferAmount.value = data.total || '';
+        }
+
+        const transferDate = qs('#sat_transfer_date', modal);
+        if (transferDate && !transferDate.value) {
+            transferDate.value = new Date().toISOString().slice(0, 10);
+        }
+
+        const transferReference = qs('#sat_transfer_reference', modal);
+        if (transferReference && !transferReference.value) {
+            const folio = String(data.folio || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            const last4 = folio !== '' ? folio.slice(-4) : '0000';
+            const quoteId = String(data.id || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || '0';
+            transferReference.value = `SAT-${last4}-${quoteId}`;
+        }
+
+        openModal(modal);
+    };
+
     const openQuoteEditModal = (row) => {
         const modal = qs('#satQuoteEditModal');
         if (!modal) {
@@ -839,78 +635,13 @@
         openModal(modal);
     };
 
-        const bindQuoteActions = () => {
-        qsa('[data-quote-action="view"]').forEach((button) => {
-            button.addEventListener('click', () => {
-                const row = button.closest('[data-quote-row="true"]');
-                if (row) {
-                    openQuoteDetailModal(row);
-                }
-            });
-        });
-
-        qsa('[data-quote-action="edit"]').forEach((button) => {
-            button.addEventListener('click', () => {
-                const row = button.closest('[data-quote-row="true"]');
-                if (row) {
-                    openQuoteEditModal(row);
-                }
-            });
-        });
-
-        qsa('[data-quote-action="pay"]').forEach((button) => {
-            button.addEventListener('click', () => {
-                const row = button.closest('[data-quote-row="true"]');
-                if (!row) {
-                    window.alert('No se encontró la cotización seleccionada.');
-                    return;
-                }
-
-                openPaymentChoiceModal(row);
-            });
-        });
-
-        const detailEditButton = qs('#satQuoteDetailEditBtn');
-        if (detailEditButton) {
-            detailEditButton.addEventListener('click', () => {
-                const id = detailEditButton.dataset.quoteId || '';
-                if (!id) {
-                    return;
-                }
-
-                const row = qs(`[data-quote-row="true"][data-quote-id="${CSS.escape(id)}"]`);
-                closeModal(qs('#satQuoteDetailModal'));
-
-                if (row) {
-                    openQuoteEditModal(row);
-                }
-            });
-        }
-
-        const loadMainModalBtn = qs('#satQuoteEditLoadMainModalBtn');
-        if (loadMainModalBtn) {
-            loadMainModalBtn.addEventListener('click', () => {
-                const modal = qs('#satQuoteEditModal');
-                const data = {
-                    id: qs('#satQuoteEditId', modal)?.value || '',
-                    rfc: qs('#satQuoteEditRfc', modal)?.value || '',
-                    tipo: qs('#satQuoteEditTipo', modal)?.value || 'emitidos',
-                    dateFrom: qs('#satQuoteEditDateFrom', modal)?.value || '',
-                    dateTo: qs('#satQuoteEditDateTo', modal)?.value || '',
-                    concepto: qs('#satQuoteEditConcepto', modal)?.value || ''
-                };
-
-                closeModal(modal);
-                openMainQuoteModal(data);
-            });
-        }
-
-        const newQuoteButtons = [qs('#satNewQuoteButton'), qs('#satEmptyNewQuoteButton')].filter(Boolean);
-        newQuoteButtons.forEach((button) => {
-            button.addEventListener('click', () => {
-                openMainQuoteModal();
-            });
-        });
+    const bindQuoteActions = () => {
+        // El módulo de cotizaciones, preview PDF, edición y pago
+        // ya lo controla sat-portal-v1.js.
+        // Este archivo extra NO debe volver a registrar listeners
+        // para evitar dobles aperturas de modal, dobles submits
+        // o comportamientos cruzados con Stripe.
+        return;
     };
 
     const bindCenterSatActions = () => {

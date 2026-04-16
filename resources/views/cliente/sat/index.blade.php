@@ -1925,20 +1925,36 @@
                 </div>
             </div>
 
-            <div class="sat-clean-form-section">
+            <div class="sat-clean-form-section sat-clean-payment-section sat-clean-payment-section--stripe">
                 <div class="sat-clean-form-section__head">
-                    <h3 class="sat-clean-form-section__title">Pago con Stripe</h3>
-                    <p class="sat-clean-form-section__text">Pago inmediato con tarjeta.</p>
+                    <h3 class="sat-clean-form-section__title">Pago en línea</h3>
+                    <p class="sat-clean-form-section__text">Pago inmediato y seguro con tarjeta.</p>
                 </div>
 
-                <form method="POST" action="{{ route('cliente.sat.quote.pay') }}" id="satQuoteStripePaymentForm">
+                <form
+                    method="POST"
+                    action="{{ route('cliente.sat.quote.pay') }}"
+                    id="satQuoteStripePaymentForm"
+                    autocomplete="off"
+                    target="_top"
+                >
                     @csrf
                     <input type="hidden" name="sat_download_id" id="satQuoteStripePaymentId" value="">
 
-                    <div class="sat-clean-modal__actions" style="justify-content:flex-start;">
-                        <button type="submit" class="sat-clean-btn sat-clean-btn--primary">
-                            Pagar con Stripe
+                    <div class="sat-clean-payment-cta">
+                        <button
+                            type="submit"
+                            id="satQuoteStripeSubmitBtn"
+                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--amazon"
+                            title="Pagar"
+                            aria-label="Pagar"
+                        >
+                            <span class="sat-clean-btn__label">Pagar</span>
                         </button>
+
+                        <div class="sat-clean-payment-cta__helper">
+                            Serás redirigido a Stripe para completar el pago de forma segura.
+                        </div>
                     </div>
                 </form>
             </div>
