@@ -1688,24 +1688,78 @@ body.sat-clean-modal-open{
     }
 
     .sat-clean-hero--portal-simple{
+  min-height:auto;
+}
+
+.sat-clean-hero__content--portal-simple{
+  display:block;
+  width:100%;
+  padding:18px 18px 18px 18px;
+}
+
+.sat-clean-hero__main--portal-simple{
+  position:relative;
+  width:100%;
+  max-width:none;
+  min-width:0;
+  min-height:170px;
+  padding:4px 360px 4px 0;
+}
+
+.sat-clean-hero__main--portal-simple > div:first-child{
+  width:100%;
+  max-width:none !important;
+  min-width:0;
+}
+
+.sat-clean-hero__main--portal-simple > div:last-child{
+  position:absolute !important;
+  top:0 !important;
+  right:0 !important;
+  width:340px !important;
+  max-width:340px !important;
+  min-width:340px !important;
+  margin:0 !important;
+}
+
+.sat-clean-hero__main--portal-simple > div:last-child > div{
+  width:100%;
+}
+
+@media (max-width:1024px){
+  .sat-clean-hero__main--portal-simple{
+    padding-right:320px;
+  }
+
+  .sat-clean-hero__main--portal-simple > div:last-child{
+    width:300px !important;
+    max-width:300px !important;
+    min-width:300px !important;
+  }
+}
+
+@media (max-width:768px){
+  .sat-clean-hero__content--portal-simple{
+    padding:14px;
+  }
+
+  .sat-clean-hero__main--portal-simple{
     min-height:auto;
-    }
+    padding-right:0;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
 
-    .sat-clean-hero__content--portal-simple{
-        display:block;
-        padding:18px 18px 18px 18px;
-    }
-
-    .sat-clean-hero__main--portal-simple{
-        max-width:980px;
-        padding:4px 0;
-    }
-
-    @media (max-width:768px){
-        .sat-clean-hero__content--portal-simple{
-            padding:14px;
-        }
-    }
+  .sat-clean-hero__main--portal-simple > div:last-child{
+    position:relative !important;
+    top:auto !important;
+    right:auto !important;
+    width:100% !important;
+    max-width:none !important;
+    min-width:0 !important;
+  }
+}
 
     /* =========================================================
    DESCARGAS / CENTRO SAT · CARD PRO UNIFICADA

@@ -79,38 +79,77 @@
 
         <section class="sat-clean-hero sat-clean-hero--portal sat-clean-hero--portal-simple" aria-label="Portal Descargas SAT">
             <div class="sat-clean-hero__content sat-clean-hero__content--portal sat-clean-hero__content--portal-simple">
-                <div class="sat-clean-hero__main sat-clean-hero__main--portal-simple">
-                    <span class="sat-clean-hero__eyebrow">PORTAL SAT · WEB + ESCRITORIO</span>
+                <div
+                    class="sat-clean-hero__main sat-clean-hero__main--portal-simple"
+                    style="position:relative; width:100%; min-height:170px; padding-right:360px;"
+                >
+                    <div style="min-width:0; max-width:100%;">
+                        <span class="sat-clean-hero__eyebrow" style="display:inline-flex; align-items:center; gap:8px;">
+                            <span
+                                style="width:10px; height:10px; border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 0 0 6px rgba(255,255,255,.10); display:inline-block;"
+                                aria-hidden="true"
+                            ></span>
+                            PORTAL SAT · WEB + ESCRITORIO
+                        </span>
 
-                    <h1 class="sat-clean-hero__title sat-clean-hero__title--portal">
-                        Portal Descargas SAT
-                    </h1>
+                        <div style="display:flex; align-items:center; gap:14px; margin-top:14px; margin-bottom:14px;">
+                            <span
+                                style="width:58px; height:58px; border-radius:18px; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.14); box-shadow:0 10px 24px rgba(10,24,64,.18); flex:0 0 58px;"
+                                aria-hidden="true"
+                            >
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                    <path d="M8.5 10.5 12 8l3.5 2.5v4L12 17l-3.5-2.5v-4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                </svg>
+                            </span>
 
-                    <p class="sat-clean-hero__text sat-clean-hero__text--portal">
-                        Administra tus RFC, da seguimiento a cotizaciones y opera las descargas SAT desde la versión de escritorio para aprovechar los recursos de tu propio equipo.
-                    </p>
+                            <h1 class="sat-clean-hero__title sat-clean-hero__title--portal" style="margin:0;">
+                                Portal Descargas SAT
+                            </h1>
+                        </div>
 
-                    <div class="sat-clean-hero__chips">
-                        <span class="sat-clean-hero__chip">RFC</span>
-                        <span class="sat-clean-hero__chip">Cotizaciones</span>
-                        <span class="sat-clean-hero__chip">Escritorio Windows</span>
-                        <span class="sat-clean-hero__chip">Centro SAT</span>
+                        <p class="sat-clean-hero__text sat-clean-hero__text--portal" style="max-width:760px; margin-bottom:18px;">
+                            Administra tus RFC, da seguimiento a cotizaciones y opera las descargas SAT desde la versión de escritorio para aprovechar los recursos de tu propio equipo.
+                        </p>
+
+                        <div class="sat-clean-hero__chips">
+                            <span class="sat-clean-hero__chip">RFC</span>
+                            <span class="sat-clean-hero__chip">Cotizaciones</span>
+                            <span class="sat-clean-hero__chip">Escritorio Windows</span>
+                            <span class="sat-clean-hero__chip">Centro SAT</span>
+                        </div>
                     </div>
 
-                    <div class="sat-clean-modal__actions sat-clean-modal__actions--compact" style="justify-content:flex-start; margin-top:16px;">
-                        <a
-                            href="#satDesktopSection"
-                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                    <div style="position:absolute; top:0; right:0; width:340px; margin:0;">
+                        <div
+                            style="width:100%; background:rgba(10,26,70,.16); border:1px solid rgba(255,255,255,.14); border-radius:22px; padding:18px; box-shadow:0 14px 30px rgba(10,24,64,.16); backdrop-filter:blur(4px);"
                         >
-                            Versión de escritorio
-                        </a>
+                            <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:14px;">
 
-                        <a
-                            href="#satQuotesSection"
-                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                        >
-                            Ver cotizaciones
-                        </a>
+                                <div style="min-width:0;">
+                                    <div style="font-size:15px; font-weight:800; line-height:1.2; color:#fff;">
+                                        Versión de escritorio
+                                    </div>
+                                </div>
+                            </div>
+
+                            <a
+                                href="{{ route('cliente.sat.desktop.download') }}"
+                                class="sat-clean-btn sat-clean-btn--primary"
+                                style="width:100%; justify-content:center; min-height:46px; gap:10px;"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M12 4v9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                                    <path d="M8.5 10.5 12 14l3.5-3.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M5 18h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                                </svg>
+                                <span>Descargar</span>
+                            </a>
+
+                            <div style="margin-top:10px; font-size:11.5px; color:rgba(255,255,255,.66); text-align:center;">
+                                Compatible con Windows 10 o superior
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
