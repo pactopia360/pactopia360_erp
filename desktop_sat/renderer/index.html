@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' https: http:;"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PACTOPIA360 SAT Desktop</title>
+    <style>
+        :root {
+            --bg: #0b1220;
+            --bg-soft: #121a2b;
+            --panel: #162033;
+            --panel-2: #1b2740;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #eef4ff;
+            --muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-2: #2563eb;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+            --radius-xl: 24px;
+            --radius-lg: 18px;
+            --radius-md: 14px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top right, rgba(37, 99, 235, 0.22), transparent 24%),
+                radial-gradient(circle at left center, rgba(59, 130, 246, 0.10), transparent 30%),
+                var(--bg);
+            color: var(--text);
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            padding: 24px;
+        }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 22px;
+            min-height: calc(100vh - 48px);
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, rgba(22, 32, 51, 0.96), rgba(15, 23, 42, 0.96));
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow);
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .brand__badge {
+            display: inline-flex;
+            align-items: center;
+            width: max-content;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.16);
+            color: #bfdbfe;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .brand__title {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.15;
+            margin: 0;
+        }
+
+        .brand__text {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        .nav {
+            display: grid;
+            gap: 10px;
+        }
+
+        .nav__item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid transparent;
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .nav__item.is-active {
+            background: rgba(59, 130, 246, 0.16);
+            border-color: rgba(96, 165, 250, 0.32);
+        }
+
+        .nav__icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.05);
+            font-size: 16px;
+        }
+
+        .sidebar-card {
+            margin-top: auto;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+        }
+
+        .sidebar-card__title {
+            margin: 0 0 8px;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .sidebar-card__text {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .main {
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            background: rgba(22, 32, 51, 0.90);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow);
+            padding: 20px 24px;
+        }
+
+        .topbar__left h1 {
+            margin: 0 0 6px;
+            font-size: 28px;
+            line-height: 1.1;
+        }
+
+        .topbar__left p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .topbar__meta {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 999px;
+            background: var(--warning);
+            display: inline-block;
+        }
+
+        .dot.is-success {
+            background: var(--success);
+        }
+
+        .dot.is-danger {
+            background: var(--danger);
+        }
+
+        .dot.is-muted {
+            background: #64748b;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 22px;
+        }
+
+        .card {
+            background: rgba(22, 32, 51, 0.90);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow);
+            padding: 24px;
+        }
+
+        .hero__title {
+            margin: 0 0 10px;
+            font-size: 30px;
+            line-height: 1.1;
+        }
+
+        .hero__text {
+            margin: 0 0 18px;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.7;
+            max-width: 760px;
+        }
+
+        .hero__chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .chip {
+            padding: 9px 12px;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.14);
+            color: #dbeafe;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .btn {
+            appearance: none;
+            border: 0;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 13px 18px;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 700;
+            transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn--primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-2));
+            color: #fff;
+        }
+
+        .btn--ghost {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn--danger {
+            background: rgba(239, 68, 68, 0.14);
+            color: #fecaca;
+            border: 1px solid rgba(239, 68, 68, 0.28);
+        }
+
+        .status-list {
+            display: grid;
+            gap: 14px;
+        }
+
+        .status-item {
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+        }
+
+        .status-item__head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .status-item__title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .status-item__text {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .metric {
+            background: rgba(22, 32, 51, 0.90);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            padding: 20px;
+        }
+
+        .metric__label {
+            display: block;
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .metric__value {
+            font-size: 28px;
+            font-weight: 800;
+            line-height: 1;
+            margin: 0 0 6px;
+        }
+
+        .metric__hint {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .panel-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px;
+        }
+
+        .section-title {
+            margin: 0 0 6px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .section-text {
+            margin: 0 0 16px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.65;
+        }
+
+        .placeholder-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .placeholder-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+        }
+
+        .placeholder-item__icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            flex: 0 0 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(59, 130, 246, 0.12);
+            font-size: 17px;
+        }
+
+        .placeholder-item__body h4 {
+            margin: 0 0 6px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .placeholder-item__body p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .footer-note {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.65;
+            text-align: center;
+            padding: 10px 0 2px;
+        }
+
+        @media (max-width: 1280px) {
+            .app-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                order: 2;
+            }
+
+            .main {
+                order: 1;
+            }
+
+            .hero,
+            .panel-grid,
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .topbar__meta {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand__badge">Desktop local</span>
+                <h2 class="brand__title">PACTOPIA360 SAT Desktop</h2>
+                <p class="brand__text">
+                    Ejecución local de descargas SAT y bóveda con recursos del equipo del usuario.
+                </p>
+            </div>
+
+            <nav class="nav" aria-label="Navegación principal">
+                <div class="nav__item is-active">
+                    <span class="nav__icon">🏠</span>
+                    <span>Inicio</span>
+                </div>
+
+                <div class="nav__item">
+                    <span class="nav__icon">🔐</span>
+                    <span>Acceso</span>
+                </div>
+
+                <div class="nav__item">
+                    <span class="nav__icon">🧾</span>
+                    <span>RFC autorizados</span>
+                </div>
+
+                <div class="nav__item">
+                    <span class="nav__icon">☁️</span>
+                    <span>Sincronización</span>
+                </div>
+
+                <div class="nav__item">
+                    <span class="nav__icon">📂</span>
+                    <span>Descargas locales</span>
+                </div>
+
+                <div class="nav__item">
+                    <span class="nav__icon">⚙️</span>
+                    <span>Configuración</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-card">
+                <h3 class="sidebar-card__title">Modo de operación</h3>
+                <p class="sidebar-card__text">
+                    Opción B: los archivos se guardarán localmente. El ERP solo sincronizará estado, bitácora y metadatos mínimos.
+                </p>
+            </div>
+        </aside>
+
+        <main class="main">
+            <header class="topbar">
+                <div class="topbar__left">
+                    <h1>Panel principal</h1>
+                    <p id="topbarSubtitle">Base inicial del cliente de escritorio para SAT y Bóveda Pactopia360.</p>
+                </div>
+
+                <div class="topbar__meta">
+                    <span class="pill" id="agentStatusPill">
+                        <span class="dot"></span>
+                        Agente no vinculado
+                    </span>
+                    <span class="pill" id="syncStatusPill">
+                        <span class="dot is-muted"></span>
+                        Sincronización pendiente
+                    </span>
+                    <span class="pill" id="appVersionPill">
+                        Versión 0.1.0
+                    </span>
+                </div>
+            </header>
+
+            <section class="hero">
+                <div class="card">
+                    <h2 class="hero__title">Descargas SAT desde tu equipo</h2>
+                    <p class="hero__text">
+                        Esta aplicación será la encargada de ejecutar procesos pesados de descarga SAT directamente en Windows. El portal web seguirá funcionando como centro de administración, licenciamiento, cotizaciones y seguimiento.
+                    </p>
+
+                    <div class="hero__chips">
+                        <span class="chip">Windows</span>
+                        <span class="chip">Local only</span>
+                        <span class="chip">RFC autorizados</span>
+                        <span class="chip">Sync mínima</span>
+                    </div>
+
+                    <div class="actions">
+                        <button type="button" class="btn btn--primary" id="openLoginButton">
+                            Ver configuración de acceso
+                        </button>
+                        <button type="button" class="btn btn--ghost" id="openStatusButton">
+                            Ver estado de integración
+                        </button>
+                        <button type="button" class="btn btn--danger" id="logoutButton">
+                            Cerrar sesión local
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="status-list">
+                        <div class="status-item">
+                            <div class="status-item__head">
+                                <h3 class="status-item__title">Aplicación creada</h3>
+                                <span class="pill"><span class="dot is-success"></span> OK</span>
+                            </div>
+                            <p class="status-item__text">
+                                La ventana principal ya está operando en Electron.
+                            </p>
+                        </div>
+
+                        <div class="status-item">
+                            <div class="status-item__head">
+                                <h3 class="status-item__title">Login ERP</h3>
+                                <span class="pill" id="loginStatusBadge"><span class="dot"></span> Pendiente</span>
+                            </div>
+                            <p class="status-item__text" id="loginStatusText">
+                                El siguiente paso será conectar esta app con Pactopia360.
+                            </p>
+                        </div>
+
+                        <div class="status-item">
+                            <div class="status-item__head">
+                                <h3 class="status-item__title">Motor SAT local</h3>
+                                <span class="pill"><span class="dot"></span> Pendiente</span>
+                            </div>
+                            <p class="status-item__text">
+                                Después agregaremos el flujo de descarga y almacenamiento local.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="grid">
+                <article class="metric">
+                    <span class="metric__label">Usuario conectado</span>
+                    <p class="metric__value" id="metricEmail">—</p>
+                    <p class="metric__hint">Configuración local guardada.</p>
+                </article>
+
+                <article class="metric">
+                    <span class="metric__label">ERP configurado</span>
+                    <p class="metric__value" id="metricErp">—</p>
+                    <p class="metric__hint">URL base del portal vinculada.</p>
+                </article>
+
+                <article class="metric">
+                    <span class="metric__label">Sincronizaciones</span>
+                    <p class="metric__value">0</p>
+                    <p class="metric__hint">Aún no hay vínculo con API real.</p>
+                </article>
+
+                <article class="metric">
+                    <span class="metric__label">Archivos locales</span>
+                    <p class="metric__value">0</p>
+                    <p class="metric__hint">El repositorio local iniciará vacío.</p>
+                </article>
+            </section>
+
+            <section class="panel-grid">
+                <div class="card">
+                    <h3 class="section-title">Próximos módulos</h3>
+                    <p class="section-text">
+                        Esta primera versión ya sirve como base visual y técnica. Sobre ella vamos a montar autenticación, configuración del ERP y operaciones SAT.
+                    </p>
+
+                    <div class="placeholder-list">
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">1</div>
+                            <div class="placeholder-item__body">
+                                <h4>Login de escritorio</h4>
+                                <p>Formulario para conectar la app con la cuenta del usuario en Pactopia360.</p>
+                            </div>
+                        </div>
+
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">2</div>
+                            <div class="placeholder-item__body">
+                                <h4>Configuración local</h4>
+                                <p>Persistencia de URL del ERP, token, sesión y carpeta de trabajo.</p>
+                            </div>
+                        </div>
+
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">3</div>
+                            <div class="placeholder-item__body">
+                                <h4>RFC y tareas</h4>
+                                <p>Recepción de RFC autorizados y futuras tareas locales.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="section-title">Sesión local</h3>
+                    <p class="section-text">
+                        Esta sección ya lee la configuración guardada desde la pantalla de acceso.
+                    </p>
+
+                    <div class="placeholder-list">
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">📧</div>
+                            <div class="placeholder-item__body">
+                                <h4>Correo vinculado</h4>
+                                <p id="sessionEmailText">Sin correo configurado.</p>
+                            </div>
+                        </div>
+
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">🌐</div>
+                            <div class="placeholder-item__body">
+                                <h4>ERP vinculado</h4>
+                                <p id="sessionErpText">Sin URL configurada.</p>
+                            </div>
+                        </div>
+
+                        <div class="placeholder-item">
+                            <div class="placeholder-item__icon">🔁</div>
+                            <div class="placeholder-item__body">
+                                <h4>Acción rápida</h4>
+                                <p>Usa “Cerrar sesión local” para limpiar la configuración y volver al login.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="footer-note">
+                <span id="desktopMetaText">PACTOPIA360 SAT Desktop · Inicializando entorno local…</span>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        (function () {
+            const versionPill = document.getElementById('appVersionPill');
+            const metaText = document.getElementById('desktopMetaText');
+            const openLoginButton = document.getElementById('openLoginButton');
+            const openStatusButton = document.getElementById('openStatusButton');
+            const logoutButton = document.getElementById('logoutButton');
+            const metricEmail = document.getElementById('metricEmail');
+            const metricErp = document.getElementById('metricErp');
+            const sessionEmailText = document.getElementById('sessionEmailText');
+            const sessionErpText = document.getElementById('sessionErpText');
+            const topbarSubtitle = document.getElementById('topbarSubtitle');
+            const agentStatusPill = document.getElementById('agentStatusPill');
+            const syncStatusPill = document.getElementById('syncStatusPill');
+            const loginStatusBadge = document.getElementById('loginStatusBadge');
+            const loginStatusText = document.getElementById('loginStatusText');
+
+            function setText(element, value) {
+                if (!element) {
+                    return;
+                }
+
+                element.textContent = value;
+            }
+
+            function shortUrl(url) {
+                if (!url) {
+                    return '—';
+                }
+
+                try {
+                    const parsed = new URL(url);
+                    return parsed.host;
+                } catch (error) {
+                    return url;
+                }
+            }
+
+            function applyLoggedOutState() {
+                setText(metricEmail, '—');
+                setText(metricErp, '—');
+                setText(sessionEmailText, 'Sin correo configurado.');
+                setText(sessionErpText, 'Sin URL configurada.');
+                setText(topbarSubtitle, 'No hay sesión local activa. Regresa al acceso para configurar esta app.');
+
+                if (agentStatusPill) {
+                    agentStatusPill.innerHTML = '<span class="dot is-danger"></span> Agente sin sesión';
+                }
+
+                if (syncStatusPill) {
+                    syncStatusPill.innerHTML = '<span class="dot is-muted"></span> Sincronización pendiente';
+                }
+
+                if (loginStatusBadge) {
+                    loginStatusBadge.innerHTML = '<span class="dot is-danger"></span> Sin sesión';
+                }
+
+                setText(loginStatusText, 'Aún no hay una configuración local válida para conectar con Pactopia360.');
+            }
+
+            function applyLoggedInState(config) {
+                const email = String(config?.email || '').trim();
+                const erpUrl = String(config?.erpUrl || '').trim();
+
+                setText(metricEmail, email !== '' ? email : '—');
+                setText(metricErp, erpUrl !== '' ? shortUrl(erpUrl) : '—');
+                setText(sessionEmailText, email !== '' ? email : 'Sin correo configurado.');
+                setText(sessionErpText, erpUrl !== '' ? erpUrl : 'Sin URL configurada.');
+                setText(topbarSubtitle, 'Sesión local lista para continuar con autenticación real y sincronización con el ERP.');
+
+                if (agentStatusPill) {
+                    agentStatusPill.innerHTML = '<span class="dot is-success"></span> Configuración local activa';
+                }
+
+                if (syncStatusPill) {
+                    syncStatusPill.innerHTML = '<span class="dot"></span> Sync API pendiente';
+                }
+
+                if (loginStatusBadge) {
+                    loginStatusBadge.innerHTML = '<span class="dot is-success"></span> Configuración guardada';
+                }
+
+                setText(loginStatusText, 'La app ya leyó la configuración local guardada desde el login.');
+            }
+
+            async function loadConfig() {
+                if (window.P360Desktop?.app) {
+                    const version = window.P360Desktop.app.version || '0.1.0';
+                    const platform = window.P360Desktop.app.platform || 'win32';
+
+                    if (versionPill) {
+                        versionPill.textContent = 'Versión ' + version;
+                    }
+
+                    if (metaText) {
+                        metaText.textContent = 'PACTOPIA360 SAT Desktop · Plataforma ' + platform + ' · Versión ' + version;
+                    }
+                }
+
+                if (!window.P360Desktop || !window.P360Desktop.storage || !window.P360Desktop.navigation) {
+                    applyLoggedOutState();
+                    alert('No se detectó la API de escritorio. Revisa preload.js.');
+                    return;
+                }
+
+                const result = await window.P360Desktop.storage.getConfig();
+
+                if (!result.ok) {
+                    applyLoggedOutState();
+                    alert(result.message || 'No se pudo leer la configuración local.');
+                    return;
+                }
+
+                if (!result.data || !result.data.isLoggedIn) {
+                    applyLoggedOutState();
+                    setTimeout(function () {
+                        window.P360Desktop.navigation.goToLogin();
+                    }, 300);
+                    return;
+                }
+
+                applyLoggedInState(result.data);
+            }
+
+            if (openLoginButton) {
+                openLoginButton.addEventListener('click', function () {
+                    alert('Configuración local: esta pantalla ya está leyendo correo y URL guardados desde el login.');
+                });
+            }
+
+            if (openStatusButton) {
+                openStatusButton.addEventListener('click', function () {
+                    alert('Estado actual: dashboard activo, configuración local cargada, autenticación ERP real pendiente, sincronización real pendiente.');
+                });
+            }
+
+            if (logoutButton) {
+                logoutButton.addEventListener('click', async function () {
+                    if (!window.P360Desktop || !window.P360Desktop.storage || !window.P360Desktop.navigation) {
+                        alert('No se detectó la API de escritorio. Revisa preload.js.');
+                        return;
+                    }
+
+                    const confirmed = window.confirm('¿Deseas cerrar la sesión local y volver a la pantalla de acceso?');
+
+                    if (!confirmed) {
+                        return;
+                    }
+
+                    logoutButton.disabled = true;
+                    logoutButton.textContent = 'Cerrando sesión...';
+
+                    try {
+                        const result = await window.P360Desktop.storage.clearConfig();
+
+                        if (!result.ok) {
+                            throw new Error(result.message || 'No se pudo limpiar la configuración local.');
+                        }
+
+                        window.P360Desktop.navigation.goToLogin();
+                    } catch (error) {
+                        alert(error instanceof Error ? error.message : 'Ocurrió un error al cerrar sesión.');
+                        logoutButton.disabled = false;
+                        logoutButton.textContent = 'Cerrar sesión local';
+                    }
+                });
+            }
+
+            loadConfig();
+        })();
+    </script>
+</body>
+</html>

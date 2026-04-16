@@ -206,6 +206,83 @@ Route::middleware(['auth:web', 'account.active'])
             ->middleware($thrVerify)
             ->name('dashboard.stats');
 
+                /*
+        |----------------------------------------------------------------------
+        | SAT DESKTOP (Windows) — opción B
+        |----------------------------------------------------------------------
+        | La app de escritorio procesa y guarda localmente en el equipo del usuario.
+        | El ERP solo expone descarga del instalador, metadata de versión y estado
+        | inicial del agente para futura sincronización.
+        */
+        Route::prefix('desktop')
+            ->as('desktop.')
+            ->group(function () use ($thrVerify, $thrDownload) {
+
+                Route::get('/download', function () {
+                    $candidates = [
+                        public_path('downloads/pactopia360-sat-desktop-setup.exe'),
+                        public_path('downloads/pactopia360-sat-desktop.exe'),
+                        storage_path('app/private/desktop/pactopia360-sat-desktop-setup.exe'),
+                        storage_path('app/private/desktop/pactopia360-sat-desktop.exe'),
+                    ];
+
+                    $installerPath = null;
+
+                    foreach ($candidates as $candidate) {
+                        if (is_file($candidate)) {
+                            $installerPath = $candidate;
+                            break;
+                        }
+                    }
+
+                    if (!$installerPath) {
+                        abort(404, 'El instalador de escritorio aún no está disponible.');
+                    }
+
+                    return response()->download(
+                        $installerPath,
+                        basename($installerPath),
+                        [
+                            'Content-Type' => 'application/octet-stream',
+                            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                            'Pragma' => 'no-cache',
+                            'Expires' => '0',
+                        ]
+                    );
+                })->middleware($thrDownload)->name('download');
+
+                Route::get('/manifest', function () {
+                    $version = env('SAT_DESKTOP_VERSION', '0.1.0');
+                    $channel = env('SAT_DESKTOP_CHANNEL', app()->environment('production') ? 'stable' : 'beta');
+
+                    return response()->json([
+                        'ok' => true,
+                        'product' => 'PACTOPIA360 SAT Desktop',
+                        'platform' => 'windows',
+                        'channel' => $channel,
+                        'version' => $version,
+                        'download_url' => route('cliente.sat.desktop.download'),
+                        'requires_login' => true,
+                        'storage_mode' => 'local_only',
+                        'sync_mode' => 'status_only',
+                        'generated_at' => now()->toIso8601String(),
+                    ]);
+                })->middleware($thrVerify)->name('manifest');
+
+                Route::get('/agent/status', function (\Illuminate\Http\Request $request) {
+                    return response()->json([
+                        'ok' => true,
+                        'connected' => false,
+                        'mode' => 'desktop_local',
+                        'storage_mode' => 'local_only',
+                        'sync_mode' => 'status_only',
+                        'message' => 'El agente de escritorio aún no ha sido vinculado a esta cuenta.',
+                        'account_id' => optional($request->user())->getAuthIdentifier(),
+                        'checked_at' => now()->toIso8601String(),
+                    ]);
+                })->middleware($thrVerify)->name('agent.status');
+            });
+
         /*
         |----------------------------------------------------------------------
         | ✅ DESCARGAS MANUALES (cache-safe)

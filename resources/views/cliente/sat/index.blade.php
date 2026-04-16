@@ -80,20 +80,37 @@
         <section class="sat-clean-hero sat-clean-hero--portal sat-clean-hero--portal-simple" aria-label="Portal Descargas SAT">
             <div class="sat-clean-hero__content sat-clean-hero__content--portal sat-clean-hero__content--portal-simple">
                 <div class="sat-clean-hero__main sat-clean-hero__main--portal-simple">
-                    <span class="sat-clean-hero__eyebrow">PORTAL SAT · DESCARGAS</span>
+                    <span class="sat-clean-hero__eyebrow">PORTAL SAT · WEB + ESCRITORIO</span>
 
                     <h1 class="sat-clean-hero__title sat-clean-hero__title--portal">
                         Portal Descargas SAT
                     </h1>
 
                     <p class="sat-clean-hero__text sat-clean-hero__text--portal">
-                        Administra tus RFC, da seguimiento a cotizaciones y consulta el estado general de tu centro SAT desde un solo lugar.
+                        Administra tus RFC, da seguimiento a cotizaciones y opera las descargas SAT desde la versión de escritorio para aprovechar los recursos de tu propio equipo.
                     </p>
 
                     <div class="sat-clean-hero__chips">
                         <span class="sat-clean-hero__chip">RFC</span>
                         <span class="sat-clean-hero__chip">Cotizaciones</span>
+                        <span class="sat-clean-hero__chip">Escritorio Windows</span>
                         <span class="sat-clean-hero__chip">Centro SAT</span>
+                    </div>
+
+                    <div class="sat-clean-modal__actions sat-clean-modal__actions--compact" style="justify-content:flex-start; margin-top:16px;">
+                        <a
+                            href="#satDesktopSection"
+                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                        >
+                            Versión de escritorio
+                        </a>
+
+                        <a
+                            href="#satQuotesSection"
+                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                        >
+                            Ver cotizaciones
+                        </a>
                     </div>
                 </div>
             </div>
@@ -855,6 +872,163 @@
             </details>
         </section>
 
+        <section class="sat-clean-accordion" id="satDesktopSection" aria-label="Versión de escritorio SAT">
+            <details class="sat-clean-accordion__item" open>
+                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+                    <div class="sat-clean-accordion__bar-left">
+                        <span class="sat-clean-accordion__bar-title">Versión de escritorio</span>
+                        <span class="sat-clean-accordion__bar-text">
+                            Descarga e instala la aplicación para ejecutar procesos SAT con los recursos de tu equipo
+                        </span>
+                    </div>
+
+                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                </summary>
+
+                <div class="sat-clean-accordion__content">
+                    <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact">
+                        <div class="sat-clean-rfc-toolbar-v2">
+                            <div class="sat-clean-rfc-toolbar-v2__left">
+                                <div class="sat-clean-rfc-toolbar-v2__title-wrap">
+                                    <h2 class="sat-clean-rfc-toolbar-v2__title">SAT Desktop para Windows</h2>
+                                    <span class="sat-clean-rfc-toolbar-v2__count">Operación local</span>
+                                </div>
+
+                                <div class="sat-clean-rfc-inline-text">
+                                    Ejecuta descargas SAT y procesos de bóveda desde tu computadora para evitar consumo intensivo de recursos en el servidor.
+                                </div>
+                            </div>
+
+                            <div class="sat-clean-rfc-toolbar-v2__right">
+                                <a
+                                    href="#"
+                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                    id="satDesktopDownloadBtn"
+                                >
+                                    Descargar versión de escritorio
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
+                            <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
+                                <thead>
+                                    <tr>
+                                        <th>Módulo</th>
+                                        <th>Modo de operación</th>
+                                        <th>Procesamiento</th>
+                                        <th>Sincronización</th>
+                                        <th>Equipo recomendado</th>
+                                        <th class="text-end">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-main">
+                                                <span class="sat-clean-rfc-inline-main__rfc">Descargas SAT</span>
+                                            </div>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                Procesamiento local desde Windows
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <span class="sat-clean-status-badge is-success">
+                                                Escritorio
+                                            </span>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                CPU, memoria, disco y red del usuario
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                Estado, bitácora y resultados hacia el portal
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                Windows 10 o superior
+                                            </div>
+                                        </td>
+
+                                        <td class="text-end">
+                                            <a
+                                                href="#"
+                                                class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                                                id="satDesktopTableDownloadBtn"
+                                            >
+                                                Descargar
+                                            </a>
+                                        </td>
+                                    </tr>
+
+                                    <tr>
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-main">
+                                                <span class="sat-clean-rfc-inline-main__rfc">Bóveda SAT</span>
+                                            </div>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                Flujo híbrido web + escritorio
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <span class="sat-clean-status-badge is-warning">
+                                                Híbrido
+                                            </span>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                La app ejecuta tareas pesadas; el portal muestra control y seguimiento
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                RFC autorizados, historial, estado y archivos visibles
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <div class="sat-clean-rfc-inline-text">
+                                                Equipo con acceso estable a internet
+                                            </div>
+                                        </td>
+
+                                        <td class="text-end">
+                                            <a
+                                                href="#"
+                                                class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                                id="satDesktopInfoBtn"
+                                            >
+                                                Ver detalle
+                                            </a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="sat-clean-inline-note" style="margin-top:14px;">
+                            <strong>Importante:</strong> la versión web seguirá funcionando como panel de administración, cotización, seguimiento, sincronización y visualización general; la ejecución intensiva de descargas SAT se moverá a la aplicación de escritorio.
+                        </div>
+                    </div>
+                </div>
+            </details>
+        </section>
+
         <section class="sat-clean-accordion" aria-label="Centro SAT">
             <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
@@ -1006,13 +1180,13 @@
             </details>
         </section>
 
-               <section class="sat-clean-accordion" aria-label="Descargas SAT">
+        <section class="sat-clean-accordion" aria-label="Estado de operación SAT">
             <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
                     <div class="sat-clean-accordion__bar-left">
-                        <span class="sat-clean-accordion__bar-title">Descargas</span>
+                        <span class="sat-clean-accordion__bar-title">Operación SAT</span>
                         <span class="sat-clean-accordion__bar-text">
-                            Listado de archivos visibles del RFC activo entre Centro SAT, Bóveda v1 y Bóveda v2
+                            Estado general del flujo entre portal web, versión de escritorio y bóveda SAT
                         </span>
                     </div>
 
@@ -1025,18 +1199,12 @@
                 </summary>
 
                 <div class="sat-clean-accordion__content">
-                    @php
-                        $downloadItemsUnified = collect($unifiedDownloadItems ?? []);
-                    @endphp
-
                     <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact">
                         <div class="sat-clean-rfc-toolbar-v2">
                             <div class="sat-clean-rfc-toolbar-v2__left">
                                 <div class="sat-clean-rfc-toolbar-v2__title-wrap">
-                                    <h2 class="sat-clean-rfc-toolbar-v2__title">Archivos visibles</h2>
-                                    <span class="sat-clean-rfc-toolbar-v2__count">
-                                        {{ number_format($downloadItemsUnified->count()) }} archivo(s)
-                                    </span>
+                                    <h2 class="sat-clean-rfc-toolbar-v2__title">Estado del agente de escritorio</h2>
+                                    <span class="sat-clean-rfc-toolbar-v2__count">Preparación de integración</span>
                                 </div>
 
                                 <div class="sat-clean-rfc-inline-text">
@@ -1047,10 +1215,10 @@
 
                             <div class="sat-clean-rfc-toolbar-v2__right">
                                 <a
-                                    href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
-                                    class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                    href="#satDesktopSection"
+                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
                                 >
-                                    Abrir SAT Bóveda v2
+                                    Descargar app
                                 </a>
                             </div>
                         </div>
@@ -1059,132 +1227,65 @@
                             <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
                                 <thead>
                                     <tr>
-                                        <th>Origen</th>
-                                        <th>Tipo</th>
-                                        <th>Archivo</th>
-                                        <th>RFC</th>
-                                        <th>Dirección</th>
-                                        <th>Tamaño</th>
-                                        <th>Detalle</th>
-                                        <th>Fecha</th>
+                                        <th>Componente</th>
+                                        <th>Estatus</th>
+                                        <th>Descripción</th>
+                                        <th>Última actividad</th>
+                                        <th>Canal</th>
                                         <th class="text-end">Acción</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse($downloadItemsUnified as $item)
-                                        @php
-                                            $kindRaw = strtolower((string) ($item['kind'] ?? 'archivo'));
-                                            $kindLabel = match($kindRaw) {
-                                                'metadata' => 'Metadata',
-                                                'xml'      => 'XML',
-                                                'report'   => 'Reporte',
-                                                'zip'      => 'ZIP',
-                                                'csv'      => 'CSV',
-                                                'pdf'      => 'PDF',
-                                                default    => strtoupper($kindRaw),
-                                            };
+                                    <tr>
+                                        <td>Portal web</td>
+                                        <td>
+                                            <span class="sat-clean-status-badge is-success">Disponible</span>
+                                        </td>
+                                        <td>Administración, cotización, seguimiento y visualización</td>
+                                        <td>En línea</td>
+                                        <td>Web</td>
+                                        <td class="text-end">
+                                            <a href="#satQuotesSection" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact">
+                                                Ver cotizaciones
+                                            </a>
+                                        </td>
+                                    </tr>
 
-                                            $originRaw = strtolower((string) ($item['origin'] ?? ''));
-                                            $originLabel = (string) ($item['origin_label'] ?? 'Origen');
-                                            $directionLabel = trim((string) ($item['direction'] ?? '')) !== ''
-                                                ? ucfirst(str_replace('_', ' ', (string) $item['direction']))
-                                                : '—';
+                                    <tr>
+                                        <td>Agente de escritorio</td>
+                                        <td>
+                                            <span class="sat-clean-status-badge is-warning">Pendiente de instalar</span>
+                                        </td>
+                                        <td>Ejecutará descargas SAT y tareas pesadas desde la PC del usuario</td>
+                                        <td>Sin conexión</td>
+                                        <td>Windows</td>
+                                        <td class="text-end">
+                                            <a href="#satDesktopSection" class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact">
+                                                Instalar
+                                            </a>
+                                        </td>
+                                    </tr>
 
-                                            $statusLabel = trim((string) ($item['status'] ?? '')) !== ''
-                                                ? ucfirst(str_replace('_', ' ', (string) $item['status']))
-                                                : 'Disponible';
-
-                                            $downloadUrl = (string) ($item['download_url'] ?? '');
-                                            $viewUrl = (string) ($item['view_url'] ?? '');
-
-                                            $createdAtLabel = '—';
-                                            if (!empty($item['created_at'])) {
-                                                try {
-                                                    $createdAtLabel = \Illuminate\Support\Carbon::parse($item['created_at'])->format('d/m/Y H:i');
-                                                } catch (\Throwable $e) {
-                                                    $createdAtLabel = (string) $item['created_at'];
-                                                }
-                                            }
-                                        @endphp
-
-                                        <tr>
-                                            <td>
-                                                <span class="sat-clean-status-badge {{ $originRaw === 'centro_sat' ? 'is-warning' : ($originRaw === 'boveda_v2' ? 'is-success' : 'is-muted') }}">
-                                                    {{ $originLabel }}
-                                                </span>
-                                            </td>
-
-                                            <td>{{ $kindLabel }}</td>
-
-                                            <td>
-                                                <div class="sat-clean-rfc-inline-main">
-                                                    <span class="sat-clean-rfc-inline-main__rfc">
-                                                        {{ $item['original_name'] ?? 'Archivo' }}
-                                                    </span>
-                                                </div>
-                                                <div class="sat-clean-rfc-inline-text">
-                                                    {{ $statusLabel }}
-                                                </div>
-                                            </td>
-
-                                            <td>{{ $item['rfc_owner'] ?? '—' }}</td>
-                                            <td>{{ $directionLabel }}</td>
-                                            <td>{{ $item['bytes_human'] ?? '0 B' }}</td>
-                                            <td>{{ $item['detail'] ?? 'Archivo' }}</td>
-                                            <td>{{ $createdAtLabel }}</td>
-
-                                            <td class="text-end">
-                                                <div class="sat-clean-icon-actions">
-                                                    @if($viewUrl !== '')
-                                                        <a
-                                                            href="{{ $viewUrl }}"
-                                                            target="_blank"
-                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                                                        >
-                                                            Ver
-                                                        </a>
-                                                    @endif
-
-                                                    @if($downloadUrl !== '')
-                                                        <a
-                                                            href="{{ $downloadUrl }}"
-                                                            class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                                                        >
-                                                            Descargar
-                                                        </a>
-                                                    @else
-                                                        <a
-                                                            href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
-                                                            class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                                                        >
-                                                            Ver módulo
-                                                        </a>
-                                                    @endif
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @empty
-                                        <tr>
-                                            <td colspan="9">
-                                                <div class="sat-clean-empty-state sat-clean-empty-state--compact">
-                                                    <div class="sat-clean-empty-state__title">
-                                                        Aún no hay archivos visibles para este RFC
-                                                    </div>
-                                                    <div class="sat-clean-empty-state__text">
-                                                        El resumen visual se muestra solo en Centro SAT. Aquí se concentra únicamente el listado de archivos.
-                                                    </div>
-                                                    <a
-                                                        href="{{ route('cliente.sat.v2.index', $selectedRfc ? ['rfc' => $selectedRfc] : []) }}"
-                                                        class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                                                    >
-                                                        Abrir SAT Bóveda v2
-                                                    </a>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforelse
+                                    <tr>
+                                        <td>Sincronización</td>
+                                        <td>
+                                            <span class="sat-clean-status-badge is-muted">En preparación</span>
+                                        </td>
+                                        <td>Enviará al portal bitácora, estado y resultados del proceso</td>
+                                        <td>Sin registros</td>
+                                        <td>API segura</td>
+                                        <td class="text-end">
+                                            <button type="button" class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact" disabled>
+                                                Próximamente
+                                            </button>
+                                        </td>
+                                    </tr>
                                 </tbody>
                             </table>
+                        </div>
+
+                        <div class="sat-clean-inline-note" style="margin-top:14px;">
+                            Esta sección quedará conectada al instalador y al agente local para mostrar conexión, última sincronización, tareas enviadas y resultados recibidos.
                         </div>
                     </div>
                 </div>
@@ -2359,4 +2460,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 </script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const desktopButtons = [
+        document.getElementById('satDesktopDownloadBtn'),
+        document.getElementById('satDesktopTableDownloadBtn'),
+        document.getElementById('satDesktopInfoBtn'),
+    ].filter(Boolean);
+
+    desktopButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+
+            alert('La versión de escritorio SAT estará disponible en la siguiente fase de integración. Desde aquí se descargará el instalador para Windows.');
+        });
+    });
+});
+</script>
+
 @endsection
