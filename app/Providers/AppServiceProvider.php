@@ -14,6 +14,8 @@ use App\Services\Sat\Providers\Provider2Stub;
 use App\Services\Sat\Providers\SatProviderRegistry;
 use App\Services\Sat\Providers\SatDownloadProviderInterface;
 use App\Services\Sat\SatDownloadBalancer;
+use Laravel\Sanctum\Sanctum;
+use App\Models\Sanctum\PersonalAccessToken;
 
 
 class AppServiceProvider extends ServiceProvider
@@ -43,5 +45,8 @@ class AppServiceProvider extends ServiceProvider
             database_path('migrations_admin'),
             database_path('migrations_clientes'),
         ]);
+
+        // 🔥 Sanctum usando conexión clientes
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
     }
 }
