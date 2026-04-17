@@ -1688,78 +1688,180 @@ body.sat-clean-modal-open{
     }
 
     .sat-clean-hero--portal-simple{
-  min-height:auto;
-}
+      min-height:auto;
+    }
 
-.sat-clean-hero__content--portal-simple{
-  display:block;
-  width:100%;
-  padding:18px 18px 18px 18px;
-}
+    .sat-clean-hero__content--portal-simple{
+      display:block;
+      width:100%;
+      padding:18px;
+    }
 
-.sat-clean-hero__main--portal-simple{
-  position:relative;
-  width:100%;
-  max-width:none;
-  min-width:0;
-  min-height:170px;
-  padding:4px 360px 4px 0;
-}
+    .sat-clean-hero__main--portal-simple{
+      position:relative;
+      width:100%;
+      max-width:none;
+      min-width:0;
+      min-height:188px;
+      padding:4px 390px 4px 0;
+      overflow:hidden;
+    }
 
-.sat-clean-hero__main--portal-simple > div:first-child{
-  width:100%;
-  max-width:none !important;
-  min-width:0;
-}
+    .sat-clean-hero__main--portal-simple > div:first-child{
+      position:absolute !important;
+      inset:0 !important;
+      z-index:1 !important;
+      pointer-events:none !important;
+    }
 
-.sat-clean-hero__main--portal-simple > div:last-child{
-  position:absolute !important;
-  top:0 !important;
-  right:0 !important;
-  width:340px !important;
-  max-width:340px !important;
-  min-width:340px !important;
-  margin:0 !important;
-}
+    .sat-clean-hero__main--portal-simple > div:nth-child(2){
+      position:relative !important;
+      z-index:2 !important;
+      width:100%;
+      max-width:none !important;
+      min-width:0;
+    }
 
-.sat-clean-hero__main--portal-simple > div:last-child > div{
-  width:100%;
-}
+    .sat-clean-hero__main--portal-simple > div:last-child{
+      position:absolute !important;
+      top:8px !important;
+      right:0 !important;
+      z-index:2 !important;
+      width:320px !important;
+      max-width:320px !important;
+      min-width:320px !important;
+      margin:0 !important;
+      display:flex !important;
+      align-items:stretch !important;
+      gap:0 !important;
+    }
 
-@media (max-width:1024px){
-  .sat-clean-hero__main--portal-simple{
-    padding-right:320px;
-  }
+    .sat-clean-hero__main--portal-simple > div:last-child > div{
+      width:100%;
+      min-width:0;
+      min-height:122px !important;
+      padding:16px !important;
+      border-radius:20px !important;
+    }
 
-  .sat-clean-hero__main--portal-simple > div:last-child{
-    width:300px !important;
-    max-width:300px !important;
-    min-width:300px !important;
-  }
-}
+    .sat-clean-hero__main--portal-simple > div:last-child > div > div:first-child{
+      gap:10px !important;
+      margin-bottom:12px !important;
+    }
 
-@media (max-width:768px){
-  .sat-clean-hero__content--portal-simple{
-    padding:14px;
-  }
+    .sat-clean-hero__main--portal-simple > div:last-child > div > div:first-child > div:first-child{
+      width:38px !important;
+      height:38px !important;
+      border-radius:12px !important;
+      flex:0 0 38px !important;
+    }
 
-  .sat-clean-hero__main--portal-simple{
-    min-height:auto;
-    padding-right:0;
-    display:flex;
-    flex-direction:column;
-    gap:16px;
-  }
+    .sat-clean-hero__main--portal-simple > div:last-child > div .sat-clean-btn{
+      min-height:40px !important;
+      white-space:nowrap;
+      font-size:13px !important;
+    }
 
-  .sat-clean-hero__main--portal-simple > div:last-child{
-    position:relative !important;
-    top:auto !important;
-    right:auto !important;
-    width:100% !important;
-    max-width:none !important;
-    min-width:0 !important;
-  }
-}
+    .sat-clean-hero__main--portal-simple > div:last-child > div div[style*="font-size:15px"]{
+      font-size:14px !important;
+    }
+
+    .sat-clean-hero__main--portal-simple > div:last-child > div div[style*="font-size:12px"]{
+      font-size:11.5px !important;
+    }
+
+    @media (max-width:1360px){
+      .sat-clean-hero__main--portal-simple{
+        min-height:184px;
+        padding-right:360px;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:last-child{
+        width:300px !important;
+        max-width:300px !important;
+        min-width:300px !important;
+      }
+    }
+
+    @media (max-width:1180px){
+      .sat-clean-hero__main--portal-simple{
+        min-height:auto;
+        padding-right:0;
+        display:flex;
+        flex-direction:column;
+        gap:16px;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:first-child{
+        inset:0 !important;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:nth-child(2){
+        width:100% !important;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:last-child{
+        position:relative !important;
+        top:auto !important;
+        right:auto !important;
+        width:100% !important;
+        max-width:340px !important;
+        min-width:0 !important;
+        margin-left:auto !important;
+      }
+    }
+
+    @media (max-width:768px){
+      .sat-clean-hero__content--portal-simple{
+        padding:14px;
+      }
+
+      .sat-clean-hero__main--portal-simple{
+        gap:14px;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:last-child{
+        max-width:none !important;
+        width:100% !important;
+      }
+
+      .sat-clean-hero__title--portal{
+        font-size:clamp(24px, 5.5vw, 36px);
+        line-height:1.02;
+      }
+
+      .sat-clean-hero__text--portal{
+        max-width:none !important;
+      }
+    }
+
+    @media (max-width:520px){
+      .sat-clean-hero__content--portal-simple{
+        padding:12px;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:nth-child(2) > div:nth-child(2){
+        gap:12px !important;
+        align-items:center !important;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:nth-child(2) > div:nth-child(2) > span:first-child{
+        width:50px !important;
+        height:50px !important;
+        border-radius:16px !important;
+        flex:0 0 50px !important;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:last-child > div{
+        padding:14px !important;
+        border-radius:18px !important;
+        min-height:auto !important;
+      }
+
+      .sat-clean-hero__main--portal-simple > div:last-child > div .sat-clean-btn{
+        min-height:38px !important;
+      }
+    }
 
     /* =========================================================
    DESCARGAS / CENTRO SAT · CARD PRO UNIFICADA

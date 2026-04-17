@@ -65,7 +65,18 @@
         rfcOptions: @json($rfcOptionsForJs),
         vaultV2Url: @json(route('cliente.sat.v2.index')),
         vaultV1Url: @json(route('cliente.sat.vault')),
-        billingNotificationEmail: @json('facturacion@pactopia.com')
+        billingNotificationEmail: @json('facturacion@pactopia.com'),
+
+        desktopDownloadUrl: @json(route('cliente.sat.desktop.download')),
+
+        /*
+         |------------------------------------------------------------------
+         | Play Store
+         |------------------------------------------------------------------
+         | Cuando ya tengas publicada la app, solo reemplaza esta URL:
+         | https://play.google.com/store/apps/details?id=com.pactopia360.sat
+         */
+        mobilePlayStoreUrl: @json('https://play.google.com/store/apps/details?id=com.pactopia360.sat')
     });
 </script>
 
@@ -81,20 +92,79 @@
             <div class="sat-clean-hero__content sat-clean-hero__content--portal sat-clean-hero__content--portal-simple">
                 <div
                     class="sat-clean-hero__main sat-clean-hero__main--portal-simple"
-                    style="position:relative; width:100%; min-height:170px; padding-right:360px;"
+                    style="position:relative; width:100%; min-height:220px; padding-right:360px; overflow:hidden;"
                 >
-                    <div style="min-width:0; max-width:100%;">
-                        <span class="sat-clean-hero__eyebrow" style="display:inline-flex; align-items:center; gap:8px;">
+                    <div
+                        aria-hidden="true"
+                        style="
+                            position:absolute;
+                            inset:0;
+                            border-radius:inherit;
+                            background:
+                                radial-gradient(circle at 18% 22%, rgba(255,255,255,.10), transparent 28%),
+                                linear-gradient(90deg, rgba(7,20,54,.22) 0%, rgba(7,20,54,.10) 42%, rgba(255,255,255,0) 76%);
+                            pointer-events:none;
+                            z-index:1;
+                        "
+                    ></div>
+
+                    <div
+                        style="
+                            min-width:0;
+                            max-width:100%;
+                            position:relative;
+                            z-index:2;
+                            padding:8px 0;
+                        "
+                    >
+                        <div
+                            style="
+                                display:inline-flex;
+                                align-items:center;
+                                gap:8px;
+                                min-height:30px;
+                                padding:0 14px;
+                                border-radius:999px;
+                                background:rgba(255,255,255,.16);
+                                border:1px solid rgba(255,255,255,.18);
+                                color:#f8fbff;
+                                font-size:11px;
+                                font-weight:800;
+                                letter-spacing:.05em;
+                                margin-bottom:16px;
+                                backdrop-filter:blur(4px);
+                                box-shadow:0 8px 20px rgba(10,24,64,.12);
+                            "
+                        >
                             <span
-                                style="width:10px; height:10px; border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 0 0 6px rgba(255,255,255,.10); display:inline-block;"
+                                style="width:10px; height:10px; border-radius:999px; background:#ffffff; box-shadow:0 0 0 6px rgba(255,255,255,.12); display:inline-block;"
                                 aria-hidden="true"
                             ></span>
-                            PORTAL SAT · WEB + ESCRITORIO
-                        </span>
+                            <span>PORTAL SAT · WEB + ESCRITORIO</span>
+                        </div>
 
-                        <div style="display:flex; align-items:center; gap:14px; margin-top:14px; margin-bottom:14px;">
+                        <div
+                            style="
+                                display:flex;
+                                align-items:center;
+                                gap:14px;
+                                margin:0 0 14px 0;
+                            "
+                        >
                             <span
-                                style="width:58px; height:58px; border-radius:18px; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.14); box-shadow:0 10px 24px rgba(10,24,64,.18); flex:0 0 58px;"
+                                style="
+                                    width:58px;
+                                    height:58px;
+                                    border-radius:18px;
+                                    display:inline-flex;
+                                    align-items:center;
+                                    justify-content:center;
+                                    background:rgba(255,255,255,.16);
+                                    border:1px solid rgba(255,255,255,.18);
+                                    box-shadow:0 14px 28px rgba(10,24,64,.20);
+                                    flex:0 0 58px;
+                                    color:#ffffff;
+                                "
                                 aria-hidden="true"
                             >
                                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -103,46 +173,81 @@
                                 </svg>
                             </span>
 
-                            <h1 class="sat-clean-hero__title sat-clean-hero__title--portal" style="margin:0;">
+                            <h1
+                                class="sat-clean-hero__title sat-clean-hero__title--portal"
+                                style="
+                                    margin:0;
+                                    color:#ffffff;
+                                    font-size:clamp(36px, 3vw, 56px);
+                                    line-height:.98;
+                                    letter-spacing:-.05em;
+                                    font-weight:900;
+                                    text-shadow:0 10px 24px rgba(10,24,64,.24);
+                                "
+                            >
                                 Portal Descargas SAT
                             </h1>
                         </div>
 
-                        <p class="sat-clean-hero__text sat-clean-hero__text--portal" style="max-width:760px; margin-bottom:18px;">
-                            Administra tus RFC, da seguimiento a cotizaciones y opera las descargas SAT desde la versión de escritorio para aprovechar los recursos de tu propio equipo.
+                        <p
+                            class="sat-clean-hero__text sat-clean-hero__text--portal"
+                            style="
+                                max-width:760px;
+                                margin:0 0 18px 0;
+                                color:rgba(255,255,255,.96);
+                                font-size:15px;
+                                line-height:1.58;
+                                font-weight:500;
+                                text-shadow:0 6px 18px rgba(10,24,64,.18);
+                            "
+                        >
+                            Administra tus RFC, da seguimiento a cotizaciones y opera las descargas SAT desde el portal web y la versión de escritorio, con un flujo más limpio y enfocado para trabajo operativo.
                         </p>
 
-                        <div class="sat-clean-hero__chips">
-                            <span class="sat-clean-hero__chip">RFC</span>
-                            <span class="sat-clean-hero__chip">Cotizaciones</span>
-                            <span class="sat-clean-hero__chip">Escritorio Windows</span>
-                            <span class="sat-clean-hero__chip">Centro SAT</span>
+                        <div
+                            style="
+                                display:flex;
+                                align-items:center;
+                                gap:10px;
+                                flex-wrap:wrap;
+                            "
+                        >
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-height:30px; padding:0 13px; border-radius:999px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.18); color:#ffffff; font-size:12px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,.04);">RFC</span>
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-height:30px; padding:0 13px; border-radius:999px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.18); color:#ffffff; font-size:12px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,.04);">Cotizaciones</span>
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-height:30px; padding:0 13px; border-radius:999px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.18); color:#ffffff; font-size:12px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,.04);">Escritorio Windows</span>
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-height:30px; padding:0 13px; border-radius:999px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.18); color:#ffffff; font-size:12px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,.04);">Centro SAT</span>
                         </div>
                     </div>
 
-                    <div style="position:absolute; top:0; right:0; width:340px; margin:0;">
+                    <div style="position:absolute; top:0; right:0; width:340px; margin:0; display:flex; gap:14px; align-items:stretch; z-index:2;">
                         <div
-                            style="width:100%; background:rgba(10,26,70,.16); border:1px solid rgba(255,255,255,.14); border-radius:22px; padding:18px; box-shadow:0 14px 30px rgba(10,24,64,.16); backdrop-filter:blur(4px);"
+                            style="flex:1 1 0; background:rgba(10,26,70,.16); border:1px solid rgba(255,255,255,.14); border-radius:22px; padding:18px; box-shadow:0 14px 30px rgba(10,24,64,.16); backdrop-filter:blur(4px); min-height:138px;"
                         >
                             <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:14px;">
+                                <div style="width:42px; height:42px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.10); flex:0 0 42px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M12 4v9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                                        <path d="M8.5 10.5 12 14l3.5-3.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M5 18h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
 
                                 <div style="min-width:0;">
                                     <div style="font-size:15px; font-weight:800; line-height:1.2; color:#fff;">
                                         Versión de escritorio
+                                    </div>
+                                    <div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,.68);">
+                                        Instalador local para Windows
                                     </div>
                                 </div>
                             </div>
 
                             <a
                                 href="{{ route('cliente.sat.desktop.download') }}"
+                                id="satDesktopDownloadBtn"
                                 class="sat-clean-btn sat-clean-btn--primary"
                                 style="width:100%; justify-content:center; min-height:46px; gap:10px;"
                             >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M12 4v9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-                                    <path d="M8.5 10.5 12 14l3.5-3.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-                                    <path d="M5 18h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-                                </svg>
                                 <span>Descargar</span>
                             </a>
 
@@ -911,163 +1016,6 @@
             </details>
         </section>
 
-        <section class="sat-clean-accordion" id="satDesktopSection" aria-label="Versión de escritorio SAT">
-            <details class="sat-clean-accordion__item" open>
-                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
-                    <div class="sat-clean-accordion__bar-left">
-                        <span class="sat-clean-accordion__bar-title">Versión de escritorio</span>
-                        <span class="sat-clean-accordion__bar-text">
-                            Descarga e instala la aplicación para ejecutar procesos SAT con los recursos de tu equipo
-                        </span>
-                    </div>
-
-                    <span class="sat-clean-accordion__bar-action" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none">
-                            <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                            <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                        </svg>
-                    </span>
-                </summary>
-
-                <div class="sat-clean-accordion__content">
-                    <div class="sat-clean-rfc-admin sat-clean-rfc-admin--compact">
-                        <div class="sat-clean-rfc-toolbar-v2">
-                            <div class="sat-clean-rfc-toolbar-v2__left">
-                                <div class="sat-clean-rfc-toolbar-v2__title-wrap">
-                                    <h2 class="sat-clean-rfc-toolbar-v2__title">SAT Desktop para Windows</h2>
-                                    <span class="sat-clean-rfc-toolbar-v2__count">Operación local</span>
-                                </div>
-
-                                <div class="sat-clean-rfc-inline-text">
-                                    Ejecuta descargas SAT y procesos de bóveda desde tu computadora para evitar consumo intensivo de recursos en el servidor.
-                                </div>
-                            </div>
-
-                            <div class="sat-clean-rfc-toolbar-v2__right">
-                                <a
-                                    href="#"
-                                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                                    id="satDesktopDownloadBtn"
-                                >
-                                    Descargar versión de escritorio
-                                </a>
-                            </div>
-                        </div>
-
-                        <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal">
-                            <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
-                                <thead>
-                                    <tr>
-                                        <th>Módulo</th>
-                                        <th>Modo de operación</th>
-                                        <th>Procesamiento</th>
-                                        <th>Sincronización</th>
-                                        <th>Equipo recomendado</th>
-                                        <th class="text-end">Acción</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-main">
-                                                <span class="sat-clean-rfc-inline-main__rfc">Descargas SAT</span>
-                                            </div>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                Procesamiento local desde Windows
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <span class="sat-clean-status-badge is-success">
-                                                Escritorio
-                                            </span>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                CPU, memoria, disco y red del usuario
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                Estado, bitácora y resultados hacia el portal
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                Windows 10 o superior
-                                            </div>
-                                        </td>
-
-                                        <td class="text-end">
-                                            <a
-                                                href="#"
-                                                class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
-                                                id="satDesktopTableDownloadBtn"
-                                            >
-                                                Descargar
-                                            </a>
-                                        </td>
-                                    </tr>
-
-                                    <tr>
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-main">
-                                                <span class="sat-clean-rfc-inline-main__rfc">Bóveda SAT</span>
-                                            </div>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                Flujo híbrido web + escritorio
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <span class="sat-clean-status-badge is-warning">
-                                                Híbrido
-                                            </span>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                La app ejecuta tareas pesadas; el portal muestra control y seguimiento
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                RFC autorizados, historial, estado y archivos visibles
-                                            </div>
-                                        </td>
-
-                                        <td>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                Equipo con acceso estable a internet
-                                            </div>
-                                        </td>
-
-                                        <td class="text-end">
-                                            <a
-                                                href="#"
-                                                class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
-                                                id="satDesktopInfoBtn"
-                                            >
-                                                Ver detalle
-                                            </a>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="sat-clean-inline-note" style="margin-top:14px;">
-                            <strong>Importante:</strong> la versión web seguirá funcionando como panel de administración, cotización, seguimiento, sincronización y visualización general; la ejecución intensiva de descargas SAT se moverá a la aplicación de escritorio.
-                        </div>
-                    </div>
-                </div>
-            </details>
-        </section>
-
         <section class="sat-clean-accordion" aria-label="Centro SAT">
             <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
@@ -1254,7 +1202,8 @@
 
                             <div class="sat-clean-rfc-toolbar-v2__right">
                                 <a
-                                    href="#satDesktopSection"
+                                    href="{{ route('cliente.sat.desktop.download') }}"
+                                    id="satDesktopTableDownloadBtn"
                                     class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
                                 >
                                     Descargar app
@@ -1293,14 +1242,34 @@
                                     <tr>
                                         <td>Agente de escritorio</td>
                                         <td>
-                                            <span class="sat-clean-status-badge is-warning">Pendiente de instalar</span>
+                                            <span class="sat-clean-status-badge is-warning">Disponible</span>
                                         </td>
-                                        <td>Ejecutará descargas SAT y tareas pesadas desde la PC del usuario</td>
-                                        <td>Sin conexión</td>
+                                        <td>Ejecuta descargas SAT y tareas pesadas desde la PC del usuario</td>
+                                        <td>Instalación manual</td>
                                         <td>Windows</td>
                                         <td class="text-end">
-                                            <a href="#satDesktopSection" class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact">
-                                                Instalar
+                                            <a href="{{ route('cliente.sat.desktop.download') }}" class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact">
+                                                Descargar
+                                            </a>
+                                        </td>
+                                    </tr>
+
+                                  <tr>
+                                        <td>Aplicación móvil</td>
+                                        <td>
+                                            <span class="sat-clean-status-badge is-muted">Canal externo</span>
+                                        </td>
+                                        <td>La aplicación móvil se administra fuera del portal web y su experiencia corresponde al entorno móvil.</td>
+                                        <td>Play Store</td>
+                                        <td>Android</td>
+                                        <td class="text-end">
+                                            <a
+                                                href="https://play.google.com/store/apps/details?id=com.pactopia360.sat"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="sat-clean-btn sat-clean-btn--ghost sat-clean-btn--compact"
+                                            >
+                                                Abrir Play Store
                                             </a>
                                         </td>
                                     </tr>
@@ -1324,7 +1293,7 @@
                         </div>
 
                         <div class="sat-clean-inline-note" style="margin-top:14px;">
-                            Esta sección quedará conectada al instalador y al agente local para mostrar conexión, última sincronización, tareas enviadas y resultados recibidos.
+                            Esta sección quedará conectada al instalador de escritorio y al portal para mostrar conexión, sincronización, tareas enviadas y resultados recibidos.
                         </div>
                     </div>
                 </div>
@@ -2497,24 +2466,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-});
-</script>
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const desktopButtons = [
-        document.getElementById('satDesktopDownloadBtn'),
-        document.getElementById('satDesktopTableDownloadBtn'),
-        document.getElementById('satDesktopInfoBtn'),
-    ].filter(Boolean);
-
-    desktopButtons.forEach(function (btn) {
-        btn.addEventListener('click', function (event) {
-            event.preventDefault();
-
-            alert('La versión de escritorio SAT estará disponible en la siguiente fase de integración. Desde aquí se descargará el instalador para Windows.');
-        });
-    });
 });
 </script>
 

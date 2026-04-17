@@ -7,6 +7,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
@@ -39,7 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'session.cliente'  => \App\Http\Middleware\ClientSessionConfig::class,
             'cliente.module'   => \App\Http\Middleware\EnsureClientModuleEnabled::class,
 
-            // ✅ Hidrata módulos desde SOT admin para el cliente
+            // Hidrata módulos desde SOT admin para el cliente
             'cliente.hydrate_modules' => \App\Http\Middleware\Cliente\HydrateModulesState::class,
 
             'phone.verified'   => \App\Http\Middleware\EnsurePhoneVerified::class,
@@ -50,12 +51,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         /**
-         * ✅ DEFINIR GROUPS (CRÍTICO)
-         * Tu RouteServiceProvider usa Route::middleware('admin') y ('cliente'),
-         * así que estos grupos deben existir.
-         *
-         * OJO: aquí "componemos" sobre el grupo 'web' estándar, y añadimos tu session config.
-         * La prioridad real de ejecución la controla $middleware->priority(...) más abajo.
+         * Groups web internos del proyecto
          */
         $middleware->group('admin', [
             'web',
@@ -75,18 +71,18 @@ return Application::configure(basePath: dirname(__DIR__))
          * - Luego Auth
          */
         $middleware->priority([
-            // ✅ 1) Sesión primero
+            // 1) Sesión primero
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
 
-            // ✅ 2) Configuradores de sesión (ya con store disponible)
+            // 2) Configuradores de sesión (ya con store disponible)
             \App\Http\Middleware\AdminSessionConfig::class,
             \App\Http\Middleware\ClientSessionConfig::class,
 
-            // ✅ 3) Si hidratas módulos por sesión, también debe ir después de StartSession
+            // 3) Hidratar módulos por sesión
             \App\Http\Middleware\Cliente\HydrateModulesState::class,
 
-            // ✅ 4) Auth después de sesión
+            // 4) Auth después de sesión
             \App\Http\Middleware\Authenticate::class,
 
             // Resto

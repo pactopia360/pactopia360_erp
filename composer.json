@@ -14,6 +14,7 @@
         "endroid/qr-code": "6.0",
         "guzzlehttp/guzzle": "7.9",
         "laravel/framework": "^12.0",
+        "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.10.1",
         "phpcfdi/cfdi-expresiones": "^3.3",
         "phpcfdi/credentials": "1.3",

@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initQuoteFilters();
     initQuoteModule();
     initQuoteSecondaryModals();
+    initDistributionCtas();
     ensurePasswordDialog();
     ensureActionTooltips();
     initKeyboardShortcuts();
@@ -502,7 +503,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateQuoteSummaryPreview();
     }
 
-        function initQuoteSecondaryModals() {
+
+    function initQuoteSecondaryModals() {
         const detailCloseButtons = document.querySelectorAll('[data-quote-detail-close]');
         const editCloseButtons = document.querySelectorAll('[data-quote-edit-close]');
         const paymentCloseButtons = document.querySelectorAll('[data-quote-payment-close]');
@@ -591,6 +593,140 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+       function initDistributionCtas() {
+        const desktopDownloadButtons = [
+            document.getElementById('satDesktopDownloadBtn'),
+            document.getElementById('satDesktopTableDownloadBtn'),
+        ].filter(Boolean);
+
+        const desktopInfoBtn = document.getElementById('satDesktopInfoBtn');
+
+        const mobilePrimaryBtn = document.getElementById('satMobileComingSoonBtn');
+        const mobileNotifyBtn = document.getElementById('satMobileNotifyBtn');
+        const mobilePreviewBtn = document.getElementById('satMobilePreviewBtn');
+        const mobileAlertsBtn = document.getElementById('satMobileAlertsBtn');
+
+        const mobileButtons = [
+            mobilePrimaryBtn,
+            mobileNotifyBtn,
+            mobilePreviewBtn,
+            mobileAlertsBtn,
+        ].filter(Boolean);
+
+        const satConfig = window.P360_SAT || {};
+        const body = document.body;
+
+        const desktopUrlCandidates = [
+            satConfig.desktopDownloadUrl,
+            satConfig.desktop_download_url,
+            body?.dataset?.satDesktopDownloadUrl,
+        ].filter((value) => typeof value === 'string' && value.trim() !== '');
+
+        const playStoreUrlCandidates = [
+            satConfig.mobilePlayStoreUrl,
+            satConfig.mobile_playstore_url,
+            satConfig.playStoreUrl,
+            satConfig.play_store_url,
+            body?.dataset?.satMobilePlayStoreUrl,
+            body?.dataset?.satPlayStoreUrl,
+        ].filter((value) => typeof value === 'string' && value.trim() !== '');
+
+        const desktopUrl = desktopUrlCandidates.length ? String(desktopUrlCandidates[0]).trim() : '';
+        const playStoreUrl = playStoreUrlCandidates.length ? String(playStoreUrlCandidates[0]).trim() : '';
+        const hasPlayStoreUrl = playStoreUrl !== '';
+
+        desktopDownloadButtons.forEach((button) => {
+            if (desktopUrl !== '' && button.tagName === 'A') {
+                button.setAttribute('href', desktopUrl);
+            }
+
+            button.addEventListener('click', (event) => {
+                if (desktopUrl === '') {
+                    event.preventDefault();
+                    showPortalNotice('No se encontró la liga de descarga de la versión de escritorio.', 'warning');
+                    return;
+                }
+
+                if (button.tagName !== 'A') {
+                    window.open(desktopUrl, '_blank', 'noopener');
+                }
+            });
+        });
+
+        if (desktopInfoBtn) {
+            desktopInfoBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                showPortalNotice(
+                    'La versión de escritorio ejecuta procesos pesados del SAT desde el equipo local. La aplicación móvil en Play Store estará enfocada en consulta, seguimiento y notificaciones.',
+                    'info'
+                );
+            });
+        }
+
+        if (mobilePrimaryBtn) {
+            mobilePrimaryBtn.textContent = hasPlayStoreUrl ? 'Ver en Play Store' : 'Próximamente';
+            if (hasPlayStoreUrl && mobilePrimaryBtn.tagName === 'A') {
+                mobilePrimaryBtn.setAttribute('href', playStoreUrl);
+            }
+        }
+
+        if (mobileNotifyBtn && hasPlayStoreUrl && mobileNotifyBtn.tagName === 'A') {
+            mobileNotifyBtn.setAttribute('href', playStoreUrl);
+        }
+
+        if (mobileAlertsBtn) {
+            mobileAlertsBtn.textContent = hasPlayStoreUrl ? 'Abrir Play Store' : 'Próximamente';
+            if (hasPlayStoreUrl && mobileAlertsBtn.tagName === 'A') {
+                mobileAlertsBtn.setAttribute('href', playStoreUrl);
+            }
+        }
+
+        mobileButtons.forEach((button) => {
+            button.addEventListener('click', (event) => {
+                const isAnchor = button.tagName === 'A';
+
+                if (hasPlayStoreUrl) {
+                    if (!isAnchor) {
+                        event.preventDefault();
+                        window.open(playStoreUrl, '_blank', 'noopener');
+                    }
+                    return;
+                }
+
+                event.preventDefault();
+
+                if (button === mobileNotifyBtn) {
+                    showPortalNotice(
+                        'La app móvil será publicada en Play Store. Cuando la ficha oficial esté lista, este botón abrirá directamente la descarga.',
+                        'info'
+                    );
+                    return;
+                }
+
+                if (button === mobilePreviewBtn) {
+                    showPortalNotice(
+                        'La app móvil estará orientada a consulta de RFC, seguimiento de cotizaciones, estado de descargas y notificaciones desde Android por Play Store.',
+                        'info'
+                    );
+                    return;
+                }
+
+                if (button === mobileAlertsBtn) {
+                    showPortalNotice(
+                        'Las notificaciones móviles quedarán disponibles en la versión publicada en Play Store.',
+                        'info'
+                    );
+                    return;
+                }
+
+                showPortalNotice(
+                    'La aplicación móvil aún no está publicada. En cuanto esté disponible en Play Store, desde aquí podrás abrir su ficha oficial.',
+                    'info'
+                );
+            });
+        });
+    }
+    
     function ensureQuoteModal() {
         if (document.getElementById('satQuoteModal')) {
             injectQuoteModalStyles();
@@ -1670,8 +1806,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const discountCode = String(data?.discount_code_applied || data?.discount_code || '').trim();
         const ivaRate = String(data?.iva_rate || '16').trim();
         const notes = String(data?.notes || '').trim();
+        const row = document.createElement('tr');
 
-        row = document.createElement('tr');
         row.id = quoteId !== '' ? `satQuoteRow-${quoteId}` : `satQuoteRow-${Date.now()}`;
         row.setAttribute('data-quote-row', 'true');
         row.setAttribute('data-quote-id', quoteId);
@@ -2709,8 +2845,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateQuotePaymentModal(row) {
         const quoteId = String(row.getAttribute('data-quote-id') || '').trim();
         const folio = String(row.getAttribute('data-folio-display') || '').trim();
+        const folioRaw = String(row.getAttribute('data-folio') || '').trim();
         const rfc = String(row.getAttribute('data-rfc') || '').trim();
         const totalRaw = String(row.getAttribute('data-total') || '0').trim();
+
+        const transferReference = folioRaw !== '' ? folioRaw : (folio !== '' ? folio.replace(/\.\.\./g, '') : '');
 
         setInputValue('satQuotePaymentFolio', folio);
         setInputValue('satQuotePaymentRfc', rfc);
@@ -2719,6 +2858,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setInputValue('satQuoteStripePaymentId', quoteId);
         setInputValue('satQuoteTransferPaymentId', quoteId);
         setInputValue('sat_transfer_amount', toMoneyValue(totalRaw).toFixed(2));
+        setInputValue('sat_transfer_reference', transferReference);
 
         const transferDate = document.getElementById('sat_transfer_date');
         if (transferDate && transferDate.value === '') {
@@ -2726,7 +2866,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-        function buildQuotePreviewSubtitle(data) {
+    function buildQuotePreviewSubtitle(data) {
         const parts = [];
 
         const razonSocial = String(data?.razonSocial || '').trim();
@@ -3442,7 +3582,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 flex-wrap:wrap;
             }
 
-            sat-clean-btn.is-loading{
+            .sat-clean-btn.is-loading{
                 pointer-events:none;
                 opacity:.92;
             }

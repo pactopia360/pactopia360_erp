@@ -7,6 +7,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * Usuario del portal Cliente
@@ -14,9 +15,11 @@ use Illuminate\Support\Str;
  *
  * PK UUID (string)
  * Autenticable por guard "web"
+ * Compatible también con tokens móviles (Sanctum)
  */
 class UsuarioCuenta extends Authenticatable
 {
+    use HasApiTokens;
     use Notifiable;
 
     /* ============================================================
@@ -30,9 +33,9 @@ class UsuarioCuenta extends Authenticatable
      |  Primary Key (UUID)
      * ============================================================ */
 
-    protected $primaryKey  = 'id';
-    protected $keyType     = 'string';
-    public    $incrementing = false;
+    protected $primaryKey   = 'id';
+    protected $keyType      = 'string';
+    public $incrementing    = false;
 
     /* ============================================================
      |  Asignación masiva
@@ -154,6 +157,7 @@ class UsuarioCuenta extends Authenticatable
     public function planActual(): ?string
     {
         $this->loadMissing('cuenta');
+
         return $this->cuenta?->plan_actual;
     }
 
@@ -163,6 +167,7 @@ class UsuarioCuenta extends Authenticatable
     public function estadoCuenta(): ?string
     {
         $this->loadMissing('cuenta');
+
         return $this->cuenta?->estado_cuenta;
     }
 
@@ -203,6 +208,7 @@ class UsuarioCuenta extends Authenticatable
             if (is_string($value) && preg_match('/^\$2y\$/', $value)) {
                 return $value;
             }
+
             return !empty($value) ? bcrypt($value) : $value;
         });
     }
