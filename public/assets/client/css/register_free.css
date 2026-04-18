@@ -1,8 +1,8 @@
 /* C:\wamp64\www\pactopia360_erp\public\assets\client\css\register_free.css */
 
 :root{
-  --rf-surface: rgba(245,245,247,.90);
-  --rf-surface-border: rgba(255,255,255,.42);
+  --rf-surface: rgba(245,245,247,.92);
+  --rf-surface-border: rgba(255,255,255,.46);
   --rf-surface-shadow: 0 22px 60px rgba(84,95,135,.12);
 
   --rf-text: #1f2937;
@@ -20,16 +20,16 @@
   --rf-err-bd: #fecdd3;
   --rf-err-tx: #be123c;
 
-  --rf-shell-pad-top: 14px;
-  --rf-shell-pad-bottom: 52px;
-  --rf-footer-gap: 34px;
-  --rf-card-ideal: 600px;
-  --rf-card-max-width: 472px;
+  --rf-footer-space: 34px;
+  --rf-shell-top: 10px;
+  --rf-shell-bottom: 44px;
+  --rf-card-width: 472px;
+  --rf-card-height: 620px;
 }
 
 html[data-theme="dark"]{
   --rf-surface: rgba(245,245,247,.92);
-  --rf-surface-border: rgba(255,255,255,.40);
+  --rf-surface-border: rgba(255,255,255,.42);
   --rf-surface-shadow: 0 24px 70px rgba(0,0,0,.26);
   --rf-text: #1f2937;
   --rf-text-soft: #5f6b7a;
@@ -44,21 +44,20 @@ html[data-theme="dark"]{
   box-sizing:border-box;
 }
 
-html{
+html,
+body{
   min-height:100%;
-  overflow-x:hidden;
+  margin:0;
+  overflow:hidden;
 }
 
 body{
-  margin:0;
-  min-height:100dvh;
   color:var(--rf-text);
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  overflow-x:hidden;
 }
 
 /* =========================================
-   AISLAMIENTO DEL LAYOUT GUEST
+   AISLAR DEL LAYOUT GUEST
    ========================================= */
 body:has(.register-free-wrap){
   background:
@@ -89,6 +88,7 @@ body:has(.register-free-wrap) .topbar{
 
 body:has(.register-free-wrap) .wrap{
   min-height:100dvh !important;
+  height:100dvh !important;
   margin:0 !important;
   padding:0 !important;
   display:block !important;
@@ -96,8 +96,9 @@ body:has(.register-free-wrap) .wrap{
 
 body:has(.register-free-wrap) .main-shell{
   min-height:100dvh !important;
+  height:100dvh !important;
   margin:0 !important;
-  padding:var(--rf-shell-pad-top) 16px var(--rf-shell-pad-bottom) !important;
+  padding:var(--rf-shell-top) 16px var(--rf-shell-bottom) !important;
   display:grid !important;
   place-items:center !important;
   overflow:hidden !important;
@@ -123,17 +124,17 @@ body:has(.register-free-wrap) .footer *{
 }
 
 /* =========================================
-   CONTENEDOR PRINCIPAL
+   WRAP
    ========================================= */
 .register-free-wrap{
   position:relative;
   width:100%;
+  height:100%;
   min-height:100%;
-  margin:0;
   display:grid;
   place-items:center;
   padding:0;
-  overflow:visible;
+  overflow:hidden;
   isolation:isolate;
 }
 
@@ -197,16 +198,16 @@ html[data-theme="dark"] .register-free-bg{
 }
 
 /* =========================================
-   TARJETA
+   CARD
    ========================================= */
 .register-free-card{
   position:relative;
   z-index:2;
-  width:min(100%, var(--rf-card-max-width));
-  max-width:var(--rf-card-max-width);
-  height:min(var(--rf-card-ideal), calc(100dvh - var(--rf-shell-pad-top) - var(--rf-shell-pad-bottom) - var(--rf-footer-gap)));
-  min-height:540px;
-  max-height:calc(100dvh - var(--rf-shell-pad-top) - var(--rf-shell-pad-bottom) - var(--rf-footer-gap));
+  width:min(100%, var(--rf-card-width));
+  max-width:var(--rf-card-width);
+  height:min(var(--rf-card-height), calc(100dvh - var(--rf-shell-top) - var(--rf-shell-bottom) - var(--rf-footer-space)));
+  max-height:calc(100dvh - var(--rf-shell-top) - var(--rf-shell-bottom) - var(--rf-footer-space));
+  min-height:560px;
   padding:18px 20px 16px;
   border-radius:22px;
   background:var(--rf-surface);
@@ -214,9 +215,9 @@ html[data-theme="dark"] .register-free-bg{
   box-shadow:var(--rf-surface-shadow);
   backdrop-filter:blur(12px);
   -webkit-backdrop-filter:blur(12px);
-  display:flex;
-  flex-direction:column;
-  justify-content:flex-start;
+  display:grid;
+  grid-template-rows:auto auto auto 1fr auto auto;
+  align-content:start;
   overflow:auto;
   overscroll-behavior:contain;
   scrollbar-width:none;
@@ -320,11 +321,9 @@ html[data-theme="dark"] .theme{
 
 .form,
 .form-clean{
-  display:flex;
-  flex-direction:column;
+  display:grid;
+  align-content:start;
   gap:8px;
-  flex:1 1 auto;
-  justify-content:flex-start;
 }
 
 .field{
@@ -410,7 +409,7 @@ html[data-theme="dark"] .theme{
 
 .terms,
 .terms-clean{
-  margin-top:0;
+  margin-top:2px;
 }
 
 .terms label{
@@ -446,7 +445,7 @@ html[data-theme="dark"] .theme{
 .recaptcha-wrap,
 .recaptcha-clean{
   width:100%;
-  margin-top:2px;
+  margin-top:4px;
   display:flex;
   justify-content:center;
   align-items:center;
@@ -511,57 +510,42 @@ html[data-theme="dark"] .theme{
 }
 
 /* =========================================
-   DESKTOP / CAPTCHA REAL
+   DESKTOP ADAPTATIVO
    ========================================= */
 @media (min-width: 768px){
   .g-recaptcha{
-    transform:scale(.92);
+    transform:scale(.90);
   }
 }
 
-@media (min-width: 768px) and (max-height: 900px){
+@media (min-width: 768px) and (max-height: 930px){
   :root{
-    --rf-shell-pad-top: 10px;
-    --rf-shell-pad-bottom: 48px;
-    --rf-card-ideal: 590px;
+    --rf-card-height: 600px;
+    --rf-shell-top: 8px;
+    --rf-shell-bottom: 42px;
   }
 
   .register-free-card{
     padding:16px 18px 14px;
   }
 
-  .g-recaptcha{
-    transform:scale(.90);
-  }
-}
-
-@media (min-width: 768px) and (max-height: 820px){
-  :root{
-    --rf-shell-pad-top: 8px;
-    --rf-shell-pad-bottom: 44px;
-    --rf-card-ideal: 570px;
-  }
-
-  .register-free-card{
-    padding:14px 16px 12px;
-  }
-
   .logo-main{
-    width:178px;
+    width:190px;
   }
 
   .title,
   .title-clean{
-    margin-bottom:9px;
+    margin-bottom:10px;
   }
 
   .title h1{
-    font-size:.96rem;
+    font-size:.98rem;
   }
 
   .title p{
-    font-size:.68rem;
+    font-size:.70rem;
     line-height:1.12;
+    max-width:250px;
   }
 
   .form,
@@ -573,15 +557,16 @@ html[data-theme="dark"] .theme{
     min-height:36px;
     height:36px;
     padding:7px 11px;
+    font-size:.8rem;
   }
 
   .terms label{
-    font-size:.74rem;
+    font-size:.75rem;
   }
 
   .recaptcha-wrap,
   .recaptcha-clean{
-    min-height:76px;
+    min-height:78px;
   }
 
   .g-recaptcha{
@@ -591,11 +576,82 @@ html[data-theme="dark"] .theme{
   .btn{
     min-height:42px;
     height:42px;
+    font-size:.86rem;
   }
 
   .login-cta,
   .login-cta-clean{
     margin-top:8px;
+    font-size:.73rem;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 860px){
+  :root{
+    --rf-card-height: 580px;
+    --rf-shell-top: 6px;
+    --rf-shell-bottom: 40px;
+  }
+
+  .register-free-card{
+    padding:14px 16px 12px;
+    min-height:530px;
+  }
+
+  .logo-main{
+    width:178px;
+  }
+
+  .title,
+  .title-clean{
+    margin-bottom:8px;
+  }
+
+  .title h1{
+    font-size:.94rem;
+  }
+
+  .title p{
+    font-size:.67rem;
+    max-width:235px;
+  }
+
+  .form,
+  .form-clean{
+    gap:6px;
+  }
+
+  .input{
+    min-height:34px;
+    height:34px;
+    padding:6px 10px;
+    font-size:.78rem;
+  }
+
+  .terms label{
+    font-size:.72rem;
+    line-height:1.12;
+  }
+
+  .recaptcha-wrap,
+  .recaptcha-clean{
+    min-height:72px;
+  }
+
+  .g-recaptcha{
+    transform:scale(.84);
+  }
+
+  .btn{
+    min-height:40px;
+    height:40px;
+    font-size:.84rem;
+  }
+
+  .login-cta,
+  .login-cta-clean{
+    margin-top:7px;
+    font-size:.70rem;
   }
 }
 
@@ -603,14 +659,9 @@ html[data-theme="dark"] .theme{
    TABLET
    ========================================= */
 @media (max-width: 991.98px){
-  .register-free-wrap{
-    min-height:100%;
-    padding:0;
-  }
-
   .register-free-card{
-    width:min(100%, 470px);
-    max-width:470px;
+    width:min(100%, 460px);
+    max-width:460px;
   }
 
   .bg-orb-1{
@@ -629,11 +680,17 @@ html[data-theme="dark"] .theme{
 }
 
 /* =========================================
-   MÓVIL
+   MOVIL
    ========================================= */
 @media (max-width: 767.98px){
+  html,
+  body{
+    overflow:auto;
+  }
+
   body:has(.register-free-wrap) .main-shell{
     min-height:auto !important;
+    height:auto !important;
     overflow:auto !important;
     padding:12px 10px 52px !important;
   }
@@ -652,17 +709,11 @@ html[data-theme="dark"] .theme{
     width:min(100%, 400px);
     max-width:400px;
     min-height:auto;
-    max-height:none;
     height:auto;
+    max-height:none;
     padding:14px 14px 12px;
     border-radius:18px;
     overflow:visible;
-  }
-
-  .form,
-  .form-clean{
-    gap:8px;
-    justify-content:flex-start;
   }
 
   .theme{
@@ -695,6 +746,11 @@ html[data-theme="dark"] .theme{
     max-width:230px;
   }
 
+  .form,
+  .form-clean{
+    gap:8px;
+  }
+
   .input{
     min-height:36px;
     height:36px;
@@ -723,7 +779,7 @@ html[data-theme="dark"] .theme{
 }
 
 /* =========================================
-   MÓVIL PEQUEÑO
+   MOVIL PEQUENO
    ========================================= */
 @media (max-width: 479.98px){
   body:has(.register-free-wrap) .main-shell{
@@ -735,11 +791,6 @@ html[data-theme="dark"] .theme{
     max-width:370px;
     padding:12px 12px 10px;
     border-radius:16px;
-  }
-
-  .form,
-  .form-clean{
-    gap:7px;
   }
 
   .logo-main{
@@ -754,6 +805,11 @@ html[data-theme="dark"] .theme{
     font-size:.65rem;
     line-height:1.12;
     max-width:215px;
+  }
+
+  .form,
+  .form-clean{
+    gap:7px;
   }
 
   .input{
@@ -781,87 +837,6 @@ html[data-theme="dark"] .theme{
 
   .g-recaptcha{
     transform:scale(.86);
-  }
-}
-
-/* =========================================
-   ALTURA BAJA
-   ========================================= */
-@media (max-height: 760px) and (min-width: 768px){
-  :root{
-    --rf-shell-pad-top: 8px;
-    --rf-shell-pad-bottom: 42px;
-    --rf-card-ideal: 555px;
-  }
-
-  .register-free-card{
-    min-height:520px;
-    padding:14px 16px 12px;
-  }
-
-  .logo-main{
-    width:168px;
-  }
-
-  .title,
-  .title-clean{
-    margin-bottom:8px;
-  }
-
-  .title h1{
-    font-size:.92rem;
-  }
-
-  .title p{
-    font-size:.66rem;
-    max-width:228px;
-  }
-
-  .form,
-  .form-clean{
-    gap:6px;
-  }
-
-  .input{
-    min-height:34px;
-    height:34px;
-    font-size:.78rem;
-    padding:7px 10px;
-  }
-
-  .terms label{
-    font-size:.71rem;
-    line-height:1.12;
-  }
-
-  .recaptcha-wrap,
-  .recaptcha-clean{
-    min-height:72px;
-  }
-
-  .g-recaptcha{
-    transform:scale(.84);
-  }
-
-  .btn{
-    min-height:40px;
-    height:40px;
-    font-size:.84rem;
-  }
-
-  .login-cta,
-  .login-cta-clean{
-    margin-top:8px;
-    font-size:.7rem;
-  }
-}
-
-/* =========================================
-   PANTALLAS GRANDES
-   ========================================= */
-@media (min-width: 1400px){
-  .register-free-card{
-    width:min(100%, 472px);
   }
 }
 
