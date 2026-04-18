@@ -96,25 +96,20 @@ body:has(.register-free-wrap) .footer{
 }
 
 body:has(.register-free-wrap) .wrap{
-  width:100vw !important;
-  max-width:100vw !important;
-  min-width:100vw !important;
   min-height:100dvh !important;
   margin:0 !important;
   padding:0 !important;
-  display:block !important;
+  display:grid !important;
+  grid-template-rows:1fr !important;
 }
+
 body:has(.register-free-wrap) .main-shell{
-  width:100vw !important;
-  max-width:100vw !important;
-  min-width:100vw !important;
   min-height:100dvh !important;
   margin:0 !important;
-  padding:0 !important;
-  display:flex !important;
-  align-items:center !important;
-  justify-content:center !important;
-  overflow:hidden !important;
+  padding:18px 16px !important;
+  display:grid !important;
+  place-items:center !important;
+  overflow:visible !important;
 }
 
 /* =========================================
@@ -122,25 +117,18 @@ body:has(.register-free-wrap) .main-shell{
    ========================================= */
 .register-free-wrap{
   position:relative;
-  width:100vw;
-  max-width:100vw;
-  min-width:100vw;
-  min-height:100dvh;
+  width:100%;
+  min-height:100%;
   margin:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:28px 16px;
-  overflow:hidden;
+  display:grid;
+  place-items:center;
+  padding:0;
+  overflow:visible;
   isolation:isolate;
 }
 
 .register-free-wrap > *{
   position:relative;
-}
-
-.register-free-wrap .register-free-card{
-  margin:0 auto !important;
 }
 
 .register-free-bg{
@@ -210,9 +198,9 @@ html[data-theme="dark"] .register-free-bg{
   z-index:2;
   width:min(100%, 472px);
   max-width:472px;
-  min-height:600px;
+  min-height:auto;
   height:auto;
-  padding:18px 20px 16px;
+  padding:16px 20px 14px;
   border-radius:22px;
   background:rgba(245,245,247,.88);
   border:1px solid rgba(255,255,255,.42);
@@ -222,7 +210,7 @@ html[data-theme="dark"] .register-free-bg{
   display:flex;
   flex-direction:column;
   justify-content:flex-start;
-  overflow:hidden;
+  overflow:visible;
 }
 
 html[data-theme="dark"] .register-free-card{
@@ -449,14 +437,27 @@ html[data-theme="dark"] .theme{
 
 .recaptcha-wrap,
 .recaptcha-clean{
-  overflow-x:auto;
-  margin-top:0;
+  width:100%;
+  margin-top:2px;
   display:flex;
   justify-content:center;
+  align-items:center;
+  overflow:visible;
+  min-height:78px;
 }
 
 .g-recaptcha{
   transform-origin:center top;
+}
+
+.g-recaptcha > div{
+  margin:0 auto;
+}
+
+@media (min-width: 768px){
+  .g-recaptcha{
+    transform:scale(.94);
+  }
 }
 
 .actions,
@@ -510,16 +511,17 @@ html[data-theme="dark"] .theme{
 /* Tablet */
 @media (max-width: 991.98px){
   .register-free-wrap{
-    min-height:100dvh;
-    padding:14px 12px;
-  }
+    min-height:100%;
+    padding:0;
+    }
 
-  .register-free-card{
-    width:min(100%, 470px);
-    min-height:580px;
+    .register-free-card{
+    width:min(100%, 460px);
+    min-height:auto;
     height:auto;
-    padding:16px 18px 14px;
-  }
+    padding:15px 18px 13px;
+    }
+
 
   .bg-orb-1{
     width:28rem;
@@ -543,8 +545,8 @@ html[data-theme="dark"] .theme{
   }
 
   .register-free-wrap{
-    min-height:100dvh;
-    padding:10px 10px 8px;
+    min-height:100%;
+    padding:0;
     align-items:center;
   }
 
@@ -688,8 +690,8 @@ html[data-theme="dark"] .theme{
   }
 
   .register-free-wrap{
-    min-height:100dvh;
-    padding:10px 8px;
+    min-height:100%;
+    padding:0;
   }
 
   .register-free-card{
