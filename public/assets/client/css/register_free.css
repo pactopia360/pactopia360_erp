@@ -1,7 +1,7 @@
 /* C:\wamp64\www\pactopia360_erp\public\assets\client\css\register_free.css */
 
 :root{
-  --rf-surface: rgba(245,245,247,.88);
+  --rf-surface: rgba(245,245,247,.90);
   --rf-surface-border: rgba(255,255,255,.42);
   --rf-surface-shadow: 0 22px 60px rgba(84,95,135,.12);
 
@@ -19,11 +19,17 @@
   --rf-err-bg: #fff1f2;
   --rf-err-bd: #fecdd3;
   --rf-err-tx: #be123c;
+
+  --rf-shell-pad-top: 14px;
+  --rf-shell-pad-bottom: 52px;
+  --rf-footer-gap: 34px;
+  --rf-card-ideal: 600px;
+  --rf-card-max-width: 472px;
 }
 
 html[data-theme="dark"]{
-  --rf-surface: rgba(245,245,247,.90);
-  --rf-surface-border: rgba(255,255,255,.42);
+  --rf-surface: rgba(245,245,247,.92);
+  --rf-surface-border: rgba(255,255,255,.40);
   --rf-surface-shadow: 0 24px 70px rgba(0,0,0,.26);
   --rf-text: #1f2937;
   --rf-text-soft: #5f6b7a;
@@ -91,7 +97,7 @@ body:has(.register-free-wrap) .wrap{
 body:has(.register-free-wrap) .main-shell{
   min-height:100dvh !important;
   margin:0 !important;
-  padding:12px 16px 54px !important;
+  padding:var(--rf-shell-pad-top) 16px var(--rf-shell-pad-bottom) !important;
   display:grid !important;
   place-items:center !important;
   overflow:hidden !important;
@@ -102,7 +108,7 @@ body:has(.register-free-wrap) .footer{
   left:0;
   right:0;
   bottom:8px;
-  z-index:15;
+  z-index:20;
   padding:0 12px !important;
   margin:0 !important;
   background:transparent !important;
@@ -196,10 +202,11 @@ html[data-theme="dark"] .register-free-bg{
 .register-free-card{
   position:relative;
   z-index:2;
-  width:min(100%, 472px);
-  max-width:472px;
-  min-height:620px;
-  height:auto;
+  width:min(100%, var(--rf-card-max-width));
+  max-width:var(--rf-card-max-width);
+  height:min(var(--rf-card-ideal), calc(100dvh - var(--rf-shell-pad-top) - var(--rf-shell-pad-bottom) - var(--rf-footer-gap)));
+  min-height:540px;
+  max-height:calc(100dvh - var(--rf-shell-pad-top) - var(--rf-shell-pad-bottom) - var(--rf-footer-gap));
   padding:18px 20px 16px;
   border-radius:22px;
   background:var(--rf-surface);
@@ -210,7 +217,14 @@ html[data-theme="dark"] .register-free-bg{
   display:flex;
   flex-direction:column;
   justify-content:flex-start;
-  overflow:hidden;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:none;
+}
+
+.register-free-card::-webkit-scrollbar{
+  width:0;
+  height:0;
 }
 
 .theme{
@@ -268,7 +282,7 @@ html[data-theme="dark"] .theme{
 
 .title h1{
   margin:0 0 4px;
-  color:#171717;
+  color:var(--rf-title);
   font-size:clamp(.96rem, 1.4vw, 1.08rem);
   line-height:1.1;
   font-weight:700;
@@ -501,17 +515,87 @@ html[data-theme="dark"] .theme{
    ========================================= */
 @media (min-width: 768px){
   .g-recaptcha{
-    transform:scale(.94);
+    transform:scale(.92);
   }
 }
 
 @media (min-width: 768px) and (max-height: 900px){
+  :root{
+    --rf-shell-pad-top: 10px;
+    --rf-shell-pad-bottom: 48px;
+    --rf-card-ideal: 590px;
+  }
+
   .register-free-card{
-    min-height:600px;
+    padding:16px 18px 14px;
   }
 
   .g-recaptcha{
-    transform:scale(.92);
+    transform:scale(.90);
+  }
+}
+
+@media (min-width: 768px) and (max-height: 820px){
+  :root{
+    --rf-shell-pad-top: 8px;
+    --rf-shell-pad-bottom: 44px;
+    --rf-card-ideal: 570px;
+  }
+
+  .register-free-card{
+    padding:14px 16px 12px;
+  }
+
+  .logo-main{
+    width:178px;
+  }
+
+  .title,
+  .title-clean{
+    margin-bottom:9px;
+  }
+
+  .title h1{
+    font-size:.96rem;
+  }
+
+  .title p{
+    font-size:.68rem;
+    line-height:1.12;
+  }
+
+  .form,
+  .form-clean{
+    gap:7px;
+  }
+
+  .input{
+    min-height:36px;
+    height:36px;
+    padding:7px 11px;
+  }
+
+  .terms label{
+    font-size:.74rem;
+  }
+
+  .recaptcha-wrap,
+  .recaptcha-clean{
+    min-height:76px;
+  }
+
+  .g-recaptcha{
+    transform:scale(.88);
+  }
+
+  .btn{
+    min-height:42px;
+    height:42px;
+  }
+
+  .login-cta,
+  .login-cta-clean{
+    margin-top:8px;
   }
 }
 
@@ -526,9 +610,7 @@ html[data-theme="dark"] .theme{
 
   .register-free-card{
     width:min(100%, 470px);
-    min-height:600px;
-    height:auto;
-    padding:16px 18px 14px;
+    max-width:470px;
   }
 
   .bg-orb-1{
@@ -551,8 +633,9 @@ html[data-theme="dark"] .theme{
    ========================================= */
 @media (max-width: 767.98px){
   body:has(.register-free-wrap) .main-shell{
+    min-height:auto !important;
     overflow:auto !important;
-    padding:12px 10px 54px !important;
+    padding:12px 10px 52px !important;
   }
 
   body:has(.register-free-wrap) .footer{
@@ -567,10 +650,13 @@ html[data-theme="dark"] .theme{
 
   .register-free-card{
     width:min(100%, 400px);
+    max-width:400px;
     min-height:auto;
+    max-height:none;
     height:auto;
     padding:14px 14px 12px;
     border-radius:18px;
+    overflow:visible;
   }
 
   .form,
@@ -641,14 +727,12 @@ html[data-theme="dark"] .theme{
    ========================================= */
 @media (max-width: 479.98px){
   body:has(.register-free-wrap) .main-shell{
-    padding:10px 8px 52px !important;
+    padding:10px 8px 50px !important;
   }
 
   .register-free-card{
     width:100%;
     max-width:370px;
-    min-height:auto;
-    height:auto;
     padding:12px 12px 10px;
     border-radius:16px;
   }
@@ -703,38 +787,34 @@ html[data-theme="dark"] .theme{
 /* =========================================
    ALTURA BAJA
    ========================================= */
-@media (max-height: 760px){
-  body:has(.register-free-wrap) .main-shell{
-    overflow:auto !important;
-  }
-
-  .register-free-wrap{
-    min-height:100%;
-    padding:8px 0;
+@media (max-height: 760px) and (min-width: 768px){
+  :root{
+    --rf-shell-pad-top: 8px;
+    --rf-shell-pad-bottom: 42px;
+    --rf-card-ideal: 555px;
   }
 
   .register-free-card{
-    min-height:600px;
-    height:auto;
-    padding:16px 16px 14px;
+    min-height:520px;
+    padding:14px 16px 12px;
   }
 
   .logo-main{
-    width:145px;
+    width:168px;
   }
 
   .title,
   .title-clean{
-    margin-bottom:7px;
+    margin-bottom:8px;
   }
 
   .title h1{
-    font-size:.88rem;
+    font-size:.92rem;
   }
 
   .title p{
     font-size:.66rem;
-    max-width:220px;
+    max-width:228px;
   }
 
   .form,
@@ -750,8 +830,17 @@ html[data-theme="dark"] .theme{
   }
 
   .terms label{
-    font-size:.7rem;
-    line-height:1.14;
+    font-size:.71rem;
+    line-height:1.12;
+  }
+
+  .recaptcha-wrap,
+  .recaptcha-clean{
+    min-height:72px;
+  }
+
+  .g-recaptcha{
+    transform:scale(.84);
   }
 
   .btn{
@@ -762,11 +851,8 @@ html[data-theme="dark"] .theme{
 
   .login-cta,
   .login-cta-clean{
-    font-size:.69rem;
-  }
-
-  .g-recaptcha{
-    transform:scale(.84);
+    margin-top:8px;
+    font-size:.7rem;
   }
 }
 
