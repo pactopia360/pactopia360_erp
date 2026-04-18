@@ -60,39 +60,67 @@ body{
   min-height:100dvh;
   color:var(--rf-text);
   font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  overflow-x:hidden;
+}
+
+/* =========================================
+   AISLAR ESTA PANTALLA DEL LAYOUT GUEST
+   ========================================= */
+body:has(.register-free-wrap){
   background:
     radial-gradient(circle at 18% 78%, rgba(244,213,233,.95) 0%, rgba(244,213,233,.72) 20%, rgba(244,213,233,0) 42%),
     radial-gradient(circle at 66% 12%, rgba(137,183,255,.78) 0%, rgba(137,183,255,.46) 18%, rgba(137,183,255,0) 38%),
     radial-gradient(circle at 88% 88%, rgba(247,173,118,.84) 0%, rgba(247,173,118,.44) 18%, rgba(247,173,118,0) 36%),
-    linear-gradient(135deg, #f4eaf4 0%, #e8d8ed 28%, #b7b7ea 56%, #8db6f4 76%, #f2a56d 100%);
-  background-repeat:no-repeat;
-  background-size:cover;
-  background-position:center;
-  overflow-x:hidden;
+    linear-gradient(135deg, #f4eaf4 0%, #e8d8ed 28%, #b7b7ea 56%, #8db6f4 76%, #f2a56d 100%) !important;
+  background-repeat:no-repeat !important;
+  background-size:cover !important;
+  background-position:center !important;
 }
 
-html[data-theme="dark"] body{
+html[data-theme="dark"] body:has(.register-free-wrap){
   background:
     radial-gradient(circle at 14% 18%, rgba(255,255,255,.08) 0%, rgba(255,255,255,0) 22%),
     radial-gradient(circle at 82% 14%, rgba(59,130,246,.22) 0%, rgba(59,130,246,.10) 20%, rgba(59,130,246,0) 42%),
     radial-gradient(circle at 88% 88%, rgba(249,115,22,.18) 0%, rgba(249,115,22,.08) 18%, rgba(249,115,22,0) 38%),
     radial-gradient(circle at 18% 82%, rgba(99,102,241,.14) 0%, rgba(99,102,241,.06) 20%, rgba(99,102,241,0) 40%),
-    linear-gradient(135deg, #071120 0%, #0b1630 28%, #132857 60%, #1d3f86 82%, #3f2417 100%);
-  background-repeat:no-repeat;
-  background-size:cover;
-  background-position:center;
+    linear-gradient(135deg, #071120 0%, #0b1630 28%, #132857 60%, #1d3f86 82%, #3f2417 100%) !important;
+  background-repeat:no-repeat !important;
+  background-size:cover !important;
+  background-position:center !important;
   color:var(--rf-text);
 }
 
+body:has(.register-free-wrap) .topbar,
+body:has(.register-free-wrap) .footer{
+  display:none !important;
+}
+
+body:has(.register-free-wrap) .wrap{
+  min-height:100dvh !important;
+  grid-template-rows:1fr !important;
+}
+
+body:has(.register-free-wrap) .main-shell{
+  min-height:100dvh !important;
+  padding:0 !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  overflow:hidden !important;
+}
+
+/* =========================================
+   CONTENEDOR PRINCIPAL
+   ========================================= */
 .register-free-wrap{
   position:relative;
   width:100%;
-  min-height:auto;
+  min-height:100dvh;
   display:flex;
   align-items:center;
   justify-content:center;
-  padding:0;
-  overflow:visible;
+  padding:28px 16px;
+  overflow:hidden;
   isolation:isolate;
 }
 
@@ -155,13 +183,16 @@ html[data-theme="dark"] .register-free-bg{
   opacity:0;
 }
 
+/* =========================================
+   TARJETA
+   ========================================= */
 .register-free-card{
   position:relative;
   z-index:2;
   width:min(100%, 472px);
   max-width:472px;
   min-height:600px;
-  height:600px;
+  height:auto;
   padding:18px 20px 16px;
   border-radius:22px;
   background:rgba(245,245,247,.88);
@@ -278,7 +309,7 @@ html[data-theme="dark"] .theme{
   flex-direction:column;
   gap:10px;
   flex:1 1 auto;
-  justify-content:space-between;
+  justify-content:flex-start;
 }
 
 .field{
@@ -401,10 +432,12 @@ html[data-theme="dark"] .theme{
 .recaptcha-clean{
   overflow-x:auto;
   margin-top:0;
+  display:flex;
+  justify-content:center;
 }
 
 .g-recaptcha{
-  transform-origin:left top;
+  transform-origin:center top;
 }
 
 .actions,
@@ -458,14 +491,14 @@ html[data-theme="dark"] .theme{
 /* Tablet */
 @media (max-width: 991.98px){
   .register-free-wrap{
-    min-height:calc(100dvh - 60px);
-    padding:10px 12px 6px;
+    min-height:100dvh;
+    padding:14px 12px;
   }
 
   .register-free-card{
     width:min(100%, 470px);
     min-height:580px;
-    height:580px;
+    height:auto;
     padding:16px 18px 14px;
   }
 
@@ -486,9 +519,14 @@ html[data-theme="dark"] .theme{
 
 /* Móvil */
 @media (max-width: 767.98px){
+  body:has(.register-free-wrap) .main-shell{
+    overflow:auto !important;
+  }
+
   .register-free-wrap{
-    min-height:calc(100dvh - 56px);
-    padding:8px 10px 4px;
+    min-height:100dvh;
+    padding:10px 10px 8px;
+    align-items:center;
   }
 
   .register-free-card{
@@ -535,11 +573,6 @@ html[data-theme="dark"] .theme{
     max-width:230px;
   }
 
-  .form,
-  .form-clean{
-    gap:7px;
-  }
-
   .input{
     min-height:36px;
     height:36px;
@@ -570,8 +603,7 @@ html[data-theme="dark"] .theme{
 /* Móvil pequeño */
 @media (max-width: 479.98px){
   .register-free-wrap{
-    min-height:calc(100dvh - 52px);
-    padding:6px 8px 4px;
+    padding:8px 8px 6px;
   }
 
   .register-free-card{
@@ -586,7 +618,6 @@ html[data-theme="dark"] .theme{
   .form,
   .form-clean{
     gap:7px;
-    justify-content:flex-start;
   }
 
   .logo-main{
@@ -633,9 +664,13 @@ html[data-theme="dark"] .theme{
 
 /* Altura baja */
 @media (max-height: 760px){
+  body:has(.register-free-wrap) .main-shell{
+    overflow:auto !important;
+  }
+
   .register-free-wrap{
-    min-height:calc(100dvh - 52px);
-    padding:6px 8px 4px;
+    min-height:100dvh;
+    padding:10px 8px;
   }
 
   .register-free-card{
@@ -643,7 +678,7 @@ html[data-theme="dark"] .theme{
     height:auto;
     padding:12px 12px 10px;
   }
-  
+
   .logo-main{
     width:145px;
   }
@@ -695,14 +730,14 @@ html[data-theme="dark"] .theme{
   }
 }
 
-/* Producción con captcha: compactar más */
-@media (max-height: 760px) and (min-width: 768px){
+/* Producción con captcha */
+@media (min-width: 768px) and (max-height: 820px){
   .register-free-card{
-    width:min(100%, 430px);
+    width:min(100%, 440px);
   }
 
   .g-recaptcha{
-    transform:scale(.90);
+    transform:scale(.92);
   }
 }
 
