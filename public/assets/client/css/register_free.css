@@ -96,12 +96,20 @@ body:has(.register-free-wrap) .footer{
 }
 
 body:has(.register-free-wrap) .wrap{
+  width:100vw !important;
+  max-width:100vw !important;
+  min-width:100vw !important;
   min-height:100dvh !important;
-  grid-template-rows:1fr !important;
+  margin:0 !important;
+  padding:0 !important;
+  display:block !important;
 }
-
 body:has(.register-free-wrap) .main-shell{
+  width:100vw !important;
+  max-width:100vw !important;
+  min-width:100vw !important;
   min-height:100dvh !important;
+  margin:0 !important;
   padding:0 !important;
   display:flex !important;
   align-items:center !important;
@@ -114,14 +122,25 @@ body:has(.register-free-wrap) .main-shell{
    ========================================= */
 .register-free-wrap{
   position:relative;
-  width:100%;
+  width:100vw;
+  max-width:100vw;
+  min-width:100vw;
   min-height:100dvh;
+  margin:0;
   display:flex;
   align-items:center;
   justify-content:center;
   padding:28px 16px;
   overflow:hidden;
   isolation:isolate;
+}
+
+.register-free-wrap > *{
+  position:relative;
+}
+
+.register-free-wrap .register-free-card{
+  margin:0 auto !important;
 }
 
 .register-free-bg{
