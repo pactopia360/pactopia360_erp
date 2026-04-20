@@ -56,6 +56,7 @@
     const commercialCurrentDueDate = root.getElementById('bsv2-commercial-current-due-date');
     const commercialAgreedDueDay = root.getElementById('bsv2-commercial-agreed-due-day');
     const commercialGraceDays = root.getElementById('bsv2-commercial-grace-days');
+    const commercialApplyForwardIndefinitely = root.getElementById('bsv2-commercial-apply-forward-indefinitely');
     const commercialEffectiveFrom = root.getElementById('bsv2-commercial-effective-from');
     const commercialEffectiveUntil = root.getElementById('bsv2-commercial-effective-until');
     const commercialStatus = root.getElementById('bsv2-commercial-status');
@@ -430,7 +431,7 @@
             if (emailSubtitle) emailSubtitle.textContent = 'Configura destinatarios, asunto y mensaje antes de enviar.';
         }
 
-        function resetCommercialAgreementModal() {
+    function resetCommercialAgreementModal() {
         if (!commercialAgreementForm) return;
 
         commercialAgreementForm.setAttribute('action', '#');
@@ -441,6 +442,7 @@
         if (commercialCurrentDueDate) commercialCurrentDueDate.textContent = '—';
         if (commercialAgreedDueDay) commercialAgreedDueDay.value = '';
         if (commercialGraceDays) commercialGraceDays.value = '0';
+        if (commercialApplyForwardIndefinitely) commercialApplyForwardIndefinitely.checked = false;
         if (commercialEffectiveFrom) commercialEffectiveFrom.value = '';
         if (commercialEffectiveUntil) commercialEffectiveUntil.value = '';
         if (commercialStatus) commercialStatus.value = 'active';
@@ -448,6 +450,40 @@
         if (commercialNotes) commercialNotes.value = '';
         if (commercialSubtitle) {
             commercialSubtitle.textContent = 'Configura una fecha de pago acordada para este cliente sin cambiar la fecha general de envío.';
+        }
+
+        syncCommercialAgreementRangeState();
+    }
+
+    function syncCommercialAgreementRangeState() {
+        if (!commercialApplyForwardIndefinitely) {
+            return;
+        }
+
+        const isForward = commercialApplyForwardIndefinitely.checked === true;
+
+        if (commercialEffectiveFrom) {
+            if (isForward) {
+                if (!commercialEffectiveFrom.value) {
+                    commercialEffectiveFrom.value = new Date().toISOString().slice(0, 10);
+                }
+                commercialEffectiveFrom.setAttribute('disabled', 'disabled');
+                commercialEffectiveFrom.closest('.bsv2-field')?.classList.add('is-disabled');
+            } else {
+                commercialEffectiveFrom.removeAttribute('disabled');
+                commercialEffectiveFrom.closest('.bsv2-field')?.classList.remove('is-disabled');
+            }
+        }
+
+        if (commercialEffectiveUntil) {
+            if (isForward) {
+                commercialEffectiveUntil.value = '';
+                commercialEffectiveUntil.setAttribute('disabled', 'disabled');
+                commercialEffectiveUntil.closest('.bsv2-field')?.classList.add('is-disabled');
+            } else {
+                commercialEffectiveUntil.removeAttribute('disabled');
+                commercialEffectiveUntil.closest('.bsv2-field')?.classList.remove('is-disabled');
+            }
         }
     }
 
@@ -796,6 +832,7 @@
         const graceDays = safeText(parseDataset(button, 'graceDays', '0'), '0');
         const effectiveFrom = safeText(parseDataset(button, 'effectiveFrom', ''), '');
         const effectiveUntil = safeText(parseDataset(button, 'effectiveUntil', ''), '');
+        const applyForwardIndefinitely = safeText(parseDataset(button, 'applyForwardIndefinitely', ''), '') === '1';
         const status = safeText(parseDataset(button, 'commercialAgreementStatus', 'active'), 'active');
         const notes = safeText(parseDataset(button, 'commercialAgreementNotes', ''), '');
 
@@ -807,6 +844,7 @@
         if (commercialCurrentDueDate) commercialCurrentDueDate.textContent = dueDate || '—';
         if (commercialAgreedDueDay) commercialAgreedDueDay.value = agreedDueDay;
         if (commercialGraceDays) commercialGraceDays.value = graceDays || '0';
+        if (commercialApplyForwardIndefinitely) commercialApplyForwardIndefinitely.checked = applyForwardIndefinitely;
         if (commercialEffectiveFrom) commercialEffectiveFrom.value = effectiveFrom;
         if (commercialEffectiveUntil) commercialEffectiveUntil.value = effectiveUntil;
         if (commercialStatus) commercialStatus.value = status || 'active';
@@ -816,6 +854,7 @@
             commercialSubtitle.textContent = 'Define el acuerdo comercial de pago para ' + clientName + '.';
         }
 
+        syncCommercialAgreementRangeState();
         openModal(commercialAgreementModal, commercialAgreedDueDay);
     }
 
@@ -952,26 +991,38 @@
     }
 
     function bindFormStateRules() {
-        if (!editStatus || !editPaidAt) {
-            return;
-        }
-
-        const refreshEditFields = function () {
-            const status = normalizeStatusValue(editStatus.value);
-
-            if (status === 'pagado') {
-                editPaidAt.removeAttribute('disabled');
-                editPaidAt.closest('.bsv2-field')?.classList.remove('is-disabled');
+            if (!editStatus || !editPaidAt) {
                 return;
             }
 
-            editPaidAt.value = '';
-            editPaidAt.setAttribute('disabled', 'disabled');
-            editPaidAt.closest('.bsv2-field')?.classList.add('is-disabled');
-        };
+            const refreshEditFields = function () {
+                const status = normalizeStatusValue(editStatus.value);
 
-        editStatus.addEventListener('change', refreshEditFields);
-        refreshEditFields();
+                if (status === 'pagado') {
+                    editPaidAt.removeAttribute('disabled');
+                    editPaidAt.closest('.bsv2-field')?.classList.remove('is-disabled');
+                    return;
+                }
+
+                editPaidAt.value = '';
+                editPaidAt.setAttribute('disabled', 'disabled');
+                editPaidAt.closest('.bsv2-field')?.classList.add('is-disabled');
+            };
+
+            editStatus.addEventListener('change', refreshEditFields);
+            refreshEditFields();
+        }
+
+        function bindCommercialAgreementStateRules() {
+        if (!commercialApplyForwardIndefinitely) {
+            return;
+        }
+
+        commercialApplyForwardIndefinitely.addEventListener('change', function () {
+            syncCommercialAgreementRangeState();
+        });
+
+        syncCommercialAgreementRangeState();
     }
 
     function bindSubmitProtection() {
@@ -1006,6 +1057,7 @@
                     agreed_due_day: safeText(commercialAgreedDueDay?.value, '') || null,
                     reminders_enabled: safeText(commercialRemindersEnabled?.value, '1') === '1',
                     grace_days: safeText(commercialGraceDays?.value, '0') || 0,
+                    apply_forward_indefinitely: commercialApplyForwardIndefinitely?.checked === true,
                     effective_from: safeText(commercialEffectiveFrom?.value, '') || null,
                     effective_until: safeText(commercialEffectiveUntil?.value, '') || null,
                     status: safeText(commercialStatus?.value, 'active'),
@@ -1267,6 +1319,7 @@
     bindKeyboard();
     bindResize();
     bindFormStateRules();
+    bindCommercialAgreementStateRules();
     bindSubmitProtection();
     bindDynamicRows();
     bindToolbarActions();

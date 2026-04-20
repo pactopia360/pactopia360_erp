@@ -912,6 +912,7 @@
                                                                     data-grace-days="{{ data_get($statement, 'commercial_agreement.grace_days', 0) }}"
                                                                     data-effective-from="{{ data_get($statement, 'commercial_agreement.effective_from', '') }}"
                                                                     data-effective-until="{{ data_get($statement, 'commercial_agreement.effective_until', '') }}"
+                                                                    data-apply-forward-indefinitely="{{ data_get($statement, 'commercial_agreement.apply_forward_indefinitely', 0) ? '1' : '0' }}"
                                                                     data-commercial-agreement-status="{{ data_get($statement, 'commercial_agreement.status', 'active') }}"
                                                                     data-commercial-agreement-notes="{{ e((string) data_get($statement, 'commercial_agreement.notes', '')) }}"
                                                                 @endif
@@ -1470,6 +1471,26 @@
                             >
                         </div>
 
+                        <div class="bsv2-field bsv2-field--full">
+                            <label class="bsv2-label" for="bsv2-commercial-apply-forward-indefinitely">Aplicación del acuerdo</label>
+
+                            <label class="bsv2-check" style="gap:10px; align-items:flex-start;">
+                                <input
+                                    type="checkbox"
+                                    name="apply_forward_indefinitely"
+                                    id="bsv2-commercial-apply-forward-indefinitely"
+                                    value="1"
+                                >
+                                <span></span>
+                                <span style="display:inline-flex; flex-direction:column; gap:4px;">
+                                    <strong style="font-size:13px; color:inherit;">Aplicar desde hoy en adelante todos los meses</strong>
+                                    <small style="font-size:12px; color:var(--bsv2-text-soft, #6b7280); line-height:1.45;">
+                                        Al activar esta opción, el acuerdo comenzará hoy y quedará vigente sin fecha final hasta que lo edites o desactives.
+                                    </small>
+                                </span>
+                            </label>
+                        </div>
+
                         <div class="bsv2-field">
                             <label class="bsv2-label" for="bsv2-commercial-effective-from">Vigente desde</label>
                             <input
@@ -1488,6 +1509,9 @@
                                 id="bsv2-commercial-effective-until"
                                 class="bsv2-control"
                             >
+                            <p class="bsv2-help">
+                                Si activas la opción de aplicar hacia adelante, este campo quedará sin fecha final.
+                            </p>
                         </div>
 
                         <div class="bsv2-field">
