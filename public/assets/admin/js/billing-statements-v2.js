@@ -39,6 +39,16 @@
     const editPaymentNotes = root.getElementById('bsv2-edit-payment-notes');
     const editSubtitle = root.getElementById('bsv2-edit-subtitle');
 
+    const emailForm = root.getElementById('bsv2-email-form');
+    const emailAccountId = root.getElementById('bsv2-email-account-id');
+    const emailPeriod = root.getElementById('bsv2-email-period');
+    const emailClientName = root.getElementById('bsv2-email-client-name');
+    const emailPeriodLabel = root.getElementById('bsv2-email-period-label');
+    const emailTo = root.getElementById('bsv2-email-to');
+    const emailSubject = root.getElementById('bsv2-email-subject');
+    const emailMessage = root.getElementById('bsv2-email-message');
+    const emailSubtitle = root.getElementById('bsv2-email-subtitle');
+
     const commercialAgreementForm = root.getElementById('bsv2-commercial-agreement-form');
     const commercialAccountId = root.getElementById('bsv2-commercial-account-id');
     const commercialClientName = root.getElementById('bsv2-commercial-client-name');
