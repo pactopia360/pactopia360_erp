@@ -3,6 +3,8 @@ const path = require('path');
 const Store = require('electron-store').default;
 
 const isDev = !app.isPackaged;
+const ERP_URL_OFICIAL = 'https://pactopia360.com';
+const SAT_PATH = '/cliente/sat';
 
 const store = new Store({
     name: 'p360-sat-desktop',
@@ -10,7 +12,7 @@ const store = new Store({
     defaults: {
         session: {
             email: '',
-            erpUrl: '',
+            erpUrl: ERP_URL_OFICIAL,
             isLoggedIn: false
         }
     }
@@ -20,6 +22,10 @@ let mainWindow = null;
 let isQuitting = false;
 
 app.setName('PACTOPIA360 SAT Desktop');
+
+if (process.platform === 'win32') {
+    app.setAppUserModelId('com.pactopia360.satdesktop');
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -45,30 +51,8 @@ function getRendererPath(fileName) {
     return path.join(__dirname, 'renderer', fileName);
 }
 
-function getSavedSession() {
-    const session = store.get('session', {});
-
-    return {
-        email: String(session.email || '').trim(),
-        erpUrl: String(session.erpUrl || '').trim().replace(/\/+$/, ''),
-        isLoggedIn: Boolean(session.isLoggedIn)
-    };
-}
-
-function getInitialView() {
-    const session = getSavedSession();
-
-    if (session.isLoggedIn && session.erpUrl) {
-        return {
-            type: 'remote',
-            url: session.erpUrl + '/cliente/sat'
-        };
-    }
-
-    return {
-        type: 'local',
-        file: 'login.html'
-    };
+function normalizeUrl(value) {
+    return String(value || '').trim().replace(/\/+$/, '');
 }
 
 function isHttpUrl(url) {
@@ -83,18 +67,54 @@ function normalizeOrigin(url) {
     }
 }
 
+function getOfficialSatUrl() {
+    return ERP_URL_OFICIAL + SAT_PATH;
+}
+
+function getSavedSession() {
+    const session = store.get('session', {});
+
+    return {
+        email: String(session.email || '').trim(),
+        erpUrl: ERP_URL_OFICIAL,
+        isLoggedIn: Boolean(session.isLoggedIn)
+    };
+}
+
+function saveSession(session = {}) {
+    const safeSession = {
+        email: String(session.email || '').trim(),
+        erpUrl: ERP_URL_OFICIAL,
+        isLoggedIn: Boolean(session.isLoggedIn)
+    };
+
+    store.set('session', safeSession);
+
+    return safeSession;
+}
+
+function getInitialView() {
+    const session = getSavedSession();
+
+    if (session.isLoggedIn) {
+        return {
+            type: 'remote',
+            url: getOfficialSatUrl()
+        };
+    }
+
+    return {
+        type: 'local',
+        file: 'login.html'
+    };
+}
+
 function isAllowedInternalUrl(url) {
     if (!isHttpUrl(url)) {
         return false;
     }
 
-    const session = getSavedSession();
-
-    if (!session.erpUrl) {
-        return false;
-    }
-
-    return normalizeOrigin(url) === normalizeOrigin(session.erpUrl);
+    return normalizeOrigin(url) === normalizeOrigin(ERP_URL_OFICIAL);
 }
 
 function openExternalSafely(url) {
@@ -249,20 +269,11 @@ function createMainWindow() {
     return mainWindow;
 }
 
-app.setName('PACTOPIA360 SAT Desktop');
-
-if (process.platform === 'win32') {
-    app.setAppUserModelId('com.pactopia360.satdesktop');
-}
-
 ipcMain.handle('p360:storage:set-config', async (_event, payload = {}) => {
-    const safePayload = {
-        email: String(payload.email || '').trim(),
-        erpUrl: String(payload.erpUrl || '').trim().replace(/\/+$/, ''),
-        isLoggedIn: Boolean(payload.isLoggedIn)
-    };
-
-    store.set('session', safePayload);
+    const safePayload = saveSession({
+        email: payload.email,
+        isLoggedIn: payload.isLoggedIn
+    });
 
     return {
         ok: true,
@@ -271,16 +282,21 @@ ipcMain.handle('p360:storage:set-config', async (_event, payload = {}) => {
 });
 
 ipcMain.handle('p360:storage:get-config', async () => {
+    const session = getSavedSession();
+
+    if (normalizeUrl(store.get('session.erpUrl', '')) !== ERP_URL_OFICIAL) {
+        saveSession(session);
+    }
+
     return {
         ok: true,
-        data: getSavedSession()
+        data: session
     };
 });
 
 ipcMain.handle('p360:storage:clear-config', async () => {
-    store.set('session', {
+    saveSession({
         email: '',
-        erpUrl: '',
         isLoggedIn: false
     });
 
@@ -300,6 +316,9 @@ ipcMain.handle('p360:app:reload-session-view', async () => {
 });
 
 app.whenReady().then(() => {
+    const currentSession = getSavedSession();
+    saveSession(currentSession);
+
     createMainWindow();
 
     app.on('activate', () => {
