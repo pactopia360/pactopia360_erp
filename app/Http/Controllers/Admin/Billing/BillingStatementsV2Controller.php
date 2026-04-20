@@ -74,6 +74,7 @@ final class BillingStatementsV2Controller extends Controller
         $previousPeriod = $periodDate->copy()->subMonth()->format('Y-m');
 
         $clientes = CuentaCliente::query()
+            ->with(['owner'])
             ->select($this->resolveCuentaClienteSelectColumns())
             ->where(function ($query) use ($periodEnd) {
                 if ($this->cuentaClienteHasColumn('created_at')) {
@@ -299,7 +300,15 @@ final class BillingStatementsV2Controller extends Controller
                     ?? ($statusResolved->ov_paid_at ?? null)
                     ?? $this->resolveLastPaidDateFromHistory($history);
 
-                $displayName = $this->resolveClientDisplayName($cliente);
+                $owner = $cliente->owner;
+                $displayName = $this->resolveClientDisplayName($cliente, $owner);
+                $clientRfc = strtoupper(trim((string) ($cliente->rfc_padre ?? '')));
+                $clientEmail = $this->resolveClientEmail($cliente, $owner);
+
+                if ($this->shouldSkipIncompleteStatementRow($cliente, $displayName, $clientRfc, $clientEmail)) {
+                    return null;
+                }
+
                 $licenseType = $this->resolveLicenseLabel($cliente);
                 $billingMode = $this->resolveBillingMode($cliente);
                 $clientSequence = $this->resolveClientSequence($cliente);
@@ -317,8 +326,8 @@ final class BillingStatementsV2Controller extends Controller
                     'customer_no'          => $cliente->customer_no ?? null,
                     'codigo_cliente'       => $cliente->codigo_cliente ?? null,
                     'client_name'          => $displayName,
-                    'client_rfc'           => (string) ($cliente->rfc_padre ?? ''),
-                    'client_email'         => (string) ($cliente->email ?? ''),
+                    'client_rfc'           => $clientRfc !== '' ? $clientRfc : null,
+                    'client_email'         => $clientEmail !== '' ? $clientEmail : null,
                     'license_type'         => $licenseType,
                     'billing_mode'         => $billingMode,
                     'estado_cuenta'        => (string) ($cliente->estado_cuenta ?? ''),
@@ -1023,20 +1032,71 @@ final class BillingStatementsV2Controller extends Controller
         return (string) $cliente->id;
     }
 
-    private function resolveClientDisplayName(CuentaCliente $cliente): string
+    protected function resolveClientDisplayName(CuentaCliente $cliente, ?\App\Models\Cliente\UsuarioCuenta $owner = null): string
     {
         $razonSocial = trim((string) ($cliente->razon_social ?? ''));
-        $comercial = trim((string) ($cliente->nombre_comercial ?? ''));
-
-        $value = $razonSocial !== '' ? $razonSocial : $comercial;
-
-        if ($value === '') {
-            return 'Cliente sin nombre';
+        if ($razonSocial !== '') {
+            return $razonSocial;
         }
 
-        $value = preg_replace('/^\s*\[DUPLICADO\]\s*/iu', '', $value) ?: $value;
+        $nombreComercial = trim((string) ($cliente->nombre_comercial ?? ''));
+        if ($nombreComercial !== '') {
+            return $nombreComercial;
+        }
 
-        return trim($value);
+        $ownerNombre = trim((string) ($owner->nombre ?? ''));
+        if ($ownerNombre !== '') {
+            return $ownerNombre;
+        }
+
+        $codigoCliente = trim((string) ($cliente->codigo_cliente ?? ''));
+        if ($codigoCliente !== '') {
+            return 'Cliente ' . $codigoCliente;
+        }
+
+        $customerNo = trim((string) ($cliente->customer_no ?? ''));
+        if ($customerNo !== '') {
+            return 'Cliente ' . $customerNo;
+        }
+
+        return 'Cliente sin nombre';
+    }
+
+    protected function resolveClientEmail(CuentaCliente $cliente, ?\App\Models\Cliente\UsuarioCuenta $owner = null): string
+    {
+        $emailCuenta = strtolower(trim((string) ($cliente->email ?? '')));
+        if ($emailCuenta !== '') {
+            return $emailCuenta;
+        }
+
+        $emailOwner = strtolower(trim((string) ($owner->email ?? '')));
+        if ($emailOwner !== '') {
+            return $emailOwner;
+        }
+
+        return '';
+    }
+
+    protected function shouldSkipIncompleteStatementRow(
+        CuentaCliente $cliente,
+        string $clientName,
+        string $clientRfc,
+        string $clientEmail
+    ): bool {
+        $normalizedName = strtolower(trim($clientName));
+
+        $hasGenericName = preg_match('/^cuenta\s+\d+$/i', $clientName) === 1
+            || $normalizedName === 'cliente sin nombre';
+
+        $hasUsefulName = !$hasGenericName && $normalizedName !== '';
+        $hasUsefulRfc = trim($clientRfc) !== '';
+        $hasUsefulEmail = trim($clientEmail) !== '';
+
+        if ($hasUsefulName && ($hasUsefulRfc || $hasUsefulEmail)) {
+            return false;
+        }
+
+        return true;
     }
 
     private function resolveLicenseLabel(CuentaCliente $cliente): string
@@ -1260,6 +1320,7 @@ final class BillingStatementsV2Controller extends Controller
         }
 
         $cliente = CuentaCliente::query()
+            ->with(['owner'])
             ->select($this->resolveCuentaClienteSelectColumns())
             ->where(function ($query) use ($accountId) {
                 $query->where('id', $accountId);
@@ -1270,12 +1331,14 @@ final class BillingStatementsV2Controller extends Controller
             })
             ->first();
 
+        $owner = $cliente instanceof CuentaCliente ? $cliente->owner : null;
+
         $clientName = $cliente instanceof CuentaCliente
-            ? $this->resolveClientDisplayName($cliente)
+            ? $this->resolveClientDisplayName($cliente, $owner)
             : 'Cliente sin nombre';
 
         $clientEmail = $cliente instanceof CuentaCliente
-            ? trim((string) ($cliente->email ?? ''))
+            ? $this->resolveClientEmail($cliente, $owner)
             : '';
 
         return (object) [
