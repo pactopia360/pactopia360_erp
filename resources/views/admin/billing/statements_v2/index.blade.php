@@ -1481,14 +1481,14 @@
                                     id="bsv2-commercial-apply-forward-indefinitely"
                                     value="1"
                                 >
-                                <span></span>
+                                <span class="bsv2-check__box"></span>
 
-                                <span class="bsv2-check__content">
-                                    <strong class="bsv2-check__title">Aplicar desde hoy en adelante todos los meses</strong>
-                                    <small class="bsv2-check__text">
+                                <div class="bsv2-check__content">
+                                    <div class="bsv2-check__title">Aplicar desde hoy en adelante todos los meses</div>
+                                    <div class="bsv2-check__text">
                                         Al activar esta opción, el acuerdo comenzará hoy y quedará vigente sin fecha final hasta que lo edites o desactives.
-                                    </small>
-                                </span>
+                                    </div>
+                                </div>
                             </label>
                         </div>
 
