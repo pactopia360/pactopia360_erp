@@ -589,33 +589,41 @@ html.theme-dark .bsv2-preview__toolbar .bsv2-btn--soft{
     justify-content: flex-end;
     isolation: isolate;
     overflow: visible;
+    z-index: 10;
+}
+
+.bsv2-actions-dropdown.is-open{
+    z-index: 2000;
 }
 
 .bsv2-actions-menu{
-    position: absolute;
-    top: 50%;
-    right: calc(100% + 12px);
+    position: fixed;
+    top: var(--bsv2-menu-top, 120px);
+    left: var(--bsv2-menu-left, 120px);
+    right: auto;
     min-width: 220px;
+    max-width: 240px;
     padding: 8px;
     border-radius: 16px;
     background: var(--bsv2-card);
     border: 1px solid var(--bsv2-border);
     box-shadow: var(--bsv2-shadow-menu);
-    display: block;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transform: translateY(-50%) scale(.98);
-    transform-origin: right center;
-    z-index: 999;
+    transform: translateY(6px) scale(.98);
+    transform-origin: top left;
+    transition: opacity .14s ease, visibility .14s ease, transform .14s ease;
+    z-index: 3000;
     white-space: nowrap;
+    display: block;
 }
 
 .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transform: translateY(-50%) scale(1);
+    transform: translateY(0) scale(1);
 }
 
 .bsv2-actions-menu__form{
@@ -687,14 +695,8 @@ button.bsv2-actions-menu__item:hover{
 
 @media (max-width: 767px){
     .bsv2-actions-menu{
-        top: calc(100% + 8px);
-        right: 0;
-        transform: translateY(0) scale(.98);
-        transform-origin: top right;
-    }
-
-    .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
-        transform: translateY(0) scale(1);
+        min-width: 210px;
+        max-width: calc(100vw - 24px);
     }
 }
 
