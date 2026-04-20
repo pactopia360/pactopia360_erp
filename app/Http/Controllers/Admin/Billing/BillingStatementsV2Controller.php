@@ -25,6 +25,7 @@ use Throwable;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
+
 final class BillingStatementsV2Controller extends Controller
 {
     use HandlesStatementOverridesAndPeriods;
@@ -597,6 +598,143 @@ final class BillingStatementsV2Controller extends Controller
         return back()->with('ok', 'Estado de cuenta actualizado correctamente.');
     }
 
+    public function saveCommercialAgreement(Request $request, string $accountId): JsonResponse
+{
+    $accountId = trim($accountId);
+
+    if ($accountId === '') {
+        return response()->json([
+            'ok' => false,
+            'message' => 'La cuenta es inválida.',
+        ], 422);
+    }
+
+    $validated = $request->validate([
+        'agreed_due_day'    => ['nullable', 'integer', 'min:1', 'max:31'],
+        'reminders_enabled' => ['nullable', 'boolean'],
+        'grace_days'        => ['nullable', 'integer', 'min:0', 'max:31'],
+        'effective_from'    => ['nullable', 'date'],
+        'effective_until'   => ['nullable', 'date', 'after_or_equal:effective_from'],
+        'status'            => ['nullable', 'in:active,inactive'],
+        'notes'             => ['nullable', 'string', 'max:5000'],
+    ]);
+
+    $agreedDueDay = isset($validated['agreed_due_day']) && $validated['agreed_due_day'] !== null
+        ? (int) $validated['agreed_due_day']
+        : null;
+
+    $remindersEnabled = array_key_exists('reminders_enabled', $validated)
+        ? (bool) $validated['reminders_enabled']
+        : true;
+
+    $graceDays = isset($validated['grace_days']) ? (int) $validated['grace_days'] : 0;
+    $status = (string) ($validated['status'] ?? 'active');
+    $effectiveFrom = !empty($validated['effective_from']) ? (string) $validated['effective_from'] : null;
+    $effectiveUntil = !empty($validated['effective_until']) ? (string) $validated['effective_until'] : null;
+    $notes = isset($validated['notes']) ? trim((string) $validated['notes']) : null;
+
+    $cliente = CuentaCliente::query()
+        ->select($this->resolveCuentaClienteSelectColumns())
+        ->where(function ($query) use ($accountId) {
+            $query->where('id', $accountId);
+
+            if ($this->cuentaClienteHasColumn('admin_account_id')) {
+                $query->orWhere('admin_account_id', $accountId);
+            }
+        })
+        ->first();
+
+    if (!$cliente instanceof CuentaCliente) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se encontró la cuenta del cliente.',
+        ], 404);
+    }
+
+    $resolvedAccountId = (string) $cliente->id;
+    $resolvedAdminAccountId = $cliente->admin_account_id !== null
+        ? (int) $cliente->admin_account_id
+        : null;
+
+    $adminId = auth('admin')->id();
+    $now = now();
+
+    DB::connection('mysql_admin')->transaction(function () use (
+        $resolvedAccountId,
+        $resolvedAdminAccountId,
+        $agreedDueDay,
+        $remindersEnabled,
+        $graceDays,
+        $effectiveFrom,
+        $effectiveUntil,
+        $status,
+        $notes,
+        $adminId,
+        $now
+    ) {
+        $existingAgreement = DB::connection('mysql_admin')
+            ->table('billing_commercial_agreements')
+            ->where('account_id', $resolvedAccountId)
+            ->orderByDesc('id')
+            ->first();
+
+        $payload = [
+            'account_id'           => $resolvedAccountId,
+            'admin_account_id'     => $resolvedAdminAccountId,
+            'agreed_due_day'       => $agreedDueDay,
+            'reminders_enabled'    => $remindersEnabled ? 1 : 0,
+            'grace_days'           => $graceDays,
+            'effective_from'       => $effectiveFrom,
+            'effective_until'      => $effectiveUntil,
+            'status'               => $status,
+            'notes'                => $notes !== '' ? $notes : null,
+            'meta'                 => json_encode([
+                'source' => 'admin_statements_v2',
+            ], JSON_UNESCAPED_UNICODE),
+            'updated_by_admin_id'  => $adminId,
+            'updated_at'           => $now,
+        ];
+
+        if ($existingAgreement) {
+            DB::connection('mysql_admin')
+                ->table('billing_commercial_agreements')
+                ->where('id', $existingAgreement->id)
+                ->update($payload);
+        } else {
+            $payload['created_by_admin_id'] = $adminId;
+            $payload['created_at'] = $now;
+
+            DB::connection('mysql_admin')
+                ->table('billing_commercial_agreements')
+                ->insert($payload);
+        }
+
+        $this->syncCommercialAgreementDueDates(
+            accountId: $resolvedAccountId,
+            agreedDueDay: $agreedDueDay,
+            graceDays: $graceDays,
+            effectiveFrom: $effectiveFrom,
+            effectiveUntil: $effectiveUntil,
+            status: $status
+        );
+    });
+
+    return response()->json([
+        'ok' => true,
+        'message' => 'Acuerdo comercial guardado correctamente.',
+        'data' => [
+            'account_id' => $resolvedAccountId,
+            'agreed_due_day' => $agreedDueDay,
+            'reminders_enabled' => $remindersEnabled,
+            'grace_days' => $graceDays,
+            'effective_from' => $effectiveFrom,
+            'effective_until' => $effectiveUntil,
+            'status' => $status,
+            'notes' => $notes,
+        ],
+    ]);
+}
+
     public function sendEmail(Request $request, string $accountId, string $period): RedirectResponse
     {
         abort_if(!$this->isValidPeriod($period), 422);
@@ -1061,6 +1199,107 @@ final class BillingStatementsV2Controller extends Controller
 
         return 'Cliente sin nombre';
     }
+
+    protected function syncCommercialAgreementDueDates(
+    string $accountId,
+    ?int $agreedDueDay,
+    int $graceDays,
+    ?string $effectiveFrom,
+    ?string $effectiveUntil,
+    string $status
+): void {
+    $statements = BillingStatement::query()
+        ->where('account_id', $accountId)
+        ->orderBy('period')
+        ->get();
+
+    foreach ($statements as $statement) {
+        $period = trim((string) ($statement->period ?? ''));
+
+        if (!$this->isValidStatementPeriod($period)) {
+            continue;
+        }
+
+        if ($effectiveFrom !== null && $period < substr($effectiveFrom, 0, 7)) {
+            continue;
+        }
+
+        if ($effectiveUntil !== null && $period > substr($effectiveUntil, 0, 7)) {
+            continue;
+        }
+
+        $newDueDate = $this->resolveCommercialAgreementDueDate(
+            period: $period,
+            agreedDueDay: $agreedDueDay,
+            graceDays: $graceDays,
+            status: $status
+        );
+
+        $meta = $statement->meta;
+        if (!is_array($meta)) {
+            $meta = [];
+        }
+
+        $meta['commercial_agreement'] = [
+            'applied' => $status === 'active' && $agreedDueDay !== null,
+            'agreed_due_day' => $agreedDueDay,
+            'grace_days' => $graceDays,
+            'effective_from' => $effectiveFrom,
+            'effective_until' => $effectiveUntil,
+        ];
+
+        $statement->due_date = $newDueDate;
+        $statement->meta = $meta;
+        $statement->save();
+    }
+}
+
+protected function resolveCommercialAgreementDueDate(
+    string $period,
+    ?int $agreedDueDay,
+    int $graceDays,
+    string $status
+): ?string {
+    if ($status !== 'active' || $agreedDueDay === null) {
+        return $this->resolveDefaultStatementDueDate($period);
+    }
+
+    try {
+        $periodStart = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $period . '-01')->startOfMonth();
+    } catch (\Throwable $e) {
+        return null;
+    }
+
+    $targetDay = min($agreedDueDay, (int) $periodStart->copy()->endOfMonth()->day);
+
+    return $periodStart
+        ->copy()
+        ->day($targetDay)
+        ->addDays(max(0, $graceDays))
+        ->toDateString();
+}
+
+protected function resolveDefaultStatementDueDate(string $period): ?string
+{
+    if (!$this->isValidStatementPeriod($period)) {
+        return null;
+    }
+
+    try {
+        return \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $period . '-01')
+            ->startOfMonth()
+            ->addMonthNoOverflow()
+            ->day(5)
+            ->toDateString();
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+protected function isValidStatementPeriod(string $period): bool
+{
+    return preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period) === 1;
+}
 
     protected function resolveClientEmail(CuentaCliente $cliente, ?\App\Models\Cliente\UsuarioCuenta $owner = null): string
     {
