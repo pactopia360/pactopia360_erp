@@ -403,7 +403,7 @@
                     <div class="step__index">1</div>
                     <div class="step__body">
                         <h3>Captura tu cuenta</h3>
-                        <p>Registra tu correo y la URL base del ERP que controlará la experiencia del portal SAT.</p>
+                        <p>Registra tu correo para vincular esta instalación con el entorno oficial de Pactopia360 y abrir el portal SAT sin configuraciones manuales.</p>
                     </div>
                 </div>
 
@@ -454,9 +454,16 @@
 
             <div class="field">
                 <label for="erp_url">URL del ERP</label>
-                <input type="text" id="erp_url" required value="https://pactopia360.com" placeholder="https://pactopia360.com">
+                <input
+                    type="text"
+                    id="erp_url"
+                    required
+                    value="https://pactopia360.com"
+                    placeholder="https://pactopia360.com"
+                    readonly
+                >
                 <div class="help">
-                    Usa la URL base de tu instalación local, staging o producción, por ejemplo: http://127.0.0.1:8000 o https://pactopia360.com
+                    Esta instalación se enlaza automáticamente con el entorno oficial de Pactopia360.
                 </div>
             </div>
 
@@ -483,10 +490,6 @@
                 <button type="submit" class="btn btn--primary" id="loginBtn">
                     Conectar y continuar
                 </button>
-
-                <button type="button" class="btn btn--ghost" id="fillDemoBtn">
-                    Cargar datos de prueba
-                </button>
             </div>
         </form>
 
@@ -498,12 +501,13 @@
 
 <script>
 (function () {
+    const ERP_URL_OFICIAL = 'https://pactopia360.com';
+
     const loginForm = document.getElementById('loginForm');
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
     const erpUrlInput = document.getElementById('erp_url');
     const loginBtn = document.getElementById('loginBtn');
-    const fillDemoBtn = document.getElementById('fillDemoBtn');
     const statusBox = document.getElementById('statusBox');
     const footerMeta = document.getElementById('footerMeta');
     const welcomeFooter = document.getElementById('welcomeFooter');
@@ -511,6 +515,10 @@
     const metaAppVersion = document.getElementById('metaAppVersion');
     const metaPlatform = document.getElementById('metaPlatform');
     const metaPackaged = document.getElementById('metaPackaged');
+
+    if (erpUrlInput) {
+        erpUrlInput.value = ERP_URL_OFICIAL;
+    }
 
     function setStatus(type, message) {
         statusBox.className = 'inline-status';
@@ -564,11 +572,12 @@
         }
 
         if (result.data) {
-            emailInput.value = result.data.email || '';
-            erpUrlInput.value = result.data.erpUrl || 'https://pactopia360.com';
+            emailInput.value = String(result.data.email || '');
+            passwordInput.value = '********';
+            erpUrlInput.value = ERP_URL_OFICIAL;
 
             if (result.data.isLoggedIn) {
-                setStatus('success', 'Se encontró una configuración previa. Puedes continuar o actualizar los datos antes de entrar.');
+                setStatus('success', 'Se encontró una configuración previa. Puedes continuar o actualizar tus datos antes de entrar.');
             }
         }
     }
@@ -599,23 +608,13 @@
         welcomeFooter.textContent = appName + ' · Inicio local seguro · ' + platform;
     }
 
-    if (fillDemoBtn) {
-        fillDemoBtn.addEventListener('click', function () {
-            emailInput.value = 'demo@pactopia360.com';
-            passwordInput.value = '12345678';
-            erpUrlInput.value = 'http://127.0.0.1:8000';
-            setStatus('', '');
-            emailInput.focus();
-        });
-    }
-
     loginForm.addEventListener('submit', async function (event) {
         event.preventDefault();
         setStatus('', '');
 
         const email = String(emailInput.value || '').trim();
         const password = String(passwordInput.value || '').trim();
-        const erpUrl = normalizeUrl(erpUrlInput.value);
+        const erpUrl = ERP_URL_OFICIAL;
 
         if (email === '') {
             setStatus('error', 'Debes capturar el correo.');
