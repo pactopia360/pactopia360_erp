@@ -620,13 +620,14 @@ final class BillingStatementsV2Controller extends Controller
     }
 
     $validated = $request->validate([
-        'agreed_due_day'    => ['nullable', 'integer', 'min:1', 'max:31'],
-        'reminders_enabled' => ['nullable', 'boolean'],
-        'grace_days'        => ['nullable', 'integer', 'min:0', 'max:31'],
-        'effective_from'    => ['nullable', 'date'],
-        'effective_until'   => ['nullable', 'date', 'after_or_equal:effective_from'],
-        'status'            => ['nullable', 'in:active,inactive'],
-        'notes'             => ['nullable', 'string', 'max:5000'],
+        'agreed_due_day'             => ['nullable', 'integer', 'min:1', 'max:31'],
+        'reminders_enabled'          => ['nullable', 'boolean'],
+        'grace_days'                 => ['nullable', 'integer', 'min:0', 'max:31'],
+        'effective_from'             => ['nullable', 'date'],
+        'effective_until'            => ['nullable', 'date', 'after_or_equal:effective_from'],
+        'apply_forward_indefinitely' => ['nullable', 'boolean'],
+        'status'                     => ['nullable', 'in:active,inactive'],
+        'notes'                      => ['nullable', 'string', 'max:5000'],
     ]);
 
     $agreedDueDay = isset($validated['agreed_due_day']) && $validated['agreed_due_day'] !== null
@@ -639,8 +640,19 @@ final class BillingStatementsV2Controller extends Controller
 
     $graceDays = isset($validated['grace_days']) ? (int) $validated['grace_days'] : 0;
     $status = (string) ($validated['status'] ?? 'active');
+
+    $applyForwardIndefinitely = array_key_exists('apply_forward_indefinitely', $validated)
+        ? (bool) $validated['apply_forward_indefinitely']
+        : false;
+
     $effectiveFrom = !empty($validated['effective_from']) ? (string) $validated['effective_from'] : null;
     $effectiveUntil = !empty($validated['effective_until']) ? (string) $validated['effective_until'] : null;
+
+    if ($applyForwardIndefinitely) {
+        $effectiveFrom = now()->toDateString();
+        $effectiveUntil = null;
+    }
+
     $notes = isset($validated['notes']) ? trim((string) $validated['notes']) : null;
 
     $cliente = CuentaCliente::query()
@@ -700,6 +712,7 @@ final class BillingStatementsV2Controller extends Controller
             'notes'                => $notes !== '' ? $notes : null,
             'meta'                 => json_encode([
                 'source' => 'admin_statements_v2',
+                'apply_forward_indefinitely' => $applyForwardIndefinitely,
             ], JSON_UNESCAPED_UNICODE),
             'updated_by_admin_id'  => $adminId,
             'updated_at'           => $now,
@@ -739,6 +752,7 @@ final class BillingStatementsV2Controller extends Controller
             'grace_days' => $graceDays,
             'effective_from' => $effectiveFrom,
             'effective_until' => $effectiveUntil,
+            'apply_forward_indefinitely' => $applyForwardIndefinitely,
             'status' => $status,
             'notes' => $notes,
         ],
@@ -1364,14 +1378,27 @@ protected function isValidStatementPeriod(string $period): bool
                 continue;
             }
 
+            $rowMeta = [];
+            if (!empty($row->meta)) {
+                try {
+                    $rowMeta = json_decode((string) $row->meta, true);
+                    if (!is_array($rowMeta)) {
+                        $rowMeta = [];
+                    }
+                } catch (\Throwable $e) {
+                    $rowMeta = [];
+                }
+            }
+
             $mapped[$rowAccountId] = [
-                'agreed_due_day'    => isset($row->agreed_due_day) ? (int) $row->agreed_due_day : null,
-                'reminders_enabled' => isset($row->reminders_enabled) ? (bool) $row->reminders_enabled : true,
-                'grace_days'        => isset($row->grace_days) ? (int) $row->grace_days : 0,
-                'effective_from'    => !empty($row->effective_from) ? (string) $row->effective_from : null,
-                'effective_until'   => !empty($row->effective_until) ? (string) $row->effective_until : null,
-                'status'            => !empty($row->status) ? (string) $row->status : 'active',
-                'notes'             => !empty($row->notes) ? (string) $row->notes : '',
+                'agreed_due_day'             => isset($row->agreed_due_day) ? (int) $row->agreed_due_day : null,
+                'reminders_enabled'          => isset($row->reminders_enabled) ? (bool) $row->reminders_enabled : true,
+                'grace_days'                 => isset($row->grace_days) ? (int) $row->grace_days : 0,
+                'effective_from'             => !empty($row->effective_from) ? (string) $row->effective_from : null,
+                'effective_until'            => !empty($row->effective_until) ? (string) $row->effective_until : null,
+                'apply_forward_indefinitely' => !empty($rowMeta['apply_forward_indefinitely']) || (!empty($row->effective_from) && empty($row->effective_until)),
+                'status'                     => !empty($row->status) ? (string) $row->status : 'active',
+                'notes'                      => !empty($row->notes) ? (string) $row->notes : '',
             ];
         }
 
@@ -1390,15 +1417,19 @@ protected function isValidStatementPeriod(string $period): bool
             return null;
         }
 
+        $effectiveFrom = !empty($agreement['effective_from']) ? (string) $agreement['effective_from'] : null;
+        $effectiveUntil = !empty($agreement['effective_until']) ? (string) $agreement['effective_until'] : null;
+
         return [
-            'agreed_due_day'    => isset($agreement['agreed_due_day']) && $agreement['agreed_due_day'] !== null ? (int) $agreement['agreed_due_day'] : null,
-            'reminders_enabled' => array_key_exists('reminders_enabled', $agreement) ? (bool) $agreement['reminders_enabled'] : true,
-            'grace_days'        => isset($agreement['grace_days']) ? (int) $agreement['grace_days'] : 0,
-            'effective_from'    => !empty($agreement['effective_from']) ? (string) $agreement['effective_from'] : null,
-            'effective_until'   => !empty($agreement['effective_until']) ? (string) $agreement['effective_until'] : null,
-            'status'            => !empty($agreement['status']) ? (string) $agreement['status'] : 'active',
-            'notes'             => !empty($agreement['notes']) ? (string) $agreement['notes'] : '',
-        ];
+            'agreed_due_day'             => isset($agreement['agreed_due_day']) && $agreement['agreed_due_day'] !== null ? (int) $agreement['agreed_due_day'] : null,
+            'reminders_enabled'          => array_key_exists('reminders_enabled', $agreement) ? (bool) $agreement['reminders_enabled'] : true,
+            'grace_days'                 => isset($agreement['grace_days']) ? (int) $agreement['grace_days'] : 0,
+            'effective_from'             => $effectiveFrom,
+            'effective_until'            => $effectiveUntil,
+            'apply_forward_indefinitely' => !empty($agreement['apply_forward_indefinitely']) || ($effectiveFrom !== null && $effectiveUntil === null),
+            'status'                     => !empty($agreement['status']) ? (string) $agreement['status'] : 'active',
+            'notes'                      => !empty($agreement['notes']) ? (string) $agreement['notes'] : '',
+        ];      
     }
 
     protected function shouldSkipIncompleteStatementRow(
