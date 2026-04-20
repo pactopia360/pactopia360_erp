@@ -6,6 +6,8 @@ use App\Jobs\Admin\Billing\SendStatementEmailJob;
 use App\Models\Admin\Billing\BillingStatement;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
@@ -78,7 +80,13 @@ class P360SendStatements extends Command
         $afterIntegrityFilter = (clone $baseQuery)->count();
         $integritySkipped = max(0, $beforeIntegrityFilter - $afterIntegrityFilter);
 
-        $toQueue = $afterIntegrityFilter;
+        // Guard de recordatorios por acuerdo comercial / due_date
+        $beforeCommercialGuard = (clone $baseQuery)->count();
+        $this->applyCommercialAgreementReminderGuards($baseQuery, $period, $reminder);
+        $afterCommercialGuard = (clone $baseQuery)->count();
+        $commercialAgreementSkipped = max(0, $beforeCommercialGuard - $afterCommercialGuard);
+
+        $toQueue = $afterCommercialGuard;
         $skipped = max(0, $totalMatching - $toQueue);
 
         $modeLabel = $reminder ? 'REMINDER' : ($force ? 'FORCED' : 'NORMAL');
@@ -91,8 +99,8 @@ class P360SendStatements extends Command
             $this->warn("Skipped {$sentAtSkipped} statements because they already have sent_at.");
         }
 
-        if ($integritySkipped > 0) {
-            $this->warn("Skipped {$integritySkipped} statements due to integrity guard.");
+        if ($commercialAgreementSkipped > 0) {
+            $this->warn("Skipped {$commercialAgreementSkipped} statements due to commercial agreement reminder guard.");
         }
 
         if ($skipped > 0 && $sentAtSkipped === 0 && $integritySkipped === 0) {
@@ -101,15 +109,16 @@ class P360SendStatements extends Command
 
         if ($toQueue === 0) {
             Log::warning('[STATEMENTS_SEND] nothing queued after guards', [
-                'period'            => $period,
-                'status'            => $status,
-                'connection'        => $connection,
-                'queue'             => $queue,
-                'force'             => $force,
-                'reminder'          => $reminder,
-                'total_matching'    => $totalMatching,
-                'sent_at_skipped'   => $sentAtSkipped,
-                'integrity_skipped' => $integritySkipped,
+                'period'                      => $period,
+                'status'                      => $status,
+                'connection'                  => $connection,
+                'queue'                       => $queue,
+                'force'                       => $force,
+                'reminder'                    => $reminder,
+                'total_matching'              => $totalMatching,
+                'sent_at_skipped'             => $sentAtSkipped,
+                'integrity_skipped'           => $integritySkipped,
+                'commercial_guard_skipped'    => $commercialAgreementSkipped,
             ]);
 
             $this->info('DONE. queued=0');
@@ -214,7 +223,95 @@ class P360SendStatements extends Command
         }
     }
 
-        private function applyStatusFilter(Builder $query, string $status): void
+    private function applyCommercialAgreementReminderGuards(Builder $query, string $period, bool $reminder): void
+    {
+        if (!$reminder) {
+            return;
+        }
+
+        $conn = 'mysql_admin';
+        $today = now()->startOfDay()->toDateString();
+        $defaultDueDate = $this->resolveDefaultDueDateForPeriod($period);
+
+        // 1) Si existe due_date, solo recordar cuando ya llegó o pasó esa fecha.
+        // 2) Si no existe due_date, cae al vencimiento general del periodo.
+        if (Schema::connection($conn)->hasColumn('billing_statements', 'due_date')) {
+            $query->where(function (Builder $q) use ($today, $defaultDueDate) {
+                $q->where(function (Builder $withDueDate) use ($today) {
+                    $withDueDate->whereNotNull('due_date')
+                        ->whereDate('due_date', '<=', $today);
+                });
+
+                if ($defaultDueDate !== null) {
+                    $q->orWhere(function (Builder $withoutDueDate) use ($defaultDueDate) {
+                        $withoutDueDate->whereNull('due_date')
+                            ->whereDate('created_at', '<=', now()->endOfDay());
+                    });
+                }
+            });
+
+            if ($defaultDueDate !== null) {
+                $query->where(function (Builder $q) use ($today, $defaultDueDate) {
+                    $q->whereNotNull('due_date')
+                        ->whereDate('due_date', '<=', $today)
+                        ->orWhere(function (Builder $fallback) use ($today, $defaultDueDate) {
+                            $fallback->whereNull('due_date');
+
+                            if ($today < $defaultDueDate) {
+                                $fallback->whereRaw('1 = 0');
+                            }
+                        });
+                });
+            }
+        }
+
+        // Si existe tabla de acuerdos, excluir cuentas con recordatorios desactivados
+        if (Schema::connection($conn)->hasTable('billing_commercial_agreements')) {
+            $periodStart = Carbon::createFromFormat('Y-m', $period)->startOfMonth()->toDateString();
+            $periodEnd = Carbon::createFromFormat('Y-m', $period)->endOfMonth()->toDateString();
+
+            $disabledAccountIds = DB::connection($conn)
+                ->table('billing_commercial_agreements')
+                ->where('status', 'active')
+                ->where('reminders_enabled', 0)
+                ->where(function ($sub) use ($periodEnd) {
+                    $sub->whereNull('effective_from')
+                        ->orWhereDate('effective_from', '<=', $periodEnd);
+                })
+                ->where(function ($sub) use ($periodStart) {
+                    $sub->whereNull('effective_until')
+                        ->orWhereDate('effective_until', '>=', $periodStart);
+                })
+                ->pluck('account_id')
+                ->filter()
+                ->map(static fn ($value) => trim((string) $value))
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($disabledAccountIds)) {
+                $query->whereNotIn('account_id', $disabledAccountIds);
+            }
+        }
+    }
+
+    private function resolveDefaultDueDateForPeriod(string $period): ?string
+    {
+        if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
+            return null;
+        }
+
+        try {
+            return Carbon::createFromFormat('Y-m', $period)
+                ->startOfMonth()
+                ->addDays(4)
+                ->toDateString();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function applyStatusFilter(Builder $query, string $status): void
     {
         if ($status === 'all') {
             return;
