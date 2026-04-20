@@ -47,6 +47,10 @@
         ? route('admin.billing.statements_v2.payments.bulk')
         : '';
 
+    $routeCommercialAgreementSave = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.commercial_agreement.save')
+    ? 'admin.billing.statements_v2.commercial_agreement.save'
+    : null;
+
        $statusUiMap = [
         'paid'      => ['label' => 'Pagado',       'class' => 'is-paid'],
         'pagado'    => ['label' => 'Pagado',       'class' => 'is-paid'],
@@ -157,6 +161,7 @@
     data-bsv2-email-preview-route-name="{{ $routeSendPreview ?? '' }}"
     data-bsv2-email-send-route-name="{{ $routeSendStore ?? '' }}"
     data-bsv2-download-route-name="{{ $routeDownload ?? '' }}"
+    data-bsv2-commercial-agreement-route-name="{{ $routeCommercialAgreementSave ?? '' }}"
     data-bsv2-bulk-send-url="{{ $routeBulkSend }}"
     data-bsv2-advance-payments-url="{{ $routeAdvancePayments }}"
     data-bsv2-bulk-payments-url="{{ $routeBulkPayments }}"
@@ -890,6 +895,36 @@
                                                                 </span>
                                                                 <span>Enviar</span>
                                                             </button>
+
+                                                            <button
+                                                                type="button"
+                                                                class="bsv2-actions-menu__item bsv2-actions-menu__item--icon {{ $routeCommercialAgreementSave ? '' : 'is-disabled' }}"
+                                                                @if($routeCommercialAgreementSave)
+                                                                    data-bsv2-open-commercial-agreement
+                                                                    data-account-id="{{ $statementAccountId }}"
+                                                                    data-client-name="{{ e($clientName) }}"
+                                                                    data-client-rfc="{{ e($clientRfc) }}"
+                                                                    data-client-email="{{ e($clientEmail) }}"
+                                                                    data-commercial-agreement-url="{{ route($routeCommercialAgreementSave, ['accountId' => $statementAccountId]) }}"
+                                                                    data-due-date="{{ data_get($statement, 'due_date') ? \Illuminate\Support\Carbon::parse(data_get($statement, 'due_date'))->format('Y-m-d') : '' }}"
+                                                                    data-agreed-due-day="{{ data_get($statement, 'commercial_agreement.agreed_due_day', '') }}"
+                                                                    data-reminders-enabled="{{ data_get($statement, 'commercial_agreement.reminders_enabled', 1) ? '1' : '0' }}"
+                                                                    data-grace-days="{{ data_get($statement, 'commercial_agreement.grace_days', 0) }}"
+                                                                    data-effective-from="{{ data_get($statement, 'commercial_agreement.effective_from', '') }}"
+                                                                    data-effective-until="{{ data_get($statement, 'commercial_agreement.effective_until', '') }}"
+                                                                    data-commercial-agreement-status="{{ data_get($statement, 'commercial_agreement.status', 'active') }}"
+                                                                    data-commercial-agreement-notes="{{ e((string) data_get($statement, 'commercial_agreement.notes', '')) }}"
+                                                                @endif
+                                                            >
+                                                                <span class="bsv2-actions-menu__icon" aria-hidden="true">
+                                                                    <svg viewBox="0 0 24 24" fill="none">
+                                                                        <path d="M7 4h8l4 4v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M15 4v4h4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                    </svg>
+                                                                </span>
+                                                                <span>Acuerdo comercial</span>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1361,7 +1396,144 @@
             </div>
         </div>
     </div>
+            
+                                                {{-- MODAL · ACUERDO COMERCIAL --}}
+    <div class="bsv2-modal" id="bsv2-commercial-agreement-modal" aria-hidden="true">
+        <div class="bsv2-modal__backdrop" data-bsv2-close-modal></div>
 
+        <div class="bsv2-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="bsv2-commercial-agreement-title">
+            <div class="bsv2-modal__head">
+                <div>
+                    <h3 class="bsv2-modal__title" id="bsv2-commercial-agreement-title">Acuerdo comercial</h3>
+                    <p class="bsv2-modal__subtitle" id="bsv2-commercial-agreement-subtitle">
+                        Configura una fecha de pago acordada para este cliente sin cambiar la fecha general de envío.
+                    </p>
+                </div>
+
+                <button type="button" class="bsv2-modal__close" data-bsv2-close-modal aria-label="Cerrar">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6 18 18M18 6 6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="bsv2-modal__body">
+                <form method="POST" action="#" id="bsv2-commercial-agreement-form" class="bsv2-form">
+                    @csrf
+
+                    <input type="hidden" name="account_id" id="bsv2-commercial-account-id" value="">
+
+                    <div class="bsv2-form__grid bsv2-form__grid--summary">
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">Cliente</span>
+                            <strong class="bsv2-summary-card__value" id="bsv2-commercial-client-name">—</strong>
+                        </div>
+
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">RFC</span>
+                            <strong class="bsv2-summary-card__value" id="bsv2-commercial-client-rfc">—</strong>
+                        </div>
+
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">Vencimiento actual</span>
+                            <strong class="bsv2-summary-card__value" id="bsv2-commercial-current-due-date">—</strong>
+                        </div>
+                    </div>
+
+                    <div class="bsv2-form__grid">
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-agreed-due-day">Día acordado de pago</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="31"
+                                name="agreed_due_day"
+                                id="bsv2-commercial-agreed-due-day"
+                                class="bsv2-control"
+                                placeholder="Ej. 28"
+                            >
+                            <p class="bsv2-help">
+                                Ejemplo: si el envío sigue el día 5 pero el cliente paga el 28, aquí defines el 28.
+                            </p>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-grace-days">Días de gracia</label>
+                            <input
+                                type="number"
+                                min="0"
+                                max="31"
+                                name="grace_days"
+                                id="bsv2-commercial-grace-days"
+                                class="bsv2-control"
+                                value="0"
+                            >
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-effective-from">Vigente desde</label>
+                            <input
+                                type="date"
+                                name="effective_from"
+                                id="bsv2-commercial-effective-from"
+                                class="bsv2-control"
+                            >
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-effective-until">Vigente hasta</label>
+                            <input
+                                type="date"
+                                name="effective_until"
+                                id="bsv2-commercial-effective-until"
+                                class="bsv2-control"
+                            >
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-status">Estatus del acuerdo</label>
+                            <select name="status" id="bsv2-commercial-status" class="bsv2-control">
+                                <option value="active">Activo</option>
+                                <option value="inactive">Inactivo</option>
+                            </select>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-commercial-reminders-enabled">Recordatorios</label>
+                            <select name="reminders_enabled" id="bsv2-commercial-reminders-enabled" class="bsv2-control">
+                                <option value="1">Sí, respetando fecha acordada</option>
+                                <option value="0">No enviar recordatorios automáticos</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bsv2-field">
+                        <label class="bsv2-label" for="bsv2-commercial-notes">Notas del acuerdo</label>
+                        <textarea
+                            name="notes"
+                            id="bsv2-commercial-notes"
+                            class="bsv2-control bsv2-control--textarea"
+                            rows="5"
+                            placeholder="Detalle del acuerdo comercial con el cliente"
+                        ></textarea>
+                    </div>
+
+                    <div class="bsv2-email-preview-box">
+                        <div class="bsv2-email-preview-box__title">Importante</div>
+                        <div class="bsv2-email-preview-box__text">
+                            El estado de cuenta puede seguir enviándose en la fecha general, pero no deberá marcarse como vencido ni generar recordatorios antes de la fecha acordada aquí.
+                        </div>
+                    </div>
+
+                    <div class="bsv2-form__actions">
+                        <button type="button" class="bsv2-btn bsv2-btn--ghost" data-bsv2-close-modal>Cancelar</button>
+                        <button type="submit" class="bsv2-btn bsv2-btn--primary">Guardar acuerdo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
 </div>
 @endsection
 

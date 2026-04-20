@@ -16,6 +16,7 @@
     const previewModal = root.getElementById('bsv2-preview-modal');
     const editModal = root.getElementById('bsv2-edit-modal');
     const emailModal = root.getElementById('bsv2-email-modal');
+    const commercialAgreementModal = root.getElementById('bsv2-commercial-agreement-modal');
     const advanceModal = root.getElementById('bsv2-advance-modal');
     const bulkPaymentsModal = root.getElementById('bsv2-bulk-payments-modal');
 
@@ -38,15 +39,19 @@
     const editPaymentNotes = root.getElementById('bsv2-edit-payment-notes');
     const editSubtitle = root.getElementById('bsv2-edit-subtitle');
 
-    const emailForm = root.getElementById('bsv2-email-form');
-    const emailAccountId = root.getElementById('bsv2-email-account-id');
-    const emailPeriod = root.getElementById('bsv2-email-period');
-    const emailClientName = root.getElementById('bsv2-email-client-name');
-    const emailPeriodLabel = root.getElementById('bsv2-email-period-label');
-    const emailTo = root.getElementById('bsv2-email-to');
-    const emailSubject = root.getElementById('bsv2-email-subject');
-    const emailMessage = root.getElementById('bsv2-email-message');
-    const emailSubtitle = root.getElementById('bsv2-email-subtitle');
+    const commercialAgreementForm = root.getElementById('bsv2-commercial-agreement-form');
+    const commercialAccountId = root.getElementById('bsv2-commercial-account-id');
+    const commercialClientName = root.getElementById('bsv2-commercial-client-name');
+    const commercialClientRfc = root.getElementById('bsv2-commercial-client-rfc');
+    const commercialCurrentDueDate = root.getElementById('bsv2-commercial-current-due-date');
+    const commercialAgreedDueDay = root.getElementById('bsv2-commercial-agreed-due-day');
+    const commercialGraceDays = root.getElementById('bsv2-commercial-grace-days');
+    const commercialEffectiveFrom = root.getElementById('bsv2-commercial-effective-from');
+    const commercialEffectiveUntil = root.getElementById('bsv2-commercial-effective-until');
+    const commercialStatus = root.getElementById('bsv2-commercial-status');
+    const commercialRemindersEnabled = root.getElementById('bsv2-commercial-reminders-enabled');
+    const commercialNotes = root.getElementById('bsv2-commercial-notes');
+    const commercialSubtitle = root.getElementById('bsv2-commercial-agreement-subtitle');
 
     const filtersForm = root.getElementById('bsv2-filters-form');
     const selectedHiddenInputsContainer = root.getElementById('bsv2-selected-hidden-inputs');
@@ -402,17 +407,38 @@
     }
 
     function resetEmailModal() {
-        if (!emailForm) return;
+            if (!emailForm) return;
 
-        emailForm.setAttribute('action', '#');
-        if (emailAccountId) emailAccountId.value = '';
-        if (emailPeriod) emailPeriod.value = '';
-        if (emailClientName) emailClientName.textContent = '—';
-        if (emailPeriodLabel) emailPeriodLabel.textContent = '—';
-        if (emailTo) emailTo.value = '';
-        if (emailSubject) emailSubject.value = '';
-        if (emailMessage) emailMessage.value = '';
-        if (emailSubtitle) emailSubtitle.textContent = 'Configura destinatarios, asunto y mensaje antes de enviar.';
+            emailForm.setAttribute('action', '#');
+            if (emailAccountId) emailAccountId.value = '';
+            if (emailPeriod) emailPeriod.value = '';
+            if (emailClientName) emailClientName.textContent = '—';
+            if (emailPeriodLabel) emailPeriodLabel.textContent = '—';
+            if (emailTo) emailTo.value = '';
+            if (emailSubject) emailSubject.value = '';
+            if (emailMessage) emailMessage.value = '';
+            if (emailSubtitle) emailSubtitle.textContent = 'Configura destinatarios, asunto y mensaje antes de enviar.';
+        }
+
+        function resetCommercialAgreementModal() {
+        if (!commercialAgreementForm) return;
+
+        commercialAgreementForm.setAttribute('action', '#');
+
+        if (commercialAccountId) commercialAccountId.value = '';
+        if (commercialClientName) commercialClientName.textContent = '—';
+        if (commercialClientRfc) commercialClientRfc.textContent = '—';
+        if (commercialCurrentDueDate) commercialCurrentDueDate.textContent = '—';
+        if (commercialAgreedDueDay) commercialAgreedDueDay.value = '';
+        if (commercialGraceDays) commercialGraceDays.value = '0';
+        if (commercialEffectiveFrom) commercialEffectiveFrom.value = '';
+        if (commercialEffectiveUntil) commercialEffectiveUntil.value = '';
+        if (commercialStatus) commercialStatus.value = 'active';
+        if (commercialRemindersEnabled) commercialRemindersEnabled.value = '1';
+        if (commercialNotes) commercialNotes.value = '';
+        if (commercialSubtitle) {
+            commercialSubtitle.textContent = 'Configura una fecha de pago acordada para este cliente sin cambiar la fecha general de envío.';
+        }
     }
 
     function buildAdvanceRow(values = {}) {
@@ -537,6 +563,7 @@
         if (modal === previewModal) resetPreviewModal();
         if (modal === editModal) resetEditModal();
         if (modal === emailModal) resetEmailModal();
+        if (modal === commercialAgreementModal) resetCommercialAgreementModal();
         if (modal === advanceModal) resetAdvanceModal();
         if (modal === bulkPaymentsModal) resetBulkPaymentsModal();
 
@@ -746,6 +773,42 @@
         openModal(emailModal, emailTo);
     }
 
+    function openCommercialAgreementFromButton(button) {
+        if (!commercialAgreementModal || !commercialAgreementForm) return;
+
+        const actionUrl = safeText(parseDataset(button, 'commercialAgreementUrl', ''), '#');
+        const accountId = safeText(parseDataset(button, 'accountId', ''), '');
+        const clientName = safeText(parseDataset(button, 'clientName', ''), 'Cliente');
+        const clientRfc = safeText(parseDataset(button, 'clientRfc', ''), 'Sin RFC');
+        const dueDate = safeText(parseDataset(button, 'dueDate', ''), '—');
+        const agreedDueDay = safeText(parseDataset(button, 'agreedDueDay', ''), '');
+        const remindersEnabled = safeText(parseDataset(button, 'remindersEnabled', '1'), '1');
+        const graceDays = safeText(parseDataset(button, 'graceDays', '0'), '0');
+        const effectiveFrom = safeText(parseDataset(button, 'effectiveFrom', ''), '');
+        const effectiveUntil = safeText(parseDataset(button, 'effectiveUntil', ''), '');
+        const status = safeText(parseDataset(button, 'commercialAgreementStatus', 'active'), 'active');
+        const notes = safeText(parseDataset(button, 'commercialAgreementNotes', ''), '');
+
+        commercialAgreementForm.setAttribute('action', actionUrl || '#');
+
+        if (commercialAccountId) commercialAccountId.value = accountId;
+        if (commercialClientName) commercialClientName.textContent = clientName;
+        if (commercialClientRfc) commercialClientRfc.textContent = clientRfc;
+        if (commercialCurrentDueDate) commercialCurrentDueDate.textContent = dueDate || '—';
+        if (commercialAgreedDueDay) commercialAgreedDueDay.value = agreedDueDay;
+        if (commercialGraceDays) commercialGraceDays.value = graceDays || '0';
+        if (commercialEffectiveFrom) commercialEffectiveFrom.value = effectiveFrom;
+        if (commercialEffectiveUntil) commercialEffectiveUntil.value = effectiveUntil;
+        if (commercialStatus) commercialStatus.value = status || 'active';
+        if (commercialRemindersEnabled) commercialRemindersEnabled.value = remindersEnabled === '0' ? '0' : '1';
+        if (commercialNotes) commercialNotes.value = notes;
+        if (commercialSubtitle) {
+            commercialSubtitle.textContent = 'Define el acuerdo comercial de pago para ' + clientName + '.';
+        }
+
+        openModal(commercialAgreementModal, commercialAgreedDueDay);
+    }
+
     function bindModalOpeners() {
         root.addEventListener('click', function (event) {
             const previewButton = event.target.closest('[data-bsv2-open-preview]');
@@ -766,6 +829,13 @@
             if (emailButton && !emailButton.classList.contains('is-disabled')) {
                 event.preventDefault();
                 openEmailFromButton(emailButton);
+                return;
+            }
+
+            const commercialAgreementButton = event.target.closest('[data-bsv2-open-commercial-agreement]');
+            if (commercialAgreementButton && !commercialAgreementButton.classList.contains('is-disabled')) {
+                event.preventDefault();
+                openCommercialAgreementFromButton(commercialAgreementButton);
             }
         });
 
@@ -910,6 +980,48 @@
                 submitButton.classList.add('is-disabled');
             });
         });
+
+        if (commercialAgreementForm) {
+            commercialAgreementForm.addEventListener('submit', async function (event) {
+                event.preventDefault();
+
+                const actionUrl = commercialAgreementForm.getAttribute('action') || '#';
+                if (!actionUrl || actionUrl === '#') {
+                    showMessage('No se encontró la ruta para guardar el acuerdo comercial.', 'error');
+                    return;
+                }
+
+                const submitButton = commercialAgreementForm.querySelector('button[type="submit"]');
+                const payload = {
+                    agreed_due_day: safeText(commercialAgreedDueDay?.value, '') || null,
+                    reminders_enabled: safeText(commercialRemindersEnabled?.value, '1') === '1',
+                    grace_days: safeText(commercialGraceDays?.value, '0') || 0,
+                    effective_from: safeText(commercialEffectiveFrom?.value, '') || null,
+                    effective_until: safeText(commercialEffectiveUntil?.value, '') || null,
+                    status: safeText(commercialStatus?.value, 'active'),
+                    notes: safeText(commercialNotes?.value, '') || null
+                };
+
+                try {
+                    if (submitButton) {
+                        submitButton.setAttribute('disabled', 'disabled');
+                        submitButton.classList.add('is-disabled');
+                    }
+
+                    const data = await postJson(actionUrl, payload);
+                    showMessage(safeText(data.message, 'Acuerdo comercial guardado correctamente.'));
+                    closeModal(commercialAgreementModal, false);
+                    window.location.reload();
+                } catch (error) {
+                    showMessage(error.message, 'error');
+                } finally {
+                    if (submitButton) {
+                        submitButton.removeAttribute('disabled');
+                        submitButton.classList.remove('is-disabled');
+                    }
+                }
+            });
+        }
     }
 
     function bindDynamicRows() {
@@ -1132,6 +1244,7 @@
     resetPreviewModal();
     resetEditModal();
     resetEmailModal();
+    resetCommercialAgreementModal();
     resetAdvanceModal();
     resetBulkPaymentsModal();
 
