@@ -1653,20 +1653,29 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
 
-        $owner = UsuarioCuenta::on('mysql_clientes')->find($pack['owner']->id);
-        abort_if(!$owner || !(int) $owner->activo, 404, 'Usuario owner no disponible');
+        $cuentaId = (string) ($pack['cuenta']->id ?? '');
+        $ownerId  = (string) ($pack['owner']->id ?? '');
 
-        // ✅ Token 1-uso en cache
+        abort_if($cuentaId === '', 404, 'Cuenta espejo no disponible.');
+        abort_if($ownerId === '', 404, 'Usuario owner no disponible.');
+
+        $ownerRow = DB::connection('mysql_clientes')
+            ->table('usuarios_cuenta')
+            ->where('id', $ownerId)
+            ->first(['id', 'activo', 'cuenta_id', 'email']);
+
+        abort_if(!$ownerRow || !(int) ($ownerRow->activo ?? 0), 404, 'Usuario owner no disponible');
+
         $token = Str::random(32);
 
         Cache::put("impersonate.token.$token", [
-            'owner_id'   => (string) $owner->id,
+            'owner_id'   => $ownerId,
+            'cuenta_id'  => $cuentaId,
             'admin_id'   => (string) auth('admin')->id(),
             'rfc'        => $rfcReal,
             'account_id' => $accountId,
         ], now()->addMinutes(5));
 
-        // ✅ URL firmada temporal hacia /cliente/impersonate/{token}
         $url = \URL::temporarySignedRoute(
             'cliente.impersonate.consume',
             now()->addMinutes(5),
