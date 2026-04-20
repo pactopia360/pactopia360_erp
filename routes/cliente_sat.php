@@ -222,8 +222,10 @@ Route::middleware(['auth:web', 'account.active'])
                     $candidates = [
                         public_path('downloads/pactopia360-sat-desktop-setup.exe'),
                         public_path('downloads/pactopia360-sat-desktop.exe'),
+                        public_path('downloads/PACTOPIA360-SAT-Desktop-Setup-0.1.0.exe'),
                         storage_path('app/private/desktop/pactopia360-sat-desktop-setup.exe'),
                         storage_path('app/private/desktop/pactopia360-sat-desktop.exe'),
+                        storage_path('app/private/desktop/PACTOPIA360-SAT-Desktop-Setup-0.1.0.exe'),
                     ];
 
                     $installerPath = null;
@@ -232,6 +234,28 @@ Route::middleware(['auth:web', 'account.active'])
                         if (is_file($candidate)) {
                             $installerPath = $candidate;
                             break;
+                        }
+                    }
+
+                    if (!$installerPath) {
+                        $downloadDir = public_path('downloads');
+                        if (is_dir($downloadDir)) {
+                            $matches = glob($downloadDir . DIRECTORY_SEPARATOR . 'PACTOPIA360-SAT-Desktop-Setup-*.exe');
+                            if (!empty($matches)) {
+                                rsort($matches, SORT_NATURAL);
+                                $installerPath = $matches[0];
+                            }
+                        }
+                    }
+
+                    if (!$installerPath) {
+                        $storageDir = storage_path('app/private/desktop');
+                        if (is_dir($storageDir)) {
+                            $matches = glob($storageDir . DIRECTORY_SEPARATOR . 'PACTOPIA360-SAT-Desktop-Setup-*.exe');
+                            if (!empty($matches)) {
+                                rsort($matches, SORT_NATURAL);
+                                $installerPath = $matches[0];
+                            }
                         }
                     }
 
