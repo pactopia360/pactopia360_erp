@@ -611,8 +611,6 @@ html.theme-dark .bsv2-preview__toolbar .bsv2-btn--soft{
     white-space: nowrap;
 }
 
-.bsv2-actions-dropdown:hover .bsv2-actions-menu,
-.bsv2-actions-dropdown:focus-within .bsv2-actions-menu,
 .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
     opacity: 1;
     visibility: visible;
@@ -695,8 +693,6 @@ button.bsv2-actions-menu__item:hover{
         transform-origin: top right;
     }
 
-    .bsv2-actions-dropdown:hover .bsv2-actions-menu,
-    .bsv2-actions-dropdown:focus-within .bsv2-actions-menu,
     .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
         transform: translateY(0) scale(1);
     }
