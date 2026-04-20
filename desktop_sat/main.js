@@ -172,6 +172,8 @@ function createMainWindow() {
         return mainWindow;
     }
 
+    const appIcon = path.join(__dirname, '..', 'public', 'assets', 'admin', 'img', 'p360_pro.ico');
+
     mainWindow = new BrowserWindow({
         width: 1366,
         height: 860,
@@ -181,6 +183,7 @@ function createMainWindow() {
         autoHideMenuBar: true,
         show: false,
         title: 'PACTOPIA360 SAT Desktop',
+        icon: appIcon,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -244,6 +247,12 @@ function createMainWindow() {
     });
 
     return mainWindow;
+}
+
+app.setName('PACTOPIA360 SAT Desktop');
+
+if (process.platform === 'win32') {
+    app.setAppUserModelId('com.pactopia360.satdesktop');
 }
 
 ipcMain.handle('p360:storage:set-config', async (_event, payload = {}) => {
