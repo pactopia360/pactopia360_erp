@@ -273,7 +273,9 @@ body.bsv2-modal-open{
 
 .bsv2-table-wrap{
     width: 100%;
+    position: relative;
     overflow-x: auto;
+    overflow-y: visible;
 }
 
 .bsv2-table{
@@ -313,6 +315,25 @@ body.bsv2-modal-open{
 
 .bsv2-table tbody tr:last-child td{
     border-bottom: 0;
+}
+
+.bsv2-table tbody td{
+    position: relative;
+    overflow: visible;
+}
+
+.bsv2-table tbody td:last-child,
+.bsv2-col-actions{
+    overflow: visible !important;
+}
+
+.bsv2-row{
+    position: relative;
+}
+
+.bsv2-row:hover,
+.bsv2-row:focus-within{
+    z-index: 8;
 }
 
 .bsv2-row:hover td{
@@ -461,6 +482,7 @@ body.bsv2-modal-open{
     justify-content: flex-end;
     gap: 8px;
     flex-wrap: nowrap;
+    overflow: visible;
 }
 
 .bsv2-actions--pro{
@@ -562,26 +584,40 @@ html.theme-dark .bsv2-preview__toolbar .bsv2-btn--soft{
 
 .bsv2-actions-dropdown{
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    isolation: isolate;
+    overflow: visible;
 }
 
 .bsv2-actions-menu{
     position: absolute;
-    top: calc(100% + 10px);
-    right: 0;
+    top: 50%;
+    right: calc(100% + 12px);
     min-width: 220px;
     padding: 8px;
     border-radius: 16px;
     background: var(--bsv2-card);
     border: 1px solid var(--bsv2-border);
     box-shadow: var(--bsv2-shadow-menu);
-    display: none;
-    z-index: 50;
+    display: block;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-50%) scale(.98);
+    transform-origin: right center;
+    z-index: 999;
+    white-space: nowrap;
 }
 
 .bsv2-actions-dropdown:hover .bsv2-actions-menu,
 .bsv2-actions-dropdown:focus-within .bsv2-actions-menu,
 .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(-50%) scale(1);
 }
 
 .bsv2-actions-menu__form{
@@ -649,6 +685,21 @@ button.bsv2-actions-menu__item:hover{
 
 .bsv2-actions-menu__item.is-disabled .bsv2-actions-menu__icon{
     color: var(--bsv2-disabled-text);
+}
+
+@media (max-width: 767px){
+    .bsv2-actions-menu{
+        top: calc(100% + 8px);
+        right: 0;
+        transform: translateY(0) scale(.98);
+        transform-origin: top right;
+    }
+
+    .bsv2-actions-dropdown:hover .bsv2-actions-menu,
+    .bsv2-actions-dropdown:focus-within .bsv2-actions-menu,
+    .bsv2-actions-dropdown.is-open .bsv2-actions-menu{
+        transform: translateY(0) scale(1);
+    }
 }
 
 /* =========================================================
