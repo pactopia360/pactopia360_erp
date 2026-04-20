@@ -872,6 +872,16 @@ Route::middleware([
                 ->middleware($thrAdminPosts)
                 ->name('payments.bulk');
 
+            $statementsV2CommercialAgreement = Route::post(
+                '{accountId}/commercial-agreement',
+                [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'saveCommercialAgreement']
+            )
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('commercial_agreement.save');
+
             Route::get('{accountId}/{period}/preview', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'preview'])
                 ->where([
                     'accountId' => '[A-Za-z0-9\-]+',
@@ -914,6 +924,7 @@ Route::middleware([
                     $statementsV2BulkSend,
                     $statementsV2AdvancePayments,
                     $statementsV2BulkPayments,
+                    $statementsV2CommercialAgreement,
                     $statementsV2StatusUpdate,
                     $statementsV2EmailSend,
                 ] as $rt) {
