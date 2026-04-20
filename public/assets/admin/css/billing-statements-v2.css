@@ -3012,3 +3012,102 @@ html.theme-dark .bsv2-progress-dual__fill{
         inset 0 1px 0 rgba(255,255,255,.10),
         0 6px 14px rgba(0,0,0,.18);
 }
+
+/* =========================================================
+   ACUERDO COMERCIAL · CHECKBOX EXPANDIDO
+   ========================================================= */
+
+.bsv2-field--full{
+    grid-column: 1 / -1;
+}
+
+.bsv2-check--stack{
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--bsv2-border);
+    background: linear-gradient(180deg, var(--bsv2-card) 0%, var(--bsv2-card-soft) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.32);
+}
+
+.bsv2-check--stack input{
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+}
+
+.bsv2-check--stack > span:first-of-type{
+    flex: 0 0 18px;
+    margin-top: 2px;
+}
+
+.bsv2-check__content{
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.bsv2-check__title{
+    color: var(--bsv2-text);
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 900;
+    letter-spacing: -.01em;
+}
+
+.bsv2-check__text{
+    color: var(--bsv2-text-soft);
+    font-size: 11px;
+    line-height: 1.6;
+    font-weight: 700;
+}
+
+.bsv2-check--stack:hover{
+    border-color: var(--bsv2-border-strong);
+    background: color-mix(in srgb, var(--bsv2-card) 92%, var(--bsv2-bg-soft) 8%);
+}
+
+.bsv2-check--stack input:focus + span{
+    box-shadow: 0 0 0 4px rgba(47,109,246,.12);
+    border-color: rgba(47,109,246,.42);
+}
+
+.bsv2-check--stack input:checked ~ .bsv2-check__content .bsv2-check__title{
+    color: var(--bsv2-blue-4);
+}
+
+@media (max-width: 991px){
+    .bsv2-field--full{
+        grid-column: auto;
+    }
+
+    .bsv2-check--stack{
+        padding: 13px 14px;
+    }
+}
+
+@media (max-width: 767px){
+    .bsv2-check--stack{
+        gap: 10px;
+        padding: 12px 13px;
+        border-radius: 14px;
+    }
+
+    .bsv2-check__title{
+        font-size: 12px;
+    }
+
+    .bsv2-check__text{
+        font-size: 10px;
+        line-height: 1.55;
+    }
+}

@@ -1474,7 +1474,7 @@
                         <div class="bsv2-field bsv2-field--full">
                             <label class="bsv2-label" for="bsv2-commercial-apply-forward-indefinitely">Aplicación del acuerdo</label>
 
-                            <label class="bsv2-check" style="gap:10px; align-items:flex-start;">
+                            <label class="bsv2-check bsv2-check--stack">
                                 <input
                                     type="checkbox"
                                     name="apply_forward_indefinitely"
@@ -1482,9 +1482,10 @@
                                     value="1"
                                 >
                                 <span></span>
-                                <span style="display:inline-flex; flex-direction:column; gap:4px;">
-                                    <strong style="font-size:13px; color:inherit;">Aplicar desde hoy en adelante todos los meses</strong>
-                                    <small style="font-size:12px; color:var(--bsv2-text-soft, #6b7280); line-height:1.45;">
+
+                                <span class="bsv2-check__content">
+                                    <strong class="bsv2-check__title">Aplicar desde hoy en adelante todos los meses</strong>
+                                    <small class="bsv2-check__text">
                                         Al activar esta opción, el acuerdo comenzará hoy y quedará vigente sin fecha final hasta que lo edites o desactives.
                                     </small>
                                 </span>
