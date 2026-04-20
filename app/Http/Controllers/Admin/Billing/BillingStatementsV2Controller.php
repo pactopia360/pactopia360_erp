@@ -217,13 +217,16 @@ final class BillingStatementsV2Controller extends Controller
             }
         }
 
+        $commercialAgreementsByAccountId = $this->fetchCommercialAgreementsForAccounts($visibleAccountIds);
+
         $statements = $baseStatementRows
             ->map(function (BillingStatement $currentStatement) use (
                 $clientesByStatementAccountId,
                 $statementRows,
                 $period,
                 $previousPeriod,
-                $overridesByAccountAndPeriod
+                $overridesByAccountAndPeriod,
+                $commercialAgreementsByAccountId
             ) {
                 $statementAccountId = (string) $currentStatement->account_id;
                 $cliente = $clientesByStatementAccountId[(string) $statementAccountId] ?? null;
@@ -266,6 +269,12 @@ final class BillingStatementsV2Controller extends Controller
                 }
                 if (!is_array($statementMeta)) {
                     $statementMeta = [];
+                }
+
+                $commercialAgreement = $commercialAgreementsByAccountId[(string) $statementAccountId] ?? null;
+
+                if (!is_array($commercialAgreement)) {
+                    $commercialAgreement = $this->resolveCommercialAgreementFromStatementMeta($statementMeta);
                 }
 
                 $lastPaidPeriod = $this->resolveLastPaidPeriodForAccount(
@@ -345,6 +354,7 @@ final class BillingStatementsV2Controller extends Controller
                     'status_reason'        => $statusResolved->status_override_reason ?? null,
                     'last_payment_date'    => $lastPaymentDate,
                     'due_date'             => $currentStatement->due_date,
+                    'commercial_agreement' => $commercialAgreement,
                     'sent_at'              => $currentStatement->sent_at,
                     'paid_at'              => $currentStatement->paid_at,
                     'statement_id'         => $currentStatement->id,
@@ -1240,12 +1250,21 @@ final class BillingStatementsV2Controller extends Controller
             $meta = [];
         }
 
+        $existingAgreementRow = DB::connection($this->adm)
+            ->table('billing_commercial_agreements')
+            ->where('account_id', $accountId)
+            ->orderByDesc('id')
+            ->first();
+
         $meta['commercial_agreement'] = [
-            'applied' => $status === 'active' && $agreedDueDay !== null,
-            'agreed_due_day' => $agreedDueDay,
-            'grace_days' => $graceDays,
-            'effective_from' => $effectiveFrom,
-            'effective_until' => $effectiveUntil,
+            'applied'            => $status === 'active' && $agreedDueDay !== null,
+            'agreed_due_day'     => $agreedDueDay,
+            'reminders_enabled'  => $existingAgreementRow ? (bool) ($existingAgreementRow->reminders_enabled ?? true) : true,
+            'grace_days'         => $graceDays,
+            'effective_from'     => $effectiveFrom,
+            'effective_until'    => $effectiveUntil,
+            'status'             => $status,
+            'notes'              => $existingAgreementRow ? (string) ($existingAgreementRow->notes ?? '') : '',
         ];
 
         $statement->due_date = $newDueDate;
@@ -1314,6 +1333,72 @@ protected function isValidStatementPeriod(string $period): bool
         }
 
         return '';
+    }
+
+    /**
+     * @param array<int,string> $accountIds
+     * @return array<string,array<string,mixed>>
+     */
+    private function fetchCommercialAgreementsForAccounts(array $accountIds): array
+    {
+        $accountIds = array_values(array_unique(array_filter(array_map(
+            static fn ($value) => trim((string) $value),
+            $accountIds
+        ))));
+
+        if (empty($accountIds) || !Schema::connection($this->adm)->hasTable('billing_commercial_agreements')) {
+            return [];
+        }
+
+        $rows = DB::connection($this->adm)
+            ->table('billing_commercial_agreements')
+            ->whereIn('account_id', $accountIds)
+            ->orderByDesc('id')
+            ->get();
+
+        $mapped = [];
+
+        foreach ($rows as $row) {
+            $rowAccountId = trim((string) ($row->account_id ?? ''));
+            if ($rowAccountId === '' || isset($mapped[$rowAccountId])) {
+                continue;
+            }
+
+            $mapped[$rowAccountId] = [
+                'agreed_due_day'    => isset($row->agreed_due_day) ? (int) $row->agreed_due_day : null,
+                'reminders_enabled' => isset($row->reminders_enabled) ? (bool) $row->reminders_enabled : true,
+                'grace_days'        => isset($row->grace_days) ? (int) $row->grace_days : 0,
+                'effective_from'    => !empty($row->effective_from) ? (string) $row->effective_from : null,
+                'effective_until'   => !empty($row->effective_until) ? (string) $row->effective_until : null,
+                'status'            => !empty($row->status) ? (string) $row->status : 'active',
+                'notes'             => !empty($row->notes) ? (string) $row->notes : '',
+            ];
+        }
+
+        return $mapped;
+    }
+
+    private function resolveCommercialAgreementFromStatementMeta(array $statementMeta): ?array
+    {
+        $agreement = $statementMeta['commercial_agreement'] ?? null;
+
+        if ($agreement instanceof \stdClass) {
+            $agreement = (array) $agreement;
+        }
+
+        if (!is_array($agreement) || empty($agreement)) {
+            return null;
+        }
+
+        return [
+            'agreed_due_day'    => isset($agreement['agreed_due_day']) && $agreement['agreed_due_day'] !== null ? (int) $agreement['agreed_due_day'] : null,
+            'reminders_enabled' => array_key_exists('reminders_enabled', $agreement) ? (bool) $agreement['reminders_enabled'] : true,
+            'grace_days'        => isset($agreement['grace_days']) ? (int) $agreement['grace_days'] : 0,
+            'effective_from'    => !empty($agreement['effective_from']) ? (string) $agreement['effective_from'] : null,
+            'effective_until'   => !empty($agreement['effective_until']) ? (string) $agreement['effective_until'] : null,
+            'status'            => !empty($agreement['status']) ? (string) $agreement['status'] : 'active',
+            'notes'             => !empty($agreement['notes']) ? (string) $agreement['notes'] : '',
+        ];
     }
 
     protected function shouldSkipIncompleteStatementRow(
@@ -1593,7 +1678,12 @@ protected function isValidStatementPeriod(string $period): bool
             'status'        => strtolower(trim((string) ($statement->status ?? 'pending'))),
             'paid_at'       => $statement->paid_at,
             'sent_at'       => $statement->sent_at,
+
+            'commercial_agreement' => $this->resolveCommercialAgreementFromStatementMeta(
+                is_array($statement->meta) ? $statement->meta : []
+            ),
         ];
+        
     }
 
     /**
