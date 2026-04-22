@@ -1127,4 +1127,184 @@ class HomeController extends Controller
 
         return null;
     }
+
+        /**
+     * Catálogo SOT de módulos visibles al cliente.
+     * Debe coincidir con Admin/Billing/Accounts.
+     */
+    private function modulesCatalog(): array
+    {
+        return [
+            'mi_cuenta' => [
+                'label' => 'Mi cuenta',
+                'desc'  => 'Pantalla de cuenta, perfil, configuración y accesos.',
+                'group' => 'Cuenta',
+            ],
+            'estado_cuenta' => [
+                'label' => 'Estado de cuenta',
+                'desc'  => 'Estados de cuenta, periodos, cargos y seguimiento de billing.',
+                'group' => 'Cuenta',
+            ],
+            'pagos' => [
+                'label' => 'Pagos',
+                'desc'  => 'Historial de pagos, confirmaciones y control administrativo.',
+                'group' => 'Cuenta',
+            ],
+            'facturas' => [
+                'label' => 'Facturas',
+                'desc'  => 'Facturas generadas por la plataforma para la cuenta.',
+                'group' => 'Cuenta',
+            ],
+
+            'sat_descargas' => [
+                'label' => 'SAT Descargas',
+                'desc'  => 'RFC, cotizaciones SAT, pagos, seguimiento operativo y descargas.',
+                'group' => 'Fiscal',
+            ],
+            'boveda_fiscal' => [
+                'label' => 'Bóveda Fiscal SAT',
+                'desc'  => 'Consulta documental y operación ligada al ecosistema SAT.',
+                'group' => 'Fiscal',
+            ],
+            'facturacion' => [
+                'label' => 'Facturación',
+                'desc'  => 'CFDI comerciales con consumo de timbres / hits.',
+                'group' => 'Fiscal',
+            ],
+            'timbres_hits' => [
+                'label' => 'Timbres / Hits',
+                'desc'  => 'Compra, saldo, consumo y configuración de timbrado.',
+                'group' => 'Fiscal',
+            ],
+
+            'crm' => [
+                'label' => 'CRM',
+                'desc'  => 'Prospectos, clientes, pipeline comercial y seguimiento.',
+                'group' => 'Comercial',
+            ],
+            'inventario' => [
+                'label' => 'Inventario',
+                'desc'  => 'Productos, existencias, movimientos y base operativa.',
+                'group' => 'Operación',
+            ],
+            'ventas' => [
+                'label' => 'Ventas',
+                'desc'  => 'Tickets, códigos de venta y base para autofacturación.',
+                'group' => 'Operación',
+            ],
+            'reportes' => [
+                'label' => 'Reportes',
+                'desc'  => 'Indicadores, dashboards y análisis general.',
+                'group' => 'Operación',
+            ],
+            'recursos_humanos' => [
+                'label' => 'Recursos Humanos',
+                'desc'  => 'Empleados, incidencias, nómina y CFDI de nómina dentro del mismo módulo.',
+                'group' => 'Recursos Humanos',
+            ],
+        ];
+    }
+
+    /**
+     * Normaliza modules_state desde admin.accounts.meta.
+     * Soporta bool/int/string/array.
+     */
+    private function normalizeModulesState(array $meta): array
+    {
+        $catalog = $this->modulesCatalog();
+
+        $raw = data_get($meta, 'modules_state');
+        if (!is_array($raw)) {
+            $raw = data_get($meta, 'modules.state');
+        }
+        if (!is_array($raw)) {
+            $raw = data_get($meta, 'modules');
+        }
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $state = [];
+
+        foreach ($catalog as $key => $cfg) {
+            $value = $raw[$key] ?? true;
+
+            $entry = [
+                'key'     => (string) $key,
+                'label'   => (string) ($cfg['label'] ?? $key),
+                'desc'    => (string) ($cfg['desc'] ?? ''),
+                'group'   => (string) ($cfg['group'] ?? 'General'),
+                'visible' => true,
+                'enabled' => true,
+                'hidden'  => false,
+                'status'  => 'active',
+            ];
+
+            if (is_bool($value)) {
+                $entry['visible'] = $value;
+                $entry['enabled'] = $value;
+                $entry['hidden']  = !$value;
+                $entry['status']  = $value ? 'active' : 'hidden';
+            } elseif (is_numeric($value)) {
+                $on = ((int) $value) === 1;
+                $entry['visible'] = $on;
+                $entry['enabled'] = $on;
+                $entry['hidden']  = !$on;
+                $entry['status']  = $on ? 'active' : 'hidden';
+            } elseif (is_string($value)) {
+                $s = strtolower(trim($value));
+
+                if (in_array($s, ['1', 'true', 'on', 'yes', 'enabled', 'active', 'visible'], true)) {
+                    $entry['visible'] = true;
+                    $entry['enabled'] = true;
+                    $entry['hidden']  = false;
+                    $entry['status']  = 'active';
+                } elseif (in_array($s, ['0', 'false', 'off', 'no', 'disabled', 'inactive', 'hidden'], true)) {
+                    $entry['visible'] = false;
+                    $entry['enabled'] = false;
+                    $entry['hidden']  = true;
+                    $entry['status']  = 'hidden';
+                } elseif ($s === 'blocked') {
+                    $entry['visible'] = true;
+                    $entry['enabled'] = false;
+                    $entry['hidden']  = false;
+                    $entry['status']  = 'blocked';
+                }
+            } elseif (is_array($value)) {
+                if (array_key_exists('visible', $value)) {
+                    $entry['visible'] = (bool) $value['visible'];
+                }
+                if (array_key_exists('enabled', $value)) {
+                    $entry['enabled'] = (bool) $value['enabled'];
+                }
+                if (array_key_exists('hidden', $value)) {
+                    $entry['hidden'] = (bool) $value['hidden'];
+                }
+                if (array_key_exists('status', $value) && is_string($value['status'])) {
+                    $entry['status'] = strtolower(trim((string) $value['status']));
+                }
+
+                if ($entry['hidden']) {
+                    $entry['visible'] = false;
+                }
+
+                if ($entry['status'] === 'blocked') {
+                    $entry['visible'] = true;
+                    $entry['enabled'] = false;
+                    $entry['hidden']  = false;
+                } elseif (in_array($entry['status'], ['hidden', 'inactive', 'disabled'], true)) {
+                    $entry['visible'] = false;
+                    $entry['enabled'] = false;
+                    $entry['hidden']  = true;
+                    $entry['status']  = 'hidden';
+                } else {
+                    $entry['status'] = $entry['enabled'] ? 'active' : 'inactive';
+                }
+            }
+
+            $state[$key] = $entry;
+        }
+
+        return $state;
+    }
 }

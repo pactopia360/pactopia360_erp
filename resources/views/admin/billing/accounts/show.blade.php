@@ -153,14 +153,16 @@
     return in_array($s, [$ST_ACTIVE,$ST_INACTIVE,$ST_HIDDEN,$ST_BLOCKED], true) ? $s : $ST_ACTIVE;
   };
 
-  /**
+    /**
    * =========================================================
    * ✅ CATÁLOGO BASE (UI SOT)
-   * - Incluye navegación de cuenta (lo que te faltaba)
+   * - Debe coincidir con lo que ve cliente web/móvil
+   * - CFDI Nómina vive dentro de RH, NO como módulo aparte
+   * - SAT integra cotizaciones SAT + bóveda SAT dentro del mismo ecosistema
    * =========================================================
    */
   $baseModulesCatalog = [
-    // Cuenta (navegación en cliente)
+    // Cuenta / navegación cliente
     'mi_cuenta' => [
       'label' => 'Mi cuenta',
       'desc'  => 'Pantalla de cuenta, perfil, configuración y accesos.',
@@ -168,93 +170,71 @@
     ],
     'estado_cuenta' => [
       'label' => 'Estado de cuenta',
-      'desc'  => 'Estados de cuenta, periodos y cargos.',
+      'desc'  => 'Estados de cuenta, periodos, cargos y seguimiento de billing.',
       'group' => 'Cuenta',
     ],
     'pagos' => [
       'label' => 'Pagos',
-      'desc'  => 'Historial de pagos, métodos y confirmaciones.',
+      'desc'  => 'Historial de pagos, confirmaciones y control administrativo.',
       'group' => 'Cuenta',
     ],
     'facturas' => [
       'label' => 'Facturas',
-      'desc'  => 'Facturas emitidas por la plataforma (billing).',
+      'desc'  => 'Facturas generadas por la plataforma para la cuenta.',
       'group' => 'Cuenta',
     ],
 
-    // Core / Operación
+    // Núcleo de operación
     'facturacion' => [
       'label' => 'Facturación',
-      'desc'  => 'Emisión/gestión de CFDI.',
-      'group' => 'Operación',
-    ],
-    'sat_descargas' => [
-      'label' => 'SAT Descargas Masivas',
-      'desc'  => 'Descarga masiva CFDI (SAT) y automatizaciones.',
-      'group' => 'Fiscal',
-    ],
-    'boveda_fiscal' => [
-      'label' => 'Bóveda Fiscal',
-      'desc'  => 'Almacenamiento/consulta de XML CFDI y reportes.',
-      'group' => 'Fiscal',
-    ],
-
-    // Comercial / Relación
-    'crm' => [
-      'label' => 'CRM',
-      'desc'  => 'Prospectos, pipeline, actividades y seguimiento.',
-      'group' => 'Comercial',
-    ],
-    'marketplace' => [
-      'label' => 'Marketplace',
-      'desc'  => 'Catálogo/servicios y complementos.',
-      'group' => 'Comercial',
-    ],
-
-    // RRHH / Nómina
-    'nomina' => [
-      'label' => 'Nómina',
-      'desc'  => 'Gestión nómina (CFDI), empleados y timbrado.',
-      'group' => 'RRHH',
-    ],
-
-    // Operación / Venta
-    'pos' => [
-      'label' => 'Punto de venta',
-      'desc'  => 'Caja, tickets, productos y ventas.',
+      'desc'  => 'Emisión y gestión de CFDI comerciales con consumo de timbres / hits.',
       'group' => 'Operación',
     ],
     'inventario' => [
       'label' => 'Inventario',
-      'desc'  => 'Existencias, movimientos, kardex y almacenes.',
+      'desc'  => 'Productos, existencias, movimientos, kardex y base operativa para ventas.',
+      'group' => 'Operación',
+    ],
+    'ventas' => [
+      'label' => 'Ventas',
+      'desc'  => 'Tickets, códigos de venta, comprobantes y base para autofacturación.',
+      'group' => 'Operación',
+    ],
+    'reportes' => [
+      'label' => 'Reportes',
+      'desc'  => 'Indicadores, dashboards, métricas y análisis general de operación.',
       'group' => 'Operación',
     ],
 
-    // Sistema
-    'reportes' => [
-      'label' => 'Reportes',
-      'desc'  => 'KPIs, dashboards y exportaciones.',
-      'group' => 'Sistema',
+    // Fiscal
+    'sat_descargas' => [
+      'label' => 'SAT Descargas',
+      'desc'  => 'Módulo SAT principal: RFC, cotizaciones SAT, pagos, seguimiento operativo y descargas.',
+      'group' => 'Fiscal',
     ],
-    'integraciones' => [
-      'label' => 'Integraciones',
-      'desc'  => 'Conectores externos, API, webhooks.',
-      'group' => 'Sistema',
+    'boveda_fiscal' => [
+      'label' => 'Bóveda Fiscal SAT',
+      'desc'  => 'Consulta, almacenamiento y operación documental ligada al ecosistema SAT.',
+      'group' => 'Fiscal',
     ],
-    'alertas' => [
-      'label' => 'Alertas',
-      'desc'  => 'Alertas operativas y notificaciones.',
-      'group' => 'Sistema',
+    'timbres_hits' => [
+      'label' => 'Timbres / Hits',
+      'desc'  => 'Compra, saldo, consumo, cotización y configuración de timbrado con Facturotopia.',
+      'group' => 'Fiscal',
     ],
-    'chat' => [
-      'label' => 'Chat',
-      'desc'  => 'Mensajería/soporte interno.',
-      'group' => 'Sistema',
+
+    // Comercial
+    'crm' => [
+      'label' => 'CRM',
+      'desc'  => 'Prospectos, clientes, pipeline comercial, actividades y seguimiento.',
+      'group' => 'Comercial',
     ],
-    'configuracion_avanzada' => [
-      'label' => 'Configuración avanzada',
-      'desc'  => 'Preferencias avanzadas por cuenta.',
-      'group' => 'Sistema',
+
+    // RH
+    'recursos_humanos' => [
+      'label' => 'Recursos Humanos',
+      'desc'  => 'Empleados, incidencias, nómina, finiquitos y CFDI de nómina dentro del mismo módulo.',
+      'group' => 'Recursos Humanos',
     ],
   ];
 

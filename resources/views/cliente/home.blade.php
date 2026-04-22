@@ -219,6 +219,153 @@
     </div>
   </section>
 
+   {{-- Módulos del sistema (sincronizados con Admin/Billing modules_state) --}}
+  <section class="p360-card card mt-4">
+    @php
+      /**
+       * =========================================================
+       * modules_state SOT
+       * Busca el estado de módulos en varias rutas posibles del summary/meta
+       * para no romper mientras terminamos de alinear backend.
+       * =========================================================
+       */
+      $modulesState = data_get($sum, 'modules_state');
+      if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules.state');
+      if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules');
+      if (!is_array($modulesState)) $modulesState = data_get($sum, 'meta.modules_state');
+      if (!is_array($modulesState)) $modulesState = data_get($sum, 'account.modules_state');
+      if (!is_array($modulesState)) $modulesState = [];
+
+      $moduleEnabled = function (string $key, bool $default = true) use ($modulesState) {
+          $state = $modulesState[$key] ?? null;
+
+          if (is_bool($state)) return $state;
+
+          if (is_numeric($state)) return ((int) $state) === 1;
+
+          if (is_string($state)) {
+              $s = strtolower(trim($state));
+              if (in_array($s, ['1', 'true', 'on', 'yes', 'active', 'enabled', 'visible'], true)) return true;
+              if (in_array($s, ['0', 'false', 'off', 'no', 'inactive', 'disabled', 'hidden', 'blocked'], true)) return false;
+          }
+
+          if (is_array($state)) {
+              if (array_key_exists('hidden', $state) && (bool) $state['hidden'] === true) return false;
+              if (array_key_exists('visible', $state)) return (bool) $state['visible'];
+              if (array_key_exists('enabled', $state)) return (bool) $state['enabled'];
+              if (array_key_exists('active', $state)) return (bool) $state['active'];
+              if (array_key_exists('access', $state)) return (bool) $state['access'];
+              if (array_key_exists('status', $state)) {
+                  $s = strtolower(trim((string) $state['status']));
+                  if (in_array($s, ['hidden', 'blocked', 'inactive', 'disabled'], true)) return false;
+                  if (in_array($s, ['active', 'enabled', 'visible'], true)) return true;
+              }
+          }
+
+          return $default;
+      };
+
+      $rtSat = Route::has('cliente.sat.index')
+          ? route('cliente.sat.index')
+          : (Route::has('cliente.sat.descargas.index') ? route('cliente.sat.descargas.index') : '#');
+
+      $rtFact = Route::has('cliente.facturacion.index')
+          ? route('cliente.facturacion.index')
+          : (Route::has('cliente.facturacion') ? route('cliente.facturacion') : '#');
+
+      $rtCrm = Route::has('cliente.modulos.crm') ? route('cliente.modulos.crm') : '#';
+      $rtInventario = Route::has('cliente.modulos.inventario') ? route('cliente.modulos.inventario') : '#';
+      $rtVentas = Route::has('cliente.modulos.ventas') ? route('cliente.modulos.ventas') : '#';
+      $rtReportes = Route::has('cliente.modulos.reportes') ? route('cliente.modulos.reportes') : '#';
+      $rtRh = Route::has('cliente.modulos.rh') ? route('cliente.modulos.rh') : '#';
+      $rtTimbres = Route::has('cliente.modulos.timbres') ? route('cliente.modulos.timbres') : '#';
+
+      $moduleCards = [
+          [
+              'key'   => 'sat_descargas',
+              'title' => 'SAT Descargas',
+              'desc'  => 'Integra RFC, cotizaciones SAT, pagos, seguimiento operativo y bóveda SAT dentro del mismo módulo.',
+              'href'  => $rtSat,
+          ],
+          [
+              'key'   => 'facturacion',
+              'title' => 'Facturación',
+              'desc'  => 'Emisión, administración y control de CFDI de facturación con consumo de timbres/hits.',
+              'href'  => $rtFact,
+          ],
+          [
+              'key'   => 'crm',
+              'title' => 'CRM',
+              'desc'  => 'Seguimiento comercial, clientes, contactos y control de relación comercial.',
+              'href'  => $rtCrm,
+          ],
+          [
+              'key'   => 'inventario',
+              'title' => 'Inventario',
+              'desc'  => 'Catálogo de productos, existencias, movimientos y base para ventas.',
+              'href'  => $rtInventario,
+          ],
+          [
+              'key'   => 'ventas',
+              'title' => 'Ventas',
+              'desc'  => 'Registro de ventas, tickets, códigos de venta y base para autofacturación.',
+              'href'  => $rtVentas,
+          ],
+          [
+              'key'   => 'reportes',
+              'title' => 'Reportes',
+              'desc'  => 'Indicadores, métricas operativas y análisis general de la cuenta.',
+              'href'  => $rtReportes,
+          ],
+          [
+              'key'   => 'recursos_humanos',
+              'title' => 'Recursos Humanos',
+              'desc'  => 'Gestión de personal, incidencias, nómina y emisión de CFDI de nómina dentro del mismo módulo.',
+              'href'  => $rtRh,
+          ],
+          [
+              'key'   => 'timbres_hits',
+              'title' => 'Timbres / Hits',
+              'desc'  => 'Compra, saldo, consumo y configuración de timbrado con Facturotopia.',
+              'href'  => $rtTimbres,
+          ],
+      ];
+
+      $visibleModuleCards = collect($moduleCards)
+          ->filter(fn ($m) => $moduleEnabled((string) $m['key'], true))
+          ->values();
+    @endphp
+
+    <div class="p360-card__head">
+      <div class="p360-card__title">Módulos del sistema</div>
+      <div class="p360-card__sub muted">
+        Acceso general a los módulos principales del ecosistema Pactopia360.
+      </div>
+    </div>
+
+    @if($visibleModuleCards->isNotEmpty())
+      <div class="row g-3">
+        @foreach($visibleModuleCards as $mod)
+          <div class="col-md-6 col-xl-3">
+            <a href="{{ $mod['href'] }}" class="card p-3 text-decoration-none h-100">
+              <strong class="d-block mb-2">{{ $mod['title'] }}</strong>
+              <div class="text-muted small">
+                {{ $mod['desc'] }}
+              </div>
+            </a>
+          </div>
+        @endforeach
+      </div>
+    @else
+      <div class="p360-empty">
+        <div class="p360-empty__t">Sin módulos visibles</div>
+        <div class="p360-empty__d">
+          Esta cuenta no tiene módulos visibles en este momento. Revísalo desde Admin → Billing → Módulos.
+        </div>
+      </div>
+    @endif
+  </section>
+
   {{-- GRID PRINCIPAL --}}
   <section class="p360-grid">
     <div class="p360-col">

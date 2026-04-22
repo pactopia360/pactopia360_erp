@@ -9,17 +9,15 @@ use App\Models\Cliente\SatDownload;
 use App\Models\Cliente\SatUserMetadataUpload;
 use App\Models\Cliente\SatUserReportUpload;
 use App\Models\Cliente\SatUserXmlUpload;
+use App\Services\Sat\Client\SatDownloadsPresenter;
 use App\Services\Sat\Client\SatRfcOptionsService;
 use App\Services\Sat\Client\SatVaultStorage;
-use App\Services\Sat\Client\SatDownloadsPresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Http\Controllers\Api\Mobile\Sat\MobileSatDashboardController;
-
 
 final class MobileSatDashboardController extends Controller
 {
@@ -61,7 +59,7 @@ final class MobileSatDashboardController extends Controller
             ], 404);
         }
 
-        $planRaw   = (string) (($cuentaCliente->plan_actual ?? $cuentaCliente->plan ?? 'FREE'));
+        $planRaw   = (string) ($cuentaCliente->plan_actual ?? $cuentaCliente->plan ?? 'FREE');
         $plan      = strtoupper(trim($planRaw));
         $isProPlan = in_array($plan, ['PRO', 'PREMIUM', 'EMPRESA', 'BUSINESS'], true);
 
@@ -167,10 +165,78 @@ final class MobileSatDashboardController extends Controller
             ], 500);
         }
 
+        $estadoCuenta = strtolower(trim((string) ($cuentaCliente->estado_cuenta ?? 'activa')));
+        $isBlocked = (int) ($cuentaCliente->is_blocked ?? 0) === 1;
+
+        $adminModulesState = $this->resolveAdminModulesState($cuentaCliente);
+
+        $activeModules = $this->buildModules(
+            isProPlan: $isProPlan,
+            estadoCuenta: $estadoCuenta,
+            isBlocked: $isBlocked,
+            adminModulesState: $adminModulesState
+        );
+        $activeModulesCount = collect($activeModules)
+            ->where('state', 'active')
+            ->where('access', true)
+            ->count();
+
+        $blockedModulesCount = collect($activeModules)
+            ->filter(fn (array $module) => ($module['state'] ?? '') === 'blocked' || ($module['access'] ?? false) !== true)
+            ->count();
+
+        $health = $this->buildHealth(
+            estadoCuenta: $estadoCuenta,
+            isBlocked: $isBlocked,
+            selectedRfc: $selectedRfc,
+            rfcCount: (int) $credList->count()
+        );
+
         return response()->json([
             'ok'   => true,
             'msg'  => 'Dashboard SAT móvil cargado correctamente.',
             'data' => [
+                'hero' => [
+                    'title'        => trim((string) ($user->nombre ?? $cuentaCliente->nombre_comercial ?? 'PACTOPIA360')),
+                    'subtitle'     => trim((string) ($cuentaCliente->nombre_comercial ?? $cuentaCliente->razon_social ?? '')),
+                    'plan'         => $plan,
+                    'status'       => $estadoCuenta !== '' ? $estadoCuenta : 'activa',
+                    'next_payment' => !empty($cuentaCliente->next_invoice_date)
+                        ? Carbon::parse($cuentaCliente->next_invoice_date)->format('Y-m-d')
+                        : '',
+                ],
+
+                'health' => $health,
+
+                    'quick_actions' => [
+                    [
+                        'key'         => 'sat',
+                        'label'       => 'SAT',
+                        'icon'        => 'receipt',
+                        'description' => 'Cotizaciones, pagos y seguimiento SAT.',
+                    ],
+                    [
+                        'key'         => 'account',
+                        'label'       => 'Mi cuenta',
+                        'icon'        => 'person',
+                        'description' => 'Perfil, datos de cuenta y plan.',
+                    ],
+                    [
+                        'key'         => 'pay',
+                        'label'       => 'Estado de cuenta',
+                        'icon'        => 'account_balance',
+                        'description' => 'Cargos, pagos y periodos facturables.',
+                    ],
+                    [
+                        'key'         => 'invoices',
+                        'label'       => 'Facturas',
+                        'icon'        => 'description',
+                        'description' => 'Descarga de facturas y ZIP disponibles.',
+                    ],
+                ],
+
+                'modules' => $activeModules,
+
                 'account' => [
                     'id'               => (string) ($cuentaCliente->id ?? ''),
                     'rfc_padre'        => (string) ($cuentaCliente->rfc_padre ?? ''),
@@ -181,12 +247,14 @@ final class MobileSatDashboardController extends Controller
                     'is_pro_plan'      => $isProPlan,
                     'modo_cobro'       => (string) ($cuentaCliente->modo_cobro ?? ''),
                     'estado_cuenta'    => (string) ($cuentaCliente->estado_cuenta ?? ''),
-                    'is_blocked'       => (int) ($cuentaCliente->is_blocked ?? 0) === 1,
+                    'is_blocked'       => $isBlocked,
                     'admin_account_id' => !empty($cuentaCliente->admin_account_id)
                         ? (int) $cuentaCliente->admin_account_id
                         : null,
                 ],
+
                 'selected_rfc' => $selectedRfc,
+
                 'rfcs' => $credList->map(function ($item) {
                     $meta = $item->meta ?? [];
 
@@ -206,19 +274,435 @@ final class MobileSatDashboardController extends Controller
                         'is_active'    => (bool) ($meta['is_active'] ?? true),
                     ];
                 })->values(),
+
                 'quotes' => $cotizaciones->values(),
                 'vault_summary' => $vaultSummary,
                 'vault_flags' => $vaultForJs,
                 'download_sources' => $downloadSources,
                 'storage_breakdown' => $storageBreakdown,
                 'recent_files' => $unifiedDownloadItems->take(20)->values(),
+
                 'totals' => [
-                    'rfcs'         => (int) $credList->count(),
-                    'quotes'       => (int) $cotizaciones->count(),
-                    'recent_files' => (int) $unifiedDownloadItems->count(),
+                    'rfcs'            => (int) $credList->count(),
+                    'quotes'          => (int) $cotizaciones->count(),
+                    'recent_files'    => (int) $unifiedDownloadItems->count(),
+                    'modules_active'  => (int) $activeModulesCount,
+                    'modules_blocked' => (int) $blockedModulesCount,
                 ],
             ],
         ], 200);
+    }
+
+    private function buildHealth(
+        string $estadoCuenta,
+        bool $isBlocked,
+        string $selectedRfc,
+        int $rfcCount
+    ): array {
+        if ($isBlocked) {
+            return [
+                'status'  => 'error',
+                'message' => 'Tu cuenta está bloqueada temporalmente.',
+            ];
+        }
+
+        if (in_array($estadoCuenta, ['suspendida', 'bloqueada', 'bloqueada_pago', 'pago_pendiente'], true)) {
+            return [
+                'status'  => 'warning',
+                'message' => 'Tu cuenta requiere atención para operar correctamente.',
+            ];
+        }
+
+        if ($rfcCount <= 0) {
+            return [
+                'status'  => 'warning',
+                'message' => 'Aún no tienes RFC activos vinculados en SAT.',
+            ];
+        }
+
+        if ($selectedRfc === '') {
+            return [
+                'status'  => 'warning',
+                'message' => 'No se detectó RFC activo para el panel SAT.',
+            ];
+        }
+
+        return [
+            'status'  => 'ok',
+            'message' => 'Cuenta operando correctamente',
+        ];
+    }
+
+
+       private function mobileModulesCatalog(): array
+    {
+        return [
+            'sat_descargas' => [
+                'name'                => 'SAT Descargas',
+                'icon'                => 'sat_descargas',
+                'requires_account_ok' => true,
+                'default_state'       => 'active',
+                'default_access'      => true,
+                'headline'            => 'SAT Descargas + Cotizaciones + Bóveda',
+                'summary'             => 'Integra RFC, cotizaciones SAT, pagos, seguimiento operativo y bóveda SAT dentro del mismo ecosistema.',
+                'chips'               => ['RFC', 'Cotizaciones', 'Pagos', 'Seguimiento', 'Bóveda', 'Descargas'],
+                'kpis'                => [
+                    ['label' => 'RFCs', 'value' => '0'],
+                    ['label' => 'Cotizaciones', 'value' => '0'],
+                    ['label' => 'Fuentes', 'value' => '0'],
+                    ['label' => 'XML', 'value' => '0'],
+                ],
+            ],
+
+            'boveda_fiscal' => [
+                'name'                => 'Bóveda Fiscal',
+                'icon'                => 'boveda_fiscal',
+                'requires_account_ok' => true,
+                'default_state'       => 'active',
+                'default_access'      => true,
+                'headline'            => 'Bóveda Fiscal SAT',
+                'summary'             => 'Consulta, almacenamiento y visualización documental ligada al ecosistema SAT.',
+                'chips'               => ['Bóveda', 'Archivos', 'SAT', 'Espacio'],
+            ],
+
+            'mi_cuenta' => [
+                'name'           => 'Mi cuenta',
+                'icon'           => 'mi_cuenta',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Mi cuenta',
+                'summary'        => 'Perfil, plan, estado y configuración principal de la cuenta.',
+                'chips'          => ['Perfil', 'Plan', 'Cuenta'],
+            ],
+
+            'pagos' => [
+                'name'           => 'Pagos',
+                'icon'           => 'pagos',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Pagos',
+                'summary'        => 'Historial y control de pagos realizados por la cuenta.',
+                'chips'          => ['Pagos', 'Historial', 'Control'],
+            ],
+
+            'facturas' => [
+                'name'           => 'Facturas',
+                'icon'           => 'facturas',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Facturas',
+                'summary'        => 'Consulta y descarga de facturas disponibles.',
+                'chips'          => ['Facturas', 'ZIP', 'Descargas'],
+            ],
+
+            'estado_cuenta' => [
+                'name'           => 'Estado de cuenta',
+                'icon'           => 'estado_cuenta',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Estado de cuenta',
+                'summary'        => 'Consulta de cargos, pagos, saldos y periodos de cobro.',
+                'chips'          => ['Cargos', 'Pagos', 'Saldo', 'Periodos'],
+            ],
+
+            'facturacion' => [
+                'name'           => 'Facturación',
+                'icon'           => 'facturacion',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Facturación + CFDI + Ventas + Timbres',
+                'summary'        => 'Emisión, administración y control de CFDI comerciales con consumo de timbres e hits.',
+                'chips'          => ['CFDI', 'Nuevo CFDI', 'Ventas', 'Receptores', 'Conceptos', 'Timbres'],
+                'kpis'           => [
+                    ['label' => 'CFDI', 'value' => '0'],
+                    ['label' => 'Borradores', 'value' => '0'],
+                    ['label' => 'Receptores', 'value' => '0'],
+                    ['label' => 'Hits', 'value' => '0'],
+                ],
+            ],
+
+            'crm' => [
+                'name'           => 'CRM',
+                'icon'           => 'crm',
+                'requires_pro'   => true,
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'CRM + Ventas + Facturación + IA',
+                'summary'        => 'Seguimiento comercial, clientes, contactos y oportunidades conectado con ventas y facturación.',
+                'chips'          => ['Clientes', 'Contactos', 'Oportunidades', 'Seguimiento', 'Ventas', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Clientes', 'value' => '0'],
+                    ['label' => 'Contactos', 'value' => '0'],
+                    ['label' => 'Oportunidades', 'value' => '0'],
+                    ['label' => 'Seguimientos', 'value' => '0'],
+                ],
+            ],
+
+            'inventario' => [
+                'name'           => 'Inventario',
+                'icon'           => 'inventario',
+                'requires_pro'   => true,
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Inventario + Ventas + Facturación + IA',
+                'summary'        => 'Productos, existencias, movimientos y base operativa para ventas y facturación.',
+                'chips'          => ['Productos', 'Stock', 'Movimientos', 'Ventas', 'Facturación', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Productos', 'value' => '0'],
+                    ['label' => 'Stock', 'value' => '0'],
+                    ['label' => 'Movimientos', 'value' => '0'],
+                    ['label' => 'Alertas', 'value' => '0'],
+                ],
+            ],
+
+            'ventas' => [
+                'name'           => 'Ventas',
+                'icon'           => 'ventas',
+                'requires_pro'   => true,
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Ventas + Inventario + Facturación + Autofactura',
+                'summary'        => 'Registro de ventas, tickets, códigos de venta y base para autofacturación.',
+                'chips'          => ['Tickets', 'Código de venta', 'Monto', 'Facturación', 'Autofactura', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Ventas', 'value' => '0'],
+                    ['label' => 'Tickets', 'value' => '0'],
+                    ['label' => 'Facturables', 'value' => '0'],
+                    ['label' => 'Monto', 'value' => '$0'],
+                ],
+            ],
+
+            'reportes' => [
+                'name'           => 'Reportes',
+                'icon'           => 'reportes',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Reportes + KPIs + IA + Visión global',
+                'summary'        => 'Indicadores, métricas operativas, análisis y tablero general de la cuenta.',
+                'chips'          => ['KPIs', 'Dashboards', 'Comparativos', 'Alertas', 'Cruces', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Indicadores', 'value' => '0'],
+                    ['label' => 'Alertas', 'value' => '0'],
+                    ['label' => 'Cruces', 'value' => '0'],
+                    ['label' => 'Módulos', 'value' => '7'],
+                ],
+            ],
+
+            'recursos_humanos' => [
+                'name'           => 'Recursos Humanos',
+                'icon'           => 'recursos_humanos',
+                'requires_pro'   => true,
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'RH + Nómina + CFDI Nómina + IA',
+                'summary'        => 'Empleados, incidencias, nómina y CFDI de nómina dentro del mismo módulo.',
+                'chips'          => ['Empleados', 'Incidencias', 'Nómina', 'CFDI nómina', 'Finiquitos', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Empleados', 'value' => '0'],
+                    ['label' => 'Nóminas', 'value' => '0'],
+                    ['label' => 'CFDI nómina', 'value' => '0'],
+                    ['label' => 'Hits', 'value' => '0'],
+                ],
+            ],
+
+            'timbres_hits' => [
+                'name'           => 'Timbres / Hits',
+                'icon'           => 'timbres_hits',
+                'default_state'  => 'active',
+                'default_access' => true,
+                'headline'       => 'Timbres / Hits + Facturotopia + IA',
+                'summary'        => 'Compra, saldo, consumo y configuración de timbrado con Facturotopia.',
+                'chips'          => ['Saldo', 'Consumo', 'Compra', 'Cotización', 'Facturotopia', 'IA'],
+                'kpis'           => [
+                    ['label' => 'Saldo', 'value' => '0'],
+                    ['label' => 'Consumo', 'value' => '0'],
+                    ['label' => 'Compras', 'value' => '0'],
+                    ['label' => 'Alertas', 'value' => '0'],
+                ],
+            ],
+        ];
+    }
+
+    private function resolveAdminModulesState(object $cuentaCliente): array
+    {
+        $adminAccountId = (string) ($cuentaCliente->admin_account_id ?? '');
+
+        if ($adminAccountId === '') {
+            return [];
+        }
+
+        $conn = (string) (env('P360_BILLING_SOT_CONN') ?: 'mysql_admin');
+        $table = (string) (env('P360_BILLING_SOT_TABLE') ?: 'accounts');
+        $metaCol = (string) (env('P360_BILLING_META_COL') ?: 'meta');
+
+        try {
+            if (!Schema::connection($conn)->hasTable($table)) {
+                return [];
+            }
+
+            if (!Schema::connection($conn)->hasColumn($table, $metaCol)) {
+                return [];
+            }
+
+            $account = DB::connection($conn)
+                ->table($table)
+                ->select(['id', $metaCol])
+                ->where('id', $adminAccountId)
+                ->first();
+
+            if (!$account) {
+                return [];
+            }
+
+            $metaRaw = $account->{$metaCol} ?? null;
+            $meta = [];
+
+            if (is_array($metaRaw)) {
+                $meta = $metaRaw;
+            } elseif (is_string($metaRaw) && trim($metaRaw) !== '') {
+                $decoded = json_decode($metaRaw, true);
+                $meta = is_array($decoded) ? $decoded : [];
+            }
+
+            $state = data_get($meta, 'modules_state', []);
+            if (!is_array($state)) {
+                $state = data_get($meta, 'modules', []);
+            }
+
+            if (!is_array($state)) {
+                return [];
+            }
+
+            $normalized = [];
+            foreach ($state as $key => $value) {
+                $normalized[(string) $key] = $this->normalizeModuleStateValue($value);
+            }
+
+            return $normalized;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function normalizeModuleStateValue(mixed $value): string
+    {
+        if (is_string($value)) {
+            $v = strtolower(trim($value));
+            if (in_array($v, ['active', 'inactive', 'hidden', 'blocked'], true)) {
+                return $v;
+            }
+
+            if (in_array($v, ['1', 'true', 'yes', 'on', 'enabled', 'visible'], true)) {
+                return 'active';
+            }
+
+            if (in_array($v, ['0', 'false', 'no', 'off', 'disabled'], true)) {
+                return 'inactive';
+            }
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'active' : 'inactive';
+        }
+
+        if (is_numeric($value)) {
+            return ((int) $value) === 1 ? 'active' : 'inactive';
+        }
+
+        if (is_array($value)) {
+            if ((bool) ($value['hidden'] ?? false) === true) {
+                return 'hidden';
+            }
+
+            if (array_key_exists('status', $value) && is_string($value['status'])) {
+                return $this->normalizeModuleStateValue((string) $value['status']);
+            }
+
+            if (array_key_exists('enabled', $value)) {
+                return (bool) $value['enabled'] ? 'active' : 'inactive';
+            }
+
+            if (array_key_exists('visible', $value)) {
+                return (bool) $value['visible'] ? 'active' : 'hidden';
+            }
+
+            if (array_key_exists('access', $value)) {
+                return (bool) $value['access'] ? 'active' : 'blocked';
+            }
+        }
+
+        return 'active';
+    }
+
+        private function buildModules(
+        bool $isProPlan,
+        string $estadoCuenta,
+        bool $isBlocked,
+        array $adminModulesState = []
+    ): array {
+        $catalog = $this->mobileModulesCatalog();
+
+        $canUseAccount = !$isBlocked
+            && !in_array($estadoCuenta, ['suspendida', 'bloqueada', 'bloqueada_pago'], true);
+
+        $modules = [];
+
+        foreach ($catalog as $key => $cfg) {
+            $baseState = (string) ($cfg['default_state'] ?? 'active');
+            $baseAccess = (bool) ($cfg['default_access'] ?? true);
+
+            if (($cfg['requires_account_ok'] ?? false) === true && !$canUseAccount) {
+                $baseState = 'blocked';
+                $baseAccess = false;
+            }
+
+            if (($cfg['requires_pro'] ?? false) === true && !$isProPlan) {
+                $baseState = 'inactive';
+                $baseAccess = false;
+            }
+
+            $adminState = strtolower(trim((string) ($adminModulesState[$key] ?? '')));
+
+            if ($adminState !== '') {
+                switch ($adminState) {
+                    case 'active':
+                        $baseState = 'active';
+                        $baseAccess = true;
+                        break;
+
+                    case 'inactive':
+                        $baseState = 'inactive';
+                        $baseAccess = false;
+                        break;
+
+                    case 'hidden':
+                        $baseState = 'hidden';
+                        $baseAccess = false;
+                        break;
+
+                    case 'blocked':
+                        $baseState = 'blocked';
+                        $baseAccess = false;
+                        break;
+                }
+            }
+
+            $modules[] = [
+                'key'         => $key,
+                'name'        => (string) ($cfg['name'] ?? $key),
+                'icon'        => (string) ($cfg['icon'] ?? 'hub'),
+                'state'       => $baseState,
+                'access'      => $baseAccess,
+                'visible'     => $baseState !== 'hidden',
+                'enabled'     => $baseAccess && $baseState === 'active',
+                'headline'    => (string) ($cfg['headline'] ?? ($cfg['name'] ?? $key)),
+                'summary'     => (string) ($cfg['summary'] ?? ''),
+                'chips'       => array_values((array) ($cfg['chips'] ?? [])),
+                'kpis'        => array_values((array) ($cfg['kpis'] ?? [])),
+            ];
+        }
+
+        return $modules;
     }
 
     private function isCotizacionLikeDownload(SatDownload $download): bool
@@ -435,6 +919,7 @@ final class MobileSatDashboardController extends Controller
             'en_proceso' => 35,
             'cotizada'   => 65,
             'pagada'     => 82,
+            'en_descarga'=> 92,
             'completada' => 100,
             'cancelada'  => 0,
             default      => 0,

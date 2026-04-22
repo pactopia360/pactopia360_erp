@@ -536,6 +536,40 @@ Route::middleware(['auth:web', 'account.active'])
 
         // ✅ Logout real (POST)
         Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
+
+                /*
+        |--------------------------------------------------------------------------
+        | Módulos cliente
+        |--------------------------------------------------------------------------
+        | SAT sigue viviendo en routes/cliente_sat.php
+        | CFDI Nómina vive dentro de RH, NO como módulo separado
+        */
+        Route::prefix('modulos')->name('modulos.')->group(function () {
+
+            Route::get('/crm', function () {
+                return view('cliente.modulos.crm');
+            })->name('crm');
+
+            Route::get('/inventario', function () {
+                return view('cliente.modulos.inventario');
+            })->name('inventario');
+
+            Route::get('/ventas', function () {
+                return view('cliente.modulos.ventas');
+            })->name('ventas');
+
+            Route::get('/reportes', function () {
+                return view('cliente.modulos.reportes');
+            })->name('reportes');
+
+            Route::get('/recursos-humanos', function () {
+                return view('cliente.modulos.rh');
+            })->name('rh');
+
+            Route::get('/timbres-hits', function () {
+                return view('cliente.modulos.timbres');
+            })->name('timbres');
+        });
     });
 
 /*

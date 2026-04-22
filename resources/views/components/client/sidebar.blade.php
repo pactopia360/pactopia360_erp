@@ -100,18 +100,14 @@
   $rtSatReport   = $resolveRoute(['cliente.sat.report'], null);
   $rtSatCart     = $resolveRoute(['cliente.sat.cart.index'], null);
 
-  $rtCrm         = $resolveRoute(['cliente.crm.index','cliente.crm'], null);
-  $rtNomina      = $resolveRoute(['cliente.nomina.index','cliente.nomina'], null);
-  $rtPos         = $resolveRoute(['cliente.pos.index','cliente.pos'], null);
-  $rtInv         = $resolveRoute(['cliente.inventario.index','cliente.inventario'], null);
-  $rtRep         = $resolveRoute(['cliente.reportes.index','cliente.reportes','cliente.dashboard.index','cliente.dashboard'], null);
-  $rtInt         = $resolveRoute(['cliente.integraciones.index','cliente.integraciones','cliente.api.index','cliente.api'], null);
-  $rtAlert       = $resolveRoute(['cliente.alertas.index','cliente.alertas','cliente.notificaciones.index','cliente.notificaciones'], null);
-  $rtChat        = $resolveRoute(['cliente.chat.index','cliente.chat'], null);
-  $rtMarket      = $resolveRoute(['cliente.marketplace.index','cliente.marketplace'], null);
+  $rtCrm         = $resolveRoute(['cliente.modulos.crm','cliente.crm.index','cliente.crm'], null);
+  $rtInv         = $resolveRoute(['cliente.modulos.inventario','cliente.inventario.index','cliente.inventario'], null);
+  $rtVentas      = $resolveRoute(['cliente.modulos.ventas','cliente.ventas.index','cliente.ventas'], null);
+  $rtRep         = $resolveRoute(['cliente.modulos.reportes','cliente.reportes.index','cliente.reportes','cliente.dashboard.index','cliente.dashboard'], null);
+  $rtRh          = $resolveRoute(['cliente.modulos.rh','cliente.rh.index','cliente.rh'], null);
+  $rtTimbres     = $resolveRoute(['cliente.modulos.timbres','cliente.timbres.index','cliente.timbres'], null);
 
   $rtCfgAdv      = $resolveRoute(['cliente.config.avanzada','cliente.configuracion.avanzada','cliente.config.index','cliente.configuracion.index'], null);
-
   $isHome     = request()->routeIs('cliente.home') || request()->is('cliente/home');
   $isMiCuenta = request()->routeIs('cliente.mi_cuenta.*') || request()->is('cliente/mi-cuenta*');
   $isEstado   = request()->routeIs('cliente.estado_cuenta') || request()->is('cliente/estado-de-cuenta*');
@@ -124,7 +120,15 @@
   $isSatReport   = request()->routeIs('cliente.sat.report*') || request()->is('cliente/sat/reporte*');
   $isSatCart     = request()->routeIs('cliente.sat.cart.*') || request()->is('cliente/sat/cart*');
 
+  $isCrm      = request()->routeIs('cliente.modulos.crm') || request()->routeIs('cliente.crm.*') || request()->is('cliente/crm*');
+  $isInv      = request()->routeIs('cliente.modulos.inventario') || request()->routeIs('cliente.inventario.*') || request()->is('cliente/inventario*');
+  $isVentas   = request()->routeIs('cliente.modulos.ventas') || request()->routeIs('cliente.ventas.*') || request()->is('cliente/ventas*');
+  $isRep      = request()->routeIs('cliente.modulos.reportes') || request()->routeIs('cliente.reportes.*') || request()->is('cliente/reportes*') || request()->is('cliente/dashboard*');
+  $isRh       = request()->routeIs('cliente.modulos.rh') || request()->routeIs('cliente.rh.*') || request()->is('cliente/rh*') || request()->is('cliente/recursos-humanos*');
+  $isTimbres  = request()->routeIs('cliente.modulos.timbres') || request()->routeIs('cliente.timbres.*') || request()->is('cliente/timbres*') || request()->is('cliente/timbres-hits*');
+
   $isCfg      = request()->is('cliente/config*') || request()->is('cliente/configuracion*') || request()->routeIs('cliente.mi_cuenta.*');
+
 
   $dataState = $isOpen ? 'expanded' : 'collapsed';
 
@@ -152,21 +156,21 @@
     'Estado de cuenta' => 'Cargos, abonos y saldo',
     'Pagos' => 'Métodos y movimientos',
     'Facturas' => 'Descarga y gestión',
+
     'Facturación' => 'CFDI y administración',
     'Nuevo CFDI' => 'Crear comprobante',
-    'Portal SAT' => 'Vista general del módulo SAT',
+    'Portal SAT' => 'RFC, cotizaciones, pagos y operación SAT',
     'Centro SAT' => 'Flujo operativo SAT',
     'RFC' => 'Administración de RFC SAT',
     'Carrito SAT' => 'Carrito y paquetes SAT',
+
     'CRM' => 'Clientes y oportunidades',
-    'Nómina' => 'Recibos y timbrado',
-    'Punto de venta' => 'Ventas y tickets',
     'Inventario' => 'Productos y existencias',
+    'Ventas' => 'Tickets, códigos de venta y autofacturación',
     'Reportes' => 'KPIs y analítica',
-    'Integraciones' => 'API y conexiones',
-    'Alertas' => 'Notificaciones',
-    'Chat' => 'Soporte y mensajes',
-    'Marketplace' => 'Addons y servicios',
+    'Recursos Humanos' => 'Empleados, nómina y CFDI nómina',
+    'Timbres / Hits' => 'Saldo, compra y consumo de timbrado',
+
     'Configuración' => 'Preferencias',
     'Configuración avanzada' => 'Opciones técnicas',
     'Cerrar sesión' => 'Salir de la plataforma',
@@ -236,40 +240,105 @@
   $htmlCuenta .= $renderItem('pagos','Pagos',$rtPagos,(request()->routeIs('cliente.mi_cuenta.pagos') || request()->is('cliente/mi-cuenta/pagos*')),$svgBag,false);
   $htmlCuenta .= $renderItem('facturas','Facturas',$rtFacturasMC,(request()->routeIs('cliente.mi_cuenta.facturas.*') || request()->is('cliente/mi-cuenta/facturas*')),$svgDoc,false);
 
-  $htmlModulos = '';
-  $htmlModulos .= $renderItem('facturacion','Facturación',$rtFact,$isFact,$svgBill,false);
-  $htmlModulos .= $renderItem('facturacion','Nuevo CFDI',$rtFactNew,(request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),$svgPlus,false);
-    $htmlModulos .= $renderItem(
+    $htmlModulos = '';
+
+  $htmlModulos .= $renderItem(
     'sat_descargas',
     'Portal SAT',
     $rtSatPortal,
-    ($isSatPortal || $isSatCenter || $isSatRfcs || $isSatCart),
+    ($isSatPortal || $isSatCenter || $isSatRfcs || $isSatCart || $isSatVault || $isSatReport),
     $svgSat,
     false
   );
 
-  $htmlModulos .= $renderItem('sat_descargas','Centro SAT',$rtSatCenter,$isSatCenter,$svgSat,false);
-  $htmlModulos .= $renderItem('sat_descargas','RFC',$rtSatRfcs,$isSatRfcs,$svgDoc,false);
-  $htmlModulos .= $renderItem('sat_descargas','Carrito SAT',$rtSatCart,$isSatCart,$svgDown,false);
-  $htmlModulos .= $renderItem('crm','CRM',$rtCrm,(request()->routeIs('cliente.crm.*') || request()->is('cliente/crm*')),$svgUsers,false);
-  $htmlModulos .= $renderItem('nomina','Nómina',$rtNomina,(request()->routeIs('cliente.nomina.*') || request()->is('cliente/nomina*')),$svgUsers,false);
-  $htmlModulos .= $renderItem('pos','Punto de venta',$rtPos,(request()->routeIs('cliente.pos.*') || request()->is('cliente/pos*')),$svgStore,false);
-  $htmlModulos .= $renderItem('inventario','Inventario',$rtInv,(request()->routeIs('cliente.inventario.*') || request()->is('cliente/inventario*')),$svgBox,false);
-  $htmlModulos .= $renderItem('reportes','Reportes',$rtRep,(request()->routeIs('cliente.reportes.*') || request()->is('cliente/reportes*') || request()->is('cliente/dashboard*')),$svgChart,false);
-  $htmlModulos .= $renderItem('integraciones','Integraciones',$rtInt,(request()->routeIs('cliente.integraciones.*') || request()->is('cliente/integraciones*') || request()->is('cliente/api*')),$svgLink,false);
-  $htmlModulos .= $renderItem('alertas','Alertas',$rtAlert,(request()->routeIs('cliente.alertas.*') || request()->is('cliente/alertas*') || request()->is('cliente/notificaciones*')),$svgBell,false);
-  $htmlModulos .= $renderItem('chat','Chat',$rtChat,(request()->routeIs('cliente.chat.*') || request()->is('cliente/chat*')),$svgChat,false);
-  $htmlModulos .= $renderItem('marketplace','Marketplace',$rtMarket,(request()->routeIs('cliente.marketplace.*') || request()->is('cliente/marketplace*')),$svgBag,false);
+  $htmlModulos .= $renderItem(
+    'facturacion',
+    'Facturación',
+    $rtFact,
+    $isFact,
+    $svgBill,
+    false
+  );
 
+  $htmlModulos .= $renderItem(
+    'facturacion',
+    'Nuevo CFDI',
+    $rtFactNew,
+    (request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),
+    $svgPlus,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'crm',
+    'CRM',
+    $rtCrm,
+    $isCrm,
+    $svgUsers,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'inventario',
+    'Inventario',
+    $rtInv,
+    $isInv,
+    $svgBox,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'ventas',
+    'Ventas',
+    $rtVentas,
+    $isVentas,
+    $svgStore,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'reportes',
+    'Reportes',
+    $rtRep,
+    $isRep,
+    $svgChart,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'recursos_humanos',
+    'Recursos Humanos',
+    $rtRh,
+    $isRh,
+    $svgUsers,
+    false
+  );
+
+  $htmlModulos .= $renderItem(
+    'timbres_hits',
+    'Timbres / Hits',
+    $rtTimbres,
+    $isTimbres,
+    $svgLink,
+    false
+  );
   $htmlConfigAdv = '';
 
   $openCuenta  = (bool) ($isMiCuenta || $isEstado || request()->is('cliente/mi-cuenta*') || request()->is('cliente/estado-de-cuenta*'));
-  $openModulos = (bool) (
+    $openModulos = (bool) (
     $isFact ||
     $isSatPortal ||
     $isSatCenter ||
     $isSatRfcs ||
-    $isSatCart
+    $isSatCart ||
+    $isSatVault ||
+    $isSatReport ||
+    $isCrm ||
+    $isInv ||
+    $isVentas ||
+    $isRep ||
+    $isRh ||
+    $isTimbres
   );
 @endphp
 

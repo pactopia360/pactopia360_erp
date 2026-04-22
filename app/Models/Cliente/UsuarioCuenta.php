@@ -12,12 +12,17 @@ class UsuarioCuenta extends Authenticatable
 
     protected $connection = 'mysql_clientes';
     protected $table = 'usuarios_cuenta';
+    protected $primaryKey = 'id';
+
+    public $incrementing = false;
+    protected $keyType = 'string';
 
     protected $fillable = [
+        'id',
+        'cuenta_id',
         'nombre',
         'email',
         'password',
-        // 🔴 NO elimines tus campos actuales, agrega aquí los que ya tienes
     ];
 
     protected $hidden = [

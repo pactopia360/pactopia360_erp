@@ -24,32 +24,34 @@ final class AccountBillingConfigService
      * Catálogo SOT (debe cubrir lo que el CLIENTE renderiza en sidebar).
      * Keys = banderas. Labels solo informativo en Admin.
      */
+        /**
+     * Catálogo SOT (debe cubrir exactamente lo que CLIENTE web/móvil renderiza).
+     * Keys = banderas persistidas en accounts.meta.modules_state
+     * Labels = solo informativos en Admin.
+     *
+     * REGLAS DE NEGOCIO:
+     * - SAT es un módulo principal. Cotizaciones SAT y Bóveda SAT viven dentro del ecosistema SAT.
+     * - CFDI Nómina NO es módulo separado: vive dentro de Recursos Humanos.
+     * - Timbres / Hits es módulo propio.
+     * - Ventas es módulo propio, separado de Inventario pero relacionado.
+     */
     private array $modulesCatalog = [
-        // Cuenta (navegación)
-        'mi_cuenta'     => 'Mi cuenta',
-        'estado_cuenta' => 'Estado de cuenta',
-        'pagos'         => 'Pagos',
-        'facturas'      => 'Facturas',
+        // Navegación de cuenta
+        'mi_cuenta'         => 'Mi cuenta',
+        'estado_cuenta'     => 'Estado de cuenta',
+        'pagos'             => 'Pagos',
+        'facturas'          => 'Facturas',
 
-        // Módulos principales
-        'facturacion'   => 'Facturación',
-        'sat_descargas' => 'SAT Descargas Masivas',
-        'boveda_fiscal' => 'Bóveda Fiscal',
-        'sat_boveda_v2' => 'SAT Bóveda v2',
-
-        // ERP
-        'crm'           => 'CRM',
-        'nomina'        => 'Nómina',
-        'pos'           => 'Punto de venta',
-        'inventario'    => 'Inventario',
-
-        // Sistema
-        'reportes'      => 'Reportes',
-        'integraciones' => 'Integraciones',
-        'alertas'       => 'Alertas',
-        'chat'          => 'Chat',
-        'marketplace'   => 'Marketplace',
-        'configuracion_avanzada' => 'Configuración avanzada',
+        // Módulos principales visibles al cliente
+        'sat_descargas'     => 'SAT Descargas',
+        'boveda_fiscal'     => 'Bóveda Fiscal SAT',
+        'facturacion'       => 'Facturación',
+        'crm'               => 'CRM',
+        'inventario'        => 'Inventario',
+        'ventas'            => 'Ventas',
+        'reportes'          => 'Reportes',
+        'recursos_humanos'  => 'Recursos Humanos',
+        'timbres_hits'      => 'Timbres / Hits',
     ];
 
     public function __construct()
