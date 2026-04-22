@@ -3565,7 +3565,7 @@ class _SatTransferProofPageState extends State<SatTransferProofPage> {
                                           height: 180,
                                           width: double.infinity,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) {
+                                          errorBuilder: (_, _, _) {
                                             return Container(
                                               height: 120,
                                               alignment: Alignment.center,
@@ -5877,11 +5877,7 @@ class _QuoteCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool compact;
 
-  const _QuoteCard({
-    required this.quote,
-    required this.onTap,
-    this.compact = false,
-  });
+  const _QuoteCard({required this.quote, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

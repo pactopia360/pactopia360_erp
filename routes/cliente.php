@@ -537,7 +537,26 @@ Route::middleware(['auth:web', 'account.active'])
         // ✅ Logout real (POST)
         Route::post('logout', [ClienteLogin::class, 'logout'])->name('logout');
 
-                /*
+        /*
+        |--------------------------------------------------------------------------
+        | FACTURACIÓN CLIENTE
+        |--------------------------------------------------------------------------
+        | Mantiene la lógica del sidebar:
+        | - El acceso visual/sesión sigue dependiendo del módulo "facturacion"
+        |   habilitado desde admin.
+        | - Aquí solo declaramos las rutas que el sidebar ya espera.
+        */
+        Route::prefix('facturacion')->name('facturacion.')->group(function () {
+            Route::get('/', [ClienteFacturacion::class, 'index'])->name('index');
+            Route::get('/nuevo', [ClienteFacturacion::class, 'create'])->name('create');
+            Route::post('/', [ClienteFacturacion::class, 'store'])->name('store');
+
+            Route::get('/kpis', [ClienteFacturacion::class, 'kpis'])->name('kpis');
+            Route::get('/series', [ClienteFacturacion::class, 'series'])->name('series');
+            Route::get('/export', [ClienteFacturacion::class, 'export'])->name('export');
+        });
+
+        /*
         |--------------------------------------------------------------------------
         | Módulos cliente
         |--------------------------------------------------------------------------

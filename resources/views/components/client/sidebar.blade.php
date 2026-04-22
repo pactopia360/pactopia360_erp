@@ -90,8 +90,15 @@
     return $fallback;
   };
 
-  $rtFact        = $resolveRoute(['cliente.facturacion.index','cliente.facturacion','cliente.facturacion.home'], null);
-  $rtFactNew     = $resolveRoute(['cliente.facturacion.nuevo','cliente.facturacion.new','cliente.facturacion.create'], null);
+  $rtFact = $resolveRoute(
+    ['cliente.facturacion.index', 'cliente.facturacion', 'cliente.facturacion.home'],
+    url('/cliente/facturacion')
+  );
+
+  $rtFactNew = $resolveRoute(
+    ['cliente.facturacion.nuevo', 'cliente.facturacion.new', 'cliente.facturacion.create'],
+    url('/cliente/facturacion/nuevo')
+  );
 
   $rtSatPortal   = $resolveRoute(['cliente.sat.index','cliente.sat','cliente.sat.home'], null);
   $rtSatCenter   = $resolveRoute(['cliente.sat.v2.index'], null);
@@ -264,7 +271,12 @@
     'facturacion',
     'Nuevo CFDI',
     $rtFactNew,
-    (request()->routeIs('cliente.facturacion.create') || request()->routeIs('cliente.facturacion.nuevo')),
+    (
+      request()->routeIs('cliente.facturacion.create') ||
+      request()->routeIs('cliente.facturacion.new') ||
+      request()->routeIs('cliente.facturacion.nuevo') ||
+      request()->is('cliente/facturacion/nuevo*')
+    ),
     $svgPlus,
     false
   );
