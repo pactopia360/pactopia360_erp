@@ -664,10 +664,69 @@ class HomeController extends Controller
 
         $admConn = 'mysql_admin';
 
-        $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
+                $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
         $timbres = (int) ($cuenta->timbres_disponibles ?? ($planKey === 'FREE' ? 10 : 0));
         $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
-        $razon   = $cuenta->razon_social ?? $cuenta->nombre_fiscal ?? ($u->nombre ?? $u->email ?? '—');
+
+        // ==========================================================
+        // Razón visible del cliente (robusta)
+        // Prioridad:
+        // 1) cuenta_cliente.razon_social
+        // 2) cuenta_cliente.nombre_fiscal
+        // 3) clientes(cuenta_id).razon_social / nombre_comercial / nombre
+        // 4) usuario autenticado
+        // ==========================================================
+        $razon = null;
+
+        foreach ([
+            $cuenta->razon_social ?? null,
+            $cuenta->nombre_fiscal ?? null,
+        ] as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                $razon = trim($candidate);
+                break;
+            }
+        }
+
+        if (($razon === null || $razon === '') && $cuenta && $this->hasTable('mysql_clientes', 'clientes')) {
+            try {
+                $clienteCols = ['id'];
+
+                foreach (['cuenta_id', 'razon_social', 'nombre_comercial', 'nombre'] as $col) {
+                    if ($this->hasCol('mysql_clientes', 'clientes', $col)) {
+                        $clienteCols[] = $col;
+                    }
+                }
+
+                if (in_array('cuenta_id', $clienteCols, true)) {
+                    $clienteRow = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->select(array_values(array_unique($clienteCols)))
+                        ->where('cuenta_id', $cuenta->id)
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if ($clienteRow) {
+                        foreach ([
+                            $clienteRow->razon_social ?? null,
+                            $clienteRow->nombre_comercial ?? null,
+                            $clienteRow->nombre ?? null,
+                        ] as $candidate) {
+                            if (is_string($candidate) && trim($candidate) !== '') {
+                                $razon = trim($candidate);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        if ($razon === null || $razon === '') {
+            $razon = (string) ($u->nombre ?? $u->name ?? $u->email ?? 'Cliente');
+        }
 
                 // ==========================================================
         // Resolución ROBUSTA de la cuenta admin
@@ -903,7 +962,15 @@ class HomeController extends Controller
 
 
          return [
-            'razon'        => (string) (($acc?->razon_social) ?? $razon),
+            'razon'        => (string) (
+                (is_string($acc?->razon_social ?? null) && trim((string) $acc->razon_social) !== '')
+                    ? trim((string) $acc->razon_social)
+                    : (
+                        (is_string($acc?->name ?? null) && trim((string) $acc->name) !== '')
+                            ? trim((string) $acc->name)
+                            : $razon
+                    )
+            ),
 
             // Normalizado para lógica
             'plan'         => $planBase,
