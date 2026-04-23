@@ -6,9 +6,48 @@
   $title = trim($__env->yieldContent('title', 'P360 · Cliente'));
   $theme = session('client_ui.theme', 'light'); // 'light' | 'dark'
 
+  // ==========================================================
   // Usuario y cuenta espejo (mysql_clientes)
-  $user   = Auth::guard('web')->user();
+  // Resolver igual que HomeController:
+  // 1) guard por defecto
+  // 2) guard cliente
+  // 3) guard web
+  // ==========================================================
+  $defaultGuard = (string) (config('auth.defaults.guard') ?? 'web');
+
+  $user = null;
+
+  try {
+      $user = Auth::guard($defaultGuard)->user();
+  } catch (\Throwable $e) {
+      $user = null;
+  }
+
+  if (!$user) {
+      try {
+          $user = Auth::guard('cliente')->user();
+      } catch (\Throwable $e) {
+          $user = null;
+      }
+  }
+
+  if (!$user) {
+      try {
+          $user = Auth::guard('web')->user();
+      } catch (\Throwable $e) {
+          $user = null;
+      }
+  }
+
+  if (is_array($user)) {
+      $user = (object) $user;
+  }
+
   $cuenta = $cuenta ?? ($user->cuenta ?? null);
+
+  if (is_array($cuenta)) {
+      $cuenta = (object) $cuenta;
+  }
 
   // ==========================================================
   // FUENTE GLOBAL DE PLAN / LICENCIA
