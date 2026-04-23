@@ -49,51 +49,101 @@
       $cuenta = (object) $cuenta;
   }
 
-  // ==========================================================
+    // ==========================================================
   // FUENTE GLOBAL DE PLAN / LICENCIA
-  // Prioridad:
-  // 1) summary compartido globalmente desde AppServiceProvider
-  // 2) datos espejo de cuenta cliente
-  // 3) fallback FREE
+  // REGLA DEL PROYECTO:
+  // Admin es SOT. Cliente solo refleja.
   // ==========================================================
   $sum = is_array($summary ?? null) ? $summary : [];
 
-  $summaryPlanNorm = strtolower((string) (
-      $sum['plan_norm']
+  $normalizePlanPortal = static function (?string $raw): array {
+      $p = strtolower(trim((string) $raw));
+      $p = str_replace([' ', '-'], '_', $p);
+      $p = preg_replace('/_+/', '_', $p) ?: '';
+
+      $cycle = null;
+
+      if (str_ends_with($p, '_mensual')) {
+          $cycle = 'monthly';
+          $p = substr($p, 0, -8);
+      } elseif (str_ends_with($p, '_anual')) {
+          $cycle = 'yearly';
+          $p = substr($p, 0, -6);
+      } elseif (str_ends_with($p, '_monthly')) {
+          $cycle = 'monthly';
+          $p = substr($p, 0, -8);
+      } elseif (str_ends_with($p, '_yearly')) {
+          $cycle = 'yearly';
+          $p = substr($p, 0, -7);
+      } elseif (str_ends_with($p, '_annual')) {
+          $cycle = 'yearly';
+          $p = substr($p, 0, -7);
+      }
+
+      $base = $p !== '' ? $p : 'free';
+
+      $isPro = in_array($base, [
+          'pro',
+          'premium',
+          'empresa',
+          'business',
+      ], true);
+
+      return [
+          'raw'      => strtoupper(trim((string) $raw)),
+          'plan'     => $isPro ? 'PRO' : 'FREE',
+          'plan_key' => $isPro ? 'pro' : 'free',
+          'plan_norm'=> $base,
+          'is_pro'   => $isPro,
+          'cycle'    => $cycle,
+      ];
+  };
+
+  // 1) Prioridad summary construido desde HomeController/Admin
+  $summaryPlanRaw = (string) (
+      $sum['plan_raw']
       ?? $sum['plan']
       ?? ''
-  ));
+  );
+
+  $summaryPlanNorm = strtolower(trim((string) (
+      $sum['plan_norm']
+      ?? $summaryPlanRaw
+  )));
 
   $summaryIsPro = array_key_exists('is_pro', $sum)
       ? (bool) $sum['is_pro']
       : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
 
+  // 2) Fallback espejo, pero SIEMPRE normalizado
+  $mirrorPlanRaw = (string) (
+      $cuenta->plan_actual
+      ?? $cuenta->plan
+      ?? ''
+  );
+
+  $resolved = $summaryPlanRaw !== ''
+      ? $normalizePlanPortal($summaryPlanRaw)
+      : $normalizePlanPortal($mirrorPlanRaw);
+
   if ($summaryIsPro) {
       $plan = 'PRO';
       $planKey = 'pro';
   } else {
-      $fallbackPlan = (string) (
-          $sum['plan']
-          ?? ($cuenta->plan_actual ?? $cuenta->plan ?? 'free')
-      );
-
-      $plan = strtoupper(trim($fallbackPlan)) !== ''
-          ? strtoupper(trim($fallbackPlan))
-          : 'FREE';
-
-      $planKey = strtolower((string) (
-          $sum['plan_norm']
-          ?? $fallbackPlan
-          ?? 'free'
-      ));
+      $plan = (string) ($resolved['plan'] ?? 'FREE');
+      $planKey = (string) ($resolved['plan_key'] ?? 'free');
   }
 
-  // Ciclo de facturación: priorizar summary, luego espejo cliente
+  // Ciclo de facturación: priorizar summary/admin, luego espejo, luego ciclo inferido del plan
   $billingCycle = (string) (
       $sum['cycle']
-      ?? ($cuenta->billing_cycle ?? $cuenta->modo_cobro ?? '')
+      ?? $sum['billing_cycle']
+      ?? ($cuenta->billing_cycle ?? $cuenta->modo_cobro ?? ($resolved['cycle'] ?? ''))
   );
 
+  $billingCycle = strtolower(trim($billingCycle));
+  if ($billingCycle === 'mensual') $billingCycle = 'monthly';
+  if (in_array($billingCycle, ['anual', 'annual'], true)) $billingCycle = 'yearly';
   $billingCycle = $billingCycle !== '' ? $billingCycle : null;
 
   $viteManifest = public_path('build/manifest.json');

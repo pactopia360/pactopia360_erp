@@ -708,10 +708,8 @@ class HomeController extends Controller
             $cuenta = (object) $cuenta;
         }
 
-        $adminConn  = 'mysql_admin';
-        $clientConn = 'mysql_clientes';
-
-        $schemaA = \Illuminate\Support\Facades\Schema::connection($adminConn);
+        $adminConn = 'mysql_admin';
+        $schemaA   = \Illuminate\Support\Facades\Schema::connection($adminConn);
 
         $hasA = static function (string $table, string $col) use ($schemaA): bool {
             try {
@@ -724,9 +722,6 @@ class HomeController extends Controller
         $admin = null;
         $meta  = [];
 
-        // =========================================================
-        // 1) Resolver cuenta ADMIN (SOT) con prioridad fuerte
-        // =========================================================
         if ($schemaA->hasTable('accounts')) {
             $select = ['id'];
 
@@ -754,20 +749,16 @@ class HomeController extends Controller
                 }
             }
 
-            $adminAccountId = (int) (
-                $cuenta->admin_account_id
-                ?? 0
-            );
+            $adminAccountId = (int) ($cuenta->admin_account_id ?? 0);
 
             if ($adminAccountId > 0) {
-                $admin = \Illuminate\Support\Facades\DB::connection($adminConn)
+                $admin = DB::connection($adminConn)
                     ->table('accounts')
                     ->select($select)
                     ->where('id', $adminAccountId)
                     ->first();
             }
 
-            // RFC candidates robustos
             $rfcCandidates = [];
             foreach ([
                 $cuenta->rfc ?? null,
@@ -782,7 +773,7 @@ class HomeController extends Controller
 
             if (!$admin && !empty($rfcCandidates) && $hasA('accounts', 'rfc')) {
                 foreach ($rfcCandidates as $rfc) {
-                    $row = \Illuminate\Support\Facades\DB::connection($adminConn)
+                    $row = DB::connection($adminConn)
                         ->table('accounts')
                         ->select($select)
                         ->whereRaw('UPPER(rfc) = ?', [$rfc])
@@ -807,11 +798,7 @@ class HomeController extends Controller
             }
         }
 
-        // =========================================================
-        // 2) Nombre visible
-        // =========================================================
         $razon = null;
-
         foreach ([
             $admin->razon_social ?? null,
             $admin->name ?? null,
@@ -826,15 +813,12 @@ class HomeController extends Controller
         }
 
         if ($razon === null || $razon === '') {
-            $fallbackUser = trim((string) ($u->nombre ?? $u->name ?? $u->email ?? 'Cliente'));
-            $razon = $fallbackUser !== '' ? $fallbackUser : 'Cliente';
+            $razon = trim((string) ($u->nombre ?? $u->name ?? $u->email ?? 'Cliente'));
+            if ($razon === '') {
+                $razon = 'Cliente';
+            }
         }
 
-        // =========================================================
-        // 3) Plan y ciclo
-        // ADMIN manda. Si no se resolvió admin, usar espejo pero
-        // normalizando PRO_MENSUAL / PRO_ANUAL como PRO.
-        // =========================================================
         $planRaw = trim((string) (
             $admin->plan_actual
             ?? $admin->plan
@@ -859,12 +843,8 @@ class HomeController extends Controller
             ?? ''
         )));
 
-        if ($billingCycle === 'mensual') {
-            $billingCycle = 'monthly';
-        }
-        if (in_array($billingCycle, ['anual', 'annual'], true)) {
-            $billingCycle = 'yearly';
-        }
+        if ($billingCycle === 'mensual') $billingCycle = 'monthly';
+        if (in_array($billingCycle, ['anual', 'annual'], true)) $billingCycle = 'yearly';
 
         $billingStatus = strtolower(trim((string) (
             $admin->billing_status
@@ -879,7 +859,6 @@ class HomeController extends Controller
             ?? 0
         ) === 1;
 
-        // Si plan viene vacío pero hay señales de cuenta pagada, inferir PRO
         $looksPaid = in_array($billingStatus, [
             'active', 'activa',
             'trial', 'prueba',
@@ -900,9 +879,6 @@ class HomeController extends Controller
             default   => ($cycleFromPlan === 'anual' ? 'ANUAL' : 'MENSUAL'),
         };
 
-        // =========================================================
-        // 4) Timbres / saldo
-        // =========================================================
         $timbres = (int) (
             $admin->timbres_disponibles
             ?? $cuenta->timbres_disponibles
@@ -915,9 +891,6 @@ class HomeController extends Controller
             ?? 0
         );
 
-        // =========================================================
-        // 5) Billing económico para la tarjeta
-        // =========================================================
         $billing = [
             'amount_mxn' => 0.0,
             'override' => [
@@ -936,36 +909,33 @@ class HomeController extends Controller
         }
 
         return [
-            'account_id'     => (string) ($admin->id ?? ($cuenta->admin_account_id ?? '')),
-            'razon'          => (string) $razon,
+            'account_id'            => (string) ($admin->id ?? ($cuenta->admin_account_id ?? '')),
+            'razon'                 => (string) $razon,
 
-            // plan comercial uniforme
-            'plan'           => $planLabel,
-            'plan_raw'       => $planRaw !== '' ? strtoupper($planRaw) : $planLabel,
-            'plan_norm'      => $planNorm !== '' ? $planNorm : strtolower($planLabel),
-            'is_pro'         => $isPro,
+            'plan'                  => $planLabel,
+            'plan_raw'              => $planRaw !== '' ? strtoupper($planRaw) : $planLabel,
+            'plan_norm'             => $planNorm !== '' ? $planNorm : strtolower($planLabel),
+            'is_pro'                => $isPro,
 
-            // compatibilidad con blade actual
-            'billing_cycle'  => $billingCycle,
-            'cycle'          => $billingCycle,
-            'cycle_label'    => $billingCycleLabel,
+            'billing_cycle'         => $billingCycle,
+            'cycle'                 => $billingCycle,
+            'cycle_label'           => $billingCycleLabel,
 
-            'billing_status' => $billingStatus,
-            'estado'         => $billingStatus,
+            'billing_status'        => $billingStatus,
+            'estado'                => $billingStatus,
 
-            'is_blocked'     => $isBlocked,
-            'blocked'        => $isBlocked,
+            'is_blocked'            => $isBlocked,
+            'blocked'               => $isBlocked,
 
-            'timbres'        => $timbres,
-            'balance'        => round($balance, 2),
+            'timbres'               => $timbres,
+            'balance'               => round($balance, 2),
 
-            // bloque billing admin -> cliente
-            'billing'        => $billing,
-            'amount_mxn'     => (float) ($billing['amount_mxn'] ?? 0),
-            'override'       => (array) ($billing['override'] ?? []),
-            'effective_amount_mxn' => (float) ($billing['effective_amount_mxn'] ?? 0),
+            'billing'               => $billing,
+            'amount_mxn'            => (float) ($billing['amount_mxn'] ?? 0),
+            'override'              => (array) ($billing['override'] ?? []),
+            'effective_amount_mxn'  => (float) ($billing['effective_amount_mxn'] ?? 0),
 
-            'source'         => $admin ? 'admin.accounts' : 'cliente.mirror',
+            'source'                => $admin ? 'admin.accounts' : 'cliente.mirror',
         ];
     }
         /**

@@ -141,10 +141,6 @@
           </span>
         @endif
 
-        <span class="p360-pill" title="Plan">
-          {{ $sumPlanBadge }}@if($sumCycle) · {{ strtoupper($sumCycle) }}@endif
-        </span>
-
         @if($sumEstado)
           <span class="p360-pill" title="Estado de cuenta">{{ strtoupper($sumEstado) }}</span>
         @endif
@@ -164,7 +160,7 @@
             ${{ number_format((float)$licAmount, 0) }}
           </div>
           <div class="p360-kpi__hint">
-            {{ $licHint !== '' ? $licHint : 'MXN' }}
+              {{ $licHasOverride ? 'PERSONALIZADO' : 'MXN' }}
           </div>
         </div>
 
