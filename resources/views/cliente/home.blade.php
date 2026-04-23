@@ -139,7 +139,7 @@
           'key' => 'timbres_hits',
           'icon' => '⚡',
           'title' => 'Timbres',
-          'desc' => number_format($timbresV) . ' disponibles.',
+          'desc' => 'Gestión de paquetes y consumo.',
           'href' => $rtTimbres,
           'accent' => 'amber',
       ],
@@ -188,7 +188,7 @@
   $quickActions = [
       ['icon' => '➕', 'title' => 'Emitir CFDI', 'href' => $rtFact],
       ['icon' => '⬇️', 'title' => 'Descargar SAT', 'href' => $rtSatDescargas],
-      ['icon' => '⚡', 'title' => 'Comprar timbres', 'href' => $rtTimbres],
+      ['icon' => '⚡', 'title' => 'Timbres / Hits', 'href' => $rtTimbres],
       ['icon' => '💼', 'title' => 'Mi cuenta', 'href' => $rtMiCuenta],
       ['icon' => '👤', 'title' => 'Perfil', 'href' => $rtPerfil],
       ['icon' => '💬', 'title' => 'Soporte', 'href' => $rtSoporte],
@@ -205,16 +205,9 @@
       ]);
   }
 
-  if ($timbresV <= 10) {
-      $alerts->push([
-          'level' => 'warn',
-          'icon' => '⚡',
-          'title' => 'Revisar timbres',
-          'href' => $rtTimbres,
-      ]);
-  }
 
-  if ($alerts->isEmpty()) {
+
+    if ($alerts->isEmpty()) {
       $alerts->push([
           'level' => 'ok',
           'icon' => '✅',
@@ -222,6 +215,50 @@
           'href' => $rtFact,
       ]);
   }
+
+  $smartPriority = [
+      'level' => 'ok',
+      'icon' => '✅',
+      'title' => 'Tu operación está al día',
+      'desc' => 'No hay pendientes críticos por atender en este momento.',
+      'cta' => 'Ver facturación',
+      'href' => $rtFact,
+  ];
+
+  if ($sumBlocked) {
+      $smartPriority = [
+          'level' => 'danger',
+          'icon' => '⛔',
+          'title' => 'Tu cuenta requiere atención',
+          'desc' => 'Revisa el estado de tu cuenta para recuperar acceso completo.',
+          'cta' => 'Ir a mi cuenta',
+          'href' => $rtMiCuenta,
+      ];
+  
+ 
+  } elseif ($recentRows->count() === 0) {
+      $smartPriority = [
+          'level' => 'info',
+          'icon' => '🧾',
+          'title' => 'Conecta tu actividad operativa',
+          'desc' => 'Cuando existan movimientos, aquí aparecerá tu siguiente acción.',
+          'cta' => 'Abrir SAT',
+          'href' => $rtSat,
+      ];
+  }
+
+  $mainApps = $mainApps
+      ->sortBy(function ($app) use ($smartPriority, $kTotal, $timbresV) {
+          $key = (string) ($app['key'] ?? '');
+
+          if ($smartPriority['href'] === ($app['href'] ?? '')) return 0;
+          
+          if ($kTotal > 0 && $key === 'facturacion') return 2;
+          if ($key === 'sat_descargas') return 3;
+
+          return 10;
+      })
+      ->values();
 
   $periodLabel = ($periodFrom && $periodTo)
       ? Carbon::parse($periodFrom)->format('d/m/Y') . ' – ' . Carbon::parse($periodTo)->format('d/m/Y')
@@ -250,6 +287,21 @@
       <div class="p360-orbit-item item-4">📦</div>
       <div class="p360-orbit-item item-5">📄</div>
     </div>
+    </section>
+
+  <section class="p360-smart-priority p360-smart-priority--{{ $smartPriority['level'] }}">
+    <div class="p360-smart-priority__icon">{{ $smartPriority['icon'] }}</div>
+
+    <div class="p360-smart-priority__body">
+      <span>Siguiente mejor acción</span>
+      <strong>{{ $smartPriority['title'] }}</strong>
+      <p>{{ $smartPriority['desc'] }}</p>
+    </div>
+
+    <a href="{{ $smartPriority['href'] }}" class="p360-smart-priority__cta">
+      {{ $smartPriority['cta'] }}
+      <em>›</em>
+    </a>
   </section>
 
   <section class="p360-clean-strip">
