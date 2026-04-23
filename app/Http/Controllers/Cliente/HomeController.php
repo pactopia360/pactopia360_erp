@@ -213,6 +213,44 @@ class HomeController extends Controller
 
     $summary = $this->buildAccountSummary();
 
+    // ==========================================================
+    // Autocorrección inmediata del nombre del owner en espejo
+    // para que deje de mostrar "Owner 27" en el header/layout.
+    // ==========================================================
+    try {
+        $displayName = trim((string) ($summary['razon'] ?? ''));
+        $user = $this->authUser();
+
+        if ($displayName !== '' && $user && !empty($user->id)) {
+            $currentName = trim((string) ($user->nombre ?? $user->name ?? ''));
+
+            $looksGenericOwner = $currentName === ''
+                || (bool) preg_match('/^owner\s+\d+$/i', $currentName);
+
+            if ($looksGenericOwner) {
+                \Illuminate\Support\Facades\DB::connection('mysql_clientes')
+                    ->table('usuarios_cuenta')
+                    ->where('id', (string) $user->id)
+                    ->update([
+                        'nombre'     => $displayName,
+                        'updated_at' => now(),
+                    ]);
+
+                if (property_exists($user, 'nombre')) {
+                    $user->nombre = $displayName;
+                }
+                if (property_exists($user, 'name')) {
+                    $user->name = $displayName;
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::warning('cliente.home.owner_name_autofix_failed', [
+            'message' => $e->getMessage(),
+            'user_id' => $this->authUserId(),
+        ]);
+    }
+
     $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? ''));
     $isPro = array_key_exists('is_pro', $summary)
         ? (bool) $summary['is_pro']
@@ -653,33 +691,130 @@ class HomeController extends Controller
      * Resumen de cuenta.
      * ✅ Incluye billing (base/override/effective) gobernado por Admin.
      */
-    public function buildAccountSummary(): array
+    private function buildAccountSummary(): array
     {
-        $u      = $this->authUser();
+        $u = $this->authUser();
         $cuenta = $u?->cuenta;
 
         if (is_array($cuenta)) {
-            $cuenta = (object)$cuenta;
+            $cuenta = (object) $cuenta;
         }
 
-        $admConn = 'mysql_admin';
+        $adminConn  = 'mysql_admin';
+        $clientConn = 'mysql_clientes';
 
-                $planKey = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
-        $timbres = (int) ($cuenta->timbres_disponibles ?? ($planKey === 'FREE' ? 10 : 0));
-        $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
+        $schemaA = \Illuminate\Support\Facades\Schema::connection($adminConn);
+        $schemaC = \Illuminate\Support\Facades\Schema::connection($clientConn);
 
-        // ==========================================================
-        // Razón visible del cliente (robusta)
+        $hasA = static function (string $table, string $col) use ($schemaA): bool {
+            try {
+                return $schemaA->hasTable($table) && $schemaA->hasColumn($table, $col);
+            } catch (\Throwable $e) {
+                return false;
+            }
+        };
+
+        $hasC = static function (string $table, string $col) use ($schemaC): bool {
+            try {
+                return $schemaC->hasTable($table) && $schemaC->hasColumn($table, $col);
+            } catch (\Throwable $e) {
+                return false;
+            }
+        };
+
+        $admin = null;
+
+        // =========================================================
+        // 1) Resolver account SOT desde mysql_admin.accounts
         // Prioridad:
-        // 1) cuenta_cliente.razon_social
-        // 2) cuenta_cliente.nombre_fiscal
-        // 3) clientes(cuenta_id).razon_social / nombre_comercial / nombre
-        // 4) usuario autenticado
-        // ==========================================================
+        // - admin_account_id del espejo
+        // - RFC del espejo
+        // - RFC padre del espejo
+        // =========================================================
+        if ($schemaA->hasTable('accounts')) {
+            $select = ['id'];
+
+            foreach ([
+                'rfc',
+                'razon_social',
+                'name',
+                'plan',
+                'plan_actual',
+                'billing_cycle',
+                'billing_status',
+                'is_blocked',
+                'saldo_mxn',
+                'timbres_disponibles',
+                'modo_cobro',
+                'meta',
+            ] as $col) {
+                if ($hasA('accounts', $col)) {
+                    $select[] = $col;
+                }
+            }
+
+            $adminAccountId = (int) ($cuenta->admin_account_id ?? 0);
+
+            if ($adminAccountId > 0) {
+                $admin = \Illuminate\Support\Facades\DB::connection($adminConn)
+                    ->table('accounts')
+                    ->select($select)
+                    ->where('id', $adminAccountId)
+                    ->first();
+            }
+
+            $rfcCandidates = [];
+            foreach ([
+                $cuenta->rfc ?? null,
+                $cuenta->rfc_padre ?? null,
+            ] as $candidate) {
+                $candidate = strtoupper(trim((string) $candidate));
+                if ($candidate !== '' && strlen($candidate) >= 12) {
+                    $rfcCandidates[] = $candidate;
+                }
+            }
+            $rfcCandidates = array_values(array_unique($rfcCandidates));
+
+            if (!$admin && !empty($rfcCandidates) && $hasA('accounts', 'rfc')) {
+                foreach ($rfcCandidates as $rfc) {
+                    $row = \Illuminate\Support\Facades\DB::connection($adminConn)
+                        ->table('accounts')
+                        ->select($select)
+                        ->whereRaw('UPPER(rfc) = ?', [$rfc])
+                        ->first();
+
+                    if ($row) {
+                        $admin = $row;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $meta = [];
+        if ($admin && isset($admin->meta) && is_string($admin->meta) && trim($admin->meta) !== '') {
+            try {
+                $decoded = json_decode((string) $admin->meta, true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            } catch (\Throwable $e) {
+                $meta = [];
+            }
+        }
+
+        // =========================================================
+        // 2) Razón / nombre visible
+        // PRIORIDAD REAL:
+        // admin.accounts -> espejo -> usuario
+        // =========================================================
         $razon = null;
 
         foreach ([
+            $admin->razon_social ?? null,
+            $admin->name ?? null,
             $cuenta->razon_social ?? null,
+            $cuenta->nombre_comercial ?? null,
             $cuenta->nombre_fiscal ?? null,
         ] as $candidate) {
             if (is_string($candidate) && trim($candidate) !== '') {
@@ -688,330 +823,108 @@ class HomeController extends Controller
             }
         }
 
-        if (($razon === null || $razon === '') && $cuenta && $this->hasTable('mysql_clientes', 'clientes')) {
-            try {
-                $clienteCols = ['id'];
-
-                foreach (['cuenta_id', 'razon_social', 'nombre_comercial', 'nombre'] as $col) {
-                    if ($this->hasCol('mysql_clientes', 'clientes', $col)) {
-                        $clienteCols[] = $col;
-                    }
-                }
-
-                if (in_array('cuenta_id', $clienteCols, true)) {
-                    $clienteRow = DB::connection('mysql_clientes')
-                        ->table('clientes')
-                        ->select(array_values(array_unique($clienteCols)))
-                        ->where('cuenta_id', $cuenta->id)
-                        ->orderByDesc('id')
-                        ->first();
-
-                    if ($clienteRow) {
-                        foreach ([
-                            $clienteRow->razon_social ?? null,
-                            $clienteRow->nombre_comercial ?? null,
-                            $clienteRow->nombre ?? null,
-                        ] as $candidate) {
-                            if (is_string($candidate) && trim($candidate) !== '') {
-                                $razon = trim($candidate);
-                                break;
-                            }
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                // ignore
-            }
-        }
-
         if ($razon === null || $razon === '') {
-            $razon = (string) ($u->nombre ?? $u->name ?? $u->email ?? 'Cliente');
+            $fallbackUser = trim((string) ($u->nombre ?? $u->name ?? $u->email ?? 'Cliente'));
+            $razon = $fallbackUser !== '' ? $fallbackUser : 'Cliente';
         }
 
-                // ==========================================================
-        // Resolución ROBUSTA de la cuenta admin
-        // Prioridad:
-        // 1) cuenta_cliente.admin_account_id
-        // 2) cuenta_cliente.rfc
-        // 3) cuenta_cliente.rfc_padre como RFC real
-        // 4) cuenta_cliente.rfc_padre legacy como accounts.id
-        // 5) email de cuenta cliente / usuario autenticado
-        // ==========================================================
-        $adminId   = $cuenta->admin_account_id ?? null;
-        $rfcMirror = strtoupper(trim((string) ($cuenta->rfc ?? '')));
-        $rfcPadre  = strtoupper(trim((string) ($cuenta->rfc_padre ?? '')));
-        $rfc       = $rfcMirror !== '' ? $rfcMirror : $rfcPadre;
+        // =========================================================
+        // 3) Plan / PRO-FREE
+        // Admin manda.
+        // =========================================================
+        $planRaw = trim((string) (
+            $admin->plan_actual
+            ?? $admin->plan
+            ?? $cuenta->plan_actual
+            ?? $cuenta->plan
+            ?? ''
+        ));
 
-        $emailCandidates = array_values(array_unique(array_filter([
-            strtolower(trim((string) ($cuenta->email ?? ''))),
-            strtolower(trim((string) ($cuenta->correo ?? ''))),
-            strtolower(trim((string) ($cuenta->email_fiscal ?? ''))),
-            strtolower(trim((string) ($u->email ?? ''))),
-        ], fn ($v) => $v !== '')));
+        $planUpper = strtoupper($planRaw);
 
-        if (Schema::connection($admConn)->hasTable('accounts')) {
-            // 1) ID directo
-            if ($adminId && !is_numeric($adminId)) {
-                $adminId = null;
-            }
+        $isPro = in_array($planUpper, [
+            'PRO',
+            'PRO_MENSUAL',
+            'PRO_ANUAL',
+            'PREMIUM',
+            'BUSINESS',
+            'EMPRESA',
+        ], true);
 
-            // 2) Fallback por RFC real
-            if (!$adminId && $rfc !== '' && $this->hasCol($admConn, 'accounts', 'rfc')) {
-                $accByRfc = DB::connection($admConn)
-                    ->table('accounts')
-                    ->select('id')
-                    ->whereRaw('UPPER(rfc) = ?', [$rfc])
-                    ->first();
+        $planLabel = $isPro ? 'PRO' : 'FREE';
 
-                if ($accByRfc) {
-                    $adminId = (int) $accByRfc->id;
-                }
-            }
+        // =========================================================
+        // 4) Billing cycle / modo cobro
+        // =========================================================
+        $billingCycle = strtolower(trim((string) (
+            $admin->billing_cycle
+            ?? data_get($meta, 'billing.billing_cycle')
+            ?? data_get($meta, 'billing.cycle')
+            ?? $admin->modo_cobro
+            ?? $cuenta->billing_cycle
+            ?? $cuenta->modo_cobro
+            ?? ''
+        )));
 
-            // 3) Fallback legacy: rfc_padre guardado como accounts.id
-            if (!$adminId && $rfcPadre !== '' && ctype_digit($rfcPadre)) {
-                $accById = DB::connection($admConn)
-                    ->table('accounts')
-                    ->select('id')
-                    ->where('id', (int) $rfcPadre)
-                    ->first();
-
-                if ($accById) {
-                    $adminId = (int) $accById->id;
-                }
-            }
-
-            // 4) Fallback por email exacto
-            if (
-                !$adminId
-                && !empty($emailCandidates)
-                && $this->hasCol($admConn, 'accounts', 'email')
-            ) {
-                $accByEmail = DB::connection($admConn)
-                    ->table('accounts')
-                    ->select('id')
-                    ->whereIn(DB::raw('LOWER(email)'), $emailCandidates)
-                    ->orderByDesc('id')
-                    ->first();
-
-                if ($accByEmail) {
-                    $adminId = (int) $accByEmail->id;
-                }
-            }
+        if ($billingCycle === 'mensual') {
+            $billingCycle = 'monthly';
+        }
+        if (in_array($billingCycle, ['anual', 'annual'], true)) {
+            $billingCycle = 'yearly';
         }
 
-        $acc = null;
-        if ($adminId && Schema::connection($admConn)->hasTable('accounts')) {
-            $cols = ['id'];
+        $billingCycleLabel = match ($billingCycle) {
+            'yearly'  => 'ANUAL',
+            'monthly' => 'MENSUAL',
+            default   => ($isPro ? 'MENSUAL' : 'MENSUAL'),
+        };
 
-            foreach ([
-                // Identidad / registro externo
-                'rfc',
-                'name',
-                'razon_social',
-                'email',
-                'email_verified_at',
-                'phone_verified_at',
-
-                // Estado / billing
-                'plan',
-                'plan_actual',
-                'billing_cycle',
-                'modo_cobro',
-                'billing_status',
-                'next_invoice_date',
-                'estado_cuenta',
-                'is_blocked',
-                'meta',
-
-                // columnas posibles de pricing en accounts (por si existen)
-                'billing_amount_mxn','amount_mxn','precio_mxn','monto_mxn',
-                'override_amount_mxn','custom_amount_mxn','license_amount_mxn',
-                'billing_amount','amount','precio','monto',
-            ] as $c) {
-                if ($this->hasCol($admConn, 'accounts', $c)) {
-                    $cols[] = $c;
-                }
-            }
-
-            $acc = DB::connection($admConn)
-                ->table('accounts')
-                ->select(array_values(array_unique($cols)))
-                ->where('id', $adminId)
-                ->first();
-
-        }
-
-        // ===========================
-        // Balance (tu lógica existente)
-        // ===========================
-        $balance = $saldoMx;
-        if (Schema::connection($admConn)->hasTable('estados_cuenta')) {
-            $linkCol = null;
-            $linkVal = null;
-
-            if ($this->hasCol($admConn, 'estados_cuenta', 'account_id') && $adminId) {
-                $linkCol = 'account_id';
-                $linkVal = $adminId;
-            } elseif ($this->hasCol($admConn, 'estados_cuenta', 'cuenta_id') && $adminId) {
-                $linkCol = 'cuenta_id';
-                $linkVal = $adminId;
-            } elseif ($this->hasCol($admConn, 'estados_cuenta', 'rfc') && $rfc) {
-                $linkCol = 'rfc';
-                $linkVal = strtoupper($rfc);
-            }
-
-            if ($linkCol !== null) {
-                $orderCol = $this->hasCol($admConn, 'estados_cuenta', 'periodo')
-                    ? 'periodo'
-                    : ($this->hasCol($admConn, 'estados_cuenta', 'created_at') ? 'created_at' : 'id');
-
-                $last = DB::connection($admConn)->table('estados_cuenta')
-                    ->where($linkCol, $linkVal)
-                    ->orderByDesc($orderCol)
-                    ->first();
-
-                if ($last && property_exists($last, 'saldo') && $last->saldo !== null) {
-                    $balance = (float) $last->saldo;
-                } else {
-                    $hasCargo = $this->hasCol($admConn, 'estados_cuenta', 'cargo');
-                    $hasAbono = $this->hasCol($admConn, 'estados_cuenta', 'abono');
-
-                    if ($hasCargo || $hasAbono) {
-                        $cargo = $hasCargo
-                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('cargo')
-                            : 0.0;
-                        $abono = $hasAbono
-                            ? (float) DB::connection($admConn)->table('estados_cuenta')->where($linkCol, $linkVal)->sum('abono')
-                            : 0.0;
-                        $balance = $cargo - $abono;
-                    }
-                }
-            }
-        }
-
-        // ===========================
-        // Espacio (tu lógica existente)
-        // ===========================
-        $spaceTotal = (float) ($cuenta->espacio_total_mb ?? 512);
-        $spaceUsed  = (float) ($cuenta->espacio_usado_mb ?? 0);
-        $spacePct   = $spaceTotal > 0 ? min(100, round(($spaceUsed / $spaceTotal) * 100, 1)) : 0;
-
-        // ===========================
-        // Plan + ciclo (normalizados) — NULL SAFE si no hay $acc
-        // ===========================
-        $planRaw = (string) (
-            ($acc?->plan)
-            ?? ($acc?->plan_actual)
-            ?? $planKey
+        // =========================================================
+        // 5) Timbres / saldo
+        // =========================================================
+        $timbres = (int) (
+            $admin->timbres_disponibles
+            ?? $cuenta->timbres_disponibles
+            ?? ($isPro ? 0 : 10)
         );
 
-        $norm = $this->normalizePlanAndCycle($planRaw);
+        $balance = (float) (
+            $admin->saldo_mxn
+            ?? $cuenta->saldo_mxn
+            ?? 0
+        );
 
-        // plan "base" sin sufijos: pro/premium/free/...
-        $planBase = (string) ($norm['plan_base'] ?? 'free');
+        // =========================================================
+        // 6) Status
+        // =========================================================
+        $billingStatus = strtolower(trim((string) (
+            $admin->billing_status
+            ?? $cuenta->billing_status
+            ?? $cuenta->estado_cuenta
+            ?? ''
+        )));
 
-        // billing_cycle tiene prioridad si existe; si no, derivamos del sufijo del plan;
-        // si no, usamos modo_cobro admin; si no, espejo cliente
-        $cycle = ($acc?->billing_cycle)
-            ?? (($norm['cycle'] ?? null)
-            ?: (($acc?->modo_cobro) ?? ($cuenta->modo_cobro ?? 'mensual')));
+        $isBlocked = (int) (
+            $admin->is_blocked
+            ?? $cuenta->is_blocked
+            ?? 0
+        ) === 1;
 
-        $estado = ($acc?->estado_cuenta)
-            ?? ($acc?->billing_status)
-            ?? ($cuenta->estado_cuenta ?? null);
-
-        $blocked = (bool) (((int)($acc?->is_blocked ?? 0)) || ((int)($cuenta->is_blocked ?? 0)));
-
-        // Exponemos plan como base normalizada (sin _mensual/_anual)
-        $plan = $planBase;
-
-
-
-        // ===========================
-        // ✅ BILLING: precio vigente gobernado por Admin
-        // ===========================
-        $periodNow = now()->format('Y-m');
-
-        $meta = $this->decodeMeta($acc?->meta ?? null);
-
-
-        $lastPaid = $this->resolveLastPaidPeriodForAdminAccount((int)($acc->id ?? 0), $meta, $admConn);
-        $payAllowed = $lastPaid
-            ? Carbon::createFromFormat('Y-m', $lastPaid)->addMonthNoOverflow()->format('Y-m')
-            : $periodNow;
-
-        $pricing = $this->resolveEffectiveMonthlyAmountFromAdmin($acc, $meta, $periodNow, $payAllowed);
-
-        // ===========================
-        // ✅ RFC EXTERNO (registro admin)
-        // ===========================
-        $rfcExterno = null;
-        if ($acc && isset($acc->rfc) && is_string($acc->rfc) && trim($acc->rfc) !== '') {
-            $rfcExterno = strtoupper(trim($acc->rfc));
-        } elseif (is_string($rfc) && trim($rfc) !== '') {
-            // fallback a rfc_padre si existiera
-            $rfcExterno = strtoupper(trim($rfc));
-        }
-
-        // Señal “verificado externamente” (defensivo: usa verificación de contacto como proxy si no hay flag dedicado)
-        $externalVerified = false;
-        if ($acc) {
-            $externalVerified = !empty($acc->email_verified_at) || !empty($acc->phone_verified_at);
-        }
-
-
-         return [
-            'razon'        => (string) (
-                (is_string($acc?->razon_social ?? null) && trim((string) $acc->razon_social) !== '')
-                    ? trim((string) $acc->razon_social)
-                    : (
-                        (is_string($acc?->name ?? null) && trim((string) $acc->name) !== '')
-                            ? trim((string) $acc->name)
-                            : $razon
-                    )
-            ),
-
-            // Normalizado para lógica
-            'plan'         => $planBase,
-
-            // Valor original desde admin/local
-            'plan_raw'     => $planRaw,
-
-            // Alias explícito
-            'plan_norm'    => $planBase,
-
-            // Badge comercial uniforme
-            'is_pro'       => in_array($planBase, ['pro', 'premium', 'empresa', 'business'], true),
-
-            'cycle'        => $cycle,
-            'next_invoice' => $acc?->next_invoice_date ?? null,
-            'estado'       => $estado,
-            'blocked'      => $blocked,
-            'balance'      => $balance,
-            'space_total'  => $spaceTotal,
-            'space_used'   => $spaceUsed,
-            'space_pct'    => $spacePct,
-            'timbres'      => $timbres,
-            'admin_id'     => $adminId,
-
-            // ✅ compat / consumo directo en UI
-            'billing'      => $pricing,
-            'amount_mxn'   => (float)($pricing['effective_amount_mxn'] ?? 0),
-            'last_paid'    => $lastPaid,
-            'pay_allowed'  => $payAllowed,
-
-            // RFC proveniente de registro externo (Admin)
-            'rfc_externo'           => $rfcExterno,
-            'rfc_source'            => $rfcExterno ? 'external_registry' : null,
-            'rfc_external_verified' => $externalVerified,
-
-            // compat: algunos blades esperan rfc directo
-            'rfc'                   => $rfcExterno,
+        return [
+            'account_id'    => (string) ($admin->id ?? ''),
+            'razon'         => (string) $razon,
+            'plan'          => $planLabel,
+            'plan_norm'     => strtolower($planLabel),
+            'is_pro'        => $isPro,
+            'billing_cycle' => $billingCycle,
+            'cycle_label'   => $billingCycleLabel,
+            'billing_status'=> $billingStatus,
+            'is_blocked'    => $isBlocked,
+            'timbres'       => $timbres,
+            'balance'       => round($balance, 2),
+            'source'        => $admin ? 'admin.accounts' : 'cliente.mirror',
         ];
-
     }
-
         /**
      * Normaliza planes tipo "pro_mensual", "pro_anual", "premium_anual", etc.
      * Retorna:

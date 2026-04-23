@@ -3223,6 +3223,11 @@ class ClientesController extends \App\Http\Controllers\Controller
         $conn      = DB::connection('mysql_clientes');
         $schemaCli = Schema::connection('mysql_clientes');
 
+        $displayName = trim((string) ($acc->razon_social ?? ''));
+        if ($displayName === '') {
+            $displayName = $rfcReal !== '' ? $rfcReal : ('Cuenta ' . (string) ($acc->id ?? ''));
+        }
+
         $ownerQ = $conn->table('usuarios_cuenta')
             ->where('cuenta_id', $cuenta->id)
             ->where(function ($q) use ($schemaCli) {
@@ -3232,7 +3237,32 @@ class ClientesController extends \App\Http\Controllers\Controller
             ->orderBy('created_at', 'asc');
 
         $owner = $ownerQ->first();
-        if ($owner) return (object) ['id' => $owner->id, 'email' => $owner->email];
+        if ($owner) {
+            $upd = [
+                'updated_at' => now(),
+                'rol'        => 'owner',
+                'activo'     => 1,
+            ];
+
+            if ($schemaCli->hasColumn('usuarios_cuenta', 'tipo')) {
+                $upd['tipo'] = 'owner';
+            }
+
+            if (trim((string) ($owner->nombre ?? '')) !== $displayName) {
+                $upd['nombre'] = $displayName;
+            }
+
+            if (count($upd) > 1) {
+                $conn->table('usuarios_cuenta')
+                    ->where('id', (string) $owner->id)
+                    ->update($upd);
+            }
+
+            return (object) [
+                'id'    => $owner->id,
+                'email' => $owner->email,
+            ];
+        }
 
         $baseEmail = strtolower((string) ($acc->email ?: ('owner@' . $rfcReal . '.example.test')));
 
@@ -3242,11 +3272,25 @@ class ClientesController extends \App\Http\Controllers\Controller
             ->first();
 
         if ($userSameEmailSameCuenta) {
-            $upd = ['rol' => 'owner', 'activo' => 1, 'updated_at' => now()];
-            if ($schemaCli->hasColumn('usuarios_cuenta', 'tipo')) $upd['tipo'] = 'owner';
-            $conn->table('usuarios_cuenta')->where('id', $userSameEmailSameCuenta->id)->update($upd);
+            $upd = [
+                'rol'        => 'owner',
+                'activo'     => 1,
+                'nombre'     => $displayName,
+                'updated_at' => now(),
+            ];
 
-            return (object) ['id' => $userSameEmailSameCuenta->id, 'email' => $userSameEmailSameCuenta->email];
+            if ($schemaCli->hasColumn('usuarios_cuenta', 'tipo')) {
+                $upd['tipo'] = 'owner';
+            }
+
+            $conn->table('usuarios_cuenta')
+                ->where('id', $userSameEmailSameCuenta->id)
+                ->update($upd);
+
+            return (object) [
+                'id'    => $userSameEmailSameCuenta->id,
+                'email' => $userSameEmailSameCuenta->email,
+            ];
         }
 
         $email = $this->ensureUniqueUserEmail($baseEmail, (string) $cuenta->id, $rfcReal);
@@ -3263,7 +3307,7 @@ class ClientesController extends \App\Http\Controllers\Controller
             'id'         => $uid,
             'cuenta_id'  => $cuenta->id,
             'rol'        => 'owner',
-            'nombre'     => 'Owner ' . (string) ($acc->id ?? ''),
+            'nombre'     => $displayName,
             'email'      => $email,
             'password'   => $hash,
             'activo'     => 1,
