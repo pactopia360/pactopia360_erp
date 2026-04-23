@@ -4,15 +4,14 @@
 --}}
 @php
   use Illuminate\Support\Facades\Route;
-  use App\Http\Controllers\Cliente\HomeController as ClientHome;
 
   $isFirstPassword   = request()->routeIs('cliente.password.first');
   $theme             = $isFirstPassword ? 'light' : session('client_ui.theme', 'light');
   $routeThemeSwitch  = Route::has('cliente.ui.theme.switch') ? route('cliente.ui.theme.switch') : '';
 
   // Logo actual (claro/oscuro)
-$logoLightUrl = '/assets/client/img/Pactopia - Letra AZUL.png';
-$logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
+  $logoLightUrl = '/assets/client/img/Pactopia - Letra AZUL.png';
+  $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
 
   // Sprite
   $spriteUrl    = '/assets/client/icons.svg';
@@ -36,19 +35,33 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
   $email  = $u?->email ?? '';
 
   // Resumen unificado de cuenta
-  $summary = app(ClientHome::class)->buildAccountSummary();
+  // ✅ NO recalcular aquí. El layout ya manda $summary correcto.
+  $summary = (isset($summary) && is_array($summary)) ? $summary : [];
 
-  $planRaw  = strtoupper((string)($summary['plan'] ?? ($c->plan_actual ?? $c->plan ?? 'FREE')));
-  $planSlug = strtolower($planRaw);
+  $summaryPlan = !empty($summary['plan'])
+      ? strtoupper((string) $summary['plan'])
+      : null;
 
-  $isProPlan = (bool)($summary['is_pro'] ?? in_array(
+  $summaryIsPro = array_key_exists('is_pro', $summary)
+      ? (bool) $summary['is_pro']
+      : null;
+
+  $fallbackPlan = strtoupper((string)($c->plan_actual ?? $c->plan ?? 'FREE'));
+  $planRaw      = $summaryPlan ?: $fallbackPlan;
+  $planSlug     = strtolower(trim((string) $planRaw));
+
+  $isProPlan = $summaryIsPro ?? in_array(
       $planSlug,
-      ['pro','premium','empresa','business'],
+      ['pro', 'pro_mensual', 'pro_anual', 'premium', 'premium_mensual', 'premium_anual', 'empresa', 'business'],
       true
-  ));
+  );
 
-  $plan      = $planRaw;
-  $planBadge = $isProPlan ? 'PRO' : $planRaw;
+  $plan = $planRaw;
+
+  // Badge comercial compacto
+  $planBadge = $isProPlan ? 'PRO' : (
+      in_array($planSlug, ['free', 'gratis'], true) ? 'FREE' : $planRaw
+  );
 
   // Rutas
   $rtHome     = Route::has('cliente.home') ? route('cliente.home') : url('/cliente');
@@ -127,7 +140,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
     <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">{!! $spriteInline !!}</svg>
   @endif
 
-  {{-- Marca --}}
   <div class="p360-head-brand">
     <a href="{{ $rtHome }}" aria-label="Inicio Pactopia360" class="p360-head-brand__link">
       <img
@@ -145,7 +157,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
     </a>
   </div>
 
-  {{-- Buscador --}}
   <form
     class="p360-head-search"
     role="search"
@@ -161,9 +172,7 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
     />
   </form>
 
-  {{-- Acciones --}}
   <div class="p360-head-actions">
-    {{-- Tema --}}
     <button
       id="btnTheme"
       class="p360-icon-btn"
@@ -179,7 +188,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
       @endif
     </button>
 
-    {{-- Notificaciones --}}
     <a class="p360-icon-btn" href="{{ $rtAlerts }}" title="Notificaciones" aria-label="Notificaciones">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('bell') }}"/></svg>
       @if($notifCount > 0)
@@ -187,7 +195,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
       @endif
     </a>
 
-    {{-- Chat --}}
     <a class="p360-icon-btn" href="{{ $rtChat }}" title="Mensajes con soporte" aria-label="Mensajes con soporte">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="{{ $uHref('chat') }}"/></svg>
       @if($chatCount > 0)
@@ -195,7 +202,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
       @endif
     </a>
 
-    {{-- Carrito SAT --}}
     <div id="satCartHeader" class="p360-sat-cart" style="display:none;">
       <a
         href="{{ Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : $rtSatPay }}"
@@ -210,7 +216,6 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
       </a>
     </div>
 
-    {{-- Cuenta --}}
     <div class="p360-account">
       <div class="p360-account__meta">
         <span class="p360-account__name" title="{{ $acctLabel }}">{{ $acctLabel }}</span>
@@ -272,678 +277,3 @@ $logoDarkUrl  = '/assets/client/img/Pactopia - Letra Blanca.png';
     </div>
   </div>
 </header>
-
-<style>
-  :root{
-    --header-h:72px;
-    --header:72px;
-    --ico:20px;
-    --logo-h:42px;
-    --p360-hd-bg-light: rgba(255,255,255,.78);
-    --p360-hd-bg-dark: rgba(8,18,38,.82);
-    --p360-hd-bd-light: rgba(15,23,42,.08);
-    --p360-hd-bd-dark: rgba(255,255,255,.08);
-    --p360-hd-chip-light: rgba(255,255,255,.72);
-    --p360-hd-chip-dark: rgba(255,255,255,.06);
-    --p360-hd-brand: #2563eb;
-    --p360-hd-brand-2: #60a5fa;
-  }
-
-  @media (max-width: 900px){ :root{ --logo-h:36px; } }
-  @media (max-width: 520px){ :root{ --logo-h:30px; } }
-
-  .topbar,
-  .topbar *{
-    font-family:'Poppins', var(--font-sans, ui-sans-serif), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-    box-sizing:border-box;
-  }
-
-  .topbar{
-    position:sticky;
-    top:0;
-    z-index:50;
-    display:grid;
-    grid-template-columns:minmax(220px, auto) minmax(320px, 1fr) auto;
-    align-items:center;
-    gap:18px;
-    min-height:var(--header);
-    padding:12px 22px;
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    background:var(--p360-hd-bg-light);
-    border-bottom:1px solid var(--p360-hd-bd-light);
-    box-shadow:0 8px 28px rgba(15,23,42,.04);
-  }
-
-  html.theme-dark .topbar{
-    background:var(--p360-hd-bg-dark);
-    border-bottom-color:var(--p360-hd-bd-dark);
-    box-shadow:0 12px 30px rgba(0,0,0,.18);
-  }
-
-  .p360-head-brand{
-    min-width:0;
-  }
-
-  .p360-head-brand__link{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    text-decoration:none;
-    min-width:0;
-  }
-
-  .p360-head-brand__logo{
-    height:var(--logo-h);
-    width:auto;
-    display:block;
-    object-fit:contain;
-    filter: drop-shadow(0 4px 10px rgba(37,99,235,.12));
-  }
-
-  .p360-head-brand__meta{
-    display:flex;
-    flex-direction:column;
-    min-width:0;
-    line-height:1.05;
-  }
-
-  .p360-head-brand__eyebrow{
-    font-size:11px;
-    font-weight:800;
-    letter-spacing:.14em;
-    text-transform:uppercase;
-    color:var(--muted,#64748b);
-  }
-
-  .p360-head-brand__title{
-    font-size:15px;
-    font-weight:800;
-    color:var(--text,#0f172a);
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-
-  html.theme-dark .p360-head-brand__title{
-    color:#e8eefc;
-  }
-
-  .ico{
-    width:var(--ico);
-    height:var(--ico);
-    display:block;
-    color:var(--text,#0f172a);
-    fill: currentColor !important;
-    stroke: currentColor !important;
-  }
-
-  .ico use,
-  .dd-ico use,
-  .p360-sat-cart__ico use{
-    fill: currentColor !important;
-    stroke: currentColor !important;
-  }
-
-  .p360-head-search{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    width:100%;
-    max-width:760px;
-    min-width:240px;
-    height:46px;
-    margin-inline:auto;
-    padding:0 16px;
-    border-radius:999px;
-    border:1px solid rgba(37,99,235,.10);
-    background:linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.64));
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 10px 24px rgba(15,23,42,.04);
-  }
-
-  html.theme-dark .p360-head-search{
-    background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-    border-color:rgba(255,255,255,.08);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 10px 24px rgba(0,0,0,.12);
-  }
-
-  .p360-head-search .ico{
-    color:color-mix(in oklab, var(--text,#0f172a) 60%, transparent);
-    flex:0 0 auto;
-  }
-
-  .p360-head-search input{
-    all:unset;
-    flex:1;
-    font-size:14px;
-    font-weight:600;
-    color:var(--text,#0f172a);
-  }
-
-  html.theme-dark .p360-head-search input{
-    color:#e5eefc;
-  }
-
-  .p360-head-search input::placeholder{
-    color:color-mix(in oklab, var(--muted,#64748b) 86%, transparent);
-    font-weight:600;
-  }
-
-  .p360-head-actions{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    justify-self:end;
-  }
-
-  .p360-icon-btn{
-    position:relative;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    width:42px;
-    height:42px;
-    border-radius:14px;
-    border:1px solid rgba(37,99,235,.10);
-    background:linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,255,255,.70));
-    box-shadow:0 10px 22px rgba(15,23,42,.04);
-    cursor:pointer;
-    text-decoration:none;
-    transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
-  }
-
-  .p360-icon-btn:hover{
-    transform:translateY(-1px);
-    box-shadow:0 14px 28px rgba(37,99,235,.10);
-    border-color:rgba(37,99,235,.18);
-  }
-
-  html.theme-dark .p360-icon-btn{
-    background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-    border-color:rgba(255,255,255,.08);
-    box-shadow:0 10px 24px rgba(0,0,0,.14);
-  }
-
-  html.theme-dark .p360-icon-btn:hover{
-    border-color:rgba(96,165,250,.22);
-    box-shadow:0 14px 30px rgba(0,0,0,.22);
-  }
-
-  .p360-badge{
-    position:absolute;
-    top:-5px;
-    right:-5px;
-    min-width:18px;
-    height:18px;
-    padding:0 6px;
-    border-radius:999px;
-    background:#ef4444;
-    color:#fff;
-    font:800 11px/18px system-ui;
-    text-align:center;
-    border:2px solid rgba(255,255,255,.92);
-  }
-
-  html.theme-dark .p360-badge{
-    border-color:#0b1220;
-  }
-
-  .p360-sat-cart{
-    display:flex;
-    align-items:center;
-  }
-
-  .p360-sat-cart__btn{
-    position:relative;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    width:42px;
-    height:42px;
-    border-radius:14px;
-    border:1px solid #facc15;
-    background:linear-gradient(180deg, #ffe277 0%, #ffd814 100%);
-    box-shadow:0 10px 22px rgba(245,158,11,.18);
-    padding:0;
-    cursor:pointer;
-    transition:transform .16s ease, box-shadow .16s ease, filter .16s ease;
-  }
-
-  .p360-sat-cart__btn:hover{
-    filter:brightness(.985);
-    transform:translateY(-1px);
-    box-shadow:0 14px 28px rgba(245,158,11,.24);
-  }
-
-  .p360-sat-cart__ico{
-    width:20px;
-    height:20px;
-    color:#111827;
-    fill: currentColor !important;
-    stroke: currentColor !important;
-  }
-
-  .p360-sat-cart__badge{
-    position:absolute;
-    bottom:-4px;
-    right:-4px;
-    min-width:18px;
-    height:18px;
-    padding:0 5px;
-    border-radius:999px;
-    background:#ef4444;
-    color:#fff;
-    font:700 11px/18px system-ui;
-    border:2px solid #fff;
-  }
-
-  .p360-account{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    padding-left:4px;
-  }
-
-  .p360-account__meta{
-    display:flex;
-    flex-direction:column;
-    align-items:flex-end;
-    line-height:1.05;
-    min-width:170px;
-    max-width:260px;
-  }
-
-  .p360-account__name{
-    font-size:13px;
-    font-weight:800;
-    color:var(--text,#0f172a);
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    max-width:100%;
-  }
-
-  html.theme-dark .p360-account__name{
-    color:#e8eefc;
-  }
-
-  .p360-account__plan{
-    margin-top:4px;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    padding:5px 10px;
-    border-radius:999px;
-    font-size:11px;
-    font-weight:900;
-    letter-spacing:.04em;
-    color:#0f4ed8;
-    background:rgba(37,99,235,.10);
-    border:1px solid rgba(37,99,235,.14);
-  }
-
-  html.theme-dark .p360-account__plan{
-    color:#cfe1ff;
-    background:rgba(96,165,250,.12);
-    border-color:rgba(96,165,250,.16);
-  }
-
-  .p360-profile-btn{
-    border:0;
-    background:transparent;
-    padding:0;
-    cursor:pointer;
-  }
-
-  .p360-profile-btn__avatar{
-    width:42px;
-    height:42px;
-    border-radius:999px;
-    display:grid;
-    place-items:center;
-    background:linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
-    color:#fff;
-    font-weight:900;
-    font-size:14px;
-    box-shadow:0 12px 26px rgba(37,99,235,.18);
-    border:2px solid rgba(255,255,255,.88);
-  }
-
-  html.theme-dark .p360-profile-btn__avatar{
-    border-color:rgba(10,23,48,.96);
-  }
-
-  .dropdown.dd-profile{
-    position:absolute;
-    right:0;
-    top:calc(100% + 12px);
-    width:292px;
-    background:rgba(255,255,255,.92);
-    color:var(--text,#0f172a);
-    border:1px solid rgba(37,99,235,.10);
-    border-radius:18px;
-    box-shadow:0 20px 56px rgba(15,23,42,.16);
-    padding:10px;
-    z-index:60;
-    transform-origin:top right;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-  }
-
-  .dropdown[hidden]{
-    display:none !important;
-  }
-
-  html.theme-dark .dropdown.dd-profile{
-    background:rgba(9,19,38,.92);
-    border-color:rgba(255,255,255,.08);
-    color:#e5e7eb;
-    box-shadow:0 20px 56px rgba(0,0,0,.40);
-  }
-
-  .dd-head{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    padding:12px;
-    border-radius:16px;
-    background:linear-gradient(180deg, rgba(37,99,235,.10), rgba(37,99,235,0));
-    border:1px solid rgba(37,99,235,.12);
-  }
-
-  html.theme-dark .dd-head{
-    background:linear-gradient(180deg, rgba(96,165,250,.10), rgba(96,165,250,0));
-    border-color:rgba(255,255,255,.08);
-  }
-
-  .dd-ava{
-    width:42px;
-    height:42px;
-    border-radius:999px;
-    display:grid;
-    place-items:center;
-    background:linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
-    color:#fff;
-    font-weight:900;
-    letter-spacing:.02em;
-    box-shadow:0 10px 24px rgba(37,99,235,.18);
-  }
-
-  .dd-who{
-    min-width:0;
-    flex:1;
-  }
-
-  .dd-name{
-    font-weight:900;
-    font-size:13px;
-    line-height:1.1;
-    color:inherit;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-
-  .dd-mail{
-    margin-top:3px;
-    font-size:11px;
-    font-weight:700;
-    opacity:.76;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-
-  .dd-chip{
-    font-size:11px;
-    font-weight:900;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(37,99,235,.20);
-    background:rgba(37,99,235,.10);
-    white-space:nowrap;
-    color:#0f4ed8;
-  }
-
-  html.theme-dark .dd-chip{
-    color:#d7e6ff;
-    background:rgba(96,165,250,.12);
-    border-color:rgba(96,165,250,.16);
-  }
-
-  .dd-section{
-    padding:10px 4px 6px;
-  }
-
-  .dd-label{
-    font-size:11px;
-    font-weight:900;
-    letter-spacing:.08em;
-    text-transform:uppercase;
-    opacity:.65;
-    padding:0 8px 8px;
-  }
-
-  .dd-item{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    width:100%;
-    text-decoration:none;
-    color:inherit;
-    background:transparent;
-    border:0;
-    cursor:pointer;
-    padding:11px 10px;
-    border-radius:13px;
-    font-weight:800;
-    text-align:left;
-  }
-
-  .dd-ico{
-    width:18px;
-    height:18px;
-    opacity:.9;
-    flex:0 0 auto;
-    color:inherit;
-    fill: currentColor !important;
-    stroke: currentColor !important;
-  }
-
-  .dd-item:hover{
-    background:rgba(37,99,235,.06);
-  }
-
-  html.theme-dark .dd-item:hover{
-    background:rgba(255,255,255,.06);
-  }
-
-  .dd-sep{
-    height:1px;
-    margin:8px 6px;
-    background:rgba(15,23,42,.08);
-  }
-
-  html.theme-dark .dd-sep{
-    background:rgba(255,255,255,.10);
-  }
-
-  .dd-danger{
-    color:#b91c1c;
-  }
-
-  html.theme-dark .dd-danger{
-    color:#fca5a5;
-  }
-
-  .dd-danger:hover{
-    background:rgba(239,68,68,.10);
-  }
-
-  html.theme-dark .dd-danger:hover{
-    background:rgba(239,68,68,.16);
-  }
-
-  @media (max-width: 1180px){
-    .topbar{
-      grid-template-columns:auto 1fr auto;
-      gap:14px;
-    }
-
-    .p360-head-brand__meta{
-      display:none;
-    }
-
-    .p360-account__meta{
-      display:none;
-    }
-  }
-
-  @media (max-width: 900px){
-    .topbar{
-      grid-template-columns:auto 1fr auto;
-      padding:10px 14px;
-      gap:10px;
-    }
-
-    .p360-head-search{
-      min-width:0;
-      max-width:100%;
-      height:42px;
-      padding:0 14px;
-    }
-
-    .p360-icon-btn,
-    .p360-sat-cart__btn,
-    .p360-profile-btn__avatar{
-      width:40px;
-      height:40px;
-    }
-
-    .dropdown.dd-profile{
-      width:280px;
-      right:0;
-    }
-  }
-
-  @media (max-width: 640px){
-    .topbar{
-      grid-template-columns:auto 1fr auto;
-    }
-
-    .p360-head-search input{
-      font-size:13px;
-    }
-
-    .p360-head-actions{
-      gap:8px;
-    }
-
-    .p360-head-brand__logo{
-      max-width:140px;
-      height:auto;
-      max-height:var(--logo-h);
-    }
-  }
-</style>
-
-<script>
-window.addEventListener('DOMContentLoaded', () => {
-  const html     = document.documentElement;
-  const root     = document.getElementById('p360-client');
-  const btnTheme = document.getElementById('btnTheme');
-  const logo     = document.getElementById('brandLogo');
-
-  const route      = root?.getAttribute('data-theme-switch') || '';
-  const lightSrc   = root?.getAttribute('data-logo-light') || '';
-  const darkSrc    = root?.getAttribute('data-logo-dark')  || '';
-  const sprite     = root?.getAttribute('data-icon-sprite') || '';
-  const csrf       = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-  const forceLight = (root?.getAttribute('data-force-light') === '1');
-
-  const hasInlineSprite = !!document.querySelector('svg[aria-hidden="true"]');
-  const useHref = (id) => (hasInlineSprite ? `#${id}` : `${sprite}#${id}`);
-
-  function setLogoForTheme(next){
-    if (logo && lightSrc && darkSrc) {
-      logo.src = (next === 'dark') ? darkSrc : lightSrc;
-    }
-  }
-
-  function setTheme(next){
-    html.setAttribute('data-theme', next);
-    html.classList.remove('theme-dark','theme-light');
-    html.classList.add(next === 'dark' ? 'theme-dark' : 'theme-light');
-
-    if (btnTheme){
-      btnTheme.setAttribute('aria-pressed', next === 'dark' ? 'true' : 'false');
-      btnTheme.innerHTML = next === 'dark'
-        ? `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="${useHref('moon')}"/></svg>`
-        : `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="${useHref('sun')}"/></svg>`;
-    }
-
-    setLogoForTheme(next);
-  }
-
-  const initial = forceLight ? 'light' : (html.getAttribute('data-theme') || 'light');
-  setTheme(initial);
-
-  btnTheme?.addEventListener('click', async () => {
-    if (forceLight) return;
-
-    const next = (html.getAttribute('data-theme') === 'dark') ? 'light' : 'dark';
-    setTheme(next);
-
-    if(route){
-      try{
-        await fetch(route, {
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'X-CSRF-TOKEN': csrf
-          },
-          body: JSON.stringify({ theme: next })
-        });
-      }catch(e){
-        try { localStorage.setItem('p360_client_theme', next); } catch(_){}
-      }
-    }else{
-      try { localStorage.setItem('p360_client_theme', next); } catch(_){}
-    }
-  });
-
-  const h = root?.getBoundingClientRect().height;
-  if (h){
-    const px = `${Math.round(h)}px`;
-    html.style.setProperty('--header', px);
-    html.style.setProperty('--header-h', px);
-  }
-
-  const btnProfile  = document.getElementById('btnProfile');
-  const menuProfile = document.getElementById('menuProfile');
-
-  function closeProfile(){
-    if(menuProfile){
-      menuProfile.hidden = true;
-      btnProfile?.setAttribute('aria-expanded','false');
-    }
-  }
-
-  btnProfile?.addEventListener('click', () => {
-    if(!menuProfile) return;
-    const willOpen = menuProfile.hidden;
-    menuProfile.hidden = !willOpen;
-    btnProfile.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-  });
-
-  document.addEventListener('click', (e) => {
-    if(menuProfile?.hidden) return;
-    if(e.target.closest('.menu-profile')) return;
-    closeProfile();
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if(e.key === 'Escape') closeProfile();
-  });
-});
-</script>

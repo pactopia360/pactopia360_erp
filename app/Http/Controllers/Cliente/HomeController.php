@@ -77,7 +77,12 @@ class HomeController extends Controller
             $cuenta = (object)$cuenta;
         }
 
-        // Plan / saldo / timbres (valores seguros)
+        // ==========================================================
+        // SOT ADMIN EN VIVO
+        // El home ya no debe depender de plan_actual local como fuente principal.
+        // Primero cargamos valores seguros mínimos, y luego los sobreescribimos
+        // con el summary gobernado por Admin.
+        // ==========================================================
         $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
         $planKey = strtolower($plan);
         $timbres = (int) ($cuenta->timbres_disponibles ?? ($plan === 'FREE' ? 10 : 0));
@@ -165,15 +170,46 @@ class HomeController extends Controller
             }
         }
 
-        // Summary cacheado (ligero) — KEY incluye guard+uid para evitar colisiones
-        $uid   = $this->authUserId() ?? 'guest';
-        $guard = $this->authGuardName();
+        // ==========================================================
+        // Summary EN VIVO (sin cache) para que Admin gobierne el portal cliente
+        // inmediatamente en pruebas y operación.
+        // ==========================================================
+        $summary = $this->buildAccountSummary();
 
-        $summary = Cache::remember(
-            'home:summary:guard:'.$guard.':uid:'.$uid,
-            30,
-            fn() => $this->buildAccountSummary()
-        );
+        // Plan / ciclo / estado gobernados por Admin
+        // Preferimos plan_norm y is_pro para evitar inconsistencias FREE/PRO en UI.
+        $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? ''));
+        $summaryIsPro    = array_key_exists('is_pro', $summary)
+            ? (bool) $summary['is_pro']
+            : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
+
+        if ($summaryIsPro) {
+            $plan = 'PRO';
+        } else {
+            $summaryPlan = strtoupper((string)($summary['plan'] ?? $plan));
+            $plan = $summaryPlan !== '' ? $summaryPlan : $plan;
+        }
+
+        $planKey = strtolower((string)$plan);
+
+        // Timbres: si summary los trae, tienen prioridad
+        if (array_key_exists('timbres', $summary) && is_numeric($summary['timbres'])) {
+            $timbres = (int) $summary['timbres'];
+        }
+
+        // Saldo / balance: si summary lo trae, tiene prioridad
+        if (array_key_exists('balance_mxn', $summary) && is_numeric($summary['balance_mxn'])) {
+            $saldo = (float) $summary['balance_mxn'];
+        } elseif (array_key_exists('balance', $summary) && is_numeric($summary['balance'])) {
+            $saldo = (float) $summary['balance'];
+        }
+
+        // Razón social / nombre visible: priorizar summary si existe
+        if (!empty($summary['razon_social'])) {
+            $razon = (string) $summary['razon_social'];
+        } elseif (!empty($summary['name'])) {
+            $razon = (string) $summary['name'];
+        }
 
         $dataSource = $usedDemo ? 'demo' : 'db';
 
@@ -596,12 +632,76 @@ class HomeController extends Controller
         $saldoMx = (float) ($cuenta->saldo_mxn ?? 0.0);
         $razon   = $cuenta->razon_social ?? $cuenta->nombre_fiscal ?? ($u->nombre ?? $u->email ?? '—');
 
-        $adminId = $cuenta->admin_account_id ?? null;
-        $rfc     = $cuenta->rfc_padre ?? null;
+                // ==========================================================
+        // Resolución ROBUSTA de la cuenta admin
+        // Prioridad:
+        // 1) cuenta_cliente.admin_account_id
+        // 2) cuenta_cliente.rfc
+        // 3) cuenta_cliente.rfc_padre como RFC real
+        // 4) cuenta_cliente.rfc_padre legacy como accounts.id
+        // 5) email de cuenta cliente / usuario autenticado
+        // ==========================================================
+        $adminId   = $cuenta->admin_account_id ?? null;
+        $rfcMirror = strtoupper(trim((string) ($cuenta->rfc ?? '')));
+        $rfcPadre  = strtoupper(trim((string) ($cuenta->rfc_padre ?? '')));
+        $rfc       = $rfcMirror !== '' ? $rfcMirror : $rfcPadre;
 
-        if (!$adminId && $rfc && Schema::connection($admConn)->hasTable('accounts')) {
-            $acc = DB::connection($admConn)->table('accounts')->select('id')->where('rfc', strtoupper($rfc))->first();
-            if ($acc) $adminId = (int) $acc->id;
+        $emailCandidates = array_values(array_unique(array_filter([
+            strtolower(trim((string) ($cuenta->email ?? ''))),
+            strtolower(trim((string) ($cuenta->correo ?? ''))),
+            strtolower(trim((string) ($cuenta->email_fiscal ?? ''))),
+            strtolower(trim((string) ($u->email ?? ''))),
+        ], fn ($v) => $v !== '')));
+
+        if (Schema::connection($admConn)->hasTable('accounts')) {
+            // 1) ID directo
+            if ($adminId && !is_numeric($adminId)) {
+                $adminId = null;
+            }
+
+            // 2) Fallback por RFC real
+            if (!$adminId && $rfc !== '' && $this->hasCol($admConn, 'accounts', 'rfc')) {
+                $accByRfc = DB::connection($admConn)
+                    ->table('accounts')
+                    ->select('id')
+                    ->whereRaw('UPPER(rfc) = ?', [$rfc])
+                    ->first();
+
+                if ($accByRfc) {
+                    $adminId = (int) $accByRfc->id;
+                }
+            }
+
+            // 3) Fallback legacy: rfc_padre guardado como accounts.id
+            if (!$adminId && $rfcPadre !== '' && ctype_digit($rfcPadre)) {
+                $accById = DB::connection($admConn)
+                    ->table('accounts')
+                    ->select('id')
+                    ->where('id', (int) $rfcPadre)
+                    ->first();
+
+                if ($accById) {
+                    $adminId = (int) $accById->id;
+                }
+            }
+
+            // 4) Fallback por email exacto
+            if (
+                !$adminId
+                && !empty($emailCandidates)
+                && $this->hasCol($admConn, 'accounts', 'email')
+            ) {
+                $accByEmail = DB::connection($admConn)
+                    ->table('accounts')
+                    ->select('id')
+                    ->whereIn(DB::raw('LOWER(email)'), $emailCandidates)
+                    ->orderByDesc('id')
+                    ->first();
+
+                if ($accByEmail) {
+                    $adminId = (int) $accByEmail->id;
+                }
+            }
         }
 
         $acc = null;
@@ -619,7 +719,10 @@ class HomeController extends Controller
 
                 // Estado / billing
                 'plan',
+                'plan_actual',
                 'billing_cycle',
+                'modo_cobro',
+                'billing_status',
                 'next_invoice_date',
                 'estado_cuenta',
                 'is_blocked',
@@ -701,18 +804,27 @@ class HomeController extends Controller
         // ===========================
         // Plan + ciclo (normalizados) — NULL SAFE si no hay $acc
         // ===========================
-        $planRaw = (string) (($acc?->plan) ?? $planKey);
+        $planRaw = (string) (
+            ($acc?->plan)
+            ?? ($acc?->plan_actual)
+            ?? $planKey
+        );
 
         $norm = $this->normalizePlanAndCycle($planRaw);
 
         // plan "base" sin sufijos: pro/premium/free/...
         $planBase = (string) ($norm['plan_base'] ?? 'free');
 
-        // billing_cycle tiene prioridad si existe; si no, derivamos del sufijo del plan; si no, modo_cobro
+        // billing_cycle tiene prioridad si existe; si no, derivamos del sufijo del plan;
+        // si no, usamos modo_cobro admin; si no, espejo cliente
         $cycle = ($acc?->billing_cycle)
-            ?? (($norm['cycle'] ?? null) ?: ($cuenta->modo_cobro ?? 'mensual'));
+            ?? (($norm['cycle'] ?? null)
+            ?: (($acc?->modo_cobro) ?? ($cuenta->modo_cobro ?? 'mensual')));
 
-        $estado  = ($acc?->estado_cuenta) ?? ($cuenta->estado_cuenta ?? null);
+        $estado = ($acc?->estado_cuenta)
+            ?? ($acc?->billing_status)
+            ?? ($cuenta->estado_cuenta ?? null);
+
         $blocked = (bool) (((int)($acc?->is_blocked ?? 0)) || ((int)($cuenta->is_blocked ?? 0)));
 
         // Exponemos plan como base normalizada (sin _mensual/_anual)
@@ -756,16 +868,17 @@ class HomeController extends Controller
          return [
             'razon'        => (string) (($acc?->razon_social) ?? $razon),
 
-            // Normalizado para lógica (ej: "pro")
-            'plan'         => $plan,
+            // Normalizado para lógica
+            'plan'         => $planBase,
 
-            // Para debug/UI (ej: "pro_mensual" si así viene)
+            // Valor original desde admin/local
             'plan_raw'     => $planRaw,
 
-            // Alias explícito por si lo consumes en Blade/JS
+            // Alias explícito
             'plan_norm'    => $planBase,
 
-            'is_pro'       => in_array($plan, ['pro', 'premium', 'empresa', 'business'], true),
+            // Badge comercial uniforme
+            'is_pro'       => in_array($planBase, ['pro', 'premium', 'empresa', 'business'], true),
 
             'cycle'        => $cycle,
             'next_invoice' => $acc?->next_invoice_date ?? null,

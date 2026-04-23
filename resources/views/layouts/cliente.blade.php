@@ -31,9 +31,12 @@
   $fallbackCss = asset('assets/client/css/app.css');
   $fallbackJs  = asset('assets/client/js/app.js');
 
-  $coreCss = asset('assets/client/css/core-ui.css');
-  $demoJs  = asset('assets/client/js/p360-demo-mode.js');
+  $coreCss       = asset('assets/client/css/core-ui.css');
   $vaultThemeCss = asset('assets/client/css/p360-vault-theme.css');
+  $headerCss     = asset('assets/client/css/header.css');
+
+  $demoJs        = asset('assets/client/js/p360-demo-mode.js');
+  $headerJs      = asset('assets/client/js/header.js');
 @endphp
 <!DOCTYPE html>
 <html lang="es" class="theme-{{ $theme }}" data-theme="{{ $theme }}" data-plan="{{ strtolower($plan) }}">
@@ -50,6 +53,7 @@
 
   <link rel="stylesheet" href="{{ $coreCss }}">
   <link rel="stylesheet" href="{{ $vaultThemeCss }}?v=1.0">
+  <link rel="stylesheet" href="{{ $headerCss }}?v=1.0">
 
   @if ($hasViteBuild)
     @vite(['resources/css/app.css','resources/js/app.js'])
@@ -524,6 +528,7 @@
   </div>
 
   <script src="{{ $demoJs }}" defer></script>
+  <script src="{{ $headerJs }}" defer></script>
 
   <script>
     function __p360SyncHeaderVars(){

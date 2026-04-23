@@ -42,7 +42,25 @@
 
   // Summary (admin): estado de cuenta / plan / espacio / bloqueo
   $sum = is_array($summary ?? null) ? $summary : [];
-  $sumPlan    = strtoupper((string)($sum['plan'] ?? $plan));
+
+  $sumPlanRaw  = strtoupper((string)($sum['plan_raw'] ?? $sum['plan'] ?? $plan ?? 'FREE'));
+  $sumPlanNorm = strtolower(trim((string)($sum['plan_norm'] ?? $sum['plan'] ?? $plan ?? 'free')));
+
+  $sumIsPro = array_key_exists('is_pro', $sum)
+      ? (bool) $sum['is_pro']
+      : in_array($sumPlanNorm, [
+          'pro',
+          'premium',
+          'empresa',
+          'business',
+      ], true);
+
+  // Badge comercial uniforme para todo el portal cliente
+  $sumPlanBadge = $sumIsPro ? 'PRO' : 'FREE';
+
+  // Label extendido
+  $sumPlanLabel = $sumPlanRaw !== '' ? $sumPlanRaw : $sumPlanBadge;
+
   $sumCycle   = (string)($sum['cycle'] ?? '');
   $sumEstado  = (string)($sum['estado'] ?? '');
   $sumBlocked = (bool)($sum['blocked'] ?? false);
@@ -69,7 +87,7 @@
 
   // Label para hint (PRO · MENSUAL / ANUAL)
   $licHint = trim(
-    ($sumPlan ?: 'FREE')
+    ($sumPlanBadge ?: 'FREE')
     . ($sumCycle ? (' · ' . strtoupper($sumCycle)) : '')
     . ($licHasOverride ? ' · PERSONALIZADO' : '')
   );
@@ -114,7 +132,7 @@
         @endif
 
         <span class="p360-pill" title="Plan">
-          {{ $sumPlan }}@if($sumCycle) · {{ strtoupper($sumCycle) }}@endif
+          {{ $sumPlanBadge }}@if($sumCycle) · {{ strtoupper($sumCycle) }}@endif
         </span>
 
         @if($sumEstado)
@@ -343,20 +361,39 @@
       </div>
     </div>
 
-    @if($visibleModuleCards->isNotEmpty())
-      <div class="row g-3">
+        @if($visibleModuleCards->isNotEmpty())
+      <div class="p360-modules-grid">
         @foreach($visibleModuleCards as $mod)
-          <div class="col-md-6 col-xl-3">
-            <a href="{{ $mod['href'] }}" class="card p-3 text-decoration-none h-100">
-              <strong class="d-block mb-2">{{ $mod['title'] }}</strong>
-              <div class="text-muted small">
-                {{ $mod['desc'] }}
-              </div>
-            </a>
-          </div>
+          <a href="{{ $mod['href'] }}" class="p360-module-card text-decoration-none">
+            <div class="p360-module-card__icon">
+              <span>
+                @switch($mod['key'])
+                  @case('sat_descargas') 🧾 @break
+                  @case('facturacion') 📄 @break
+                  @case('crm') 👥 @break
+                  @case('inventario') 📦 @break
+                  @case('ventas') 💳 @break
+                  @case('reportes') 📊 @break
+                  @case('recursos_humanos') 🧑‍💼 @break
+                  @case('timbres_hits') ⚡ @break
+                  @default 🧩
+                @endswitch
+              </span>
+            </div>
+
+            <div class="p360-module-card__body">
+              <div class="p360-module-card__title">{{ $mod['title'] }}</div>
+              <div class="p360-module-card__desc">{{ $mod['desc'] }}</div>
+            </div>
+
+            <div class="p360-module-card__cta">
+              Abrir módulo
+            </div>
+          </a>
         @endforeach
       </div>
     @else
+    
       <div class="p360-empty">
         <div class="p360-empty__t">Sin módulos visibles</div>
         <div class="p360-empty__d">
@@ -442,7 +479,7 @@
         <div class="p360-status">
           <div class="p360-status__row">
             <span class="muted">Plan</span>
-            <strong>{{ $sumPlan }}</strong>
+            <strong>{{ $sumPlanBadge }}</strong>
           </div>
 
           {{-- ✅ Cambia "Saldo" por "Licencia" (precio vigente admin) --}}

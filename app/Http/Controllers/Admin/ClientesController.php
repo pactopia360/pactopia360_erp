@@ -1022,14 +1022,125 @@ class ClientesController extends \App\Http\Controllers\Controller
             return back()->with('error', 'No se aplicaron cambios (UPDATE=0). Revisa el form (name=) y el key.');
         }
 
-        // ✅ Legacy "clientes" debe ir por RFC real (no por id)
+                // ✅ Legacy "clientes" debe ir por RFC real (no por id)
         if ($rfcReal !== '') {
-            $this->upsertClienteLegacy($rfcReal, $payloadAdmin);
+            $this->upsertClienteLegacy($rfcReal, ['razon_social' => (string) ($acc->razon_social ?? '')] + $payloadAdmin);
         }
 
-        // ✅ Espejo mysql_clientes: reflejar lo relevante aunque admin no tenga columna
-        // (vault_active era el que te rompía el save)
-        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+        // =========================================================
+        // ✅ FIX CRÍTICO:
+        // Forzar normalización fuerte del espejo ANTES del sync final.
+        // Esto evita que el portal cliente siga leyendo una cuenta espejo
+        // vieja/duplicada con plan FREE cuando en admin ya está PRO.
+        // =========================================================
+        try {
+            $pack = $this->ensureMirrorAndOwner($accountId, $rfcReal);
+            $cuentaMirror = $pack['cuenta'] ?? null;
+
+            // Si ya tenemos cuenta espejo canónica, reforzar campos críticos
+            if ($cuentaMirror && !empty($cuentaMirror->id)) {
+                $schemaCli = Schema::connection('mysql_clientes');
+                $connCli   = DB::connection('mysql_clientes');
+
+                $forceMirror = [
+                    'updated_at' => now(),
+                ];
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+                    $forceMirror['admin_account_id'] = (int) $accountId;
+                }
+
+                if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+                    $forceMirror['rfc'] = $rfcReal;
+                }
+
+                if ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+                    $forceMirror['rfc_padre'] = $rfcReal;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'plan')) {
+                    $forceMirror['plan'] = $plan;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'plan_actual')) {
+                    $forceMirror['plan_actual'] = $plan;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'billing_cycle') && $cycle !== null) {
+                    $forceMirror['billing_cycle'] = $cycle;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'modo_cobro')) {
+                    $modoCobro = $this->cycleToModo($cycle);
+                    if ($modoCobro !== null) {
+                        $forceMirror['modo_cobro'] = $modoCobro;
+                    }
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked') && $isBlocked !== null) {
+                    $forceMirror['is_blocked'] = (int) $isBlocked;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta')) {
+                    if ($isBlocked !== null) {
+                        $forceMirror['estado_cuenta'] = ((int) $isBlocked === 1) ? 'suspendida' : 'activa';
+                    } elseif ($bs !== null) {
+                        $forceMirror['estado_cuenta'] = in_array($bs, ['suspended', 'suspendida', 'cancelled', 'cancelada'], true)
+                            ? 'suspendida'
+                            : 'activa';
+                    }
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'billing_status') && $bs !== null) {
+                    $forceMirror['billing_status'] = $bs;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date') && array_key_exists('next_invoice_date', $data)) {
+                    $forceMirror['next_invoice_date'] = $this->blankToNull($data['next_invoice_date'] ?? null);
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'telefono') && $phone !== null) {
+                    $forceMirror['telefono'] = $phone;
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'email') && $email !== null) {
+                    $forceMirror['email'] = $email;
+                }
+
+                $connCli->table('cuentas_cliente')
+                    ->where('id', (string) $cuentaMirror->id)
+                    ->update($forceMirror);
+            }
+        } catch (\Throwable $e) {
+            try {
+                Log::warning('clientes.save force mirror sync failed: ' . $e->getMessage(), [
+                    'account_id' => $accountId,
+                    'rfc'        => $rfcReal,
+                ]);
+            } catch (\Throwable $e2) {
+                // ignore
+            }
+        }
+
+        // ✅ Sync espejo final
+        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin + [
+            'plan'           => $plan,
+            'plan_actual'    => $plan,
+            'billing_cycle'  => $cycle,
+            'billing_status' => $bs,
+            'is_blocked'     => $isBlocked,
+            'email'          => $email,
+            'phone'          => $phone,
+        ]);
+
+        // ✅ Bust básico de caches ligados al account por seguridad
+        try {
+            Cache::forget('client.account.summary.' . $accountId);
+            Cache::forget('client.account.plan.' . $accountId);
+            Cache::forget('client.account.home.' . $accountId);
+        } catch (\Throwable $e) {
+            // ignore
+        }
 
         return back()->with('ok', 'Datos guardados.');
     }

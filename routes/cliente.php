@@ -38,6 +38,7 @@ use App\Http\Controllers\Cliente\ImpersonateController;
 
 use App\Http\Middleware\ClientSessionConfig;
 use App\Http\Middleware\EnsureAccountIsActive;
+use App\Http\Controllers\Cliente\ModulosController;
 
 
 // ✅ Mi cuenta / Facturas (ZIP estados de cuenta admin SOT)
@@ -562,32 +563,16 @@ Route::middleware(['auth:web', 'account.active'])
         |--------------------------------------------------------------------------
         | SAT sigue viviendo en routes/cliente_sat.php
         | CFDI Nómina vive dentro de RH, NO como módulo separado
+        | Estos módulos se sirven desde controller para poder crecer
+        | con KPIs, validaciones, datos reales y rediseño uniforme.
         */
-        Route::prefix('modulos')->name('modulos.')->group(function () {
-
-            Route::get('/crm', function () {
-                return view('cliente.modulos.crm');
-            })->name('crm');
-
-            Route::get('/inventario', function () {
-                return view('cliente.modulos.inventario');
-            })->name('inventario');
-
-            Route::get('/ventas', function () {
-                return view('cliente.modulos.ventas');
-            })->name('ventas');
-
-            Route::get('/reportes', function () {
-                return view('cliente.modulos.reportes');
-            })->name('reportes');
-
-            Route::get('/recursos-humanos', function () {
-                return view('cliente.modulos.rh');
-            })->name('rh');
-
-            Route::get('/timbres-hits', function () {
-                return view('cliente.modulos.timbres');
-            })->name('timbres');
+        Route::prefix('modulos')->name('modulos.')->controller(ModulosController::class)->group(function () {
+            Route::get('/crm', 'crm')->name('crm');
+            Route::get('/inventario', 'inventario')->name('inventario');
+            Route::get('/ventas', 'ventas')->name('ventas');
+            Route::get('/reportes', 'reportes')->name('reportes');
+            Route::get('/recursos-humanos', 'rh')->name('rh');
+            Route::get('/timbres-hits', 'timbres')->name('timbres');
         });
     });
 
