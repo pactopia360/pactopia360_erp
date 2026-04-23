@@ -1,122 +1,231 @@
 {{-- C:\wamp64\www\pactopia360_erp\resources\views\cliente\home.blade.php --}}
 @extends('layouts.cliente')
-@section('title','Inicio · Pactopia360')
+
+@section('title', 'Inicio · Pactopia360')
 
 @php
-  // ===== Preferir plan desde summary (admin) =====
-  $summaryPlan = null;
-  if (isset($summary) && is_array($summary) && !empty($summary['plan'])) {
-      $summaryPlan = strtoupper((string)$summary['plan']);
-  }
-
-  $planBase = $plan ?? 'FREE';
-  $plan     = $summaryPlan ?? strtoupper((string) $planBase);
-  $planKey  = strtolower((string) ($planKey ?? $plan));
+  use Illuminate\Support\Facades\Route;
+  use Carbon\Carbon;
 
   $viewUser = auth()->user() ?? auth('cliente')->user() ?? auth('web')->user();
+  $sum = is_array($summary ?? null) ? $summary : [];
 
   $razonV = (string) (
       $razon
-      ?? ($summary['razon'] ?? null)
-      ?? ($summary['razon_social'] ?? null)
+      ?? data_get($sum, 'razon')
+      ?? data_get($sum, 'razon_social')
       ?? ($viewUser->nombre ?? null)
       ?? ($viewUser->name ?? null)
       ?? ($viewUser->email ?? 'Cliente')
   );
 
-  $timbresV = (int) ($timbres ?? 0);
-  $saldoV   = (float) ($saldo ?? 0.0);
+  $sumEstado  = strtoupper((string) (data_get($sum, 'estado') ?? data_get($sum, 'billing_status') ?? 'ACTIVA'));
+  $sumBlocked = (bool) (data_get($sum, 'blocked') ?? data_get($sum, 'is_blocked') ?? false);
 
-  $kEmit    = (float)($kpis['emitidos']   ?? 0);
-  $kCanc    = (float)($kpis['cancelados'] ?? 0);
-  $kTotal   = (float)($kpis['total']      ?? 0);
-  $kDelta   = (float)($kpis['delta']      ?? 0);
+  $timbresV = (int) ($timbres ?? data_get($sum, 'timbres', 0));
 
-  $periodFrom = (string) data_get($kpis, 'period.from', '');
-  $periodTo   = (string) data_get($kpis, 'period.to', '');
+  $kEmit  = (float) data_get($kpis ?? [], 'emitidos', 0);
+  $kCanc  = (float) data_get($kpis ?? [], 'cancelados', 0);
+  $kTotal = (float) data_get($kpis ?? [], 'total', 0);
+  $kDelta = (float) data_get($kpis ?? [], 'delta', 0);
 
-  $labelsV  = $series['labels'] ?? [];
-  $lineV    = data_get($series, 'series.line_facturacion', data_get($series, 'series.emitidos_total', []));
-  $lineCanc = data_get($series, 'series.line_cancelados', []);
-  $barsV    = data_get($series, 'series.bar_q', [0,0,0,0]);
+  $periodFrom = (string) data_get($kpis ?? [], 'period.from', '');
+  $periodTo   = (string) data_get($kpis ?? [], 'period.to', '');
 
-  $rtKpisJs   = \Illuminate\Support\Facades\Route::has('cliente.home.kpis')
-                  ? route('cliente.home.kpis')
-                  : (\Illuminate\Support\Facades\Route::has('cliente.kpis') ? route('cliente.kpis') : '');
-  $rtSeriesJs = \Illuminate\Support\Facades\Route::has('cliente.home.series')
-                  ? route('cliente.home.series')
-                  : (\Illuminate\Support\Facades\Route::has('cliente.series') ? route('cliente.series') : '');
+  $labelsV  = data_get($series ?? [], 'labels', []);
+  $lineV    = data_get($series ?? [], 'series.line_facturacion', data_get($series ?? [], 'series.emitidos_total', []));
+  $lineCanc = data_get($series ?? [], 'series.line_cancelados', []);
+  $barsV    = data_get($series ?? [], 'series.bar_q', [0, 0, 0, 0]);
 
-  $dataSource = ($dataSource ?? 'db'); // 'db' | 'demo'
-  $isLocal    = (bool) ($isLocal ?? false);
+  $rtKpisJs = Route::has('cliente.home.kpis')
+      ? route('cliente.home.kpis')
+      : (Route::has('cliente.kpis') ? route('cliente.kpis') : '');
 
-  // Summary (admin): estado de cuenta / plan / espacio / bloqueo
-  $sum = is_array($summary ?? null) ? $summary : [];
+  $rtSeriesJs = Route::has('cliente.home.series')
+      ? route('cliente.home.series')
+      : (Route::has('cliente.series') ? route('cliente.series') : '');
 
-  $sumPlanRaw  = strtoupper((string)($sum['plan_raw'] ?? $sum['plan'] ?? $plan ?? 'FREE'));
-  $sumPlanNorm = strtolower(trim((string)($sum['plan_norm'] ?? $sum['plan'] ?? $plan ?? 'free')));
+  $isLocal = (bool) ($isLocal ?? false);
+  $dataSource = (string) ($dataSource ?? 'db');
 
-  $sumIsPro = array_key_exists('is_pro', $sum)
-      ? (bool) $sum['is_pro']
-      : in_array($sumPlanNorm, [
-          'pro',
-          'premium',
-          'empresa',
-          'business',
-      ], true);
+  $spaceTotal = (float) data_get($sum, 'space_total', 0);
+  $spaceUsed  = (float) data_get($sum, 'space_used', 0);
+  $spacePct   = $spaceTotal > 0 ? (float) data_get($sum, 'space_pct', 0) : 0;
 
-  // Badge comercial uniforme para todo el portal cliente
-  $sumPlanBadge = $sumIsPro ? 'PRO' : 'FREE';
+  $rtSat = Route::has('cliente.sat.index')
+      ? route('cliente.sat.index')
+      : (Route::has('cliente.sat.descargas.index') ? route('cliente.sat.descargas.index') : '#');
 
-  // Label extendido
-  $sumPlanLabel = $sumPlanRaw !== '' ? $sumPlanRaw : $sumPlanBadge;
-
-  $sumCycle   = (string)($sum['cycle'] ?? '');
-  $sumEstado  = (string)($sum['estado'] ?? '');
-  $sumBlocked = (bool)($sum['blocked'] ?? false);
-
-  // ============================================================
-  // ✅ Licencia (gobernada por Admin)
-  // - Base: billing.amount_mxn (o amount_mxn)
-  // - Override: billing.override.amount_mxn (o override_amount_mxn)
-  // ============================================================
-  $licBase = (int) (
-    data_get($sum, 'billing.amount_mxn')
-    ?? data_get($sum, 'amount_mxn')
-    ?? data_get($sum, 'license.amount_mxn')
-    ?? 0
-  );
-
-  $licOv = data_get($sum, 'billing.override.amount_mxn');
-  if (!is_numeric($licOv)) $licOv = data_get($sum, 'billing.override_amount_mxn');
-  if (!is_numeric($licOv)) $licOv = data_get($sum, 'override.amount_mxn');
-  if (!is_numeric($licOv)) $licOv = data_get($sum, 'override_amount_mxn');
-
-  $licHasOverride = is_numeric($licOv);
-  $licAmount = (int) ($licHasOverride ? (int)$licOv : $licBase);
-
-  // Label para hint (PRO · MENSUAL / ANUAL)
-  $licHint = trim(
-    ($sumPlanBadge ?: 'FREE')
-    . ($sumCycle ? (' · ' . strtoupper($sumCycle)) : '')
-    . ($licHasOverride ? ' · PERSONALIZADO' : '')
-  );
-
-  // Espacio
-  $spaceTotal = (float)($sum['space_total'] ?? 0);
-  $spaceUsed  = (float)($sum['space_used'] ?? 0);
-  $spacePct   = (float)($sum['space_pct'] ?? 0);
-
-  // Accesos
-  $rtSat = \Illuminate\Support\Facades\Route::has('cliente.sat.descargas.index')
+  $rtSatDescargas = Route::has('cliente.sat.descargas.index')
       ? route('cliente.sat.descargas.index')
-      : (\Illuminate\Support\Facades\Route::has('cliente.sat.index') ? route('cliente.sat.index') : '#');
+      : $rtSat;
 
-  $rtFact = \Illuminate\Support\Facades\Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
-  $rtPerf = \Illuminate\Support\Facades\Route::has('cliente.perfil') ? route('cliente.perfil') : url('/cliente/perfil');
+  $rtFact = Route::has('cliente.facturacion.index')
+      ? route('cliente.facturacion.index')
+      : (Route::has('cliente.facturacion') ? route('cliente.facturacion') : '#');
 
-  // Últimos CFDI (si vienen)
+  $rtPerfil = Route::has('cliente.perfil')
+      ? route('cliente.perfil')
+      : url('/cliente/perfil');
+
+  $rtMiCuenta = Route::has('cliente.mi_cuenta')
+      ? route('cliente.mi_cuenta')
+      : (Route::has('cliente.mi_cuenta.index') ? route('cliente.mi_cuenta.index') : url('/cliente/mi-cuenta'));
+
+  $rtTimbres = Route::has('cliente.modulos.timbres')
+      ? route('cliente.modulos.timbres')
+      : (Route::has('cliente.sat.cart.index') ? route('cliente.sat.cart.index') : $rtFact);
+
+  $rtSoporte = Route::has('cliente.soporte.chat')
+      ? route('cliente.soporte.chat')
+      : (Route::has('cliente.chat') ? route('cliente.chat') : '#');
+
+  $rtCrm = Route::has('cliente.modulos.crm') ? route('cliente.modulos.crm') : '#';
+  $rtInventario = Route::has('cliente.modulos.inventario') ? route('cliente.modulos.inventario') : '#';
+  $rtVentas = Route::has('cliente.modulos.ventas') ? route('cliente.modulos.ventas') : '#';
+  $rtReportes = Route::has('cliente.modulos.reportes') ? route('cliente.modulos.reportes') : '#';
+  $rtRh = Route::has('cliente.modulos.rh') ? route('cliente.modulos.rh') : '#';
+
   $recentRows = collect($recent ?? []);
+
+  $modulesState = data_get($sum, 'modules_state');
+  if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules.state');
+  if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules');
+  if (!is_array($modulesState)) $modulesState = data_get($sum, 'meta.modules_state');
+  if (!is_array($modulesState)) $modulesState = data_get($sum, 'account.modules_state');
+  if (!is_array($modulesState)) $modulesState = [];
+
+  $moduleEnabled = function (string $key, bool $default = true) use ($modulesState) {
+      $state = $modulesState[$key] ?? null;
+
+      if (is_bool($state)) return $state;
+      if (is_numeric($state)) return ((int) $state) === 1;
+
+      if (is_string($state)) {
+          $s = strtolower(trim($state));
+          if (in_array($s, ['1', 'true', 'on', 'yes', 'active', 'enabled', 'visible'], true)) return true;
+          if (in_array($s, ['0', 'false', 'off', 'no', 'inactive', 'disabled', 'hidden', 'blocked'], true)) return false;
+      }
+
+      if (is_array($state)) {
+          if (array_key_exists('hidden', $state) && (bool) $state['hidden'] === true) return false;
+          if (array_key_exists('visible', $state)) return (bool) $state['visible'];
+          if (array_key_exists('enabled', $state)) return (bool) $state['enabled'];
+          if (array_key_exists('active', $state)) return (bool) $state['active'];
+          if (array_key_exists('access', $state)) return (bool) $state['access'];
+      }
+
+      return $default;
+  };
+
+  $mainApps = collect([
+      [
+          'key' => 'sat_descargas',
+          'icon' => '🧾',
+          'title' => 'Portal SAT',
+          'desc' => 'RFC, cotizaciones, descargas y bóveda.',
+          'href' => $rtSat,
+          'accent' => 'blue',
+      ],
+      [
+          'key' => 'facturacion',
+          'icon' => '📄',
+          'title' => 'Facturación',
+          'desc' => 'Emisión, administración y control CFDI.',
+          'href' => $rtFact,
+          'accent' => 'cyan',
+      ],
+      [
+          'key' => 'timbres_hits',
+          'icon' => '⚡',
+          'title' => 'Timbres',
+          'desc' => number_format($timbresV) . ' disponibles.',
+          'href' => $rtTimbres,
+          'accent' => 'amber',
+      ],
+      [
+          'key' => 'crm',
+          'icon' => '👥',
+          'title' => 'CRM',
+          'desc' => 'Clientes, prospectos y seguimiento comercial.',
+          'href' => $rtCrm,
+          'accent' => 'violet',
+      ],
+      [
+          'key' => 'inventario',
+          'icon' => '📦',
+          'title' => 'Inventario',
+          'desc' => 'Productos, existencias y movimientos.',
+          'href' => $rtInventario,
+          'accent' => 'orange',
+      ],
+      [
+          'key' => 'ventas',
+          'icon' => '💳',
+          'title' => 'Ventas',
+          'desc' => 'Tickets, venta y autofacturación.',
+          'href' => $rtVentas,
+          'accent' => 'green',
+      ],
+      [
+          'key' => 'recursos_humanos',
+          'icon' => '🧑‍💼',
+          'title' => 'RH',
+          'desc' => 'Personal, incidencias y nómina.',
+          'href' => $rtRh,
+          'accent' => 'rose',
+      ],
+      [
+          'key' => 'reportes',
+          'icon' => '📊',
+          'title' => 'Reportes',
+          'desc' => 'Indicadores e inteligencia operativa.',
+          'href' => $rtReportes,
+          'accent' => 'slate',
+      ],
+  ])->filter(fn ($m) => $moduleEnabled((string) $m['key'], true))->values();
+
+  $quickActions = [
+      ['icon' => '➕', 'title' => 'Emitir CFDI', 'href' => $rtFact],
+      ['icon' => '⬇️', 'title' => 'Descargar SAT', 'href' => $rtSatDescargas],
+      ['icon' => '⚡', 'title' => 'Comprar timbres', 'href' => $rtTimbres],
+      ['icon' => '💼', 'title' => 'Mi cuenta', 'href' => $rtMiCuenta],
+      ['icon' => '👤', 'title' => 'Perfil', 'href' => $rtPerfil],
+      ['icon' => '💬', 'title' => 'Soporte', 'href' => $rtSoporte],
+  ];
+
+  $alerts = collect();
+
+  if ($sumBlocked) {
+      $alerts->push([
+          'level' => 'danger',
+          'icon' => '⛔',
+          'title' => 'Cuenta requiere atención',
+          'href' => $rtMiCuenta,
+      ]);
+  }
+
+  if ($timbresV <= 10) {
+      $alerts->push([
+          'level' => 'warn',
+          'icon' => '⚡',
+          'title' => 'Revisar timbres',
+          'href' => $rtTimbres,
+      ]);
+  }
+
+  if ($alerts->isEmpty()) {
+      $alerts->push([
+          'level' => 'ok',
+          'icon' => '✅',
+          'title' => 'Operación estable',
+          'href' => $rtFact,
+      ]);
+  }
+
+  $periodLabel = ($periodFrom && $periodTo)
+      ? Carbon::parse($periodFrom)->format('d/m/Y') . ' – ' . Carbon::parse($periodTo)->format('d/m/Y')
+      : 'Periodo actual';
 @endphp
 
 @push('styles')
@@ -124,519 +233,281 @@
 @endpush
 
 @section('content')
-<div class="p360-home">
-  {{-- HERO --}}
-  <section class="p360-hero card p360-card">
-    <div class="p360-hero__top">
-      <div class="p360-hero__title">
-        <div class="p360-hero__hello">Bienvenido</div>
-        <div class="p360-hero__name">{{ $razonV }}</div>
-      </div>
+<div class="p360-home p360-home-clean">
 
-       <div class="p360-hero__meta">
-        @if($isLocal)
-          <span class="p360-pill p360-pill--{{ $dataSource === 'db' ? 'ok' : 'warn' }}"
-                title="Fuente de datos del dashboard (solo visible en local)">
-            Fuente: {{ $dataSource === 'db' ? 'Base de datos' : 'DEMO' }}
-          </span>
-        @endif
-
-        @if($sumEstado)
-          <span class="p360-pill" title="Estado de cuenta">{{ strtoupper($sumEstado) }}</span>
-        @endif
-
-        @if($sumBlocked)
-          <span class="p360-pill p360-pill--danger" title="Cuenta bloqueada">BLOQUEADA</span>
-        @endif
-      </div>
-
-          <div class="p360-hero__bottom">
-        {{-- BLOQUE 1: CUENTA / LICENCIA (Admin SOT) --}}
-        <div class="p360-hero__kpiRow">
-          <div class="p360-kpi p360-kpi--brand">
-            <div class="p360-kpi__label">Licencia</div>
-            <div class="p360-kpi__value" id="kpi-licencia">
-              ${{ number_format((float)$licAmount, 0) }}
-            </div>
-            <div class="p360-kpi__hint">
-              {{ $licHasOverride ? 'PERSONALIZADO' : 'MXN' }}
-            </div>
-          </div>
-
-          <div class="p360-kpi">
-            <div class="p360-kpi__label">Timbres disponibles</div>
-            <div class="p360-kpi__value" id="kpi-timbres">{{ number_format($timbresV) }}</div>
-            <div class="p360-kpi__hint">Disponibles</div>
-          </div>
-        </div>
-
-        {{-- BLOQUE 2: FACTURACIÓN / EMISIÓN --}}
-        <div class="p360-hero__kpiRow" style="margin-top:14px;">
-          <div class="p360-kpi">
-            <div class="p360-kpi__label">Facturación del mes</div>
-            <div class="p360-kpi__value" id="kpi-em">${{ number_format($kEmit, 2) }}</div>
-            <div class="p360-kpi__hint">Emitidos</div>
-          </div>
-
-          <div class="p360-kpi">
-            <div class="p360-kpi__label">Cancelados</div>
-            <div class="p360-kpi__value" id="kpi-ca">${{ number_format($kCanc, 2) }}</div>
-            <div class="p360-kpi__hint">Mes actual</div>
-          </div>
-
-          <div class="p360-kpi">
-            <div class="p360-kpi__label">Total mensual</div>
-            <div class="p360-kpi__value" id="kpi-to">${{ number_format($kTotal, 2) }}</div>
-            <div class="p360-kpi__hint">
-              Variación:
-              <span id="kpi-delta" class="p360-delta {{ $kDelta >= 0 ? 'up' : 'down' }}">
-                {{ $kDelta >= 0 ? '+' : '' }}{{ number_format($kDelta, 2) }}%
-              </span>
-            </div>
-          </div>
-        </div>
-
-      {{-- Bóveda / Espacio (si existe en summary) --}}
-      <div class="p360-hero__storage">
-        <div class="p360-storage card p360-card">
-          <div class="p360-storage__head">
-            <div class="p360-storage__title">Bóveda / almacenamiento</div>
-            <div class="p360-storage__meta">
-              @if($spaceTotal > 0)
-                <span>{{ number_format($spaceUsed, 0) }} / {{ number_format($spaceTotal, 0) }} MB</span>
-              @else
-                <span class="muted">Sin información de cuota</span>
-              @endif
-            </div>
-          </div>
-          <div class="p360-progress" role="progressbar" aria-valuenow="{{ (int)$spacePct }}" aria-valuemin="0" aria-valuemax="100">
-            <span style="width: {{ (float)$spacePct }}%"></span>
-          </div>
-          <div class="p360-storage__foot">
-            <span class="muted">Uso estimado</span>
-            <strong>{{ number_format($spacePct, 1) }}%</strong>
-          </div>
-        </div>
-
-        <div class="p360-actions card p360-card">
-          <div class="p360-actions__title">Accesos rápidos</div>
-          <div class="p360-actions__grid">
-            <a class="p360-action" href="{{ $rtSat }}">
-              <div class="p360-action__t">Descargas SAT</div>
-              <div class="p360-action__d">Descarga, procesa y envía a bóveda.</div>
-            </a>
-            <a class="p360-action" href="{{ $rtFact }}">
-              <div class="p360-action__t">Facturación</div>
-              <div class="p360-action__d">Emite y administra CFDI.</div>
-            </a>
-            <a class="p360-action" href="{{ $rtPerf }}">
-              <div class="p360-action__t">Perfil</div>
-              <div class="p360-action__d">Configura tu cuenta y seguridad.</div>
-            </a>
-          </div>
-        </div>
-      </div>
+  <section class="p360-clean-hero">
+    <div class="p360-clean-hero__copy">
+      <span class="p360-clean-hero__tag">Portal operativo</span>
+      <h1>{{ $razonV }}</h1>
+      <p>Administra tus módulos, CFDI, SAT, timbres y operación desde un solo lugar.</p>
     </div>
 
-    <div class="p360-hero__period muted">
-      @if($periodFrom && $periodTo)
-        Periodo: {{ \Carbon\Carbon::parse($periodFrom)->format('d/m/Y') }} – {{ \Carbon\Carbon::parse($periodTo)->format('d/m/Y') }}
-      @endif
+    <div class="p360-clean-hero__orbit" aria-hidden="true">
+      <div class="p360-orbit-card p360-orbit-card--main">P360</div>
+      <div class="p360-orbit-item item-1">🧾</div>
+      <div class="p360-orbit-item item-2">📊</div>
+      <div class="p360-orbit-item item-3">⚡</div>
+      <div class="p360-orbit-item item-4">📦</div>
+      <div class="p360-orbit-item item-5">📄</div>
     </div>
   </section>
 
-   {{-- Módulos del sistema (sincronizados con Admin/Billing modules_state) --}}
-  <section class="p360-card card mt-4">
-    @php
-      /**
-       * =========================================================
-       * modules_state SOT
-       * Busca el estado de módulos en varias rutas posibles del summary/meta
-       * para no romper mientras terminamos de alinear backend.
-       * =========================================================
-       */
-      $modulesState = data_get($sum, 'modules_state');
-      if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules.state');
-      if (!is_array($modulesState)) $modulesState = data_get($sum, 'modules');
-      if (!is_array($modulesState)) $modulesState = data_get($sum, 'meta.modules_state');
-      if (!is_array($modulesState)) $modulesState = data_get($sum, 'account.modules_state');
-      if (!is_array($modulesState)) $modulesState = [];
+  <section class="p360-clean-strip">
+    <article>
+      <span>CFDI emitidos</span>
+      <strong id="kpi-em">${{ number_format($kEmit, 2) }}</strong>
+    </article>
 
-      $moduleEnabled = function (string $key, bool $default = true) use ($modulesState) {
-          $state = $modulesState[$key] ?? null;
+    <article>
+      <span>Total mensual</span>
+      <strong id="kpi-to">${{ number_format($kTotal, 2) }}</strong>
+    </article>
 
-          if (is_bool($state)) return $state;
+    <article>
+      <span>Cancelados</span>
+      <strong id="kpi-ca">${{ number_format($kCanc, 2) }}</strong>
+    </article>
 
-          if (is_numeric($state)) return ((int) $state) === 1;
+    <article>
+      <span>Timbres</span>
+      <strong>{{ number_format($timbresV) }}</strong>
+    </article>
 
-          if (is_string($state)) {
-              $s = strtolower(trim($state));
-              if (in_array($s, ['1', 'true', 'on', 'yes', 'active', 'enabled', 'visible'], true)) return true;
-              if (in_array($s, ['0', 'false', 'off', 'no', 'inactive', 'disabled', 'hidden', 'blocked'], true)) return false;
-          }
+    <article>
+      <span>Bóveda</span>
+      <strong>{{ $spaceTotal > 0 ? number_format($spacePct, 1) . '%' : 'Lista' }}</strong>
+    </article>
+  </section>
 
-          if (is_array($state)) {
-              if (array_key_exists('hidden', $state) && (bool) $state['hidden'] === true) return false;
-              if (array_key_exists('visible', $state)) return (bool) $state['visible'];
-              if (array_key_exists('enabled', $state)) return (bool) $state['enabled'];
-              if (array_key_exists('active', $state)) return (bool) $state['active'];
-              if (array_key_exists('access', $state)) return (bool) $state['access'];
-              if (array_key_exists('status', $state)) {
-                  $s = strtolower(trim((string) $state['status']));
-                  if (in_array($s, ['hidden', 'blocked', 'inactive', 'disabled'], true)) return false;
-                  if (in_array($s, ['active', 'enabled', 'visible'], true)) return true;
-              }
-          }
-
-          return $default;
-      };
-
-      $rtSat = Route::has('cliente.sat.index')
-          ? route('cliente.sat.index')
-          : (Route::has('cliente.sat.descargas.index') ? route('cliente.sat.descargas.index') : '#');
-
-      $rtFact = Route::has('cliente.facturacion.index')
-          ? route('cliente.facturacion.index')
-          : (Route::has('cliente.facturacion') ? route('cliente.facturacion') : '#');
-
-      $rtCrm = Route::has('cliente.modulos.crm') ? route('cliente.modulos.crm') : '#';
-      $rtInventario = Route::has('cliente.modulos.inventario') ? route('cliente.modulos.inventario') : '#';
-      $rtVentas = Route::has('cliente.modulos.ventas') ? route('cliente.modulos.ventas') : '#';
-      $rtReportes = Route::has('cliente.modulos.reportes') ? route('cliente.modulos.reportes') : '#';
-      $rtRh = Route::has('cliente.modulos.rh') ? route('cliente.modulos.rh') : '#';
-      $rtTimbres = Route::has('cliente.modulos.timbres') ? route('cliente.modulos.timbres') : '#';
-
-      $moduleCards = [
-          [
-              'key'   => 'sat_descargas',
-              'title' => 'SAT Descargas',
-              'desc'  => 'Integra RFC, cotizaciones SAT, pagos, seguimiento operativo y bóveda SAT dentro del mismo módulo.',
-              'href'  => $rtSat,
-          ],
-          [
-              'key'   => 'facturacion',
-              'title' => 'Facturación',
-              'desc'  => 'Emisión, administración y control de CFDI de facturación con consumo de timbres/hits.',
-              'href'  => $rtFact,
-          ],
-          [
-              'key'   => 'crm',
-              'title' => 'CRM',
-              'desc'  => 'Seguimiento comercial, clientes, contactos y control de relación comercial.',
-              'href'  => $rtCrm,
-          ],
-          [
-              'key'   => 'inventario',
-              'title' => 'Inventario',
-              'desc'  => 'Catálogo de productos, existencias, movimientos y base para ventas.',
-              'href'  => $rtInventario,
-          ],
-          [
-              'key'   => 'ventas',
-              'title' => 'Ventas',
-              'desc'  => 'Registro de ventas, tickets, códigos de venta y base para autofacturación.',
-              'href'  => $rtVentas,
-          ],
-          [
-              'key'   => 'reportes',
-              'title' => 'Reportes',
-              'desc'  => 'Indicadores, métricas operativas y análisis general de la cuenta.',
-              'href'  => $rtReportes,
-          ],
-          [
-              'key'   => 'recursos_humanos',
-              'title' => 'Recursos Humanos',
-              'desc'  => 'Gestión de personal, incidencias, nómina y emisión de CFDI de nómina dentro del mismo módulo.',
-              'href'  => $rtRh,
-          ],
-          [
-              'key'   => 'timbres_hits',
-              'title' => 'Timbres / Hits',
-              'desc'  => 'Compra, saldo, consumo y configuración de timbrado con Facturotopia.',
-              'href'  => $rtTimbres,
-          ],
-      ];
-
-      $visibleModuleCards = collect($moduleCards)
-          ->filter(fn ($m) => $moduleEnabled((string) $m['key'], true))
-          ->values();
-    @endphp
-
-    <div class="p360-card__head">
-      <div class="p360-card__title">Módulos del sistema</div>
-      <div class="p360-card__sub muted">
-        Acceso general a los módulos principales del ecosistema Pactopia360.
+  <section class="p360-clean-panel">
+    <div class="p360-clean-head">
+      <div>
+        <span>Aplicaciones</span>
+        <h2>Accesos principales</h2>
       </div>
+      <small>{{ $periodLabel }}</small>
     </div>
 
-        @if($visibleModuleCards->isNotEmpty())
-      <div class="p360-modules-grid">
-        @foreach($visibleModuleCards as $mod)
-          <a href="{{ $mod['href'] }}" class="p360-module-card text-decoration-none">
-            <div class="p360-module-card__icon">
-              <span>
-                @switch($mod['key'])
-                  @case('sat_descargas') 🧾 @break
-                  @case('facturacion') 📄 @break
-                  @case('crm') 👥 @break
-                  @case('inventario') 📦 @break
-                  @case('ventas') 💳 @break
-                  @case('reportes') 📊 @break
-                  @case('recursos_humanos') 🧑‍💼 @break
-                  @case('timbres_hits') ⚡ @break
-                  @default 🧩
-                @endswitch
-              </span>
-            </div>
+    <div class="p360-app-grid">
+      @foreach($mainApps as $app)
+        <a href="{{ $app['href'] }}" class="p360-app-card p360-app-card--{{ $app['accent'] }}">
+          <div class="p360-app-card__icon">{{ $app['icon'] }}</div>
+          <div class="p360-app-card__body">
+            <strong>{{ $app['title'] }}</strong>
+            <p>{{ $app['desc'] }}</p>
+          </div>
+          <div class="p360-app-card__go">→</div>
+        </a>
+      @endforeach
+    </div>
+  </section>
 
-            <div class="p360-module-card__body">
-              <div class="p360-module-card__title">{{ $mod['title'] }}</div>
-              <div class="p360-module-card__desc">{{ $mod['desc'] }}</div>
-            </div>
+  <section class="p360-clean-row">
+    <div class="p360-clean-panel p360-clean-panel--wide">
+      <div class="p360-clean-head">
+        <div>
+          <span>Acciones</span>
+          <h2>Trabajo rápido</h2>
+        </div>
+      </div>
 
-            <div class="p360-module-card__cta">
-              Abrir módulo
-            </div>
+      <div class="p360-action-grid">
+        @foreach($quickActions as $action)
+          <a href="{{ $action['href'] }}" class="p360-action-pill">
+            <span>{{ $action['icon'] }}</span>
+            <strong>{{ $action['title'] }}</strong>
           </a>
         @endforeach
       </div>
-    @else
-    
-      <div class="p360-empty">
-        <div class="p360-empty__t">Sin módulos visibles</div>
-        <div class="p360-empty__d">
-          Esta cuenta no tiene módulos visibles en este momento. Revísalo desde Admin → Billing → Módulos.
+    </div>
+
+    <div class="p360-clean-panel">
+      <div class="p360-clean-head">
+        <div>
+          <span>Estado</span>
+          <h2>Hoy</h2>
         </div>
+      </div>
+
+      <div class="p360-status-list">
+        @foreach($alerts as $alert)
+          <a href="{{ $alert['href'] }}" class="p360-status-item p360-status-item--{{ $alert['level'] }}">
+            <span>{{ $alert['icon'] }}</span>
+            <strong>{{ $alert['title'] }}</strong>
+          </a>
+        @endforeach
+
+        <div class="p360-status-item">
+          <span>🔄</span>
+          <strong>{{ $isLocal && $dataSource === 'db' ? 'Datos reales' : 'Sincronizado' }}</strong>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="p360-clean-row p360-clean-row--charts">
+    <div class="p360-clean-panel">
+      <div class="p360-clean-head">
+        <div>
+          <span>Analítica</span>
+          <h2>Facturación</h2>
+        </div>
+      </div>
+      <div id="chart-lines" class="p360-chart-clean" aria-label="Facturación del mes"></div>
+    </div>
+
+    <div class="p360-clean-panel">
+      <div class="p360-clean-head">
+        <div>
+          <span>Comparativo</span>
+          <h2>Semanal</h2>
+        </div>
+      </div>
+      <div id="chart-bars" class="p360-chart-clean" aria-label="Resumen semanal"></div>
+    </div>
+  </section>
+
+  <section class="p360-clean-panel">
+    <div class="p360-clean-head">
+      <div>
+        <span>Actividad</span>
+        <h2>Movimientos recientes</h2>
+      </div>
+    </div>
+
+    @if($recentRows->count() > 0)
+      <div class="p360-feed">
+        @foreach($recentRows->take(6) as $r)
+          @php
+            $uuid = (string) ($r->uuid ?? '—');
+            $uuidShort = $uuid !== '—' ? (substr($uuid, 0, 8) . '…' . substr($uuid, -6)) : '—';
+            $st = strtoupper((string) ($r->estatus ?? 'N/D'));
+            $dt = !empty($r->fecha) ? Carbon::parse($r->fecha)->format('d/m/Y') : '—';
+          @endphp
+
+          <div class="p360-feed-item">
+            <span class="p360-feed-icon">📄</span>
+            <div>
+              <strong>{{ $uuidShort }}</strong>
+              <small>{{ $dt }} · ${{ number_format((float) ($r->total ?? 0), 2) }}</small>
+            </div>
+            <em>{{ $st }}</em>
+          </div>
+        @endforeach
+      </div>
+    @else
+      <div class="p360-empty-clean">
+        <span>✨</span>
+        <strong>Tu actividad aparecerá aquí</strong>
       </div>
     @endif
   </section>
 
-  {{-- GRID PRINCIPAL --}}
-  <section class="p360-grid">
-    <div class="p360-col">
-      <div class="card p360-card">
-        <div class="p360-card__head">
-          <div class="p360-card__title">Facturación del mes</div>
-          <div class="p360-card__sub muted">Serie diaria (emitidos/cancelados)</div>
-        </div>
-        <div id="chart-lines" class="p360-chart" aria-label="Gráfica de facturación del mes"></div>
-      </div>
-
-      <div class="card p360-card">
-        <div class="p360-card__head">
-          <div class="p360-card__title">Comparativo semanal</div>
-          <div class="p360-card__sub muted">Acumulado aproximado por semana</div>
-        </div>
-        <div id="chart-bars" class="p360-chart" aria-label="Gráfica comparativo semanal"></div>
-      </div>
-    </div>
-
-    <div class="p360-col">
-      <div class="card p360-card">
-        <div class="p360-card__head">
-          <div class="p360-card__title">Actividad reciente</div>
-          <div class="p360-card__sub muted">Últimos CFDI detectados</div>
-        </div>
-
-        @if($recentRows->count() > 0)
-          <div class="p360-tableWrap">
-            <table class="p360-table">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>UUID</th>
-                  <th class="tr">Total</th>
-                  <th class="tc">Estatus</th>
-                </tr>
-              </thead>
-              <tbody>
-                @foreach($recentRows as $r)
-                  @php
-                    $uuid = (string)($r->uuid ?? '—');
-                    $uuidShort = $uuid !== '—' ? (substr($uuid,0,8).'…'.substr($uuid,-6)) : '—';
-                    $st = strtolower((string)($r->estatus ?? ''));
-                    $stClass = $st === 'cancelado' ? 'danger' : ($st === 'emitido' ? 'ok' : 'mut');
-                    $dt = $r->fecha ? \Carbon\Carbon::parse($r->fecha)->format('d/m/Y') : '—';
-                  @endphp
-                  <tr>
-                    <td>{{ $dt }}</td>
-                    <td title="{{ $uuid }}">{{ $uuidShort }}</td>
-                    <td class="tr">${{ number_format((float)($r->total ?? 0), 2) }}</td>
-                    <td class="tc">
-                      <span class="p360-tag p360-tag--{{ $stClass }}">{{ strtoupper($st ?: 'N/D') }}</span>
-                    </td>
-                  </tr>
-                @endforeach
-              </tbody>
-            </table>
-          </div>
-        @else
-          <div class="p360-empty">
-            <div class="p360-empty__t">Sin CFDI recientes</div>
-            <div class="p360-empty__d">Cuando existan CFDI en la cuenta, aparecerán aquí automáticamente.</div>
-          </div>
-        @endif
-      </div>
-
-      <div class="card p360-card">
-        <div class="p360-card__head">
-          <div class="p360-card__title">Estado operativo</div>
-          <div class="p360-card__sub muted">Validación rápida de la cuenta</div>
-        </div>
-
-        <div class="p360-status">
-          <div class="p360-status__row">
-            <span class="muted">Plan</span>
-            <strong>{{ $sumPlanBadge }}</strong>
-          </div>
-
-          {{-- ✅ Cambia "Saldo" por "Licencia" (precio vigente admin) --}}
-          <div class="p360-status__row">
-            <span class="muted">Licencia</span>
-            <strong>${{ number_format((float)$licAmount, 0) }} MXN</strong>
-          </div>
-
-          <div class="p360-status__row">
-            <span class="muted">Timbres</span>
-            <strong>{{ number_format($timbresV) }}</strong>
-          </div>
-          <div class="p360-status__row">
-            <span class="muted">Bloqueo</span>
-            <strong class="{{ $sumBlocked ? 'p360-txt-danger' : 'p360-txt-ok' }}">{{ $sumBlocked ? 'Sí' : 'No' }}</strong>
-          </div>
-          @if($sumEstado)
-            <div class="p360-status__row">
-              <span class="muted">Estado cuenta</span>
-              <strong>{{ strtoupper($sumEstado) }}</strong>
-            </div>
-          @endif
-        </div>
-      </div>
-    </div>
-  </section>
 </div>
 @endsection
 
 @push('scripts')
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <script>
-  document.addEventListener('DOMContentLoaded', ()=>{
-
-    // ===== Helpers de tema/tokens (sin tocar header/footer/menu) =====
+  document.addEventListener('DOMContentLoaded', () => {
     const rootStyle = getComputedStyle(document.documentElement);
     const getVar = (name, fallback) => (rootStyle.getPropertyValue(name) || '').trim() || fallback;
 
-    const fore  = getVar('--ink', (document.documentElement.getAttribute('data-theme') === 'dark' ? '#e5e7eb' : '#0f172a'));
-    const gridC = getVar('--bd',  (document.documentElement.getAttribute('data-theme') === 'dark' ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)'));
+    const fore = getVar('--ink', document.documentElement.getAttribute('data-theme') === 'dark' ? '#e5e7eb' : '#0f172a');
+    const gridC = getVar('--bd', document.documentElement.getAttribute('data-theme') === 'dark' ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.08)');
+    const brand = getVar('--brand', '#2563EB');
+    const accent = getVar('--accent', '#18A0FB');
 
-    const brand = getVar('--brand', '#E11D48');
-    const accent= getVar('--accent','#0EA5E9');
-
-    const labels   = @json($labelsV);
+    const labels = @json($labelsV);
     const lineData = @json($lineV);
     const cancData = @json($lineCanc);
     const barsData = @json($barsV);
 
-    function money(v){ return '$' + (Number(v||0)).toFixed(2); }
+    function money(v) {
+      return '$' + Number(v || 0).toFixed(2);
+    }
 
-    // ===== Charts =====
     if (window.ApexCharts) {
       window.chartLines = new ApexCharts(document.querySelector('#chart-lines'), {
-        chart:{ type:'area', height:340, foreColor:fore, toolbar:{show:false}, animations:{enabled:true} },
-        stroke:{ curve:'smooth', width:3 },
-        series:[
-          { name:'Emitidos', data: lineData },
-          { name:'Cancelados', data: cancData }
+        chart: { type: 'area', height: 280, foreColor: fore, toolbar: { show: false } },
+        stroke: { curve: 'smooth', width: 3 },
+        series: [
+          { name: 'Emitidos', data: lineData },
+          { name: 'Cancelados', data: cancData }
         ],
-        xaxis:{ categories: labels, labels:{ rotate:-35 }, tickPlacement:'on' },
-        yaxis:{ labels:{ formatter:(v)=> money(v) } },
-        tooltip:{ y:{ formatter:(v)=> money(v) } },
-        colors:[accent, brand],
-        fill:{ type:'gradient', gradient:{shadeIntensity:.55,opacityFrom:.42,opacityTo:.08,stops:[0,90,100]} },
-        grid:{ borderColor:gridC }
+        xaxis: { categories: labels, labels: { rotate: -35 } },
+        yaxis: { labels: { formatter: (v) => money(v) } },
+        tooltip: { y: { formatter: (v) => money(v) } },
+        colors: [accent, brand],
+        fill: { type: 'gradient', gradient: { opacityFrom: .34, opacityTo: .04 } },
+        grid: { borderColor: gridC }
       });
       chartLines.render();
 
       window.chartBars = new ApexCharts(document.querySelector('#chart-bars'), {
-        chart:{ type:'bar', height:340, foreColor:fore, toolbar:{show:false}, animations:{enabled:true} },
-        plotOptions:{ bar:{ columnWidth:'45%', borderRadius:10 } },
-        series:[{ name:'Emitidos por semana', data: barsData }],
-        xaxis:{ categories:['Sem 1','Sem 2','Sem 3','Sem 4'] },
-        yaxis:{ labels:{ formatter:(v)=> money(v) } },
-        tooltip:{ y:{ formatter:(v)=> money(v) } },
-        colors:[brand],
-        grid:{ borderColor:gridC }
+        chart: { type: 'bar', height: 280, foreColor: fore, toolbar: { show: false } },
+        plotOptions: { bar: { columnWidth: '45%', borderRadius: 9 } },
+        series: [{ name: 'Semana', data: barsData }],
+        xaxis: { categories: ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'] },
+        yaxis: { labels: { formatter: (v) => money(v) } },
+        tooltip: { y: { formatter: (v) => money(v) } },
+        colors: [brand],
+        grid: { borderColor: gridC }
       });
       chartBars.render();
     }
 
-    // ===== Auto refresh (30s): KPIs + series (mantiene tu lógica real/demo) =====
-    const rtKpis   = @json($rtKpisJs);
+    const rtKpis = @json($rtKpisJs);
     const rtSeries = @json($rtSeriesJs);
-    const csrf     = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const isLocal  = @json($isLocal);
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-    async function safeJson(res){
+    async function safeJson(res) {
       const ct = res.headers.get('content-type') || '';
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      if (!ct.includes('application/json')) {
-        const txt = await res.text(); throw new Error(`Respuesta no JSON: ${txt.slice(0,120)}…`);
-      }
+      if (!ct.includes('application/json')) throw new Error('Respuesta no JSON');
       return res.json();
     }
 
-    function setText(id, val){
+    function setText(id, val) {
       const el = document.getElementById(id);
       if (el) el.textContent = val;
     }
 
-    async function refreshData(){
-      try{
-        if(!rtKpis || !rtSeries) return;
+    async function refreshData() {
+      try {
+        if (!rtKpis || !rtSeries) return;
 
         const [kpiRes, serieRes] = await Promise.all([
-          fetch(rtKpis,   { headers:{'X-CSRF-TOKEN': csrf} }),
-          fetch(rtSeries, { headers:{'X-CSRF-TOKEN': csrf} })
+          fetch(rtKpis, { headers: { 'X-CSRF-TOKEN': csrf } }),
+          fetch(rtSeries, { headers: { 'X-CSRF-TOKEN': csrf } })
         ]);
 
         const k = await safeJson(kpiRes);
         const s = await safeJson(serieRes);
 
-        const kpisData = k.kpis || k;
+        const kd = k.kpis || k;
 
-        setText('kpi-em', money(kpisData.emitidos || 0));
-        setText('kpi-ca', money(kpisData.cancelados || 0));
-        setText('kpi-to', money(kpisData.total || 0));
-
-        const delta = Number(kpisData.delta || 0);
-        const deltaEl = document.getElementById('kpi-delta');
-        if (deltaEl){
-          deltaEl.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(2) + '%';
-          deltaEl.classList.toggle('up', delta >= 0);
-          deltaEl.classList.toggle('down', delta < 0);
-        }
+        setText('kpi-em', money(kd.emitidos || 0));
+        setText('kpi-ca', money(kd.cancelados || 0));
+        setText('kpi-to', money(kd.total || 0));
 
         const line = (s.series && (s.series.line_facturacion || s.series.emitidos_total))
           ? (s.series.line_facturacion || s.series.emitidos_total)
           : [];
+
         const canc = (s.series && s.series.line_cancelados) ? s.series.line_cancelados : [];
-        const bars = (s.series && s.series.bar_q) ? s.series.bar_q : [0,0,0,0];
+        const bars = (s.series && s.series.bar_q) ? s.series.bar_q : [0, 0, 0, 0];
 
-        if(window.chartLines && window.chartBars){
-          chartLines.updateOptions({ xaxis:{ categories: s.labels || [] } });
+        if (window.chartLines && window.chartBars) {
+          chartLines.updateOptions({ xaxis: { categories: s.labels || [] } });
           chartLines.updateSeries([
-            { name:'Emitidos', data: line },
-            { name:'Cancelados', data: canc }
+            { name: 'Emitidos', data: line },
+            { name: 'Cancelados', data: canc }
           ]);
-          chartBars.updateSeries([{ name:'Emitidos por semana', data: bars }]);
+          chartBars.updateSeries([{ name: 'Semana', data: bars }]);
         }
-
-        if (isLocal) {
-          console.info('[P360][HOME] Fuente KPIs:', k.source || 'db', 'rows:', k.row_count ?? 'n/a');
-          console.info('[P360][HOME] Fuente Series:', s.source || 'db', 'rows:', s.row_count ?? 'n/a');
-        }
-      }catch(e){
-        console.warn('AutoRefresh error:', e);
+      } catch (e) {
+        console.warn('Home refresh error:', e);
       }
     }
 

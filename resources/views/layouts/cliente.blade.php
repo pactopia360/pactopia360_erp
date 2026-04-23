@@ -2,16 +2,14 @@
 @php
   use Illuminate\Support\Facades\File;
   use Illuminate\Support\Facades\Auth;
+  use Illuminate\Support\Facades\DB;
+  use Illuminate\Support\Facades\Schema;
 
   $title = trim($__env->yieldContent('title', 'P360 · Cliente'));
   $theme = session('client_ui.theme', 'light'); // 'light' | 'dark'
 
   // ==========================================================
   // Usuario y cuenta espejo (mysql_clientes)
-  // Resolver igual que HomeController:
-  // 1) guard por defecto
-  // 2) guard cliente
-  // 3) guard web
   // ==========================================================
   $defaultGuard = (string) (config('auth.defaults.guard') ?? 'web');
 
@@ -49,10 +47,11 @@
       $cuenta = (object) $cuenta;
   }
 
-    // ==========================================================
-  // FUENTE GLOBAL DE PLAN / LICENCIA
-  // REGLA DEL PROYECTO:
-  // Admin es SOT. Cliente solo refleja.
+  // ==========================================================
+  // REGLA GLOBAL DEL PROYECTO
+  // ADMIN ES SOT. CLIENTE SOLO REFLEJA.
+  // El header debe resolver el plan real desde mysql_admin
+  // aunque el summary no venga completo.
   // ==========================================================
   $sum = is_array($summary ?? null) ? $summary : [];
 
@@ -93,27 +92,137 @@
       ];
   };
 
-  $summaryPlanRaw = (string) (
-      $sum['plan_raw']
-      ?? $sum['plan']
-      ?? ''
-  );
+  $adminPlanRaw = '';
+  $adminCycle   = '';
+  $adminId      = null;
 
-  $resolved = $summaryPlanRaw !== ''
-      ? $normalizePlanPortal($summaryPlanRaw)
-      : $normalizePlanPortal((string) ($cuenta->plan_actual ?? $cuenta->plan ?? ''));
+  try {
+      $admConn = 'mysql_admin';
+
+      $hasAccounts = Schema::connection($admConn)->hasTable('accounts');
+      $hasRfc      = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'rfc');
+      $hasPlan     = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'plan');
+      $hasPlanAct  = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'plan_actual');
+      $hasCycle    = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'billing_cycle');
+      $hasModo     = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'modo_cobro');
+      $hasCorreo   = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'correo_contacto');
+      $hasEmail    = $hasAccounts && Schema::connection($admConn)->hasColumn('accounts', 'email');
+
+      if ($hasAccounts) {
+          $adminId = isset($cuenta->admin_account_id) && is_numeric($cuenta->admin_account_id)
+              ? (int) $cuenta->admin_account_id
+              : null;
+
+          $rfcCandidates = array_values(array_unique(array_filter([
+              strtoupper(trim((string) ($cuenta->rfc ?? ''))),
+              strtoupper(trim((string) ($cuenta->rfc_padre ?? ''))),
+          ], fn ($v) => $v !== '' && strlen($v) >= 12)));
+
+          $emailCandidates = array_values(array_unique(array_filter([
+              strtolower(trim((string) ($cuenta->email ?? ''))),
+              strtolower(trim((string) ($user->email ?? ''))),
+          ], fn ($v) => $v !== '')));
+
+          $acc = null;
+
+          if ($adminId) {
+              $acc = DB::connection($admConn)
+                  ->table('accounts')
+                  ->where('id', $adminId)
+                  ->first();
+          }
+
+          if (!$acc && $hasRfc && !empty($rfcCandidates)) {
+              foreach ($rfcCandidates as $rfcSearch) {
+                  $row = DB::connection($admConn)
+                      ->table('accounts')
+                      ->whereRaw('UPPER(rfc) = ?', [$rfcSearch])
+                      ->first();
+
+                  if ($row) {
+                      $acc = $row;
+                      break;
+                  }
+              }
+          }
+
+          if (!$acc && !empty($emailCandidates)) {
+              if ($hasCorreo) {
+                  foreach ($emailCandidates as $emailSearch) {
+                      $row = DB::connection($admConn)
+                          ->table('accounts')
+                          ->whereRaw('LOWER(correo_contacto) = ?', [$emailSearch])
+                          ->first();
+
+                      if ($row) {
+                          $acc = $row;
+                          break;
+                      }
+                  }
+              }
+
+              if (!$acc && $hasEmail) {
+                  foreach ($emailCandidates as $emailSearch) {
+                      $row = DB::connection($admConn)
+                          ->table('accounts')
+                          ->whereRaw('LOWER(email) = ?', [$emailSearch])
+                          ->first();
+
+                      if ($row) {
+                          $acc = $row;
+                          break;
+                      }
+                  }
+              }
+          }
+
+          if ($acc) {
+              $adminPlanRaw = trim((string) (
+                  ($hasPlanAct ? ($acc->plan_actual ?? null) : null)
+                  ?: ($hasPlan ? ($acc->plan ?? null) : null)
+                  ?: ''
+              ));
+
+              $adminCycle = trim((string) (
+                  ($hasCycle ? ($acc->billing_cycle ?? null) : null)
+                  ?: ($hasModo ? ($acc->modo_cobro ?? null) : null)
+                  ?: ''
+              ));
+          }
+      }
+  } catch (\Throwable $e) {
+      $adminPlanRaw = '';
+      $adminCycle   = '';
+  }
+
+  // 1) Admin SOT
+  // 2) summary
+  // 3) espejo cliente
+  $resolved = $adminPlanRaw !== ''
+      ? $normalizePlanPortal($adminPlanRaw)
+      : (
+          ((string) ($sum['plan_raw'] ?? $sum['plan'] ?? '')) !== ''
+              ? $normalizePlanPortal((string) ($sum['plan_raw'] ?? $sum['plan'] ?? ''))
+              : $normalizePlanPortal((string) ($cuenta->plan_actual ?? $cuenta->plan ?? ''))
+      );
+
+  $summaryPlanNorm = strtolower(trim((string) (
+      $sum['plan_norm']
+      ?? ($resolved['plan_norm'] ?? '')
+  )));
 
   $summaryIsPro = array_key_exists('is_pro', $sum)
       ? (bool) $sum['is_pro']
-      : (bool) ($resolved['is_pro'] ?? false);
+      : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
 
-  $plan = $summaryIsPro ? 'PRO' : (string) ($resolved['plan'] ?? 'FREE');
-  $planKey = $summaryIsPro ? 'pro' : (string) ($resolved['plan_key'] ?? 'free');
+  $plan = ($resolved['is_pro'] ?? false) || $summaryIsPro ? 'PRO' : 'FREE';
+  $planKey = $plan === 'PRO' ? 'pro' : 'free';
 
   $billingCycle = (string) (
-      $sum['cycle']
+      $adminCycle
+      ?: ($sum['cycle']
       ?? $sum['billing_cycle']
-      ?? ($cuenta->billing_cycle ?? $cuenta->modo_cobro ?? ($resolved['cycle'] ?? ''))
+      ?? ($cuenta->billing_cycle ?? $cuenta->modo_cobro ?? ($resolved['cycle'] ?? '')))
   );
 
   $billingCycle = strtolower(trim($billingCycle));
@@ -162,7 +271,7 @@
 
   <style>
     :root{
-      --header: 72px;
+      --header: 60px;
       --header-h: var(--header);
 
       /* ===== Branding Pactopia nuevo ===== */
@@ -190,7 +299,7 @@
 
       /* Layout */
       --container-max: 100%;
-      --container-px: 18px;
+      --container-px: 12px;
       --content-max: none;
 
       --p360-rail: linear-gradient(90deg, rgba(37,99,235,.18) 0%, rgba(96,165,250,.10) 50%, rgba(37,99,235,.03) 100%);
@@ -199,13 +308,13 @@
       --sb-w: 264px;
       --sb-wc: 72px;
 
-      --footer-h: 42px;
-      --footer-offset: 8px;
+      --footer-h: 34px;
+      --footer-offset: 4px;
 
-      --glass-blur: 18px;
-      --radius-xl: 24px;
-      --radius-lg: 18px;
-      --radius-md: 14px;
+      --glass-blur: 14px;
+      --radius-xl: 18px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
     }
 
      html[data-theme="dark"]{
@@ -552,7 +661,7 @@
 
     @media (min-width: 1400px){
       :root{
-        --container-px: 20px;
+        --container-px: 14px;
       }
 
       .page-sat-vault-v2.content > .container,
@@ -566,7 +675,7 @@
 
     @media (max-width: 1099.98px){
       :root{
-        --container-px: 12px;
+        --container-px: 10px;
       }
 
       .page-sat-vault-v2.content > .container,

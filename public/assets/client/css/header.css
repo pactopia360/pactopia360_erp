@@ -249,20 +249,47 @@ html[data-theme="dark"] .p360-sat-cart__btn{
   color:var(--text,#0f172a);
 }
 
-.p360-account__plan{
+.p360-account__plan,
+.dd-chip{
   margin-top:4px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   min-height:24px;
-  padding:0 9px;
+  padding:0 10px;
   border-radius:999px;
   font-size:10px;
   font-weight:900;
   letter-spacing:.08em;
+  text-transform:uppercase;
+  border:1px solid rgba(37,99,235,.12);
   color:#2563eb;
-  background:rgba(37,99,235,.10);
-  border:1px solid rgba(37,99,235,.10);
+  background:linear-gradient(180deg, rgba(37,99,235,.12), rgba(37,99,235,.06));
+  box-shadow:0 8px 18px rgba(37,99,235,.08);
+}
+
+.p360-account__plan--pro,
+.dd-chip--pro{
+  color:#ffffff;
+  border-color:rgba(37,99,235,.28);
+  background:linear-gradient(135deg, #2563eb 0%, #60a5fa 100%);
+  box-shadow:0 10px 22px rgba(37,99,235,.22);
+}
+
+.p360-account__plan--free,
+.dd-chip--free{
+  color:#475569;
+  border-color:rgba(100,116,139,.18);
+  background:linear-gradient(180deg, rgba(241,245,249,.96), rgba(226,232,240,.76));
+  box-shadow:none;
+}
+
+.p360-account__plan--sync,
+.dd-chip--sync{
+  color:#92400e;
+  border-color:rgba(245,158,11,.22);
+  background:linear-gradient(180deg, rgba(254,243,199,.96), rgba(253,230,138,.72));
+  box-shadow:0 8px 18px rgba(245,158,11,.10);
 }
 
 html.theme-dark .p360-account__name,
@@ -344,21 +371,6 @@ html[data-theme="dark"] .dropdown.dd-profile{
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
-}
-
-.dd-chip{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  min-height:24px;
-  padding:0 9px;
-  border-radius:999px;
-  font-size:10px;
-  font-weight:900;
-  letter-spacing:.08em;
-  color:#2563eb;
-  background:rgba(37,99,235,.10);
-  border:1px solid rgba(37,99,235,.10);
 }
 
 .dd-section{

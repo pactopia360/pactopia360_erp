@@ -975,6 +975,8 @@ class HomeController extends Controller
             'override'              => (array) ($billing['override'] ?? []),
             'effective_amount_mxn'  => (float) ($billing['effective_amount_mxn'] ?? 0),
 
+            'modules_state'         => $this->normalizeModulesState($meta),
+
             'source'                => $admin ? 'admin.accounts' : 'cliente.mirror',
         ];
     }
@@ -988,25 +990,48 @@ class HomeController extends Controller
      */
     private function normalizePlanAndCycle(?string $planRaw): array
     {
-        $p = strtolower(trim((string) $planRaw));
+        $raw = trim((string) $planRaw);
+
+        $p = strtolower($raw);
         $p = str_replace([' ', '-'], '_', $p);
         $p = preg_replace('/_+/', '_', $p) ?: '';
 
         $cycle = null;
+
         if (str_ends_with($p, '_mensual')) {
             $cycle = 'mensual';
-            $p = substr($p, 0, -8); // remove "_mensual"
+            $p = substr($p, 0, -8);
         } elseif (str_ends_with($p, '_anual')) {
             $cycle = 'anual';
-            $p = substr($p, 0, -6); // remove "_anual"
+            $p = substr($p, 0, -6);
+        } elseif (str_ends_with($p, '_monthly')) {
+            $cycle = 'mensual';
+            $p = substr($p, 0, -8);
+        } elseif (str_ends_with($p, '_yearly')) {
+            $cycle = 'anual';
+            $p = substr($p, 0, -7);
+        } elseif (str_ends_with($p, '_annual')) {
+            $cycle = 'anual';
+            $p = substr($p, 0, -7);
         }
 
         $base = $p ?: 'free';
 
+        $isPro = in_array($base, [
+            'pro',
+            'premium',
+            'business',
+            'empresa',
+            'enterprise',
+        ], true);
+
         return [
             'plan_base' => $base,
             'cycle'     => $cycle,
-            'plan_norm' => $base, // base ya viene sin sufijo
+            'plan_norm' => $base,
+            'is_pro'    => $isPro,
+            'label'     => $isPro ? 'PRO' : 'FREE',
+            'raw'       => strtoupper($raw !== '' ? $raw : ($isPro ? 'PRO' : 'FREE')),
         ];
     }
 

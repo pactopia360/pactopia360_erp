@@ -75,34 +75,71 @@
 
   $name  = $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta';
   $email = $u?->email ?? '';
-  // Resumen unificado de cuenta
-  // ✅ NO recalcular aquí. El layout ya manda $summary correcto.
+
+  // ==========================================================
+  // PLAN / LICENCIA HEADER
+  // Fuente principal: $plan ya resuelto por layouts/cliente.blade.php
+  // NO recalcular primero desde cuenta espejo porque puede mostrar FREE viejo.
+  // ==========================================================
   $summary = (isset($summary) && is_array($summary)) ? $summary : [];
 
-  $summaryPlan = !empty($summary['plan'])
-      ? strtoupper((string) $summary['plan'])
+  $layoutPlan = isset($plan) && trim((string) $plan) !== ''
+      ? strtoupper(trim((string) $plan))
       : null;
+
+  $summaryPlan = !empty($summary['plan'])
+      ? strtoupper(trim((string) $summary['plan']))
+      : null;
+
+  $summaryPlanRaw = !empty($summary['plan_raw'])
+      ? strtoupper(trim((string) $summary['plan_raw']))
+      : null;
+
+  $fallbackPlan = strtoupper(trim((string)($c->plan_actual ?? $c->plan ?? '')));
+
+  $planRaw = $layoutPlan
+      ?: $summaryPlanRaw
+      ?: $summaryPlan
+      ?: $fallbackPlan;
+
+  $planRaw = $planRaw !== '' ? $planRaw : 'SINCRONIZANDO';
+
+  $planSlug = strtolower(trim($planRaw));
+  $planSlug = str_replace([' ', '-'], '_', $planSlug);
+  $planSlug = preg_replace('/_+/', '_', $planSlug) ?: 'sincronizando';
 
   $summaryIsPro = array_key_exists('is_pro', $summary)
       ? (bool) $summary['is_pro']
       : null;
 
-  $fallbackPlan = strtoupper((string)($c->plan_actual ?? $c->plan ?? 'FREE'));
-  $planRaw      = $summaryPlan ?: $fallbackPlan;
-  $planSlug     = strtolower(trim((string) $planRaw));
+  $isProPlan = $summaryIsPro ?? in_array($planSlug, [
+      'pro',
+      'pro_mensual',
+      'pro_anual',
+      'premium',
+      'premium_mensual',
+      'premium_anual',
+      'empresa',
+      'business',
+  ], true);
 
-  $isProPlan = $summaryIsPro ?? in_array(
-      $planSlug,
-      ['pro', 'pro_mensual', 'pro_anual', 'premium', 'premium_mensual', 'premium_anual', 'empresa', 'business'],
-      true
-  );
+  $isFreePlan = in_array($planSlug, [
+      'free',
+      'gratis',
+      'freemium',
+  ], true);
 
-  $plan = $planRaw;
+  $planBadge = $isProPlan
+      ? 'PRO'
+      : ($isFreePlan ? 'FREE' : $planRaw);
 
-  // Badge comercial compacto
-  $planBadge = $isProPlan ? 'PRO' : (
-      in_array($planSlug, ['free', 'gratis'], true) ? 'FREE' : $planRaw
-  );
+  $planClass = $isProPlan
+      ? 'pro'
+      : ($isFreePlan ? 'free' : 'sync');
+
+  $planTitle = $planBadge === 'SINCRONIZANDO'
+      ? 'Sincronizando plan desde Admin'
+      : 'Plan actual: ' . $planBadge;
 
   // Rutas
   $rtHome     = Route::has('cliente.home') ? route('cliente.home') : url('/cliente');
@@ -261,7 +298,9 @@
     <div class="p360-account">
       <div class="p360-account__meta">
         <span class="p360-account__name" title="{{ $acctLabel }}">{{ $acctLabel }}</span>
-        <span class="p360-account__plan" title="Plan actual: {{ $plan }}">{{ $planBadge }}</span>
+        <span class="p360-account__plan p360-account__plan--{{ $planClass }}" title="{{ $planTitle }}">
+          {{ $planBadge }}
+        </span>
       </div>
 
       <div class="menu-profile" style="position:relative">
@@ -283,7 +322,9 @@
               <div class="dd-name">{{ $name }}</div>
               <div class="dd-mail">{{ $email ?: '—' }}</div>
             </div>
-            <span class="dd-chip" title="Plan">{{ $planBadge }}</span>
+            <span class="dd-chip dd-chip--{{ $planClass }}" title="{{ $planTitle }}">
+              {{ $planBadge }}
+            </span>
           </div>
 
           <div class="dd-section" role="none">
