@@ -28,12 +28,53 @@
 
   $brandSrc = $theme === 'dark' ? $logoDarkUrl : $logoLightUrl;
 
-  // Usuario / cuenta
-  $u      = auth('web')->user();
-  $c      = $cuenta ?? ($u?->cuenta ?? null);
-  $name   = $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta';
-  $email  = $u?->email ?? '';
+   // Usuario / cuenta
+  $defaultGuard = (string) (config('auth.defaults.guard') ?? 'web');
 
+  $u = null;
+
+  try {
+      $u = auth()->user();
+  } catch (\Throwable $e) {
+      $u = null;
+  }
+
+  if (!$u) {
+      try {
+          $u = auth($defaultGuard)->user();
+      } catch (\Throwable $e) {
+          $u = null;
+      }
+  }
+
+  if (!$u) {
+      try {
+          $u = auth('cliente')->user();
+      } catch (\Throwable $e) {
+          $u = null;
+      }
+  }
+
+  if (!$u) {
+      try {
+          $u = auth('web')->user();
+      } catch (\Throwable $e) {
+          $u = null;
+      }
+  }
+
+  if (is_array($u)) {
+      $u = (object) $u;
+  }
+
+  $c = $cuenta ?? ($u?->cuenta ?? null);
+
+  if (is_array($c)) {
+      $c = (object) $c;
+  }
+
+  $name  = $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta';
+  $email = $u?->email ?? '';
   // Resumen unificado de cuenta
   // ✅ NO recalcular aquí. El layout ya manda $summary correcto.
   $summary = (isset($summary) && is_array($summary)) ? $summary : [];
@@ -119,11 +160,12 @@
     return $spriteInline !== '' ? "#{$id}" : ($spriteUrl . "#{$id}");
   };
 
-  // Inicial avatar
-  $initial = strtoupper(mb_substr(trim((string)($u?->nombre ?? $u?->email ?? 'U')), 0, 1));
+   // Inicial avatar
+  $initialSource = (string) ($u?->nombre ?? $u?->name ?? $u?->email ?? 'U');
+  $initial = strtoupper(mb_substr(trim($initialSource), 0, 1));
 
   // Nombre de cuenta mostrado
-  $acctLabel = $u?->razon_social ?? $u?->nombre ?? $u?->email ?? 'Cuenta cliente';
+  $acctLabel = $summary['razon'] ?? $c?->razon_social ?? $u?->razon_social ?? $u?->nombre ?? $u?->name ?? $u?->email ?? 'Cuenta cliente';
 @endphp
 
 <header
