@@ -133,7 +133,7 @@
         <div class="p360-hero__name">{{ $razonV }}</div>
       </div>
 
-      <div class="p360-hero__meta">
+       <div class="p360-hero__meta">
         @if($isLocal)
           <span class="p360-pill p360-pill--{{ $dataSource === 'db' ? 'ok' : 'warn' }}"
                 title="Fuente de datos del dashboard (solo visible en local)">
@@ -149,50 +149,52 @@
           <span class="p360-pill p360-pill--danger" title="Cuenta bloqueada">BLOQUEADA</span>
         @endif
       </div>
-    </div>
 
-    <div class="p360-hero__bottom">
-      <div class="p360-hero__kpiRow">
-        {{-- ✅ KPI principal: LICENCIA (precio vigente admin) --}}
-        <div class="p360-kpi p360-kpi--brand">
-          <div class="p360-kpi__label">Licencia</div>
-          <div class="p360-kpi__value" id="kpi-licencia">
-            ${{ number_format((float)$licAmount, 0) }}
-          </div>
-          <div class="p360-kpi__hint">
+          <div class="p360-hero__bottom">
+        {{-- BLOQUE 1: CUENTA / LICENCIA (Admin SOT) --}}
+        <div class="p360-hero__kpiRow">
+          <div class="p360-kpi p360-kpi--brand">
+            <div class="p360-kpi__label">Licencia</div>
+            <div class="p360-kpi__value" id="kpi-licencia">
+              ${{ number_format((float)$licAmount, 0) }}
+            </div>
+            <div class="p360-kpi__hint">
               {{ $licHasOverride ? 'PERSONALIZADO' : 'MXN' }}
+            </div>
+          </div>
+
+          <div class="p360-kpi">
+            <div class="p360-kpi__label">Timbres disponibles</div>
+            <div class="p360-kpi__value" id="kpi-timbres">{{ number_format($timbresV) }}</div>
+            <div class="p360-kpi__hint">Disponibles</div>
           </div>
         </div>
 
-        <div class="p360-kpi">
-          <div class="p360-kpi__label">Timbres disponibles</div>
-          <div class="p360-kpi__value" id="kpi-timbres">{{ number_format($timbresV) }}</div>
-          <div class="p360-kpi__hint">Disponibles</div>
-        </div>
+        {{-- BLOQUE 2: FACTURACIÓN / EMISIÓN --}}
+        <div class="p360-hero__kpiRow" style="margin-top:14px;">
+          <div class="p360-kpi">
+            <div class="p360-kpi__label">Facturación del mes</div>
+            <div class="p360-kpi__value" id="kpi-em">${{ number_format($kEmit, 2) }}</div>
+            <div class="p360-kpi__hint">Emitidos</div>
+          </div>
 
-        <div class="p360-kpi">
-          <div class="p360-kpi__label">Facturación mes</div>
-          <div class="p360-kpi__value" id="kpi-em">${{ number_format($kEmit, 2) }}</div>
-          <div class="p360-kpi__hint">Emitidos</div>
-        </div>
+          <div class="p360-kpi">
+            <div class="p360-kpi__label">Cancelados</div>
+            <div class="p360-kpi__value" id="kpi-ca">${{ number_format($kCanc, 2) }}</div>
+            <div class="p360-kpi__hint">Mes actual</div>
+          </div>
 
-        <div class="p360-kpi">
-          <div class="p360-kpi__label">Cancelados</div>
-          <div class="p360-kpi__value" id="kpi-ca">${{ number_format($kCanc, 2) }}</div>
-          <div class="p360-kpi__hint">Mes actual</div>
-        </div>
-
-        <div class="p360-kpi">
-          <div class="p360-kpi__label">Total mensual</div>
-          <div class="p360-kpi__value" id="kpi-to">${{ number_format($kTotal, 2) }}</div>
-          <div class="p360-kpi__hint">
-            Variación:
-            <span id="kpi-delta" class="p360-delta {{ $kDelta >= 0 ? 'up' : 'down' }}">
-              {{ $kDelta >= 0 ? '+' : '' }}{{ number_format($kDelta, 2) }}%
-            </span>
+          <div class="p360-kpi">
+            <div class="p360-kpi__label">Total mensual</div>
+            <div class="p360-kpi__value" id="kpi-to">${{ number_format($kTotal, 2) }}</div>
+            <div class="p360-kpi__hint">
+              Variación:
+              <span id="kpi-delta" class="p360-delta {{ $kDelta >= 0 ? 'up' : 'down' }}">
+                {{ $kDelta >= 0 ? '+' : '' }}{{ number_format($kDelta, 2) }}%
+              </span>
+            </div>
           </div>
         </div>
-      </div>
 
       {{-- Bóveda / Espacio (si existe en summary) --}}
       <div class="p360-hero__storage">

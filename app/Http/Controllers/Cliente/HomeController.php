@@ -729,6 +729,10 @@ class HomeController extends Controller
                 'rfc',
                 'razon_social',
                 'name',
+                'correo_contacto',
+                'email',
+                'telefono',
+                'phone',
                 'plan',
                 'plan_actual',
                 'billing_cycle',
@@ -749,6 +753,9 @@ class HomeController extends Controller
                 }
             }
 
+            // =========================================================
+            // 1) admin_account_id del espejo
+            // =========================================================
             $adminAccountId = (int) ($cuenta->admin_account_id ?? 0);
 
             if ($adminAccountId > 0) {
@@ -759,6 +766,9 @@ class HomeController extends Controller
                     ->first();
             }
 
+            // =========================================================
+            // 2) RFC / RFC padre del espejo
+            // =========================================================
             $rfcCandidates = [];
             foreach ([
                 $cuenta->rfc ?? null,
@@ -785,6 +795,33 @@ class HomeController extends Controller
                     }
                 }
             }
+
+            // =========================================================
+            // 3) fallback por email del usuario cliente -> account email/correo_contacto
+            // Esto corrige cuentas donde el espejo ya existe pero no trae admin_account_id.
+            // =========================================================
+            if (!$admin) {
+                $userEmail = strtolower(trim((string) ($u->email ?? '')));
+
+                if ($userEmail !== '') {
+                    foreach (['correo_contacto', 'email'] as $emailCol) {
+                        if (!$hasA('accounts', $emailCol)) {
+                            continue;
+                        }
+
+                        $row = DB::connection($adminConn)
+                            ->table('accounts')
+                            ->select($select)
+                            ->whereRaw('LOWER(' . $emailCol . ') = ?', [$userEmail])
+                            ->first();
+
+                        if ($row) {
+                            $admin = $row;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         if ($admin && isset($admin->meta) && is_string($admin->meta) && trim($admin->meta) !== '') {
@@ -798,6 +835,9 @@ class HomeController extends Controller
             }
         }
 
+        // =========================================================
+        // Nombre visible
+        // =========================================================
         $razon = null;
         foreach ([
             $admin->razon_social ?? null,
@@ -819,6 +859,9 @@ class HomeController extends Controller
             }
         }
 
+        // =========================================================
+        // Plan / ciclo / estado - ADMIN manda
+        // =========================================================
         $planRaw = trim((string) (
             $admin->plan_actual
             ?? $admin->plan
@@ -827,9 +870,9 @@ class HomeController extends Controller
             ?? ''
         ));
 
-        $normalized = $this->normalizePlanAndCycle($planRaw);
-        $planBase   = strtolower((string) ($normalized['plan_base'] ?? 'free'));
-        $planNorm   = strtolower((string) ($normalized['plan_norm'] ?? $planBase));
+        $normalized    = $this->normalizePlanAndCycle($planRaw);
+        $planBase      = strtolower((string) ($normalized['plan_base'] ?? 'free'));
+        $planNorm      = strtolower((string) ($normalized['plan_norm'] ?? $planBase));
         $cycleFromPlan = strtolower((string) ($normalized['cycle'] ?? ''));
 
         $billingCycle = strtolower(trim((string) (
@@ -859,17 +902,8 @@ class HomeController extends Controller
             ?? 0
         ) === 1;
 
-        $looksPaid = in_array($billingStatus, [
-            'active', 'activa',
-            'trial', 'prueba',
-            'grace', 'gracia',
-            'overdue', 'vencida',
-            'suspended', 'suspendida',
-        ], true) || in_array($billingCycle, ['monthly', 'yearly'], true);
-
         $isPro = in_array($planBase, ['pro', 'premium', 'business', 'empresa'], true)
-            || in_array(strtoupper($planRaw), ['PRO', 'PRO_MENSUAL', 'PRO_ANUAL'], true)
-            || (($planRaw === '' || $planBase === 'free') && $looksPaid);
+            || in_array(strtoupper($planRaw), ['PRO', 'PRO_MENSUAL', 'PRO_ANUAL'], true);
 
         $planLabel = $isPro ? 'PRO' : 'FREE';
 
@@ -879,6 +913,9 @@ class HomeController extends Controller
             default   => ($cycleFromPlan === 'anual' ? 'ANUAL' : 'MENSUAL'),
         };
 
+        // =========================================================
+        // Timbres / saldo
+        // =========================================================
         $timbres = (int) (
             $admin->timbres_disponibles
             ?? $cuenta->timbres_disponibles
@@ -891,6 +928,9 @@ class HomeController extends Controller
             ?? 0
         );
 
+        // =========================================================
+        // Licencia / billing administrado por Admin
+        // =========================================================
         $billing = [
             'amount_mxn' => 0.0,
             'override' => [
@@ -938,7 +978,8 @@ class HomeController extends Controller
             'source'                => $admin ? 'admin.accounts' : 'cliente.mirror',
         ];
     }
-        /**
+    
+    /**
      * Normaliza planes tipo "pro_mensual", "pro_anual", "premium_anual", etc.
      * Retorna:
      * - plan_base: "pro" | "premium" | "free" | ...

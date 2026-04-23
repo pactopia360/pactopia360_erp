@@ -81,60 +81,35 @@
       }
 
       $base = $p !== '' ? $p : 'free';
-
-      $isPro = in_array($base, [
-          'pro',
-          'premium',
-          'empresa',
-          'business',
-      ], true);
+      $isPro = in_array($base, ['pro', 'premium', 'empresa', 'business'], true);
 
       return [
-          'raw'      => strtoupper(trim((string) $raw)),
-          'plan'     => $isPro ? 'PRO' : 'FREE',
-          'plan_key' => $isPro ? 'pro' : 'free',
-          'plan_norm'=> $base,
-          'is_pro'   => $isPro,
-          'cycle'    => $cycle,
+          'raw'       => strtoupper(trim((string) $raw)),
+          'plan'      => $isPro ? 'PRO' : 'FREE',
+          'plan_key'  => $isPro ? 'pro' : 'free',
+          'plan_norm' => $base,
+          'is_pro'    => $isPro,
+          'cycle'     => $cycle,
       ];
   };
 
-  // 1) Prioridad summary construido desde HomeController/Admin
   $summaryPlanRaw = (string) (
       $sum['plan_raw']
       ?? $sum['plan']
       ?? ''
   );
 
-  $summaryPlanNorm = strtolower(trim((string) (
-      $sum['plan_norm']
-      ?? $summaryPlanRaw
-  )));
+  $resolved = $summaryPlanRaw !== ''
+      ? $normalizePlanPortal($summaryPlanRaw)
+      : $normalizePlanPortal((string) ($cuenta->plan_actual ?? $cuenta->plan ?? ''));
 
   $summaryIsPro = array_key_exists('is_pro', $sum)
       ? (bool) $sum['is_pro']
-      : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
+      : (bool) ($resolved['is_pro'] ?? false);
 
-  // 2) Fallback espejo, pero SIEMPRE normalizado
-  $mirrorPlanRaw = (string) (
-      $cuenta->plan_actual
-      ?? $cuenta->plan
-      ?? ''
-  );
+  $plan = $summaryIsPro ? 'PRO' : (string) ($resolved['plan'] ?? 'FREE');
+  $planKey = $summaryIsPro ? 'pro' : (string) ($resolved['plan_key'] ?? 'free');
 
-  $resolved = $summaryPlanRaw !== ''
-      ? $normalizePlanPortal($summaryPlanRaw)
-      : $normalizePlanPortal($mirrorPlanRaw);
-
-  if ($summaryIsPro) {
-      $plan = 'PRO';
-      $planKey = 'pro';
-  } else {
-      $plan = (string) ($resolved['plan'] ?? 'FREE');
-      $planKey = (string) ($resolved['plan_key'] ?? 'free');
-  }
-
-  // Ciclo de facturación: priorizar summary/admin, luego espejo, luego ciclo inferido del plan
   $billingCycle = (string) (
       $sum['cycle']
       ?? $sum['billing_cycle']
