@@ -131,7 +131,7 @@ class HomeController extends Controller
 
         $planKey = strtolower((string) $plan);
 
-        return view('cliente.facturacion.index', [
+                return view('cliente.home', [
             'period_from' => $from,
             'period_to'   => $to,
             'kpis'        => $kpis,
