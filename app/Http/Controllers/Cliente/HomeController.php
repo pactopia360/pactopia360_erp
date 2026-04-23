@@ -66,242 +66,250 @@ class HomeController extends Controller
     }
 
     public function index(Request $request): View
-{
-    $user   = $this->authUser();
-    $cuenta = $user?->cuenta;
+    {
+        $user   = $this->authUser();
+        $cuenta = $user?->cuenta;
 
-    if (is_array($cuenta)) {
-        $cuenta = (object) $cuenta;
-    }
+        if (is_array($cuenta)) {
+            $cuenta = (object) $cuenta;
+        }
 
-    $monthRaw = $request->input('month');
-    $month    = is_string($monthRaw) ? trim($monthRaw) : null;
+        $monthRaw = $request->input('month');
+        $month    = is_string($monthRaw) ? trim($monthRaw) : null;
 
-    [$from, $to] = $this->resolveMonthRange($month);
+        [$from, $to] = $this->resolveMonthRange($month);
 
-    $perPage = max(1, (int) $request->integer('per_page', 15));
+        $perPage = max(1, (int) $request->integer('per_page', 15));
 
-    $cfdis = new \Illuminate\Pagination\LengthAwarePaginator(
-        collect(),
-        0,
-        $perPage,
-        \Illuminate\Pagination\Paginator::resolveCurrentPage(),
-        [
-            'path'  => $request->url(),
-            'query' => $request->query(),
-        ]
-    );
+        $cfdis = new \Illuminate\Pagination\LengthAwarePaginator(
+            collect(),
+            0,
+            $perPage,
+            \Illuminate\Pagination\Paginator::resolveCurrentPage(),
+            [
+                'path'  => $request->url(),
+                'query' => $request->query(),
+            ]
+        );
 
-    $current = (object) [
-        'id'         => null,
-        'uuid'       => null,
-        'serie'      => null,
-        'folio'      => null,
-        'subtotal'   => 0,
-        'iva'        => 0,
-        'total'      => 0,
-        'fecha'      => null,
-        'estatus'    => null,
-        'cliente_id' => null,
-    ];
+        $current = (object) [
+            'id'         => null,
+            'uuid'       => null,
+            'serie'      => null,
+            'folio'      => null,
+            'subtotal'   => 0,
+            'iva'        => 0,
+            'total'      => 0,
+            'fecha'      => null,
+            'estatus'    => null,
+            'cliente_id' => null,
+        ];
 
-    $recent = collect();
+        $recent = collect();
 
-    $kpis = [
-        'total'      => 0.0,
-        'emitidos'   => 0.0,
-        'cancelados' => 0.0,
-        'delta'      => 0.0,
-        'period'     => ['from' => $from, 'to' => $to],
-    ];
+        $kpis = [
+            'total'      => 0.0,
+            'emitidos'   => 0.0,
+            'cancelados' => 0.0,
+            'delta'      => 0.0,
+            'period'     => ['from' => $from, 'to' => $to],
+        ];
 
-    $series = [
-        'labels' => [],
-        'series' => [
-            'emitidos_total'   => [],
-            'line_facturacion' => [],
-            'line_cancelados'  => [],
-            'bar_q'            => [0, 0, 0, 0],
-        ],
-    ];
+        $series = [
+            'labels' => [],
+            'series' => [
+                'emitidos_total'   => [],
+                'line_facturacion' => [],
+                'line_cancelados'  => [],
+                'bar_q'            => [0, 0, 0, 0],
+            ],
+        ];
 
-    $dataSource = 'db';
+        $dataSource = 'db';
 
-    if ($this->canQueryCfdi()) {
-        try {
-            $base = Cfdi::on('mysql_clientes');
+        if ($this->canQueryCfdi()) {
+            try {
+                $base = Cfdi::on('mysql_clientes');
 
-            if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
-                $clienteIds = DB::connection('mysql_clientes')
-                    ->table('clientes')
-                    ->where('cuenta_id', $cuenta->id)
-                    ->pluck('id')
-                    ->all();
+                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
+                    $clienteIds = DB::connection('mysql_clientes')
+                        ->table('clientes')
+                        ->where('cuenta_id', $cuenta->id)
+                        ->pluck('id')
+                        ->all();
 
-                $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
-            }
-
-            $q = (clone $base)->whereBetween('fecha', [$from, $to]);
-
-            $search = trim((string) $request->input('q', ''));
-            if ($search !== '') {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('uuid', 'like', "%{$search}%")
-                        ->orWhere('serie', 'like', "%{$search}%")
-                        ->orWhere('folio', 'like', "%{$search}%");
-                });
-            }
-
-            $status = trim((string) $request->input('status', ''));
-            if ($status !== '') {
-                $q->where('estatus', $status);
-            }
-
-            $q->with([
-                'cliente:id,razon_social,nombre_comercial,rfc',
-                'conceptos:id,cfdi_id,descripcion',
-            ]);
-
-            $cfdis = $q->orderByDesc('fecha')
-                ->paginate(
-                    $perPage,
-                    ['id', 'uuid', 'serie', 'folio', 'subtotal', 'iva', 'total', 'fecha', 'estatus', 'cliente_id']
-                )
-                ->withQueryString();
-
-            $first = $cfdis->getCollection()->first();
-            if ($first) {
-                $current = $first;
-            }
-
-            $recent = $cfdis->getCollection()
-                ->take(8)
-                ->values();
-
-            $kpis   = $this->calcKpisFor(clone $base, $from, $to);
-            $series = $this->buildSeriesFor(clone $base, $from, $to);
-
-            if ($this->isDemoMode() && empty($series['series']['emitidos_total'])) {
-                [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-
-                if ((float) ($kpis['total'] ?? 0) <= 0) {
-                    $kpis = $demoKpis;
+                    $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
                 }
 
-                $series     = $demoSeries;
-                $dataSource = 'demo';
+                $q = (clone $base)->whereBetween('fecha', [$from, $to]);
+
+                $search = trim((string) $request->input('q', ''));
+                if ($search !== '') {
+                    $q->where(function ($sub) use ($search) {
+                        $sub->where('uuid', 'like', "%{$search}%")
+                            ->orWhere('serie', 'like', "%{$search}%")
+                            ->orWhere('folio', 'like', "%{$search}%");
+                    });
+                }
+
+                $status = trim((string) $request->input('status', ''));
+                if ($status !== '') {
+                    $q->where('estatus', $status);
+                }
+
+                $q->with([
+                    'cliente:id,razon_social,nombre_comercial,rfc',
+                    'conceptos:id,cfdi_id,descripcion',
+                ]);
+
+                $cfdis = $q->orderByDesc('fecha')
+                    ->paginate(
+                        $perPage,
+                        ['id', 'uuid', 'serie', 'folio', 'subtotal', 'iva', 'total', 'fecha', 'estatus', 'cliente_id']
+                    )
+                    ->withQueryString();
+
+                $first = $cfdis->getCollection()->first();
+                if ($first) {
+                    $current = $first;
+                }
+
+                $recent = $cfdis->getCollection()
+                    ->take(8)
+                    ->values();
+
+                $kpis   = $this->calcKpisFor(clone $base, $from, $to);
+                $series = $this->buildSeriesFor(clone $base, $from, $to);
+
+                if ($this->isDemoMode() && empty($series['series']['emitidos_total'])) {
+                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+
+                    if ((float) ($kpis['total'] ?? 0) <= 0) {
+                        $kpis = $demoKpis;
+                    }
+
+                    $series     = $demoSeries;
+                    $dataSource = 'demo';
+                }
+            } catch (\Throwable $e) {
+                Log::error('cliente.home.index_failed', [
+                    'message' => $e->getMessage(),
+                    'user_id' => $this->authUserId(),
+                ]);
+
+                if ($this->isDemoMode()) {
+                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+                    $kpis       = $demoKpis;
+                    $series     = $demoSeries;
+                    $dataSource = 'demo';
+                }
+            }
+        } elseif ($this->isDemoMode()) {
+            [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
+            $kpis       = $demoKpis;
+            $series     = $demoSeries;
+            $dataSource = 'demo';
+        }
+
+        $summary = $this->buildAccountSummary();
+
+        // ==========================================================
+        // Autocorrección inmediata del nombre del owner en espejo
+        // para que deje de mostrar "Owner 27" en el header/layout.
+        // ==========================================================
+        try {
+            $displayName = trim((string) ($summary['razon'] ?? ''));
+            $user = $this->authUser();
+
+            if ($displayName !== '' && $user && !empty($user->id)) {
+                $currentName = trim((string) ($user->nombre ?? $user->name ?? ''));
+
+                $looksGenericOwner = $currentName === ''
+                    || (bool) preg_match('/^owner\s+\d+$/i', $currentName);
+
+                if ($looksGenericOwner) {
+                    \Illuminate\Support\Facades\DB::connection('mysql_clientes')
+                        ->table('usuarios_cuenta')
+                        ->where('id', (string) $user->id)
+                        ->update([
+                            'nombre'     => $displayName,
+                            'updated_at' => now(),
+                        ]);
+
+                    if (property_exists($user, 'nombre')) {
+                        $user->nombre = $displayName;
+                    }
+                    if (property_exists($user, 'name')) {
+                        $user->name = $displayName;
+                    }
+                }
             }
         } catch (\Throwable $e) {
-            Log::error('cliente.home.index_failed', [
+            \Illuminate\Support\Facades\Log::warning('cliente.home.owner_name_autofix_failed', [
                 'message' => $e->getMessage(),
                 'user_id' => $this->authUserId(),
             ]);
+        }
 
-            if ($this->isDemoMode()) {
-                [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-                $kpis       = $demoKpis;
-                $series     = $demoSeries;
-                $dataSource = 'demo';
+        $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? ''));
+        $isPro = array_key_exists('is_pro', $summary)
+            ? (bool) $summary['is_pro']
+            : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
+
+        if ($isPro) {
+            $plan = 'PRO';
+        } else {
+            $plan = strtoupper((string) ($summary['plan'] ?? 'FREE'));
+            if ($plan === '') {
+                $plan = 'FREE';
             }
         }
-    } elseif ($this->isDemoMode()) {
-        [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-        $kpis       = $demoKpis;
-        $series     = $demoSeries;
-        $dataSource = 'demo';
-    }
 
-    $summary = $this->buildAccountSummary();
+        $planKey = strtolower((string) $plan);
 
-    // ==========================================================
-    // Autocorrección inmediata del nombre del owner en espejo
-    // para que deje de mostrar "Owner 27" en el header/layout.
-    // ==========================================================
-    try {
-        $displayName = trim((string) ($summary['razon'] ?? ''));
-        $user = $this->authUser();
+        $mes  = (int) Carbon::parse($from)->format('m');
+        $anio = (int) Carbon::parse($from)->format('Y');
 
-        if ($displayName !== '' && $user && !empty($user->id)) {
-            $currentName = trim((string) ($user->nombre ?? $user->name ?? ''));
+        return view('cliente.home', [
+            'period_from' => $from,
+            'period_to'   => $to,
 
-            $looksGenericOwner = $currentName === ''
-                || (bool) preg_match('/^owner\s+\d+$/i', $currentName);
+            'kpis'        => $kpis,
+            'series'      => $series,
 
-            if ($looksGenericOwner) {
-                \Illuminate\Support\Facades\DB::connection('mysql_clientes')
-                    ->table('usuarios_cuenta')
-                    ->where('id', (string) $user->id)
-                    ->update([
-                        'nombre'     => $displayName,
-                        'updated_at' => now(),
-                    ]);
+            'cfdis'       => $cfdis,
+            'cfdi'        => $current,
+            'recent'      => $recent ?? collect(),
 
-                if (property_exists($user, 'nombre')) {
-                    $user->nombre = $displayName;
-                }
-                if (property_exists($user, 'name')) {
-                    $user->name = $displayName;
-                }
-            }
-        }
-    } catch (\Throwable $e) {
-        \Illuminate\Support\Facades\Log::warning('cliente.home.owner_name_autofix_failed', [
-            'message' => $e->getMessage(),
-            'user_id' => $this->authUserId(),
+            'summary'     => array_merge($summary, [
+                // compatibilidad directa con home.blade.php actual
+                'cycle'   => (string) ($summary['billing_cycle'] ?? $summary['cycle'] ?? ''),
+                'estado'  => (string) ($summary['billing_status'] ?? $summary['estado'] ?? ''),
+                'blocked' => (bool) ($summary['is_blocked'] ?? $summary['blocked'] ?? false),
+            ]),
+
+            // ✅ variables directas que el blade sí intenta usar primero
+            'razon'       => (string) ($summary['razon'] ?? 'Cliente'),
+            'timbres'     => (int) ($summary['timbres'] ?? 0),
+            'saldo'       => (float) ($summary['balance'] ?? 0),
+
+            'plan'        => $plan,
+            'planKey'     => $planKey,
+            'isPro'       => $isPro,
+
+            // ✅ necesarias para la parte visual del blade
+            'dataSource'  => $dataSource ?? 'db',
+            'isLocal'     => app()->environment(['local', 'development', 'testing']),
+
+            'filters'     => [
+                'q'      => trim((string) $request->input('q', '')),
+                'status' => trim((string) $request->input('status', '')),
+                'month'  => trim((string) $request->input('month', '')),
+                'mes'    => $mes,
+                'anio'   => $anio,
+            ],
         ]);
     }
-
-    $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? ''));
-    $isPro = array_key_exists('is_pro', $summary)
-        ? (bool) $summary['is_pro']
-        : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
-
-    if ($isPro) {
-        $plan = 'PRO';
-    } else {
-        $plan = strtoupper((string) ($summary['plan'] ?? 'FREE'));
-        if ($plan === '') {
-            $plan = 'FREE';
-        }
-    }
-
-    $planKey = strtolower((string) $plan);
-
-    $mes  = (int) Carbon::parse($from)->format('m');
-    $anio = (int) Carbon::parse($from)->format('Y');
-
-    return view('cliente.home', [
-        'period_from' => $from,
-        'period_to'   => $to,
-
-        'kpis'        => $kpis,
-        'series'      => $series,
-
-        'cfdis'       => $cfdis,
-        'cfdi'        => $current,
-        'recent'      => $recent,
-
-        'summary'     => $summary,
-        'razon'       => (string) ($summary['razon'] ?? 'Cliente'),
-        'timbres'     => (int) ($summary['timbres'] ?? 0),
-        'saldo'       => (float) ($summary['balance'] ?? 0),
-
-        'plan'        => $plan,
-        'planKey'     => $planKey,
-        'isPro'       => $isPro,
-
-        'dataSource'  => $dataSource,
-        'isLocal'     => app()->environment(['local', 'development', 'testing']),
-
-        'filters'     => [
-            'q'      => trim((string) $request->input('q', '')),
-            'status' => trim((string) $request->input('status', '')),
-            'month'  => trim((string) $request->input('month', '')),
-            'mes'    => $mes,
-            'anio'   => $anio,
-        ],
-    ]);
-}
 
     /**
      * KPIs (JSON). Devuelve 'source' y 'row_count'.
