@@ -253,154 +253,143 @@
   </section>
 
   <section class="p360-clean-strip">
-    <article>
-      <span>CFDI emitidos</span>
-      <strong id="kpi-em">${{ number_format($kEmit, 2) }}</strong>
-    </article>
-
-    <article>
-      <span>Total mensual</span>
-      <strong id="kpi-to">${{ number_format($kTotal, 2) }}</strong>
-    </article>
-
-    <article>
-      <span>Cancelados</span>
-      <strong id="kpi-ca">${{ number_format($kCanc, 2) }}</strong>
-    </article>
-
-    <article>
-      <span>Timbres</span>
-      <strong>{{ number_format($timbresV) }}</strong>
-    </article>
-
-    <article>
-      <span>Bóveda</span>
-      <strong>{{ $spaceTotal > 0 ? number_format($spacePct, 1) . '%' : 'Lista' }}</strong>
-    </article>
+    <article><span>CFDI Emitidos</span><strong id="kpi-em">${{ number_format($kEmit, 2) }}</strong><small>Este mes</small></article>
+    <article><span>Total Mensual</span><strong id="kpi-to">${{ number_format($kTotal, 2) }}</strong><small>Este mes</small></article>
+    <article><span>Cancelados</span><strong id="kpi-ca">${{ number_format($kCanc, 2) }}</strong><small>Este mes</small></article>
+    <article><span>Timbres Disponibles</span><strong>{{ number_format($timbresV) }}</strong><small>Disponibles</small></article>
+    <article><span>Bóveda</span><strong>{{ $spaceTotal > 0 ? number_format($spacePct, 0) . '%' : 'Lista' }}</strong><small>{{ $spaceTotal > 0 ? number_format($spaceUsed, 1) . ' / ' . number_format($spaceTotal, 1) . ' MB' : 'Activa' }}</small></article>
   </section>
 
-  <section class="p360-clean-panel">
-    <div class="p360-clean-head">
-      <div>
-        <span>Aplicaciones</span>
-        <h2>Accesos principales</h2>
-      </div>
-      <small>{{ $periodLabel }}</small>
-    </div>
+  <section class="p360-dashboard-grid">
 
-    <div class="p360-app-grid">
-      @foreach($mainApps as $app)
-        <a href="{{ $app['href'] }}" class="p360-app-card p360-app-card--{{ $app['accent'] }}">
-          <div class="p360-app-card__icon">{{ $app['icon'] }}</div>
-          <div class="p360-app-card__body">
-            <strong>{{ $app['title'] }}</strong>
-            <p>{{ $app['desc'] }}</p>
+    <div class="p360-dashboard-main">
+      <section class="p360-clean-panel">
+        <div class="p360-clean-head">
+          <div>
+            <span>Mis módulos</span>
+            <h2>Accesos principales</h2>
           </div>
-          <div class="p360-app-card__go">→</div>
-        </a>
-      @endforeach
-    </div>
-  </section>
-
-  <section class="p360-clean-row">
-    <div class="p360-clean-panel p360-clean-panel--wide">
-      <div class="p360-clean-head">
-        <div>
-          <span>Acciones</span>
-          <h2>Trabajo rápido</h2>
         </div>
-      </div>
 
-      <div class="p360-action-grid">
-        @foreach($quickActions as $action)
-          <a href="{{ $action['href'] }}" class="p360-action-pill">
-            <span>{{ $action['icon'] }}</span>
-            <strong>{{ $action['title'] }}</strong>
-          </a>
-        @endforeach
-      </div>
-    </div>
-
-    <div class="p360-clean-panel">
-      <div class="p360-clean-head">
-        <div>
-          <span>Estado</span>
-          <h2>Hoy</h2>
+        <div class="p360-app-grid">
+          @foreach($mainApps as $app)
+            <a href="{{ $app['href'] }}" class="p360-app-card p360-app-card--{{ $app['accent'] }}">
+              <div class="p360-app-card__icon">{{ $app['icon'] }}</div>
+              <div class="p360-app-card__body">
+                <strong>{{ $app['title'] }}</strong>
+                <p>{{ $app['desc'] }}</p>
+              </div>
+              <div class="p360-app-card__go">›</div>
+            </a>
+          @endforeach
         </div>
-      </div>
+      </section>
 
-      <div class="p360-status-list">
-        @foreach($alerts as $alert)
-          <a href="{{ $alert['href'] }}" class="p360-status-item p360-status-item--{{ $alert['level'] }}">
-            <span>{{ $alert['icon'] }}</span>
-            <strong>{{ $alert['title'] }}</strong>
-          </a>
-        @endforeach
-
-        <div class="p360-status-item">
-          <span>🔄</span>
-          <strong>{{ $isLocal && $dataSource === 'db' ? 'Datos reales' : 'Sincronizado' }}</strong>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="p360-clean-row p360-clean-row--charts">
-    <div class="p360-clean-panel">
-      <div class="p360-clean-head">
-        <div>
-          <span>Analítica</span>
-          <h2>Facturación</h2>
-        </div>
-      </div>
-      <div id="chart-lines" class="p360-chart-clean" aria-label="Facturación del mes"></div>
-    </div>
-
-    <div class="p360-clean-panel">
-      <div class="p360-clean-head">
-        <div>
-          <span>Comparativo</span>
-          <h2>Semanal</h2>
-        </div>
-      </div>
-      <div id="chart-bars" class="p360-chart-clean" aria-label="Resumen semanal"></div>
-    </div>
-  </section>
-
-  <section class="p360-clean-panel">
-    <div class="p360-clean-head">
-      <div>
-        <span>Actividad</span>
-        <h2>Movimientos recientes</h2>
-      </div>
-    </div>
-
-    @if($recentRows->count() > 0)
-      <div class="p360-feed">
-        @foreach($recentRows->take(6) as $r)
-          @php
-            $uuid = (string) ($r->uuid ?? '—');
-            $uuidShort = $uuid !== '—' ? (substr($uuid, 0, 8) . '…' . substr($uuid, -6)) : '—';
-            $st = strtoupper((string) ($r->estatus ?? 'N/D'));
-            $dt = !empty($r->fecha) ? Carbon::parse($r->fecha)->format('d/m/Y') : '—';
-          @endphp
-
-          <div class="p360-feed-item">
-            <span class="p360-feed-icon">📄</span>
+      <section class="p360-clean-row p360-clean-row--charts">
+        <div class="p360-clean-panel">
+          <div class="p360-clean-head">
             <div>
-              <strong>{{ $uuidShort }}</strong>
-              <small>{{ $dt }} · ${{ number_format((float) ($r->total ?? 0), 2) }}</small>
+              <span>Facturación del mes</span>
+              <h2>Facturación</h2>
             </div>
-            <em>{{ $st }}</em>
           </div>
-        @endforeach
-      </div>
-    @else
-      <div class="p360-empty-clean">
-        <span>✨</span>
-        <strong>Tu actividad aparecerá aquí</strong>
-      </div>
-    @endif
+          <div id="chart-lines" class="p360-chart-clean"></div>
+        </div>
+
+        <div class="p360-clean-panel">
+          <div class="p360-clean-head">
+            <div>
+              <span>Comparativo semanal</span>
+              <h2>Semanal</h2>
+            </div>
+          </div>
+          <div id="chart-bars" class="p360-chart-clean"></div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="p360-dashboard-side">
+      <section class="p360-clean-panel">
+        <div class="p360-clean-head">
+          <div>
+            <span>Acciones rápidas</span>
+            <h2>Acciones</h2>
+          </div>
+        </div>
+
+        <div class="p360-side-actions">
+          @foreach($quickActions as $action)
+            <a href="{{ $action['href'] }}" class="p360-side-action">
+              <span>{{ $action['icon'] }}</span>
+              <strong>{{ $action['title'] }}</strong>
+              <em>›</em>
+            </a>
+          @endforeach
+        </div>
+      </section>
+
+      <section class="p360-clean-panel">
+        <div class="p360-clean-head">
+          <div>
+            <span>Estado actual</span>
+            <h2>Hoy</h2>
+          </div>
+        </div>
+
+        <div class="p360-status-list">
+          @foreach($alerts as $alert)
+            <a href="{{ $alert['href'] }}" class="p360-status-item p360-status-item--{{ $alert['level'] }}">
+              <span>{{ $alert['icon'] }}</span>
+              <strong>{{ $alert['title'] }}</strong>
+              <em>›</em>
+            </a>
+          @endforeach
+
+          <div class="p360-status-item">
+            <span>🔄</span>
+            <strong>{{ $isLocal && $dataSource === 'db' ? 'Sistema actualizado' : 'Sincronización activa' }}</strong>
+            <em>›</em>
+          </div>
+        </div>
+      </section>
+
+      <section class="p360-clean-panel">
+        <div class="p360-clean-head">
+          <div>
+            <span>Actividad reciente</span>
+            <h2>Movimientos</h2>
+          </div>
+        </div>
+
+        @if($recentRows->count() > 0)
+          <div class="p360-feed">
+            @foreach($recentRows->take(3) as $r)
+              @php
+                $uuid = (string) ($r->uuid ?? '—');
+                $uuidShort = $uuid !== '—' ? (substr($uuid, 0, 8) . '…' . substr($uuid, -6)) : '—';
+                $st = strtoupper((string) ($r->estatus ?? 'N/D'));
+                $dt = !empty($r->fecha) ? Carbon::parse($r->fecha)->format('d/m/Y') : '—';
+              @endphp
+
+              <div class="p360-feed-item">
+                <span class="p360-feed-icon">📄</span>
+                <div>
+                  <strong>{{ $uuidShort }}</strong>
+                  <small>{{ $dt }} · ${{ number_format((float) ($r->total ?? 0), 2) }}</small>
+                </div>
+                <em>{{ $st }}</em>
+              </div>
+            @endforeach
+          </div>
+        @else
+          <div class="p360-empty-clean">
+            <span>✨</span>
+            <strong>Tu actividad aparecerá aquí</strong>
+          </div>
+        @endif
+      </section>
+    </aside>
+
   </section>
 
 </div>
