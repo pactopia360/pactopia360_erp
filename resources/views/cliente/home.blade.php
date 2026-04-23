@@ -10,12 +10,22 @@
   }
 
   $planBase = $plan ?? 'FREE';
-  $plan     = $summaryPlan ?? strtoupper((string)$planBase);
-  $planKey  = strtolower((string)($planKey ?? $plan));
+  $plan     = $summaryPlan ?? strtoupper((string) $planBase);
+  $planKey  = strtolower((string) ($planKey ?? $plan));
 
-  $razonV   = (string)($razon ?? (auth('web')->user()->nombre ?? auth('web')->user()->email ?? 'Cliente'));
-  $timbresV = (int)($timbres ?? 0);
-  $saldoV   = (float)($saldo ?? 0.0);
+  $viewUser = auth()->user() ?? auth('cliente')->user() ?? auth('web')->user();
+
+  $razonV = (string) (
+      $razon
+      ?? ($summary['razon'] ?? null)
+      ?? ($summary['razon_social'] ?? null)
+      ?? ($viewUser->nombre ?? null)
+      ?? ($viewUser->name ?? null)
+      ?? ($viewUser->email ?? 'Cliente')
+  );
+
+  $timbresV = (int) ($timbres ?? 0);
+  $saldoV   = (float) ($saldo ?? 0.0);
 
   $kEmit    = (float)($kpis['emitidos']   ?? 0);
   $kCanc    = (float)($kpis['cancelados'] ?? 0);
@@ -594,11 +604,13 @@
         const k = await safeJson(kpiRes);
         const s = await safeJson(serieRes);
 
-        setText('kpi-em', money(k.emitidos||0));
-        setText('kpi-ca', money(k.cancelados||0));
-        setText('kpi-to', money(k.total||0));
+        const kpisData = k.kpis || k;
 
-        const delta = Number(k.delta||0);
+        setText('kpi-em', money(kpisData.emitidos || 0));
+        setText('kpi-ca', money(kpisData.cancelados || 0));
+        setText('kpi-to', money(kpisData.total || 0));
+
+        const delta = Number(kpisData.delta || 0);
         const deltaEl = document.getElementById('kpi-delta');
         if (deltaEl){
           deltaEl.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(2) + '%';
