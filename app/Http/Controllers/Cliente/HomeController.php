@@ -70,162 +70,86 @@ class HomeController extends Controller
      */
     public function index(Request $request): View
     {
-        $user   = $this->authUser();
-        $cuenta = $user?->cuenta;
+        [$from, $to] = $this->resolvePeriod($request);
+        $base = $this->cfdiBaseQuery($request);
 
-        if (is_array($cuenta)) {
-            $cuenta = (object)$cuenta;
+        $q = $this->applyFilters(
+            (clone $base)->whereBetween('fecha', [$from, $to]),
+            $request
+        )->with([
+            'cliente:id,razon_social,nombre_comercial,rfc',
+            'conceptos:id,cfdi_id,descripcion',
+        ]);
+
+        $perPage = (int) $request->integer('per_page', 15);
+        $cfdis = $q->orderByDesc('fecha')
+            ->paginate($perPage, ['id','uuid','serie','folio','subtotal','iva','total','fecha','estatus','cliente_id'])
+            ->withQueryString();
+
+        // CFDI actual (stub si no hay)
+        $current = $cfdis->getCollection()->first();
+        if (!$current) {
+            $current = (object)[
+                'id' => null,
+                'uuid' => null,
+                'serie' => null,
+                'folio' => null,
+                'subtotal' => 0,
+                'iva' => 0,
+                'total' => 0,
+                'fecha' => null,
+                'estatus' => null,
+                'cliente_id' => null,
+            ];
         }
 
-        // ==========================================================
-        // SOT ADMIN EN VIVO
-        // El home ya no debe depender de plan_actual local como fuente principal.
-        // Primero cargamos valores seguros mínimos, y luego los sobreescribimos
-        // con el summary gobernado por Admin.
-        // ==========================================================
-        $plan    = strtoupper((string) ($cuenta->plan_actual ?? 'FREE'));
-        $planKey = strtolower($plan);
-        $timbres = (int) ($cuenta->timbres_disponibles ?? ($plan === 'FREE' ? 10 : 0));
-        $saldo   = (float) ($cuenta->saldo_mxn ?? 0.0);
-        $razon   = $cuenta->razon_social
-                 ?? $cuenta->nombre_fiscal
-                 ?? ($user->nombre ?? $user->email ?? '—');
+        $kpis   = $this->calcKpis($request, $from, $to);
+        $series = $this->buildSeries($request, $from, $to);
 
-        $isLocal = app()->environment(['local','development','testing']);
-
-        // Período: mes corriente
-        [$from, $to] = $this->resolveMonthRange(null);
-
-        // ===== Defaults REALES (cero) =====
-        $recent     = collect();
-        $kpis       = [
-            'total'      => 0.0,
-            'emitidos'   => 0.0,
-            'cancelados' => 0.0,
-            'delta'      => 0.0,
-            'period'     => ['from' => $from, 'to' => $to],
-        ];
-        $series     = [
-            'labels' => [],
-            'series' => [
-                'emitidos_total'   => [],
-                'line_facturacion' => [],
-                'line_cancelados'  => [],
-                'bar_q'            => [0, 0, 0, 0],
-            ],
-        ];
-
-        // Importante: DEMO ya NO es automático.
-        $usedDemo = false;
-
-        if ($this->canQueryCfdi()) {
-            try {
-                $base = Cfdi::on('mysql_clientes');
-
-                if ($cuenta && $this->schemaHasCol('clientes', 'cuenta_id')) {
-                    $clienteIds = DB::connection('mysql_clientes')
-                        ->table('clientes')
-                        ->where('cuenta_id', $cuenta->id)
-                        ->pluck('id')
-                        ->all();
-                    $base->whereIn('cliente_id', empty($clienteIds) ? [-1] : $clienteIds);
-                }
-
-                // Últimos CFDI
-                $recent = (clone $base)
-                    ->orderByDesc('fecha')
-                    ->limit(8)
-                    ->get(['id', 'uuid', 'serie', 'folio', 'total', 'fecha', 'estatus', 'cliente_id']);
-
-                // KPIs + series reales
-                $kpis   = $this->calcKpisFor(clone $base, $from, $to);
-                $series = $this->buildSeriesFor(clone $base, $from, $to);
-
-                // DEMO solo si está explícitamente habilitado
-                $hasRealSeries = !empty($series['series']['emitidos_total']);
-                if ($this->isDemoMode() && !$hasRealSeries) {
-                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-                    $kpis     = ($kpis['total'] > 0) ? $kpis : $demoKpis;
-                    $series   = $demoSeries;
-                    $usedDemo = true;
-                }
-            } catch (\Throwable $e) {
-                // No reventar el home por temas de BD
-                if ($this->isDemoMode()) {
-                    [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-                    $kpis     = $demoKpis;
-                    $series   = $demoSeries;
-                    $recent   = collect();
-                    $usedDemo = true;
-                }
-            }
-        } else {
-            // Sin tabla cfdis: cero real. (DEMO solo si está explícitamente habilitado)
-            if ($this->isDemoMode()) {
-                [$demoKpis, $demoSeries] = $this->buildDemoData($from, $to);
-                $kpis     = $demoKpis;
-                $series   = $demoSeries;
-                $recent   = collect();
-                $usedDemo = true;
-            }
-        }
+        $mes  = (int) Carbon::parse($from)->format('m');
+        $anio = (int) Carbon::parse($from)->format('Y');
 
         // ==========================================================
-        // Summary EN VIVO (sin cache) para que Admin gobierne el portal cliente
-        // inmediatamente en pruebas y operación.
+        // SOT ADMIN EN VIVO: usar exactamente la misma lógica del Home
+        // para evitar inconsistencias FREE / PRO entre módulos.
         // ==========================================================
-        $summary = $this->buildAccountSummary();
+        $summary = app(HomeController::class)->buildAccountSummary();
 
-        // Plan / ciclo / estado gobernados por Admin
-        // Preferimos plan_norm y is_pro para evitar inconsistencias FREE/PRO en UI.
         $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? ''));
-        $summaryIsPro    = array_key_exists('is_pro', $summary)
+        $isPro = array_key_exists('is_pro', $summary)
             ? (bool) $summary['is_pro']
             : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
 
-        if ($summaryIsPro) {
+        if ($isPro) {
             $plan = 'PRO';
         } else {
-            $summaryPlan = strtoupper((string)($summary['plan'] ?? $plan));
-            $plan = $summaryPlan !== '' ? $summaryPlan : $plan;
+            $plan = strtoupper((string) ($summary['plan'] ?? 'FREE'));
+            if ($plan === '') {
+                $plan = 'FREE';
+            }
         }
 
-        $planKey = strtolower((string)$plan);
+        $planKey = strtolower((string) $plan);
 
-        // Timbres: si summary los trae, tienen prioridad
-        if (array_key_exists('timbres', $summary) && is_numeric($summary['timbres'])) {
-            $timbres = (int) $summary['timbres'];
-        }
-
-        // Saldo / balance: si summary lo trae, tiene prioridad
-        if (array_key_exists('balance_mxn', $summary) && is_numeric($summary['balance_mxn'])) {
-            $saldo = (float) $summary['balance_mxn'];
-        } elseif (array_key_exists('balance', $summary) && is_numeric($summary['balance'])) {
-            $saldo = (float) $summary['balance'];
-        }
-
-        // Razón social / nombre visible: priorizar summary si existe
-        if (!empty($summary['razon_social'])) {
-            $razon = (string) $summary['razon_social'];
-        } elseif (!empty($summary['name'])) {
-            $razon = (string) $summary['name'];
-        }
-
-        $dataSource = $usedDemo ? 'demo' : 'db';
-
-        return view('cliente.home', compact(
-            'plan',
-            'planKey',
-            'timbres',
-            'saldo',
-            'razon',
-            'recent',
-            'kpis',
-            'series',
-            'summary',
-            'dataSource',
-            'isLocal'
-        ));
+        return view('cliente.facturacion.index', [
+            'period_from' => $from,
+            'period_to'   => $to,
+            'kpis'        => $kpis,
+            'series'      => $series,
+            'cfdis'       => $cfdis,
+            'cfdi'        => $current,
+            'summary'     => $summary,
+            'plan'        => $plan,
+            'planKey'     => $planKey,
+            'isPro'       => $isPro,
+            'filters'     => [
+                'q'      => trim((string) $request->input('q', '')),
+                'status' => trim((string) $request->input('status', '')),
+                'month'  => trim((string) $request->input('month', '')),
+                'mes'    => $mes,
+                'anio'   => $anio,
+            ],
+        ]);
     }
 
     /**

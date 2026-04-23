@@ -4,26 +4,58 @@
   use Illuminate\Support\Facades\Auth;
 
   $title = trim($__env->yieldContent('title', 'P360 · Cliente'));
-  $theme = session('client_ui.theme','light'); // 'light' | 'dark'
+  $theme = session('client_ui.theme', 'light'); // 'light' | 'dark'
 
   // Usuario y cuenta espejo (mysql_clientes)
   $user   = Auth::guard('web')->user();
   $cuenta = $cuenta ?? ($user->cuenta ?? null);
 
-  // Si hay resumen de cuenta (HomeController::buildAccountSummary), úsalo para el plan/ciclo
-  $summaryPlan = null;
-  $summaryCycle = null;
-  if (isset($summary) && is_array($summary)) {
-      if (!empty($summary['plan'])) $summaryPlan = strtoupper((string) $summary['plan']);
-      if (!empty($summary['cycle'])) $summaryCycle = (string) $summary['cycle'];
+  // ==========================================================
+  // FUENTE GLOBAL DE PLAN / LICENCIA
+  // Prioridad:
+  // 1) summary compartido globalmente desde AppServiceProvider
+  // 2) datos espejo de cuenta cliente
+  // 3) fallback FREE
+  // ==========================================================
+  $sum = is_array($summary ?? null) ? $summary : [];
+
+  $summaryPlanNorm = strtolower((string) (
+      $sum['plan_norm']
+      ?? $sum['plan']
+      ?? ''
+  ));
+
+  $summaryIsPro = array_key_exists('is_pro', $sum)
+      ? (bool) $sum['is_pro']
+      : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
+
+  if ($summaryIsPro) {
+      $plan = 'PRO';
+      $planKey = 'pro';
+  } else {
+      $fallbackPlan = (string) (
+          $sum['plan']
+          ?? ($cuenta->plan_actual ?? $cuenta->plan ?? 'free')
+      );
+
+      $plan = strtoupper(trim($fallbackPlan)) !== ''
+          ? strtoupper(trim($fallbackPlan))
+          : 'FREE';
+
+      $planKey = strtolower((string) (
+          $sum['plan_norm']
+          ?? $fallbackPlan
+          ?? 'free'
+      ));
   }
 
-  // Plan: prioriza summary.plan, luego plan_actual, luego plan, luego FREE
-  $planRaw = $summaryPlan ?? ($cuenta->plan_actual ?? $cuenta->plan ?? 'FREE');
-  $plan    = strtoupper((string) $planRaw);
+  // Ciclo de facturación: priorizar summary, luego espejo cliente
+  $billingCycle = (string) (
+      $sum['cycle']
+      ?? ($cuenta->billing_cycle ?? $cuenta->modo_cobro ?? '')
+  );
 
-  // Ciclo de facturación (monthly/yearly) si existe
-  $billingCycle = $cuenta->billing_cycle ?? $summaryCycle ?? null;
+  $billingCycle = $billingCycle !== '' ? $billingCycle : null;
 
   $viteManifest = public_path('build/manifest.json');
   $hasViteBuild = File::exists($viteManifest);
@@ -39,7 +71,7 @@
   $headerJs      = asset('assets/client/js/header.js');
 @endphp
 <!DOCTYPE html>
-<html lang="es" class="theme-{{ $theme }}" data-theme="{{ $theme }}" data-plan="{{ strtolower($plan) }}">
+<html lang="es" class="theme-{{ $theme }}" data-theme="{{ $theme }}" data-plan="{{ $planKey }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
