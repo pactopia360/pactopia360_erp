@@ -289,6 +289,16 @@ final class MobileSatDashboardController extends Controller
                     'modules_active'  => (int) $activeModulesCount,
                     'modules_blocked' => (int) $blockedModulesCount,
                 ],
+
+                'home_insights' => $this->buildHomeInsightsForMobile(
+                    cotizaciones: $cotizaciones,
+                    unifiedDownloadItems: $unifiedDownloadItems,
+                    activeModulesCount: (int) $activeModulesCount,
+                    blockedModulesCount: (int) $blockedModulesCount,
+                    rfcCount: (int) $credList->count(),
+                    estadoCuenta: $estadoCuenta,
+                    isBlocked: $isBlocked,
+                ),
             ],
         ], 200);
     }
@@ -1170,4 +1180,134 @@ final class MobileSatDashboardController extends Controller
 
         return number_format($value, $power === 0 ? 0 : 2) . ' ' . $units[$power];
     }
+
+    private function buildHomeInsightsForMobile(
+    Collection $cotizaciones,
+    Collection $unifiedDownloadItems,
+    int $activeModulesCount,
+    int $blockedModulesCount,
+    int $rfcCount,
+    string $estadoCuenta,
+    bool $isBlocked
+): array {
+    $today = now()->startOfDay();
+
+    $quotesToday = $cotizaciones->filter(function (array $quote) use ($today) {
+        $date = $quote['updated_at'] ?? null;
+
+        if (!$date) {
+            return false;
+        }
+
+        try {
+            return Carbon::parse((string) $date)->isSameDay($today);
+        } catch (\Throwable) {
+            return false;
+        }
+    });
+
+    $amountToday = round((float) $quotesToday->sum(function (array $quote) {
+        return (float) ($quote['importe_estimado'] ?? 0);
+    }), 2);
+
+    $pendingQuotes = $cotizaciones->filter(function (array $quote) {
+        return in_array((string) ($quote['status'] ?? ''), [
+            'borrador',
+            'en_proceso',
+            'cotizada',
+            'en_revision_pago',
+        ], true);
+    })->count();
+
+    $completedQuotes = $cotizaciones->filter(function (array $quote) {
+        return in_array((string) ($quote['status'] ?? ''), [
+            'pagada',
+            'en_descarga',
+            'completada',
+        ], true);
+    })->count();
+
+    $weekSeries = collect(range(6, 0))->map(function (int $daysAgo) use ($cotizaciones) {
+        $day = now()->subDays($daysAgo)->startOfDay();
+
+        $rows = $cotizaciones->filter(function (array $quote) use ($day) {
+            $date = $quote['updated_at'] ?? null;
+
+            if (!$date) {
+                return false;
+            }
+
+            try {
+                return Carbon::parse((string) $date)->isSameDay($day);
+            } catch (\Throwable) {
+                return false;
+            }
+        });
+
+        return [
+            'label'  => $day->isoFormat('dd'),
+            'date'   => $day->toDateString(),
+            'count'  => (int) $rows->count(),
+            'amount' => round((float) $rows->sum(fn (array $quote) => (float) ($quote['importe_estimado'] ?? 0)), 2),
+        ];
+    })->values();
+
+    $statusChart = [
+        [
+            'key'   => 'pendientes',
+            'label' => 'Pendientes',
+            'value' => (int) $pendingQuotes,
+        ],
+        [
+            'key'   => 'completadas',
+            'label' => 'Completadas',
+            'value' => (int) $completedQuotes,
+        ],
+        [
+            'key'   => 'archivos',
+            'label' => 'Archivos',
+            'value' => (int) $unifiedDownloadItems->count(),
+        ],
+    ];
+
+    $primaryAction = [
+        'key'   => 'sat',
+        'label' => 'Revisar SAT',
+        'title' => 'Continuar operación SAT',
+        'text'  => 'Consulta cotizaciones, pagos y descargas en proceso.',
+    ];
+
+    if ($isBlocked || in_array($estadoCuenta, ['suspendida', 'bloqueada', 'bloqueada_pago', 'pago_pendiente'], true)) {
+        $primaryAction = [
+            'key'   => 'pay',
+            'label' => 'Regularizar cuenta',
+            'title' => 'Tu cuenta requiere atención',
+            'text'  => 'Revisa tu estado de cuenta para evitar interrupciones.',
+        ];
+    } elseif ($pendingQuotes > 0) {
+        $primaryAction = [
+            'key'   => 'sat',
+            'label' => 'Ver pendientes',
+            'title' => 'Tienes procesos SAT por revisar',
+            'text'  => 'Hay cotizaciones o pagos pendientes de seguimiento.',
+        ];
+    }
+
+    return [
+        'today' => [
+            'amount_mxn'       => $amountToday,
+            'amount_label'     => '$' . number_format($amountToday, 2) . ' MXN',
+            'quotes_count'     => (int) $quotesToday->count(),
+            'pending_quotes'   => (int) $pendingQuotes,
+            'completed_quotes' => (int) $completedQuotes,
+            'files_count'      => (int) $unifiedDownloadItems->count(),
+            'rfcs_count'       => $rfcCount,
+            'modules_active'   => $activeModulesCount,
+            'modules_blocked'  => $blockedModulesCount,
+        ],
+        'week_chart'     => $weekSeries,
+        'status_chart'   => $statusChart,
+        'primary_action' => $primaryAction,
+    ];
+}
 }

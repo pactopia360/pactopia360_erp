@@ -18,58 +18,253 @@ class PactopiaClienteApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seedColor = Color(0xFF0F172A);
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'PACTOPIA360 Cliente',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: seedColor,
-          brightness: Brightness.light,
+      theme: PactopiaTheme.light(),
+      home: const SplashGate(),
+    );
+  }
+}
+
+class PactopiaTheme {
+  PactopiaTheme._();
+
+  static const Color navy = Color(0xFF07111F);
+  static const Color navy2 = Color(0xFF0F2344);
+  static const Color blue = Color(0xFF2563EB);
+  static const Color cyan = Color(0xFF06B6D4);
+  static const Color purple = Color(0xFF7C3AED);
+  static const Color bg = Color(0xFFF3F7FB);
+  static const Color card = Color(0xFFFFFFFF);
+  static const Color border = Color(0xFFDDE7F3);
+  static const Color text = Color(0xFF102033);
+  static const Color muted = Color(0xFF64748B);
+
+  static ThemeData light() {
+    final base = ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      textTheme: GoogleFonts.interTextTheme(),
+    );
+
+    return base.copyWith(
+      scaffoldBackgroundColor: bg,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: blue,
+        brightness: Brightness.light,
+        primary: blue,
+        secondary: cyan,
+        tertiary: purple,
+        surface: card,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        foregroundColor: text,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: text,
+          fontSize: 18,
+          fontWeight: FontWeight.w900,
         ),
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        textTheme: GoogleFonts.interTextTheme(),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.2),
-          ),
+      ),
+      cardTheme: CardThemeData(
+        color: card,
+        elevation: 0,
+        shadowColor: const Color(0x2207111F),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: border),
         ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 16,
         ),
-        cardTheme: CardThemeData(
-          color: Colors.white,
+        labelStyle: const TextStyle(color: muted, fontWeight: FontWeight.w600),
+        prefixIconColor: navy2,
+        suffixIconColor: navy2,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: blue, width: 1.6),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: Color(0xFFDC2626)),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
           elevation: 0,
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFFE2E8F0),
+          disabledForegroundColor: const Color(0xFF94A3B8),
+          minimumSize: const Size.fromHeight(54),
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.1,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            side: const BorderSide(color: Color(0xFFE2E8F0)),
           ),
         ),
       ),
-      home: const SplashGate(),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: navy2,
+          side: const BorderSide(color: border),
+          minimumSize: const Size.fromHeight(52),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        backgroundColor: const Color(0xFFEAF2FF),
+        side: BorderSide.none,
+        labelStyle: const TextStyle(color: navy2, fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+    );
+  }
+}
+
+class PactopiaLogoMark extends StatelessWidget {
+  final double size;
+  final bool light;
+
+  const PactopiaLogoMark({super.key, this.size = 72, this.light = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2563EB), Color(0xFF06B6D4), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x442563EB),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -size * 0.18,
+            top: -size * 0.18,
+            child: Container(
+              width: size * 0.55,
+              height: size * 0.55,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Center(
+            child: Text(
+              'P360',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: size * 0.25,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PactopiaGradientButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final Widget icon;
+  final String label;
+
+  const PactopiaGradientButton({
+    super.key,
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onPressed == null;
+
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          height: 56,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: disabled
+                ? const LinearGradient(
+                    colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
+                  )
+                : const LinearGradient(
+                    colors: [
+                      Color(0xFF2563EB),
+                      Color(0xFF06B6D4),
+                      Color(0xFF7C3AED),
+                    ],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+            boxShadow: disabled
+                ? []
+                : const [
+                    BoxShadow(
+                      color: Color(0x332563EB),
+                      blurRadius: 22,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              icon,
+              const SizedBox(width: 10),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1089,11 +1284,7 @@ class _SplashGateState extends State<SplashGate> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.shield_rounded,
-                        size: 56,
-                        color: Color(0xFF0F172A),
-                      ),
+                      const PactopiaLogoMark(size: 76),
                       const SizedBox(height: 16),
                       Text(
                         'PACTOPIA360 Cliente',
@@ -1193,204 +1384,336 @@ class _LoginPageState extends State<LoginPage> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 960;
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF07111F), Color(0xFF0F2344), Color(0xFF123B7A)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 960;
 
-            return Row(
-              children: [
-                if (isWide)
-                  Expanded(
+              return Stack(
+                children: [
+                  Positioned(
+                    top: -90,
+                    right: -90,
                     child: Container(
-                      padding: const EdgeInsets.all(40),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFF0F172A),
-                            Color(0xFF1E293B),
-                            Color(0xFF334155),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Spacer(),
-                          const Icon(
-                            Icons.business_center_rounded,
-                            color: Colors.white,
-                            size: 74,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            'PACTOPIA360 Cliente',
-                            style: textTheme.displaySmall?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Acceso móvil para clientes, SAT, cotizaciones y seguimiento de descargas.',
-                            style: textTheme.titleMedium?.copyWith(
-                              color: const Color(0xFFE2E8F0),
-                              height: 1.45,
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          const _BenefitItem(
-                            icon: Icons.lock_outline_rounded,
-                            text: 'Autenticación segura con token',
-                          ),
-                          const _BenefitItem(
-                            icon: Icons.receipt_long_outlined,
-                            text: 'Cotizaciones SAT desde la app',
-                          ),
-                          const _BenefitItem(
-                            icon: Icons.cloud_done_outlined,
-                            text: 'Consulta rápida del dashboard móvil',
-                          ),
-                          const Spacer(),
-                        ],
+                      width: 230,
+                      height: 230,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF06B6D4).withOpacity(0.22),
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ),
-                Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 430),
-                        child: Card(
+                  Positioned(
+                    bottom: -110,
+                    left: -90,
+                    child: Container(
+                      width: 260,
+                      height: 260,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7C3AED).withOpacity(0.20),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      if (isWide)
+                        Expanded(
                           child: Padding(
+                            padding: const EdgeInsets.all(44),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const PactopiaLogoMark(size: 82, light: true),
+                                const Spacer(),
+                                Text(
+                                  'PACTOPIA360',
+                                  style: textTheme.displaySmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -1,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Tu ERP, facturación, SAT, clientes y operación en una sola plataforma.',
+                                  style: textTheme.titleMedium?.copyWith(
+                                    color: const Color(0xFFE2E8F0),
+                                    height: 1.45,
+                                  ),
+                                ),
+                                const SizedBox(height: 30),
+                                const _BenefitItem(
+                                  icon: Icons.verified_user_rounded,
+                                  text: 'Acceso seguro al portal cliente',
+                                ),
+                                const _BenefitItem(
+                                  icon: Icons.receipt_long_rounded,
+                                  text: 'Facturación y estado de cuenta',
+                                ),
+                                const _BenefitItem(
+                                  icon: Icons.cloud_done_rounded,
+                                  text:
+                                      'SAT, cotizaciones y módulos conectados',
+                                ),
+                                const Spacer(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Center(
+                          child: SingleChildScrollView(
                             padding: const EdgeInsets.all(24),
-                            child: Form(
-                              key: _formKey,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Text(
-                                    'Iniciar sesión',
-                                    style: textTheme.headlineSmall?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 430),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.96),
+                                  borderRadius: BorderRadius.circular(30),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.55),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _info,
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: const Color(0xFF64748B),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x33000000),
+                                      blurRadius: 34,
+                                      offset: Offset(0, 20),
                                     ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  TextFormField(
-                                    controller: _loginController,
-                                    textInputAction: TextInputAction.next,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Correo o RFC',
-                                      prefixIcon: Icon(
-                                        Icons.person_outline_rounded,
-                                      ),
-                                    ),
-                                    validator: (value) {
-                                      if ((value ?? '').trim().isEmpty) {
-                                        return 'Ingresa tu correo o RFC.';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _passwordController,
-                                    obscureText: _obscurePassword,
-                                    textInputAction: TextInputAction.done,
-                                    onFieldSubmitted: (_) =>
-                                        _loading ? null : _submit(),
-                                    decoration: InputDecoration(
-                                      labelText: 'Contraseña',
-                                      prefixIcon: const Icon(
-                                        Icons.lock_outline_rounded,
-                                      ),
-                                      suffixIcon: IconButton(
-                                        onPressed: () {
-                                          setState(() {
-                                            _obscurePassword =
-                                                !_obscurePassword;
-                                          });
-                                        },
-                                        icon: Icon(
-                                          _obscurePassword
-                                              ? Icons.visibility_off_outlined
-                                              : Icons.visibility_outlined,
+                                  ],
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(26),
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Center(
+                                          child: Column(
+                                            children: [
+                                              const PactopiaLogoMark(size: 76),
+                                              const SizedBox(height: 18),
+                                              Text(
+                                                'Bienvenido',
+                                                textAlign: TextAlign.center,
+                                                style: textTheme.headlineMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      color: PactopiaTheme.navy,
+                                                      letterSpacing: -0.6,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                'Inicia sesión en tu cuenta cliente',
+                                                textAlign: TextAlign.center,
+                                                style: textTheme.bodyMedium
+                                                    ?.copyWith(
+                                                      color:
+                                                          PactopiaTheme.muted,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                    validator: (value) {
-                                      if ((value ?? '').isEmpty) {
-                                        return 'Ingresa tu contraseña.';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-                                  if (_error.isNotEmpty)
-                                    Container(
-                                      padding: const EdgeInsets.all(14),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFEE2E2),
-                                        borderRadius: BorderRadius.circular(14),
-                                        border: Border.all(
-                                          color: const Color(0xFFFCA5A5),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        _error,
-                                        style: const TextStyle(
-                                          color: Color(0xFF991B1B),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  if (_error.isNotEmpty)
-                                    const SizedBox(height: 16),
-                                  ElevatedButton.icon(
-                                    onPressed: _loading ? null : _submit,
-                                    icon: _loading
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
+                                        const SizedBox(height: 26),
+                                        Container(
+                                          padding: const EdgeInsets.all(14),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFEAF2FF),
+                                            borderRadius: BorderRadius.circular(
+                                              18,
                                             ),
-                                          )
-                                        : const Icon(Icons.login_rounded),
-                                    label: Text(
-                                      _loading ? 'Entrando...' : 'Entrar',
+                                            border: Border.all(
+                                              color: const Color(0xFFCFE0FF),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.info_outline_rounded,
+                                                color: PactopiaTheme.blue,
+                                                size: 20,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  _info,
+                                                  style: textTheme.bodySmall
+                                                      ?.copyWith(
+                                                        color:
+                                                            PactopiaTheme.navy2,
+                                                        height: 1.35,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 22),
+                                        TextFormField(
+                                          controller: _loginController,
+                                          textInputAction: TextInputAction.next,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Correo o RFC',
+                                            prefixIcon: Icon(
+                                              Icons.person_outline_rounded,
+                                            ),
+                                          ),
+                                          validator: (value) {
+                                            if ((value ?? '').trim().isEmpty) {
+                                              return 'Ingresa tu correo o RFC.';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 14),
+                                        TextFormField(
+                                          controller: _passwordController,
+                                          obscureText: _obscurePassword,
+                                          textInputAction: TextInputAction.done,
+                                          onFieldSubmitted: (_) =>
+                                              _loading ? null : _submit(),
+                                          decoration: InputDecoration(
+                                            labelText: 'Contraseña',
+                                            prefixIcon: const Icon(
+                                              Icons.lock_outline_rounded,
+                                            ),
+                                            suffixIcon: IconButton(
+                                              onPressed: () {
+                                                setState(() {
+                                                  _obscurePassword =
+                                                      !_obscurePassword;
+                                                });
+                                              },
+                                              icon: Icon(
+                                                _obscurePassword
+                                                    ? Icons
+                                                          .visibility_off_outlined
+                                                    : Icons.visibility_outlined,
+                                              ),
+                                            ),
+                                          ),
+                                          validator: (value) {
+                                            if ((value ?? '').isEmpty) {
+                                              return 'Ingresa tu contraseña.';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 16),
+                                        if (_error.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.all(14),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFFE4E6),
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                              border: Border.all(
+                                                color: const Color(0xFFFECDD3),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.error_outline_rounded,
+                                                  color: Color(0xFFBE123C),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Text(
+                                                    _error,
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF9F1239),
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        if (_error.isNotEmpty)
+                                          const SizedBox(height: 16),
+                                        PactopiaGradientButton(
+                                          onPressed: _loading ? null : _submit,
+                                          icon: _loading
+                                              ? const SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.white,
+                                                      ),
+                                                )
+                                              : const Icon(
+                                                  Icons.login_rounded,
+                                                  color: Colors.white,
+                                                ),
+                                          label: _loading
+                                              ? 'Entrando...'
+                                              : 'Entrar',
+                                        ),
+                                        const SizedBox(height: 18),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF8FAFC),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0xFFE2E8F0),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'API: ${ApiConfig.baseUrl}',
+                                            textAlign: TextAlign.center,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: const Color(
+                                                    0xFF94A3B8,
+                                                  ),
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 14),
-                                  Text(
-                                    'Base URL API: ${ApiConfig.baseUrl}',
-                                    textAlign: TextAlign.center,
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: const Color(0xFF94A3B8),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1409,6 +1732,7 @@ class _DashboardPageState extends State<DashboardPage> {
   String _error = '';
   String _userName = '';
   String _userEmail = '';
+  int _tabIndex = 0;
   Map<String, dynamic> _dashboard = <String, dynamic>{};
 
   @override
@@ -1490,114 +1814,127 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     final body = _loading
-        ? const Center(child: CircularProgressIndicator())
+        ? const _MobileLoadingState()
         : _error.isNotEmpty
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.error_outline_rounded, size: 48),
-                  const SizedBox(height: 12),
-                  Text(_error, textAlign: TextAlign.center),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _load,
-                    child: const Text('Reintentar'),
-                  ),
-                ],
-              ),
-            ),
-          )
+        ? _MobileErrorState(error: _error, onRetry: _load)
         : _DashboardContent(
             userName: _userName,
             userEmail: _userEmail,
             dashboard: _dashboard,
+            selectedTab: _tabIndex,
+            onSelectTab: (index) => setState(() => _tabIndex = index),
             onRefresh: _load,
             onLogout: _logout,
             onOpenQuotes: _goToQuotes,
           );
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
+      backgroundColor: const Color(0xFFF3F7FB),
+      body: body,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        height: 72,
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFFEAF2FF),
         elevation: 0,
-        scrolledUnderElevation: 0,
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.dashboard_customize_rounded,
-                color: Colors.white,
-                size: 20,
-              ),
+        onDestinationSelected: (index) {
+          setState(() {
+            _tabIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
+            label: 'Inicio',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long_rounded),
+            label: 'Facturación',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.cloud_download_outlined),
+            selectedIcon: Icon(Icons.cloud_download_rounded),
+            label: 'SAT',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.apps_outlined),
+            selectedIcon: Icon(Icons.apps_rounded),
+            label: 'Módulos',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline_rounded),
+            selectedIcon: Icon(Icons.person_rounded),
+            label: 'Cuenta',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileLoadingState extends StatelessWidget {
+  const _MobileLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF3F7FB),
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+class _MobileErrorState extends StatelessWidget {
+  final String error;
+  final VoidCallback onRetry;
+
+  const _MobileErrorState({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: const Color(0xFFDDE7F3)),
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Text(
-                  'PACTOPIA360',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 52,
+                  color: Color(0xFFDC2626),
                 ),
+                const SizedBox(height: 14),
                 Text(
-                  'Cliente móvil',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11.5,
-                    color: Color(0xFF64748B),
+                  error,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF102033),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Reintentar'),
                   ),
                 ),
               ],
             ),
-          ],
-        ),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 6),
-            child: IconButton(
-              onPressed: _load,
-              tooltip: 'Actualizar',
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.86),
-                side: const BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            child: IconButton(
-              onPressed: _logout,
-              tooltip: 'Cerrar sesión',
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.86),
-                side: const BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-              icon: const Icon(Icons.logout_rounded),
-            ),
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9), Color(0xFFEFF6FF)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
           ),
         ),
-        child: SafeArea(top: false, child: body),
       ),
     );
   }
@@ -3648,6 +3985,8 @@ class _DashboardContent extends StatelessWidget {
   final String userName;
   final String userEmail;
   final Map<String, dynamic> dashboard;
+  final int selectedTab;
+  final ValueChanged<int> onSelectTab;
   final VoidCallback onRefresh;
   final VoidCallback onLogout;
   final void Function({String? initialRfc}) onOpenQuotes;
@@ -3656,6 +3995,8 @@ class _DashboardContent extends StatelessWidget {
     required this.userName,
     required this.userEmail,
     required this.dashboard,
+    required this.selectedTab,
+    required this.onSelectTab,
     required this.onRefresh,
     required this.onLogout,
     required this.onOpenQuotes,
@@ -3666,6 +4007,10 @@ class _DashboardContent extends StatelessWidget {
     final data = _map(dashboard['data']);
     final hero = _map(data['hero']);
     final health = _map(data['health']);
+    final account = _map(data['account']);
+    final totals = _map(data['totals']);
+    final vaultSummary = _map(data['vault_summary']);
+    final storageBreakdown = _map(data['storage_breakdown']);
 
     final quickActions = _list(
       data['quick_actions'],
@@ -3674,11 +4019,6 @@ class _DashboardContent extends StatelessWidget {
     final modules = _list(
       data['modules'],
     ).map((item) => _map(item)).toList(growable: false);
-
-    final account = _map(data['account']);
-    final totals = _map(data['totals']);
-    final vaultSummary = _map(data['vault_summary']);
-    final storageBreakdown = _map(data['storage_breakdown']);
 
     final rfcs = _list(
       data['rfcs'],
@@ -3695,6 +4035,19 @@ class _DashboardContent extends StatelessWidget {
     final downloadSources = _list(
       data['download_sources'],
     ).map((item) => _map(item)).toList(growable: false);
+
+    final heroTitle = (hero['title'] ?? '').toString().trim().isNotEmpty
+        ? (hero['title'] ?? '').toString().trim()
+        : (userName.trim().isNotEmpty ? userName.trim() : 'PACTOPIA360');
+
+    final heroPlan = (hero['plan'] ?? 'FREE').toString().trim().toUpperCase();
+    final heroStatus = (hero['status'] ?? 'activa').toString().trim();
+    final nextPayment = (hero['next_payment'] ?? '').toString().trim();
+
+    final healthStatus = (health['status'] ?? 'ok').toString().trim();
+    final healthMessage = (health['message'] ?? 'Cuenta operando correctamente')
+        .toString()
+        .trim();
 
     bool isModuleVisible(Map<String, dynamic> module) {
       final state = (module['state'] ?? 'active')
@@ -3717,57 +4070,26 @@ class _DashboardContent extends StatelessWidget {
       return true;
     }
 
-    const featuredKeys = {
-      'sat_descargas',
-      'facturacion',
-      'crm',
-      'inventario',
-      'ventas',
-      'reportes',
-      'recursos_humanos',
-      'timbres_hits',
-    };
-
     final visibleModules = modules
-        .where((m) => isModuleVisible(m))
+        .where(isModuleVisible)
         .toList(growable: false);
 
-    final featuredModules = visibleModules
-        .where((m) => featuredKeys.contains((m['key'] ?? '').toString()))
-        .toList(growable: false);
-
-    final otherModules = visibleModules
-        .where((m) => !featuredKeys.contains((m['key'] ?? '').toString()))
-        .toList(growable: false);
-
-    final heroTitle = (hero['title'] ?? '').toString().trim().isNotEmpty
-        ? (hero['title'] ?? '').toString().trim()
-        : (userName.trim().isNotEmpty ? userName.trim() : 'PACTOPIA360');
-
-    final heroSubtitle = (hero['subtitle'] ?? '').toString().trim();
-    final heroPlan = (hero['plan'] ?? 'FREE').toString().trim().toUpperCase();
-    final heroStatus = (hero['status'] ?? 'activa').toString().trim();
-    final nextPayment = (hero['next_payment'] ?? '').toString().trim();
-
-    final healthStatus = (health['status'] ?? 'ok').toString().trim();
-    final healthMessage = (health['message'] ?? 'Cuenta operando correctamente')
-        .toString()
-        .trim();
-
-    final activeModules = modules
+    final activeModules = visibleModules
         .where((m) => (m['state'] ?? 'active').toString() == 'active')
         .toList(growable: false);
 
-    final blockedModules = modules
+    final blockedModules = visibleModules
         .where((m) => (m['state'] ?? '').toString() == 'blocked')
         .length;
 
     final accountName = (account['nombre_comercial'] ?? '').toString().trim();
     final accountRfc = (account['rfc_padre'] ?? '').toString().trim();
-    final totalQuotesLabel = recentQuotes.length.toString();
+
     final totalRfcsLabel = rfcs.length.toString();
+    final totalQuotesLabel = recentQuotes.length.toString();
     final recentFilesLabel = recentFiles.length.toString();
     final downloadSourcesLabel = downloadSources.length.toString();
+
     final vaultUsedLabel =
         (vaultSummary['used_human'] ??
                 vaultSummary['used_label'] ??
@@ -3775,6 +4097,7 @@ class _DashboardContent extends StatelessWidget {
                 storageBreakdown['used_label'] ??
                 'N/D')
             .toString();
+
     final vaultAvailableLabel =
         (vaultSummary['available_human'] ??
                 vaultSummary['available_label'] ??
@@ -3782,324 +4105,79 @@ class _DashboardContent extends StatelessWidget {
                 storageBreakdown['available_label'] ??
                 'N/D')
             .toString();
+
     final totalXmlLabel =
         (totals['xml_count'] ?? totals['xmls'] ?? totals['total_xml'] ?? '0')
             .toString();
 
-    return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-        children: [
-          _MobileHeroCard(
-            title: heroTitle,
-            subtitle: heroSubtitle,
-            email: userEmail,
-            plan: heroPlan,
-            status: heroStatus,
-            nextPayment: nextPayment,
-            activeModules: activeModules.length,
-            blockedModules: blockedModules,
-          ),
-          const SizedBox(height: 16),
-          _AccountHealthCard(status: healthStatus, message: healthMessage),
-          const SizedBox(height: 18),
+    final homeInsights = _map(data['home_insights']);
 
-          const _SectionTitle(
-            title: 'Resumen general',
-            subtitle: 'Tu operación principal y tus indicadores clave.',
-          ),
-          const SizedBox(height: 12),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: MediaQuery.of(context).size.width >= 900 ? 4 : 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.18,
-            children: [
-              _StatCard(
-                title: 'Módulos activos',
-                value: '${activeModules.length}',
-                icon: Icons.apps_rounded,
-              ),
-              _StatCard(
-                title: 'Bloqueados',
-                value: '$blockedModules',
-                icon: Icons.lock_outline_rounded,
-              ),
-              _StatCard(
-                title: 'RFCs',
-                value: totalRfcsLabel,
-                icon: Icons.badge_rounded,
-              ),
-              _StatCard(
-                title: 'Cotizaciones',
-                value: totalQuotesLabel,
-                icon: Icons.receipt_long_rounded,
-              ),
-            ],
-          ),
+    final pages = [
+      _MobileHomeTab(
+        title: heroTitle,
+        email: userEmail,
+        plan: heroPlan,
+        status: heroStatus,
+        nextPayment: nextPayment,
+        healthStatus: healthStatus,
+        healthMessage: healthMessage,
+        activeModules: activeModules.length,
+        blockedModules: blockedModules,
+        rfcs: totalRfcsLabel,
+        quotes: totalQuotesLabel,
+        xml: totalXmlLabel,
+        files: recentFilesLabel,
+        quickActions: quickActions,
+        onRefresh: onRefresh,
+        onLogout: onLogout,
+        onOpenQuotes: onOpenQuotes,
+        onOpenAction: (key) => _handleQuickAction(context, key: key),
+        homeInsights: homeInsights,
+      ),
+      _MobileBillingHubTab(
+        plan: heroPlan,
+        status: heroStatus,
+        accountName: accountName,
+        accountRfc: accountRfc,
+        onOpenStatement: () => _openBillingStatement(context),
+        onOpenInvoices: () => _openInvoices(context),
+        onOpenProfile: () => _openProfile(context),
+      ),
+      _MobileSatHubTab(
+        quotes: totalQuotesLabel,
+        rfcs: totalRfcsLabel,
+        sources: downloadSourcesLabel,
+        xml: totalXmlLabel,
+        files: recentFilesLabel,
+        vaultUsed: vaultUsedLabel,
+        vaultAvailable: vaultAvailableLabel,
+        onOpenQuotes: onOpenQuotes,
+      ),
+      _MobileModulesTab(
+        modules: visibleModules,
+        onOpenModule: (module) => _handleModuleTap(context, module: module),
+      ),
+      _MobileAccountTab(
+        title: heroTitle,
+        email: userEmail,
+        plan: heroPlan,
+        status: heroStatus,
+        nextPayment: nextPayment,
+        accountName: accountName,
+        accountRfc: accountRfc,
+        onRefresh: onRefresh,
+        onLogout: onLogout,
+        onOpenProfile: () => _openProfile(context),
+        onOpenPayments: () => _openPayments(context),
+        onOpenInvoices: () => _openInvoices(context),
+        onOpenStatement: () => _openBillingStatement(context),
+      ),
+    ];
 
-          const SizedBox(height: 18),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Visión general',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      if (accountName.isNotEmpty)
-                        _InfoChip(label: 'Cuenta', value: accountName),
-                      if (accountRfc.isNotEmpty)
-                        _InfoChip(label: 'RFC principal', value: accountRfc),
-                      _InfoChip(
-                        label: 'Archivos recientes',
-                        value: recentFilesLabel,
-                      ),
-                      _InfoChip(
-                        label: 'Fuentes SAT',
-                        value: downloadSourcesLabel,
-                      ),
-                      _InfoChip(label: 'XML', value: totalXmlLabel),
-                      _InfoChip(label: 'Usado', value: vaultUsedLabel),
-                      _InfoChip(
-                        label: 'Disponible',
-                        value: vaultAvailableLabel,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 18),
-          const _SectionTitle(
-            title: 'Acciones rápidas',
-            subtitle: 'Lo más importante, al alcance de un toque.',
-          ),
-          const SizedBox(height: 12),
-          GridView.builder(
-            itemCount: quickActions.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: MediaQuery.of(context).size.width >= 900 ? 4 : 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.25,
-            ),
-            itemBuilder: (context, index) {
-              final action = quickActions[index];
-              return _QuickActionCard(
-                label: (action['label'] ?? 'Acción').toString(),
-                icon: _iconFromKey((action['icon'] ?? '').toString()),
-                onTap: () => _handleQuickAction(
-                  context,
-                  key: (action['key'] ?? '').toString(),
-                ),
-              );
-            },
-          ),
-
-          const SizedBox(height: 18),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.cloud_download_rounded,
-                          color: Color(0xFF1D4ED8),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'SAT Descargas',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w900),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Cotizaciones, pagos y seguimiento operativo.',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: const Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _InfoChip(label: 'Cotizaciones', value: totalQuotesLabel),
-                      _InfoChip(label: 'RFCs', value: totalRfcsLabel),
-                      _InfoChip(label: 'Fuentes', value: downloadSourcesLabel),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => onOpenQuotes(),
-                      icon: const Icon(Icons.arrow_forward_rounded),
-                      label: const Text('Entrar a SAT'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 18),
-          const _SectionTitle(
-            title: 'Módulos estrella',
-            subtitle:
-                'Las herramientas más potentes de tu ecosistema, primero.',
-          ),
-          const SizedBox(height: 12),
-          GridView.builder(
-            itemCount: featuredModules.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: MediaQuery.of(context).size.width >= 1100 ? 4 : 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.02,
-            ),
-            itemBuilder: (context, index) {
-              final module = featuredModules[index];
-              final state = (module['state'] ?? 'active').toString();
-              final access = module['access'] == true;
-              return _ModuleCard(
-                title: (module['name'] ?? 'Módulo').toString(),
-                icon: _iconFromKey((module['icon'] ?? '').toString()),
-                state: state,
-                enabled: access && state == 'active',
-                onTap: () => _handleModuleTap(context, module: module),
-              );
-            },
-          ),
-
-          const SizedBox(height: 18),
-          const _SectionTitle(
-            title: 'Todos los módulos',
-            subtitle: 'Explora todo lo que tu cuenta tiene disponible.',
-          ),
-          const SizedBox(height: 12),
-          GridView.builder(
-            itemCount: otherModules.length,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: MediaQuery.of(context).size.width >= 1100 ? 4 : 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.02,
-            ),
-            itemBuilder: (context, index) {
-              final module = otherModules[index];
-              final state = (module['state'] ?? 'active').toString();
-              final access = module['access'] == true;
-              return _ModuleCard(
-                title: (module['name'] ?? 'Módulo').toString(),
-                icon: _iconFromKey((module['icon'] ?? '').toString()),
-                state: state,
-                enabled: access && state == 'active',
-                onTap: () => _handleModuleTap(context, module: module),
-              );
-            },
-          ),
-
-          const SizedBox(height: 18),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Centro de control',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _InfoChip(label: 'Plan', value: heroPlan),
-                      _InfoChip(label: 'Estado', value: heroStatus),
-                      _InfoChip(
-                        label: 'Módulos activos',
-                        value: '${activeModules.length}',
-                      ),
-                      _InfoChip(label: 'Bloqueados', value: '$blockedModules'),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'PACTOPIA360 móvil ahora arranca como plataforma general. SAT queda integrado como módulo principal dentro del ecosistema.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF475569),
-                      height: 1.45,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: onRefresh,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Actualizar'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: onLogout,
-                          icon: const Icon(Icons.logout_rounded),
-                          label: const Text('Salir'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+    return SafeArea(
+      child: RefreshIndicator(
+        onRefresh: () async => onRefresh(),
+        child: pages[selectedTab],
       ),
     );
   }
@@ -4163,13 +4241,6 @@ class _DashboardContent extends StatelessWidget {
     if (normalizedState == 'inactive' || normalizedState == 'disabled') {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$title está inactivo por ahora.')),
-      );
-      return;
-    }
-
-    if (normalizedState == 'hidden') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$title no está visible para esta cuenta.')),
       );
       return;
     }
@@ -4304,16 +4375,6 @@ class _DashboardContent extends StatelessWidget {
     );
   }
 
-  void _showComingSoon(BuildContext context, String title) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$title aún está en ajuste, pero ya quedó integrado al flujo móvil.',
-        ),
-      ),
-    );
-  }
-
   void _showError(BuildContext context, String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
@@ -4334,51 +4395,28 @@ class _DashboardContent extends StatelessWidget {
   static IconData _iconFromKey(String key) {
     switch (key.trim().toLowerCase()) {
       case 'receipt':
+      case 'facturacion':
         return Icons.receipt_long_rounded;
       case 'cloud':
-        return Icons.cloud_done_rounded;
-      case 'storage':
-        return Icons.storage_rounded;
-      case 'people':
-        return Icons.groups_rounded;
-      case 'payments':
-        return Icons.payments_rounded;
-      case 'point_of_sale':
-        return Icons.point_of_sale_rounded;
-      case 'inventory':
-        return Icons.inventory_2_rounded;
-      case 'bar_chart':
-        return Icons.bar_chart_rounded;
-      case 'hub':
-        return Icons.hub_rounded;
-      case 'notifications':
-        return Icons.notifications_active_rounded;
-      case 'chat':
-        return Icons.chat_bubble_rounded;
-      case 'store':
-        return Icons.storefront_rounded;
-      case 'credit_card':
-        return Icons.credit_card_rounded;
-      case 'account_balance':
-        return Icons.account_balance_wallet_rounded;
-      case 'description':
-        return Icons.description_rounded;
-      case 'person':
-        return Icons.person_rounded;
-
       case 'sat':
       case 'sat_descargas':
         return Icons.cloud_download_rounded;
+      case 'storage':
       case 'boveda_fiscal':
         return Icons.folder_special_rounded;
-      case 'facturacion':
-        return Icons.receipt_long_rounded;
+      case 'people':
       case 'crm':
         return Icons.groups_rounded;
-      case 'inventario':
-        return Icons.inventory_2_rounded;
+      case 'payments':
+      case 'pagos':
+        return Icons.payments_rounded;
+      case 'point_of_sale':
       case 'ventas':
         return Icons.point_of_sale_rounded;
+      case 'inventory':
+      case 'inventario':
+        return Icons.inventory_2_rounded;
+      case 'bar_chart':
       case 'reportes':
         return Icons.bar_chart_rounded;
       case 'recursos_humanos':
@@ -4386,17 +4424,2100 @@ class _DashboardContent extends StatelessWidget {
       case 'timbres_hits':
         return Icons.local_activity_rounded;
       case 'mi_cuenta':
+      case 'person':
         return Icons.person_rounded;
-      case 'pagos':
-        return Icons.payments_rounded;
       case 'facturas':
+      case 'description':
         return Icons.description_rounded;
       case 'estado_cuenta':
+      case 'account_balance':
         return Icons.account_balance_wallet_rounded;
-
       default:
         return Icons.apps_rounded;
     }
+  }
+}
+
+class _TodayOverviewCard extends StatelessWidget {
+  final String title;
+  final String email;
+  final String plan;
+  final String status;
+  final String amount;
+  final String quotesToday;
+  final String pending;
+  final String completed;
+
+  const _TodayOverviewCard({
+    required this.title,
+    required this.email,
+    required this.plan,
+    required this.status,
+    required this.amount,
+    required this.quotesToday,
+    required this.pending,
+    required this.completed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF06111F), Color(0xFF0F2344), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x332563EB),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -44,
+            top: -44,
+            child: Container(
+              width: 145,
+              height: 145,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.10),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.insights_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                  const Spacer(),
+                  _GlassPill(text: plan),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Hoy en Pactopia360',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 25,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                email.isEmpty ? title : email,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFE2E8F0),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                amount,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.7,
+                ),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Actividad estimada del día',
+                style: TextStyle(
+                  color: Color(0xFFDDE7F3),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _HeroSmallMetric(value: quotesToday, label: 'Hoy'),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HeroSmallMetric(
+                      value: pending,
+                      label: 'Pendientes',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HeroSmallMetric(value: completed, label: 'Listos'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeeklyActivityCard extends StatelessWidget {
+  final List<dynamic> weekChart;
+  final List<int> fallbackValues;
+
+  const _WeeklyActivityCard({
+    required this.weekChart,
+    required this.fallbackValues,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final values = weekChart.isNotEmpty
+        ? weekChart.map((item) {
+            if (item is Map) {
+              return int.tryParse((item['count'] ?? '0').toString()) ?? 0;
+            }
+            return 0;
+          }).toList()
+        : fallbackValues;
+
+    final labels = weekChart.isNotEmpty
+        ? weekChart.map((item) {
+            if (item is Map) return (item['label'] ?? '').toString();
+            return '';
+          }).toList()
+        : const ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+    final maxValue = values.isEmpty
+        ? 1
+        : values.reduce((a, b) => a > b ? a : b);
+    final safeMax = maxValue <= 0 ? 1 : maxValue;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pulso operativo',
+            style: TextStyle(
+              color: PactopiaTheme.text,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Movimientos recientes de tu operación.',
+            style: TextStyle(
+              color: PactopiaTheme.muted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 132,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: List.generate(values.length, (index) {
+                final value = values[index];
+                final height = 28 + ((value / safeMax) * 82);
+
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 350),
+                          height: height,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xFF2563EB),
+                                Color(0xFF06B6D4),
+                                Color(0xFF7C3AED),
+                              ],
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          labels[index].isEmpty ? '-' : labels[index],
+                          style: const TextStyle(
+                            color: PactopiaTheme.muted,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmartActionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String buttonText;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _SmartActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.buttonText,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Row(
+        children: [
+          _GradientIconBox(icon: icon),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: PactopiaTheme.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: PactopiaTheme.muted,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 44,
+                  child: PactopiaGradientButton(
+                    onPressed: onTap,
+                    icon: const Icon(
+                      Icons.arrow_forward_rounded,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                    label: buttonText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileHomeTab extends StatelessWidget {
+  final String title;
+  final String email;
+  final String plan;
+  final String status;
+  final String nextPayment;
+  final String healthStatus;
+  final String healthMessage;
+  final int activeModules;
+  final int blockedModules;
+  final String rfcs;
+  final String quotes;
+  final String xml;
+  final String files;
+  final List<Map<String, dynamic>> quickActions;
+  final Map<String, dynamic> homeInsights;
+  final VoidCallback onRefresh;
+  final VoidCallback onLogout;
+  final void Function({String? initialRfc}) onOpenQuotes;
+  final ValueChanged<String> onOpenAction;
+
+  const _MobileHomeTab({
+    required this.title,
+    required this.email,
+    required this.plan,
+    required this.status,
+    required this.nextPayment,
+    required this.healthStatus,
+    required this.healthMessage,
+    required this.activeModules,
+    required this.blockedModules,
+    required this.rfcs,
+    required this.quotes,
+    required this.xml,
+    required this.files,
+    required this.quickActions,
+    required this.homeInsights,
+    required this.onRefresh,
+    required this.onLogout,
+    required this.onOpenQuotes,
+    required this.onOpenAction,
+  });
+
+  Map<String, dynamic> _map(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, val) => MapEntry(key.toString(), val));
+    }
+    return <String, dynamic>{};
+  }
+
+  List<dynamic> _list(dynamic value) {
+    if (value is List) return value;
+    return <dynamic>[];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today = _map(homeInsights['today']);
+    final primaryAction = _map(homeInsights['primary_action']);
+    final weekChart = _list(homeInsights['week_chart']);
+
+    final todayAmount = (today['amount_label'] ?? '\$0.00 MXN').toString();
+    final todayQuotes = (today['quotes_count'] ?? quotes).toString();
+    final pendingQuotes = (today['pending_quotes'] ?? '0').toString();
+    final completedQuotes = (today['completed_quotes'] ?? '0').toString();
+
+    final actionKey = (primaryAction['key'] ?? 'sat').toString();
+    final actionTitle = (primaryAction['title'] ?? 'Continuar operación')
+        .toString();
+    final actionText =
+        (primaryAction['text'] ?? 'Revisa tus pendientes y actividad del día.')
+            .toString();
+    final actionLabel = (primaryAction['label'] ?? 'Abrir').toString();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        _MobileTopBar(
+          title: 'Inicio',
+          subtitle: 'Resumen del día',
+          onRefresh: onRefresh,
+          onLogout: onLogout,
+        ),
+        const SizedBox(height: 14),
+
+        _TodayOverviewCard(
+          title: title,
+          email: email,
+          plan: plan,
+          status: status,
+          amount: todayAmount,
+          quotesToday: todayQuotes,
+          pending: pendingQuotes,
+          completed: completedQuotes,
+        ),
+
+        const SizedBox(height: 12),
+        _CompactHealthBanner(status: healthStatus, message: healthMessage),
+
+        const SizedBox(height: 16),
+        _SectionHeaderCompact(
+          title: 'Actividad semanal',
+          subtitle: 'Vista rápida para entender cómo va tu operación.',
+        ),
+        const SizedBox(height: 10),
+        _WeeklyActivityCard(
+          weekChart: weekChart,
+          fallbackValues: [
+            int.tryParse(quotes) ?? 0,
+            int.tryParse(rfcs) ?? 0,
+            int.tryParse(xml) ?? 0,
+            int.tryParse(files) ?? 0,
+            activeModules,
+            blockedModules,
+            int.tryParse(pendingQuotes) ?? 0,
+          ],
+        ),
+
+        const SizedBox(height: 16),
+        _SmartActionCard(
+          title: actionTitle,
+          subtitle: actionText,
+          buttonText: actionLabel,
+          icon: _dashboardIcon(actionKey),
+          onTap: () => onOpenAction(actionKey),
+        ),
+
+        const SizedBox(height: 16),
+        _SectionHeaderCompact(
+          title: 'Indicadores clave',
+          subtitle: 'Datos compactos para decidir rápido.',
+        ),
+        const SizedBox(height: 10),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.42,
+          children: [
+            _MiniDashboardCard(
+              title: 'Módulos',
+              value: '$activeModules',
+              icon: Icons.apps_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'RFCs',
+              value: rfcs,
+              icon: Icons.badge_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'SAT pendientes',
+              value: pendingQuotes,
+              icon: Icons.pending_actions_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'XML / Archivos',
+              value: xml == '0' ? files : xml,
+              icon: Icons.folder_special_rounded,
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+        _SectionHeaderCompact(
+          title: 'Accesos rápidos',
+          subtitle: 'Lo que más usa el cliente en móvil.',
+        ),
+        const SizedBox(height: 10),
+        GridView.builder(
+          itemCount: quickActions.isEmpty ? 4 : quickActions.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.75,
+          ),
+          itemBuilder: (context, index) {
+            final fallback = [
+              {'key': 'sat', 'label': 'SAT', 'icon': 'sat'},
+              {'key': 'pay', 'label': 'Pagar', 'icon': 'payments'},
+              {'key': 'invoices', 'label': 'Facturas', 'icon': 'receipt'},
+              {'key': 'account', 'label': 'Mi cuenta', 'icon': 'person'},
+            ];
+
+            final item = quickActions.isEmpty
+                ? fallback[index]
+                : quickActions[index];
+            final key = (item['key'] ?? '').toString();
+
+            return _CompactActionTile(
+              title: (item['label'] ?? 'Acción').toString(),
+              icon: _dashboardIcon((item['icon'] ?? key).toString()),
+              onTap: () => onOpenAction(key),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileBillingHubTab extends StatelessWidget {
+  final String plan;
+  final String status;
+  final String accountName;
+  final String accountRfc;
+  final VoidCallback onOpenStatement;
+  final VoidCallback onOpenInvoices;
+  final VoidCallback onOpenProfile;
+
+  const _MobileBillingHubTab({
+    required this.plan,
+    required this.status,
+    required this.accountName,
+    required this.accountRfc,
+    required this.onOpenStatement,
+    required this.onOpenInvoices,
+    required this.onOpenProfile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        const _MobileTopBarStatic(
+          title: 'Facturación',
+          subtitle: 'CFDI, pagos, facturas y cuenta.',
+        ),
+        const SizedBox(height: 14),
+        _ModuleHeroPanel(
+          title: 'Centro de facturación',
+          subtitle: 'Todo lo relacionado con pagos, facturas y datos fiscales.',
+          icon: Icons.receipt_long_rounded,
+          gradient: const [
+            Color(0xFF2563EB),
+            Color(0xFF06B6D4),
+            Color(0xFF7C3AED),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _BillingStatusCard(
+          plan: plan,
+          status: status,
+          accountName: accountName,
+          accountRfc: accountRfc,
+        ),
+        const SizedBox(height: 16),
+        _SectionHeaderCompact(
+          title: 'Acciones de facturación',
+          subtitle: 'Lo que el cliente necesita encontrar rápido.',
+        ),
+        const SizedBox(height: 10),
+        _ActionListTile(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Estado de cuenta',
+          subtitle: 'Consulta saldos, periodos, PDF y pagos.',
+          onTap: onOpenStatement,
+        ),
+        _ActionListTile(
+          icon: Icons.description_rounded,
+          title: 'Facturas Pactopia',
+          subtitle: 'Descarga facturas disponibles y solicitudes.',
+          onTap: onOpenInvoices,
+        ),
+        _ActionListTile(
+          icon: Icons.person_rounded,
+          title: 'Datos fiscales',
+          subtitle: 'Revisa información de la cuenta cliente.',
+          onTap: onOpenProfile,
+        ),
+        const SizedBox(height: 16),
+        _ComingSoonPanel(
+          title: 'Siguiente fase',
+          text:
+              'Aquí conectaremos Nuevo CFDI, Receptores, Borradores, Emitidas, Cancelaciones y timbres disponibles cuando terminemos el módulo de facturación móvil.',
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileSatHubTab extends StatelessWidget {
+  final String quotes;
+  final String rfcs;
+  final String sources;
+  final String xml;
+  final String files;
+  final String vaultUsed;
+  final String vaultAvailable;
+  final void Function({String? initialRfc}) onOpenQuotes;
+
+  const _MobileSatHubTab({
+    required this.quotes,
+    required this.rfcs,
+    required this.sources,
+    required this.xml,
+    required this.files,
+    required this.vaultUsed,
+    required this.vaultAvailable,
+    required this.onOpenQuotes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        const _MobileTopBarStatic(
+          title: 'SAT',
+          subtitle: 'Cotizaciones, descargas y bóveda fiscal.',
+        ),
+        const SizedBox(height: 14),
+        _ModuleHeroPanel(
+          title: 'SAT Descargas',
+          subtitle: 'Consulta cotizaciones, pagos y seguimiento operativo.',
+          icon: Icons.cloud_download_rounded,
+          gradient: const [
+            Color(0xFF0F2344),
+            Color(0xFF2563EB),
+            Color(0xFF06B6D4),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _PriorityActionCard(
+          title: 'Cotizaciones SAT',
+          subtitle: 'Filtra, consulta estados, paga o sube comprobantes.',
+          icon: Icons.receipt_long_rounded,
+          buttonText: 'Entrar a cotizaciones',
+          onTap: () => onOpenQuotes(),
+        ),
+        const SizedBox(height: 14),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.42,
+          children: [
+            _MiniDashboardCard(
+              title: 'Cotizaciones',
+              value: quotes,
+              icon: Icons.receipt_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'RFCs',
+              value: rfcs,
+              icon: Icons.badge_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'Fuentes',
+              value: sources,
+              icon: Icons.source_rounded,
+            ),
+            _MiniDashboardCard(
+              title: 'XML',
+              value: xml,
+              icon: Icons.data_object_rounded,
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _StoragePanel(used: vaultUsed, available: vaultAvailable, files: files),
+      ],
+    );
+  }
+}
+
+class _MobileModulesTab extends StatelessWidget {
+  final List<Map<String, dynamic>> modules;
+  final ValueChanged<Map<String, dynamic>> onOpenModule;
+
+  const _MobileModulesTab({required this.modules, required this.onOpenModule});
+
+  @override
+  Widget build(BuildContext context) {
+    final active = modules
+        .where(
+          (m) => (m['state'] ?? 'active').toString().toLowerCase() == 'active',
+        )
+        .toList(growable: false);
+
+    final locked = modules
+        .where((m) => (m['state'] ?? '').toString().toLowerCase() == 'blocked')
+        .toList(growable: false);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        const _MobileTopBarStatic(
+          title: 'Módulos',
+          subtitle: 'Tu ecosistema Pactopia360.',
+        ),
+        const SizedBox(height: 14),
+        _ModuleHeroPanel(
+          title: 'Centro de módulos',
+          subtitle: 'Administra tus herramientas por prioridad y estado.',
+          icon: Icons.apps_rounded,
+          gradient: const [
+            Color(0xFF07111F),
+            Color(0xFF0F2344),
+            Color(0xFF7C3AED),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _SmallCountPill(
+                label: 'Activos',
+                value: '${active.length}',
+                icon: Icons.check_circle_rounded,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SmallCountPill(
+                label: 'Bloqueados',
+                value: '${locked.length}',
+                icon: Icons.lock_rounded,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _SectionHeaderCompact(
+          title: 'Disponibles',
+          subtitle: 'Abre el módulo que necesitas usar.',
+        ),
+        const SizedBox(height: 10),
+        if (modules.isEmpty)
+          const _EmptyPanel(text: 'No hay módulos visibles para esta cuenta.')
+        else
+          ...modules.map((module) {
+            final title = (module['name'] ?? 'Módulo').toString();
+            final key = (module['key'] ?? '').toString();
+            final state = (module['state'] ?? 'active').toString();
+            final access = module['access'] == true;
+            final enabled = access && state.toLowerCase() == 'active';
+
+            return _ModernModuleTile(
+              title: title,
+              subtitle: enabled ? 'Disponible para usar' : 'Acceso restringido',
+              icon: _dashboardIcon(key),
+              state: state,
+              enabled: enabled,
+              onTap: () => onOpenModule(module),
+            );
+          }),
+      ],
+    );
+  }
+}
+
+class _MobileAccountTab extends StatelessWidget {
+  final String title;
+  final String email;
+  final String plan;
+  final String status;
+  final String nextPayment;
+  final String accountName;
+  final String accountRfc;
+  final VoidCallback onRefresh;
+  final VoidCallback onLogout;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onOpenPayments;
+  final VoidCallback onOpenInvoices;
+  final VoidCallback onOpenStatement;
+
+  const _MobileAccountTab({
+    required this.title,
+    required this.email,
+    required this.plan,
+    required this.status,
+    required this.nextPayment,
+    required this.accountName,
+    required this.accountRfc,
+    required this.onRefresh,
+    required this.onLogout,
+    required this.onOpenProfile,
+    required this.onOpenPayments,
+    required this.onOpenInvoices,
+    required this.onOpenStatement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        _MobileTopBar(
+          title: 'Cuenta',
+          subtitle: 'Perfil y administración',
+          onRefresh: onRefresh,
+          onLogout: onLogout,
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: const Color(0xFFDDE7F3)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1107111F),
+                blurRadius: 20,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const PactopiaLogoMark(size: 58),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: PactopiaTheme.text,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      email.isEmpty ? 'Sin correo registrado' : email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: PactopiaTheme.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _BillingStatusCard(
+          plan: plan,
+          status: status,
+          accountName: accountName,
+          accountRfc: accountRfc,
+        ),
+        const SizedBox(height: 14),
+        _ActionListTile(
+          icon: Icons.person_rounded,
+          title: 'Mi perfil',
+          subtitle: 'Datos de usuario y cuenta.',
+          onTap: onOpenProfile,
+        ),
+        _ActionListTile(
+          icon: Icons.payments_rounded,
+          title: 'Pagos',
+          subtitle: 'Historial y movimientos.',
+          onTap: onOpenPayments,
+        ),
+        _ActionListTile(
+          icon: Icons.description_rounded,
+          title: 'Facturas',
+          subtitle: 'Documentos disponibles.',
+          onTap: onOpenInvoices,
+        ),
+        _ActionListTile(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Estado de cuenta',
+          subtitle: nextPayment.isEmpty
+              ? 'Cobro sin fecha definida.'
+              : 'Próximo cobro: $nextPayment',
+          onTap: onOpenStatement,
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: onLogout,
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('Cerrar sesión'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileTopBar extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final VoidCallback onRefresh;
+  final VoidCallback onLogout;
+
+  const _MobileTopBar({
+    required this.title,
+    required this.subtitle,
+    required this.onRefresh,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const PactopiaLogoMark(size: 42),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _TopTitle(title: title, subtitle: subtitle),
+        ),
+        _RoundIconButton(icon: Icons.refresh_rounded, onTap: onRefresh),
+        const SizedBox(width: 8),
+        _RoundIconButton(icon: Icons.logout_rounded, onTap: onLogout),
+      ],
+    );
+  }
+}
+
+class _MobileTopBarStatic extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _MobileTopBarStatic({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const PactopiaLogoMark(size: 42),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _TopTitle(title: title, subtitle: subtitle),
+        ),
+      ],
+    );
+  }
+}
+
+class _TopTitle extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _TopTitle({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: PactopiaTheme.text,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
+        ),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: PactopiaTheme.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _RoundIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFDDE7F3)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(icon, color: PactopiaTheme.navy2, size: 21),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExecutiveHeroCard extends StatelessWidget {
+  final String title;
+  final String email;
+  final String plan;
+  final String status;
+  final String nextPayment;
+  final int activeModules;
+  final int blockedModules;
+
+  const _ExecutiveHeroCard({
+    required this.title,
+    required this.email,
+    required this.plan,
+    required this.status,
+    required this.nextPayment,
+    required this.activeModules,
+    required this.blockedModules,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF07111F), Color(0xFF0F2344), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x330F2344),
+            blurRadius: 26,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -46,
+            top: -46,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.10),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const PactopiaLogoMark(size: 52, light: true),
+                  const Spacer(),
+                  _GlassPill(text: plan),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                email.isEmpty ? 'Portal cliente móvil' : email,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFE2E8F0),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _GlassPill(text: 'Estado: $status'),
+                  _GlassPill(
+                    text: nextPayment.isEmpty
+                        ? 'Cobro sin fecha'
+                        : 'Cobro: $nextPayment',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _HeroSmallMetric(
+                      value: '$activeModules',
+                      label: 'Activos',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _HeroSmallMetric(
+                      value: '$blockedModules',
+                      label: 'Bloqueados',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassPill extends StatelessWidget {
+  final String text;
+
+  const _GlassPill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.22)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroSmallMetric extends StatelessWidget {
+  final String value;
+  final String label;
+
+  const _HeroSmallMetric({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 21,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFFE2E8F0),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactHealthBanner extends StatelessWidget {
+  final String status;
+  final String message;
+
+  const _CompactHealthBanner({required this.status, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOk = status.toLowerCase() == 'ok';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isOk ? const Color(0xFFE9FBF3) : const Color(0xFFFFF1F2),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: isOk ? const Color(0xFFB7F0D3) : const Color(0xFFFFCDD2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isOk ? Icons.verified_rounded : Icons.warning_rounded,
+            color: isOk ? const Color(0xFF047857) : const Color(0xFFBE123C),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: isOk ? const Color(0xFF065F46) : const Color(0xFF9F1239),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeaderCompact extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _SectionHeaderCompact({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: PactopiaTheme.text,
+            fontSize: 19,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.2,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: PactopiaTheme.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PriorityActionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String buttonText;
+  final VoidCallback onTap;
+
+  const _PriorityActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.buttonText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _GradientIconBox(icon: icon),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: PactopiaTheme.text,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: PactopiaTheme.muted,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: PactopiaGradientButton(
+              onPressed: onTap,
+              icon: const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+              ),
+              label: buttonText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HorizontalMetricCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _HorizontalMetricCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 132,
+      margin: const EdgeInsets.only(right: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: PactopiaTheme.navy2, size: 22),
+          const Spacer(),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: PactopiaTheme.text,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          Text(
+            title,
+            style: const TextStyle(
+              color: PactopiaTheme.muted,
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactActionTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _CompactActionTile({
+    required this.title,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFDDE7F3)),
+          ),
+          child: Row(
+            children: [
+              _SoftIconBox(icon: icon),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: PactopiaTheme.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModuleHeroPanel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> gradient;
+
+  const _ModuleHeroPanel({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.gradient,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x220F2344),
+            blurRadius: 22,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.20)),
+            ),
+            child: Icon(icon, color: Colors.white, size: 30),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xFFE2E8F0),
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillingStatusCard extends StatelessWidget {
+  final String plan;
+  final String status;
+  final String accountName;
+  final String accountRfc;
+
+  const _BillingStatusCard({
+    required this.plan,
+    required this.status,
+    required this.accountName,
+    required this.accountRfc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        children: [
+          _KeyRowModern(label: 'Plan actual', value: plan),
+          _KeyRowModern(label: 'Estado', value: status),
+          if (accountName.isNotEmpty)
+            _KeyRowModern(label: 'Cuenta', value: accountName),
+          if (accountRfc.isNotEmpty)
+            _KeyRowModern(label: 'RFC', value: accountRfc),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionListTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ActionListTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFDDE7F3)),
+            ),
+            child: Row(
+              children: [
+                _SoftIconBox(icon: icon),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: PactopiaTheme.text,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15.5,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: PactopiaTheme.muted,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: PactopiaTheme.muted,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ComingSoonPanel extends StatelessWidget {
+  final String title;
+  final String text;
+
+  const _ComingSoonPanel({required this.title, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFCFE0FF)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.rocket_launch_rounded, color: PactopiaTheme.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: PactopiaTheme.navy2,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  text,
+                  style: const TextStyle(
+                    color: PactopiaTheme.navy2,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniDashboardCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _MiniDashboardCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SoftIconBox(icon: icon),
+          const Spacer(),
+          Text(
+            value,
+            style: const TextStyle(
+              color: PactopiaTheme.text,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          Text(
+            title,
+            style: const TextStyle(
+              color: PactopiaTheme.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StoragePanel extends StatelessWidget {
+  final String used;
+  final String available;
+  final String files;
+
+  const _StoragePanel({
+    required this.used,
+    required this.available,
+    required this.files,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Bóveda fiscal',
+            style: TextStyle(
+              color: PactopiaTheme.text,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _KeyRowModern(label: 'Usado', value: used),
+          _KeyRowModern(label: 'Disponible', value: available),
+          _KeyRowModern(label: 'Archivos recientes', value: files),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallCountPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _SmallCountPill({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Row(
+        children: [
+          _SoftIconBox(icon: icon),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: PactopiaTheme.text,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: PactopiaTheme.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModernModuleTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String state;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ModernModuleTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.state,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = state.trim().toLowerCase();
+    final badgeText = normalized == 'blocked'
+        ? 'Bloqueado'
+        : normalized == 'inactive'
+        ? 'Inactivo'
+        : 'Activo';
+
+    final badgeColor = normalized == 'blocked'
+        ? const Color(0xFFBE123C)
+        : normalized == 'inactive'
+        ? const Color(0xFFD97706)
+        : const Color(0xFF047857);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFDDE7F3)),
+            ),
+            child: Row(
+              children: [
+                enabled
+                    ? _GradientIconBox(icon: icon)
+                    : _SoftIconBox(icon: icon),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: PactopiaTheme.text,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15.5,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: PactopiaTheme.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withOpacity(0.11),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyPanel extends StatelessWidget {
+  final String text;
+
+  const _EmptyPanel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: PactopiaTheme.muted,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyRowModern extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _KeyRowModern({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 11),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: PactopiaTheme.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value.isEmpty ? 'N/D' : value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: PactopiaTheme.text,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GradientIconBox extends StatelessWidget {
+  final IconData icon;
+
+  const _GradientIconBox({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2563EB), Color(0xFF06B6D4), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Icon(icon, color: Colors.white, size: 23),
+    );
+  }
+}
+
+class _SoftIconBox extends StatelessWidget {
+  final IconData icon;
+
+  const _SoftIconBox({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(17),
+      ),
+      child: Icon(icon, color: PactopiaTheme.blue, size: 22),
+    );
+  }
+}
+
+IconData _dashboardIcon(String key) {
+  switch (key.trim().toLowerCase()) {
+    case 'receipt':
+    case 'facturacion':
+    case 'invoices':
+    case 'facturas':
+      return Icons.receipt_long_rounded;
+    case 'sat':
+    case 'sat_descargas':
+    case 'cloud':
+      return Icons.cloud_download_rounded;
+    case 'payments':
+    case 'pay':
+    case 'pagos':
+      return Icons.payments_rounded;
+    case 'account':
+    case 'profile':
+    case 'person':
+    case 'mi_cuenta':
+      return Icons.person_rounded;
+    case 'estado_cuenta':
+    case 'account_balance':
+      return Icons.account_balance_wallet_rounded;
+    case 'crm':
+    case 'people':
+      return Icons.groups_rounded;
+    case 'inventario':
+    case 'inventory':
+      return Icons.inventory_2_rounded;
+    case 'ventas':
+    case 'point_of_sale':
+      return Icons.point_of_sale_rounded;
+    case 'reportes':
+    case 'bar_chart':
+      return Icons.bar_chart_rounded;
+    case 'recursos_humanos':
+      return Icons.badge_rounded;
+    case 'timbres_hits':
+      return Icons.local_activity_rounded;
+    case 'boveda_fiscal':
+    case 'storage':
+      return Icons.folder_special_rounded;
+    default:
+      return Icons.apps_rounded;
   }
 }
 
@@ -5877,7 +7998,11 @@ class _QuoteCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool compact;
 
-  const _QuoteCard({required this.quote, required this.onTap});
+  const _QuoteCard({
+    required this.quote,
+    required this.onTap,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
