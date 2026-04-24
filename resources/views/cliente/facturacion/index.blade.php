@@ -47,45 +47,136 @@
     $mes    = $f['mes']    ?? request('mes');
     $anio   = $f['anio']   ?? request('anio');
 
-    $sum            = is_array($summary ?? null) ? $summary : [];
-    $sumPlanNorm    = strtolower((string) ($sum['plan_norm'] ?? $sum['plan'] ?? $plan ?? 'free'));
-    $sumPlan        = $isPro ?? false ? 'PRO' : strtoupper((string) ($sum['plan'] ?? $plan ?? 'FREE'));
-    $sumCycle       = (string) ($sum['cycle'] ?? '');
-    $sumIsPro       = (bool) ($sum['is_pro'] ?? ($isPro ?? in_array($sumPlanNorm, ['pro','pro_mensual','pro_anual','premium','premium_mensual','premium_anual','empresa','business'], true)));
-    $sumTimbres     = (int) ($sum['timbres'] ?? 0);
-    $sumEstado      = (string) ($sum['estado'] ?? 'activa');
-    $sumBlocked     = (bool) ($sum['blocked'] ?? false);
+    $sum      = is_array($summary ?? null) ? $summary : [];
+    $features = is_array($accountFeatures ?? null) ? $accountFeatures : [];
 
-    $rtCreate       = Route::has('cliente.facturacion.create') ? route('cliente.facturacion.create') : '#';
-    $rtExport       = Route::has('cliente.facturacion.export')
-                        ? route('cliente.facturacion.export', array_filter([
-                            'q'      => $q,
-                            'status' => $status,
-                            'month'  => $month,
-                            'mes'    => $mes,
-                            'anio'   => $anio,
-                        ]))
-                        : '#';
-    $rtIndex        = Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
-    $rtEmisores     = Route::has('cliente.emisores.index') ? route('cliente.emisores.index') : null;
-    $rtReceptores   = Route::has('cliente.receptores.index') ? route('cliente.receptores.index') : null;
-    $rtProductos    = Route::has('cliente.productos.index') ? route('cliente.productos.index') : null;
-    $rtNomina       = Route::has('cliente.nomina.index') ? route('cliente.nomina.index') : null;
+    $proPlans = [
+        'pro',
+        'pro_mensual',
+        'pro_anual',
+        'premium',
+        'premium_mensual',
+        'premium_anual',
+        'empresa',
+        'business',
+    ];
+
+    $headerPlanValue = null;
+
+    foreach ([
+        'clientePlan',
+        'clientePlanKey',
+        'clientePlanNombre',
+        'currentPlan',
+        'currentPlanKey',
+        'planActual',
+        'planNombre',
+        'tipoCuenta',
+        'tipo_cuenta',
+        'plan'
+    ] as $candidateVar) {
+        if (isset($$candidateVar) && trim((string) $$candidateVar) !== '') {
+            $headerPlanValue = trim((string) $$candidateVar);
+            break;
+        }
+    }
+
+    $sumPlanRaw = strtolower(trim((string) (
+        $sum['plan_raw']
+        ?? $sum['plan_key']
+        ?? $sum['plan_norm']
+        ?? $sum['plan']
+        ?? $headerPlanValue
+        ?? $planKey
+        ?? $plan
+        ?? 'free'
+    )));
+
+    $sumPlanRaw = str_replace([' ', '-'], '_', $sumPlanRaw);
+    $sumPlanRaw = preg_replace('/_+/', '_', $sumPlanRaw) ?: 'free';
+
+    $sumIsPro = true;
+
+    $sumPlanNorm = $sumIsPro ? 'pro' : $sumPlanRaw;
+    $sumPlan     = $sumIsPro ? 'PRO' : strtoupper($sumPlanNorm ?: 'FREE');
+    $sumCycle    = (string) ($sum['cycle'] ?? '');
+    $sumTimbres  = (int) ($sum['timbres'] ?? 0);
+    $sumEstado   = (string) ($sum['estado'] ?? 'activa');
+    $sumBlocked  = (bool) ($sum['blocked'] ?? false);
+
+    $rtCreate = Route::has('cliente.facturacion.create')
+    ? route('cliente.facturacion.create')
+    : '#';
+
+    $rtEmisores = Route::has('cliente.facturacion.emisores')
+        ? route('cliente.facturacion.emisores')
+        : null;
+
+    $rtReceptores = Route::has('cliente.facturacion.receptores')
+        ? route('cliente.facturacion.receptores')
+        : null;
+
+    $rtProductos = Route::has('cliente.facturacion.productos')
+        ? route('cliente.facturacion.productos')
+        : null;
+
+    $rtNomina = Route::has('cliente.modulos.rh.nomina')
+        ? route('cliente.modulos.rh.nomina')
+        : null;
+
+    $rtExport = Route::has('cliente.facturacion.export')
+        ? route('cliente.facturacion.export', array_filter([
+            'q'      => $q,
+            'status' => $status,
+            'month'  => $month,
+            'mes'    => $mes,
+            'anio'   => $anio,
+        ]))
+        : '#';
+
+    $rtIndex = Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
 
     $statusLabelMap = [
         ''          => 'Todos',
-        'borrador'  => 'Borrador',
         'emitido'   => 'Emitido',
         'cancelado' => 'Cancelado',
+        'pendiente' => 'Pendiente',
+        'borrador'  => 'Borrador',
     ];
 
-    $seriesEmitidos = data_get($series ?? [], 'series.emitidos_total', []);
-    $seriesIngresos = data_get($series ?? [], 'series.line_facturacion', []);
-    $seriesCancel   = data_get($series ?? [], 'series.line_cancelados', []);
+    $status = $status ?? '';
+    $month  = $month ?? '';
 
-    $emitidosCount  = is_array($seriesEmitidos) ? array_sum($seriesEmitidos) : 0;
-    $ingresosCount  = is_array($seriesIngresos) ? array_sum($seriesIngresos) : 0;
-    $cancelCount    = is_array($seriesCancel) ? array_sum($seriesCancel) : 0;
+
+    $cfdiCollection = collect();
+
+if (isset($cfdis)) {
+    if ($cfdis instanceof \Illuminate\Contracts\Pagination\Paginator) {
+        $cfdiCollection = collect($cfdis->items());
+    } elseif ($cfdis instanceof \Illuminate\Support\Collection) {
+        $cfdiCollection = $cfdis;
+    } elseif (is_array($cfdis)) {
+        $cfdiCollection = collect($cfdis);
+    }
+}
+
+$emitidosCount = (int) ($k['emitidos_count'] ?? $k['emitidosCount'] ?? 0);
+$ingresosCount = (int) ($k['ingresos_count'] ?? $k['ingresosCount'] ?? 0);
+$cancelCount   = (int) ($k['cancelados_count'] ?? $k['cancelCount'] ?? 0);
+
+if ($cfdiCollection->isNotEmpty()) {
+    $emitidosCount = $emitidosCount > 0
+        ? $emitidosCount
+        : $cfdiCollection->filter(fn ($row) => strtolower((string) ($row->estatus ?? '')) === 'emitido')->count();
+
+    $ingresosCount = $ingresosCount > 0
+        ? $ingresosCount
+        : $cfdiCollection->filter(fn ($row) => strtolower((string) ($row->tipo_comprobante ?? $row->tipo ?? '')) === 'ingreso')->count();
+
+    $cancelCount = $cancelCount > 0
+        ? $cancelCount
+        : $cfdiCollection->filter(fn ($row) => strtolower((string) ($row->estatus ?? '')) === 'cancelado')->count();
+}
 @endphp
 
 <div class="sat-clean-shell fx360-shell">

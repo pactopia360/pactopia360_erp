@@ -160,7 +160,313 @@ class FacturacionController extends Controller
         $mes  = (int) Carbon::parse($from)->format('m');
         $anio = (int) Carbon::parse($from)->format('Y');
 
+        /**
+         * ==========================================================
+         * SOT ADMIN EN VIVO
+         * Usar la misma fuente que Home para evitar que Facturación
+         * muestre FREE/BASE cuando Admin ya cambió la cuenta a PRO.
+         * ==========================================================
+         */
+        try {
+            $summary = app(HomeController::class)->buildAccountSummary();
+        } catch (\Throwable $e) {
+            $user   = Auth::guard('web')->user();
+            $cuenta = $user?->cuenta;
+
+            $planFallback = strtolower((string) ($cuenta->plan_actual ?? $cuenta->plan ?? 'free'));
+
+            $summary = [
+                'razon'   => (string) ($cuenta->razon_social ?? $cuenta->nombre_fiscal ?? $user?->nombre ?? $user?->email ?? '—'),
+                'plan'    => $planFallback,
+                'is_pro'  => in_array($planFallback, ['pro', 'pro_mensual', 'pro_anual', 'premium', 'empresa', 'business'], true),
+                'cycle'   => (string) ($cuenta->modo_cobro ?? 'mensual'),
+                'estado'  => (string) ($cuenta->estado_cuenta ?? 'activa'),
+                'blocked' => (bool) ((int) ($cuenta->is_blocked ?? 0) === 1),
+                'timbres' => (int) ($cuenta->timbres_disponibles ?? 0),
+            ];
+        }
+
+        $defaultGuard = (string) (config('auth.defaults.guard') ?? 'web');
+
+        $user = null;
+
+        try {
+            $user = Auth::guard($defaultGuard)->user();
+        } catch (\Throwable $e) {
+            $user = null;
+        }
+
+        if (!$user) {
+            try {
+                $user = Auth::guard('cliente')->user();
+            } catch (\Throwable $e) {
+                $user = null;
+            }
+        }
+
+        if (!$user) {
+            try {
+                $user = Auth::guard('web')->user();
+            } catch (\Throwable $e) {
+                $user = null;
+            }
+        }
+
+        if (is_array($user)) {
+            $user = (object) $user;
+        }
+
+        $cuenta = $user?->cuenta ?? null;
+
+        if (is_array($cuenta)) {
+            $cuenta = (object) $cuenta;
+        }
+
+        $normalizePlanPortal = static function (?string $raw): array {
+            $p = strtolower(trim((string) $raw));
+            $p = str_replace([' ', '-'], '_', $p);
+            $p = preg_replace('/_+/', '_', $p) ?: '';
+
+            $cycle = null;
+
+            if (str_ends_with($p, '_mensual')) {
+                $cycle = 'monthly';
+                $p = substr($p, 0, -8);
+            } elseif (str_ends_with($p, '_anual')) {
+                $cycle = 'yearly';
+                $p = substr($p, 0, -6);
+            } elseif (str_ends_with($p, '_monthly')) {
+                $cycle = 'monthly';
+                $p = substr($p, 0, -8);
+            } elseif (str_ends_with($p, '_yearly')) {
+                $cycle = 'yearly';
+                $p = substr($p, 0, -7);
+            } elseif (str_ends_with($p, '_annual')) {
+                $cycle = 'yearly';
+                $p = substr($p, 0, -7);
+            }
+
+            $base = $p !== '' ? $p : 'free';
+            $isPro = in_array($base, ['pro', 'premium', 'empresa', 'business'], true);
+
+            return [
+                'raw'       => strtoupper(trim((string) $raw)),
+                'plan'      => $isPro ? 'PRO' : 'FREE',
+                'plan_key'  => $isPro ? 'pro' : 'free',
+                'plan_norm' => $base,
+                'is_pro'    => $isPro,
+                'cycle'     => $cycle,
+            ];
+        };
+
+        $adminPlanRaw = '';
+        $adminCycle   = '';
+
+        try {
+            $adminConns = ['mysql_admin', 'mysql', 'mysql_clientes'];
+            $adminTables = ['accounts', 'cuentas', 'clientes'];
+
+            $planColumns = [
+                'plan_actual',
+                'tipo_cuenta',
+                'plan',
+                'paquete',
+                'licencia',
+                'membresia',
+            ];
+
+            $cycleColumns = [
+                'billing_cycle',
+                'modo_cobro',
+                'ciclo',
+                'periodicidad',
+            ];
+
+            $cuentaId = isset($cuenta->id) && is_numeric($cuenta->id) ? (int) $cuenta->id : null;
+
+            $adminId = isset($cuenta->admin_account_id) && is_numeric($cuenta->admin_account_id)
+                ? (int) $cuenta->admin_account_id
+                : null;
+
+            $rfcCandidates = array_values(array_unique(array_filter([
+                strtoupper(trim((string) ($cuenta->rfc ?? ''))),
+                strtoupper(trim((string) ($cuenta->rfc_padre ?? ''))),
+            ], fn ($v) => $v !== '' && strlen($v) >= 12)));
+
+            $emailCandidates = array_values(array_unique(array_filter([
+                strtolower(trim((string) ($cuenta->email ?? ''))),
+                strtolower(trim((string) ($user->email ?? ''))),
+            ], fn ($v) => $v !== '')));
+
+            foreach ($adminConns as $admConn) {
+                foreach ($adminTables as $adminTable) {
+                    if (!Schema::connection($admConn)->hasTable($adminTable)) {
+                        continue;
+                    }
+
+                    $columns = Schema::connection($admConn)->getColumnListing($adminTable);
+
+                    $hasId = in_array('id', $columns, true);
+                    $hasCuentaId = in_array('cuenta_id', $columns, true);
+                    $hasRfc = in_array('rfc', $columns, true);
+                    $hasCorreo = in_array('correo_contacto', $columns, true);
+                    $hasEmail = in_array('email', $columns, true);
+
+                    $acc = null;
+
+                    if ($adminId && $hasId) {
+                        $acc = DB::connection($admConn)
+                            ->table($adminTable)
+                            ->where('id', $adminId)
+                            ->first();
+                    }
+
+                    if (!$acc && $cuentaId && $hasCuentaId) {
+                        $acc = DB::connection($admConn)
+                            ->table($adminTable)
+                            ->where('cuenta_id', $cuentaId)
+                            ->first();
+                    }
+
+                    if (!$acc && $hasRfc) {
+                        foreach ($rfcCandidates as $rfcSearch) {
+                            $acc = DB::connection($admConn)
+                                ->table($adminTable)
+                                ->whereRaw('UPPER(rfc) = ?', [$rfcSearch])
+                                ->first();
+
+                            if ($acc) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!$acc && $hasCorreo) {
+                        foreach ($emailCandidates as $emailSearch) {
+                            $acc = DB::connection($admConn)
+                                ->table($adminTable)
+                                ->whereRaw('LOWER(correo_contacto) = ?', [$emailSearch])
+                                ->first();
+
+                            if ($acc) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!$acc && $hasEmail) {
+                        foreach ($emailCandidates as $emailSearch) {
+                            $acc = DB::connection($admConn)
+                                ->table($adminTable)
+                                ->whereRaw('LOWER(email) = ?', [$emailSearch])
+                                ->first();
+
+                            if ($acc) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!$acc) {
+                        continue;
+                    }
+
+                    foreach ($planColumns as $planColumn) {
+                        if (in_array($planColumn, $columns, true) && trim((string) ($acc->{$planColumn} ?? '')) !== '') {
+                            $adminPlanRaw = trim((string) $acc->{$planColumn});
+                            break;
+                        }
+                    }
+
+                    foreach ($cycleColumns as $cycleColumn) {
+                        if (in_array($cycleColumn, $columns, true) && trim((string) ($acc->{$cycleColumn} ?? '')) !== '') {
+                            $adminCycle = trim((string) $acc->{$cycleColumn});
+                            break;
+                        }
+                    }
+
+                    if ($adminPlanRaw !== '') {
+                        break 2;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $adminPlanRaw = '';
+            $adminCycle   = '';
+        }
+
+        $resolved = $adminPlanRaw !== ''
+            ? $normalizePlanPortal($adminPlanRaw)
+            : $normalizePlanPortal((string) ($summary['plan_raw'] ?? $summary['plan'] ?? $cuenta->plan_actual ?? $cuenta->plan ?? 'free'));
+
+        $summaryPlanNorm = strtolower(trim((string) (
+            $summary['plan_raw']
+            ?? $summary['plan_norm']
+            ?? $summary['plan_key']
+            ?? $summary['plan']
+            ?? ''
+        )));
+
+        $summaryPlanNorm = str_replace([' ', '-'], '_', $summaryPlanNorm);
+
+        $summaryIsPro =
+            (bool) ($summary['is_pro'] ?? false)
+            || in_array($summaryPlanNorm, [
+                'pro',
+                'pro_mensual',
+                'pro_anual',
+                'premium',
+                'premium_mensual',
+                'premium_anual',
+                'empresa',
+                'business',
+            ], true)
+            || str_starts_with($summaryPlanNorm, 'pro_');
+
+        $isPro = (bool) ($resolved['is_pro'] ?? false) || $summaryIsPro;
+
+        $plan    = $isPro ? 'PRO' : 'FREE';
+        $planKey = $isPro ? 'pro' : 'free';
+
+        $summary['is_pro']    = $isPro;
+        $summary['plan']      = $plan;
+        $summary['plan_norm'] = $planKey;
+        $summary['plan_raw']  = $adminPlanRaw ?: ($summary['plan_raw'] ?? $summary['plan'] ?? 'FREE');
+
+        if ($adminCycle !== '') {
+            $summary['cycle'] = $adminCycle;
+        }
+
+        $accountFeatures = [
+            'is_pro'             => $isPro,
+            'blocked'            => (bool) ($summary['blocked'] ?? false),
+
+            // BASE
+            'cfdi_manual'        => true,
+            'cfdi_emitidos'      => true,
+            'cfdi_descargas'     => true,
+            'cfdi_cancelacion'   => true,
+            'catalogos'          => true,
+
+            // PRO
+            'cfdi_masivo'        => $isPro,
+            'excel_templates'    => $isPro,
+            'batch_processing'   => $isPro,
+            'nomina_masiva'      => $isPro,
+            'cfdi_nomina_pro'    => $isPro,
+            'rep_masivo'         => $isPro,
+            'carta_porte_masiva' => $isPro,
+            'api_integrations'   => $isPro,
+            'automation_rules'   => $isPro,
+        ];
+
         return view('cliente.facturacion.index', [
+            'summary'         => $summary,
+            'plan'            => $plan,
+            'planKey'         => $planKey,
+            'isPro'           => $isPro,
+            'accountFeatures' => $accountFeatures,
+
             'period_from' => $from,
             'period_to'   => $to,
             'kpis'        => $kpis,
@@ -248,6 +554,8 @@ class FacturacionController extends Controller
         }
     }
 
+    
+
     /** Formulario: Nuevo Documento (robusto ante tablas faltantes). */
     public function create(Request $request): View
     {
@@ -297,100 +605,196 @@ class FacturacionController extends Controller
             }
         );
 
-        return view('cliente.facturacion.nuevo', [
+        return view('cliente.facturacion.create', [
             'emisores'   => $emisores,
             'receptores' => $receptores,
             'productos'  => $productos,
         ]);
     }
 
-    /** Guardar borrador. */
+    protected function onlyExistingColumnsForInsert(string $table, string $conn, array $payload): array
+    {
+        try {
+            $columns = Schema::connection($conn)->getColumnListing($table);
+        } catch (\Throwable $e) {
+            return $payload;
+        }
+
+        return collect($payload)
+            ->filter(fn ($value, string $key) => in_array($key, $columns, true))
+            ->all();
+    }
+
+    /** Guardar borrador fiscal CFDI 4.0. */
     public function store(Request $request)
     {
         $data = $request->validate([
-            'cliente_id'    => 'required|integer',
-            'receptor_id'   => 'required|integer',
-            'serie'         => 'nullable|string|max:10',
-            'folio'         => 'nullable|string|max:20',
-            'moneda'        => 'nullable|string|max:10',
-            'forma_pago'    => 'nullable|string|max:10',
-            'metodo_pago'   => 'nullable|string|max:10',
-            'fecha'         => 'nullable|date',
-            'conceptos'     => 'required|array|min:1',
+            'cliente_id'          => 'required|integer',
+            'receptor_id'         => 'required|integer',
+
+            'version_cfdi'        => 'nullable|string|max:10',
+            'tipo_comprobante'    => 'nullable|string|max:5',
+            'tipo_documento'      => 'nullable|string|max:5',
+
+            'serie'               => 'nullable|string|max:10',
+            'folio'               => 'nullable|string|max:20',
+            'fecha'               => 'nullable|date',
+
+            'moneda'              => 'nullable|string|max:10',
+            'metodo_pago'         => 'nullable|string|max:10',
+            'forma_pago'          => 'nullable|string|max:10',
+            'condiciones_pago'    => 'nullable|string|max:120',
+
+            'uso_cfdi'            => 'nullable|string|max:10',
+            'regimen_receptor'    => 'nullable|string|max:10',
+            'cp_receptor'         => 'nullable|string|max:10',
+
+            'tipo_relacion'       => 'nullable|string|max:10',
+            'uuid_relacionado'    => 'nullable|string|max:60',
+
+            'observaciones'       => 'nullable|string|max:2000',
+
+            'conceptos'           => 'required|array|min:1',
             'conceptos.*.producto_id'     => 'nullable|integer',
             'conceptos.*.descripcion'     => 'required|string|max:500',
             'conceptos.*.cantidad'        => 'required|numeric|min:0.0001',
             'conceptos.*.precio_unitario' => 'required|numeric|min:0',
             'conceptos.*.iva_tasa'        => 'nullable|numeric|min:0',
-            // complementos[] de momento se ignoran a nivel validación/persistencia
         ]);
 
-        $subtotal = 0.0; $iva = 0.0; $total = 0.0;
+        $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
+        $formaPago  = strtoupper((string) ($data['forma_pago'] ?? '03'));
+
+        if ($metodoPago === 'PPD') {
+            $formaPago = '99';
+        }
+
+        $subtotal = 0.0;
+        $iva      = 0.0;
+        $total    = 0.0;
+
         foreach ($data['conceptos'] as $c) {
             $cant = (float) $c['cantidad'];
             $ppu  = (float) $c['precio_unitario'];
             $tasa = isset($c['iva_tasa']) ? (float) $c['iva_tasa'] : 0.16;
 
-            $lsub = round($cant * $ppu, 4);
-            $liva = round($lsub * $tasa, 4);
-            $ltot = round($lsub + $liva, 4);
+            $lineSubtotal = round($cant * $ppu, 4);
+            $lineIva      = round($lineSubtotal * $tasa, 4);
+            $lineTotal    = round($lineSubtotal + $lineIva, 4);
 
-            $subtotal += $lsub; $iva += $liva; $total += $ltot;
+            $subtotal += $lineSubtotal;
+            $iva      += $lineIva;
+            $total    += $lineTotal;
         }
+
         $subtotal = round($subtotal, 2);
         $iva      = round($iva, 2);
         $total    = round($total, 2);
 
+        $conn          = $this->cfdiConn();
+        $cfdiModel     = new Cfdi;
+        $conceptoModel = new CfdiConcepto;
+
+        $cfdiTable     = $cfdiModel->getTable();
+        $conceptoTable = $conceptoModel->getTable();
+
         $uuidTemp = (string) \Illuminate\Support\Str::uuid();
-        $conn     = $this->cfdiConn();
 
-        DB::connection($conn)->transaction(function () use ($data, $subtotal, $iva, $total, $uuidTemp, $conn) {
-            $cfdi = (new Cfdi);
-            $cfdi->setConnection($conn);
-            $cfdi = $cfdi->newQuery()->create([
-                'cliente_id'   => $data['cliente_id'],
-                'receptor_id'  => $data['receptor_id'] ?? null,
-                'serie'        => $data['serie'] ?? null,
-                'folio'        => $data['folio'] ?? null,
-                'subtotal'     => $subtotal,
-                'iva'          => $iva,
-                'total'        => $total,
-                'fecha'        => $data['fecha'] ?? now(),
-                'estatus'      => 'borrador',
-                'uuid'         => $uuidTemp,
-                'moneda'       => $data['moneda'] ?? 'MXN',
-                'forma_pago'   => $data['forma_pago'] ?? null,
-                'metodo_pago'  => $data['metodo_pago'] ?? null,
-            ]);
+        DB::connection($conn)->transaction(function () use (
+            $conn,
+            $cfdiTable,
+            $conceptoTable,
+            $data,
+            $subtotal,
+            $iva,
+            $total,
+            $uuidTemp,
+            $metodoPago,
+            $formaPago
+        ) {
+            $now = now();
 
-            $cc = (new CfdiConcepto);
-            $cc->setConnection($conn);
+            $cfdiPayload = [
+                'cliente_id'          => $data['cliente_id'],
+                'receptor_id'         => $data['receptor_id'] ?? null,
+
+                'uuid'                => $uuidTemp,
+                'serie'               => $data['serie'] ?? null,
+                'folio'               => $data['folio'] ?? null,
+                'fecha'               => $data['fecha'] ?? $now,
+
+                'version_cfdi'        => $data['version_cfdi'] ?? '4.0',
+                'tipo_comprobante'    => $data['tipo_comprobante'] ?? ($data['tipo_documento'] ?? 'I'),
+                'tipo_documento'      => $data['tipo_documento'] ?? ($data['tipo_comprobante'] ?? 'I'),
+
+                'moneda'              => $data['moneda'] ?? 'MXN',
+                'metodo_pago'         => $metodoPago,
+                'forma_pago'          => $formaPago,
+                'condiciones_pago'    => $data['condiciones_pago'] ?? null,
+
+                'uso_cfdi'            => $data['uso_cfdi'] ?? 'G03',
+                'regimen_receptor'    => $data['regimen_receptor'] ?? null,
+                'cp_receptor'         => $data['cp_receptor'] ?? null,
+
+                'tipo_relacion'       => $data['tipo_relacion'] ?? null,
+                'uuid_relacionado'    => $data['uuid_relacionado'] ?? null,
+
+                'subtotal'            => $subtotal,
+                'iva'                 => $iva,
+                'total'               => $total,
+
+                'saldo_original'      => $total,
+                'saldo_pagado'        => 0,
+                'saldo_pendiente'     => $metodoPago === 'PPD' ? $total : 0,
+
+                'estatus'             => 'borrador',
+                'estado_pago'         => $metodoPago === 'PPD' ? 'pendiente' : 'no_requiere_rep',
+
+                'observaciones'       => $data['observaciones'] ?? null,
+                'created_at'          => $now,
+                'updated_at'          => $now,
+            ];
+
+            $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+
+            $cfdiId = DB::connection($conn)
+                ->table($cfdiTable)
+                ->insertGetId($cfdiPayload);
 
             foreach ($data['conceptos'] as $c) {
                 $cant = (float) $c['cantidad'];
                 $ppu  = (float) $c['precio_unitario'];
                 $tasa = isset($c['iva_tasa']) ? (float) $c['iva_tasa'] : 0.16;
 
-                $lsub = round($cant * $ppu, 4);
-                $liva = round($lsub * $tasa, 4);
-                $ltot = round($lsub + $liva, 4);
+                $lineSubtotal = round($cant * $ppu, 4);
+                $lineIva      = round($lineSubtotal * $tasa, 4);
+                $lineTotal    = round($lineSubtotal + $lineIva, 4);
 
-                $cc->newQuery()->create([
-                    'cfdi_id'         => $cfdi->id,
+                $conceptoPayload = [
+                    'cfdi_id'         => $cfdiId,
                     'producto_id'     => $c['producto_id'] ?? null,
                     'descripcion'     => $c['descripcion'],
                     'cantidad'        => $cant,
                     'precio_unitario' => $ppu,
-                    'subtotal'        => round($lsub, 2),
-                    'iva'             => round($liva, 2),
-                    'total'           => round($ltot, 2),
-                ]);
+                    'iva_tasa'        => $tasa,
+                    'subtotal'        => round($lineSubtotal, 2),
+                    'iva'             => round($lineIva, 2),
+                    'total'           => round($lineTotal, 2),
+                    'created_at'      => $now,
+                    'updated_at'      => $now,
+                ];
+
+                $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
+
+                DB::connection($conn)
+                    ->table($conceptoTable)
+                    ->insert($conceptoPayload);
             }
         });
 
         return redirect()
             ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
-            ->with('ok', 'Borrador creado correctamente.');
+            ->with('ok', 'Borrador CFDI 4.0 creado correctamente.');
     }
 
     /* ===================== KPIs/Series ===================== */
