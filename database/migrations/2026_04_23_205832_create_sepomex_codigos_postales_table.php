@@ -10,6 +10,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection('mysql_clientes')->hasTable('sepomex_codigos_postales')) {
+            return;
+        }
+
         Schema::connection('mysql_clientes')->create('sepomex_codigos_postales', function (Blueprint $table) {
             $table->id();
 
