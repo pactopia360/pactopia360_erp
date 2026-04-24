@@ -552,6 +552,39 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/nuevo', [ClienteFacturacion::class, 'create'])->name('create');
             Route::post('/', [ClienteFacturacion::class, 'store'])->name('store');
 
+            Route::get('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorShow'])
+                ->whereNumber('receptor')
+                ->name('receptores.show');
+
+            Route::post('/receptores', [ClienteFacturacion::class, 'receptorStore'])
+                ->name('receptores.store');
+
+            Route::put('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorUpdate'])
+                ->whereNumber('receptor')
+                ->name('receptores.update');
+
+            Route::post('/assistant', [ClienteFacturacion::class, 'assistant'])
+                ->name('assistant');
+
+            Route::get('/catalogs', [ClienteFacturacion::class, 'catalogs'])
+                ->name('catalogs');
+
+            Route::get('/postal-code/{cp}', [ClienteFacturacion::class, 'postalCode'])
+                ->where('cp', '[0-9]{5}')
+                ->name('postal-code');
+            
+            Route::get('/locations/countries', [ClienteFacturacion::class, 'locationCountries'])
+                ->name('locations.countries');
+
+            Route::get('/locations/states', [ClienteFacturacion::class, 'locationStates'])
+                ->name('locations.states');
+
+            Route::get('/locations/municipalities', [ClienteFacturacion::class, 'locationMunicipalities'])
+                ->name('locations.municipalities');
+
+            Route::get('/locations/colonies', [ClienteFacturacion::class, 'locationColonies'])
+                ->name('locations.colonies');
+
             Route::get('/kpis', [ClienteFacturacion::class, 'kpis'])->name('kpis');
             Route::get('/series', [ClienteFacturacion::class, 'series'])->name('series');
             Route::get('/export', [ClienteFacturacion::class, 'export'])->name('export');

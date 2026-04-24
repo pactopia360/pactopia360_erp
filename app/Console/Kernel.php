@@ -22,6 +22,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\P360InventoryCommand::class,
         \App\Console\Commands\ClienteQaNormalize::class,
         \App\Console\Commands\CleanExpiredOtps::class,
+        \App\Console\Commands\ImportSepomexCodigosPostales::class,
 
         // SAT (Commands)
         \App\Console\Commands\SatAutoDownloadCommand::class,
