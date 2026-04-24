@@ -1347,7 +1347,19 @@ class FacturacionController extends Controller
         $emitidos = (float) ((clone $period)->where('estatus', 'emitido')->sum('total') ?? 0);
         $cancelados = (float) ((clone $period)->where('estatus', 'cancelado')->sum('total') ?? 0);
         $borradores = (int) ((clone $period)->where('estatus', 'borrador')->count() ?? 0);
-        $ppdPendientes = (float) ((clone $period)->where('metodo_pago', 'PPD')->sum('saldo_pendiente') ?? 0);
+        $cfdiModel = new Cfdi;
+        $cfdiTable = $cfdiModel->getTable();
+        $cfdiConn = $this->cfdiConn();
+
+        if ($this->hasColumn($cfdiTable, 'saldo_pendiente', $cfdiConn)) {
+            $ppdPendientes = (float) ((clone $period)
+                ->where('metodo_pago', 'PPD')
+                ->sum('saldo_pendiente') ?? 0);
+        } else {
+            $ppdPendientes = (float) ((clone $period)
+                ->where('metodo_pago', 'PPD')
+                ->sum('total') ?? 0);
+        }
 
         $fromC = Carbon::parse($from);
         $toC = Carbon::parse($to);
