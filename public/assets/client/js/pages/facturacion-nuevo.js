@@ -882,6 +882,18 @@ document.getElementById('btnProductReset')?.addEventListener('click', resetProdu
 
 document.getElementById('product_descripcion')?.addEventListener('input', applyProductAi);
 
+document.getElementById('product_ai_query')?.addEventListener('input', applyProductAi);
+
+document.getElementById('productSatResults')?.addEventListener('click', function (event) {
+  const card = event.target.closest('[data-sat-clave]');
+
+  if (!card) {
+    return;
+  }
+
+  applySatSuggestion(card);
+});
+
 productSearch?.addEventListener('input', function () {
   renderProducts(productSearch.value);
 });

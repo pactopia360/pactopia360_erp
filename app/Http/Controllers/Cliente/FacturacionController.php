@@ -847,6 +847,7 @@ class FacturacionController extends Controller
         $cfdiTable = $cfdiModel->getTable();
         $conceptoTable = $conceptoModel->getTable();
         $clienteIdForCfdi = is_numeric($cuenta->id) ? (int) $cuenta->id : 0;
+        $uuidTemp = 'BORRADOR-' . strtoupper((string) Str::uuid());
 
         DB::connection($conn)->transaction(function () use (
                 $conn,

@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Cliente;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cliente\CuentaCliente;
 use App\Models\Cliente\Producto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Cliente\CuentaCliente;
 use Illuminate\Support\Facades\Schema;
 
 class ProductosController extends Controller
@@ -44,9 +44,10 @@ class ProductosController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
+        $cuentaId = $this->cuentaId();
 
         $producto = Producto::create([
-            'cuenta_id' => $this->cuentaId(),
+            'cuenta_id' => $cuentaId,
             'sku' => $data['sku'] ?? null,
             'descripcion' => $data['descripcion'],
             'precio_unitario' => $data['precio_unitario'] ?? 0,
@@ -129,7 +130,7 @@ class ProductosController extends Controller
             'id' => $producto->id,
             'sku' => $producto->sku,
             'descripcion' => $producto->descripcion,
-            'label' => trim(($producto->sku ? "{$producto->sku} · " : '').$producto->descripcion),
+            'label' => trim(($producto->sku ? "{$producto->sku} · " : '') . $producto->descripcion),
             'precio_unitario' => (float) $producto->precio_unitario,
             'iva_tasa' => (float) $producto->iva_tasa,
             'clave_sat' => $producto->clave_prodserv,
@@ -146,45 +147,77 @@ class ProductosController extends Controller
         abort_if((string) $producto->cuenta_id !== (string) $this->cuentaId(), 404);
     }
 
-    private function cuentaId(): int
+    private function cuentaId(): string
     {
-        $user = Auth::user();
+        $user = Auth::guard('web')->user();
 
         $candidates = [
             $user->cuenta_id ?? null,
             $user->cuenta_cliente_id ?? null,
+            $user->account_id ?? null,
+            $user->cliente_id ?? null,
+
+            session('cliente.cuenta_id'),
+            session('cliente.account_id'),
+            session('client.cuenta_id'),
+            session('client.account_id'),
             session('cuenta_id'),
-            session('cliente_cuenta_id'),
+            session('account_id'),
+            session('client_cuenta_id'),
+            session('client_account_id'),
+            session('p360.account_id'),
         ];
 
         foreach ($candidates as $candidate) {
-            if (is_numeric($candidate)) {
-                return (int) $candidate;
+            $value = trim((string) $candidate);
+
+            if ($value !== '' && strtolower($value) !== 'null') {
+                return $value;
             }
         }
 
         if ($user && Schema::connection('mysql_clientes')->hasTable('cuentas_clientes')) {
-            $query = CuentaCliente::query();
+            $cuenta = $this->buscarCuentaCliente($user);
 
-            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'usuario_id')) {
-                $query->orWhere('usuario_id', $user->id);
-            }
+            if ($cuenta && isset($cuenta->id)) {
+                $value = trim((string) $cuenta->id);
 
-            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'user_id')) {
-                $query->orWhere('user_id', $user->id);
-            }
-
-            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'owner_user_id')) {
-                $query->orWhere('owner_user_id', $user->id);
-            }
-
-            $cuenta = $query->first();
-
-            if ($cuenta && is_numeric($cuenta->id)) {
-                return (int) $cuenta->id;
+                if ($value !== '') {
+                    return $value;
+                }
             }
         }
 
         abort(422, 'No se pudo resolver la cuenta cliente para guardar productos.');
+    }
+
+    private function buscarCuentaCliente($user): ?CuentaCliente
+    {
+        $query = CuentaCliente::query();
+
+        $query->where(function ($q) use ($user) {
+            $added = false;
+
+            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'usuario_id')) {
+                $q->orWhere('usuario_id', $user->id);
+                $added = true;
+            }
+
+            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'user_id')) {
+                $q->orWhere('user_id', $user->id);
+                $added = true;
+            }
+
+            if (Schema::connection('mysql_clientes')->hasColumn('cuentas_clientes', 'owner_user_id')) {
+                $q->orWhere('owner_user_id', $user->id);
+                $added = true;
+            }
+
+            if (! $added) {
+                $q->whereRaw('1 = 0');
+            }
+        });
+
+        return $query->first();
     }
 }

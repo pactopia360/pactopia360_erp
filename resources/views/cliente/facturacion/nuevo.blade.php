@@ -612,81 +612,116 @@
 <div class="cfdi-product-modal" id="productModal" aria-hidden="true">
     <div class="cfdi-product-modal-backdrop" data-close-product-modal></div>
 
-    <div class="cfdi-product-modal-dialog">
-        <div class="cfdi-product-modal-head">
+    <div class="cfdi-product-modal-dialog p360-product-ai-modal">
+        <div class="cfdi-product-modal-head p360-product-ai-head">
             <div>
+                <span class="p360-ai-pill">IA fiscal SAT</span>
                 <h2>Productos y servicios</h2>
-                <p>Administra catálogo, clave SAT, unidad, IVA y llena conceptos automáticamente.</p>
+                <p>Encuentra la clave SAT correcta, unidad, IVA y guarda conceptos listos para facturar.</p>
             </div>
 
             <button type="button" data-close-product-modal>×</button>
         </div>
 
-        <div class="cfdi-product-modal-body">
-            <div class="cfdi-product-ai">
-                <strong>IA fiscal de producto</strong>
-                <span id="productAiText">Escribe una descripción para sugerir clave SAT, unidad e IVA.</span>
+        <div class="cfdi-product-modal-body p360-product-ai-body">
+            <div class="p360-product-ai-grid">
+
+                <section class="p360-product-panel p360-product-panel-main">
+                    <div class="p360-ai-search-card">
+                        <div>
+                            <strong>Asistente para identificar clave SAT</strong>
+                            <span id="productAiText">Describe qué vendes o qué servicio prestas y te sugerimos la clave más probable.</span>
+                        </div>
+
+                        <input type="search"
+                               id="product_ai_query"
+                               placeholder="Ej. soporte mensual, desarrollo de software, renta, venta de equipo, consultoría...">
+                    </div>
+
+                    <div class="p360-sat-suggestions" id="productSatResults"></div>
+
+                    <form id="productForm" class="cfdi-product-form p360-product-form">
+                        <input type="hidden" id="product_id">
+
+                        <label>
+                            <span>SKU / Código interno</span>
+                            <input type="text" id="product_sku" placeholder="Opcional">
+                        </label>
+
+                        <label class="span-2">
+                            <span>Descripción fiscal</span>
+                            <textarea id="product_descripcion" rows="3" required placeholder="Ej. Servicio mensual de soporte y mantenimiento"></textarea>
+                        </label>
+
+                        <label>
+                            <span>Precio unitario</span>
+                            <input type="number" id="product_precio" step="0.0001" min="0" value="0">
+                        </label>
+
+                        <label>
+                            <span>Clave SAT</span>
+                            <input type="text" id="product_clave" value="01010101">
+                        </label>
+
+                        <label>
+                            <span>Unidad SAT</span>
+                            <select id="product_unidad">
+                                <option value="E48">E48 · Unidad de servicio</option>
+                                <option value="H87">H87 · Pieza</option>
+                                <option value="ACT">ACT · Actividad</option>
+                                <option value="KGM">KGM · Kilogramo</option>
+                                <option value="LTR">LTR · Litro</option>
+                                <option value="MTR">MTR · Metro</option>
+                            </select>
+                        </label>
+
+                        <label>
+                            <span>IVA</span>
+                            <select id="product_iva">
+                                <option value="0.16">16%</option>
+                                <option value="0.08">8%</option>
+                                <option value="0">0%</option>
+                            </select>
+                        </label>
+
+                        <label class="check p360-product-active">
+                            <input type="checkbox" id="product_activo" checked>
+                            <span>Activo</span>
+                        </label>
+
+                        <div class="cfdi-product-actions p360-product-actions">
+                            <button type="button" class="cfdi-btn ghost" id="btnProductReset">Nuevo</button>
+                            <button type="submit" class="cfdi-btn primary">Guardar producto</button>
+                        </div>
+                    </form>
+                </section>
+
+                <aside class="p360-product-panel p360-product-panel-side">
+                    <div class="p360-product-help">
+                        <strong>Guía rápida</strong>
+                        <p id="productHelpText">La clave SAT debe representar lo que realmente vendes. Si no estás seguro, usa una sugerencia y valida antes de timbrar.</p>
+                    </div>
+
+                    <div class="p360-product-mini-kpis" id="productSuggestedMeta">
+                        <div>
+                            <small>Confianza</small>
+                            <strong>0%</strong>
+                        </div>
+                        <div>
+                            <small>Objeto impuesto</small>
+                            <strong>02</strong>
+                        </div>
+                    </div>
+
+                    <div class="cfdi-product-list-head p360-product-list-head">
+                        <strong>Catálogo guardado</strong>
+                        <input type="search" id="productSearch" placeholder="Buscar producto, SKU o clave SAT...">
+                    </div>
+
+                    <div class="cfdi-product-list p360-product-list" id="productList"></div>
+                </aside>
+
             </div>
-
-            <form id="productForm" class="cfdi-product-form">
-                <input type="hidden" id="product_id">
-
-                <label>
-                    <span>SKU / Código</span>
-                    <input type="text" id="product_sku" placeholder="Opcional">
-                </label>
-
-                <label class="span-2">
-                    <span>Descripción</span>
-                    <textarea id="product_descripcion" rows="3" required placeholder="Ej. Servicio mensual de soporte y mantenimiento"></textarea>
-                </label>
-
-                <label>
-                    <span>Precio unitario</span>
-                    <input type="number" id="product_precio" step="0.0001" min="0" value="0">
-                </label>
-
-                <label>
-                    <span>Clave SAT</span>
-                    <input type="text" id="product_clave" value="01010101">
-                </label>
-
-                <label>
-                    <span>Unidad SAT</span>
-                    <select id="product_unidad">
-                        <option value="E48">E48 · Servicio</option>
-                        <option value="H87">H87 · Pieza</option>
-                        <option value="ACT">ACT · Actividad</option>
-                        <option value="KGM">KGM · Kilogramo</option>
-                    </select>
-                </label>
-
-                <label>
-                    <span>IVA</span>
-                    <select id="product_iva">
-                        <option value="0.16">16%</option>
-                        <option value="0.08">8%</option>
-                        <option value="0">0%</option>
-                    </select>
-                </label>
-
-                <label class="check">
-                    <input type="checkbox" id="product_activo" checked>
-                    <span>Activo</span>
-                </label>
-
-                <div class="cfdi-product-actions">
-                    <button type="button" class="cfdi-btn ghost" id="btnProductReset">Nuevo</button>
-                    <button type="submit" class="cfdi-btn primary">Guardar producto</button>
-                </div>
-            </form>
-
-            <div class="cfdi-product-list-head">
-                <strong>Catálogo</strong>
-                <input type="search" id="productSearch" placeholder="Buscar producto, SKU o clave SAT...">
-            </div>
-
-            <div class="cfdi-product-list" id="productList"></div>
         </div>
     </div>
 </div>
