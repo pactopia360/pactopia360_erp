@@ -13,15 +13,26 @@ class Emisor extends Model
     protected $table = 'emisores';
 
     protected $fillable = [
-        'cuenta_id','rfc','razon_social','nombre_comercial',
-        'email','regimen_fiscal','grupo','direccion','certificados','series',
-        'status','csd_serie','csd_vigencia_hasta','ext_id',
+        'cuenta_id',
+        'rfc',
+        'razon_social',
+        'nombre_comercial',
+        'email',
+        'regimen_fiscal',
+        'grupo',
+        'direccion',
+        'certificados',
+        'series',
+        'status',
+        'csd_serie',
+        'csd_vigencia_hasta',
+        'ext_id',
     ];
 
     protected $casts = [
-        'direccion'          => 'array',
-        'certificados'       => 'array',
-        'series'             => 'array',
+        'direccion' => 'array',
+        'certificados' => 'array',
+        'series' => 'array',
         'csd_vigencia_hasta' => 'datetime',
     ];
 }

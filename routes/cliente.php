@@ -27,6 +27,8 @@ use App\Http\Controllers\Cliente\PasswordController;
 use App\Http\Controllers\Cliente\StripeController;
 use App\Http\Controllers\Cliente\AccountBillingController;
 use App\Http\Controllers\Cliente\FacturacionController as ClienteFacturacion;
+use App\Http\Controllers\Cliente\RfcsController as ClienteRfcs;
+use App\Http\Controllers\Cliente\ProductosController as ClienteProductos;
 
 use App\Http\Controllers\Cliente\AlertasController;
 use App\Http\Controllers\Cliente\ChatController;
@@ -540,6 +542,44 @@ Route::middleware(['auth:web', 'account.active'])
 
         /*
         |--------------------------------------------------------------------------
+        | RFC / EMISORES CLIENTE
+        |--------------------------------------------------------------------------
+        | Módulo independiente para centralizar:
+        | - Alta, baja y cambios de RFC
+        | - Configuración fiscal del emisor
+        | - FIEL / CSD
+        | - Series y folios
+        | - Estado activo/inactivo
+        |
+        | IMPORTANTE:
+        | Los RFC vienen de sat_credentials y usan UUID, por eso NO debe usarse
+        | whereNumber('rfc') ni whereNumber('serie').
+        | Este módulo NO pertenece al Portal Descargas SAT.
+        */
+        Route::prefix('rfcs')->name('rfcs.')->group(function () {
+            Route::get('/', [ClienteRfcs::class, 'index'])->name('index');
+            Route::post('/', [ClienteRfcs::class, 'store'])->name('store');
+
+            Route::get('/{rfc}', [ClienteRfcs::class, 'show'])->name('show');
+
+            Route::put('/{rfc}', [ClienteRfcs::class, 'update'])->name('update');
+
+            Route::delete('/{rfc}', [ClienteRfcs::class, 'destroy'])->name('destroy');
+
+            Route::post('/{rfc}/toggle', [ClienteRfcs::class, 'toggle'])->name('toggle');
+
+            Route::post('/{rfc}/certificados', [ClienteRfcs::class, 'storeCertificados'])->name('certificados.store');
+
+            Route::post('/{rfc}/series', [ClienteRfcs::class, 'storeSerie'])->name('series.store');
+
+            Route::put('/{rfc}/series/{serie}', [ClienteRfcs::class, 'updateSerie'])->name('series.update');
+
+            Route::delete('/{rfc}/series/{serie}', [ClienteRfcs::class, 'destroySerie'])->name('series.destroy');
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
         | FACTURACIÓN CLIENTE
         |--------------------------------------------------------------------------
         | Mantiene la lógica del sidebar:
@@ -588,6 +628,18 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/kpis', [ClienteFacturacion::class, 'kpis'])->name('kpis');
             Route::get('/series', [ClienteFacturacion::class, 'series'])->name('series');
             Route::get('/export', [ClienteFacturacion::class, 'export'])->name('export');
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | PRODUCTOS CLIENTE
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('productos')->name('productos.')->group(function () {
+            Route::get('/', [ClienteProductos::class, 'index'])->name('index');
+            Route::post('/', [ClienteProductos::class, 'store'])->name('store');
+            Route::put('/{producto}', [ClienteProductos::class, 'update'])->name('update');
+            Route::delete('/{producto}', [ClienteProductos::class, 'destroy'])->name('destroy');
         });
 
         /*

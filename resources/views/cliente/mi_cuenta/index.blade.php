@@ -4,121 +4,8 @@
 @section('pageClass','page-mi-cuenta')
 
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/client/css/mi-cuenta.css') }}?v=4.3">
-
-  <style>
-/* ===========================================================
-   CRÍTICO (LIGHT FIRST): overlay + dialogs centrados
-=========================================================== */
-
-body.mc-modal-open{ overflow:hidden !important; }
-
-#mcOverlay{
-  position: fixed !important;
-  inset: 0 !important;
-  background: rgba(15,23,42,.45) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
-  z-index: 2147483646 !important;
-  display: none !important;
-  pointer-events: auto !important;
-}
-#mcOverlay.is-on{ display:block !important; }
-
-html[data-theme="dark"] #mcOverlay{
-  background: rgba(2,6,23,.72) !important;
-  backdrop-filter: blur(2px) !important;
-  -webkit-backdrop-filter: blur(2px) !important;
-}
-
-#billingModal,
-#configModal,
-#paymentsModal,
-#invoicesModal{
-  z-index: 2147483647 !important;
-  border: 1px solid rgba(15,23,42,.10) !important;
-  padding: 0 !important;
-  background: #ffffff !important;
-  width: auto !important;
-  max-width: none !important;
-  border-radius: 18px !important;
-  overflow: hidden !important;
-  box-shadow: 0 22px 70px rgba(15,23,42,.22) !important;
-}
-
-html[data-theme="dark"] #billingModal,
-html[data-theme="dark"] #configModal,
-html[data-theme="dark"] #paymentsModal,
-html[data-theme="dark"] #invoicesModal{
-  background: var(--mc-card, #0b1220) !important;
-  border-color: rgba(148,163,184,.18) !important;
-  box-shadow: 0 26px 80px rgba(0,0,0,.55) !important;
-}
-
-#billingModal[open],
-#configModal[open],
-#paymentsModal[open],
-#invoicesModal[open]{
-  position: fixed !important;
-  inset: 0 !important;
-  margin: auto !important;
-  width: min(96vw, 1080px) !important;
-  max-height: min(88vh, 820px) !important;
-}
-
-#billingModal::backdrop,
-#configModal::backdrop,
-#paymentsModal::backdrop,
-#invoicesModal::backdrop{
-  background: rgba(15,23,42,.45) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
-}
-html[data-theme="dark"] #billingModal::backdrop,
-html[data-theme="dark"] #configModal::backdrop,
-html[data-theme="dark"] #paymentsModal::backdrop,
-html[data-theme="dark"] #invoicesModal::backdrop{
-  background: rgba(2,6,23,.72) !important;
-  backdrop-filter: blur(2px) !important;
-  -webkit-backdrop-filter: blur(2px) !important;
-}
-
-#billingModal .mc-modal-body,
-#configModal .mc-modal-body,
-#paymentsModal .mc-modal-body,
-#invoicesModal .mc-modal-body{
-  max-height: calc(min(88vh, 820px) - 72px) !important;
-  overflow: auto !important;
-}
-
-.mc-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
-.mc-tab{
-  border: 1px solid rgba(15,23,42,.10);
-  background: #fff;
-  border-radius: 999px;
-  padding: .45rem .8rem;
-  font-weight: 900;
-  cursor:pointer;
-}
-.mc-tab.is-active{
-  border-color: rgba(225,29,72,.30);
-  background: rgba(225,29,72,.08);
-  color: #9f1239;
-}
-.mc-pane[hidden]{display:none !important;}
-
-.mc-modal .mc-input,
-.mc-modal .mc-select{ width:100%; }
-
-.mc-two{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .8rem;
-}
-@media (max-width: 860px){
-  .mc-two{grid-template-columns:1fr;}
-}
-</style>
+  <link rel="stylesheet" href="{{ asset('assets/client/css/mi-cuenta.css') }}?v=5.0">
+  <script src="{{ asset('assets/client/js/mi-cuenta.js') }}?v=1.0" defer></script>
 @endpush
 
 @section('content')
@@ -243,249 +130,227 @@ html[data-theme="dark"] #invoicesModal::backdrop{
 @endphp
 
 <div class="mc-wrap">
-  <div class="mc-page">
+  <div class="mc-page mc-page-v9">
 
-    <section class="mc-card mc-header" style="--mc-accent: {{ $brandAccent }};">
-      <div class="mc-header-left">
-        <div class="mc-title-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.51 4.51 0 0 0 12 12Z" stroke="currentColor" stroke-width="2"/>
-            <path d="M20 21a8 8 0 1 0-16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
+    <section class="mc-hero-account mc-hero-account-v9" style="--mc-accent: {{ $brandAccent }};">
+      <div class="mc-hero-left">
+        <div class="mc-hero-chip">
+          <span></span>
+          MI CUENTA · PORTAL USUARIO
         </div>
-        <div style="min-width:0">
-          <h1 class="mc-title-main">Mi cuenta</h1>
-          <div class="mc-title-sub">Accesos rápidos a tu cuenta, datos fiscales, estado de cuenta y pagos.</div>
-        </div>
+
+        <h1>Mi cuenta</h1>
+
+        <p>
+          Administra tu información personal, empresas, configuración fiscal,
+          documentos y todo lo relacionado con tu cuenta en Pactopia360.
+        </p>
       </div>
 
-      <div class="mc-header-right">
-        <div class="mc-pill-row">
-          <span class="mc-pill mc-pill--ok">● {{ $plan }}</span>
-          <span class="mc-pill mc-pill--neutral">{{ $cycle }}</span>
-          <span class="mc-pill {{ $statusClass }}">{{ $status }}</span>
+      <div class="mc-hero-summary">
+        <div class="mc-hero-mini-card">
+          <span>Usuario</span>
+          <strong title="{{ $userName }}">{{ $userName }}</strong>
+          <i>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </i>
         </div>
 
-        <div class="mc-kv">
-          <div class="k">Usuario</div>
-          <div class="v" title="{{ $userName }}">{{ $userName }}</div>
-        </div>
-
-        <div class="mc-kv">
-          <div class="k">Correo</div>
-          <div class="v" title="{{ $userEmail }}">{{ $userEmail }}</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="mc-section" data-mc-section="s1" data-open="1">
-      <div class="mc-sec-head">
-        <div class="mc-sec-ico" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2" stroke="currentColor" stroke-width="2"/>
-            <path d="M12 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" stroke="currentColor" stroke-width="2"/>
-          </svg>
-        </div>
-
-        <div class="mc-sec-meta">
-          <div class="mc-sec-kicker">SECCIÓN 1</div>
-          <h2 class="mc-sec-title">Cuenta</h2>
-          <div class="mc-sec-sub">Datos de la cuenta · Estatus · Contratos</div>
-        </div>
-
-        <button type="button" class="mc-sec-toggle" aria-expanded="true" aria-controls="mc-sec-body-s1" data-mc-toggle="s1" title="Desplegar">+</button>
-      </div>
-
-      <div id="mc-sec-body-s1" class="mc-sec-body">
-        <div class="mc-subgrid">
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Mi perfil</div>
-              <div class="mc-sub-desc">Información del usuario y cuenta</div>
-            </div>
-            <div class="mc-sub-right">
-              @if($rtPerfil)
-                <a class="mc-go" href="{{ $rtPerfil }}" title="Ir">›</a>
-              @else
-                <span class="mc-badge">ND</span>
-              @endif
-            </div>
-          </div>
-
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Configuración</div>
-              <div class="mc-sub-desc">Preferencias, seguridad y tema</div>
-            </div>
-            <div class="mc-sub-right">
-              <a class="mc-go" href="#" data-open-config-modal title="Abrir configuración" aria-label="Abrir configuración">›</a>
-            </div>
-          </div>
-
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Contratos</div>
-              <div class="mc-sub-desc">Aceptación y firma</div>
-            </div>
-            <div class="mc-sub-right">
-              @if($rtContratos)
-                <a class="mc-go" href="{{ $rtContratos }}" title="Ir">›</a>
-              @else
-                <span class="mc-badge">ND</span>
-              @endif
-            </div>
-          </div>
+        <div class="mc-hero-mini-card">
+          <span>Correo</span>
+          <strong title="{{ $userEmail }}">{{ $userEmail }}</strong>
+          <i>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M4 6h16v12H4V6Z" stroke="currentColor" stroke-width="2"/>
+              <path d="m4 7 8 6 8-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </i>
         </div>
       </div>
     </section>
 
-    <section class="mc-section" data-mc-section="s2" data-open="1">
-      <div class="mc-sec-head">
-        <div class="mc-sec-ico" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2"/>
-            <path d="M14 2v6h6" stroke="currentColor" stroke-width="2"/>
-          </svg>
+    @if(session('ok'))
+      <div class="mc-alert mc-alert-ok">{{ session('ok') }}</div>
+    @endif
+
+    @if($errors->any())
+      <div class="mc-alert mc-alert-bad">
+        Revisa los campos marcados: {{ $errors->first() }}
+      </div>
+    @endif
+
+    <section class="mc-info-grid-v9">
+      <article class="mc-info-box">
+        <div class="mc-box-head">
+          <h2>Información de tu cuenta</h2>
+          <a href="{{ $rtPerfil ?: '#' }}" class="mc-mini-btn">Editar</a>
         </div>
 
-        <div class="mc-sec-meta">
-          <div class="mc-sec-kicker">SECCIÓN 2</div>
-          <h2 class="mc-sec-title">Datos fiscales</h2>
-          <div class="mc-sec-sub">Razón social, RFC, domicilio fiscal y facturación</div>
+        <div class="mc-detail-list">
+          <div>
+            <span>Nombre</span>
+            <strong>{{ $userName }}</strong>
+          </div>
+          <div>
+            <span>Correo</span>
+            <strong>{{ $userEmail }}</strong>
+          </div>
+          <div>
+            <span>Marca visible</span>
+            <strong>{{ $brandName !== '' ? $brandName : $brandNameFallback }}</strong>
+          </div>
+          <div>
+            <span>Cuenta</span>
+            <strong>{{ $status !== '—' ? $status : 'Activa' }}</strong>
+          </div>
+        </div>
+      </article>
+
+      <article class="mc-info-box">
+        <div class="mc-box-head">
+          <h2>Seguridad y acceso</h2>
+          <button type="button" class="mc-mini-btn" data-open-config-modal>Gestionar</button>
         </div>
 
-        <button type="button" class="mc-sec-toggle" aria-expanded="true" aria-controls="mc-sec-body-s2" data-mc-toggle="s2" title="Desplegar">+</button>
+        <div class="mc-detail-list">
+          <div>
+            <span>Contraseña</span>
+            <strong>••••••••••</strong>
+          </div>
+          <div>
+            <span>Perfil</span>
+            <strong>Usuario principal</strong>
+          </div>
+          <div>
+            <span>Preferencias</span>
+            <strong>Tema, zona horaria y acceso</strong>
+          </div>
+          <div>
+            <span>Último acceso</span>
+            <strong>Sesión actual</strong>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="mc-panel mc-panel-v9">
+      <div class="mc-panel-head mc-panel-head-v9">
+        <div>
+          <h2>Documentos y detalle de cuenta</h2>
+          <p>Consulta lo principal de tu cuenta: datos, estados, pagos, facturas y contratos.</p>
+        </div>
       </div>
 
-      <div id="mc-sec-body-s2" class="mc-sec-body">
-        <div class="mc-subgrid" style="margin-bottom:.85rem;">
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Datos de facturación</div>
-              <div class="mc-sub-desc">Se usan para factura y para PDF del estado de cuenta</div>
-            </div>
-            <div class="mc-sub-right">
-              <a class="mc-go" href="#" data-open-billing-modal title="Abrir" aria-label="Abrir datos de facturación">›</a>
-            </div>
-          </div>
-        </div>
+      <div class="mc-dashboard-grid-v9">
+        <a class="mc-action-card-v9" href="#" data-open-billing-modal>
+          <span class="mc-action-icon green">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Datos fiscales</strong>
+          <small>RFC, razón social y domicilio fiscal.</small>
+          <b>›</b>
+        </a>
 
-        @if(session('ok'))
-          <div style="margin-top:.25rem;padding:.65rem .85rem;border-radius:14px;border:1px solid rgba(34,197,94,.25);background:rgba(34,197,94,.08);font-weight:800;">
-            {{ session('ok') }}
-          </div>
-        @endif
-        @if($errors->any())
-          <div style="margin-top:.25rem;padding:.65rem .85rem;border-radius:14px;border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.08);font-weight:800;">
-            Revisa los campos marcados: {{ $errors->first() }}
-          </div>
-        @endif
+        <a class="mc-action-card-v9" href="{{ $rtEstadoCuenta ?: '#' }}">
+          <span class="mc-action-icon purple">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M8 7h8M8 11h8M8 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Estado de cuenta</strong>
+          <small>Cargos, abonos, periodos y saldo.</small>
+          <b>›</b>
+        </a>
+
+        <a class="mc-action-card-v9" href="#" data-open-payments-modal>
+          <span class="mc-action-icon orange">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M3 7h18v10H3V7Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M3 10h18M7 14h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Pagos</strong>
+          <small>Historial, métodos y comprobantes.</small>
+          <b>›</b>
+        </a>
+
+        <a class="mc-action-card-v9" href="#" data-open-invoices-modal data-invoices-url="{{ $rtInvoicesModal }}">
+          <span class="mc-action-icon blue">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M8 3h8l4 4v14H4V3h4Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 3v5h5M8 13h8M8 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Facturas</strong>
+          <small>Descarga y consulta tus facturas.</small>
+          <b>›</b>
+        </a>
       </div>
     </section>
 
-    <section class="mc-section" data-mc-section="s3" data-open="0">
-      <div class="mc-sec-head">
-        <div class="mc-sec-ico" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2"/>
-            <path d="M8 7h8M8 11h8M8 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
+    <section class="mc-panel mc-panel-v9">
+      <div class="mc-panel-head mc-panel-head-v9">
+        <div>
+          <h2>Configuración global</h2>
+          <p>Ajustes que pertenecen a tu cuenta y se reutilizan en otros módulos.</p>
         </div>
-
-        <div class="mc-sec-meta">
-          <div class="mc-sec-kicker">SECCIÓN 3</div>
-          <h2 class="mc-sec-title">Estado de cuenta</h2>
-          <div class="mc-sec-sub">Facturación, periodos y documentos</div>
-        </div>
-
-        <button type="button" class="mc-sec-toggle" aria-expanded="false" aria-controls="mc-sec-body-s3" data-mc-toggle="s3" title="Desplegar">+</button>
       </div>
 
-      <div id="mc-sec-body-s3" class="mc-sec-body">
-        <div class="mc-subgrid">
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Estado de cuenta</div>
-              <div class="mc-sub-desc">PDFs, periodos y consumos</div>
-            </div>
-            <div class="mc-sub-right">
-              @if($rtEstadoCuenta)
-                <a class="mc-go" href="{{ $rtEstadoCuenta }}" title="Ir">›</a>
-              @else
-                <span class="mc-badge">ND</span>
-              @endif
-            </div>
-          </div>
+      <div class="mc-dashboard-grid-v9">
+        <button type="button" class="mc-action-card-v9" data-open-config-modal>
+          <span class="mc-action-icon blue">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M19 12a7 7 0 0 1-.13 1.35l2.05 1.6-2 3.46-2.42-.98a7.07 7.07 0 0 1-2.34 1.36L13.8 21h-4l-.36-2.21a7.07 7.07 0 0 1-2.34-1.36l-2.42.98-2-3.46 2.05-1.6A7 7 0 0 1 4.6 12c0-.46.04-.91.13-1.35l-2.05-1.6 2-3.46 2.42.98a7.07 7.07 0 0 1 2.34-1.36L9.8 3h4l.36 2.21a7.07 7.07 0 0 1 2.34 1.36l2.42-.98 2 3.46-2.05 1.6c.09.44.13.89.13 1.35Z" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </span>
+          <strong>Preferencias</strong>
+          <small>Tema, zona horaria y seguridad.</small>
+          <b>›</b>
+        </button>
 
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Facturas</div>
-              <div class="mc-sub-desc">Solicitudes de factura y archivos generados</div>
-            </div>
-            <div class="mc-sub-right">
-              @if($rtInvoicesModal)
-                <a class="mc-go"
-                   href="#"
-                   data-open-invoices-modal
-                   data-invoices-url="{{ $rtInvoicesModal }}"
-                   title="Ver facturas"
-                   aria-label="Ver facturas">›</a>
-              @else
-                <span class="mc-badge">ND</span>
-              @endif
-            </div>
-          </div>
-        </div>
+        <button type="button" class="mc-action-card-v9" data-open-config-modal>
+          <span class="mc-action-icon purple">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M4 5h16v14H4V5Z" stroke="currentColor" stroke-width="2"/>
+              <path d="m4 16 5-5 4 4 2-2 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <strong>Logo y marca</strong>
+          <small>Logo, color y nombre visible.</small>
+          <b>›</b>
+        </button>
 
-        @if(!$rtInvoicesModal)
-          <div class="mc-hint" style="margin-top:10px;">
-            Ruta faltante: <code>cliente.mi_cuenta.facturas.index</code>.
-          </div>
-        @endif
-      </div>
-    </section>
+        <button type="button" class="mc-action-card-v9" data-open-billing-modal>
+          <span class="mc-action-icon green">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M4 4h16v16H4V4Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M8 8h8M8 12h8M8 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Plantilla PDF</strong>
+          <small>Datos globales para documentos.</small>
+          <b>›</b>
+        </button>
 
-    <section class="mc-section" data-mc-section="s4" data-open="0">
-      <div class="mc-sec-head">
-        <div class="mc-sec-ico" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M3 7h18v10H3V7Z" stroke="currentColor" stroke-width="2"/>
-            <path d="M3 10h18" stroke="currentColor" stroke-width="2"/>
-            <path d="M7 14h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-        </div>
-
-        <div class="mc-sec-meta">
-          <div class="mc-sec-kicker">SECCIÓN 4</div>
-          <h2 class="mc-sec-title">Pagos</h2>
-          <div class="mc-sec-sub">Historial de pagos y comprobantes</div>
-        </div>
-
-        <button type="button" class="mc-sec-toggle" aria-expanded="false" aria-controls="mc-sec-body-s4" data-mc-toggle="s4" title="Desplegar">+</button>
-      </div>
-
-      <div id="mc-sec-body-s4" class="mc-sec-body">
-        <div class="mc-subgrid">
-          <div class="mc-sub">
-            <div class="mc-sub-left">
-              <div class="mc-sub-title">Mis pagos</div>
-              <div class="mc-sub-desc">Todo lo que has pagado o comprado</div>
-            </div>
-            <div class="mc-sub-right">
-              @if($rtMisPagos)
-                <a class="mc-go" href="#" data-open-payments-modal title="Ver mis pagos" aria-label="Ver mis pagos">›</a>
-              @else
-                <span class="mc-badge">ND</span>
-              @endif
-            </div>
-          </div>
-        </div>
-
-        @if(!$rtMisPagos)
-          <div class="mc-hint" style="margin-top:10px;">
-            Ruta faltante: <code>cliente.mi_cuenta.pagos</code>.
-          </div>
-        @endif
+        <a class="mc-action-card-v9" href="{{ $rtContratos ?: '#' }}">
+          <span class="mc-action-icon orange">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M8 3h8l4 4v14H4V3h4Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 3v5h5M8 13h8M8 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Contratos</strong>
+          <small>Firma, aceptación y documentos legales.</small>
+          <b>›</b>
+        </a>
       </div>
     </section>
 
@@ -934,369 +799,4 @@ html[data-theme="dark"] #invoicesModal::backdrop{
     <button type="button" class="mc-btn" data-close-invoices-modal>Cerrar</button>
   </div>
 </dialog>
-
-@push('scripts')
-<script>
-(function(){
-  function toggle(sectionId){
-    const sec = document.querySelector('.mc-section[data-mc-section="'+sectionId+'"]');
-    if(!sec) return;
-
-    const open = sec.getAttribute('data-open') === '1';
-    sec.setAttribute('data-open', open ? '0' : '1');
-
-    const btn = sec.querySelector('[data-mc-toggle="'+sectionId+'"]');
-    if(btn){
-      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-    }
-  }
-
-  const overlay = document.getElementById('mcOverlay');
-
-  function overlayOn(){
-    document.body.classList.add('mc-modal-open');
-    if (overlay) overlay.classList.add('is-on');
-  }
-
-  function overlayOff(){
-    document.body.classList.remove('mc-modal-open');
-    if (overlay) overlay.classList.remove('is-on');
-  }
-
-  const billingModal  = document.getElementById('billingModal');
-  const configModal   = document.getElementById('configModal');
-  const paymentsModal = document.getElementById('paymentsModal');
-  const invoicesModal = document.getElementById('invoicesModal');
-  const invFrame      = document.getElementById('mcInvFrame');
-
-  function safeShow(dlg){
-    if (!dlg) return;
-
-    [billingModal, configModal, paymentsModal, invoicesModal].forEach(d => {
-      if (!d || d === dlg) return;
-      try { d.close?.(); } catch(e) {}
-      d.removeAttribute?.('open');
-    });
-
-    overlayOn();
-
-    if (typeof dlg.showModal === 'function') {
-      try {
-        dlg.showModal();
-        return;
-      } catch(e) {}
-    }
-
-    dlg.setAttribute('open','open');
-  }
-
-  function safeClose(dlg){
-    if (!dlg) return;
-
-    try { dlg.close?.(); } catch(e) {}
-    dlg.removeAttribute('open');
-
-    const anyOpen = !!(
-      (billingModal?.hasAttribute('open') || billingModal?.open) ||
-      (configModal?.hasAttribute('open') || configModal?.open) ||
-      (paymentsModal?.hasAttribute('open') || paymentsModal?.open) ||
-      (invoicesModal?.hasAttribute('open') || invoicesModal?.open)
-    );
-
-    if (!anyOpen) overlayOff();
-  }
-
-  function openBilling(){ safeShow(billingModal); }
-  function closeBilling(){ safeClose(billingModal); }
-
-  function openConfig(tabName){
-    safeShow(configModal);
-    if (tabName) {
-      const tab = configModal?.querySelector('[data-mc-tab="'+tabName+'"]');
-      if (tab) handleConfigTab(tab);
-    }
-  }
-  function closeConfig(){ safeClose(configModal); }
-
-  function openPayments(){ safeShow(paymentsModal); }
-  function closePayments(){ safeClose(paymentsModal); }
-
-  function buildInvoicesUrl(url){
-    if (!url) return '';
-
-    try{
-      const u = new URL(url, window.location.origin);
-      u.searchParams.set('embed', '1');
-      u.searchParams.set('theme', 'light');
-      u.searchParams.set('_t', Date.now().toString());
-      return u.toString();
-    }catch(e){
-      const glue = url.includes('?') ? '&' : '?';
-      return url + glue + 'embed=1&theme=light&_t=' + Date.now();
-    }
-  }
-
-  function openInvoices(url){
-    safeShow(invoicesModal);
-    if (!invFrame || !url) return;
-    invFrame.src = buildInvoicesUrl(url);
-  }
-
-  function closeInvoices(){
-    if (invFrame) invFrame.src = 'about:blank';
-    safeClose(invoicesModal);
-  }
-
-  function handleConfigTab(tab){
-    const name = tab.getAttribute('data-mc-tab');
-    if(!name || !configModal) return;
-
-    const tabs = Array.from(configModal.querySelectorAll('[data-mc-tab]'));
-    const panes = Array.from(configModal.querySelectorAll('[data-mc-pane]'));
-
-    tabs.forEach(t => t.classList.toggle('is-active', t.getAttribute('data-mc-tab') === name));
-    panes.forEach(p => {
-      const on = p.getAttribute('data-mc-pane') === name;
-      if (on) p.removeAttribute('hidden'); else p.setAttribute('hidden','hidden');
-    });
-  }
-
-  const payState = document.getElementById('mcPayState');
-  const payEmpty = payState ? payState.querySelector('.mc-pay-empty') : null;
-  const payError = payState ? payState.querySelector('.mc-pay-error') : null;
-  const paySkel  = payState ? payState.querySelector('.mc-pay-skel') : null;
-  const payWrap  = document.getElementById('mcPayTableWrap');
-  const payTbody = document.getElementById('mcPayTbody');
-
-  const rtMisPagos = @json($rtMisPagos);
-  const rtInvoicesModal = @json($rtInvoicesModal);
-  const openModalOnLoad = @json($openModalOnLoad);
-  const openConfigTabOnLoad = @json($openConfigTabOnLoad);
-
-  function setPayState(state){
-    if(!payState) return;
-    payState.setAttribute('data-state', state);
-
-    if (paySkel)  paySkel.style.display = (state === 'loading') ? 'block' : 'none';
-    if (payEmpty) payEmpty.hidden = (state !== 'empty');
-    if (payError) payError.hidden = (state !== 'error');
-    if (payWrap)  payWrap.hidden = (state !== 'ready');
-  }
-
-  function fmtMoney(amount, currency){
-    const c = (currency || 'MXN').toUpperCase();
-    let n = 0;
-    try { n = parseFloat(String(amount).replace(/[^0-9.\-]/g,'')) || 0; } catch(e) { n = 0; }
-
-    try {
-      return new Intl.NumberFormat('es-MX', {
-        style:'currency',
-        currency:c,
-        maximumFractionDigits:2
-      }).format(n);
-    } catch(e){
-      return c + ' ' + n.toFixed(2);
-    }
-  }
-
-  function pillStatus(st){
-    const s = String(st || '—').toUpperCase();
-    let cls = 'mc-pay-pill neutral';
-
-    if (s.includes('PAID') || s.includes('PAGAD') || s.includes('SUCC') || s.includes('COMPLET')) cls = 'mc-pay-pill ok';
-    else if (s.includes('PEND') || s.includes('OPEN') || s.includes('DUE')) cls = 'mc-pay-pill neutral';
-    else if (s.includes('FAIL') || s.includes('CANC') || s.includes('REFUND') || s.includes('REEMB')) cls = 'mc-pay-pill bad';
-
-    return '<span class="'+cls+'">'+s+'</span>';
-  }
-
-  function esc(s){
-    return String(s ?? '').replace(/[&<>"']/g, function(m){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);
-    });
-  }
-
-  function renderPayments(rows){
-    if(!payTbody) return;
-    payTbody.innerHTML = '';
-
-    const LABELS = {
-      date: 'Fecha',
-      concept: 'Concepto',
-      period: 'Periodo',
-      amount: 'Monto',
-      method: 'Método',
-      status: 'Estatus',
-      proofs: 'Comprobantes'
-    };
-
-    rows.forEach(r => {
-      const date = esc(r.date || '—');
-      const concept = esc(r.concept || 'Pago');
-      const period = esc(r.period || '—');
-      const amt = fmtMoney(r.amount || 0, r.currency || 'MXN');
-      const method = esc(r.method || '—');
-      const status = pillStatus(r.status || '—');
-
-      let proofs = '';
-      const inv = (r.invoice || '').trim();
-      const rec = (r.receipt || '').trim();
-
-      if (inv) proofs += '<a class="mc-pay-link" href="'+esc(inv)+'" target="_blank" rel="noopener">Factura</a>';
-      if (rec) proofs += (proofs ? '<span class="mc-pay-dot">•</span>' : '') + '<a class="mc-pay-link" href="'+esc(rec)+'" target="_blank" rel="noopener">Recibo</a>';
-      if (!proofs) proofs = '<span class="mc-pay-muted">—</span>';
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td data-label="${LABELS.date}">
-          <div class="mc-pay-date">${date}</div>
-          <div class="mc-pay-ref">${esc(r.reference || '')}</div>
-        </td>
-        <td data-label="${LABELS.concept}">
-          <div class="mc-pay-concept">${concept}</div>
-          <div class="mc-pay-source">${esc(r.source || '')}</div>
-        </td>
-        <td data-label="${LABELS.period}">${period}</td>
-        <td data-label="${LABELS.amount}" style="text-align:right">
-          <span class="mc-pay-amt">${esc(amt)}</span>
-        </td>
-        <td data-label="${LABELS.method}">${method}</td>
-        <td data-label="${LABELS.status}">${status}</td>
-        <td data-label="${LABELS.proofs}">${proofs}</td>
-      `;
-      payTbody.appendChild(tr);
-    });
-  }
-
-  async function loadPayments(){
-    if(!rtMisPagos){
-      setPayState('error');
-      return;
-    }
-
-    setPayState('loading');
-
-    try{
-      const res = await fetch(rtMisPagos, {
-        headers: { 'Accept':'application/json' },
-        credentials: 'same-origin'
-      });
-
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-
-      const json = await res.json();
-      const rows = (json && json.ok && Array.isArray(json.rows)) ? json.rows : [];
-
-      if(rows.length <= 0){
-        setPayState('empty');
-        return;
-      }
-
-      renderPayments(rows);
-      setPayState('ready');
-    }catch(e){
-      setPayState('error');
-    }
-  }
-
-  document.addEventListener('click', function(e){
-    const tog = e.target.closest('[data-mc-toggle]');
-    if(tog){
-      e.preventDefault();
-      toggle(tog.getAttribute('data-mc-toggle'));
-      return;
-    }
-
-    if (e.target.closest('[data-open-billing-modal]')) { e.preventDefault(); openBilling(); return; }
-    if (e.target.closest('[data-close-billing-modal]')) { e.preventDefault(); closeBilling(); return; }
-
-    if (e.target.closest('[data-open-config-modal]')) { e.preventDefault(); openConfig(); return; }
-    if (e.target.closest('[data-close-config-modal]')) { e.preventDefault(); closeConfig(); return; }
-
-    if (e.target.closest('[data-open-payments-modal]')) { e.preventDefault(); openPayments(); loadPayments(); return; }
-    if (e.target.closest('[data-close-payments-modal]')) { e.preventDefault(); closePayments(); return; }
-
-    const invOpen = e.target.closest('[data-open-invoices-modal]');
-    if (invOpen){
-      e.preventDefault();
-      const url = invOpen.getAttribute('data-invoices-url') || '';
-      if (url) openInvoices(url);
-      return;
-    }
-
-    if (e.target.closest('[data-close-invoices-modal]')){
-      e.preventDefault();
-      closeInvoices();
-      return;
-    }
-
-    const refresh = e.target.closest('[data-refresh-payments]');
-    if (refresh){
-      e.preventDefault();
-      loadPayments();
-      return;
-    }
-
-    const tab = e.target.closest('[data-mc-tab]');
-    if(tab && configModal && configModal.contains(tab)){
-      e.preventDefault();
-      handleConfigTab(tab);
-    }
-  });
-
-  if(overlay){
-    overlay.addEventListener('click', function(){
-      if (invoicesModal?.open || invoicesModal?.hasAttribute('open')) return closeInvoices();
-      if (paymentsModal?.open || paymentsModal?.hasAttribute('open')) return closePayments();
-      if (configModal?.open || configModal?.hasAttribute('open')) return closeConfig();
-      if (billingModal?.open || billingModal?.hasAttribute('open')) return closeBilling();
-      overlayOff();
-    });
-  }
-
-  [billingModal, configModal, paymentsModal, invoicesModal].forEach((dlg) => {
-    if(!dlg) return;
-
-    dlg.addEventListener('cancel', function(ev){
-      ev.preventDefault();
-      safeClose(dlg);
-    });
-
-    dlg.addEventListener('close', function(){
-      const anyOpen = !!(
-        billingModal?.open || configModal?.open || paymentsModal?.open || invoicesModal?.open ||
-        billingModal?.hasAttribute('open') || configModal?.hasAttribute('open') || paymentsModal?.hasAttribute('open') || invoicesModal?.hasAttribute('open')
-      );
-      if (!anyOpen) overlayOff();
-    });
-  });
-
-  const brandAccentInput = document.getElementById('brandAccentInput');
-
-  function applyAccent(hex){
-    const v = (hex || '').trim() || '#E11D48';
-    document.documentElement.style.setProperty('--mc-accent', v);
-    const header = document.querySelector('.mc-card.mc-header');
-    if (header) header.style.setProperty('--mc-accent', v);
-  }
-
-  applyAccent(@json($brandAccent));
-
-  if (brandAccentInput){
-    brandAccentInput.addEventListener('input', function(){
-      applyAccent(brandAccentInput.value);
-    });
-  }
-
-  if (openModalOnLoad === 'billing') {
-    openBilling();
-  } else if (openModalOnLoad === 'config') {
-    openConfig(openConfigTabOnLoad || 'brand');
-  } else if (openModalOnLoad === 'invoices' && rtInvoicesModal) {
-    openInvoices(rtInvoicesModal);
-  }
-})();
-</script>
-@endpush
-
 @endsection

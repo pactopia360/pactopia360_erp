@@ -9,6 +9,7 @@ use App\Models\Cliente\Cfdi;
 use App\Models\Cliente\CfdiConcepto;
 use App\Models\Cliente\Emisor;
 use App\Models\Cliente\Receptor;
+use App\Models\Cliente\SatCredential;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\Cliente\SepomexCodigoPostal;
+
 
 class FacturacionController extends Controller
 {
@@ -605,10 +607,39 @@ class FacturacionController extends Controller
 
         if ($cuenta) {
             try {
-                $emisores = Emisor::query()
-                    ->where('cuenta_id', $cuenta->id)
-                    ->orderByRaw("COALESCE(nombre_comercial, razon_social, rfc, '') ASC")
-                    ->get(['id', 'rfc', 'razon_social', 'nombre_comercial']);
+                $cuentaId = (string) $cuenta->id;
+
+                $emisores = SatCredential::query()
+                    ->where(function ($q) use ($cuentaId) {
+                        $q->where('cuenta_id', $cuentaId)
+                            ->orWhere('account_id', $cuentaId);
+                    })
+                    ->orderBy('rfc')
+                    ->get()
+                    ->reject(function ($row) {
+                        $meta = is_array($row->meta ?? null) ? $row->meta : [];
+
+                        return (($meta['is_active'] ?? true) === false)
+                            || (($meta['is_active'] ?? true) === '0')
+                            || !empty($row->deleted_at ?? null)
+                            || strtolower((string) ($row->estatus_operativo ?? '')) === 'inactive';
+                    })
+                    ->map(function ($row) {
+                        $meta = is_array($row->meta ?? null) ? $row->meta : [];
+                        $config = (array) data_get($meta, 'config_fiscal', []);
+
+                        return (object) [
+                            'id' => $row->id,
+                            'rfc' => strtoupper((string) $row->rfc),
+                            'razon_social' => $row->razon_social,
+                            'nombre_comercial' => data_get($config, 'nombre_comercial') ?: $row->razon_social ?: $row->rfc,
+                            'regimen_fiscal' => data_get($config, 'regimen_fiscal'),
+                            'codigo_postal' => data_get($meta, 'direccion.codigo_postal'),
+                            'series' => data_get($meta, 'series', []),
+                            'has_csd' => (!empty($row->csd_cer_path ?? null) && !empty($row->csd_key_path ?? null)) || !empty(data_get($meta, 'csd')),
+                        ];
+                    })
+                    ->values();
             } catch (\Throwable $e) {
                 $emisores = collect();
             }
@@ -663,7 +694,7 @@ class FacturacionController extends Controller
             }
         );
 
-        return view('cliente.facturacion.create', [
+        return view('cliente.facturacion.nuevo', [
             'emisores' => $emisores,
             'receptores' => $receptores,
             'productos' => $productos,
@@ -685,7 +716,7 @@ class FacturacionController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'cliente_id' => 'required|integer',
+            'cliente_id' => ['required', 'string', 'max:80'],
             'receptor_id' => 'required|integer',
             'version_cfdi' => 'nullable|string|max:10',
             'tipo_comprobante' => 'nullable|string|max:5',
@@ -724,6 +755,22 @@ class FacturacionController extends Controller
                 ->withErrors([
                     'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
                 ]);
+        }
+
+        $emisorCredential = SatCredential::query()
+        ->where(function ($q) use ($cuenta) {
+            $q->where('cuenta_id', (string) $cuenta->id)
+                ->orWhere('account_id', (string) $cuenta->id);
+        })
+        ->where('id', $data['cliente_id'])
+        ->first();
+
+        if (!$emisorCredential) {
+        return back()
+            ->withInput()
+            ->withErrors([
+                'cliente_id' => 'El RFC emisor seleccionado no pertenece a esta cuenta.',
+            ]);
         }
 
         $receptor = Receptor::query()
@@ -799,27 +846,32 @@ class FacturacionController extends Controller
         $conceptoModel = new CfdiConcepto;
         $cfdiTable = $cfdiModel->getTable();
         $conceptoTable = $conceptoModel->getTable();
-        $uuidTemp = (string) Str::uuid();
+        $clienteIdForCfdi = is_numeric($cuenta->id) ? (int) $cuenta->id : 0;
 
         DB::connection($conn)->transaction(function () use (
-            $conn,
-            $cfdiTable,
-            $conceptoTable,
-            $data,
-            $subtotal,
-            $descuento,
-            $iva,
-            $total,
-            $uuidTemp,
-            $metodoPago,
-            $formaPago,
-            $tipoDocumento,
-            $assistant
-        ) {
+                $conn,
+                $cfdiTable,
+                $conceptoTable,
+                $data,
+                $subtotal,
+                $descuento,
+                $iva,
+                $total,
+                $uuidTemp,
+                $metodoPago,
+                $formaPago,
+                $tipoDocumento,
+                $assistant,
+                $clienteIdForCfdi,
+                $emisorCredential
+            ) {
             $now = now();
 
             $cfdiPayload = [
-                'cliente_id' => $data['cliente_id'],
+                'cliente_id' => $clienteIdForCfdi,
+                'emisor_credential_id' => $emisorCredential->id,
+                'emisor_rfc' => $emisorCredential->rfc,
+                'emisor_razon_social' => $emisorCredential->razon_social,
                 'receptor_id' => $data['receptor_id'],
                 'uuid' => $uuidTemp,
                 'serie' => $data['serie'] ?? null,
@@ -992,6 +1044,41 @@ class FacturacionController extends Controller
             'receptor' => $this->receptorPayload($item->fresh()),
         ]);
     }
+
+    public function update(Request $request, $rfc)
+{
+    $credential = $this->findCredential($rfc);
+
+    $this->validateMain($request, false);
+    $this->persistCredential($credential, $request, false);
+
+    if (
+        $request->hasFile('fiel_cer') ||
+        $request->hasFile('fiel_key') ||
+        $request->filled('fiel_password') ||
+        $request->hasFile('csd_cer') ||
+        $request->hasFile('csd_key') ||
+        $request->filled('csd_password') ||
+        $request->filled('csd_serie') ||
+        $request->filled('csd_vigencia_hasta')
+    ) {
+        $request->validate([
+            'fiel_cer' => ['nullable', 'file', 'max:5120'],
+            'fiel_key' => ['nullable', 'file', 'max:5120'],
+            'fiel_password' => ['nullable', 'string', 'max:190'],
+            'csd_cer' => ['nullable', 'file', 'max:5120'],
+            'csd_key' => ['nullable', 'file', 'max:5120'],
+            'csd_password' => ['nullable', 'string', 'max:190'],
+            'csd_serie' => ['nullable', 'string', 'max:80'],
+            'csd_vigencia_hasta' => ['nullable', 'date'],
+        ]);
+
+        $this->persistCertificates($credential, $request);
+        $credential->save();
+    }
+
+    return redirect()->route('cliente.rfcs.index')->with('ok', 'RFC actualizado correctamente.');
+}
 
     protected function validateReceptorPayload(Request $request): array
     {

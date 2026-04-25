@@ -1,0 +1,1965 @@
+.cfdi-saas{
+  --blue:#2563eb;
+  --blue2:#1d4ed8;
+  --green:#16a34a;
+  --ink:#101a34;
+  --muted:#63738f;
+  --line:#dde7f5;
+  --soft:#f7faff;
+  --danger:#dc2626;
+  --warning:#d97706;
+  min-height:calc(100vh - 72px);
+  background:#f6f8fc;
+  color:var(--ink);
+  padding:20px clamp(14px,2vw,30px) 32px;
+  font-family:'Poppins',system-ui,sans-serif;
+}
+
+.cfdi-saas *{
+  box-sizing:border-box;
+}
+
+.cfdi-app{
+  width:100%;
+  max-width:none;
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.cfdi-command{
+  width:100%;
+  min-height:76px;
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:24px;
+  padding:16px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  box-shadow:0 18px 45px rgba(16,26,52,.06);
+}
+
+.cfdi-command-left{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+}
+
+.cfdi-back{
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  border-radius:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#eef4ff;
+  color:var(--blue);
+  text-decoration:none;
+  font-size:22px;
+  font-weight:950;
+}
+
+.cfdi-kicker{
+  color:var(--blue);
+  font-size:11px;
+  line-height:1;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:950;
+}
+
+.cfdi-command h1{
+  margin:6px 0 0;
+  font-size:clamp(25px,2vw,34px);
+  line-height:1;
+  letter-spacing:-.04em;
+  font-weight:950;
+}
+
+.cfdi-command-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.cfdi-btn,
+.cfdi-icon-action{
+  min-height:42px;
+  border-radius:14px;
+  border:1px solid #d8e3f3;
+  background:#fff;
+  color:#263a58;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:0 16px;
+  text-decoration:none;
+  font:900 13px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+  transition:.16s ease;
+}
+
+.cfdi-btn:hover,
+.cfdi-icon-action:hover{
+  transform:translateY(-1px);
+  box-shadow:0 14px 28px rgba(16,26,52,.08);
+}
+
+.cfdi-btn.primary{
+  color:#fff;
+  border-color:var(--blue);
+  background:linear-gradient(135deg,#2563eb,#1d4ed8);
+}
+
+.cfdi-btn.success{
+  color:#fff;
+  border-color:var(--green);
+  background:linear-gradient(135deg,#22c55e,#16a34a);
+  box-shadow:0 12px 24px rgba(22,163,74,.18);
+}
+
+.cfdi-btn.ghost{
+  background:#fff;
+  color:#253853;
+}
+
+.cfdi-btn.small{
+  min-height:36px;
+  padding:0 13px;
+  font-size:12px;
+  background:#eef4ff;
+  border-color:#dce8ff;
+  color:var(--blue);
+}
+
+.cfdi-btn.full{
+  width:100%;
+}
+
+.cfdi-icon-action{
+  width:36px;
+  height:36px;
+  min-height:36px;
+  padding:0;
+}
+
+.cfdi-focus{
+  width:100%;
+  border-radius:26px;
+  padding:22px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(360px,34vw);
+  gap:18px;
+  align-items:stretch;
+  color:#fff;
+  background:
+    radial-gradient(circle at top right,rgba(147,197,253,.75),transparent 32%),
+    linear-gradient(135deg,#102f75 0%,#1d4ed8 55%,#60a5fa 100%);
+  box-shadow:0 18px 48px rgba(37,99,235,.18);
+}
+
+.cfdi-focus-main{
+  min-height:150px;
+  border-radius:22px;
+  padding:26px;
+  background:rgba(9,30,78,.32);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.cfdi-focus-badge{
+  width:max-content;
+  display:inline-flex;
+  align-items:center;
+  height:28px;
+  padding:0 13px;
+  border-radius:999px;
+  background:rgba(255,255,255,.17);
+  color:#fff;
+  font-size:11px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.cfdi-focus-main h2{
+  margin:14px 0 0;
+  font-size:clamp(30px,3vw,48px);
+  line-height:.98;
+  letter-spacing:-.05em;
+  font-weight:950;
+}
+
+.cfdi-focus-main p{
+  max-width:860px;
+  margin:12px 0 0;
+  font-size:14px;
+  line-height:1.55;
+  font-weight:700;
+  opacity:.92;
+}
+
+.cfdi-focus-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+}
+
+.cfdi-focus-stats div{
+  border-radius:20px;
+  padding:18px;
+  background:rgba(255,255,255,.22);
+  backdrop-filter:blur(10px);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  min-width:0;
+}
+
+.cfdi-focus-stats small{
+  display:block;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  font-weight:950;
+  opacity:.72;
+}
+
+.cfdi-focus-stats strong{
+  display:block;
+  margin-top:8px;
+  font-size:18px;
+  line-height:1.15;
+  font-weight:950;
+  word-break:break-word;
+}
+
+.cfdi-stepper{
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:8px;
+  border:1px solid var(--line);
+  border-radius:22px;
+  padding:10px;
+  background:#fff;
+  box-shadow:0 12px 28px rgba(16,26,52,.045);
+}
+
+.cfdi-step{
+  border:0;
+  min-height:46px;
+  border-radius:15px;
+  background:transparent;
+  color:#697993;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  font:950 12px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+}
+
+.cfdi-step span{
+  width:23px;
+  height:23px;
+  border-radius:999px;
+  background:#e9eff8;
+  color:#697993;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:950;
+}
+
+.cfdi-step.active{
+  background:#eef4ff;
+  color:var(--blue2);
+}
+
+.cfdi-step.active span{
+  background:var(--blue);
+  color:#fff;
+}
+
+.cfdi-layout{
+  width:100%;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) clamp(330px,25vw,440px);
+  gap:20px;
+  align-items:start;
+}
+
+.cfdi-builder{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.cfdi-card,
+.cfdi-ai-card,
+.cfdi-total-card{
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:24px;
+  box-shadow:0 18px 42px rgba(16,26,52,.055);
+}
+
+.cfdi-card{
+  padding:20px;
+}
+
+.cfdi-card-principal{
+  border-color:#cfddf2;
+}
+
+.cfdi-card-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:18px;
+}
+
+.cfdi-section-label{
+  display:inline-flex;
+  align-items:center;
+  height:24px;
+  border-radius:999px;
+  padding:0 10px;
+  background:#eef4ff;
+  color:var(--blue);
+  font-size:10px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.cfdi-card h2{
+  margin:9px 0 0;
+  font-size:22px;
+  line-height:1.05;
+  font-weight:950;
+  letter-spacing:-.035em;
+  color:var(--ink);
+}
+
+.cfdi-card p{
+  margin:7px 0 0;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.45;
+  font-weight:750;
+}
+
+.cfdi-head-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.cfdi-client-picker,
+.cfdi-grid{
+  display:grid;
+  gap:14px 16px;
+}
+
+.cfdi-client-picker{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+.cfdi-grid.three{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+
+.cfdi-grid.four{
+  grid-template-columns:repeat(4,minmax(0,1fr));
+}
+
+.span-2{
+  grid-column:span 2;
+}
+
+.floating-field{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+
+.floating-field span{
+  color:#5d6f8d;
+  font-size:11px;
+  line-height:1;
+  font-weight:950;
+}
+
+.floating-field input,
+.floating-field select,
+.floating-field textarea,
+.input-cfdi,
+.select-cfdi,
+.textarea-cfdi{
+  width:100%;
+  height:48px;
+  border-radius:15px;
+  border:1px solid #dce6f4;
+  background:#fff;
+  color:#101a34;
+  outline:none;
+  padding:0 14px;
+  font:850 13px/1.2 'Poppins',system-ui,sans-serif;
+  transition:.14s ease;
+}
+
+.floating-field textarea,
+.textarea-cfdi{
+  height:auto;
+  min-height:54px;
+  padding:13px;
+  resize:vertical;
+}
+
+.floating-field input:focus,
+.floating-field select:focus,
+.floating-field textarea:focus,
+.input-cfdi:focus,
+.select-cfdi:focus,
+.textarea-cfdi:focus{
+  border-color:var(--blue);
+  box-shadow:0 0 0 4px rgba(37,99,235,.10);
+}
+
+.cfdi-smart-card{
+  margin-top:15px;
+  border-radius:18px;
+  padding:16px;
+  border:1px solid #d9e7ff;
+  background:#f1f6ff;
+}
+
+.cfdi-smart-card strong{
+  display:block;
+  color:#12203b;
+  font-size:14px;
+  font-weight:950;
+}
+
+.cfdi-smart-card span{
+  display:block;
+  margin-top:6px;
+  color:#5e6f8a;
+  font-size:12px;
+  line-height:1.45;
+  font-weight:750;
+}
+
+.cfdi-inline-warning{
+  margin-top:16px;
+  border-radius:16px;
+  border:1px solid #fed7aa;
+  background:#fff7ed;
+  color:#c2410c;
+  padding:13px 15px;
+  font-size:12px;
+  line-height:1.45;
+  font-weight:850;
+}
+
+.cfdi-inline-warning a{
+  color:var(--blue);
+  font-weight:950;
+  margin-left:8px;
+}
+
+.concepts-wrap{
+  width:100%;
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:#fff;
+}
+
+table.concepts{
+  width:100%;
+  min-width:1040px;
+  border-collapse:collapse;
+}
+
+table.concepts th{
+  background:#f8fbff;
+  color:#5e6f8c;
+  text-align:left;
+  padding:13px 12px;
+  border-bottom:1px solid var(--line);
+  font:950 10px/1 'Poppins',system-ui,sans-serif;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+}
+
+table.concepts td{
+  padding:11px 12px;
+  border-bottom:1px solid #eef3fa;
+  vertical-align:middle;
+}
+
+table.concepts textarea,
+table.concepts select,
+table.concepts input{
+  width:100%;
+  border:1px solid #dfe8f5;
+  border-radius:13px;
+  outline:none;
+  background:#fff;
+  color:#101a34;
+  font:850 13px/1.25 'Poppins',system-ui,sans-serif;
+}
+
+table.concepts textarea{
+  min-height:52px;
+  padding:10px 12px;
+  resize:vertical;
+}
+
+table.concepts select,
+table.concepts input{
+  height:40px;
+  padding:0 11px;
+}
+
+.qty-control{
+  display:inline-flex;
+  align-items:center;
+  height:40px;
+  border-radius:14px;
+  border:1px solid #d9e7ff;
+  background:#f5f8ff;
+  overflow:hidden;
+}
+
+.qty-control button{
+  width:33px;
+  height:40px;
+  border:0;
+  background:#eef4ff;
+  color:var(--blue);
+  font:950 15px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+}
+
+.qty-control input{
+  width:46px;
+  height:40px;
+  border:0;
+  border-radius:0;
+  text-align:center;
+  background:#fff;
+  font-weight:950;
+}
+
+.subtotal,
+.total{
+  color:#111b35;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:950;
+}
+
+.btn-mini{
+  width:36px;
+  height:36px;
+  border:0;
+  border-radius:13px;
+  background:#fff1f2;
+  color:#dc2626;
+  font-size:15px;
+  cursor:pointer;
+}
+
+.cfdi-add-line{
+  width:calc(100% - 24px);
+  margin:12px;
+  min-height:42px;
+  border-radius:15px;
+  border:1px dashed #9bb7ff;
+  background:#fff;
+  color:var(--blue);
+  font:950 13px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+}
+
+.cfdi-mini-total{
+  margin-top:11px;
+  text-align:right;
+  color:#526582;
+  font-size:12px;
+  font-weight:950;
+}
+
+.cfdi-accordion{
+  margin-top:16px;
+  border:1px solid var(--line);
+  background:#fbfdff;
+  border-radius:17px;
+  padding:15px;
+}
+
+.cfdi-accordion summary{
+  cursor:pointer;
+  color:var(--blue);
+  font-size:13px;
+  font-weight:950;
+}
+
+.cfdi-complements-grid{
+  margin-top:14px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.comp-pill{
+  min-height:38px;
+  border-radius:999px;
+  border:1px solid #dce8ff;
+  background:#fff;
+  padding:0 13px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  color:#334864;
+  font-size:12px;
+  font-weight:950;
+  cursor:pointer;
+}
+
+.comp-pill input{
+  display:none;
+}
+
+.comp-pill.active{
+  border-color:var(--blue);
+  background:#eef4ff;
+  color:var(--blue);
+}
+
+.comp-pill.disabled{
+  opacity:.55;
+  cursor:not-allowed;
+}
+
+.comp-pill em{
+  font-style:normal;
+  color:var(--danger);
+  font-size:9px;
+}
+
+.cfdi-review-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+}
+
+.review-item{
+  min-height:66px;
+  border-radius:18px;
+  border:1px solid #dfe8f5;
+  background:#fbfdff;
+  color:#60708d;
+  padding:15px;
+  display:flex;
+  align-items:center;
+  font-size:12px;
+  font-weight:950;
+}
+
+.review-item.ok{
+  border-color:#bbf7d0;
+  background:#f0fdf4;
+  color:#15803d;
+}
+
+.cfdi-side-panel{
+  position:sticky;
+  top:92px;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  min-width:0;
+}
+
+.cfdi-total-card,
+.cfdi-ai-card{
+  padding:18px;
+}
+
+.cfdi-total-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:14px;
+}
+
+.cfdi-total-top small{
+  display:block;
+  color:#61718c;
+  font-size:11px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.cfdi-total-top strong{
+  display:block;
+  margin-top:6px;
+  color:var(--blue);
+  font-size:clamp(24px,2vw,32px);
+  line-height:1;
+  font-weight:950;
+  letter-spacing:-.04em;
+}
+
+#aiScore{
+  width:48px;
+  height:48px;
+  border-radius:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#eef4ff;
+  color:var(--blue);
+  font-size:22px;
+  font-weight:950;
+}
+
+.total-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 0;
+  border-bottom:1px solid var(--line);
+  color:#61718c;
+  font-size:13px;
+  font-weight:850;
+}
+
+.total-row strong{
+  color:#101a34;
+  font-weight:950;
+}
+
+.cfdi-side-actions{
+  margin-top:16px;
+  display:grid;
+  gap:10px;
+}
+
+.cfdi-side-title{
+  margin-bottom:14px;
+}
+
+.cfdi-side-title strong{
+  display:block;
+  color:#101a34;
+  font-size:17px;
+  line-height:1.1;
+  font-weight:950;
+}
+
+.cfdi-side-title small{
+  display:block;
+  margin-top:5px;
+  color:#687892;
+  font-size:11px;
+  font-weight:750;
+}
+
+.cfdi-ai-list{
+  display:grid;
+  gap:10px;
+}
+
+.ai-item{
+  position:relative;
+  padding-left:30px;
+  color:#5e6f8c;
+  font-size:12px;
+  line-height:1.35;
+  font-weight:850;
+}
+
+.ai-item::before{
+  content:'○';
+  position:absolute;
+  left:0;
+  top:-2px;
+  width:22px;
+  height:22px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#eef2f7;
+  color:#8fa0b8;
+  font-size:12px;
+  font-weight:950;
+}
+
+.ai-item.ok{
+  color:#15803d;
+}
+
+.ai-item.ok::before{
+  content:'✓';
+  background:#dcfce7;
+  color:#16a34a;
+}
+
+.ai-item.warn{
+  color:#b45309;
+}
+
+.ai-item.warn::before{
+  content:'!';
+  background:#fff7d6;
+  color:#d97706;
+}
+
+.ai-item.error{
+  color:#dc2626;
+}
+
+.ai-item.error::before{
+  content:'!';
+  background:#fee2e2;
+  color:#dc2626;
+}
+
+.cfdi-ai-card.compact ul{
+  margin:0;
+  padding:0;
+  list-style:none;
+  display:grid;
+  gap:9px;
+}
+
+.cfdi-ai-card.compact li{
+  position:relative;
+  padding-left:23px;
+  color:#5e6f8c;
+  font-size:12px;
+  line-height:1.35;
+  font-weight:800;
+}
+
+.cfdi-ai-card.compact li::before{
+  content:'✓';
+  position:absolute;
+  left:0;
+  color:var(--green);
+  font-weight:950;
+}
+
+.p360-alert{
+  margin:0 0 14px;
+  border-radius:16px;
+  padding:14px 16px;
+  font-size:13px;
+  line-height:1.35;
+  font-weight:900;
+}
+
+.p360-alert.ok{
+  background:#ecfdf5;
+  border:1px solid #bbf7d0;
+  color:#15803d;
+}
+
+.p360-alert.error{
+  background:#fff1f2;
+  border:1px solid #fecdd3;
+  color:#be123c;
+}
+
+@media (min-width:1500px){
+  .cfdi-layout{
+    grid-template-columns:minmax(0,1fr) 450px;
+  }
+
+  .cfdi-card{
+    padding:22px;
+  }
+}
+
+@media (max-width:1280px){
+  .cfdi-focus{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-focus-stats{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+
+  .cfdi-layout{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-side-panel{
+    position:relative;
+    top:auto;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+@media (max-width:980px){
+  .cfdi-saas{
+    padding:16px 12px 24px;
+  }
+
+  .cfdi-command{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .cfdi-command-actions{
+    justify-content:flex-start;
+  }
+
+  .cfdi-stepper{
+    grid-template-columns:repeat(5,170px);
+    overflow-x:auto;
+  }
+
+  .cfdi-client-picker,
+  .cfdi-grid.three,
+  .cfdi-grid.four{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .span-2{
+    grid-column:span 2;
+  }
+
+  .cfdi-review-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .cfdi-side-panel{
+    grid-template-columns:1fr;
+  }
+}
+
+@media (max-width:720px){
+  .cfdi-focus{
+    border-radius:22px;
+    padding:16px;
+  }
+
+  .cfdi-focus-main{
+    min-height:auto;
+    padding:20px;
+  }
+
+  .cfdi-focus-main h2{
+    font-size:32px;
+  }
+
+  .cfdi-focus-stats{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-card-head{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .cfdi-head-actions{
+    justify-content:flex-start;
+  }
+
+  .cfdi-client-picker,
+  .cfdi-grid.three,
+  .cfdi-grid.four,
+  .cfdi-review-grid{
+    grid-template-columns:1fr;
+  }
+
+  .span-2{
+    grid-column:auto;
+  }
+
+  .cfdi-card{
+    border-radius:20px;
+    padding:16px;
+  }
+
+  .cfdi-card h2{
+    font-size:20px;
+  }
+}
+
+@media (max-width:480px){
+  .cfdi-command-actions .cfdi-btn{
+    width:100%;
+  }
+
+  .cfdi-stepper{
+    grid-template-columns:repeat(5,145px);
+  }
+
+  .cfdi-focus-main h2{
+    font-size:28px;
+  }
+}
+
+.cfdi-emisor-clean{
+  padding:18px;
+}
+
+.cfdi-emisor-clean-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:16px;
+}
+
+.cfdi-emisor-title-wrap{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.cfdi-emisor-icon{
+  width:46px;
+  height:46px;
+  border-radius:16px;
+  background:#eef4ff;
+  color:#2563eb;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  font-weight:950;
+  flex:0 0 46px;
+}
+
+.cfdi-emisor-clean .cfdi-section-label{
+  height:22px;
+  font-size:9px;
+  padding:0 9px;
+}
+
+.cfdi-emisor-clean h2{
+  margin:7px 0 0;
+  font-size:21px;
+}
+
+.cfdi-emisor-clean p{
+  margin-top:5px;
+  font-size:11px;
+}
+
+.cfdi-emisor-admin{
+  white-space:nowrap;
+}
+
+.cfdi-emisor-select-shell{
+  border:1px solid #dce6f4;
+  background:#fff;
+  border-radius:18px;
+  padding:12px;
+}
+
+.cfdi-emisor-select select{
+  height:50px;
+  border-radius:16px;
+  font-size:14px;
+  font-weight:950;
+  border-color:#cfe0ff;
+  background:#fff;
+}
+
+.cfdi-emisor-mini-status{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:10px;
+}
+
+.cfdi-mini-chip{
+  min-height:62px;
+  border:1px solid #dfe8f5;
+  background:#fff;
+  border-radius:17px;
+  padding:11px 12px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.cfdi-mini-chip strong{
+  color:#101a34;
+  font-size:13px;
+  line-height:1;
+  font-weight:950;
+}
+
+.cfdi-mini-chip span{
+  margin-top:6px;
+  color:#64748b;
+  font-size:10px;
+  line-height:1.2;
+  font-weight:850;
+}
+
+.cfdi-mini-chip.ok{
+  background:#f0fdf4;
+  border-color:#bbf7d0;
+}
+
+.cfdi-mini-chip.ok strong{
+  color:#15803d;
+}
+
+.cfdi-emisor-note{
+  margin-top:12px;
+  border:1px solid #d9e7ff;
+  background:#f4f8ff;
+  border-radius:17px;
+  padding:12px 13px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.cfdi-emisor-note span{
+  width:28px;
+  height:28px;
+  border-radius:10px;
+  background:#2563eb;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+  font-weight:950;
+  flex:0 0 28px;
+}
+
+.cfdi-emisor-note p{
+  margin:0;
+  color:#5e6f8a;
+  font-size:12px;
+  line-height:1.35;
+  font-weight:800;
+}
+
+.cfdi-emisor-actions-compact{
+  grid-template-columns:1fr;
+}
+
+.cfdi-inline-warning.compact{
+  margin-top:12px;
+  padding:11px 13px;
+  border-radius:15px;
+  font-size:12px;
+}
+
+@media (max-width:980px){
+  .cfdi-emisor-mini-status{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+@media (max-width:720px){
+  .cfdi-emisor-clean-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+  .cfdi-emisor-admin{
+    width:100%;
+  }
+
+  .cfdi-emisor-mini-status{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .cfdi-emisor-actions-compact{
+    grid-template-columns:1fr;
+  }
+}
+
+.cfdi-concepts-pro{
+  padding:18px;
+}
+
+.cfdi-concepts-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:14px;
+}
+
+.cfdi-concepts-title{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.cfdi-concepts-icon{
+  width:46px;
+  height:46px;
+  border-radius:16px;
+  background:#eef4ff;
+  color:#2563eb;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:22px;
+  font-weight:950;
+  flex:0 0 46px;
+}
+
+.cfdi-concepts-pro h2{
+  margin:7px 0 0;
+  font-size:21px;
+}
+
+.cfdi-concepts-pro p{
+  margin-top:5px;
+  font-size:11px;
+}
+
+.cfdi-concepts-ai{
+  border:1px solid #d9e7ff;
+  background:linear-gradient(135deg,#f1f6ff,#ffffff);
+  border-radius:18px;
+  padding:13px 14px;
+  margin-bottom:13px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 70px;
+  gap:12px;
+  align-items:center;
+}
+
+.cfdi-concepts-ai strong{
+  display:block;
+  color:#101a34;
+  font-size:13px;
+  font-weight:950;
+}
+
+.cfdi-concepts-ai span{
+  display:block;
+  margin-top:4px;
+  color:#64748b;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:800;
+}
+
+.cfdi-concepts-ai-score{
+  height:44px;
+  border-radius:15px;
+  border:1px solid #dce8ff;
+  background:#fff;
+  color:#2563eb;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  gap:2px;
+  padding-bottom:8px;
+}
+
+.cfdi-concepts-ai-score b{
+  font-size:23px;
+  line-height:1;
+  font-weight:950;
+}
+
+.cfdi-concepts-ai-score small{
+  color:#64748b;
+  font-size:10px;
+  font-weight:950;
+}
+
+.concepts-wrap-pro{
+  border-radius:18px;
+}
+
+table.concepts-pro{
+  min-width:1180px;
+}
+
+table.concepts-pro th{
+  padding:12px 12px;
+}
+
+table.concepts-pro td{
+  padding:12px;
+  vertical-align:top;
+}
+
+.concept-main-cell{
+  width:330px;
+}
+
+.concept-main-box{
+  display:grid;
+  gap:8px;
+}
+
+.concept-description{
+  min-height:72px;
+}
+
+.concept-fiscal-hints{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.concept-chip{
+  min-height:24px;
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:0 9px;
+  border:1px solid #dce8ff;
+  background:#f8fbff;
+  color:#526582;
+  font-size:9px;
+  font-weight:950;
+}
+
+.concept-chip.ai{
+  color:#2563eb;
+  background:#eef4ff;
+}
+
+.concept-tax-cell{
+  width:310px;
+}
+
+.concept-tax-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+}
+
+.concept-tax-grid label{
+  display:grid;
+  gap:5px;
+}
+
+.concept-tax-grid label span{
+  color:#5d6f8d;
+  font-size:9px;
+  line-height:1;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.concept-qty{
+  margin-top:4px;
+}
+
+.concept-money-stack,
+.concept-tax-stack{
+  display:grid;
+  gap:8px;
+}
+
+.concept-discount{
+  height:36px;
+  font-size:11px;
+}
+
+.concept-object-label{
+  min-height:25px;
+  border-radius:999px;
+  background:#f8fafc;
+  color:#64748b;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 9px;
+  font-size:9px;
+  font-weight:950;
+}
+
+.concept-total{
+  display:block;
+  margin-top:10px;
+  color:#101a34;
+  font-size:14px;
+}
+
+.cfdi-add-line-pro{
+  min-height:40px;
+  margin:10px 12px 12px;
+}
+
+.cfdi-concepts-footer{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+}
+
+.cfdi-concepts-tip{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  color:#64748b;
+}
+
+.cfdi-concepts-tip span{
+  width:28px;
+  height:28px;
+  border-radius:10px;
+  background:#2563eb;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:10px;
+  font-weight:950;
+  flex:0 0 28px;
+}
+
+.cfdi-concepts-tip p{
+  margin:0;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:800;
+}
+
+@media (max-width:720px){
+  .cfdi-concepts-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+  .cfdi-concepts-actions,
+  .cfdi-concepts-actions .cfdi-btn{
+    width:100%;
+  }
+
+  .cfdi-concepts-ai{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-concepts-ai-score{
+    width:100%;
+  }
+
+  .cfdi-concepts-footer{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .cfdi-mini-total{
+    text-align:left;
+  }
+}
+
+.cfdi-concepts-clean{
+  padding:18px;
+}
+
+.cfdi-concepts-clean-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:14px;
+}
+
+.cfdi-concept-cards{
+  display:grid;
+  gap:14px;
+}
+
+.concept-card-pro{
+  border:1px solid #dce6f4;
+  background:#fff;
+  border-radius:20px;
+  padding:14px;
+}
+
+.concept-card-main{
+  display:grid;
+  grid-template-columns:48px minmax(0,1fr) 38px;
+  gap:12px;
+  align-items:start;
+}
+
+.concept-card-icon{
+  width:48px;
+  height:48px;
+  border-radius:16px;
+  background:#eef4ff;
+  color:#2563eb;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:10px;
+  font-weight:950;
+}
+
+.concept-card-content{
+  display:grid;
+  gap:10px;
+}
+
+.concept-field{
+  display:grid;
+  gap:6px;
+  min-width:0;
+}
+
+.concept-field span{
+  color:#5d6f8d;
+  font-size:10px;
+  line-height:1;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.concept-field-full textarea{
+  min-height:70px;
+}
+
+.concept-product-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:end;
+}
+
+.cfdi-link-mini{
+  min-height:40px;
+  border:1px solid #dce8ff;
+  background:#f8fbff;
+  color:#2563eb;
+  border-radius:13px;
+  padding:0 12px;
+  font:900 12px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.concept-ai-line{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.concept-card-grid{
+  margin-top:13px;
+  padding-top:13px;
+  border-top:1px solid #edf3fb;
+  display:grid;
+  grid-template-columns:1.1fr 1fr 1.1fr .8fr .9fr .8fr .7fr .85fr;
+  gap:10px;
+  align-items:end;
+}
+
+.concept-card-grid input,
+.concept-card-grid select{
+  height:42px;
+  border-radius:13px;
+}
+
+.concept-total-box{
+  min-height:42px;
+  border-radius:14px;
+  border:1px solid #dce8ff;
+  background:#f8fbff;
+  padding:7px 10px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.concept-total-box span{
+  color:#64748b;
+  font-size:9px;
+  line-height:1;
+  font-weight:950;
+  text-transform:uppercase;
+}
+
+.concept-total-box strong{
+  margin-top:5px;
+  color:#101a34;
+  font-size:14px;
+  line-height:1;
+  font-weight:950;
+}
+
+.concept-chip{
+  min-height:24px;
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:0 9px;
+  border:1px solid #dce8ff;
+  background:#f8fbff;
+  color:#526582;
+  font-size:9px;
+  font-weight:950;
+}
+
+.concept-chip.ai{
+  color:#2563eb;
+  background:#eef4ff;
+}
+
+.cfdi-concepts-ai-clean{
+  border:1px solid #d9e7ff;
+  background:#f6f9ff;
+  border-radius:17px;
+  padding:12px 13px;
+  margin-bottom:13px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 66px;
+  gap:12px;
+  align-items:center;
+}
+
+.cfdi-concepts-ai-clean strong{
+  display:block;
+  color:#101a34;
+  font-size:13px;
+  font-weight:950;
+}
+
+.cfdi-concepts-ai-clean span{
+  display:block;
+  margin-top:4px;
+  color:#64748b;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:800;
+}
+
+@media (max-width:1280px){
+  .concept-card-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+}
+
+@media (max-width:720px){
+  .cfdi-concepts-clean-head{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .cfdi-concepts-clean-head .cfdi-btn{
+    width:100%;
+  }
+
+  .concept-card-main{
+    grid-template-columns:1fr 38px;
+  }
+
+  .concept-card-icon{
+    display:none;
+  }
+
+  .concept-product-row{
+    grid-template-columns:1fr;
+  }
+
+  .concept-card-grid{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-concepts-ai-clean{
+    grid-template-columns:1fr;
+  }
+}
+
+.cfdi-product-modal{
+  position:fixed;
+  inset:0;
+  z-index:10000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+}
+
+.cfdi-product-modal.is-open{
+  display:flex;
+}
+
+.cfdi-product-modal-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(15,23,42,.58);
+  backdrop-filter:blur(8px);
+}
+
+.cfdi-product-modal-dialog{
+  position:relative;
+  z-index:1;
+  width:min(980px,calc(100vw - 24px));
+  max-height:calc(100vh - 24px);
+  overflow:hidden;
+  border:1px solid #dce6f4;
+  border-radius:24px;
+  background:#fff;
+  box-shadow:0 30px 80px rgba(15,23,42,.26);
+  display:flex;
+  flex-direction:column;
+}
+
+.cfdi-product-modal-head{
+  padding:16px 18px;
+  border-bottom:1px solid #e5edf8;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+}
+
+.cfdi-product-modal-head h2{
+  margin:0;
+  color:#101a34;
+  font-size:22px;
+  font-weight:950;
+}
+
+.cfdi-product-modal-head p{
+  margin:5px 0 0;
+  color:#64748b;
+  font-size:12px;
+  font-weight:800;
+}
+
+.cfdi-product-modal-head button{
+  width:38px;
+  height:38px;
+  border-radius:14px;
+  border:1px solid #dce6f4;
+  background:#fff;
+  cursor:pointer;
+  font-size:22px;
+  font-weight:950;
+}
+
+.cfdi-product-modal-body{
+  padding:16px 18px;
+  overflow:auto;
+}
+
+.cfdi-product-ai{
+  border:1px solid #d9e7ff;
+  background:#f4f8ff;
+  border-radius:18px;
+  padding:13px 14px;
+  margin-bottom:14px;
+}
+
+.cfdi-product-ai strong{
+  display:block;
+  color:#101a34;
+  font-size:14px;
+  font-weight:950;
+}
+
+.cfdi-product-ai span{
+  display:block;
+  margin-top:4px;
+  color:#64748b;
+  font-size:12px;
+  font-weight:800;
+}
+
+.cfdi-product-form{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  border:1px solid #e1eaf6;
+  border-radius:20px;
+  padding:14px;
+  margin-bottom:14px;
+}
+
+.cfdi-product-form label{
+  display:grid;
+  gap:6px;
+}
+
+.cfdi-product-form label.span-2{
+  grid-column:span 2;
+}
+
+.cfdi-product-form label.check{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.cfdi-product-form span{
+  color:#5d6f8d;
+  font-size:10px;
+  font-weight:950;
+  text-transform:uppercase;
+}
+
+.cfdi-product-form input,
+.cfdi-product-form select,
+.cfdi-product-form textarea{
+  width:100%;
+  border:1px solid #dce6f4;
+  border-radius:14px;
+  background:#fff;
+  color:#101a34;
+  padding:0 12px;
+  min-height:42px;
+  font:850 13px/1.2 'Poppins',system-ui,sans-serif;
+}
+
+.cfdi-product-form textarea{
+  padding:12px;
+}
+
+.cfdi-product-actions{
+  grid-column:1 / -1;
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+}
+
+.cfdi-product-list-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:8px 0 10px;
+}
+
+.cfdi-product-list-head strong{
+  font-size:16px;
+  font-weight:950;
+}
+
+.cfdi-product-list-head input{
+  width:min(360px,100%);
+  min-height:40px;
+  border:1px solid #dce6f4;
+  border-radius:14px;
+  padding:0 12px;
+  font-weight:850;
+}
+
+.cfdi-product-list{
+  display:grid;
+  gap:10px;
+}
+
+.cfdi-product-item{
+  border:1px solid #e1eaf6;
+  background:#fbfdff;
+  border-radius:18px;
+  padding:12px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+}
+
+.cfdi-product-item strong{
+  display:block;
+  color:#101a34;
+  font-size:13px;
+  font-weight:950;
+}
+
+.cfdi-product-item span{
+  display:block;
+  margin-top:4px;
+  color:#64748b;
+  font-size:11px;
+  font-weight:800;
+}
+
+.cfdi-product-item-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  justify-content:flex-end;
+}
+
+.cfdi-product-item-actions button{
+  min-height:34px;
+  border:1px solid #dce8ff;
+  background:#fff;
+  color:#2563eb;
+  border-radius:12px;
+  padding:0 10px;
+  font:900 11px/1 'Poppins',system-ui,sans-serif;
+  cursor:pointer;
+}
+
+.cfdi-product-empty{
+  border:1px dashed #b8c7de;
+  border-radius:18px;
+  padding:18px;
+  color:#64748b;
+  font-size:13px;
+  font-weight:850;
+  text-align:center;
+}
+
+body.cfdi-product-modal-open{
+  overflow:hidden;
+}
+
+@media (max-width:760px){
+  .cfdi-product-form{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-product-form label.span-2,
+  .cfdi-product-actions{
+    grid-column:auto;
+  }
+
+  .cfdi-product-item{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-product-item-actions{
+    justify-content:flex-start;
+  }
+}

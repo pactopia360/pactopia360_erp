@@ -1,736 +1,717 @@
-{{-- resources/views/cliente/facturacion/nuevo.blade.php
-     v3.1 · Nuevo CFDI · UI unificada Pactopia360 (FREE vs PRO)
---}}
+{{-- resources/views/cliente/facturacion/nuevo.blade.php --}}
 @extends('layouts.cliente')
 @section('title','Nuevo CFDI · Pactopia360')
 
 @php
-  use Illuminate\Support\Facades\Route;
-  use Illuminate\Support\Str;
-  use Illuminate\Support\Carbon;
+    use Illuminate\Support\Facades\Route;
+    use Illuminate\Support\Carbon;
 
-  $summary = $summary ?? app(\App\Http\Controllers\Cliente\HomeController::class)->buildAccountSummary();
+    $summary = $summary ?? app(\App\Http\Controllers\Cliente\HomeController::class)->buildAccountSummary();
 
-  $planFromSummary = strtoupper((string)($summary['plan'] ?? 'FREE'));
-  $isProPlan       = (bool)($summary['is_pro'] ?? in_array(
-      strtolower($planFromSummary),
-      ['pro','premium','empresa','business'],
-      true
-  ));
-  $planLabel = $planFromSummary;
+    $planFromSummary = strtoupper((string)($summary['plan'] ?? 'FREE'));
+    $isProPlan = (bool)($summary['is_pro'] ?? in_array(strtolower($planFromSummary), ['pro','premium','empresa','business'], true));
 
-  $emisores   = collect($emisores   ?? []);
-  $receptores = collect($receptores ?? []);
-  $productos  = collect($productos  ?? []);
+    $emisores = collect($emisores ?? []);
+    $receptores = collect($receptores ?? []);
+    $productos = collect($productos ?? []);
 
-  $today         = Carbon::now();
-  $monedaDefault = 'MXN';
+    $today = Carbon::now();
+    $monedaDefault = 'MXN';
 
-  $rtBack      = Route::has('cliente.facturacion.index')
-                    ? route('cliente.facturacion.index', request()->only(['q','status','month']))
-                    : url('/cliente/facturacion');
-  $rtStore     = Route::has('cliente.facturacion.store')
-                    ? route('cliente.facturacion.store')
-                    : url('/cliente/facturacion');
+    $rtBack = Route::has('cliente.facturacion.index')
+        ? route('cliente.facturacion.index', request()->only(['q','status','month']))
+        : url('/cliente/facturacion');
 
-  $rtPreview   = Route::has('cliente.facturacion.preview')    ? route('cliente.facturacion.preview')    : '#';
-  $rtTemplates = Route::has('cliente.facturacion.plantillas') ? route('cliente.facturacion.plantillas') : '#';
-  $rtClone     = Route::has('cliente.facturacion.clone')      ? route('cliente.facturacion.clone')      : '#';
-  $rtFromXml   = Route::has('cliente.facturacion.fromXml')    ? route('cliente.facturacion.fromXml')    : '#';
+    $rtStore = Route::has('cliente.facturacion.store')
+        ? route('cliente.facturacion.store')
+        : url('/cliente/facturacion');
 
-  $lockTitle = 'Disponible en plan PRO';
+    $rtEmisoresIndex = Route::has('cliente.emisores.index') ? route('cliente.emisores.index') : '#';
+    $rtEmisoresCreate = Route::has('cliente.emisores.create') ? route('cliente.emisores.create') : '#';
+    $rtReceptoresIdx = Route::has('cliente.receptores.index') ? route('cliente.receptores.index') : '#';
+    $rtReceptoresNew = Route::has('cliente.receptores.create') ? route('cliente.receptores.create') : '#';
+    $rtRfcsIndex = Route::has('cliente.rfcs.index') ? route('cliente.rfcs.index') : url('/cliente/rfcs');
 
-  $rtEmisoresIndex  = Route::has('cliente.emisores.index')  ? route('cliente.emisores.index')  : '#';
-  $rtEmisoresCreate = Route::has('cliente.emisores.create') ? route('cliente.emisores.create') : '#';
-  $rtReceptoresIdx  = Route::has('cliente.receptores.index')  ? route('cliente.receptores.index')  : '#';
-  $rtReceptoresNew  = Route::has('cliente.receptores.create') ? route('cliente.receptores.create') : '#';
+    $complementosCatalogo = [
+        'pagos' => [
+            'label' => 'Complemento de pago',
+            'icon' => '💳',
+            'desc' => 'Para CFDI PPD / REP.'
+        ],
+        'nomina' => [
+            'label' => 'Nómina',
+            'icon' => '👥',
+            'desc' => 'Recibos de nómina.'
+        ],
+        'carta_porte' => [
+            'label' => 'Carta Porte',
+            'icon' => '🚚',
+            'desc' => 'Traslado de mercancías.'
+        ],
+        'retenciones' => [
+            'label' => 'Retenciones',
+            'icon' => '%',
+            'desc' => 'Impuestos retenidos.'
+        ],
+        'comercio_ext' => [
+            'label' => 'Comercio exterior',
+            'icon' => '🌎',
+            'desc' => 'Operaciones internacionales.'
+        ],
+    ];
 
-  $complementosCatalogo = [
-      'pagos'          => 'Pagos',
-      'nomina'         => 'Nómina',
-      'carta_porte'    => 'Carta Porte',
-      'inst_educativas'=> 'Instituciones Educativas',
-      'comercio_ext'   => 'Comercio exterior',
-  ];
+    $productosJs = $productos->map(function ($p) {
+        return [
+            'id' => $p->id,
+            'label' => trim(($p->sku ? $p->sku.' - ' : '').($p->descripcion ?? '')),
+            'descripcion' => $p->descripcion ?? '',
+            'precio_unitario' => (float)($p->precio_unitario ?? 0),
+            'iva_tasa' => (float)($p->iva_tasa ?? 0.16),
+        ];
+    })->values();
 @endphp
 
 @push('styles')
-<style>
-  .cfdi-page{
-    --rose:#e11d48;
-    --rose-dark:#be123c;
-    --ink:#0f172a;
-    --mut:#6b7280;
-    --card:#ffffff;
-    --bg:#fff7f9;
-    --bd:#f3d5dc;
-    --bd-soft:#fee2e2;
-    --radius:18px;
-    --shadow:0 10px 30px rgba(225,29,72,.08);
-
-    font-family:'Poppins',system-ui,sans-serif;
-    color:var(--ink);
-    display:flex;
-    flex-direction:column;
-    gap:18px;
-    padding:18px 18px 32px;
-  }
-  html[data-theme="dark"] .cfdi-page{
-    --ink:#e5e7eb;
-    --mut:#9ca3af;
-    --card:#020617;
-    --bg:#020617;
-    --bd:#1f2937;
-    --bd-soft:#111827;
-    --shadow:0 16px 40px rgba(0,0,0,.6);
-  }
-
-  .cfdi-header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;}
-  .cfdi-title-block{display:flex;flex-direction:column;gap:6px;}
-  .cfdi-kicker{font:800 11px/1 'Poppins';letter-spacing:.16em;text-transform:uppercase;color:var(--mut);}
-  .cfdi-title{font:900 22px/1.2 'Poppins';color:var(--ink);}
-  .cfdi-subtitle{font-size:12px;font-weight:500;color:var(--mut);}
-
-  .btn-cfdi{
-    display:inline-flex;align-items:center;justify-content:center;gap:6px;
-    padding:8px 13px;border-radius:999px;border:1px solid var(--bd);
-    background:var(--card);font:800 12px/1 'Poppins';
-    color:var(--ink);min-height:34px;cursor:pointer;text-decoration:none;
-    transition:background .12s, box-shadow .12s, transform .12s, opacity .12s;
-  }
-  .btn-cfdi span[aria-hidden="true"]{font-size:15px;}
-  .btn-cfdi.primary{
-    background:linear-gradient(90deg,var(--rose),var(--rose-dark));
-    border-color:var(--rose-dark);color:#fff;
-    box-shadow:0 10px 26px rgba(225,29,72,.25);
-  }
-  .btn-cfdi.ghost{background:#fff;}
-  .btn-cfdi:hover:not(:disabled){
-    background:#fff7f9;transform:translateY(-1px);
-    box-shadow:0 8px 18px rgba(15,23,42,.08);
-  }
-  .btn-cfdi.primary:hover:not(:disabled){filter:brightness(.97);}
-  .btn-cfdi.locked{opacity:.5;cursor:not-allowed;}
-  .btn-cfdi.back{background:transparent;border-color:transparent;color:var(--mut);padding-left:0;}
-  .btn-cfdi.back span[aria-hidden="true"]{font-size:13px;}
-
-  .cfdi-plan-pill{
-    display:inline-flex;align-items:center;gap:6px;
-    border-radius:999px;padding:6px 12px;
-    font:800 11px/1 'Poppins';text-transform:uppercase;
-    letter-spacing:.12em;border:1px solid var(--bd);
-    background:#fff1f2;color:var(--rose-dark);
-  }
-  .cfdi-plan-pill span[aria-hidden="true"]{font-size:13px;}
-  .cfdi-plan-pill.pro{
-    background:#dcfce7;border-color:#bbf7d0;color:#166534;
-  }
-
-  .cfdi-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;}
-
-  .cfdi-layout{
-    background:var(--bg);border-radius:var(--radius);border:1px solid var(--bd-soft);
-    box-shadow:var(--shadow);padding:18px 18px 20px;
-    display:flex;flex-direction:column;gap:16px;
-  }
-
-  .cfdi-section{
-    border-radius:14px;border:1px solid var(--bd);
-    background:var(--card);padding:14px 16px 16px;
-  }
-  .cfdi-section-header{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;}
-  .cfdi-section-title{font:800 13px/1.2 'Poppins';text-transform:uppercase;letter-spacing:.16em;color:var(--rose-dark);}
-  .cfdi-section-sub{font-size:11px;font-weight:500;color:var(--mut);}
-
-  .grid-2{display:grid;gap:10px 16px;}
-  @media(min-width:960px){.grid-2{grid-template-columns:1.2fr 1fr;}}
-
-  .field{display:flex;flex-direction:column;gap:4px;}
-  .field-label{font:800 11px/1.1 'Poppins';text-transform:uppercase;letter-spacing:.12em;color:var(--mut);}
-  .field-help{font-size:11px;color:var(--mut);}
-
-  .input-cfdi,.select-cfdi,.textarea-cfdi{
-    border-radius:11px;border:1px solid var(--bd);background:#fff;
-    padding:8px 10px;font:600 13px/1.2 'Poppins';color:var(--ink);
-  }
-  .textarea-cfdi{min-height:40px;resize:vertical;}
-  .input-cfdi:focus,.select-cfdi:focus,.textarea-cfdi:focus{
-    outline:none;border-color:var(--rose);box-shadow:0 0 0 1px rgba(225,29,72,.2);
-  }
-
-  table.concepts{
-    width:100%;border-collapse:collapse;border:1px solid var(--bd-soft);
-    border-radius:14px;overflow:hidden;margin-top:6px;font-size:13px;
-  }
-  table.concepts th,table.concepts td{
-    padding:8px 10px;border-bottom:1px solid var(--bd-soft);text-align:left;
-  }
-  table.concepts th{
-    background:#fff0f3;color:var(--mut);
-    font:800 11px/1 'Poppins';text-transform:uppercase;letter-spacing:.12em;
-  }
-  table.concepts tr:hover td{background:#fffafc;}
-
-  .subtotal,.total{font-weight:700;font-size:13px;}
-  .total{color:var(--rose-dark);}
-
-  .btn-mini{
-    width:26px;height:26px;border-radius:999px;border:1px solid var(--bd);
-    background:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:14px;
-  }
-  .btn-mini:hover{background:#fee2e2;}
-
-  .qty-control{display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--bd);overflow:hidden;}
-  .qty-control button{width:26px;height:26px;border:0;background:#fff7f9;font-size:15px;cursor:pointer;}
-  .qty-control input{width:52px;border:0;text-align:center;font:600 13px/1 'Poppins';background:#fff;}
-
-  .cfdi-summary{text-align:right;font-size:13px;font-weight:700;color:var(--mut);}
-  .cfdi-summary b{color:var(--rose-dark);}
-
-  .cfdi-footer-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;}
-  .cfdi-badge-free-note{font-size:11px;color:var(--mut);}
-
-  .pill-feature{
-    display:inline-flex;align-items:center;gap:6px;
-    padding:6px 10px;border-radius:999px;border:1px dashed var(--bd);
-    font:700 11px/1 'Poppins';color:var(--mut);
-  }
-  .pill-feature.locked::after{
-    content:"Solo PRO";font-weight:800;text-transform:uppercase;
-    letter-spacing:.12em;margin-left:4px;color:#b91c1c;
-  }
-
-  .cfdi-alert-pro{
-    border-radius:12px;border:1px dashed #f97316;background:#fffbeb;
-    padding:8px 10px;font-size:11px;color:#92400e;margin-top:6px;
-  }
-
-  /* Complementos como chips */
-  .cfdi-complements-grid{
-    display:flex;flex-wrap:wrap;gap:8px;
-  }
-  .comp-pill{
-    display:inline-flex;align-items:center;gap:6px;
-    padding:6px 10px;border-radius:999px;
-    border:1px solid var(--bd);background:#fff;
-    font:700 11px/1 'Poppins';cursor:pointer;
-  }
-  .comp-pill input{display:none;}
-  .comp-pill span{pointer-events:none;}
-  .comp-pill.active{
-    background:#fee2e2;border-color:var(--rose-dark);color:var(--rose-dark);
-  }
-  .comp-pill.disabled{
-    opacity:.5;cursor:not-allowed;
-  }
-</style>
+<link rel="stylesheet" href="{{ asset('assets/client/css/pages/facturacion-nuevo.css') }}?v={{ time() }}">
 @endpush
 
 @section('content')
-<div class="cfdi-page">
+<div class="cfdi-page cfdi-saas">
 
-  {{-- HEADER --}}
-  <div class="cfdi-header">
-    <div class="cfdi-title-block">
-      <button type="button" class="btn-cfdi back" onclick="window.location='{{ $rtBack }}'">
-        <span aria-hidden="true">←</span><span>Volver</span>
-      </button>
-      <div class="cfdi-kicker">Facturación</div>
-      <div class="cfdi-title">Nuevo CFDI</div>
-      <div class="cfdi-subtitle">
-        En FREE capturas CFDI simples. En PRO se habilitan vista previa, plantillas, clonación y carga desde XML.
-      </div>
-    </div>
+    @if(session('ok'))
+        <div class="p360-alert ok">{{ session('ok') }}</div>
+    @endif
 
-    <div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
-        <div class="cfdi-plan-pill {{ $isProPlan ? 'pro' : '' }}">
-          <span aria-hidden="true">{{ $isProPlan ? '⭐' : '🆓' }}</span>
-          <span>{{ $planLabel }}</span>
-        </div>
-      </div>
+    @if($errors->any())
+        <div class="p360-alert error">{{ $errors->first() }}</div>
+    @endif
 
-      <div class="cfdi-toolbar">
-        <button type="button"
-                class="btn-cfdi ghost {{ $isProPlan ? '' : 'locked' }}"
-                @if($isProPlan && $rtPreview !== '#')
-                  data-action="preview"
-                @else
-                  title="{{ $isProPlan ? '' : $lockTitle }}"
-                  disabled
-                @endif>
-          <span aria-hidden="true">👁</span><span>Vista previa</span>
-        </button>
+    <form method="POST" action="{{ $rtStore }}" id="newForm">
+        @csrf
 
-        <button type="button"
-                class="btn-cfdi ghost {{ $isProPlan ? '' : 'locked' }}"
-                @if($isProPlan && $rtTemplates !== '#')
-                  data-action="templates"
-                @else
-                  title="{{ $isProPlan ? '' : $lockTitle }}"
-                  disabled
-                @endif>
-          <span aria-hidden="true">📄</span><span>Plantillas</span>
-        </button>
+        <input type="hidden" name="accion_cfdi" id="accion_cfdi" value="borrador">
 
-        <button type="button"
-                class="btn-cfdi ghost {{ $isProPlan ? '' : 'locked' }}"
-                @if($isProPlan && $rtClone !== '#')
-                  data-action="clone"
-                @else
-                  title="{{ $isProPlan ? '' : $lockTitle }}"
-                  disabled
-                @endif>
-          <span aria-hidden="true">🧬</span><span>Clonar CFDI</span>
-        </button>
+        <div class="cfdi-app">
 
-        <button type="button"
-                class="btn-cfdi ghost {{ $isProPlan ? '' : 'locked' }}"
-                @if($isProPlan && $rtFromXml !== '#')
-                  data-action="from-xml"
-                @else
-                  title="{{ $isProPlan ? '' : $lockTitle }}"
-                  disabled
-                @endif>
-          <span aria-hidden="true">📥</span><span>Desde XML</span>
-        </button>
-      </div>
-    </div>
-  </div>
+            <header class="cfdi-command">
+                <div class="cfdi-command-left">
+                    <a href="{{ $rtBack }}" class="cfdi-back" title="Volver">←</a>
 
-  {{-- FLASHES --}}
-  @if(session('ok'))
-    <div class="cfdi-layout" style="padding:12px 16px;">
-      <div style="border-radius:12px;background:#ecfdf5;border:1px solid #86efac;color:#047857;padding:8px 10px;font-size:13px;font-weight:700;">
-        {{ session('ok') }}
-      </div>
-    </div>
-  @endif
-  @if($errors->any())
-    <div class="cfdi-layout" style="padding:12px 16px;">
-      <div style="border-radius:12px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:8px 10px;font-size:13px;font-weight:700;">
-        {{ $errors->first() }}
-      </div>
-    </div>
-  @endif
+                    <div>
+                        <div class="cfdi-kicker">CFDI 4.0 · Facturación 360</div>
+                        <h1>Nuevo CFDI</h1>
+                    </div>
+                </div>
 
-  {{-- FORMULARIO --}}
-  <form method="POST" action="{{ $rtStore }}" id="newForm">
-    @csrf
+                <div class="cfdi-command-actions">
+                    <button type="button" class="cfdi-btn ghost" id="btnPreview">
+                        Vista previa
+                    </button>
 
-    <div class="cfdi-layout">
+                    <button type="submit" class="cfdi-btn primary" data-cfdi-action="borrador">
+                        Guardar borrador
+                    </button>
 
-      {{-- EMISOR --}}
-      <div class="cfdi-section">
-        <div class="cfdi-section-header">
-          <div>
-            <div class="cfdi-section-title">Emisor</div>
-            <div class="cfdi-section-sub">Datos de la empresa emisora y encabezado del CFDI</div>
-          </div>
-          @if($rtEmisoresIndex !== '#')
-            <a href="{{ $rtEmisoresIndex }}" class="btn-cfdi ghost" style="font-size:11px;">
-              <span aria-hidden="true">🏢</span><span>Gestionar emisores</span>
-            </a>
-          @endif
-        </div>
+                    <button type="submit" class="cfdi-btn success" id="btnTimbrar" data-cfdi-action="timbrar">
+                        Timbrar CFDI
+                    </button>
+                </div>
+            </header>
 
-        <div class="grid-2">
-          <div class="field">
-            <div class="field-label">Empresa / Emisor</div>
-            <select name="cliente_id" class="select-cfdi" required>
-              @if($emisores->isEmpty())
-                <option value="">— No hay emisores —</option>
-              @else
-                <option value="">Selecciona emisor…</option>
-                @foreach($emisores as $e)
-                  <option value="{{ $e->id }}" @selected(old('cliente_id')==$e->id)>
-                    {{ $e->nombre_comercial ?? $e->razon_social ?? ('#'.$e->id) }} — {{ $e->rfc }}
-                  </option>
-                @endforeach
-              @endif
-            </select>
-            <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
-              @if($emisores->isEmpty())
-                <div class="field-help">Configura al menos un emisor para poder timbrar.</div>
-              @else
-                <div class="field-help">Solo se muestran emisores registrados en tu cuenta.</div>
-              @endif
+            <section class="cfdi-focus">
+                <div class="cfdi-focus-main">
+                    <span class="cfdi-focus-badge">Borrador fiscal</span>
 
-              @if($rtEmisoresCreate !== '#')
-                <a href="{{ $rtEmisoresCreate }}" class="btn-cfdi ghost" style="padding:4px 10px;font-size:11px;">
-                  <span aria-hidden="true">＋</span><span>Nuevo emisor</span>
-                </a>
-              @endif
+                    <h2>Emite CFDI sin errores y con menos pasos</h2>
+
+                    <p>
+                        Flujo fiscal correcto: primero emisor, después receptor, conceptos, pago,
+                        complementos, vista previa, timbrado y envío al receptor.
+                    </p>
+                </div>
+
+                <div class="cfdi-focus-stats">
+                    <div>
+                        <small>Estado</small>
+                        <strong id="heroValidationLabel">Sin timbrar</strong>
+                    </div>
+
+                    <div>
+                        <small>Total</small>
+                        <strong data-cfdi-total>$0.00 MXN</strong>
+                    </div>
+
+                    <div>
+                        <small>Plan</small>
+                        <strong>{{ $isProPlan ? 'PRO' : 'FREE' }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <nav class="cfdi-stepper" aria-label="Proceso CFDI">
+                <button type="button" class="cfdi-step active" data-step-target="emisor">
+                    <span>1</span> Emisor
+                </button>
+
+                <button type="button" class="cfdi-step" data-step-target="receptor">
+                    <span>2</span> Receptor
+                </button>
+
+                <button type="button" class="cfdi-step" data-step-target="conceptos">
+                    <span>3</span> Conceptos
+                </button>
+
+                <button type="button" class="cfdi-step" data-step-target="pago">
+                    <span>4</span> Pago
+                </button>
+
+                <button type="button" class="cfdi-step" data-step-target="revision">
+                    <span>5</span> Revisión
+                </button>
+            </nav>
+
+            <div class="cfdi-layout">
+
+                <main class="cfdi-builder">
+
+                    <section class="cfdi-card cfdi-card-principal cfdi-emisor-clean" id="emisor">
+                        <div class="cfdi-emisor-clean-head">
+                            <div class="cfdi-emisor-title-wrap">
+                                <div class="cfdi-emisor-icon">▦</div>
+                                <div>
+                                    <span class="cfdi-section-label">Paso 1</span>
+                                    <h2>Emisor fiscal</h2>
+                                    <p>Selecciona el RFC emisor. La configuración vive en RFC / Emisores.</p>
+                                </div>
+                            </div>
+
+                            <a href="{{ $rtRfcsIndex }}" class="cfdi-btn small cfdi-emisor-admin">
+                                ⚙ RFC / Emisores
+                            </a>
+                        </div>
+
+                        <div class="cfdi-emisor-select-shell">
+                            <label class="floating-field cfdi-emisor-select">
+                                <span>RFC emisor</span>
+                                <select name="cliente_id" id="cliente_id" required>
+                                    @if($emisores->isEmpty())
+                                        <option value="">No hay RFC emisores activos</option>
+                                    @else
+                                        <option value="">Seleccionar RFC emisor</option>
+                                        @foreach($emisores as $e)
+                                            <option value="{{ $e->id }}" @selected(old('cliente_id') == $e->id)>
+                                                {{ $e->razon_social ?? $e->nombre_comercial ?? ('#'.$e->id) }} — {{ $e->rfc }}
+                                            </option>
+                                        @endforeach
+                                    @endif
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="cfdi-emisor-mini-status">
+                            <div class="cfdi-mini-chip">
+                                <strong>CSD</strong>
+                                <span>Desde RFC</span>
+                            </div>
+
+                            <div class="cfdi-mini-chip">
+                                <strong>FIEL</strong>
+                                <span>Desde RFC</span>
+                            </div>
+
+                            <div class="cfdi-mini-chip">
+                                <strong>Serie</strong>
+                                <span>Automática</span>
+                            </div>
+
+                            <div class="cfdi-mini-chip">
+                                <strong>Folio</strong>
+                                <span>Automático</span>
+                            </div>
+
+                            <div class="cfdi-mini-chip ok">
+                                <strong>Estado</strong>
+                                <span>Centralizado</span>
+                            </div>
+                        </div>
+
+                        <input type="hidden" name="fecha" value="{{ old('fecha', $today->format('Y-m-d\TH:i')) }}">
+                        <input type="hidden" name="serie" value="{{ old('serie') }}">
+                        <input type="hidden" name="folio" value="{{ old('folio') }}">
+                        <input type="hidden" name="moneda" value="{{ old('moneda', 'MXN') }}">
+                        <input type="hidden" name="tipo_cambio" value="{{ old('tipo_cambio') }}">
+
+                        @if($emisores->isEmpty())
+                            <div class="cfdi-inline-warning compact">
+                                No hay RFC activos.
+                                <a href="{{ $rtRfcsIndex }}">Abrir RFC / Emisores</a>
+                            </div>
+                        @else
+                            <div class="cfdi-emisor-note">
+                                <span>ℹ</span>
+                                <p>Al emitir, se usará la configuración fiscal guardada del RFC seleccionado.</p>
+                            </div>
+                        @endif
+
+                    </section>
+
+                    <section class="cfdi-card cfdi-card-principal" id="receptor">
+                        <div class="cfdi-card-head">
+                            <div>
+                                <span class="cfdi-section-label">Paso 2</span>
+                                <h2>Receptor fiscal</h2>
+                                <p>
+                                    Selecciona el cliente receptor. El régimen, CP y uso CFDI deben coincidir
+                                    con la constancia fiscal del receptor.
+                                </p>
+                            </div>
+
+                            <div class="cfdi-head-actions">
+                                @if($rtReceptoresNew !== '#')
+                                    <a href="{{ $rtReceptoresNew }}" class="cfdi-btn small">
+                                        + Nuevo receptor
+                                    </a>
+                                @endif
+
+                                @if($rtReceptoresIdx !== '#')
+                                    <a href="{{ $rtReceptoresIdx }}" class="cfdi-icon-action" title="Editar receptores">
+                                        ✎
+                                    </a>
+                                @endif
+                            </div>
+                        </div>
+
+                        <div class="cfdi-client-picker">
+                            <label class="floating-field span-2">
+                                <span>Buscar cliente / RFC</span>
+                                <select name="receptor_id" id="receptor_id" required>
+                                    @if($receptores->isEmpty())
+                                        <option value="">No hay receptores registrados</option>
+                                    @else
+                                        <option value="">Buscar / seleccionar receptor</option>
+                                        @foreach($receptores as $r)
+                                            <option value="{{ $r->id }}"
+                                                    data-rfc="{{ $r->rfc }}"
+                                                    data-nombre="{{ $r->razon_social ?? $r->nombre_comercial }}"
+                                                    data-cp="{{ $r->codigo_postal ?? $r->cp ?? '' }}"
+                                                    data-regimen="{{ $r->regimen_fiscal ?? '' }}"
+                                                    @selected(old('receptor_id') == $r->id)>
+                                                {{ $r->razon_social ?? $r->nombre_comercial ?? ('#'.$r->id) }} — {{ $r->rfc }}
+                                            </option>
+                                        @endforeach
+                                    @endif
+                                </select>
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Uso CFDI</span>
+                                <select name="uso_cfdi" id="uso_cfdi">
+                                    <option value="G03" @selected(old('uso_cfdi','G03') === 'G03')>
+                                        G03 · Gastos en general
+                                    </option>
+                                    <option value="G01" @selected(old('uso_cfdi') === 'G01')>
+                                        G01 · Adquisición de mercancías
+                                    </option>
+                                    <option value="P01" @selected(old('uso_cfdi') === 'P01')>
+                                        P01 · Por definir
+                                    </option>
+                                    <option value="S01" @selected(old('uso_cfdi') === 'S01')>
+                                        S01 · Sin efectos fiscales
+                                    </option>
+                                </select>
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Régimen fiscal receptor</span>
+                                <input type="text" name="regimen_receptor" id="regimen_receptor" value="{{ old('regimen_receptor') }}" placeholder="Autollenado">
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Código postal fiscal</span>
+                                <input type="text" name="cp_receptor" id="cp_receptor" value="{{ old('cp_receptor') }}" maxlength="5" placeholder="00000">
+                            </label>
+                        </div>
+
+                        <div class="cfdi-smart-card" id="receptorSmartCard">
+                            <strong>Ficha fiscal inteligente</strong>
+                            <span>
+                                Selecciona receptor para validar RFC, régimen y código postal antes de timbrar.
+                            </span>
+                        </div>
+                    </section>
+
+                    <section class="cfdi-card cfdi-card-principal cfdi-concepts-clean" id="conceptos">
+                        <div class="cfdi-concepts-clean-head">
+                            <div class="cfdi-concepts-title">
+                                <div class="cfdi-concepts-icon">✦</div>
+                                <div>
+                                    <span class="cfdi-section-label">Paso 3</span>
+                                    <h2>Conceptos CFDI</h2>
+                                    <p>Agrega productos o servicios con validación fiscal.</p>
+                                </div>
+                            </div>
+
+                            <button type="button" class="cfdi-btn small" id="btnAddConcept">
+                                + Concepto
+                            </button>
+                        </div>
+
+                        <div class="cfdi-concepts-ai-clean">
+                            <div>
+                                <strong>IA fiscal</strong>
+                                <span id="conceptsAiSummary">Valida descripción, clave SAT, unidad, IVA y objeto de impuesto.</span>
+                            </div>
+
+                            <div class="cfdi-concepts-ai-score">
+                                <b id="conceptsAiScore">0</b>
+                                <small>/100</small>
+                            </div>
+                        </div>
+
+                        <div class="cfdi-concept-cards" id="itemsBody"></div>
+
+                        <button type="button" class="cfdi-add-line cfdi-add-line-pro" id="btnAddConceptInline">
+                            + Agregar otro concepto
+                        </button>
+
+                        <div class="cfdi-concepts-footer">
+                            <div class="cfdi-concepts-tip">
+                                <span>IA</span>
+                                <p>Escribe una descripción clara para sugerir configuración fiscal.</p>
+                            </div>
+
+                            <div class="cfdi-mini-total" id="calcPreview">
+                                Subtotal: $0.00 · IVA: $0.00 · Total: $0.00
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cfdi-card" id="pago">
+                        <div class="cfdi-card-head">
+                            <div>
+                                <span class="cfdi-section-label">Paso 4</span>
+                                <h2>Pago y complementos</h2>
+                                <p>
+                                    Define tipo de CFDI, método, forma de pago y complementos opcionales.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="cfdi-grid four">
+                            <label class="floating-field">
+                                <span>Tipo CFDI</span>
+                                <select name="tipo_comprobante" id="tipo_comprobante">
+                                    <option value="I" @selected(old('tipo_comprobante','I') === 'I')>
+                                        I · Ingreso
+                                    </option>
+                                    <option value="E" @selected(old('tipo_comprobante') === 'E')>
+                                        E · Egreso
+                                    </option>
+                                    <option value="P" @selected(old('tipo_comprobante') === 'P')>
+                                        P · Pago
+                                    </option>
+                                    <option value="T" @selected(old('tipo_comprobante') === 'T')>
+                                        T · Traslado
+                                    </option>
+                                </select>
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Método de pago</span>
+                                <select name="metodo_pago" id="metodo_pago">
+                                    <option value="">Selecciona</option>
+                                    <option value="PUE" @selected(old('metodo_pago') === 'PUE')>
+                                        PUE · Pago en una exhibición
+                                    </option>
+                                    <option value="PPD" @selected(old('metodo_pago') === 'PPD')>
+                                        PPD · Pago en parcialidades
+                                    </option>
+                                </select>
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Forma de pago</span>
+                                <select name="forma_pago" id="forma_pago">
+                                    <option value="">Selecciona</option>
+                                    <option value="01" @selected(old('forma_pago') === '01')>01 · Efectivo</option>
+                                    <option value="02" @selected(old('forma_pago') === '02')>02 · Cheque nominativo</option>
+                                    <option value="03" @selected(old('forma_pago') === '03')>03 · Transferencia</option>
+                                    <option value="04" @selected(old('forma_pago') === '04')>04 · Tarjeta crédito</option>
+                                    <option value="28" @selected(old('forma_pago') === '28')>28 · Tarjeta débito</option>
+                                    <option value="99" @selected(old('forma_pago') === '99')>99 · Por definir</option>
+                                </select>
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Condiciones</span>
+                                <input type="text" name="condiciones_pago" value="{{ old('condiciones_pago') }}" placeholder="Contado / Crédito">
+                            </label>
+                        </div>
+
+                        <details class="cfdi-accordion">
+                            <summary>Complementos y opciones avanzadas</summary>
+
+                            <div class="cfdi-complements-grid" id="complementsGrid">
+                                @foreach($complementosCatalogo as $key => $item)
+                                    @php $checked = in_array($key, (array)old('complementos', []), true); @endphp
+
+                                    <label class="comp-pill {{ $checked ? 'active' : '' }} {{ !$isProPlan ? 'disabled' : '' }}" title="{{ $item['desc'] }}">
+                                        <input type="checkbox"
+                                               name="complementos[]"
+                                               value="{{ $key }}"
+                                               @checked($checked)
+                                               @disabled(!$isProPlan)>
+
+                                        <span>{{ $item['icon'] }}</span>
+                                        <b>{{ $item['label'] }}</b>
+
+                                        @if(!$isProPlan)
+                                            <em>PRO</em>
+                                        @endif
+                                    </label>
+                                @endforeach
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="cfdi-card" id="revision">
+                        <div class="cfdi-card-head">
+                            <div>
+                                <span class="cfdi-section-label">Paso 5</span>
+                                <h2>Revisión, vista previa y envío</h2>
+                                <p>
+                                    Valida el CFDI antes de timbrar. Después podrás descargar PDF/XML y enviarlo por correo.
+                                </p>
+                            </div>
+
+                            <div class="cfdi-head-actions">
+                                <button type="button" class="cfdi-btn ghost" id="btnPreviewInline">
+                                    Vista previa
+                                </button>
+
+                                <button type="submit" class="cfdi-btn primary" data-cfdi-action="borrador">
+                                    Guardar borrador
+                                </button>
+
+                                <button type="submit" class="cfdi-btn success" data-cfdi-action="timbrar">
+                                    Timbrar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="cfdi-review-grid">
+                            <div class="review-item" data-review="emisor">Emisor pendiente</div>
+                            <div class="review-item" data-review="receptor">Receptor pendiente</div>
+                            <div class="review-item" data-review="conceptos">Conceptos pendientes</div>
+                            <div class="review-item" data-review="pago">Pago pendiente</div>
+                        </div>
+
+                        <div class="cfdi-smart-card">
+                            <strong>Después del timbrado</strong>
+                            <span>
+                                El sistema quedará preparado para generar PDF, XML, enviar por correo al receptor
+                                y descontar timbres de la bolsa correspondiente cuando el módulo de timbres quede conectado.
+                            </span>
+                        </div>
+
+                        <div class="cfdi-grid two" style="margin-top:14px;">
+                            <label class="floating-field">
+                                <span>Correo receptor</span>
+                                <input type="email" name="correo_receptor" id="correo_receptor" value="{{ old('correo_receptor') }}" placeholder="cliente@empresa.com">
+                            </label>
+
+                            <label class="floating-field">
+                                <span>Mensaje opcional</span>
+                                <input type="text" name="mensaje_correo" id="mensaje_correo" value="{{ old('mensaje_correo') }}" placeholder="Adjunto CFDI PDF/XML">
+                            </label>
+                        </div>
+
+                        <label class="comp-pill active" style="margin-top:14px;">
+                            <input type="checkbox" name="enviar_correo" id="enviar_correo" value="1" checked>
+                            <span>✉</span>
+                            <b>Enviar CFDI por correo al receptor después de timbrar</b>
+                        </label>
+                    </section>
+
+                </main>
+
+                <aside class="cfdi-side-panel">
+
+                    <div class="cfdi-total-card cfdi-total-sticky">
+                        <div class="cfdi-total-top">
+                            <div>
+                                <small>Total CFDI</small>
+                                <strong data-cfdi-total>$0.00 MXN</strong>
+                            </div>
+
+                            <span id="aiScore">50</span>
+                        </div>
+
+                        <div class="total-row">
+                            <span>Subtotal</span>
+                            <strong data-cfdi-subtotal>$0.00</strong>
+                        </div>
+
+                        <div class="total-row">
+                            <span>IVA</span>
+                            <strong data-cfdi-iva>$0.00</strong>
+                        </div>
+
+                        <div class="cfdi-side-actions">
+                            <button type="button" class="cfdi-btn ghost full" id="btnPreviewSide">
+                                Vista previa CFDI
+                            </button>
+
+                            <button type="submit" class="cfdi-btn primary full" data-cfdi-action="borrador">
+                                Guardar borrador
+                            </button>
+
+                            <button type="submit" class="cfdi-btn success full" id="btnTimbrarSide" data-cfdi-action="timbrar">
+                                Timbrar CFDI
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="cfdi-ai-card">
+                        <div class="cfdi-side-title">
+                            <strong>Validación fiscal</strong>
+                            <small>Checklist en tiempo real</small>
+                        </div>
+
+                        <div class="cfdi-ai-list" id="aiList">
+                            <div class="ai-item warn">Selecciona emisor.</div>
+                            <div class="ai-item warn">Selecciona receptor.</div>
+                            <div class="ai-item warn">Agrega conceptos.</div>
+                            <div class="ai-item warn">Define método y forma de pago.</div>
+                        </div>
+                    </div>
+
+                    <div class="cfdi-ai-card compact">
+                        <div class="cfdi-side-title">
+                            <strong>Funciones profesionales</strong>
+                            <small>Mejorado para competir contra ERPs de facturación</small>
+                        </div>
+
+                        <ul>
+                            <li>Flujo fiscal correcto: emisor → receptor → conceptos → pago.</li>
+                            <li>Validación RFC, régimen fiscal y CP antes de timbrar.</li>
+                            <li>Conceptos tipo carrito con cálculo automático.</li>
+                            <li>Complementos ocultos hasta que el usuario los necesite.</li>
+                            <li>Vista previa antes de timbrar.</li>
+                            <li>Preparado para PDF, XML, correo y consumo de timbres.</li>
+                        </ul>
+                    </div>
+
+                </aside>
+
             </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label">Fecha</div>
-            <input type="datetime-local"
-                   name="fecha"
-                   class="input-cfdi"
-                   value="{{ old('fecha', $today->format('Y-m-d\TH:i')) }}">
-          </div>
         </div>
+    </form>
+</div>
 
-        <div class="grid-2" style="margin-top:8px;">
-          <div class="field">
-            <div class="field-label">Serie</div>
-            <input type="text" name="serie" class="input-cfdi" maxlength="10" value="{{ old('serie') }}">
-          </div>
-          <div class="field">
-            <div class="field-label">Folio</div>
-            <input type="text" name="folio" class="input-cfdi" maxlength="20" value="{{ old('folio') }}">
-          </div>
-        </div>
+<div class="cfdi-product-modal" id="productModal" aria-hidden="true">
+    <div class="cfdi-product-modal-backdrop" data-close-product-modal></div>
 
-        <div class="grid-2" style="margin-top:8px;">
-          <div class="field">
-            <div class="field-label">Moneda</div>
-            <input type="text" name="moneda" class="input-cfdi" maxlength="10" value="{{ old('moneda',$monedaDefault) }}">
-          </div>
-          <div class="field">
-            <div class="field-label">UUID (temporal)</div>
-            <div class="input-cfdi" style="display:flex;align-items:center;">Se generará automáticamente</div>
-          </div>
-        </div>
-      </div>
-
-      {{-- RECEPTOR --}}
-      <div class="cfdi-section">
-        <div class="cfdi-section-header">
-          <div>
-            <div class="cfdi-section-title">Receptor</div>
-            <div class="cfdi-section-sub">Selecciona el cliente receptor del CFDI</div>
-          </div>
-          @if($rtReceptoresIdx !== '#')
-            <a href="{{ $rtReceptoresIdx }}" class="btn-cfdi ghost" style="font-size:11px;">
-              <span aria-hidden="true">👤</span><span>Gestionar receptores</span>
-            </a>
-          @endif
-        </div>
-
-        <div class="grid-2">
-          <div class="field">
-            <div class="field-label">Receptor</div>
-            <select name="receptor_id" class="select-cfdi" required>
-              @if($receptores->isEmpty())
-                <option value="">— No hay receptores —</option>
-              @else
-                <option value="">Selecciona receptor…</option>
-                @foreach($receptores as $r)
-                  <option value="{{ $r->id }}" @selected(old('receptor_id')==$r->id)>
-                    {{ $r->razon_social ?? $r->nombre_comercial ?? ('#'.$r->id) }} — {{ $r->rfc }}
-                  </option>
-                @endforeach
-              @endif
-            </select>
-            <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
-              @if($receptores->isEmpty())
-                <div class="field-help">Agrega receptores en el módulo de Clientes/Receptores.</div>
-              @endif
-              @if($rtReceptoresNew !== '#')
-                <a href="{{ $rtReceptoresNew }}" class="btn-cfdi ghost" style="padding:4px 10px;font-size:11px;">
-                  <span aria-hidden="true">＋</span><span>Nuevo receptor</span>
-                </a>
-              @endif
+    <div class="cfdi-product-modal-dialog">
+        <div class="cfdi-product-modal-head">
+            <div>
+                <h2>Productos y servicios</h2>
+                <p>Administra catálogo, clave SAT, unidad, IVA y llena conceptos automáticamente.</p>
             </div>
-          </div>
 
-          <div class="field">
-            <div class="field-label">Uso CFDI</div>
-            <input type="text" class="input-cfdi" value="G03" readonly>
-          </div>
-        </div>
-      </div>
-
-      {{-- CONCEPTOS --}}
-      <div class="cfdi-section">
-        <div class="cfdi-section-header">
-          <div>
-            <div class="cfdi-section-title">Conceptos / productos</div>
-            <div class="cfdi-section-sub">Agrega los conceptos con sus importes e impuestos</div>
-          </div>
-          <div class="pill-feature {{ $isProPlan ? '' : 'locked' }}">
-            Complementos por concepto
-          </div>
+            <button type="button" data-close-product-modal>×</button>
         </div>
 
-        <table class="concepts" id="itemsTable">
-          <thead>
-            <tr>
-              <th style="width:34%">Descripción</th>
-              <th>Producto</th>
-              <th>Cant.</th>
-              <th>Precio</th>
-              <th>IVA</th>
-              <th>Subtotal</th>
-              <th>Total</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="itemsBody"></tbody>
-        </table>
-
-        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;">
-          <button type="button" class="btn-cfdi ghost" id="btnAddConcept">
-            <span aria-hidden="true">➕</span><span>Agregar concepto</span>
-          </button>
-          <div style="flex:1;"></div>
-          <div class="cfdi-summary" id="calcPreview" aria-live="polite">
-            Subtotal: $0.00 · IVA: $0.00 · Total: $0.00
-          </div>
-        </div>
-      </div>
-
-      {{-- PAGO --}}
-      <div class="cfdi-section">
-        <div class="cfdi-section-header">
-          <div>
-            <div class="cfdi-section-title">Pago</div>
-            <div class="cfdi-section-sub">Forma y método de pago del CFDI</div>
-          </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="field">
-            <div class="field-label">Forma de pago</div>
-            <input type="text" name="forma_pago" class="input-cfdi" value="{{ old('forma_pago') }}">
-          </div>
-          <div class="field">
-            <div class="field-label">Método de pago</div>
-            <input type="text" name="metodo_pago" class="input-cfdi" value="{{ old('metodo_pago') }}">
-          </div>
-        </div>
-
-        <div class="field" style="margin-top:8px;max-width:260px;">
-          <div class="field-label">Total a pagar</div>
-          <input type="text" class="input-cfdi" id="totalLabel" value="$0.00" readonly>
-        </div>
-      </div>
-
-      {{-- COMPLEMENTOS --}}
-      <div class="cfdi-section">
-        <div class="cfdi-section-header">
-          <div>
-            <div class="cfdi-section-title">Complementos</div>
-            <div class="cfdi-section-sub">
-              Pagos, nómina, carta porte, instituciones educativas, comercio exterior y más.
+        <div class="cfdi-product-modal-body">
+            <div class="cfdi-product-ai">
+                <strong>IA fiscal de producto</strong>
+                <span id="productAiText">Escribe una descripción para sugerir clave SAT, unidad e IVA.</span>
             </div>
-          </div>
-          <div class="pill-feature {{ $isProPlan ? '' : 'locked' }}">
-            Complementos SAT
-          </div>
-        </div>
 
-        @if($isProPlan)
-          <div class="field">
-            <div class="field-label">Selecciona complementos</div>
-            <div class="cfdi-complements-grid" id="complementsGrid">
-              @foreach($complementosCatalogo as $key => $label)
-                @php $checked = in_array($key, (array)old('complementos', []), true); @endphp
-                <label class="comp-pill {{ $checked ? 'active' : '' }}">
-                  <input type="checkbox" name="complementos[]" value="{{ $key }}" {{ $checked ? 'checked' : '' }}>
-                  <span>{{ $label }}</span>
+            <form id="productForm" class="cfdi-product-form">
+                <input type="hidden" id="product_id">
+
+                <label>
+                    <span>SKU / Código</span>
+                    <input type="text" id="product_sku" placeholder="Opcional">
                 </label>
-              @endforeach
-            </div>
-            <div class="field-help">
-              El detalle de cada complemento se llenará en pasos siguientes del flujo PRO.
-            </div>
-          </div>
-        @else
-          <div class="field">
-            <div class="field-label">Complementos disponibles en PRO</div>
-            <div class="cfdi-complements-grid">
-              @foreach($complementosCatalogo as $key => $label)
-                <label class="comp-pill disabled">
-                  <input type="checkbox" disabled>
-                  <span>{{ $label }}</span>
+
+                <label class="span-2">
+                    <span>Descripción</span>
+                    <textarea id="product_descripcion" rows="3" required placeholder="Ej. Servicio mensual de soporte y mantenimiento"></textarea>
                 </label>
-              @endforeach
-            </div>
-            <div class="cfdi-alert-pro">
-              En el plan FREE puedes timbrar CFDI simples de ingreso/egreso.
-              Los complementos avanzados se activan al contratar el plan PRO.
-            </div>
-          </div>
-        @endif
-      </div>
 
-      {{-- FOOTER --}}
-      <div class="cfdi-footer-actions">
-        <div class="cfdi-badge-free-note">
-          @if(!$isProPlan)
-            Vista previa, plantillas, clonación y complementos avanzados están disponibles en <b>plan PRO</b>.
-          @else
-            Todas las funciones PRO de facturación están activas en tu cuenta.
-          @endif
+                <label>
+                    <span>Precio unitario</span>
+                    <input type="number" id="product_precio" step="0.0001" min="0" value="0">
+                </label>
+
+                <label>
+                    <span>Clave SAT</span>
+                    <input type="text" id="product_clave" value="01010101">
+                </label>
+
+                <label>
+                    <span>Unidad SAT</span>
+                    <select id="product_unidad">
+                        <option value="E48">E48 · Servicio</option>
+                        <option value="H87">H87 · Pieza</option>
+                        <option value="ACT">ACT · Actividad</option>
+                        <option value="KGM">KGM · Kilogramo</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>IVA</span>
+                    <select id="product_iva">
+                        <option value="0.16">16%</option>
+                        <option value="0.08">8%</option>
+                        <option value="0">0%</option>
+                    </select>
+                </label>
+
+                <label class="check">
+                    <input type="checkbox" id="product_activo" checked>
+                    <span>Activo</span>
+                </label>
+
+                <div class="cfdi-product-actions">
+                    <button type="button" class="cfdi-btn ghost" id="btnProductReset">Nuevo</button>
+                    <button type="submit" class="cfdi-btn primary">Guardar producto</button>
+                </div>
+            </form>
+
+            <div class="cfdi-product-list-head">
+                <strong>Catálogo</strong>
+                <input type="search" id="productSearch" placeholder="Buscar producto, SKU o clave SAT...">
+            </div>
+
+            <div class="cfdi-product-list" id="productList"></div>
         </div>
-
-        <button type="submit" class="btn-cfdi primary">
-          <span aria-hidden="true">🧾</span>
-          <span>Crear borrador</span>
-        </button>
-      </div>
-
     </div>
-  </form>
 </div>
 @endsection
 
 @push('scripts')
 <script>
-  const PRODUCTOS = {!! json_encode(
-    $productos->map(fn($p)=>[
-      'id'             => $p->id,
-      'label'          => trim(($p->sku ? $p->sku.' - ' : '').($p->descripcion ?? '')),
-      'descripcion'    => $p->descripcion ?? '',
-      'precio_unitario'=> (float)($p->precio_unitario ?? 0),
-      'iva_tasa'       => (float)($p->iva_tasa ?? 0.16),
-    ])->values(),
-    JSON_UNESCAPED_UNICODE
-  ) !!};
+    window.P360_CFDI_NUEVO = {
+        isPro: @json($isProPlan),
+        productos: @json($productosJs),
+        csrf: @json(csrf_token()),
+        productosUrl: @json(route('cliente.productos.index')),
+        productosStoreUrl: @json(route('cliente.productos.store')),
+        productosUpdateUrl: @json(url('/cliente/productos/__ID__')),
+        productosDeleteUrl: @json(url('/cliente/productos/__ID__'))
+    };
+    document.addEventListener('click', function (event) {
+        const actionBtn = event.target.closest('[data-cfdi-action]');
+        if (!actionBtn) return;
 
-  const itemsBody   = document.getElementById('itemsBody');
-  const calcPreview = document.getElementById('calcPreview');
-  const totalLabel  = document.getElementById('totalLabel');
-  const btnAdd      = document.getElementById('btnAddConcept');
-
-  function fmt(n){
-    return (n || 0).toLocaleString(undefined,{
-      minimumFractionDigits:2,
-      maximumFractionDigits:2
+        const actionInput = document.getElementById('accion_cfdi');
+        if (actionInput) {
+            actionInput.value = actionBtn.dataset.cfdiAction || 'borrador';
+        }
     });
-  }
-
-  function rowTemplate(idx, d){
-    const data = Object.assign(
-      {producto_id:'', descripcion:'', cantidad:1, precio_unitario:0, iva_tasa:0.16},
-      d || {}
-    );
-    const opts = (PRODUCTOS || []).map(p =>
-      `<option value="${p.id}" ${String(data.producto_id)===String(p.id)?'selected':''}>${p.label}</option>`
-    ).join('');
-    return `
-      <tr data-idx="${idx}">
-        <td>
-          <textarea class="textarea-cfdi" name="conceptos[${idx}][descripcion]" rows="2" required>${data.descripcion||''}</textarea>
-        </td>
-        <td>
-          <select class="select-cfdi" name="conceptos[${idx}][producto_id]" onchange="onProductChange(${idx},this.value)">
-            <option value="">—</option>
-            ${opts}
-          </select>
-        </td>
-        <td>
-          <div class="qty-control">
-            <button type="button" data-step="-1">−</button>
-            <input type="number" step="0.0001" min="0.0001"
-                   name="conceptos[${idx}][cantidad]" value="${data.cantidad}">
-            <button type="button" data-step="1">+</button>
-          </div>
-        </td>
-        <td>
-          <input type="number" step="0.0001" min="0"
-                 class="input-cfdi"
-                 name="conceptos[${idx}][precio_unitario]"
-                 value="${data.precio_unitario}">
-        </td>
-        <td>
-          <input type="number" step="0.0001" min="0"
-                 class="input-cfdi"
-                 name="conceptos[${idx}][iva_tasa]"
-                 value="${data.iva_tasa}">
-        </td>
-        <td class="subtotal">$0.00</td>
-        <td class="total">$0.00</td>
-        <td>
-          <button type="button" class="btn-mini" onclick="removeItem(${idx})" title="Eliminar">✕</button>
-        </td>
-      </tr>
-    `;
-  }
-
-  function recalc(){
-    let subtotal=0, iva=0, total=0;
-    [...itemsBody.children].forEach((tr,i)=>{
-      const q  = parseFloat(tr.querySelector(`[name="conceptos[${i}][cantidad]"]`)?.value || '0');
-      const pu = parseFloat(tr.querySelector(`[name="conceptos[${i}][precio_unitario]"]`)?.value || '0');
-      const t  = parseFloat(tr.querySelector(`[name="conceptos[${i}][iva_tasa]"]`)?.value || '0');
-      const s  = Math.round(q*pu*100)/100;
-      const v  = Math.round(s*t*100)/100;
-      const tot= Math.round((s+v)*100)/100;
-      subtotal+=s; iva+=v; total+=tot;
-      tr.querySelector('.subtotal').textContent = '$'+fmt(s);
-      tr.querySelector('.total').textContent    = '$'+fmt(tot);
-    });
-    calcPreview.textContent = `Subtotal: $${fmt(subtotal)} · IVA: $${fmt(iva)} · Total: $${fmt(total)}`;
-    if(totalLabel) totalLabel.value = '$'+fmt(total);
-  }
-
-  function addItem(data){
-    const idx = itemsBody.children.length;
-    itemsBody.insertAdjacentHTML('beforeend', rowTemplate(idx, data));
-    recalc();
-  }
-
-  function removeItem(idx){
-    const tr = itemsBody.querySelector(`tr[data-idx="${idx}"]`);
-    if(tr){
-      tr.remove();
-      [...itemsBody.children].forEach((row,i)=>{
-        row.dataset.idx = i;
-        row.querySelectorAll('[name]').forEach(el=>{
-          el.name = el.name.replace(/\[\d+]/, '['+i+']');
-        });
-      });
-      recalc();
-    }
-  }
-
-  window.removeItem = removeItem;
-  window.onProductChange = function(idx,pid){
-    const p = (PRODUCTOS||[]).find(x=>String(x.id)===String(pid));
-    const tr = itemsBody.querySelector(`tr[data-idx="${idx}"]`);
-    if(p && tr){
-      tr.querySelector(`[name="conceptos[${idx}][descripcion]"]`).value      = p.descripcion || '';
-      tr.querySelector(`[name="conceptos[${idx}][precio_unitario]"]`).value  = p.precio_unitario ?? 0;
-      tr.querySelector(`[name="conceptos[${idx}][iva_tasa]"]`).value         = p.iva_tasa ?? 0.16;
-      recalc();
-    }
-  };
-
-  // +/- cantidad
-  itemsBody.addEventListener('click', function(ev){
-    const btn = ev.target.closest('.qty-control button');
-    if(!btn) return;
-    const step = parseFloat(btn.dataset.step || '0');
-    const input = btn.parentElement.querySelector('input[type="number"]');
-    if(!input) return;
-    let v = parseFloat(input.value || '0');
-    if(isNaN(v)) v = 0;
-    v += step;
-    if(v < 0.0001) v = 0.0001;
-    input.value = v.toFixed(4).replace(/\.?0+$/,'');
-    recalc();
-  });
-
-  itemsBody.addEventListener('input', function(ev){
-    if(ev.target.matches('input[type="number"]')) recalc();
-  });
-
-  btnAdd?.addEventListener('click',()=>addItem({cantidad:1,precio_unitario:0,iva_tasa:0.16}));
-  addItem({cantidad:1,precio_unitario:0,iva_tasa:0.16});
-
-  // Chips de complementos
-  document.getElementById('complementsGrid')?.addEventListener('click',function(e){
-    const pill = e.target.closest('.comp-pill');
-    if(!pill || pill.classList.contains('disabled')) return;
-    const chk = pill.querySelector('input[type="checkbox"]');
-    if(!chk) return;
-    chk.checked = !chk.checked;
-    pill.classList.toggle('active', chk.checked);
-  });
 </script>
+<script src="{{ asset('assets/client/js/pages/facturacion-nuevo.js') }}?v={{ time() }}"></script>
 @endpush

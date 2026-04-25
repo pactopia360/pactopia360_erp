@@ -70,11 +70,23 @@ class AppServiceProvider extends ServiceProvider
          * - $accountFeatures
          */
         View::composer(['cliente.*', 'layouts.cliente'], function ($view) {
+            $user = Auth::guard('web')->user();
+
+            $planRaw = strtolower((string) (
+                $user->plan
+                ?? $user->tipo_plan
+                ?? $user->tipo_cuenta
+                ?? $user->plan_actual
+                ?? 'free'
+            ));
+
+            $isPro = in_array($planRaw, ['pro', 'premium', 'empresa', 'business', 'business_pro'], true);
+
             $summary = [
-                'plan'       => 'free',
-                'plan_raw'   => 'free',
-                'plan_norm'  => 'free',
-                'is_pro'     => false,
+                'plan'       => $isPro ? 'PRO' : strtoupper($planRaw ?: 'FREE'),
+                'plan_raw'   => $planRaw ?: 'free',
+                'plan_norm'  => $isPro ? 'pro' : ($planRaw ?: 'free'),
+                'is_pro'     => $isPro,
                 'cycle'      => null,
                 'estado'     => 'activa',
                 'blocked'    => false,
@@ -83,83 +95,31 @@ class AppServiceProvider extends ServiceProvider
                 'amount_mxn' => 0,
             ];
 
-            $plan = 'FREE';
-            $planKey = 'free';
-            $isPro = false;
-
-            try {
-                /**
-                 * Solo intentar resolver summary si hay usuario autenticado del portal cliente.
-                 * El proyecto ya usa guard web en cliente/Home y Facturación.
-                 */
-                $user = Auth::guard('web')->user();
-
-                if ($user) {
-                    /** @var \App\Http\Controllers\Cliente\HomeController $home */
-                    $home = app(HomeController::class);
-
-                    if (method_exists($home, 'buildAccountSummary')) {
-                        $resolved = $home->buildAccountSummary();
-
-                        if (is_array($resolved) && !empty($resolved)) {
-                            $summary = array_merge($summary, $resolved);
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                // No romper vistas cliente si algo falla al resolver el resumen.
-                report($e);
-            }
-
-            $summaryPlanNorm = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? 'free'));
-
-            $isPro = array_key_exists('is_pro', $summary)
-                ? (bool) $summary['is_pro']
-                : in_array($summaryPlanNorm, ['pro', 'premium', 'empresa', 'business'], true);
-
-            if ($isPro) {
-                $plan = 'PRO';
-                $planKey = 'pro';
-            } else {
-                $plan = strtoupper((string) ($summary['plan'] ?? 'FREE'));
-                $plan = $plan !== '' ? $plan : 'FREE';
-                $planKey = strtolower((string) ($summary['plan_norm'] ?? $summary['plan'] ?? 'free'));
-            }
-
-            /**
-             * Feature flags globales para TODO el portal cliente.
-             * Regla de negocio:
-             * - Todo lo masivo solo PRO
-             * - Nómina masiva solo PRO
-             * - Excel / plantillas / lotes solo PRO
-             */
             $accountFeatures = [
-                'is_pro'            => $isPro,
-                'blocked'           => (bool) ($summary['blocked'] ?? false),
+                'is_pro'             => $isPro,
+                'blocked'            => false,
 
-                // base
-                'cfdi_manual'       => true,
-                'cfdi_emitidos'     => true,
-                'cfdi_descargas'    => true,
-                'cfdi_cancelacion'  => true,
-                'catalogos'         => true,
+                'cfdi_manual'        => true,
+                'cfdi_emitidos'      => true,
+                'cfdi_descargas'     => true,
+                'cfdi_cancelacion'   => true,
+                'catalogos'          => true,
 
-                // pro only
-                'cfdi_masivo'       => $isPro,
-                'excel_templates'   => $isPro,
-                'batch_processing'  => $isPro,
-                'nomina_masiva'     => $isPro,
-                'cfdi_nomina_pro'   => $isPro,
-                'rep_masivo'        => $isPro,
-                'carta_porte_masiva'=> $isPro,
-                'api_integrations'  => $isPro,
-                'automation_rules'  => $isPro,
+                'cfdi_masivo'        => $isPro,
+                'excel_templates'    => $isPro,
+                'batch_processing'   => $isPro,
+                'nomina_masiva'      => $isPro,
+                'cfdi_nomina_pro'    => $isPro,
+                'rep_masivo'         => $isPro,
+                'carta_porte_masiva' => $isPro,
+                'api_integrations'   => $isPro,
+                'automation_rules'   => $isPro,
             ];
 
             $view->with([
                 'summary'         => $summary,
-                'plan'            => $plan,
-                'planKey'         => $planKey,
+                'plan'            => $isPro ? 'PRO' : strtoupper($planRaw ?: 'FREE'),
+                'planKey'         => $isPro ? 'pro' : ($planRaw ?: 'free'),
                 'isPro'           => $isPro,
                 'accountFeatures' => $accountFeatures,
             ]);
